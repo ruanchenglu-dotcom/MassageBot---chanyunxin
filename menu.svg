@@ -1,0 +1,36 @@
+<svg width="2500" height="1686" xmlns="http://www.w3.org/2000/svg">
+  <rect width="2500" height="1686" fill="#1A4D2E"/>
+  
+  <line x1="1250" y1="50" x2="1250" y2="1636" stroke="#D4AF37" stroke-width="5"/>
+  <line x1="50" y1="843" x2="2450" y2="843" stroke="#D4AF37" stroke-width="5"/>
+  
+  <rect x="20" y="20" width="2460" height="1646" fill="none" stroke="#D4AF37" stroke-width="10"/>
+
+  <g transform="translate(625, 421)">
+    <rect x="-60" y="-80" width="120" height="100" fill="none" stroke="#D4AF37" stroke-width="8" rx="10"/>
+    <line x1="-60" y1="-50" x2="60" y2="-50" stroke="#D4AF37" stroke-width="6"/>
+    <text x="0" y="80" font-family="Microsoft JhengHei, sans-serif" font-size="80" fill="#D4AF37" text-anchor="middle" font-weight="bold">📅 立即預約</text>
+    <text x="0" y="140" font-family="Arial, sans-serif" font-size="40" fill="#A8C6A0" text-anchor="middle">BOOK NOW</text>
+  </g>
+
+  <g transform="translate(1875, 421)">
+    <circle cx="0" cy="-40" r="50" fill="none" stroke="#D4AF37" stroke-width="8"/>
+    <line x1="35" y1="-5" x2="65" y2="25" stroke="#D4AF37" stroke-width="8"/>
+    <text x="0" y="80" font-family="Microsoft JhengHei, sans-serif" font-size="80" fill="#D4AF37" text-anchor="middle" font-weight="bold">🔍 我的預約</text>
+    <text x="0" y="140" font-family="Arial, sans-serif" font-size="40" fill="#A8C6A0" text-anchor="middle">CHECK / CANCEL</text>
+  </g>
+
+  <g transform="translate(625, 1264)">
+    <rect x="-50" y="-70" width="100" height="120" fill="none" stroke="#D4AF37" stroke-width="8"/>
+    <line x1="-30" y1="-40" x2="30" y2="-40" stroke="#D4AF37" stroke-width="6"/>
+    <line x1="-30" y1="0" x2="30" y2="0" stroke="#D4AF37" stroke-width="6"/>
+    <text x="0" y="100" font-family="Microsoft JhengHei, sans-serif" font-size="80" fill="#D4AF37" text-anchor="middle" font-weight="bold">💲 服務價目</text>
+    <text x="0" y="160" font-family="Arial, sans-serif" font-size="40" fill="#A8C6A0" text-anchor="middle">MENU & PRICE</text>
+  </g>
+
+  <g transform="translate(1875, 1264)">
+    <path d="M-40 -40 Q-60 -20 -40 20 L-20 40 Q20 60 40 40 L50 30 Q60 10 40 -10 L20 -20 Q0 -30 -10 -10 L-20 -20 Q-30 -40 -10 -50 Z" fill="none" stroke="#D4AF37" stroke-width="8"/>
+    <text x="0" y="100" font-family="Microsoft JhengHei, sans-serif" font-size="80" fill="#D4AF37" text-anchor="middle" font-weight="bold">📞 聯絡我們</text>
+    <text x="0" y="160" font-family="Arial, sans-serif" font-size="40" fill="#A8C6A0" text-anchor="middle">CONTACT US</text>
+  </g>
+</svg>
