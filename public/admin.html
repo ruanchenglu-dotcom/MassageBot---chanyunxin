@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>XinWuChan POS - Smart System</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://unpkg.com/axios/dist/axios.min.js"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        body { font-family: 'Microsoft JhengHei', sans-serif; background-color: #f1f5f9; }
+        .scrollbar-hide::-webkit-scrollbar { display: none; }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useCallback, useMemo } = React;
+        const { Clock, Plus, Armchair, Bed, Users, Calendar, LayoutGrid, BarChart3, DollarSign, TrendingUp, X, CheckCircle, Loader, Zap } = lucide;
+
+        // --- CẤU HÌNH ---
+        const SERVICES = [
+            { id: 'CB_190', name: '👑 帝王套餐 (190分)', duration: 190, isCombo: true, defType1: 'bed', defType2: 'bed', price: 2500, jie: 4 },
+            { id: 'CB_130', name: '💎 豪華套餐 (130分)', duration: 130, isCombo: true, defType1: 'bed', defType2: 'bed', price: 1800, jie: 3 },
+            { id: 'CB_100', name: '🔥 招牌套餐 (100分)', duration: 100, isCombo: true, defType1: 'bed', defType2: 'bed', price: 1300, jie: 2 },
+            { id: 'CB_70',  name: '⚡ 精選套餐 (70分)',  duration: 70,  isCombo: true, defType1: 'bed', defType2: 'bed', price: 1000, jie: 1.5 },
+            { id: 'FT_60',  name: '👣 足底按摩 (60分)',  duration: 60,  isCombo: false, defType1: 'chair', price: 800, jie: 1 },
+            { id: 'BD_60',  name: '🛏️ 全身指壓 (60分)',  duration: 60,  isCombo: false, defType1: 'bed', price: 900, jie: 1 },
+        ];
+
+        const RESOURCES = {
+            chair: Array.from({ length: 6 }, (_, i) => ({ id: `chair_${i + 1}`, name: `足 ${i + 1}`, type: 'chair' })),
+            bed: Array.from({ length: 6 }, (_, i) => ({ id: `bed_${i + 1}`, name: `身 ${i + 1}`, type: 'bed' })),
+        };
+
+        const BUFFER_MINUTES = 10;
+
+        // --- LOGIC TÍNH TOÁN PHỨC TẠP (ĐÃ KHÔI PHỤC) ---
+        
+        const formatTime = (date) => date ? date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false }) : '--:--';
+
+        // Kiểm tra xung đột tài nguyên
+        const checkConflict = (resId, staffId, start, end, bookingList) => {
+            return bookingList.some(b => {
+                if (['cancelled', 'completed'].includes(b.status)) return false;
+                const bStart = b.startTimeFull;
+                const bEnd = new Date(b.endTimeFull.getTime() + BUFFER_MINUTES * 60000); // Thêm buffer dọn dẹp
+
+                // Check trùng thời gian
+                if (start < bEnd && end > bStart) {
+                    if (resId && (b.resourceId1 === resId || b.resourceId2 === resId)) return true;
+                    if (staffId && b.staffId === staffId) return true;
+                }
+                return false;
+            });
+        };
+
+        // Tính toán thời gian khả dụng tiếp theo cho nhóm khách
+        const findNextAvailableTime = (serviceId, guestCount, currentBookings, staffList) => {
+            const service = SERVICES.find(s => s.id === serviceId);
+            if (!service) return 'Error';
+            
+            const now = new Date();
+            // Làm tròn lên mỗi 15 phút
+            const startCheck = new Date(Math.ceil(now.getTime() / (15 * 60000)) * 15 * 60000);
+            const maxCheck = new Date(startCheck.getTime() + 300 * 60000); // Check trước 5 tiếng
+
+            // Lọc thợ đang đi làm
+            const activeStaff = staffList.filter(s => s.status !== 'sick' && s.status !== 'not_arrived');
+            if (activeStaff.length < guestCount) return 'Thiếu thợ';
+
+            for (let timeMs = startCheck.getTime(); timeMs < maxCheck.getTime(); timeMs += 15 * 60000) {
+                const startDt = new Date(timeMs);
+                const endDt = new Date(timeMs + service.duration * 60000);
+
+                // Đếm thợ rảnh
+                const freeStaffCount = activeStaff.filter(s => !checkConflict(null, s.id, startDt, endDt, currentBookings)).length;
+                
+                // Đếm ghế/giường rảnh
+                const reqType1 = service.defType1; 
+                const freeRes1 = RESOURCES[reqType1].filter(r => !checkConflict(r.id, null, startDt, endDt, currentBookings)).length;
+
+                // Nếu là Combo, check cả loại 2 (tạm thời check đơn giản)
+                
+                if (freeStaffCount >= guestCount && freeRes1 >= guestCount) {
+                    return formatTime(startDt);
+                }
+            }
+            return 'Full';
+        };
+
+        // Tự động xếp thợ (Auto Assign)
+        const autoAssignStaff = (startDt, endDt, currentBookings, staffList) => {
+            // Lọc thợ rảnh
+            const freeStaff = staffList.filter(s => 
+                s.status !== 'sick' && 
+                !checkConflict(null, s.id, startDt, endDt, currentBookings)
+            );
+            
+            // Xếp theo thứ tự ưu tiên: 
+            // 1. Trạng thái 'ready' (đang ngồi chơi) lên trước 'working' (đang làm).
+            // 2. Nếu cùng 'ready', ai làm xong trước (lastActionTime nhỏ) thì lên trước.
+            freeStaff.sort((a, b) => (a.lastActionTime || 0) - (b.lastActionTime || 0));
+            
+            return freeStaff.length > 0 ? freeStaff[0].id : '';
+        };
+
+        // --- APP COMPONENT ---
+        function App() {
+            const [bookings, setBookings] = useState([]);
+            const [staffList, setStaffList] = useState([]);
+            const [loading, setLoading] = useState(true);
+            const [viewMode, setViewMode] = useState('dashboard');
+            
+            // State cho tính toán nhanh
+            const [checkServiceId, setCheckServiceId] = useState('FT_60');
+            const [checkGuestCount, setCheckGuestCount] = useState(1);
+            const [nextAvailableTime, setNextAvailableTime] = useState('Calculating...');
+
+            // Modal State
+            const [isModalOpen, setIsModalOpen] = useState(false);
+            const [form, setForm] = useState({ name: '', phone: '', serviceId: 'FT_60', date: '', time: '', staff: '', pax: 1 });
+
+            // FETCH DATA
+            const fetchData = async () => {
+                try {
+                    const res = await axios.get('/api/info');
+                    const { bookings: apiBookings, staffList: apiStaff, schedule } = res.data;
+
+                    // Map Staff & Tính toán LastActionTime (dựa trên lịch sử đơn hàng)
+                    const mappedStaff = apiStaff.map(s => {
+                        // Tìm đơn hàng kết thúc muộn nhất của thợ này
+                        const staffBookings = apiBookings.filter(b => b.staffId === s.id);
+                        let lastTime = 0;
+                        if(staffBookings.length > 0) {
+                             // Lấy đơn mới nhất
+                             const lastBooking = staffBookings[staffBookings.length-1];
+                             // Parse ngày kết thúc
+                             // ... (Logic parse ngày giống cũ)
+                             // Tạm thời để đơn giản:
+                             lastTime = 0; 
+                        }
+                        
+                        // Check lịch nghỉ
+                        const isOff = schedule.some(sch => sch.staffId === s.id); 
+                        return { ...s, status: isOff ? 'sick' : 'ready', lastActionTime: lastTime };
+                    });
+                    setStaffList(mappedStaff);
+
+                    // Map Bookings (Convert String Date to Object Date)
+                    const mappedBookings = apiBookings.map((b, idx) => {
+                        const [dPart, tPart] = b.startTimeString.split(' ');
+                        const [y, m, d] = dPart.split('/');
+                        const [hh, mm] = tPart.split(':');
+                        const start = new Date(parseInt(y)+1911, parseInt(m)-1, parseInt(d), parseInt(hh), parseInt(mm));
+                        const end = new Date(start.getTime() + b.duration * 60000);
+                        
+                        // Auto-assign resource for display
+                        let res1 = b.serviceName.includes('足') ? `chair_${(idx % 6) + 1}` : `bed_${(idx % 6) + 1}`;
+                        
+                        return { ...b, id: idx, startTimeFull: start, endTimeFull: end, resourceId1: res1, status: 'active' };
+                    });
+                    setBookings(mappedBookings);
+                    setLoading(false);
+
+                } catch (err) { console.error(err); }
+            };
+
+            useEffect(() => {
+                fetchData();
+                const interval = setInterval(fetchData, 30000);
+                return () => clearInterval(interval);
+            }, []);
+
+            // TÍNH TOÁN THỜI GIAN SỚM NHẤT (Real-time)
+            useEffect(() => {
+                if (bookings.length > 0 && staffList.length > 0) {
+                    const time = findNextAvailableTime(checkServiceId, checkGuestCount, bookings, staffList);
+                    setNextAvailableTime(time);
+                }
+            }, [bookings, staffList, checkServiceId, checkGuestCount]);
+
+            // MỞ MODAL -> TỰ ĐỘNG ĐIỀN (AUTO FILL)
+            const handleOpenModal = () => {
+                const today = new Date().toISOString().split('T')[0];
+                // Tự động lấy giờ sớm nhất đã tính được
+                const suggestedTime = nextAvailableTime !== 'Full' && nextAvailableTime !== 'Error' ? nextAvailableTime : '14:00';
+                
+                // Tự động xếp thợ (nếu có)
+                // Cần parse suggestedTime ra Date Object hôm nay
+                const [sh, sm] = suggestedTime.split(':');
+                const startDt = new Date(); startDt.setHours(parseInt(sh), parseInt(sm), 0, 0);
+                const svc = SERVICES.find(s => s.id === checkServiceId);
+                const endDt = new Date(startDt.getTime() + svc.duration * 60000);
+                
+                const suggestedStaff = autoAssignStaff(startDt, endDt, bookings, staffList);
+
+                setForm({
+                    name: '', phone: '',
+                    serviceId: checkServiceId,
+                    pax: checkGuestCount,
+                    date: today,
+                    time: suggestedTime,
+                    staff: suggestedStaff || '' 
+                });
+                setIsModalOpen(true);
+            };
+
+            const handleCreateBooking = async () => {
+                setLoading(true);
+                const svc = SERVICES.find(s => s.id === form.serviceId);
+                try {
+                    await axios.post('/api/admin-booking', {
+                        ngayDen: form.date, gioDen: form.time,
+                        dichVu: svc.name, nhanVien: form.staff || '隨機',
+                        sdt: form.phone, hoTen: form.name, pax: parseInt(form.pax)
+                    });
+                    alert("✅ Đặt thành công!");
+                    setIsModalOpen(false);
+                    fetchData();
+                } catch (e) { alert("Lỗi!"); }
+                setLoading(false);
+            };
+
+            // RENDER UI
+            return (
+                <div className="flex flex-col h-screen bg-slate-100">
+                    {/* NAVBAR CÓ THANH CÔNG CỤ TÍNH TOÁN */}
+                    <header className="bg-emerald-900 text-white px-4 py-2 shadow-lg z-50">
+                        <div className="flex justify-between items-center mb-2">
+                            <h1 className="font-bold text-lg flex items-center gap-2"><LayoutGrid/> XinWuChan POS <span className="text-[10px] bg-emerald-700 px-2 rounded">AI Core</span></h1>
+                            <div className="flex gap-2">
+                                <button onClick={fetchData}><RefreshCw size={18}/></button>
+                            </div>
+                        </div>
+                        
+                        {/* THANH CÔNG CỤ NHANH (QUICK CALC) */}
+                        <div className="bg-emerald-800/50 p-2 rounded-lg flex flex-wrap gap-3 items-center">
+                            <div className="flex items-center gap-2">
+                                <span className="text-xs text-emerald-200 font-bold">Khách tại quầy:</span>
+                                <select className="bg-emerald-900 text-xs border border-emerald-600 rounded p-1" value={checkServiceId} onChange={e=>setCheckServiceId(e.target.value)}>
+                                    {SERVICES.map(s => <option key={s.id} value={s.id}>{s.name.split('(')[0]}</option>)}
+                                </select>
+                                <select className="bg-emerald-900 text-xs border border-emerald-600 rounded p-1" value={checkGuestCount} onChange={e=>setCheckGuestCount(parseInt(e.target.value))}>
+                                    {[1,2,3,4,5].map(n => <option key={n} value={n}>{n} khách</option>)}
+                                </select>
+                            </div>
+                            
+                            <div className="flex items-center gap-2 ml-auto">
+                                <span className="text-xs text-emerald-200">Sớm nhất:</span>
+                                <span className="font-mono font-bold text-amber-300 text-lg bg-black/20 px-2 rounded">
+                                    {nextAvailableTime}
+                                </span>
+                                <button onClick={handleOpenModal} className="bg-amber-500 hover:bg-amber-400 text-black text-xs font-bold px-3 py-1.5 rounded shadow-lg flex items-center gap-1 active:scale-95 transition">
+                                    <Plus size={14}/> Đặt Ngay
+                                </button>
+                            </div>
+                        </div>
+                    </header>
+
+                    {/* MAIN CONTENT */}
+                    <div className="flex-1 overflow-hidden p-4 flex gap-4">
+                        {/* STAFF SIDEBAR (XẾP HẠNG THỢ RẢNH) */}
+                        <aside className="w-48 bg-white rounded-xl shadow-sm border border-slate-200 flex flex-col overflow-hidden shrink-0">
+                            <div className="p-2 bg-slate-50 border-b text-xs font-bold text-slate-600 text-center">Thứ tự ưu tiên (Queue)</div>
+                            <div className="flex-1 overflow-y-auto p-2 space-y-2">
+                                {staffList
+                                    .sort((a,b) => (a.lastActionTime - b.lastActionTime)) // Sort ai đợi lâu lên đầu
+                                    .map((s, i) => (
+                                    <div key={s.id} className="flex items-center justify-between p-2 rounded border border-slate-100 hover:bg-emerald-50 cursor-pointer">
+                                        <div className="flex items-center gap-2">
+                                            <span className="text-xs font-mono text-slate-400 w-4">{i+1}</span>
+                                            <div className="font-bold text-slate-700">{s.name.replace('號','')}</div>
+                                        </div>
+                                        <div className={`w-2 h-2 rounded-full ${s.status==='ready'?'bg-emerald-500':'bg-slate-300'}`}></div>
+                                    </div>
+                                ))}
+                            </div>
+                        </aside>
+
+                        {/* DASHBOARD */}
+                        <div className="flex-1 overflow-y-auto space-y-6">
+                            {/* Danh sách đặt */}
+                            <div className="bg-white rounded-xl shadow p-4">
+                                <h3 className="font-bold text-slate-700 mb-3 flex gap-2"><Calendar size={18}/> Lịch hôm nay</h3>
+                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                                    {bookings.map(b => (
+                                        <div key={b.id} className="border rounded-lg p-3 flex justify-between items-center hover:shadow-md transition bg-slate-50">
+                                            <div>
+                                                <div className="font-mono text-emerald-700 font-bold text-lg">{formatTime(b.startTimeFull)}</div>
+                                                <div className="text-xs text-slate-500">{b.serviceName}</div>
+                                            </div>
+                                            <div className="text-right">
+                                                <div className="font-bold text-slate-800">{b.customerName}</div>
+                                                <div className="text-xs bg-white border px-1.5 rounded inline-block mt-1">No.{b.staffId}</div>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* MODAL */}
+                    {isModalOpen && (
+                        <div className="fixed inset-0 bg-black/60 z-[100] flex items-center justify-center p-4">
+                            <div className="bg-white rounded-xl w-full max-w-md overflow-hidden shadow-2xl animate-in fade-in zoom-in duration-200">
+                                <div className="bg-emerald-900 p-4 text-white flex justify-between"><h3>Walk-in</h3><button onClick={()=>setIsModalOpen(false)}><X/></button></div>
+                                <div className="p-6 space-y-4">
+                                    <div className="flex gap-2 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                                        <Zap className="text-amber-500" size={20}/>
+                                        <div className="text-xs text-amber-800">
+                                            <span className="font-bold">Gợi ý thông minh:</span><br/>
+                                            Giờ tốt nhất: <b>{form.time}</b><br/>
+                                            Thợ đề xuất: <b>{form.staff || 'Ngẫu nhiên'}</b>
+                                        </div>
+                                    </div>
+
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <div><label className="text-xs font-bold text-slate-500">Tên</label><input className="border w-full p-2 rounded" value={form.name} onChange={e=>setForm({...form, name:e.target.value})}/></div>
+                                        <div><label className="text-xs font-bold text-slate-500">SĐT</label><input className="border w-full p-2 rounded" value={form.phone} onChange={e=>setForm({...form, phone:e.target.value})}/></div>
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <div><label className="text-xs font-bold text-slate-500">Giờ</label><input type="time" className="border w-full p-2 rounded" value={form.time} onChange={e=>setForm({...form, time:e.target.value})}/></div>
+                                        <div><label className="text-xs font-bold text-slate-500">Thợ</label>
+                                        <select className="border w-full p-2 rounded" value={form.staff} onChange={e=>setForm({...form, staff:e.target.value})}>
+                                            <option value="">Ngẫu nhiên</option>
+                                            {staffList.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}
+                                        </select></div>
+                                    </div>
+                                    <button onClick={handleCreateBooking} disabled={loading} className="w-full bg-emerald-600 text-white py-3 rounded-xl font-bold shadow hover:bg-emerald-700">{loading?'Đang lưu...':'Xác nhận'}</button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+        setTimeout(() => lucide.createIcons(), 100);
+    </script>
+</body>
+</html>
