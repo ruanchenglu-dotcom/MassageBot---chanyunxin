@@ -51,14 +51,10 @@ const SERVICES = {
     'SHOP_CLOSE': { name: '⛔ 店休 (Đóng cửa)', duration: 1440, type: 'NONE' }
 };
 
-// --- HELPERS ---
 function formatMinguoDate(dateInput) {
     if (!dateInput) return "";
     try {
-        let dateString = dateInput.toString().trim();
-        if (dateString.match(/^1\d{2}\/\d{2}\/\d{2}$/)) return dateString;
         let d = new Date(dateInput);
-        if (isNaN(d.getTime())) return "";
         const taipeiString = d.toLocaleString('en-US', { timeZone: 'Asia/Taipei' });
         d = new Date(taipeiString);
         const year = d.getFullYear() - 1911;
@@ -86,12 +82,10 @@ function parseMinguoToDate(minguoStr) {
         if (parts.length < 2) return null;
         const dateParts = parts[0].split('/');
         const timeParts = parts[1].split(':');
-        if (dateParts.length < 3 || timeParts.length < 2) return null;
         return new Date(parseInt(dateParts[0]) + 1911, parseInt(dateParts[1]) - 1, parseInt(dateParts[2]), parseInt(timeParts[0]), parseInt(timeParts[1]));
     } catch (e) { return null; }
 }
 
-// --- SYNC DATA (ĐỔI TÊN HÀM THÀNH syncBookingsFromSheet ĐỂ KHỚP) ---
 async function syncBookingsFromSheet() {
     try {
         const resBooking = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: `${BOOKING_SHEET}!A:H` });
@@ -312,19 +306,25 @@ function createStaffBubbles() {
     return bubbles;
 }
 
+// ==============================================================================
+// SERVER SETUP
+// ==============================================================================
 const client = new line.Client(config);
 const app = express();
 
-app.use(cors());
-app.use(express.json());
-app.use(express.static(path.join(__dirname, 'public')));
+// QUAN TRỌNG: CẤU HÌNH ROUTE THEO THỨ TỰ ĐỂ TRÁNH XUNG ĐỘT
 
-// 1. Đặt route Webhook lên đầu
+// 1. LINE WEBHOOK (Phải đặt trên cùng, không dùng express.json)
 app.post('/callback', line.middleware(config), (req, res) => {
   Promise.all(req.body.events.map(handleEvent)).then((r) => res.json(r)).catch((e) => { console.error(e); res.status(500).end(); });
 });
 
-// 2. Sau đó mới đến các API khác
+// 2. MIDDLEWARE CHO WEB APP (Dùng express.json cho các route API bên dưới)
+app.use(cors());
+app.use(express.json());
+app.use(express.static(path.join(__dirname, 'public')));
+
+// 3. API ENDPOINTS
 app.get('/api/info', async (req, res) => {
     await syncBookingsFromSheet();
     res.json({ staffList: STAFF_LIST, bookings: cachedBookings, schedule: cachedSchedule, resources: { chairs: MAX_CHAIRS, beds: MAX_BEDS } });
@@ -420,5 +420,5 @@ async function handleEvent(event) {
 syncBookingsFromSheet();
 const port = process.env.PORT || 3000;
 app.listen(port, () => {
-    console.log(`Bot v35.1 (FIXED 401 ORDER) running on ${port}`);
+    console.log(`Bot v36.0 (FIXED MIDDLEWARE ORDER) running on ${port}`);
 });
