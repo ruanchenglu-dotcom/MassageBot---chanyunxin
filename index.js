@@ -428,6 +428,36 @@ async function handleEvent(event) {
 
 syncData();
 const port = process.env.PORT || 3000;
+
+// 1. Đường dẫn test để xem Server sống hay chết
+app.get('/', (req, res) => {
+    res.send('Server đang chạy ngon! Nếu bạn thấy dòng này thì lỗi nằm ở LINE Config.');
+});
+
+// 2. Bộ bắt lỗi toàn cục (Bắt lỗi 500 im lặng)
+app.use((err, req, res, next) => {
+    if (err instanceof line.SignatureValidationFailed) {
+        console.error("🚨 LỖI NGHIÊM TRỌNG: Sai 'Channel Secret'! Vui lòng kiểm tra lại.");
+        res.status(500).send("SignatureValidationFailed");
+    } else if (err instanceof line.JSONParseError) {
+        console.error("🚨 LỖI JSON: Dữ liệu gửi đến không đọc được.");
+        res.status(500).send("JSONParseError");
+    } else {
+        console.error("🚨 LỖI KHÁC:", err.message);
+        console.error(err); // In chi tiết lỗi ra
+        res.status(500).send(err.message);
+    }
+});
+
+// ------------------------------------------
+
+// CHẠY SYNC
+syncBookingsFromSheet();
+const port = process.env.PORT || 3000;
+app.listen(port, () => {
+    console.log(`Bot vDEBUG running on ${port}`);
+});
+
 app.listen(port, () => {
     console.log(`Bot v34.0 (FULL WITH API + FIXED) running on ${port}`);
 });
