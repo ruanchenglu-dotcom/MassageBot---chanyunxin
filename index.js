@@ -9,7 +9,7 @@ const path = require('path');
 // ==============================================================================
 const config = {
   channelAccessToken: 'YkSEuh1sMTfZAWLcse8o6kqasIi7kAmWjFaML3paJlAG++WjX7XD8W3VJVRHDm7c8s6CMKKs6iBKqvhaJ967hPPPayZ8DxY2y/4cCnTGVjSDIxu/bdwCgTsOYhbuskcEtYQxr1jT3hF7wGj7U3r/FQdB04t89/1O/w1cDnyilFU=', 
-  channelSecret: 'c1146c055e03a4433886451b40920738'
+  channelSecret: '2c1111a804ab8e59b1495ba6f742826f'
 };
 const ID_BA_CHU = 'Ue576894a512399dd4256ed6f0063c6d3'; 
 const SHEET_ID = '1kSQb7DJqXGNQsd8nJaMt7P-bTs59dkMJmt-TeY8kTAQ'; 
