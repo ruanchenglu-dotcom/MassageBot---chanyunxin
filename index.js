@@ -91,8 +91,8 @@ function parseMinguoToDate(minguoStr) {
     } catch (e) { return null; }
 }
 
-// --- SYNC DATA ---
-async function syncData() {
+// --- SYNC DATA (ĐỔI TÊN HÀM THÀNH syncBookingsFromSheet ĐỂ KHỚP) ---
+async function syncBookingsFromSheet() {
     try {
         const resBooking = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: `${BOOKING_SHEET}!A:H` });
         const rowsBooking = resBooking.data.values;
@@ -124,9 +124,9 @@ async function syncData() {
             const tempStaffList = [];
             const headerDates = rows[0]; 
             for (let i = 1; i < rows.length; i++) {
-                const staffNameRaw = rows[i][0];
-                if (staffNameRaw && staffNameRaw.trim() !== '') {
-                    const cleanName = staffNameRaw.trim();
+                const staffName = rows[i][0];
+                if (staffName && staffName.trim() !== '') {
+                    const cleanName = staffName.trim();
                     tempStaffList.push({ id: cleanName, name: cleanName });
                     for (let j = 1; j < rows[i].length; j++) {
                         const status = rows[i][j];
@@ -157,7 +157,7 @@ async function ghiVaoSheet(data) {
             spreadsheetId: SHEET_ID, range: `${BOOKING_SHEET}!A:G`, valueInputOption: 'USER_ENTERED',
             requestBody: { values: [[ timeCreate, appointmentTime, serviceWithPax, data.nhanVien, data.userId, contactInfo, data.trangThai || '已預約' ]] }
         });
-        await syncData();
+        await syncBookingsFromSheet();
     } catch (e) { console.error('Lỗi ghi:', e); }
 }
 
@@ -167,7 +167,7 @@ async function updateBookingStatus(rowId, newStatus) {
             spreadsheetId: SHEET_ID, range: `${BOOKING_SHEET}!G${rowId}`, valueInputOption: 'USER_ENTERED',
             requestBody: { values: [[ newStatus ]] }
         });
-        await syncData();
+        await syncBookingsFromSheet();
     } catch (e) { console.error('Update Error:', e); }
 }
 
@@ -196,7 +196,6 @@ function checkAvailability(dateStr, timeStr, serviceDuration, serviceType, speci
     const startRequest = parseMinguoToDate(`${minguoDate} ${timeStr}`);
     if (!startRequest) return false;
     const endRequest = new Date(startRequest.getTime() + serviceDuration * 60000);
-
     let offStaffCount = 0;
     let isSpecificStaffOff = false;
     const staffOffToday = cachedSchedule.filter(s => s.date === minguoDate);
@@ -320,18 +319,14 @@ app.use(cors());
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
-// =========================================================
-// ĐOẠN NÀY ĐỂ FIX LỖI 401
-// =========================================================
-
-// 1. Đặt route Webhook lên đầu, sử dụng Middleware của LINE (Nó tự parse body)
+// 1. Đặt route Webhook lên đầu
 app.post('/callback', line.middleware(config), (req, res) => {
   Promise.all(req.body.events.map(handleEvent)).then((r) => res.json(r)).catch((e) => { console.error(e); res.status(500).end(); });
 });
 
 // 2. Sau đó mới đến các API khác
 app.get('/api/info', async (req, res) => {
-    await syncData();
+    await syncBookingsFromSheet();
     res.json({ staffList: STAFF_LIST, bookings: cachedBookings, schedule: cachedSchedule, resources: { chairs: MAX_CHAIRS, beds: MAX_BEDS } });
 });
 
@@ -382,7 +377,7 @@ async function handleEvent(event) {
   if (text.startsWith('StaffOp:')) { const staffId = text.split(':')[1]; const currentState = userState[userId]; if (!currentState || currentState.step !== 'ADMIN_PICK_STAFF') return Promise.resolve(null); const now = new Date(); const taipeiNowStr = now.toLocaleString('en-US', { timeZone: 'Asia/Taipei', hour12: false }); const todayISO = new Date(taipeiNowStr).toISOString().split('T')[0]; const currentTimeStr = taipeiNowStr.split(', ')[1].substring(0, 5); let logType = ''; let logNote = ''; if (currentState.action === 'SetOff') { logType = '請假 (Nghỉ)'; logNote = '全天 (Cả ngày)'; await ghiVaoSheet({ gioDen: '08:00', ngayDen: todayISO, dichVu: SERVICES['OFF_DAY'].name, nhanVien: staffId, userId: 'ADMIN', sdt: 'ADMIN', hoTen: '請假', trangThai: '⛔ 已鎖定' }); } else if (currentState.action === 'SetBreak') { logType = '用餐 (Ăn)'; logNote = '30分鐘'; await ghiVaoSheet({ gioDen: currentTimeStr, ngayDen: todayISO, dichVu: SERVICES['BREAK_30'].name, nhanVien: staffId, userId: 'ADMIN', sdt: 'ADMIN', hoTen: '用餐', trangThai: '🍱 用餐中' }); } else if (currentState.action === 'SetLeaveEarly') { logType = '早退/病假'; let effectiveHour = new Date(taipeiNowStr).getHours(); if (effectiveHour < 8) effectiveHour += 24; const currentTotalMins = effectiveHour * 60 + new Date(taipeiNowStr).getMinutes(); let duration = (26 * 60) - currentTotalMins; if (duration < 0) duration = 0; logNote = `早退 (${duration}分)`; await ghiVaoSheet({ gioDen: currentTimeStr, ngayDen: todayISO, dichVu: `⛔ 早退 (${duration}m)`, nhanVien: staffId, userId: 'ADMIN', sdt: 'ADMIN', hoTen: 'Admin Set', trangThai: '⚠️ 早退' }); } await ghiChamCong({ staffId: staffId, type: logType, note: logNote, date: todayISO }); delete userState[userId]; return client.replyMessage(event.replyToken, { type: 'text', text: `✅ 已登記: ${staffId} - ${logType}\n(${logNote})` }); }
 
   if (text.includes('預約') || text.toLowerCase().includes('đặt lịch') || text.includes('menu') || text.toLowerCase() === 'menu') {
-      delete userState[userId]; syncData();
+      delete userState[userId]; syncBookingsFromSheet();
       return client.replyMessage(event.replyToken, { type: 'flex', altText: 'Menu', contents: { "type": "bubble", "body": { "type": "box", "layout": "vertical", "contents": [ { "type": "text", "text": "✨ 歡迎光臨 ✨", "weight": "bold", "size": "xl", "align": "center", "color": "#1DB446" }, { "type": "separator", "margin": "md" }, { "type": "button", "style": "primary", "margin": "md", "action": { "type": "message", "label": "📅 立即預約", "text": "Action:Booking" } }, { "type": "button", "style": "secondary", "margin": "sm", "action": { "type": "message", "label": "🔍 我的預約 / 改期", "text": "Action:MyBooking" } } ] } } });
   }
   if (text === 'Action:Booking') {
