@@ -3,20 +3,18 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>XinWuChan POS - Ultimate System</title>
+    <title>XinWuChan POS - Management System</title>
     
     <script src="https://cdn.tailwindcss.com"></script>
     <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.development.js"></script>
     <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.development.js"></script>
-    <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
-    <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/axios/1.6.7/axios.min.js"></script>
-
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://unpkg.com/axios/dist/axios.min.js"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    
     <style>
         body { font-family: 'Microsoft JhengHei', sans-serif; background-color: #f1f5f9; }
         .scrollbar-hide::-webkit-scrollbar { display: none; }
-        .card-hover:hover { transform: translateY(-2px); box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); }
-        .fade-in { animation: fadeIn 0.5s; }
-        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
     </style>
 </head>
 <body>
@@ -24,9 +22,8 @@
 
     <script type="text/babel">
         const { useState, useEffect, useMemo } = React;
-
-        // --- 1. BỘ ICON "CHỐNG LỖI" (SVG TRỰC TIẾP) ---
-        // Dùng cách này để không bao giờ bị lỗi "Element type is invalid"
+        
+        // ICON SVG
         const Icon = ({ path, color="currentColor", size=20, className="" }) => (
             <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>{path}</svg>
         );
@@ -39,21 +36,30 @@
             Plus: <><path d="M5 12h14"/><path d="M12 5v14"/></>,
             Chair: <><path d="M19 9V6a2 2 0 0 0-2-2H7a2 2 0 0 0-2 2v3"/><path d="M3 16a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-5a2 2 0 0 0-4 0v2H7v-2a2 2 0 0 0-4 0Z"/><path d="M5 18v2"/><path d="M19 18v2"/></>,
             Bed: <><path d="M2 4v16"/><path d="M2 8h18a2 2 0 0 1 2 2v10"/><path d="M2 17h20"/><path d="M6 8v9"/></>,
-            Clock: <><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></>,
             Dollar: <><line x1="12" x2="12" y1="2" y2="22"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></>,
             Close: <><path d="M18 6 6 18"/><path d="m6 6 12 12"/></>,
             Refresh: <><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></>,
-            TrendingUp: <><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></>
+            TrendingUp: <><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></>,
+            Check: <><polyline points="20 6 9 17 4 12"/></>,
+            X: <><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></>,
+            Coffee: <><path d="M18 8h1a4 4 0 0 1 0 8h-1"/><path d="M2 8h16v9a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V8z"/><line x1="6" y1="1" x2="6" y2="4"/><line x1="10" y1="1" x2="10" y2="4"/><line x1="14" y1="1" x2="14" y2="4"/></>,
+            Home: <><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></>
         };
 
-        // --- CẤU HÌNH ---
+        // CẬP NHẬT GIÁ MỚI TRÊN WEB APP
         const SERVICES = [
-            { id: 'CB_190', name: '👑 帝王套餐 (190分)', price: 2500 },
-            { id: 'CB_130', name: '💎 豪華套餐 (130分)', price: 1800 },
-            { id: 'CB_100', name: '🔥 招牌套餐 (100分)', price: 1300 },
-            { id: 'FT_60',  name: '👣 足底按摩 (60分)',  price: 800 },
-            { id: 'BD_60',  name: '🛏️ 全身指壓 (60分)',  price: 900 },
-            { id: 'BD_90',  name: '🛏️ 全身指壓 (90分)',  price: 1300 },
+            { id: 'CB_190', name: '👑 帝王套餐 (190分)', price: 2000 },
+            { id: 'CB_130', name: '💎 豪華套餐 (130分)', price: 1500 },
+            { id: 'CB_100', name: '🔥 招牌套餐 (100分)', price: 999 },
+            { id: 'CB_70',  name: '⚡ 精選套餐 (70分)',  price: 900 },
+            { id: 'FT_120', name: '👣 足底按摩 (120分)', price: 1500 },
+            { id: 'FT_90',  name: '👣 足底按摩 (90分)',  price: 999 },
+            { id: 'FT_70',  name: '👣 足底按摩 (70分)',  price: 900 },
+            { id: 'FT_40',  name: '👣 足底按摩 (40分)',  price: 500 },
+            { id: 'BD_120', name: '🛏️ 全身指壓 (120分)', price: 1500 },
+            { id: 'BD_90',  name: '🛏️ 全身指壓 (90分)',  price: 999 },
+            { id: 'BD_70',  name: '🛏️ 全身指壓 (70分)',  price: 900 },
+            { id: 'BD_35',  name: '🛏️ 半身指壓 (35分)',  price: 500 },
         ];
 
         const RESOURCES = {
@@ -61,7 +67,6 @@
             bed: Array.from({ length: 6 }, (_, i) => ({ id: `bed_${i + 1}`, name: `身 ${i + 1}`, type: 'bed' })),
         };
 
-        // --- HELPERS ---
         const parseDate114 = (str) => {
             if (!str) return new Date();
             try {
@@ -74,13 +79,13 @@
 
         const formatTime = (date) => date ? date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false }) : '--:--';
 
-        // --- APP ---
         function App() {
             const [bookings, setBookings] = useState([]);
             const [staffList, setStaffList] = useState([]);
-            const [viewMode, setViewMode] = useState('dashboard'); // dashboard | report | timeline
             const [loading, setLoading] = useState(true);
+            const [viewMode, setViewMode] = useState('dashboard');
             const [isModalOpen, setIsModalOpen] = useState(false);
+            const [staffActionModal, setStaffActionModal] = useState(null);
             const [form, setForm] = useState({ name: '', phone: '', serviceId: 'FT_60', date: '', time: '14:00', staff: '', pax: 1 });
 
             const fetchData = async () => {
@@ -88,7 +93,6 @@
                     const res = await axios.get('/api/info');
                     const { bookings: apiBookings, staffList: apiStaff, schedule } = res.data;
                     
-                    // 1. Map Bookings
                     const now = new Date();
                     const mappedBookings = apiBookings.map((b, idx) => {
                         const start = parseDate114(b.startTimeString);
@@ -96,10 +100,7 @@
                         let resId = b.serviceName.includes('足') ? `chair_${(idx % 6) + 1}` : `bed_${(idx % 6) + 1}`;
                         
                         return {
-                            ...b,
-                            id: idx,
-                            startTimeFull: start,
-                            endTimeFull: end,
+                            ...b, id: idx, startTimeFull: start, endTimeFull: end,
                             status: (now >= start && now <= end) ? 'active' : 'scheduled',
                             price: SERVICES.find(s => b.serviceName.includes(s.name.split('(')[0]))?.price || 0,
                             resourceId: resId
@@ -107,41 +108,14 @@
                     });
                     setBookings(mappedBookings);
 
-                    // 2. Map Staff & TÍNH TOÁN TRẠNG THÁI (AI QUEUE)
                     const mappedStaff = apiStaff.map(s => {
                         const jobs = mappedBookings.filter(b => b.staffId === s.name || b.staffId === s.id);
                         const isBusy = jobs.some(b => b.status === 'active');
-                        
-                        // Tính thời gian hoàn thành công việc cuối cùng
-                        let lastJobTime = 0;
-                        if (jobs.length > 0) {
-                            const lastJob = jobs.sort((a,b) => b.endTimeFull - a.endTimeFull)[0];
-                            lastJobTime = lastJob.endTimeFull.getTime();
-                        }
-                        
-                        // Check xem có nghỉ phép trong Schedule không (Logic đơn giản)
                         const isOff = schedule.some(sch => sch.staffId === s.id);
-
-                        return { 
-                            ...s, 
-                            status: isOff ? 'off' : (isBusy ? 'working' : 'ready'),
-                            lastJobTime: lastJobTime
-                        };
+                        return { ...s, status: isOff ? 'off' : (isBusy ? 'working' : 'ready') };
                     });
-
-                    // Sắp xếp thợ: Ai rảnh + Đợi lâu -> Lên đầu
-                    mappedStaff.sort((a, b) => {
-                        if (a.status !== b.status) {
-                            // Thứ tự ưu tiên: Ready -> Working -> Off
-                            const priority = { 'ready': 1, 'working': 2, 'off': 3 };
-                            return priority[a.status] - priority[b.status];
-                        }
-                        return a.lastJobTime - b.lastJobTime;
-                    });
-
                     setStaffList(mappedStaff);
                     setLoading(false);
-
                 } catch (err) { console.error(err); }
             };
 
@@ -153,7 +127,7 @@
             }, []);
 
             const handleSubmit = async () => {
-                if(!form.name) return alert("Vui lòng nhập tên!");
+                if(!form.name) return alert("請輸入姓名 (Tên)!");
                 setLoading(true);
                 try {
                     const svc = SERVICES.find(s => s.id === form.serviceId);
@@ -162,44 +136,55 @@
                         dichVu: svc.name, nhanVien: form.staff || '隨機',
                         sdt: form.phone, hoTen: form.name, pax: parseInt(form.pax)
                     });
-                    alert("✅ Thành công!");
+                    alert("✅ 預約成功!");
                     setIsModalOpen(false);
                     fetchData();
-                } catch (e) { alert("Lỗi kết nối!"); }
+                } catch (e) { alert("Error!"); }
                 setLoading(false);
             };
 
-            // --- VIEW 1: DASHBOARD ---
+            const handleUpdateStatus = async (rowId, newStatus) => {
+                if(!confirm(`確認更改狀態為: ${newStatus}?`)) return;
+                setLoading(true);
+                try {
+                    await axios.post('/api/update-status', { rowId, status: newStatus });
+                    fetchData();
+                } catch(e) { alert("Error!"); }
+                setLoading(false);
+            };
+
+            const handleStaffAction = async (action, duration) => {
+                if(!staffActionModal) return;
+                setLoading(true);
+                try {
+                    await axios.post('/api/admin-staff-action', { staffId: staffActionModal.id, action, duration });
+                    setStaffActionModal(null);
+                    fetchData();
+                } catch(e) { alert("Error!"); }
+                setLoading(false);
+            };
+
             const DashboardView = () => (
-                <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 h-full overflow-hidden pb-20 fade-in">
-                    {/* STAFF COLUMN */}
+                <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 h-full overflow-hidden pb-20">
                     <div className="bg-white rounded-xl shadow border border-slate-200 flex flex-col overflow-hidden">
                         <div className="p-3 bg-emerald-50 border-b font-bold text-emerald-800 flex justify-between items-center">
-                            <div className="flex gap-2"><Icon path={ICONS.Users}/> 技師排序 (Queue)</div>
-                            <span className="bg-white text-xs px-2 rounded-full border">{staffList.filter(s=>s.status==='ready').length} Ready</span>
+                            <div className="flex gap-2"><Icon path={ICONS.Users}/> 技師列表 (Staff)</div>
+                            <span className="bg-white text-xs px-2 rounded-full border">{staffList.length}</span>
                         </div>
                         <div className="flex-1 overflow-y-auto p-2 space-y-2">
                             {staffList.map((s, i) => (
-                                <div key={s.id} className={`flex justify-between items-center p-3 rounded-lg border card-hover transition cursor-pointer ${s.status==='working'?'bg-rose-50 border-rose-200': s.status==='off'?'bg-gray-100 opacity-60':'bg-white border-slate-100'}`}>
+                                <div key={s.id} onClick={() => setStaffActionModal(s)} className={`flex justify-between items-center p-3 rounded-lg border card-hover transition cursor-pointer ${s.status==='working'?'bg-rose-50 border-rose-200': s.status==='off'?'bg-gray-100 opacity-60':'bg-white border-slate-100'}`}>
                                     <div className="flex items-center gap-3">
-                                        <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white ${s.status==='working'?'bg-rose-500': s.status==='off'?'bg-gray-400':'bg-emerald-500'}`}>
-                                            {i+1}
-                                        </div>
-                                        <div>
-                                            <div className="font-bold text-slate-700">{s.name}</div>
-                                            <div className="text-[10px] text-slate-400">{s.status==='working'?'Working...': s.status==='off'?'OFF':'Ready'}</div>
-                                        </div>
+                                        <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white ${s.status==='working'?'bg-rose-500': s.status==='off'?'bg-gray-400':'bg-emerald-500'}`}>{i+1}</div>
+                                        <div><div className="font-bold text-slate-700">{s.name}</div><div className="text-[10px] text-slate-400">{s.status==='working'?'忙碌中': s.status==='off'?'休假':'待命'}</div></div>
                                     </div>
-                                    {s.status==='working' && <div className="w-2 h-2 bg-rose-500 rounded-full animate-pulse"></div>}
                                 </div>
                             ))}
                         </div>
                     </div>
-
-                    {/* RESOURCES */}
                     <div className="lg:col-span-3 space-y-6 overflow-y-auto pr-2">
                         <div className="bg-white p-4 rounded-xl shadow border border-slate-200">
-                            <h3 className="font-bold text-slate-700 mb-3 flex gap-2"><Icon path={ICONS.Chair}/> 足底區 (Foot Area)</h3>
+                            <h3 className="font-bold text-slate-700 mb-3 flex gap-2"><Icon path={ICONS.Chair}/> 足底區 (Foot)</h3>
                             <div className="grid grid-cols-3 md:grid-cols-6 gap-3">
                                 {RESOURCES.chair.map(r => {
                                     const active = bookings.find(b => b.resourceId === r.id && b.status === 'active');
@@ -207,14 +192,14 @@
                                         <div key={r.id} className={`p-2 rounded-lg border-2 h-24 flex flex-col justify-between relative ${active?'bg-rose-50 border-rose-400':'bg-slate-50 border-slate-200'}`}>
                                             <div className="font-bold text-xs text-slate-500">{r.name}</div>
                                             {active ? <div className="text-xs font-bold text-rose-700 truncate mt-1">{active.customerName}</div> : <div className="self-center text-slate-300"><Icon path={ICONS.Chair} size={32}/></div>}
+                                            <div className={`text-[10px] text-center rounded ${active?'bg-rose-500 text-white':'text-slate-400'}`}>{active?'BUSY':'Free'}</div>
                                         </div>
                                     )
                                 })}
                             </div>
                         </div>
-
                         <div className="bg-white p-4 rounded-xl shadow border border-slate-200">
-                            <h3 className="font-bold text-slate-700 mb-3 flex gap-2"><Icon path={ICONS.Bed}/> 身體區 (Body Area)</h3>
+                            <h3 className="font-bold text-slate-700 mb-3 flex gap-2"><Icon path={ICONS.Bed}/> 身體區 (Body)</h3>
                             <div className="grid grid-cols-3 md:grid-cols-6 gap-3">
                                 {RESOURCES.bed.map(r => {
                                     const active = bookings.find(b => b.resourceId === r.id && b.status === 'active');
@@ -222,22 +207,25 @@
                                         <div key={r.id} className={`p-2 rounded-lg border-2 h-24 flex flex-col justify-between relative ${active?'bg-rose-50 border-rose-400':'bg-slate-50 border-slate-200'}`}>
                                             <div className="font-bold text-xs text-slate-500">{r.name}</div>
                                             {active ? <div className="text-xs font-bold text-rose-700 truncate mt-1">{active.customerName}</div> : <div className="self-center text-slate-300"><Icon path={ICONS.Bed} size={32}/></div>}
+                                            <div className={`text-[10px] text-center rounded ${active?'bg-rose-500 text-white':'text-slate-400'}`}>{active?'BUSY':'Free'}</div>
                                         </div>
                                     )
                                 })}
                             </div>
                         </div>
-
-                        {/* List */}
                         <div className="bg-white p-4 rounded-xl shadow border border-slate-200">
-                            <h3 className="font-bold text-slate-700 mb-2">📅 今日預約 (Booking List)</h3>
+                            <h3 className="font-bold text-slate-700 mb-2">📅 預約列表 (Bookings)</h3>
                             <div className="space-y-2">
                                 {bookings.map((b,i) => (
-                                    <div key={i} className="flex justify-between text-sm border-b pb-1">
+                                    <div key={i} className={`flex justify-between text-sm border-b pb-1 ${b.status.includes('已預約') ? '' : 'opacity-50 bg-gray-50'}`}>
                                         <span className="font-mono font-bold text-emerald-600">{formatTime(b.startTimeFull)}</span>
                                         <span className="font-bold">{b.customerName}</span>
-                                        <span className="text-slate-500">{b.serviceName}</span>
+                                        <span className="text-slate-500 text-xs">{b.serviceName}</span>
                                         <span className="bg-slate-100 px-2 rounded text-xs">{b.staffId}</span>
+                                        <div className="flex gap-1">
+                                            <button onClick={()=>handleUpdateStatus(b.rowId, '✅ 已完成')} className="p-1 bg-emerald-100 text-emerald-600 rounded"><Icon path={ICONS.Check} size={14}/></button>
+                                            <button onClick={()=>handleUpdateStatus(b.rowId, '❌ 已取消')} className="p-1 bg-rose-100 text-rose-600 rounded"><Icon path={ICONS.X} size={14}/></button>
+                                        </div>
                                     </div>
                                 ))}
                             </div>
@@ -246,150 +234,61 @@
                 </div>
             );
 
-            // --- VIEW 2: TIMELINE (Lịch ngang) ---
-            const TimelineView = () => {
-                const hours = Array.from({length: 16}, (_, i) => i + 9); 
-                return (
-                    <div className="bg-white rounded-xl shadow border border-slate-200 h-full flex flex-col overflow-hidden fade-in">
-                        <div className="p-3 border-b bg-slate-50 font-bold text-slate-700 flex gap-2"><Icon path={ICONS.Calendar}/> 時間軸 (Timeline)</div>
-                        <div className="flex-1 overflow-auto relative bg-white">
-                            <div className="flex min-w-[1200px] border-b sticky top-0 bg-white z-20 shadow-sm">
-                                <div className="w-20 shrink-0 border-r p-2 bg-slate-100 font-bold text-xs text-center">Resource</div>
-                                {hours.map(h => <div key={h} className="flex-1 border-r p-2 text-center text-xs text-slate-400 font-mono">{h}:00</div>)}
-                            </div>
-                            {[...RESOURCES.chair, ...RESOURCES.bed].map(res => (
-                                <div key={res.id} className="flex min-w-[1200px] border-b h-12 relative hover:bg-slate-50 group">
-                                    <div className="w-20 shrink-0 border-r p-2 text-xs font-bold bg-white sticky left-0 flex items-center justify-center z-10 shadow-sm group-hover:bg-slate-100">{res.name}</div>
-                                    <div className="flex-1 relative">
-                                        {hours.map((h, i) => <div key={h} className="absolute top-0 bottom-0 border-r border-slate-100" style={{left: `${(i / hours.length) * 100}%`}}></div>)}
-                                        {bookings.filter(b => b.resourceId === res.id).map(b => {
-                                            const startH = b.startTimeFull.getHours() + b.startTimeFull.getMinutes()/60;
-                                            const left = ((startH - 9) / 16) * 100;
-                                            const width = ((b.jie * 30) / 60 / 16) * 100; // Ước lượng độ dài
-                                            if (left < 0 || left > 100) return null;
-                                            return (
-                                                <div key={b.id} className={`absolute top-1 bottom-1 rounded text-white text-[10px] flex items-center px-1 overflow-hidden shadow-sm ${b.status==='active'?'bg-rose-500':'bg-emerald-500'}`}
-                                                     style={{left: `${left}%`, width: `${Math.max(width, 2)}%`}} title={b.customerName}>
-                                                    {b.customerName.split(' ')[0]}
-                                                </div>
-                                            )
-                                        })}
-                                    </div>
-                                </div>
-                            ))}
-                        </div>
-                    </div>
-                )
-            };
-
-            // --- VIEW 3: REPORT (Báo cáo) ---
             const ReportView = () => {
-                const totalRev = bookings.reduce((s,b)=>s+b.price, 0);
-                const totalJie = bookings.reduce((s,b)=>s+(b.jie||0), 0);
-                
-                // Thống kê dịch vụ
-                const serviceCount = {};
-                bookings.forEach(b => {
-                    const name = b.serviceName.split('(')[0];
-                    serviceCount[name] = (serviceCount[name] || 0) + 1;
-                });
-
+                const totalRev = bookings.reduce((s,b)=>s+(b.price||0), 0);
+                const totalGuests = bookings.length;
                 return (
                     <div className="max-w-5xl mx-auto p-6 space-y-6 bg-white rounded-xl shadow h-[80vh] overflow-y-auto fade-in">
                         <h2 className="text-2xl font-bold text-slate-800 mb-6 flex items-center gap-2"><Icon path={ICONS.Chart}/> 營業報表 (Report)</h2>
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                            <div className="bg-emerald-50 p-6 rounded-xl border border-emerald-200">
-                                <div className="text-emerald-600 font-bold flex gap-2"><Icon path={ICONS.Dollar}/> 總營收 (Revenue)</div>
-                                <div className="text-4xl font-black text-emerald-800 mt-2">${totalRev.toLocaleString()}</div>
-                            </div>
-                            <div className="bg-blue-50 p-6 rounded-xl border border-blue-200">
-                                <div className="text-blue-600 font-bold flex gap-2"><Icon path={ICONS.TrendingUp}/> 總節數 (Jie)</div>
-                                <div className="text-3xl font-black text-blue-800 mt-2">{totalJie}</div>
-                            </div>
-                            <div className="bg-purple-50 p-6 rounded-xl border border-purple-200">
-                                <div className="text-sm text-purple-600 font-bold flex gap-1"><Icon path={ICONS.Users}/> 總客數 (Guests)</div>
-                                <div className="text-3xl font-black text-purple-800 mt-1">{bookings.length}</div>
-                            </div>
-                        </div>
-
-                        {/* Biểu đồ Bar (CSS Only) */}
-                        <div className="border p-4 rounded-xl mt-4">
-                            <h3 className="font-bold mb-4">熱門項目 (Top Services)</h3>
-                            <div className="space-y-3">
-                                {Object.entries(serviceCount).map(([name, count]) => (
-                                    <div key={name}>
-                                        <div className="flex justify-between text-xs font-bold mb-1">
-                                            <span>{name}</span>
-                                            <span>{count}</span>
-                                        </div>
-                                        <div className="w-full bg-slate-100 rounded-full h-3">
-                                            <div className="bg-emerald-500 h-3 rounded-full" style={{width: `${(count/bookings.length)*100}%`}}></div>
-                                        </div>
-                                    </div>
-                                ))}
-                            </div>
+                            <div className="bg-emerald-50 p-6 rounded-xl border border-emerald-200"><div className="text-emerald-600 font-bold flex gap-2"><Icon path={ICONS.Dollar}/> 總營收</div><div className="text-4xl font-black text-emerald-800 mt-2">${totalRev.toLocaleString()}</div></div>
+                            <div className="bg-purple-50 p-6 rounded-xl border border-purple-200"><div className="text-sm text-purple-600 font-bold flex gap-1"><Icon path={ICONS.Users}/> 總客數</div><div className="text-3xl font-black text-purple-800 mt-2">{totalGuests}</div></div>
                         </div>
                     </div>
                 );
             };
 
-            // --- MAIN RENDER ---
             return (
                 <div className="flex flex-col h-screen">
-                    {/* Header */}
                     <header className="bg-slate-900 text-white p-3 shadow-md flex justify-between items-center sticky top-0 z-50">
                         <h1 className="font-bold text-lg flex gap-2 items-center text-emerald-400"><Icon path={ICONS.Grid}/> XinWuChan POS</h1>
                         <div className="flex gap-2 bg-slate-800 p-1 rounded-lg">
                             <button onClick={()=>setViewMode('dashboard')} className={`px-3 py-1.5 rounded text-sm font-bold flex gap-1 ${viewMode==='dashboard'?'bg-emerald-600 text-white':'text-slate-400 hover:text-white'}`}><Icon path={ICONS.Grid} size={16}/> 監控</button>
-                            <button onClick={()=>setViewMode('timeline')} className={`px-3 py-1.5 rounded text-sm font-bold flex gap-1 ${viewMode==='timeline'?'bg-emerald-600 text-white':'text-slate-400 hover:text-white'}`}><Icon path={ICONS.List} size={16}/> 時間表</button>
                             <button onClick={()=>setViewMode('report')} className={`px-3 py-1.5 rounded text-sm font-bold flex gap-1 ${viewMode==='report'?'bg-emerald-600 text-white':'text-slate-400 hover:text-white'}`}><Icon path={ICONS.Chart} size={16}/> 報表</button>
                         </div>
                         <button onClick={()=>setIsModalOpen(true)} className="bg-amber-500 text-black px-3 py-1.5 rounded font-bold flex gap-1 hover:bg-amber-400"><Icon path={ICONS.Plus} size={16}/> 新增</button>
                     </header>
 
-                    {/* Content */}
                     <main className="flex-1 p-4 overflow-hidden">
-                        {loading ? <div className="text-center p-10 font-bold text-slate-400">Loading Data...</div> : (
-                            <>
-                                {viewMode === 'dashboard' && <DashboardView />}
-                                {viewMode === 'timeline' && <TimelineView />}
-                                {viewMode === 'report' && <ReportView />}
-                            </>
-                        )}
+                        {loading ? <div className="text-center p-10 text-slate-500">載入中...</div> : (viewMode === 'dashboard' ? <DashboardView /> : <ReportView />)}
                     </main>
 
-                    {/* Modal */}
                     {isModalOpen && (
                         <div className="fixed inset-0 bg-black/70 z-[60] flex items-center justify-center p-4">
                             <div className="bg-white rounded-xl w-full max-w-md p-6 space-y-4 shadow-2xl">
-                                <div className="flex justify-between border-b pb-2">
-                                    <h3 className="font-bold text-lg">新增預約 (Walk-in)</h3>
-                                    <button onClick={()=>setIsModalOpen(false)}><Icon path={ICONS.Close}/></button>
+                                <div className="flex justify-between border-b pb-2"><h3 className="font-bold text-lg">現場預約</h3><button onClick={()=>setIsModalOpen(false)}><Icon path={ICONS.Close}/></button></div>
+                                <div className="grid grid-cols-2 gap-3"><input className="border p-2 rounded" placeholder="姓名" value={form.name} onChange={e=>setForm({...form, name:e.target.value})}/><input className="border p-2 rounded" placeholder="電話" value={form.phone} onChange={e=>setForm({...form, phone:e.target.value})}/></div>
+                                <select className="border w-full p-2 rounded" value={form.serviceId} onChange={e=>setForm({...form, serviceId:e.target.value})}>{SERVICES.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}</select>
+                                <div className="grid grid-cols-2 gap-3"><input type="time" className="border p-2 rounded" value={form.time} onChange={e=>setForm({...form, time:e.target.value})}/><select className="border p-2 rounded" value={form.staff} onChange={e=>setForm({...form, staff:e.target.value})}><option value="">隨機</option>{staffList.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}</select></div>
+                                <button onClick={handleSubmit} disabled={loading} className="w-full bg-emerald-600 text-white py-3 rounded-lg font-bold shadow hover:bg-emerald-700">{loading ? 'Saving...' : '確認'}</button>
+                            </div>
+                        </div>
+                    )}
+                    {staffActionModal && (
+                        <div className="fixed inset-0 bg-black/60 z-[100] flex items-center justify-center p-4">
+                            <div className="bg-white rounded-xl w-64 p-4 shadow-2xl text-center">
+                                <h3 className="font-bold text-lg mb-4">{staffActionModal.name}</h3>
+                                <div className="space-y-2">
+                                    <button onClick={() => handleStaffAction('break', 30)} className="w-full py-2 bg-blue-100 text-blue-700 rounded font-bold flex justify-center gap-2 items-center"><Icon path={ICONS.Coffee}/> 用餐 (30p)</button>
+                                    <button onClick={() => handleStaffAction('leave', 0)} className="w-full py-2 bg-amber-100 text-amber-700 rounded font-bold flex justify-center gap-2 items-center"><Icon path={ICONS.Home}/> 早退</button>
+                                    <button onClick={() => setStaffActionModal(null)} className="w-full py-2 border rounded text-slate-500 mt-2">Đóng</button>
                                 </div>
-                                <div className="grid grid-cols-2 gap-3">
-                                    <input className="border p-2 rounded" placeholder="姓名 (Name)" value={form.name} onChange={e=>setForm({...form, name:e.target.value})}/>
-                                    <input className="border p-2 rounded" placeholder="電話 (Phone)" value={form.phone} onChange={e=>setForm({...form, phone:e.target.value})}/>
-                                </div>
-                                <select className="border w-full p-2 rounded" value={form.serviceId} onChange={e=>setForm({...form, serviceId:e.target.value})}>
-                                    {SERVICES.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}
-                                </select>
-                                <div className="grid grid-cols-2 gap-3">
-                                    <input type="time" className="border p-2 rounded" value={form.time} onChange={e=>setForm({...form, time:e.target.value})}/>
-                                    <select className="border p-2 rounded" value={form.staff} onChange={e=>setForm({...form, staff:e.target.value})}>
-                                        <option value="">隨機 (Random)</option>
-                                        {staffList.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}
-                                    </select>
-                                </div>
-                                <button onClick={handleSubmit} disabled={loading} className="w-full bg-emerald-600 text-white py-3 rounded-lg font-bold shadow hover:bg-emerald-700">
-                                    {loading ? 'Saving...' : '確認 (Confirm)'}
-                                </button>
                             </div>
                         </div>
                     )}
                 </div>
             );
         }
-
         const root = ReactDOM.createRoot(document.getElementById('root'));
         root.render(<App />);
     </script>
