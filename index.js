@@ -1,11 +1,11 @@
 const express = require('express');
 const line = require('@line/bot-sdk');
 const { google } = require('googleapis');
-const path = require('path'); // Thêm thư viện đường dẫn
-const cors = require('cors'); // Cho phép Web App gọi vào
+const cors = require('cors'); 
+const path = require('path');
 
 // ==============================================================================
-// 1. CẤU HÌNH
+// 1. CẤU HÌNH (BẠN HÃY ĐIỀN LẠI CHÍNH XÁC 4 DÒNG NÀY)
 // ==============================================================================
 const config = {
   channelAccessToken: 'YkSEuh1sMTfZAWLcse8o6kqasIi7kAmWjFaML3paJlAG++WjX7XD8W3VJVRHDm7c8s6CMKKs6iBKqvhaJ967hPPPayZ8DxY2y/4cCnTGVjSDIxu/bdwCgTsOYhbuskcEtYQxr1jT3hF7wGj7U3r/FQdB04t89/1O/w1cDnyilFU=', 
@@ -27,6 +27,7 @@ const auth = new google.auth.GoogleAuth({
 });
 const sheets = google.sheets({ version: 'v4', auth });
 
+// BIẾN TOÀN CỤC
 let STAFF_LIST = []; 
 let cachedBookings = []; 
 let cachedSchedule = []; 
@@ -51,6 +52,7 @@ const SERVICES = {
     'SHOP_CLOSE': { name: '⛔ 店休 (Đóng cửa)', duration: 1440, type: 'NONE' }
 };
 
+// --- HELPERS ---
 function formatMinguoDate(dateInput) {
     if (!dateInput) return "";
     try {
@@ -90,20 +92,19 @@ function parseMinguoToDate(minguoStr) {
     } catch (e) { return null; }
 }
 
+// --- SYNC DATA ---
 async function syncData() {
     try {
         const resBooking = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: `${BOOKING_SHEET}!A:H` });
         const rowsBooking = resBooking.data.values;
         cachedBookings = [];
-        
         if (rowsBooking && rowsBooking.length > 0) {
             for (let i = 1; i < rowsBooking.length; i++) {
                 const row = rowsBooking[i];
-                const rowId = i + 1; 
                 if (!row[1] || row[1].includes('undefined')) continue;
-                
+                const rowId = i + 1;
                 let duration = 60; let type = 'BED'; let pax = 1;
-                let status = row[6] || '已預約'; 
+                const status = row[6] || '已預約';
                 if (status.includes('取消') || status.includes('Cancelled')) continue;
 
                 for (const key in SERVICES) {
@@ -112,18 +113,7 @@ async function syncData() {
                     }
                 }
                 if (row[2] && row[2].match(/\((\d+)人\)/)) pax = parseInt(row[2].match(/\((\d+)人\)/)[1]);
-                
-                cachedBookings.push({ 
-                    rowId: rowId,
-                    startTimeString: row[1], 
-                    duration: duration, 
-                    type: type, 
-                    staffId: row[3], 
-                    pax: pax, 
-                    customerName: row[5], 
-                    serviceName: row[2],
-                    status: status 
-                });
+                cachedBookings.push({ rowId: rowId, startTimeString: row[1], duration: duration, type: type, staffId: row[3], pax: pax, customerName: row[5], serviceName: row[2], status: status });
             }
         }
 
@@ -134,9 +124,9 @@ async function syncData() {
             const tempStaffList = [];
             const headerDates = rows[0]; 
             for (let i = 1; i < rows.length; i++) {
-                const staffName = rows[i][0];
-                if (staffName && staffName.trim() !== '') {
-                    const cleanName = staffName.trim();
+                const staffNameRaw = rows[i][0];
+                if (staffNameRaw && staffNameRaw.trim() !== '') {
+                    const cleanName = staffNameRaw.trim();
                     tempStaffList.push({ id: cleanName, name: cleanName });
                     for (let j = 1; j < rows[i].length; j++) {
                         const status = rows[i][j];
@@ -174,17 +164,11 @@ async function ghiVaoSheet(data) {
 async function updateBookingStatus(rowId, newStatus) {
     try {
         await sheets.spreadsheets.values.update({
-            spreadsheetId: SHEET_ID,
-            range: `${BOOKING_SHEET}!G${rowId}`, 
-            valueInputOption: 'USER_ENTERED',
+            spreadsheetId: SHEET_ID, range: `${BOOKING_SHEET}!G${rowId}`, valueInputOption: 'USER_ENTERED',
             requestBody: { values: [[ newStatus ]] }
         });
         await syncData();
-        return true;
-    } catch (e) { 
-        console.error('Update Error:', e); 
-        return false;
-    }
+    } catch (e) { console.error('Update Error:', e); }
 }
 
 async function ghiChamCong(staffData) {
@@ -326,7 +310,7 @@ app.use(cors());
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
-// --- API ENDPOINTS ---
+// API ENDPOINTS
 app.get('/api/info', async (req, res) => {
     await syncData();
     res.json({ staffList: STAFF_LIST, bookings: cachedBookings, schedule: cachedSchedule, resources: { chairs: MAX_CHAIRS, beds: MAX_BEDS } });
@@ -345,7 +329,13 @@ app.post('/api/admin-booking', async (req, res) => {
 app.post('/api/update-status', async (req, res) => {
     const { rowId, status } = req.body;
     if (!rowId) return res.status(400).json({ error: 'Missing rowId' });
-    await updateBookingStatus(rowId, status);
+    // Cập nhật Cột G (Cột 7) -> Nhưng vì trong Code hàm ghi là Cột G (index 6), cần check
+    // Hàm updateBookingStatus dùng Range G + rowId là chuẩn.
+    await sheets.spreadsheets.values.update({
+        spreadsheetId: SHEET_ID, range: `${BOOKING_SHEET}!G${rowId}`, valueInputOption: 'USER_ENTERED',
+        requestBody: { values: [[ status ]] }
+    });
+    await syncData();
     res.json({ success: true });
 });
 
@@ -355,17 +345,32 @@ app.post('/api/admin-staff-action', async (req, res) => {
     const taipeiNowStr = now.toLocaleString('en-US', { timeZone: 'Asia/Taipei', hour12: false });
     const todayISO = new Date(taipeiNowStr).toISOString().split('T')[0];
     const currentTimeStr = taipeiNowStr.split(', ')[1].substring(0, 5); 
-
     let serviceName = ''; let statusText = '';
     if (action === 'break') { serviceName = `🍱 用餐 (${duration}m)`; statusText = '🍱 用餐中'; } 
     else if (action === 'leave') { serviceName = `⛔ 早退 (${duration}m)`; statusText = '⚠️ 早退'; }
-
     await ghiVaoSheet({ gioDen: currentTimeStr, ngayDen: todayISO, dichVu: serviceName, nhanVien: staffId, userId: 'ADMIN_WEB', sdt: 'ADMIN', hoTen: 'Staff Action', trangThai: statusText, pax: 1 });
     res.json({ success: true });
 });
 
+// TEST ROUTE (Để Render health check)
+app.get('/', (req, res) => {
+    res.send('XinWuChan POS Server is Running!');
+});
+
 app.post('/callback', line.middleware(config), (req, res) => {
   Promise.all(req.body.events.map(handleEvent)).then((r) => res.json(r)).catch((e) => { console.error(e); res.status(500).end(); });
+});
+
+// BẮT LỖI
+app.use((err, req, res, next) => {
+    if (err instanceof line.SignatureValidationFailed) {
+        res.status(401).send(err.signature);
+        return;
+    } else if (err instanceof line.JSONParseError) {
+        res.status(400).send(err.raw);
+        return;
+    }
+    next(err);
 });
 
 async function handleEvent(event) {
@@ -377,30 +382,48 @@ async function handleEvent(event) {
       else text = event.postback.data;
   }
 
+  // ADMIN MENU
   if (text === 'Admin' || text === '管理') { 
       return client.replyMessage(event.replyToken, { type: 'flex', altText: 'Admin', contents: { "type": "bubble", "body": { "type": "box", "layout": "vertical", "contents": [ { "type": "text", "text": "🛠️ 師傅管理 (Admin)", "weight": "bold", "color": "#E63946", "size": "lg" }, { "type": "separator", "margin": "md" }, { "type": "button", "style": "primary", "color": "#000000", "margin": "md", "action": { "type": "message", "label": "⛔ 全店店休 (Đóng cửa)", "text": "Admin:CloseShop" } }, { "type": "separator", "margin": "md" }, { "type": "button", "style": "secondary", "margin": "sm", "action": { "type": "message", "label": "🛌 請假 (Nghỉ hôm nay)", "text": "Admin:SetOff" } }, { "type": "button", "style": "secondary", "margin": "sm", "action": { "type": "message", "label": "🤒 早退 (Về sớm)", "text": "Admin:SetLeaveEarly" } }, { "type": "button", "style": "secondary", "margin": "sm", "action": { "type": "message", "label": "🍱 用餐 (Ăn 30p)", "text": "Admin:SetBreak" } } ] } } });
   }
+  // ... (CÁC LOGIC ADMIN GIỮ NGUYÊN)
   if (text === 'Admin:CloseShop') { userState[userId] = { step: 'ADMIN_PICK_CLOSE_DATE' }; return client.replyMessage(event.replyToken, { type: 'template', altText: 'Chọn ngày', template: { type: 'buttons', text: '請選擇店休日期:', actions: [ { type: 'datetimepicker', label: '🗓️ 點擊選擇', data: 'ShopClosePicked', mode: 'date' } ] } }); }
   if (text.startsWith('DatePick:') && userState[userId] && userState[userId].step === 'ADMIN_PICK_CLOSE_DATE') { const pickedDate = text.split(':')[1]; await ghiVaoSheet({ gioDen: '08:00', ngayDen: pickedDate, dichVu: SERVICES['SHOP_CLOSE'].name, nhanVien: 'ALL_STAFF', userId: 'ADMIN', sdt: 'ADMIN', hoTen: '全店店休', trangThai: '⛔ 店休' }); delete userState[userId]; return client.replyMessage(event.replyToken, { type: 'text', text: `✅ 已設定 ${pickedDate} 全店店休。` }); }
   if (text.startsWith('Admin:')) { const action = text.split(':')[1]; userState[userId] = { step: 'ADMIN_PICK_STAFF', action: action }; const bubbles = createStaffBubbles().map(b => { const str = JSON.stringify(b).replace(/StaffSelect/g, 'StaffOp'); return JSON.parse(str); }); return client.replyMessage(event.replyToken, { type: 'flex', altText: 'Pick Staff', contents: { type: 'carousel', contents: bubbles } }); }
   if (text.startsWith('StaffOp:')) { const staffId = text.split(':')[1]; const currentState = userState[userId]; if (!currentState || currentState.step !== 'ADMIN_PICK_STAFF') return Promise.resolve(null); const now = new Date(); const taipeiNowStr = now.toLocaleString('en-US', { timeZone: 'Asia/Taipei', hour12: false }); const todayISO = new Date(taipeiNowStr).toISOString().split('T')[0]; const currentTimeStr = taipeiNowStr.split(', ')[1].substring(0, 5); let logType = ''; let logNote = ''; if (currentState.action === 'SetOff') { logType = '請假 (Nghỉ)'; logNote = '全天 (Cả ngày)'; await ghiVaoSheet({ gioDen: '08:00', ngayDen: todayISO, dichVu: SERVICES['OFF_DAY'].name, nhanVien: staffId, userId: 'ADMIN', sdt: 'ADMIN', hoTen: '請假', trangThai: '⛔ 已鎖定' }); } else if (currentState.action === 'SetBreak') { logType = '用餐 (Ăn)'; logNote = '30分鐘'; await ghiVaoSheet({ gioDen: currentTimeStr, ngayDen: todayISO, dichVu: SERVICES['BREAK_30'].name, nhanVien: staffId, userId: 'ADMIN', sdt: 'ADMIN', hoTen: '用餐', trangThai: '🍱 用餐中' }); } else if (currentState.action === 'SetLeaveEarly') { logType = '早退/病假'; let effectiveHour = new Date(taipeiNowStr).getHours(); if (effectiveHour < 8) effectiveHour += 24; const currentTotalMins = effectiveHour * 60 + new Date(taipeiNowStr).getMinutes(); let duration = (26 * 60) - currentTotalMins; if (duration < 0) duration = 0; logNote = `早退 (${duration}分)`; await ghiVaoSheet({ gioDen: currentTimeStr, ngayDen: todayISO, dichVu: `⛔ 早退 (${duration}m)`, nhanVien: staffId, userId: 'ADMIN', sdt: 'ADMIN', hoTen: 'Admin Set', trangThai: '⚠️ 早退' }); } await ghiChamCong({ staffId: staffId, type: logType, note: logNote, date: todayISO }); delete userState[userId]; return client.replyMessage(event.replyToken, { type: 'text', text: `✅ 已登記: ${staffId} - ${logType}\n(${logNote})` }); }
 
+  // --- CLIENT MENU ---
   if (text.includes('預約') || text.toLowerCase().includes('đặt lịch') || text.includes('menu') || text.toLowerCase() === 'menu') {
       delete userState[userId]; syncData();
       return client.replyMessage(event.replyToken, { type: 'flex', altText: 'Menu', contents: { "type": "bubble", "body": { "type": "box", "layout": "vertical", "contents": [ { "type": "text", "text": "✨ 歡迎光臨 ✨", "weight": "bold", "size": "xl", "align": "center", "color": "#1DB446" }, { "type": "separator", "margin": "md" }, { "type": "button", "style": "primary", "margin": "md", "action": { "type": "message", "label": "📅 立即預約", "text": "Action:Booking" } }, { "type": "button", "style": "secondary", "margin": "sm", "action": { "type": "message", "label": "🔍 我的預約 / 改期", "text": "Action:MyBooking" } } ] } } });
   }
+  
+  // --- FLOW ĐẶT LỊCH ---
   if (text === 'Action:Booking') {
       return client.replyMessage(event.replyToken, { type: 'flex', altText: '選擇服務', contents: { "type": "bubble", "body": { "type": "box", "layout": "vertical", "contents": [ { "type": "text", "text": "請選擇服務類別", "weight": "bold", "size": "lg", "align": "center", "color": "#1DB446" }, { "type": "separator", "margin": "md" }, { "type": "button", "style": "primary", "color": "#A17DF5", "margin": "md", "action": { "type": "message", "label": "🔥 套餐 (Combo)", "text": "Cat:COMBO" } }, { "type": "button", "style": "secondary", "margin": "sm", "action": { "type": "message", "label": "👣 足底按摩 (腳)", "text": "Cat:FOOT" } }, { "type": "button", "style": "secondary", "margin": "sm", "action": { "type": "message", "label": "🛏️ 身體指壓 (身)", "text": "Cat:BODY" } } ] } } });
   }
   if (text.startsWith('Cat:')) { const category = text.split(':')[1]; const listServices = Object.keys(SERVICES).filter(key => SERVICES[key].category === category || (!SERVICES[key].category && key.startsWith('FT'))); const buttons = Object.keys(SERVICES).filter(k => SERVICES[k].category === category).map(key => ({ "type": "button", "style": "primary", "margin": "sm", "height": "sm", "action": { "type": "message", "label": SERVICES[key].name, "text": `Svc:${key}` } })); return client.replyMessage(event.replyToken, { type: 'flex', altText: '選擇方案', contents: { "type": "bubble", "body": { "type": "box", "layout": "vertical", "contents": [ { "type": "text", "text": "選擇方案", "weight": "bold", "size": "xl", "align": "center" }, { "type": "separator", "margin": "md" }, ...buttons ] } } }); }
-  if (text.startsWith('Svc:')) { const svcCode = text.split(':')[1]; userState[userId] = { step: 'PAX', service: svcCode }; const paxButtons = [1, 2, 3, 4].map(n => ({ "type": "button", "style": "secondary", "margin": "sm", "height": "sm", "action": { "type": "message", "label": `${n} 位 (Pax)`, "text": `Pax:${n}` } })); return client.replyMessage(event.replyToken, { type: 'flex', altText: 'Chọn số người', contents: { "type": "bubble", "body": { "type": "box", "layout": "vertical", "contents": [ { "type": "text", "text": "請問幾位貴賓? (Mấy người?)", "weight": "bold", "size": "lg", "align": "center", "color": "#1DB446" }, { "type": "separator", "margin": "md" }, ...paxButtons ] } } }); }
+  
+  if (text.startsWith('Svc:')) {
+      const svcCode = text.split(':')[1]; userState[userId] = { step: 'PAX', service: svcCode }; 
+      const paxButtons = [1, 2, 3, 4].map(n => ({ "type": "button", "style": "secondary", "margin": "sm", "height": "sm", "action": { "type": "message", "label": `${n} 位 (Pax)`, "text": `Pax:${n}` } }));
+      return client.replyMessage(event.replyToken, { type: 'flex', altText: 'Chọn số người', contents: { "type": "bubble", "body": { "type": "box", "layout": "vertical", "contents": [ { "type": "text", "text": "請問幾位貴賓? (Mấy người?)", "weight": "bold", "size": "lg", "align": "center", "color": "#1DB446" }, { "type": "separator", "margin": "md" }, ...paxButtons ] } } });
+  }
   if (text.startsWith('Pax:')) { const num = parseInt(text.split(':')[1]); const currentState = userState[userId]; if (!currentState) return Promise.resolve(null); currentState.step = 'DATE'; currentState.pax = num; userState[userId] = currentState; const days = getNext7Days(); const dateButtons = days.map(d => ({ "type": "button", "style": "secondary", "margin": "sm", "height": "sm", "action": { "type": "message", "label": d.label, "text": `Date:${d.value}` } })); return client.replyMessage(event.replyToken, { type: 'flex', altText: '選擇日期', contents: { "type": "bubble", "body": { "type": "box", "layout": "vertical", "contents": [ { "type": "text", "text": `📅 請選擇日期 (${num}位)`, "weight": "bold", "size": "lg", "align": "center", "color": "#1DB446" }, { "type": "separator", "margin": "md" }, ...dateButtons ] } } }); }
+  
   if (text.startsWith('Date:')) {
       const selectedDate = text.split(':')[1]; const currentState = userState[userId]; 
       if (!currentState) return client.replyMessage(event.replyToken, { type: 'text', text: '請重新預約 (Vui lòng đặt lại).' });
       currentState.date = selectedDate; userState[userId] = currentState;
-      if (currentState.pax > 1) { currentState.step = 'TIME'; currentState.staffId = null; const timeCarousel = generateTimeBubbles(selectedDate, currentState.service, null, currentState.pax); if (!timeCarousel) return client.replyMessage(event.replyToken, { type: 'text', text: '😴 客滿了 (Full), 請選擇其他日期。' }); return client.replyMessage(event.replyToken, { type: 'flex', altText: '選擇時間', contents: timeCarousel }); } 
-      else { currentState.step = 'PICK_STAFF_OPTION'; return client.replyMessage(event.replyToken, { type: 'template', altText: '選師傅', template: { type: 'buttons', text: '請問您有指定的師傅嗎？', actions: [ { type: 'message', label: '不指定 (隨機)', text: 'Staff:Random' }, { type: 'message', label: '指定師傅 (Chọn)', text: 'Staff:Pick' } ] } }); }
+      if (currentState.pax > 1) {
+          currentState.step = 'TIME'; currentState.staffId = null;
+          const timeCarousel = generateTimeBubbles(selectedDate, currentState.service, null, currentState.pax);
+          if (!timeCarousel) return client.replyMessage(event.replyToken, { type: 'text', text: '😴 客滿了 (Full), 請選擇其他日期。' });
+          return client.replyMessage(event.replyToken, { type: 'flex', altText: '選擇時間', contents: timeCarousel });
+      } else {
+          currentState.step = 'PICK_STAFF_OPTION';
+          return client.replyMessage(event.replyToken, { type: 'template', altText: '選師傅', template: { type: 'buttons', text: '請問您有指定的師傅嗎？', actions: [ { type: 'message', label: '不指定 (隨機)', text: 'Staff:Random' }, { type: 'message', label: '指定師傅 (Chọn)', text: 'Staff:Pick' } ] } });
+      }
   }
   if (text === 'Staff:Random') { const currentState = userState[userId]; if (!currentState) return Promise.resolve(null); currentState.step = 'TIME'; currentState.staffId = null; const timeCarousel = generateTimeBubbles(currentState.date, currentState.service, null, currentState.pax); if (!timeCarousel) return client.replyMessage(event.replyToken, { type: 'text', text: '😴 客滿了 (Full), 請選擇其他日期。' }); return client.replyMessage(event.replyToken, { type: 'flex', altText: '選擇時間', contents: timeCarousel }); }
   if (text === 'Staff:Pick') { const bubbles = createStaffBubbles(); return client.replyMessage(event.replyToken, { type: 'flex', altText: 'Chọn thợ', contents: { type: 'carousel', contents: bubbles } }); }
@@ -413,7 +436,9 @@ async function handleEvent(event) {
       const currentState = userState[userId]; const serviceName = SERVICES[currentState.service].name; const gio = currentState.time; const minguoDate = formatMinguoDate(currentState.date); const hoTen = currentState.surname; const staffDisplay = currentState.staffId ? `${currentState.staffId}` : '隨機 (Random)'; const paxDisplay = `${currentState.pax}位`;
       await client.replyMessage(event.replyToken, { type: 'flex', altText: '預約成功', contents: { "type": "bubble", "body": { "type": "box", "layout": "vertical", "contents": [ { "type": "text", "text": "✅ 預約成功", "weight": "bold", "color": "#1DB446", "size": "xl", "align": "center" }, { "type": "separator", "margin": "md" }, { "type": "text", "text": `${hoTen} 您好 (${paxDisplay})`, "weight": "bold", "align": "center", "margin": "md" }, { "type": "text", "text": serviceName, "size": "sm", "align": "center", "margin": "sm", "color": "#555555" }, { "type": "text", "text": `師傅: ${staffDisplay}`, "weight": "bold", "color": "#0000ff", "align": "center", "margin": "sm" }, { "type": "text", "text": `${minguoDate} ${gio}`, "weight": "bold", "size": "xl", "color": "#1DB446", "align": "center", "margin": "sm" } ] }, "footer": { "type": "box", "layout": "vertical", "spacing": "sm", "contents": [ { "type": "text", "text": "若需變更，請點擊下方：", "size": "xs", "color": "#aaaaaa", "align": "center", "margin": "none" }, { "type": "button", "style": "secondary", "action": { "type": "message", "label": "🔍 查看 / 取消預約", "text": "Action:MyBooking" } } ] } } }); 
       if (userId !== ID_BA_CHU) client.pushMessage(ID_BA_CHU, { type: 'text', text: `💰 新訂單!\n👤 ${hoTen} (${sdt}) - ${paxDisplay}\n📅 ${minguoDate} - ${gio}\n💆 ${serviceName}\n🛠️ ${staffDisplay}` }); 
-      await ghiVaoSheet({ gioDen: gio, ngayDen: currentState.date, dichVu: serviceName, nhanVien: staffDisplay, userId: userId, sdt: sdt, hoTen: hoTen, trangThai: '已預約', pax: currentState.pax }); delete userState[userId]; return; 
+      await ghiVaoSheet({ gioDen: gio, ngayDen: currentState.date, dichVu: serviceName, nhanVien: staffDisplay, userId: userId, sdt: sdt, hoTen: hoTen, trangThai: '已預約', pax: currentState.pax }); 
+      delete userState[userId]; 
+      return; 
   }
   if (text === 'Action:MyBooking') { const booking = await layLichDatGanNhat(userId); if (!booking) return client.replyMessage(event.replyToken, { type: 'text', text: '您目前沒有預約紀錄。' }); return client.replyMessage(event.replyToken, { type: 'flex', altText: '我的預約', contents: { "type": "bubble", "body": { "type": "box", "layout": "vertical", "contents": [ { "type": "text", "text": "您的預約", "weight": "bold", "color": "#1DB446", "size": "lg" }, { "type": "separator", "margin": "md" }, { "type": "text", "text": booking.dichVu, "weight": "bold", "size": "md", "margin": "md" }, { "type": "text", "text": `🛠️ ${booking.nhanVien}`, "align": "center", "margin": "sm" }, { "type": "text", "text": `⏰ ${booking.thoiGian}`, "size": "xl", "weight": "bold", "color": "#555555", "margin": "sm" } ] }, "footer": { "type": "box", "layout": "vertical", "spacing": "sm", "contents": [ { "type": "button", "style": "primary", "color": "#ff9800", "action": { "type": "message", "label": "🏃 我會晚到", "text": "Action:Late" } }, { "type": "button", "style": "secondary", "color": "#ff3333", "action": { "type": "message", "label": "❌ 取消預約", "text": "Action:CancelAsk" } } ] } } }); }
   if (text === 'Action:Late') { return client.replyMessage(event.replyToken, { type: 'flex', altText: '晚到通知', contents: { "type": "bubble", "body": { "type": "box", "layout": "vertical", "contents": [ { "type": "text", "text": "請問大概會晚多久抵達？", "weight": "bold", "align": "center" }, { "type": "box", "layout": "horizontal", "spacing": "sm", "margin": "md", "contents": [ { "type": "button", "style": "secondary", "action": { "type": "message", "label": "5 分鐘", "text": "Late:5p" } }, { "type": "button", "style": "secondary", "action": { "type": "message", "label": "10 分鐘", "text": "Late:10p" } }, { "type": "button", "style": "secondary", "action": { "type": "message", "label": "15 分鐘", "text": "Late:15p" } } ] } ] } } }); }
@@ -423,41 +448,31 @@ async function handleEvent(event) {
   if (text === 'Action:Keep') { return client.replyMessage(event.replyToken, { type: 'text', text: '好的，預約保留中。' }); }
   if (text === 'reset') { userState = {}; return client.replyMessage(event.replyToken, { type: 'text', text: 'System Reset.' }); }
 
-  return client.replyMessage(event.replyToken, { type: 'flex', altText: '預約服務', contents: { "type": "bubble", "body": { "type": "box", "layout": "vertical", "contents": [ { "type": "text", "text": "您好 (Xin chào) 👋", "weight": "bold", "size": "lg", "align": "center" }, { "type": "text", "text": "請問您是要預約按摩服務嗎？\n(Bạn muốn đặt lịch massage phải không?)", "wrap": true, "size": "sm", "color": "#555555", "align": "center", "margin": "md" } ] }, "footer": { "type": "box", "layout": "horizontal", "spacing": "sm", "contents": [ { "type": "button", "style": "primary", "action": { "type": "message", "label": "✅ 是的 (Book)", "text": "Action:Booking" } }, { "type": "button", "style": "secondary", "action": { "type": "message", "label": "📄 菜單 (Menu)", "text": "Menu" } } ] } } });
+  // DEFAULT
+  return client.replyMessage(event.replyToken, {
+      type: 'flex',
+      altText: '預約服務',
+      contents: {
+          "type": "bubble",
+          "body": {
+              "type": "box", "layout": "vertical", "contents": [
+                  { "type": "text", "text": "您好 (Xin chào) 👋", "weight": "bold", "size": "lg", "align": "center" },
+                  { "type": "text", "text": "請問您是要預約按摩服務嗎？\n(Bạn muốn đặt lịch massage phải không?)", "wrap": true, "size": "sm", "color": "#555555", "align": "center", "margin": "md" }
+              ]
+          },
+          "footer": {
+              "type": "box", "layout": "horizontal", "spacing": "sm", "contents": [
+                  { "type": "button", "style": "primary", "action": { "type": "message", "label": "✅ 是的 (Book)", "text": "Action:Booking" } },
+                  { "type": "button", "style": "secondary", "action": { "type": "message", "label": "📄 菜單 (Menu)", "text": "Menu" } }
+              ]
+          }
+      }
+  });
 }
 
+// CHẠY SYNC KHI KHỞI ĐỘNG
 syncData();
 const port = process.env.PORT || 3000;
-
-// 1. Đường dẫn test để xem Server sống hay chết
-app.get('/', (req, res) => {
-    res.send('Server đang chạy ngon! Nếu bạn thấy dòng này thì lỗi nằm ở LINE Config.');
-});
-
-// 2. Bộ bắt lỗi toàn cục (Bắt lỗi 500 im lặng)
-app.use((err, req, res, next) => {
-    if (err instanceof line.SignatureValidationFailed) {
-        console.error("🚨 LỖI NGHIÊM TRỌNG: Sai 'Channel Secret'! Vui lòng kiểm tra lại.");
-        res.status(500).send("SignatureValidationFailed");
-    } else if (err instanceof line.JSONParseError) {
-        console.error("🚨 LỖI JSON: Dữ liệu gửi đến không đọc được.");
-        res.status(500).send("JSONParseError");
-    } else {
-        console.error("🚨 LỖI KHÁC:", err.message);
-        console.error(err); // In chi tiết lỗi ra
-        res.status(500).send(err.message);
-    }
-});
-
-// ------------------------------------------
-
-// CHẠY SYNC
-syncBookingsFromSheet();
-const port = process.env.PORT || 3000;
 app.listen(port, () => {
-    console.log(`Bot vDEBUG running on ${port}`);
-});
-
-app.listen(port, () => {
-    console.log(`Bot v34.0 (FULL WITH API + FIXED) running on ${port}`);
+    console.log(`Bot v35.0 (FINAL) running on ${port}`);
 });
