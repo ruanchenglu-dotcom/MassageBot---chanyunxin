@@ -8,7 +8,7 @@ const cors = require('cors'); // Cho phép Web App gọi vào
 // 1. CẤU HÌNH
 // ==============================================================================
 const config = {
-  channelAccessToken: '8nN7OZKoZmXShDUchvUQp2YkZjvZT7g2vDO/+W6Ea0PyHX92zNcKBhJBKXKPt+eq8s6CMKKs6iBKqvhaJ967hPPPayZ8DxY2y/4cCnTGVjR1sYSqgwwNNHnMcONK/QwTgxDZ5UG2PO9D4HtoadqrawdB04t89/1O/w1cDnyilFU=', 
+  channelAccessToken: 'YkSEuh1sMTfZAWLcse8o6kqasIi7kAmWjFaML3paJlAG++WjX7XD8W3VJVRHDm7c8s6CMKKs6iBKqvhaJ967hPPPayZ8DxY2y/4cCnTGVjSDIxu/bdwCgTsOYhbuskcEtYQxr1jT3hF7wGj7U3r/FQdB04t89/1O/w1cDnyilFU=', 
   channelSecret: 'c1146c055e03a4433886451b40920738'
 };
 const ID_BA_CHU = 'Ue576894a512399dd4256ed6f0063c6d3'; 
