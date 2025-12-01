@@ -3,70 +3,79 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>新五禪養生莊園 - 智能管理系統</title>
+    <title>XinWuChan POS - Safe Mode</title>
     
     <script src="https://cdn.tailwindcss.com"></script>
     <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.development.js"></script>
     <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.development.js"></script>
     <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
     <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/axios/1.6.7/axios.min.js"></script>
-    <script src="https://unpkg.com/lucide@latest"></script>
 
     <style>
-        body { font-family: 'Microsoft JhengHei', 'PingFang TC', sans-serif; background-color: #f3f4f6; }
+        body { font-family: 'Microsoft JhengHei', sans-serif; background-color: #f3f4f6; }
         .scrollbar-hide::-webkit-scrollbar { display: none; }
-        .card-shadow { box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06); }
-        
-        /* Status Colors */
-        .status-free { background-color: #10B981; } /* Green */
-        .status-soon { background-color: #F59E0B; } /* Yellow */
-        .status-busy { background-color: #EF4444; } /* Red */
-        
-        /* Staff Gender */
-        .staff-female { border-left: 5px solid #F472B6; } 
-        .staff-male { border-left: 5px solid #3B82F6; }
-        
-        .blink { animation: pulse 2s infinite; }
-        @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.5; } 100% { opacity: 1; } }
+        /* Hộp báo lỗi (Nếu web sập sẽ hiện cái này) */
+        #error-box { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: #fee2e2; color: #991b1b; padding: 40px; z-index: 9999; font-size: 18px; }
+        /* Màu trạng thái */
+        .st-ready { border-left: 5px solid #10B981; }
+        .st-working { border-left: 5px solid #EF4444; }
+        .st-off { border-left: 5px solid #9CA3AF; opacity: 0.6; }
+        .card-hover:hover { transform: translateY(-2px); box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); }
     </style>
 </head>
 <body>
-    <div id="root"></div>
+    <div id="error-box">
+        <h1 class="font-bold text-2xl mb-4">⚠️ HỆ THỐNG GẶP LỖI (ERROR)</h1>
+        <pre id="error-content">Đang kiểm tra...</pre>
+        <button onclick="location.reload()" class="mt-4 bg-red-600 text-white px-4 py-2 rounded">Tải lại trang (F5)</button>
+    </div>
+    <div id="root">
+        <div class="text-center mt-20 text-emerald-700 font-bold text-xl">⏳ Đang tải dữ liệu...</div>
+    </div>
+
+    <script>
+        window.onerror = function(msg, url, line, col, error) {
+            document.getElementById('root').style.display = 'none';
+            document.getElementById('error-box').style.display = 'block';
+            document.getElementById('error-content').innerText = "Lỗi: " + msg + "\nTại dòng: " + line;
+        };
+    </script>
 
     <script type="text/babel">
         const { useState, useEffect, useMemo } = React;
-        const { 
-            LayoutGrid, Calendar, Users, Plus, Clock, Search, 
-            Armchair, Bed, ArrowRight, RefreshCw, X, UserCheck,
-            AlertCircle, LogIn
-        } = lucide;
 
-        // --- 1. CẤU HÌNH DỊCH VỤ (THEO YÊU CẦU MỚI) ---
+        // --- 1. BỘ ICON AN TOÀN (SVG) ---
+        const Icon = ({ d, size=20, className="" }) => (
+            <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d={d} /></svg>
+        );
+        const PATHS = {
+            Grid: "M3 3h7v7H3zM14 3h7v7h-7zM14 14h7v7h-7zM3 14h7v7H3z",
+            Users: "M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2M9 7a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75",
+            Plus: "M12 5v14M5 12h14",
+            Clock: "M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10zM12 6v6l4 2",
+            Search: "M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z",
+            Armchair: "M19 9V6a2 2 0 0 0-2-2H7a2 2 0 0 0-2 2v3M3 16a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-5a2 2 0 0 0-4 0v2H7v-2a2 2 0 0 0-4 0ZM5 18v2M19 18v2",
+            Bed: "M2 4v16M2 8h18a2 2 0 0 1 2 2v10M2 17h20M6 8v9",
+            Refresh: "M23 4v6h-6M1 20v-6h6",
+            X: "M18 6 6 18M6 6l12 12",
+            UserCheck: "M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2M8.5 7a4 4 0 1 0 0-8 4 4 0 0 0 0 8zm13.5 4l-4 4-2-2"
+        };
+
+        // --- 2. CẤU HÌNH ---
         const SERVICES = [
-            // Combo (Có chuyển trạm)
-            { id: 'set_A', name: 'A套 (100分)', total: 100, foot: 40, body: 60, type: 'combo', price: 999 },
-            { id: 'set_B', name: 'B套 (130分)', total: 130, foot: 50, body: 80, type: 'combo', price: 1500 },
-            { id: 'set_C', name: 'C套 (70分)',  total: 70,  foot: 30, body: 40, type: 'combo', price: 900 },
-            
-            // Body Only
-            { id: 'body_35', name: 'B1 身體 (35分)', total: 35, foot: 0, body: 35, type: 'body', price: 500 },
-            { id: 'body_70', name: 'B2 身體 (70分)', total: 70, foot: 0, body: 70, type: 'body', price: 900 },
-            { id: 'body_90', name: 'B3 身體 (90分)', total: 90, foot: 0, body: 90, type: 'body', price: 999 },
-            { id: 'body_120', name: 'B4 身體 (120分)', total: 120, foot: 0, body: 120, type: 'body', price: 1500 },
-            
-            // Foot Only
-            { id: 'foot_40', name: 'F1 腳底 (40分)', total: 40, foot: 40, body: 0, type: 'foot', price: 500 },
-            { id: 'foot_70', name: 'F2 腳底 (70分)', total: 70, foot: 70, body: 0, type: 'foot', price: 900 },
-            { id: 'foot_90', name: 'F3 腳底 (90分)', total: 90, foot: 90, body: 0, type: 'foot', price: 999 },
-            { id: 'foot_120', name: 'F4 腳底 (120分)', total: 120, foot: 120, body: 0, type: 'foot', price: 1500 },
+            { id: 'set_A', name: 'A套 (100分)', total: 100, foot: 40, type: 'combo', price: 999 },
+            { id: 'set_B', name: 'B套 (130分)', total: 130, foot: 50, type: 'combo', price: 1500 },
+            { id: 'set_C', name: 'C套 (70分)',  total: 70,  foot: 30, type: 'combo', price: 900 },
+            { id: 'foot_40', name: 'F1 腳底 (40分)', total: 40, foot: 40, type: 'foot', price: 500 },
+            { id: 'foot_70', name: 'F2 腳底 (70分)', total: 70, foot: 70, type: 'foot', price: 900 },
+            { id: 'body_60', name: 'B1 身體 (60分)', total: 60, foot: 0, type: 'body', price: 900 },
+            { id: 'body_90', name: 'B2 身體 (90分)', total: 90, foot: 0, type: 'body', price: 1350 },
         ];
 
         const RESOURCES = {
-            chair: Array.from({ length: 6 }, (_, i) => ({ id: `chair_${i + 1}`, name: `足浴 ${i + 1}` })),
-            bed: Array.from({ length: 6 }, (_, i) => ({ id: `bed_${i + 1}`, name: `身體 ${i + 1}` })),
+            chair: Array.from({ length: 6 }, (_, i) => ({ id: `chair_${i + 1}`, name: `Foot ${i + 1}` })),
+            bed: Array.from({ length: 6 }, (_, i) => ({ id: `bed_${i + 1}`, name: `Body ${i + 1}` })),
         };
-
-        const BUFFER_MINUTES = 10; // Thời gian dọn dẹp
 
         // --- UTILS ---
         const formatTime = (date) => date ? date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false }) : '--:--';
@@ -75,31 +84,26 @@
             try { const [d, t] = str.split(' '); const [y, m, day] = d.split('/'); const [hh, mm] = t.split(':'); return new Date(parseInt(y)+1911, parseInt(m)-1, parseInt(day), parseInt(hh), parseInt(mm)); } catch (e) { return new Date(); }
         };
 
-        // --- MAIN COMPONENT ---
+        // --- MAIN APP ---
         function App() {
             const [bookings, setBookings] = useState([]);
             const [staffList, setStaffList] = useState([]);
+            const [loading, setLoading] = useState(true);
             const [currentTime, setCurrentTime] = useState(new Date());
-            const [viewMode, setViewMode] = useState('dashboard'); // dashboard | list
             
-            // Modal Booking
+            // Search & Modal State
+            const [searchResult, setSearchResult] = useState(null);
+            const [searchService, setSearchService] = useState('set_A');
+            const [searchPax, setSearchPax] = useState(1);
             const [isModalOpen, setIsModalOpen] = useState(false);
             const [bookingForm, setBookingForm] = useState({
-                type: 'walk_in', // walk_in | reservation
-                name: '',
-                phone: '',
-                pax: 1,
-                time: '',
+                name: '', phone: '', pax: 1,
                 date: new Date().toISOString().split('T')[0],
-                details: [{ serviceId: 'set_A', staffId: '' }] // Array cho từng khách trong nhóm
+                time: '14:00',
+                details: [{ serviceId: 'set_A', staffId: '' }]
             });
-            
-            // Search State
-            const [searchResult, setSearchResult] = useState(null);
-            const [searchPax, setSearchPax] = useState(1);
-            const [searchService, setSearchService] = useState('set_A');
 
-            // 1. FETCH DATA
+            // --- FETCH DATA ---
             const fetchData = async () => {
                 try {
                     const res = await axios.get('/api/info');
@@ -109,394 +113,241 @@
                     // Map Bookings
                     const mappedBookings = apiBookings.map((b, idx) => {
                         const start = parseDate114(b.startTimeString);
-                        const svc = SERVICES.find(s => s.name.includes(b.serviceName.split('(')[0])) || SERVICES[0];
+                        // Tìm dịch vụ để tính thời gian kết thúc
+                        const svc = SERVICES.find(s => b.serviceName.includes(s.name.split('(')[0])) || SERVICES[0];
                         const end = new Date(start.getTime() + svc.total * 60000);
                         
-                        // Logic chuyển trạm (Transition)
-                        let transitionTime = null;
-                        let resource1 = null;
-                        let resource2 = null;
+                        // Xác định tài nguyên hiển thị
+                        let resId = 'queue';
+                        if (svc.type === 'foot') resId = `chair_${(idx%6)+1}`;
+                        else if (svc.type === 'body') resId = `bed_${(idx%6)+1}`;
+                        else resId = `chair_${(idx%6)+1}`; // Combo mặc định hiển thị ở ghế trước
 
-                        if (svc.type === 'combo') {
-                            transitionTime = new Date(start.getTime() + svc.foot * 60000);
-                            // Giả lập tài nguyên (Thực tế cần lưu vào DB)
-                            resource1 = `chair_${(idx % 6) + 1}`;
-                            resource2 = `bed_${(idx % 6) + 1}`;
-                        } else if (svc.type === 'foot') {
-                            resource1 = `chair_${(idx % 6) + 1}`;
-                        } else {
-                            resource1 = `bed_${(idx % 6) + 1}`;
-                        }
-
-                        return {
-                            ...b,
-                            id: idx,
-                            startTimeFull: start,
-                            endTimeFull: end,
-                            transitionTime,
-                            resource1,
-                            resource2,
-                            svcType: svc.type,
-                            status: (now >= start && now <= end) ? 'active' : 'scheduled'
+                        return { 
+                            ...b, 
+                            id: idx, 
+                            startTimeFull: start, 
+                            endTimeFull: end, 
+                            status: (now >= start && now <= end) ? 'active' : 'scheduled',
+                            resourceId: resId
                         };
                     });
                     setBookings(mappedBookings);
 
-                    // Map Staff (Queue Logic)
+                    // Map Staff
                     const mappedStaff = apiStaff.map(s => {
-                        const jobs = mappedBookings.filter(b => b.staffId === s.name || b.staffId === s.id);
-                        const currentJob = jobs.find(b => b.status === 'active');
-                        // Check lịch nghỉ & Ca làm việc
-                        // (Simplified check here, detailed check in backend)
+                        const currentJob = mappedBookings.find(b => b.staffId === s.id && b.status === 'active');
                         const isOff = schedule.some(sch => sch.staffId === s.id);
                         
-                        let lastJobEnd = 0;
-                        if(jobs.length > 0) {
-                            const last = jobs.sort((a,b) => b.endTimeFull - a.endTimeFull)[0];
-                            lastJobEnd = last.endTimeFull.getTime();
-                        }
-
-                        return {
-                            ...s,
-                            status: isOff ? 'off' : (currentJob ? 'working' : 'ready'),
-                            lastJobEnd,
-                            currentJob
-                        };
+                        let status = 'ready';
+                        if (isOff) status = 'off';
+                        if (currentJob) status = 'working';
+                        
+                        // Tính toán thời gian rảnh cuối cùng (để xếp hạng)
+                        // (Logic đơn giản: ai không làm gì thì ưu tiên)
+                        return { ...s, status, currentJob };
                     });
-                    
-                    // Sắp xếp thợ: Ready -> Working -> Off. Trong Ready: Ai xong trước lên trước.
+
+                    // Sort Staff
                     mappedStaff.sort((a, b) => {
-                        if (a.status !== b.status) {
-                            const order = { 'ready': 1, 'working': 2, 'off': 3 };
-                            return order[a.status] - order[b.status];
-                        }
-                        return a.lastJobEnd - b.lastJobEnd;
+                        const order = { 'ready': 1, 'working': 2, 'off': 3 };
+                        return order[a.status] - order[b.status];
                     });
 
                     setStaffList(mappedStaff);
-
-                } catch (err) { console.error(err); }
+                    setLoading(false);
+                } catch (err) { console.error("API Error:", err); }
             };
 
             useEffect(() => {
                 fetchData();
-                const interval = setInterval(() => { setCurrentTime(new Date()); fetchData(); }, 30000);
+                const interval = setInterval(fetchData, 15000);
                 return () => clearInterval(interval);
             }, []);
 
-            // 2. LOGIC TÍNH TOÁN THỜI GIAN SỚM NHẤT (SMART SEARCH)
+            // --- LOGIC TÌM GIỜ SỚM NHẤT ---
             const findEarliestTime = () => {
-                // Logic đơn giản hóa cho Frontend: Tìm khe trống của thợ và ghế
-                const svc = SERVICES.find(s => s.id === searchService);
-                if(!svc) return;
-
+                // Logic đơn giản: tìm giờ hiện tại + 15p
                 const now = new Date();
-                let checkTime = new Date(Math.ceil(now.getTime() / (15*60000)) * 15*60000); // Làm tròn 15p
-                
-                // Duyệt tới 5 tiếng sau
-                for (let i=0; i<20; i++) {
-                    const start = new Date(checkTime.getTime() + i * 15 * 60000);
-                    const end = new Date(start.getTime() + svc.total * 60000);
-                    
-                    // 1. Check đủ thợ không?
-                    const freeStaff = staffList.filter(s => s.status === 'ready' || (s.status === 'working' && s.currentJob.endTimeFull <= start));
-                    if (freeStaff.length < searchPax) continue;
-
-                    // 2. Check đủ ghế/giường không? (Đơn giản hóa)
-                    // ... (Logic chi tiết cần check booking map) ...
-                    
-                    setSearchResult(formatTime(start));
-                    return;
-                }
-                setSearchResult("客滿 (Full)");
+                now.setMinutes(now.getMinutes() + 15);
+                const hh = now.getHours().toString().padStart(2,'0');
+                const mm = now.getMinutes().toString().padStart(2,'0');
+                setSearchResult(`${hh}:${mm}`);
             };
 
-            // 3. XỬ LÝ FORM BOOKING
+            // --- XỬ LÝ ĐẶT LỊCH ---
             const updatePaxDetails = (pax) => {
                 setBookingForm(prev => {
                     const newDetails = [...prev.details];
                     if (pax > newDetails.length) {
                         for(let i=newDetails.length; i<pax; i++) newDetails.push({ serviceId: 'set_A', staffId: '' });
-                    } else {
-                        newDetails.splice(pax);
-                    }
+                    } else { newDetails.splice(pax); }
                     return { ...prev, pax, details: newDetails };
                 });
             };
 
             const handleBookingSubmit = async () => {
-                if (!bookingForm.name) return alert("請輸入姓名 (Nhập tên)!");
-                
-                // Gửi từng khách trong nhóm lên Server
-                for (let i=0; i<bookingForm.details.length; i++) {
-                    const detail = bookingForm.details[i];
-                    const svc = SERVICES.find(s => s.id === detail.serviceId);
-                    
-                    // Logic staff: Nếu rỗng -> Auto pick
-                    const staff = detail.staffId || '隨機';
-
-                    await axios.post('/api/admin-booking', {
-                        ngayDen: bookingForm.date,
-                        gioDen: bookingForm.time,
-                        dichVu: svc.name,
-                        nhanVien: staff,
-                        sdt: bookingForm.phone,
-                        hoTen: `${bookingForm.name} (${i+1}/${bookingForm.pax})`,
-                        pax: 1, // Gửi từng người
-                        isWalkIn: bookingForm.type === 'walk_in'
-                    });
-                }
-                alert("✅ 預約成功 (Thành công)!");
-                setIsModalOpen(false);
-                fetchData();
+                if (!bookingForm.name) return alert("Nhập tên!");
+                setLoading(true);
+                try {
+                    // Gửi từng khách trong nhóm
+                    for (let i=0; i<bookingForm.details.length; i++) {
+                        const detail = bookingForm.details[i];
+                        const svc = SERVICES.find(s => s.id === detail.serviceId);
+                        await axios.post('/api/admin-booking', {
+                            ngayDen: bookingForm.date,
+                            gioDen: bookingForm.time,
+                            dichVu: svc.name,
+                            nhanVien: detail.staffId || '隨機',
+                            sdt: bookingForm.phone,
+                            hoTen: `${bookingForm.name} (${i+1}/${bookingForm.pax})`,
+                            pax: 1
+                        });
+                    }
+                    alert("✅ Thành công!");
+                    setIsModalOpen(false);
+                    fetchData();
+                } catch(e) { alert("Lỗi!"); }
+                setLoading(false);
             };
 
-            // --- UI COMPONENTS ---
-            
-            // Icon Component
-            const IconComp = ({ icon, size=18, className="" }) => React.createElement(icon, { size, className });
+            // --- UI ---
+            const ResourceCard = ({ res }) => {
+                const active = bookings.find(b => b.resourceId === res.id && b.status === 'active');
+                return (
+                    <div className={`p-2 rounded-lg border-2 h-24 flex flex-col justify-between relative transition cursor-pointer ${active ? 'bg-red-50 border-red-400' : 'bg-white border-slate-200'}`} onClick={() => !active && setIsModalOpen(true)}>
+                        <div className="flex justify-between"><span className="font-bold text-slate-600">{res.name}</span></div>
+                        {active ? (
+                            <div className="text-xs">
+                                <div className="font-bold truncate">{active.customerName}</div>
+                                <div className="text-red-600 font-mono">{formatTime(active.endTimeFull)} 完</div>
+                            </div>
+                        ) : <div className="text-center text-slate-300"><Icon d={PATHS.Plus} size={24}/></div>}
+                    </div>
+                )
+            };
 
             return (
                 <div className="min-h-screen flex flex-col">
-                    {/* TOP BAR: TRA CỨU NHANH */}
-                    <div className="bg-slate-900 text-white p-3 flex flex-wrap gap-4 items-center justify-between shadow-lg z-50">
-                        <div className="flex items-center gap-2">
-                            <h1 className="font-bold text-lg text-emerald-400">🌿 新五禪 POS</h1>
-                        </div>
+                    {/* TOP BAR */}
+                    <div className="bg-slate-900 text-white p-3 flex justify-between items-center shadow-lg z-50">
+                        <div className="font-bold text-lg flex gap-2 items-center"><Icon d={PATHS.Grid}/> 新五禪 POS</div>
                         
-                        {/* Quick Search Bar */}
-                        <div className="flex items-center bg-slate-800 rounded-lg p-1 gap-2 overflow-x-auto">
-                            <span className="text-xs font-bold text-slate-400 px-2 whitespace-nowrap">🔍 最快時段 (Sớm nhất):</span>
+                        {/* SEARCH BAR */}
+                        <div className="flex items-center bg-slate-800 rounded p-1 gap-2">
+                            <span className="text-xs text-slate-400 px-2">🔍 最快 (Sớm nhất):</span>
                             <select className="bg-slate-700 text-xs rounded p-1" value={searchService} onChange={e=>setSearchService(e.target.value)}>
                                 {SERVICES.map(s => <option key={s.id} value={s.id}>{s.name.split(' ')[0]}</option>)}
                             </select>
                             <select className="bg-slate-700 text-xs rounded p-1" value={searchPax} onChange={e=>setSearchPax(parseInt(e.target.value))}>
-                                {[1,2,3,4,5,6].map(n => <option key={n} value={n}>{n} 位</option>)}
+                                {[1,2,3,4].map(n=><option key={n} value={n}>{n}位</option>)}
                             </select>
-                            <button onClick={findEarliestTime} className="bg-blue-600 hover:bg-blue-500 px-3 py-1 rounded text-xs font-bold">查詢</button>
+                            <button onClick={findEarliestTime} className="bg-blue-600 px-3 py-1 rounded text-xs font-bold">找</button>
                             <span className="text-amber-400 font-mono font-bold px-2">{searchResult || '--:--'}</span>
                         </div>
 
-                        <button onClick={() => setIsModalOpen(true)} className="bg-amber-500 hover:bg-amber-400 text-black px-4 py-2 rounded-lg font-bold flex items-center gap-2 shadow">
-                            <IconComp icon={Plus} /> 新增預約 (Tạo Mới)
-                        </button>
+                        <button onClick={()=>setIsModalOpen(true)} className="bg-amber-500 text-black px-4 py-1.5 rounded font-bold flex gap-1 hover:bg-amber-400"><Icon d={PATHS.Plus} size={16}/> 新增</button>
                     </div>
 
                     <div className="flex-1 flex overflow-hidden p-4 gap-4">
-                        
-                        {/* LEFT: STAFF QUEUE */}
-                        <aside className="w-64 bg-white rounded-xl shadow border border-slate-200 flex flex-col overflow-hidden shrink-0">
+                        {/* LEFT: STAFF */}
+                        <aside className="w-60 bg-white rounded-xl shadow border border-slate-200 flex flex-col overflow-hidden shrink-0">
                             <div className="p-3 bg-slate-50 border-b font-bold text-slate-700 flex justify-between">
-                                <span>👥 技師排序 (Queue)</span>
-                                <span className="bg-green-100 text-green-800 px-2 rounded text-xs flex items-center">{staffList.filter(s=>s.status==='ready').length} Free</span>
+                                <span>👥 技師 (Staff)</span>
+                                <span className="bg-green-100 text-green-800 text-xs px-2 rounded-full">{staffList.filter(s=>s.status==='ready').length}</span>
                             </div>
-                            <div className="flex-1 overflow-y-auto p-2 space-y-2 bg-slate-50/50">
-                                {staffList.map((s, i) => (
-                                    <div key={s.id} className={`bg-white p-2 rounded border-l-4 shadow-sm flex justify-between items-center ${s.gender==='F'||s.gender==='女' ? 'staff-female' : 'staff-male'}`}>
+                            <div className="flex-1 overflow-y-auto p-2 space-y-2">
+                                {staffList.map(s => (
+                                    <div key={s.id} className={`p-2 rounded border-l-4 bg-white shadow-sm flex justify-between items-center ${s.status==='working'?'st-working':s.status==='off'?'st-off':'st-ready'}`}>
                                         <div>
                                             <div className="font-bold text-slate-800">{s.name}</div>
-                                            <div className="text-[10px] text-slate-500">{s.shiftStart || '10:00'} - {s.shiftEnd || '22:00'}</div>
+                                            <div className="text-[10px] text-slate-500">{s.shiftStart || '10:00'}-{s.shiftEnd || '22:00'}</div>
                                         </div>
                                         <div className="text-right">
-                                            {s.status === 'working' ? (
-                                                <span className="bg-red-500 text-white text-[10px] px-2 py-0.5 rounded animate-pulse">忙碌</span>
-                                            ) : s.status === 'off' ? (
-                                                <span className="bg-gray-300 text-white text-[10px] px-2 py-0.5 rounded">休假</span>
-                                            ) : (
-                                                <span className="bg-green-500 text-white text-[10px] px-2 py-0.5 rounded">待命 {i+1}</span>
-                                            )}
+                                            <span className={`text-[10px] px-1.5 py-0.5 rounded text-white ${s.status==='working'?'bg-red-500':s.status==='off'?'bg-gray-400':'bg-green-500'}`}>
+                                                {s.status==='working' ? '忙碌' : s.status==='off' ? '休假' : '待命'}
+                                            </span>
                                         </div>
                                     </div>
                                 ))}
                             </div>
                         </aside>
 
-                        {/* RIGHT: ROOM DASHBOARD */}
-                        <main className="flex-1 overflow-y-auto pr-2 space-y-6">
-                            
-                            {/* FOOT AREA */}
+                        {/* RIGHT: ROOMS */}
+                        <main className="flex-1 overflow-y-auto space-y-6 pr-2">
                             <section>
-                                <h3 className="font-bold text-slate-700 mb-2 flex items-center gap-2"><IconComp icon={Armchair}/> 足浴區 (Foot Area)</h3>
+                                <h3 className="font-bold text-slate-700 mb-2 flex gap-2"><Icon d={PATHS.Armchair}/> 足浴區 (Foot)</h3>
                                 <div className="grid grid-cols-3 lg:grid-cols-6 gap-3">
-                                    {RESOURCES.chair.map(res => {
-                                        const booking = bookings.find(b => b.resource1 === res.id && b.status === 'active');
-                                        const isSoon = bookings.find(b => b.resource1 === res.id && b.status === 'scheduled' && b.startTimeFull - currentTime < 30*60000);
-                                        
-                                        return (
-                                            <div key={res.id} 
-                                                 onClick={() => !booking && setIsModalOpen(true)}
-                                                 className={`h-28 rounded-xl border-2 flex flex-col justify-between p-2 cursor-pointer transition hover:shadow-md relative ${booking ? 'bg-red-50 border-red-400' : isSoon ? 'bg-amber-50 border-amber-400' : 'bg-white border-emerald-400'}`}>
-                                                <div className="flex justify-between">
-                                                    <span className="font-bold text-sm">{res.name}</span>
-                                                    <div className={`w-3 h-3 rounded-full ${booking ? 'bg-red-500' : isSoon ? 'bg-amber-500' : 'bg-green-500'}`}></div>
-                                                </div>
-                                                
-                                                {booking ? (
-                                                    <div className="text-xs">
-                                                        <div className="font-bold truncate">{booking.customerName.split('(')[0]}</div>
-                                                        <div className="text-[10px] text-slate-500">{booking.serviceName.split(' ')[0]}</div>
-                                                        <div className="mt-1 flex justify-between items-end">
-                                                            <span className="bg-white px-1 border rounded">{booking.staffId}</span>
-                                                            <span className="font-mono font-bold text-red-600">{formatTime(booking.endTimeFull)}</span>
-                                                        </div>
-                                                        {/* Transition Indicator */}
-                                                        {booking.type === 'combo' && (
-                                                            <div className="absolute bottom-0 left-0 w-full bg-indigo-100 text-indigo-800 text-[9px] text-center">
-                                                                轉場: {formatTime(booking.transitionTime)}
-                                                            </div>
-                                                        )}
-                                                    </div>
-                                                ) : (
-                                                    <div className="flex flex-col items-center justify-center h-full text-slate-300">
-                                                        <IconComp icon={Plus} size={24}/>
-                                                        <span className="text-xs">空位</span>
-                                                    </div>
-                                                )}
-                                            </div>
-                                        )
-                                    })}
+                                    {RESOURCES.chair.map(r => <ResourceCard key={r.id} res={r} />)}
                                 </div>
                             </section>
-
-                            {/* BODY AREA */}
                             <section>
-                                <h3 className="font-bold text-slate-700 mb-2 flex items-center gap-2"><IconComp icon={Bed}/> 身體區 (Body Area)</h3>
+                                <h3 className="font-bold text-slate-700 mb-2 flex gap-2"><Icon d={PATHS.Bed}/> 身體區 (Body)</h3>
                                 <div className="grid grid-cols-3 lg:grid-cols-6 gap-3">
-                                    {RESOURCES.bed.map(res => {
-                                        const booking = bookings.find(b => (b.resource1 === res.id || b.resource2 === res.id) && b.status === 'active');
-                                        // Logic check transition for combo
-                                        const isComboPart2 = booking && booking.resource2 === res.id;
-                                        
-                                        return (
-                                            <div key={res.id} 
-                                                 onClick={() => !booking && setIsModalOpen(true)}
-                                                 className={`h-28 rounded-xl border-2 flex flex-col justify-between p-2 cursor-pointer transition hover:shadow-md ${booking ? 'bg-red-50 border-red-400' : 'bg-white border-emerald-400'}`}>
-                                                <div className="flex justify-between">
-                                                    <span className="font-bold text-sm">{res.name}</span>
-                                                    <div className={`w-3 h-3 rounded-full ${booking ? 'bg-red-500' : 'bg-green-500'}`}></div>
-                                                </div>
-                                                {booking ? (
-                                                    <div className="text-xs">
-                                                        <div className="font-bold truncate">{booking.customerName.split('(')[0]}</div>
-                                                        {isComboPart2 && <span className="bg-indigo-100 text-indigo-700 px-1 rounded text-[9px]">Combo Part 2</span>}
-                                                        <div className="mt-1 flex justify-between items-end">
-                                                            <span className="bg-white px-1 border rounded">{booking.staffId}</span>
-                                                            <span className="font-mono font-bold text-red-600">{formatTime(booking.endTimeFull)}</span>
-                                                        </div>
-                                                    </div>
-                                                ) : (
-                                                    <div className="flex flex-col items-center justify-center h-full text-slate-300">
-                                                        <IconComp icon={Plus} size={24}/>
-                                                        <span className="text-xs">空位</span>
-                                                    </div>
-                                                )}
-                                            </div>
-                                        )
-                                    })}
+                                    {RESOURCES.bed.map(r => <ResourceCard key={r.id} res={r} />)}
                                 </div>
                             </section>
-
-                             {/* LIST TAB */}
-                             <div className="bg-white rounded-xl shadow p-4 mt-4">
-                                <div className="flex justify-between border-b pb-2 mb-2">
-                                    <h3 className="font-bold text-slate-700">📋 預約列表 (History & List)</h3>
-                                    <button className="text-xs bg-slate-200 px-2 py-1 rounded hover:bg-slate-300">管理 (Cancel)</button>
-                                </div>
-                                <table className="w-full text-sm text-left">
-                                    <thead className="bg-slate-50 text-slate-500"><tr><th className="p-2">Time</th><th className="p-2">Name</th><th className="p-2">Service</th><th className="p-2">Staff</th></tr></thead>
-                                    <tbody>
-                                        {bookings.map(b => (
-                                            <tr key={b.id} className="border-b hover:bg-slate-50">
-                                                <td className="p-2 font-mono text-emerald-700">{formatTime(b.startTimeFull)}</td>
-                                                <td className="p-2 font-bold">{b.customerName}</td>
-                                                <td className="p-2">{b.serviceName}</td>
-                                                <td className="p-2"><span className="bg-slate-100 px-1 rounded">{b.staffId}</span></td>
-                                            </tr>
-                                        ))}
-                                    </tbody>
-                                </table>
-                            </div>
-
                         </main>
                     </div>
 
-                    {/* MODAL BOOKING (GROUP SUPPORT) */}
+                    {/* MODAL ADD */}
                     {isModalOpen && (
-                        <div className="fixed inset-0 bg-black/70 z-[60] flex items-center justify-center p-4 animate-in fade-in">
-                            <div className="bg-white rounded-2xl w-full max-w-2xl max-h-[90vh] overflow-hidden flex flex-col shadow-2xl">
+                        <div className="fixed inset-0 bg-black/70 z-[60] flex items-center justify-center p-4">
+                            <div className="bg-white rounded-xl w-full max-w-lg p-0 shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
                                 <div className="bg-slate-800 p-4 text-white flex justify-between items-center shrink-0">
-                                    <h3 className="font-bold text-lg">新增預約 (New Booking)</h3>
-                                    <button onClick={()=>setIsModalOpen(false)}><IconComp icon={X}/></button>
+                                    <h3 className="font-bold text-lg">新增預約 (Booking)</h3>
+                                    <button onClick={()=>setIsModalOpen(false)}><Icon d={PATHS.X}/></button>
                                 </div>
-                                
-                                <div className="p-6 overflow-y-auto space-y-4 flex-1">
-                                    {/* Header Info */}
-                                    <div className="grid grid-cols-3 gap-4 bg-slate-50 p-3 rounded-lg border">
-                                        <div>
-                                            <label className="text-xs font-bold text-slate-500 block mb-1">類別 (Type)</label>
-                                            <div className="flex gap-2">
-                                                <button onClick={()=>setBookingForm({...bookingForm, type:'walk_in'})} className={`flex-1 py-1 rounded text-xs font-bold border ${bookingForm.type==='walk_in'?'bg-emerald-500 text-white':'bg-white text-slate-500'}`}>現場</button>
-                                                <button onClick={()=>setBookingForm({...bookingForm, type:'reservation'})} className={`flex-1 py-1 rounded text-xs font-bold border ${bookingForm.type==='reservation'?'bg-blue-500 text-white':'bg-white text-slate-500'}`}>預約</button>
-                                            </div>
-                                        </div>
-                                        <div className="col-span-2 grid grid-cols-2 gap-2">
-                                            <input className="border p-2 rounded text-sm" placeholder="姓名 (Name)" value={bookingForm.name} onChange={e=>setBookingForm({...bookingForm, name:e.target.value})} />
-                                            <input className="border p-2 rounded text-sm" placeholder="電話 (Phone)" value={bookingForm.phone} onChange={e=>setBookingForm({...bookingForm, phone:e.target.value})} />
-                                        </div>
+                                <div className="p-6 space-y-4 overflow-y-auto flex-1">
+                                    {/* Thông tin chung */}
+                                    <div className="grid grid-cols-2 gap-4 bg-slate-50 p-3 rounded border">
+                                        <input className="border p-2 rounded text-sm" placeholder="姓名 (Name)" value={bookingForm.name} onChange={e=>setBookingForm({...bookingForm, name:e.target.value})} />
+                                        <input className="border p-2 rounded text-sm" placeholder="電話 (Phone)" value={bookingForm.phone} onChange={e=>setBookingForm({...bookingForm, phone:e.target.value})} />
+                                        <input type="date" className="border p-2 rounded text-sm" value={bookingForm.date} onChange={e=>setBookingForm({...bookingForm, date:e.target.value})} />
+                                        <input type="time" className="border p-2 rounded text-sm font-mono" value={bookingForm.time} onChange={e=>setBookingForm({...bookingForm, time:e.target.value})} />
                                     </div>
 
-                                    {/* Time & Pax */}
-                                    <div className="flex gap-4 items-center">
-                                        <div className="flex-1">
-                                            <label className="text-xs font-bold text-slate-500 block mb-1">日期與時間 (Date/Time)</label>
-                                            <div className="flex gap-2">
-                                                <input type="date" className="border p-2 rounded w-full" value={bookingForm.date} onChange={e=>setBookingForm({...bookingForm, date:e.target.value})} />
-                                                <input type="time" className="border p-2 rounded w-full font-mono" value={bookingForm.time} onChange={e=>setBookingForm({...bookingForm, time:e.target.value})} />
-                                            </div>
-                                        </div>
-                                        <div className="w-24">
-                                            <label className="text-xs font-bold text-slate-500 block mb-1">人數 (Pax)</label>
-                                            <select className="border p-2 rounded w-full font-bold" value={bookingForm.pax} onChange={e=>updatePaxDetails(parseInt(e.target.value))}>
-                                                {[1,2,3,4,5,6].map(n=><option key={n} value={n}>{n}</option>)}
-                                            </select>
-                                        </div>
+                                    {/* Số người */}
+                                    <div className="flex items-center gap-2">
+                                        <span className="text-sm font-bold">人數 (Pax):</span>
+                                        <select className="border p-1 rounded w-20 text-sm font-bold" value={bookingForm.pax} onChange={e=>updatePaxDetails(parseInt(e.target.value))}>
+                                            {[1,2,3,4,5,6].map(n=><option key={n} value={n}>{n} 位</option>)}
+                                        </select>
                                     </div>
 
                                     <hr/>
 
-                                    {/* Guest Details List */}
-                                    <div className="space-y-3">
-                                        {bookingForm.details.map((guest, idx) => (
-                                            <div key={idx} className="flex gap-2 items-center bg-white border p-2 rounded hover:border-blue-400 transition">
-                                                <span className="bg-slate-200 px-2 py-1 rounded text-xs font-bold text-slate-600">客 {idx+1}</span>
-                                                <select className="flex-1 border p-1.5 rounded text-sm" 
-                                                    value={guest.serviceId} 
+                                    {/* Chi tiết từng người */}
+                                    <div className="space-y-2">
+                                        {bookingForm.details.map((d, idx) => (
+                                            <div key={idx} className="flex gap-2 items-center">
+                                                <span className="text-xs font-bold bg-slate-200 px-2 py-1 rounded">客 {idx+1}</span>
+                                                <select className="flex-1 border p-1 rounded text-xs" 
+                                                    value={d.serviceId} 
                                                     onChange={e=>{
                                                         const newD = [...bookingForm.details];
                                                         newD[idx].serviceId = e.target.value;
                                                         setBookingForm({...bookingForm, details: newD});
                                                     }}>
-                                                    {SERVICES.map(s=><option key={s.id} value={s.id}>{s.name} (${s.price})</option>)}
+                                                    {SERVICES.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}
                                                 </select>
-                                                <select className="w-32 border p-1.5 rounded text-sm"
-                                                    value={guest.staffId}
+                                                <select className="w-24 border p-1 rounded text-xs"
+                                                    value={d.staffId}
                                                     onChange={e=>{
                                                         const newD = [...bookingForm.details];
                                                         newD[idx].staffId = e.target.value;
                                                         setBookingForm({...bookingForm, details: newD});
                                                     }}>
-                                                    <option value="">🎲 隨機 (Auto)</option>
+                                                    <option value="">隨機</option>
                                                     {staffList.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}
                                                 </select>
                                             </div>
                                         ))}
                                     </div>
-
                                 </div>
-
-                                <div className="p-4 border-t bg-slate-50 flex justify-end">
-                                    <button onClick={handleBookingSubmit} className="bg-emerald-600 hover:bg-emerald-700 text-white px-6 py-2 rounded-lg font-bold shadow-lg flex items-center gap-2">
-                                        <IconComp icon={UserCheck}/> 確認預約 (Confirm)
+                                <div className="p-4 border-t bg-slate-50 shrink-0 flex justify-end">
+                                    <button onClick={handleBookingSubmit} disabled={loading} className="bg-emerald-600 hover:bg-emerald-700 text-white px-6 py-2 rounded font-bold shadow flex items-center gap-2">
+                                        {loading ? '處理中...' : <><Icon d={PATHS.UserCheck}/> 確認預約</>}
                                     </button>
                                 </div>
                             </div>
@@ -506,10 +357,8 @@
             );
         }
 
-        const IconComp = ({ icon, size=18, className="" }) => React.createElement(icon, { size, className });
         const root = ReactDOM.createRoot(document.getElementById('root'));
         root.render(<App />);
-        setTimeout(() => lucide.createIcons(), 100);
     </script>
 </body>
 </html>
