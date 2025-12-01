@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>XinWuChan POS - Full Dashboard</title>
+    <title>XinWuChan POS - Management System</title>
     
     <script src="https://cdn.tailwindcss.com"></script>
     <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.development.js"></script>
@@ -14,50 +14,54 @@
     <style>
         body { font-family: 'Microsoft JhengHei', sans-serif; background-color: #eef2f6; }
         .scrollbar-hide::-webkit-scrollbar { display: none; }
-        .card-shadow { box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06); }
-        /* Màu sắc trạng thái thợ */
-        .staff-ready { background-color: #10B981; color: white; } /* Xanh lá */
-        .staff-working { background-color: #EF4444; color: white; animation: pulse-border 2s infinite; } /* Đỏ */
-        .staff-break { background-color: #F59E0B; color: white; } /* Vàng */
-        .staff-off { background-color: #9CA3AF; color: white; opacity: 0.7; } /* Xám */
-        
-        /* Viền giới tính */
-        .gender-female { border-left: 5px solid #F472B6; } /* Hồng */
-        .gender-male { border-left: 5px solid #3B82F6; }   /* Xanh dương */
-
-        @keyframes pulse-border { 0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); } 70% { box-shadow: 0 0 0 6px rgba(239, 68, 68, 0); } 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); } }
+        /* Animation cho thẻ đang bận */
+        .pulse-border { animation: pulse-red 2s infinite; }
+        @keyframes pulse-red { 0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); } 70% { box-shadow: 0 0 0 6px rgba(239, 68, 68, 0); } 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); } }
+        /* Phân biệt giới tính */
+        .border-l-female { border-left: 5px solid #F472B6; } /* Hồng */
+        .border-l-male { border-left: 5px solid #3B82F6; }   /* Xanh */
     </style>
 </head>
 <body>
     <div id="root"></div>
 
     <script type="text/babel">
-        const { useState, useEffect, useMemo } = React;
+        const { useState, useEffect } = React;
 
-        // ICON SVG (Tự vẽ để không lỗi)
-        const Icon = ({ path, size=20, className="" }) => (
-            <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>{path}</svg>
+        // --- 1. ICON SVG (Tự vẽ để không bao giờ lỗi) ---
+        const Icon = ({ d, size=20, className="" }) => (
+            <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d={d} /></svg>
         );
-        const ICONS = {
-            Users: <><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></>,
-            Armchair: <><path d="M19 9V6a2 2 0 0 0-2-2H7a2 2 0 0 0-2 2v3"/><path d="M3 16a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-5a2 2 0 0 0-4 0v2H7v-2a2 2 0 0 0-4 0Z"/><path d="M5 18v2"/><path d="M19 18v2"/></>,
-            Bed: <><path d="M2 4v16"/><path d="M2 8h18a2 2 0 0 1 2 2v10"/><path d="M2 17h20"/><path d="M6 8v9"/></>,
-            Refresh: <><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></>,
-            Plus: <><path d="M5 12h14"/><path d="M12 5v14"/></>,
-            Clock: <><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></>,
-            User: <><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></>,
-            Close: <><path d="M18 6 6 18"/><path d="m6 6 12 12"/></>
+        const PATHS = {
+            Grid: "M3 3h7v7H3zM14 3h7v7h-7zM14 14h7v7h-7zM3 14h7v7H3z",
+            Users: "M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2M9 7a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75",
+            Plus: "M12 5v14M5 12h14",
+            Refresh: "M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8",
+            Check: "M20 6 9 17 4 12",
+            X: "M18 6 6 18M6 6l12 12",
+            Clock: "M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10zM12 6v6l4 2",
+            Home: "M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z",
+            Coffee: "M18 8h1a4 4 0 0 1 0 8h-1M2 8h16v9a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V8zM6 1v3M10 1v3M14 1v3"
         };
 
-        // CẤU HÌNH
+        // --- 2. CẤU HÌNH (ĐỒNG BỘ VỚI SERVER) ---
         const RESOURCES = {
             chair: Array.from({ length: 6 }, (_, i) => ({ id: `chair_${i + 1}`, name: `Foot ${i + 1}` })),
             bed: Array.from({ length: 6 }, (_, i) => ({ id: `bed_${i + 1}`, name: `Body ${i + 1}` })),
         };
         const SERVICES = [
-            { id: 'FT_60', name: '👣 足底按摩 (60分)' },
-            { id: 'BD_60', name: '🛏️ 全身指壓 (60分)' },
-            { id: 'CB_100', name: '🔥 招牌套餐 (100分)' }
+            { id: 'CB_190', name: '👑 帝王套餐 (190m)', price: 2000 },
+            { id: 'CB_130', name: '💎 豪華套餐 (130m)', price: 1500 },
+            { id: 'CB_100', name: '🔥 招牌套餐 (100m)', price: 999 },
+            { id: 'CB_70',  name: '⚡ 精選套餐 (70m)',  price: 900 },
+            { id: 'FT_120', name: '👣 足底按摩 (120m)', price: 1500 },
+            { id: 'FT_90',  name: '👣 足底按摩 (90m)',  price: 999 },
+            { id: 'FT_60',  name: '👣 足底按摩 (60m)',  price: 800 }, // Giá cũ để tham khảo
+            { id: 'FT_40',  name: '👣 足底按摩 (40m)',  price: 500 },
+            { id: 'BD_120', name: '🛏️ 全身指壓 (120m)', price: 1500 },
+            { id: 'BD_90',  name: '🛏️ 全身指壓 (90m)',  price: 999 },
+            { id: 'BD_70',  name: '🛏️ 全身指壓 (70m)',  price: 900 },
+            { id: 'BD_35',  name: '🛏️ 半身指壓 (35m)',  price: 500 },
         ];
 
         const formatTime = (date) => date ? date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false }) : '--:--';
@@ -85,27 +89,30 @@
                     const mappedBookings = apiBookings.map((b, idx) => {
                         const start = parseDate114(b.startTimeString);
                         const end = new Date(start.getTime() + b.duration * 60000);
-                        // Tự động gán ghế/giường để hiển thị
+                        // Auto assign resource ID for display
                         let resId = b.serviceName.includes('足') ? `chair_${(idx % 6) + 1}` : `bed_${(idx % 6) + 1}`;
                         return { ...b, id: idx, startTimeFull: start, endTimeFull: end, status: (now >= start && now <= end) ? 'active' : 'scheduled', resourceId: resId };
                     });
                     setBookings(mappedBookings);
 
                     const mappedStaff = apiStaff.map(s => {
+                        // Tìm job đang làm
                         const currentJob = mappedBookings.find(b => b.staffId === s.id && b.status === 'active');
-                        const isOff = schedule.some(sch => sch.staffId === s.id); // Cần logic check ngày chuẩn hơn ở BE
+                        // Check lịch nghỉ (Schedule)
+                        const isOff = schedule.some(sch => sch.staffId === s.id); 
+                        
                         let status = 'ready';
                         if (isOff) status = 'off';
                         if (currentJob) status = currentJob.customerName === 'Staff Action' ? 'break' : 'working';
                         return { ...s, status, currentJob };
                     });
-                    
-                    // Sort: Ready lên đầu
+
+                    // Xếp hạng: Ready -> Working -> Off
                     mappedStaff.sort((a, b) => {
                         const score = { 'ready': 1, 'working': 2, 'break': 3, 'off': 4 };
                         return score[a.status] - score[b.status];
                     });
-                    
+
                     setStaffList(mappedStaff);
                     setLoading(false);
                 } catch (err) { console.error(err); }
@@ -116,6 +123,11 @@
             const handleStaffAction = async (action, duration) => {
                 if(!actionModal) return; setLoading(true);
                 try { await axios.post('/api/admin-staff-action', { staffId: actionModal.id, action, duration }); setActionModal(null); fetchData(); } catch(e) { alert("Lỗi!"); } setLoading(false);
+            };
+
+            const handleUpdateStatus = async (rowId, newStatus) => {
+                if(!confirm(`Xác nhận: ${newStatus}?`)) return; setLoading(true);
+                try { await axios.post('/api/update-status', { rowId, status: newStatus }); fetchData(); } catch(e) { alert("Lỗi!"); } setLoading(false);
             };
             
             const handleAddBooking = async () => {
@@ -129,57 +141,50 @@
             };
 
             // --- UI COMPONENTS ---
-
             const StaffCard = ({ s }) => {
                 const isFemale = (s.gender === 'F' || s.gender === '女');
-                let statusText = "Sẵn sàng (Ready)";
-                let statusClass = "staff-ready";
+                let statusColor = "bg-emerald-500";
+                let statusText = "RẢNH (Ready)";
                 
-                if (s.status === 'working') { statusText = `Bận: ${s.currentJob?.customerName}`; statusClass = "staff-working"; }
-                if (s.status === 'break') { statusText = `Nghỉ: ${s.currentJob?.dichVu}`; statusClass = "staff-break"; }
-                if (s.status === 'off') { statusText = "Nghỉ phép (OFF)"; statusClass = "staff-off"; }
+                if (s.status === 'working') { statusColor = "bg-red-500"; statusText = "ĐANG LÀM"; }
+                if (s.status === 'break') { statusColor = "bg-amber-500"; statusText = "ĐANG NGHỈ"; }
+                if (s.status === 'off') { statusColor = "bg-gray-400"; statusText = "OFF"; }
 
                 return (
-                    <div onClick={() => setActionModal(s)} className={`p-3 mb-2 rounded-lg shadow-sm cursor-pointer flex items-center justify-between transition hover:scale-[1.02] bg-white ${isFemale ? 'gender-female' : 'gender-male'}`}>
+                    <div onClick={() => setActionModal(s)} className={`p-3 mb-2 rounded-lg shadow-sm bg-white flex items-center justify-between cursor-pointer hover:bg-gray-50 border-l-4 ${isFemale?'border-l-female':'border-l-male'}`}>
                         <div className="flex items-center gap-3">
-                            <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-lg ${statusClass}`}>
+                            <div className={`w-10 h-10 rounded-full flex items-center justify-center text-white font-bold ${statusColor}`}>
                                 {s.name.replace('號','')}
                             </div>
                             <div>
-                                <div className="font-bold text-slate-800 text-lg">{s.name}</div>
-                                <div className="text-xs text-slate-500 font-bold">{isFemale ? 'Nữ (F)' : 'Nam (M)'}</div>
+                                <div className="font-bold text-slate-800">{s.name}</div>
+                                <div className="text-xs text-slate-500">{isFemale?'Nữ':'Nam'}</div>
                             </div>
                         </div>
-                        <div className={`text-[10px] font-bold px-2 py-1 rounded text-white ${statusClass}`}>
-                            {s.status === 'working' ? 'ĐANG LÀM' : s.status === 'ready' ? 'RẢNH' : 'NGHỈ'}
+                        <div className="text-right">
+                            <span className={`text-[10px] text-white px-2 py-0.5 rounded ${statusColor}`}>{statusText}</span>
+                            {s.currentJob && <div className="text-[10px] text-slate-500 mt-1">{formatTime(s.currentJob.endTimeFull)} Xong</div>}
                         </div>
                     </div>
                 );
             };
 
-            const ResourceCard = ({ res, icon }) => {
+            const ResourceCard = ({ res }) => {
                 const active = bookings.find(b => b.resourceId === res.id && b.status === 'active');
                 return (
-                    <div className={`p-3 rounded-xl border-2 min-h-[120px] flex flex-col justify-between relative shadow-sm transition ${active ? 'bg-red-50 border-red-400' : 'bg-white border-slate-200'}`}>
-                        <div className="flex justify-between">
-                            <span className="font-bold text-slate-600">{res.name}</span>
-                            {active && <span className="animate-pulse w-3 h-3 bg-red-500 rounded-full"></span>}
-                        </div>
-                        
+                    <div className={`p-3 rounded-xl border min-h-[110px] flex flex-col justify-between shadow-sm ${active ? 'bg-red-50 border-red-400 pulse-border' : 'bg-white border-slate-200'}`}>
+                        <div className="flex justify-between font-bold text-slate-600"><span>{res.name}</span>{active && <span className="text-xs text-red-600">BUSY</span>}</div>
                         {active ? (
                             <div className="mt-2">
-                                <div className="font-bold text-slate-800 flex items-center gap-1"><Icon path={ICONS.User} size={14}/> {active.customerName}</div>
-                                <div className="text-xs text-slate-600 mt-1">{active.serviceName.split('(')[0]}</div>
-                                <div className="mt-2 flex justify-between items-center border-t border-red-200 pt-1">
-                                    <span className="font-bold text-red-700 bg-red-100 px-1 rounded text-xs">{active.staffId}</span>
-                                    <span className="text-xs font-mono font-bold flex items-center gap-1"><Icon path={ICONS.Clock} size={12}/> {formatTime(active.endTimeFull)}</span>
+                                <div className="text-sm font-bold text-slate-800 truncate">{active.customerName}</div>
+                                <div className="text-xs text-slate-500">{active.serviceName.split('(')[0]}</div>
+                                <div className="flex justify-between items-center mt-1 border-t pt-1 border-red-200">
+                                    <span className="bg-white px-1 rounded border text-[10px] font-bold">{active.staffId}</span>
+                                    <span className="text-[10px] font-mono font-bold flex items-center gap-1"><Icon d={PATHS.Clock} size={10}/> {formatTime(active.endTimeFull)}</span>
                                 </div>
                             </div>
                         ) : (
-                            <div className="flex flex-col items-center justify-center h-full text-slate-300">
-                                {icon}
-                                <span className="text-xs font-bold mt-1">TRỐNG</span>
-                            </div>
+                            <div className="flex justify-center items-center text-slate-300 h-full text-xs font-bold">TRỐNG</div>
                         )}
                     </div>
                 )
@@ -187,71 +192,70 @@
 
             return (
                 <div className="flex flex-col h-screen">
-                    <header className="bg-slate-800 text-white p-4 shadow-lg flex justify-between items-center z-50">
-                        <h1 className="font-bold text-xl tracking-wide">💆 XinWuChan Center</h1>
-                        <div className="flex gap-3">
-                            <button onClick={fetchData} className="bg-slate-600 p-2 rounded-full hover:bg-slate-500 transition"><Icon path={ICONS.Refresh}/></button>
-                            <button onClick={()=>setIsAddModalOpen(true)} className="bg-emerald-500 text-white px-4 py-2 rounded-lg font-bold shadow-lg hover:bg-emerald-400 flex items-center gap-2">
-                                <Icon path={ICONS.Plus}/> Thêm Khách
-                            </button>
+                    {/* HEADER */}
+                    <header className="bg-slate-900 text-white p-3 shadow-lg flex justify-between items-center z-50">
+                        <h1 className="font-bold text-lg flex items-center gap-2"><Icon d={PATHS.Grid}/> XinWuChan POS</h1>
+                        <div className="flex gap-2">
+                            <button onClick={fetchData} className="bg-slate-700 p-2 rounded hover:bg-slate-600"><Icon d={PATHS.Refresh}/></button>
+                            <button onClick={()=>setIsAddModalOpen(true)} className="bg-amber-500 text-black px-3 py-1.5 rounded font-bold flex items-center gap-1 hover:bg-amber-400"><Icon d={PATHS.Plus} size={16}/> Thêm Khách</button>
                         </div>
                     </header>
 
-                    <div className="flex-1 flex overflow-hidden bg-slate-100 p-4 gap-6">
-                        
-                        {/* CỘT TRÁI: DANH SÁCH THỢ */}
-                        <aside className="w-1/4 min-w-[250px] bg-white rounded-2xl shadow-md flex flex-col overflow-hidden border border-slate-200">
-                            <div className="p-4 border-b bg-slate-50 font-bold text-slate-600 flex justify-between items-center">
+                    <div className="flex-1 flex overflow-hidden p-4 gap-6">
+                        {/* SIDEBAR: STAFF */}
+                        <aside className="w-64 flex flex-col bg-white rounded-xl shadow border border-slate-200 shrink-0 overflow-hidden">
+                            <div className="p-3 bg-slate-50 border-b font-bold text-slate-700 flex justify-between">
                                 <span>👥 Danh sách Thợ</span>
                                 <span className="bg-green-100 text-green-800 text-xs px-2 py-1 rounded-full">{staffList.filter(s=>s.status==='ready').length} Ready</span>
                             </div>
-                            <div className="flex-1 overflow-y-auto p-3 bg-slate-50/50">
+                            <div className="flex-1 overflow-y-auto p-2 bg-slate-50/50">
                                 {staffList.map(s => <StaffCard key={s.id} s={s} />)}
                             </div>
                         </aside>
 
-                        {/* CỘT PHẢI: SƠ ĐỒ GHẾ & GIƯỜNG */}
+                        {/* MAIN DASHBOARD */}
                         <main className="flex-1 overflow-y-auto pr-2 space-y-6">
-                            
-                            {/* Khu vực Ghế */}
+                            {/* GHẾ */}
                             <section>
-                                <h3 className="font-bold text-slate-700 mb-3 text-lg flex items-center gap-2"><Icon path={ICONS.Armchair}/> Khu Vực Chân (Foot Massage)</h3>
-                                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4">
-                                    {RESOURCES.chair.map(r => <ResourceCard key={r.id} res={r} icon={<Icon path={ICONS.Armchair} size={32}/>}/>)}
+                                <h3 className="font-bold text-slate-700 mb-3 flex items-center gap-2">🦶 Khu Vực Chân (Foot Area)</h3>
+                                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+                                    {RESOURCES.chair.map(r => <ResourceCard key={r.id} res={r} />)}
                                 </div>
                             </section>
-
-                            {/* Khu vực Giường */}
+                            {/* GIƯỜNG */}
                             <section>
-                                <h3 className="font-bold text-slate-700 mb-3 text-lg flex items-center gap-2"><Icon path={ICONS.Bed}/> Khu Vực Body (Body Massage)</h3>
-                                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4">
-                                    {RESOURCES.bed.map(r => <ResourceCard key={r.id} res={r} icon={<Icon path={ICONS.Bed} size={32}/>}/>)}
+                                <h3 className="font-bold text-slate-700 mb-3 flex items-center gap-2">🛏️ Khu Vực Body (Body Area)</h3>
+                                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+                                    {RESOURCES.bed.map(r => <ResourceCard key={r.id} res={r} />)}
                                 </div>
                             </section>
-
+                            {/* DANH SÁCH ĐƠN HÀNG */}
+                            <section className="bg-white rounded-xl shadow border border-slate-200 overflow-hidden">
+                                <div className="p-3 bg-slate-50 border-b font-bold text-slate-700">📋 Danh sách hôm nay</div>
+                                {bookings.map((b,i) => (
+                                    <div key={i} className={`flex justify-between items-center p-3 border-b ${b.status==='active'?'bg-white':'bg-gray-50 opacity-60'}`}>
+                                        <div className="flex gap-3 items-center">
+                                            <span className="font-mono font-bold text-emerald-600">{formatTime(b.startTimeFull)}</span>
+                                            <div>
+                                                <div className="font-bold text-sm">{b.customerName}</div>
+                                                <div className="text-xs text-slate-500">{b.serviceName.split('(')[0]} - {b.staffId}</div>
+                                            </div>
+                                        </div>
+                                        <div className="flex gap-2">
+                                            {b.status === 'active' && <button onClick={()=>handleUpdateStatus(b.rowId, '✅ 已完成')} className="p-1.5 bg-green-100 text-green-700 rounded hover:bg-green-200"><Icon d={PATHS.Check}/></button>}
+                                            <button onClick={()=>handleUpdateStatus(b.rowId, '❌ 已取消')} className="p-1.5 bg-red-100 text-red-700 rounded hover:bg-red-200"><Icon d={PATHS.X}/></button>
+                                        </div>
+                                    </div>
+                                ))}
+                            </section>
                         </main>
                     </div>
 
-                    {/* MODAL THAO TÁC THỢ */}
-                    {actionModal && (
-                        <div className="fixed inset-0 bg-black/60 z-[60] flex items-center justify-center p-4">
-                            <div className="bg-white rounded-xl w-80 p-6 shadow-2xl text-center animate-in fade-in zoom-in duration-200">
-                                <h3 className="text-xl font-bold mb-1 text-slate-800">{actionModal.name}</h3>
-                                <p className="text-sm text-slate-500 mb-6">{actionModal.status === 'ready' ? 'Đang rảnh' : 'Đang bận'}</p>
-                                <div className="space-y-3">
-                                    <button onClick={()=>handleStaffAction('break', 30)} className="w-full py-3 bg-yellow-100 text-yellow-800 rounded-lg font-bold hover:bg-yellow-200">🍱 Đi ăn (30p)</button>
-                                    <button onClick={()=>handleStaffAction('leave', 0)} className="w-full py-3 bg-red-100 text-red-800 rounded-lg font-bold hover:bg-red-200">🏠 Về sớm / Nghỉ</button>
-                                    <button onClick={()=>setActionModal(null)} className="w-full py-3 bg-gray-100 text-gray-600 rounded-lg font-bold hover:bg-gray-200 mt-2">Đóng</button>
-                                </div>
-                            </div>
-                        </div>
-                    )}
-
-                    {/* MODAL THÊM KHÁCH */}
+                    {/* MODAL ADD */}
                     {isAddModalOpen && (
-                         <div className="fixed inset-0 bg-black/60 z-[60] flex items-center justify-center p-4">
+                        <div className="fixed inset-0 bg-black/70 z-[60] flex items-center justify-center p-4">
                             <div className="bg-white rounded-xl w-96 p-6 shadow-2xl">
-                                <div className="flex justify-between mb-4"><h3 className="font-bold text-lg">Thêm Khách Tại Quầy</h3><button onClick={()=>setIsAddModalOpen(false)}><Icon path={ICONS.Close}/></button></div>
+                                <div className="flex justify-between mb-4"><h3 className="font-bold text-lg">Thêm Khách</h3><button onClick={()=>setIsAddModalOpen(false)}><Icon d={PATHS.X}/></button></div>
                                 <div className="space-y-3">
                                     <input className="border w-full p-2 rounded" placeholder="Tên Khách" value={form.name} onChange={e=>setForm({...form, name:e.target.value})}/>
                                     <input className="border w-full p-2 rounded" placeholder="SĐT" value={form.phone} onChange={e=>setForm({...form, phone:e.target.value})}/>
@@ -261,6 +265,21 @@
                                         <select className="border w-full p-2 rounded" value={form.pax} onChange={e=>setForm({...form, pax:e.target.value})}>{[1,2,3,4].map(n=><option value={n}>{n} khách</option>)}</select>
                                     </div>
                                     <button onClick={handleAddBooking} disabled={loading} className="w-full bg-emerald-600 text-white py-3 rounded font-bold shadow mt-2">{loading?'Đang lưu...':'Xác nhận'}</button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* MODAL STAFF ACTION */}
+                    {actionModal && (
+                        <div className="fixed inset-0 bg-black/60 z-[60] flex items-center justify-center p-4">
+                            <div className="bg-white rounded-xl w-80 p-6 shadow-2xl text-center">
+                                <h3 className="font-bold text-xl mb-1 text-slate-800">{actionModal.name}</h3>
+                                <p className="text-sm text-slate-500 mb-6">{actionModal.status === 'ready' ? 'Đang rảnh' : 'Đang bận'}</p>
+                                <div className="space-y-3">
+                                    <button onClick={()=>handleStaffAction('break', 30)} className="w-full py-3 bg-yellow-100 text-yellow-800 rounded-lg font-bold hover:bg-yellow-200 flex justify-center gap-2"><Icon d={PATHS.Coffee}/> Đi ăn (30p)</button>
+                                    <button onClick={()=>handleStaffAction('leave', 0)} className="w-full py-3 bg-red-100 text-red-800 rounded-lg font-bold hover:bg-red-200 flex justify-center gap-2"><Icon d={PATHS.Home}/> Về sớm</button>
+                                    <button onClick={()=>setActionModal(null)} className="w-full py-3 bg-gray-100 text-gray-600 rounded-lg font-bold hover:bg-gray-200 mt-2">Đóng</button>
                                 </div>
                             </div>
                         </div>
