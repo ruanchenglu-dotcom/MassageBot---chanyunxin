@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>XinWuChan POS - Professional</title>
+    <title>XinWuChan POS - Smart Management</title>
     
     <script src="https://cdn.tailwindcss.com"></script>
     <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.development.js"></script>
@@ -12,74 +12,60 @@
     <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/axios/1.6.7/axios.min.js"></script>
 
     <style>
-        body { font-family: 'Microsoft JhengHei', sans-serif; background-color: #f8fafc; }
+        body { font-family: 'Microsoft JhengHei', sans-serif; background-color: #f1f5f9; }
         .scrollbar-hide::-webkit-scrollbar { display: none; }
         
-        /* Timeline Grid */
-        .timeline-grid { background-size: 5.55% 100%; background-image: linear-gradient(to right, #e5e7eb 1px, transparent 1px); }
-
-        /* Staff Card */
+        /* STAFF CARD STYLE */
         .staff-card { min-width: 90px; height: 100px; transition: all 0.2s; border-top: 4px solid transparent; }
         .staff-card:hover { transform: translateY(-3px); box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1); }
         
-        /* Gender Colors */
+        /* GENDER COLORS */
         .female-style { border-color: #EC4899; } 
         .male-style { border-color: #3B82F6; }
+        .female-name { color: #DC2626; font-weight: 900; } 
+        .male-name { color: #1E3A8A; font-weight: 700; }
         
-        /* Status Colors */
+        /* STATUS COLORS */
         .st-ready { background-color: #10B981; color: white; }
         .st-working { background-color: #EF4444; color: white; animation: pulse 2s infinite; }
         .st-off { background-color: #9CA3AF; color: #eee; }
         .st-break { background-color: #F59E0B; color: white; }
-
+        
         @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.7; } 100% { opacity: 1; } }
         
-        /* Error Box */
+        /* TIMELINE */
+        .timeline-grid { background-size: 5.55% 100%; background-image: linear-gradient(to right, #e5e7eb 1px, transparent 1px); }
+        
+        /* ERROR BOX */
         #error-box { display: none; position: fixed; inset: 0; background: #fee2e2; color: #991b1b; padding: 2rem; z-index: 9999; }
     </style>
 </head>
 <body>
     <div id="error-box">
-        <h1 class="text-2xl font-bold">⚠️ 系統錯誤 (System Error)</h1>
-        <pre id="error-msg" class="mt-4 text-sm font-mono bg-white p-4 border border-red-300 rounded">Loading...</pre>
-        <button onclick="location.reload()" class="mt-6 bg-red-600 text-white px-6 py-2 rounded font-bold">重新整理 (Reload)</button>
+        <h1 class="text-2xl font-bold">⚠️ 系統錯誤 (Error)</h1>
+        <pre id="error-msg" class="mt-4 text-sm bg-white p-4 rounded border border-red-300">Loading...</pre>
+        <button onclick="location.reload()" class="mt-6 bg-red-600 text-white px-6 py-2 rounded font-bold">Reload</button>
     </div>
-
     <div id="root"></div>
 
     <script>
         window.onerror = function(msg, url, line) {
             document.getElementById('root').style.display = 'none';
             document.getElementById('error-box').style.display = 'block';
-            document.getElementById('error-msg').innerText = `Error: ${msg}\nLine: ${line}`;
+            document.getElementById('error-msg').innerText = `${msg}\nLine: ${line}`;
         };
     </script>
 
     <script type="text/babel">
         const { useState, useEffect, useMemo } = React;
 
-        // --- 1. BỘ ICON SVG AN TOÀN (KHÔNG LO LỖI) ---
-        const Icon = ({ d, size=20, className="" }) => (
-            <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d={d} /></svg>
-        );
-        const ICONS = {
-            Grid: "M3 3h7v7H3zM14 3h7v7h-7zM14 14h7v7h-7zM3 14h7v7H3z",
-            Users: "M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2M9 7a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75",
-            Plus: "M12 5v14M5 12h14",
-            Clock: "M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10zM12 6v6l4 2",
-            Armchair: "M19 9V6a2 2 0 0 0-2-2H7a2 2 0 0 0-2 2v3M3 16a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-5a2 2 0 0 0-4 0v2H7v-2a2 2 0 0 0-4 0ZM5 18v2M19 18v2",
-            Bed: "M2 4v16M2 8h18a2 2 0 0 1 2 2v10M2 17h20M6 8v9",
-            Refresh: "M23 4v6h-6M1 20v-6h6",
-            X: "M18 6 6 18M6 6l12 12",
-            Check: "M20 6 9 17 4 12",
-            Trash: "M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2",
-            Coffee: "M18 8h1a4 4 0 0 1 0 8h-1M2 8h16v9a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V8zM6 1v3M10 1v3M14 1v3",
-            LogOut: "M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9",
-            List: "M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01",
-            Calendar: "M19 4H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2zM16 2v4M8 2v4M3 10h18"
+        // --- ICONS ---
+        const Icon = ({ d, size=20, className="" }) => <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={className}><path d={d}/></svg>;
+        const PATHS = {
+            Grid: "M3 3h7v7H3zM14 3h7v7h-7zM14 14h7v7h-7zM3 14h7v7H3z", Refresh: "M23 4v6h-6M1 20v-6h6", Plus: "M12 5v14M5 12h14", Clock: "M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10zM12 6v6l4 2", Trash: "M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2", Armchair: "M19 9V6a2 2 0 0 0-2-2H7a2 2 0 0 0-2 2v3M3 16a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-5a2 2 0 0 0-4 0v2H7v-2a2 2 0 0 0-4 0ZM5 18v2M19 18v2", Bed: "M2 4v16M2 8h18a2 2 0 0 1 2 2v10M2 17h20M6 8v9", X: "M18 6L6 18M6 6l12 12", Users: "M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2M9 7a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75", Coffee: "M18 8h1a4 4 0 0 1 0 8h-1M2 8h16v9a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V8zM6 1v3M10 1v3M14 1v3", LogOut: "M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9", Search: "M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
         };
 
-        // --- 2. CẤU HÌNH ---
+        // --- DATA ---
         const SERVICES = [
             { id: 'CB_190', name: '👑 帝王套餐 (190分)', duration: 190, type: 'combo' },
             { id: 'CB_130', name: '💎 豪華套餐 (130分)', duration: 130, type: 'combo' },
@@ -100,13 +86,13 @@
             bed: Array.from({ length: 6 }, (_, i) => ({ id: `bed_${i + 1}`, name: `Body ${i + 1}` })),
         };
 
-        const parseDate114 = (str) => {
-            if (!str) return new Date();
-            try { const [d, t] = str.split(' '); const [y, m, day] = d.split('/'); const [hh, mm] = t.split(':'); return new Date(parseInt(y)+1911, parseInt(m)-1, parseInt(day), parseInt(hh), parseInt(mm)); } catch (e) { return new Date(); }
+        const formatTime = (d) => d ? new Date(d).toLocaleTimeString('en-US', {hour:'2-digit', minute:'2-digit', hour12:false}) : '--:--';
+        const parse114 = (str) => {
+            if(!str) return new Date();
+            try { const [d, t] = str.split(' '); const [y, m, day] = d.split('/'); const [hh, mm] = t.split(':'); return new Date(parseInt(y)+1911, parseInt(m)-1, parseInt(day), parseInt(hh), parseInt(mm)); } catch(e){ return new Date(); }
         };
-        const formatTime = (d) => d ? d.toLocaleTimeString('en-US', {hour:'2-digit', minute:'2-digit', hour12:false}) : '--:--';
 
-        // --- 3. COMPONENTS ---
+        // --- TIMELINE COMPONENT ---
         const TimelineComponent = ({ bookings }) => {
             const startHour = 8; const totalHours = 18; 
             const hours = Array.from({length: totalHours + 1}, (_, i) => (startHour + i) % 24);
@@ -146,20 +132,20 @@
             );
         };
 
+        // --- APP ---
         function App() {
             const [bookings, setBookings] = useState([]);
             const [staffList, setStaffList] = useState([]);
-            const [checkedInStaff, setCheckedInStaff] = useState([]); 
+            const [checkedInStaff, setCheckedInStaff] = useState([]);
             const [loading, setLoading] = useState(true);
-            const [viewMode, setViewMode] = useState('dashboard'); // dashboard | list
-            const [listViewMode, setListViewMode] = useState('table'); // table | timeline
-
-            // Modal & Form
+            const [viewMode, setViewMode] = useState('dashboard'); 
+            const [listViewMode, setListViewMode] = useState('table');
+            
             const [isAddModal, setIsAddModal] = useState(false);
             const [actionModal, setActionModal] = useState(null);
             const [form, setForm] = useState({ name: '', phone: '', pax: 1, date: new Date().toISOString().split('T')[0], time: '14:00', details: [{ serviceId: 'CB_100', staffId: '' }] });
 
-            // Search
+            // SMART SEARCH STATE
             const [searchRes, setSearchRes] = useState(null);
             const [searchParams, setSearchParams] = useState({ svcId: 'CB_100', pax: 1 });
 
@@ -170,19 +156,18 @@
                     const { bookings: rawBookings, staffList: rawStaff, schedule } = res.data;
                     const savedCheckIn = JSON.parse(localStorage.getItem('checkedInStaff') || '[]');
                     setCheckedInStaff(savedCheckIn);
-                    
-                    const now = new Date();
+
                     const mappedBookings = rawBookings.map((b, idx) => {
-                        const start = parseDate114(b.startTimeString);
+                        const start = parse114(b.startTimeString);
                         const svc = SERVICES.find(s => b.serviceName.includes(s.name.split('(')[0])) || SERVICES[0];
                         const end = new Date(start.getTime() + svc.duration * 60000);
                         
                         let resId = 'queue';
-                        if (svc.type === 'foot') resId = `chair_${(idx%6)+1}`;
-                        else if (svc.type === 'body') resId = `bed_${(idx%6)+1}`;
+                        if (b.serviceName.includes('足') || b.serviceName.includes('Foot')) resId = `chair_${(idx%6)+1}`;
                         else resId = `bed_${(idx%6)+1}`; 
 
                         let status = 'scheduled';
+                        const now = new Date();
                         if (b.status && b.status.includes('取消')) status = 'cancelled';
                         else if (now >= start && now <= end) status = 'active';
                         
@@ -192,24 +177,25 @@
                     mappedBookings.sort((a, b) => b.startTimeFull - a.startTimeFull);
                     setBookings(mappedBookings);
 
-                    // Map Staff
                     const mappedStaff = rawStaff.map(s => {
                         const checkInData = savedCheckIn.find(c => c.id === s.id);
                         const isCheckedIn = !!checkInData;
                         const checkInTime = checkInData ? checkInData.time : 0;
-
                         const currentJob = mappedBookings.find(b => b.staffId === s.id && b.status === 'active');
-                        let status = isCheckedIn ? 'ready' : 'off';
-                        if (currentJob) status = currentJob.customerName === 'Staff Action' ? 'break' : 'working';
+                        const isOff = schedule.some(sch => sch.staffId === s.id);
+                        
+                        let status = 'ready';
+                        if (isOff) status = 'off';
+                        else if (!isCheckedIn) status = 'off'; 
+                        else if (currentJob) status = currentJob.customerName === 'Staff Action' ? 'break' : 'working';
                         
                         return { ...s, status, checkInTime, currentJob };
                     });
 
-                    // SORT STAFF: Checkin sớm -> Checkin muộn -> Off
                     mappedStaff.sort((a, b) => {
                          if (a.status === 'off' && b.status !== 'off') return 1;
                          if (b.status === 'off' && a.status !== 'off') return -1;
-                         return a.checkInTime - b.checkInTime; // Ai checkin sớm (số nhỏ) lên đầu (trái)
+                         return a.checkInTime - b.checkInTime; 
                     });
 
                     setStaffList(mappedStaff);
@@ -219,25 +205,48 @@
 
             useEffect(() => { fetchData(); const t = setInterval(fetchData, 10000); return () => clearInterval(t); }, []);
 
-            // ACTIONS
+            // --- TÍNH NĂNG TÌM GIỜ (ĐÃ KHÔI PHỤC) ---
+            const findEarliest = () => {
+                setSearchRes("Calculating...");
+                const svc = SERVICES.find(s => s.id === searchParams.svcId);
+                // Logic: Tìm slot 15p
+                let now = new Date();
+                now.setMinutes(Math.ceil(now.getMinutes()/15)*15); // Round up
+                
+                for(let i=0; i<24; i++) { // Check 6h tới
+                    let slot = new Date(now.getTime() + i*15*60000);
+                    // 1. Check Staff Available
+                    const freeStaff = staffList.filter(s => {
+                        if(s.status === 'off') return false;
+                        if(s.status === 'ready') return true;
+                        if(s.currentJob && s.currentJob.endTimeFull <= slot) return true;
+                        return false;
+                    }).length;
+                    
+                    // 2. Check Resource (Simple)
+                    if (freeStaff >= searchParams.pax) {
+                        setSearchRes(formatTime(slot));
+                        return;
+                    }
+                }
+                setSearchRes("Full today");
+            };
+
+            // --- ACTIONS ---
             const toggleCheckIn = (s) => {
                 let newCheckIn = [...checkedInStaff];
                 if (newCheckIn.find(c => c.id === s.id)) newCheckIn = newCheckIn.filter(c => c.id !== s.id);
                 else newCheckIn.push({ id: s.id, time: Date.now() });
-                
                 localStorage.setItem('checkedInStaff', JSON.stringify(newCheckIn));
                 setCheckedInStaff(newCheckIn);
                 fetchData();
             };
 
-            const handleStaffAction = async (action, duration) => {
-                if(!actionModal) return; try { await axios.post('/api/admin-staff-action', { staffId: actionModal.id, action, duration }); setActionModal(null); fetchData(); } catch(e) {}
-            };
-            
+            const handleStaffAction = async (action, duration) => { if(!actionModal) return; try { await axios.post('/api/admin-staff-action', { staffId: actionModal.id, action, duration }); setActionModal(null); fetchData(); } catch(e) {} };
             const handleUpdateStatus = async (rowId, status) => { if(!confirm("確認?")) return; await axios.post('/api/update-status', { rowId, status }); fetchData(); };
-
+            const updateGuestCount = (n) => { const count = parseInt(n); setForm(prev => { const newGuests = [...prev.details]; if (count > newGuests.length) { for(let i=newGuests.length; i<count; i++) newGuests.push({ serviceId: 'CB_100', staffId: '' }); } else { newGuests.splice(count); } return { ...prev, pax: count, details: newGuests }; }); };
             const handleBookingSubmit = async () => {
-                 // (Logic submit như cũ - rút gọn để code ngắn)
+                 if (!form.name) return alert("Nhập tên!");
                  for (let i=0; i<form.details.length; i++) {
                     const detail = form.details[i];
                     const svc = SERVICES.find(s => s.id === detail.serviceId);
@@ -249,18 +258,7 @@
                 setIsAddModal(false); fetchData();
             };
 
-             const updateGuestCount = (n) => {
-                const count = parseInt(n);
-                setForm(prev => {
-                    const newGuests = [...prev.details];
-                    if (count > newGuests.length) {
-                        for(let i=newGuests.length; i<count; i++) newGuests.push({ serviceId: 'CB_100', staffId: '' });
-                    } else { newGuests.splice(count); }
-                    return { ...prev, pax: count, details: newGuests };
-                });
-            };
-
-            // --- UI ---
+            // --- UI CARDS ---
             const StaffCard = ({ s }) => {
                 const isFemale = s.gender === 'F' || s.gender === '女';
                 let stClass = 'st-ready'; let stText = '待命';
@@ -272,7 +270,7 @@
                     <div onClick={()=>setActionModal(s)} className={`staff-card shrink-0 bg-white rounded shadow cursor-pointer flex flex-col items-center justify-between relative border-2 ${isFemale?'female-style':'male-style'} ${s.status==='off'?'opacity-50':''}`}>
                          <div className={`w-full h-1.5 ${stClass}`}></div>
                          <div className="flex-1 flex flex-col items-center justify-center">
-                             <div className="font-black text-2xl text-slate-800">{s.name.replace('號','')}</div>
+                             <div className={`font-black text-2xl ${isFemale?'female-name':'male-name'}`}>{s.name.replace('號','')}</div>
                              <div className="text-[10px] text-slate-500">{isFemale?'女':'男'}</div>
                          </div>
                          <div className={`w-full text-center text-[10px] text-white font-bold py-0.5 ${stClass}`}>{stText}</div>
@@ -285,31 +283,41 @@
                 return (
                     <div className={`p-2 rounded border-2 h-24 flex flex-col justify-between shadow-sm cursor-pointer bg-white ${active?'border-red-500 bg-red-50':'border-emerald-200 hover:border-emerald-400'}`} onClick={()=>!active && setIsAddModal(true)}>
                         <div className="flex justify-between"><span className="font-bold text-xs text-slate-600">{res.name}</span>{active && <span className="text-[9px] bg-red-500 text-white px-1 rounded animate-pulse">BUSY</span>}</div>
-                        {active ? <div className="text-xs font-bold truncate">{active.customerName}<br/><span className="text-red-600 font-mono">{formatTime(active.endTimeFull)} 完</span></div> : <div className="text-center text-slate-300"><Icon d={type==='chair'?ICONS.Armchair:ICONS.Bed} size={24}/></div>}
+                        {active ? <div className="text-xs font-bold truncate">{active.customerName}<br/><span className="text-red-600 font-mono text-right">{formatTime(active.endTimeFull)} 完</span></div> : <div className="text-center text-slate-300"><Icon d={type==='chair'?ICONS.Armchair:ICONS.Bed} size={24}/></div>}
                     </div>
                 )
             };
 
             return (
                 <div className="min-h-screen flex flex-col bg-slate-100">
-                    {/* HEADER */}
+                    {/* HEADER & SMART SEARCH */}
                     <header className="bg-slate-900 text-white p-2 flex justify-between items-center shadow shrink-0 z-50">
-                        <div className="font-bold flex gap-2 items-center"><Icon d={ICONS.Grid}/> POS</div>
-                         <div className="flex gap-2">
+                        <div className="font-bold flex gap-2 items-center px-2 text-emerald-400"><Icon d={ICONS.Grid}/> POS</div>
+                        
+                        {/* THANH TÌM KIẾM NHANH (ĐÃ KHÔI PHỤC) */}
+                        <div className="flex items-center bg-slate-800 rounded p-1 gap-1">
+                            <span className="text-xs text-slate-400 hidden md:block">🔍 找位:</span>
+                            <select className="bg-slate-700 text-xs rounded p-1 w-24" value={searchParams.svcId} onChange={e=>setSearchParams({...searchParams, svcId:e.target.value})}>{SERVICES.map(s=><option value={s.id}>{s.name.split(' ')[0]}</option>)}</select>
+                            <select className="bg-slate-700 text-xs rounded p-1" value={searchParams.pax} onChange={e=>setSearchParams({...searchParams, pax:parseInt(e.target.value)})}>{[1,2,3,4].map(n=><option value={n}>{n}人</option>)}</select>
+                            <button onClick={findEarliest} className="bg-blue-600 px-2 py-1 rounded text-xs font-bold hover:bg-blue-500"><Icon d={ICONS.Search} size={14}/></button>
+                            <span className="text-amber-400 text-xs font-mono px-1 font-bold">{searchRes || '--:--'}</span>
+                        </div>
+
+                        <div className="flex gap-2">
                             <button onClick={()=>setViewMode('dashboard')} className={`px-2 py-1 rounded text-xs font-bold ${viewMode==='dashboard'?'bg-slate-700':''}`}>Sơ đồ</button>
                             <button onClick={()=>setViewMode('staff_mgr')} className={`px-2 py-1 rounded text-xs font-bold ${viewMode==='staff_mgr'?'bg-slate-700':''}`}>Quản lý NV</button>
                             <button onClick={()=>setIsAddModal(true)} className="bg-amber-500 text-black px-3 py-1 rounded font-bold text-xs flex gap-1"><Icon d={ICONS.Plus} size={14}/> 新增</button>
                         </div>
                     </header>
 
-                    {/* STAFF RAIL (REVERSE) */}
+                    {/* STAFF RAIL */}
                     {viewMode === 'dashboard' && (
                         <div className="bg-white p-2 border-b shadow-sm overflow-x-auto flex flex-row-reverse gap-2 shrink-0 h-32 items-center px-2">
                             {staffList.map(s => <StaffCard key={s.id} s={s} />)}
                         </div>
                     )}
 
-                    {/* MAIN */}
+                    {/* MAIN CONTENT */}
                     <main className="flex-1 overflow-y-auto p-3 space-y-3">
                         {viewMode === 'dashboard' ? (
                             <>
@@ -324,7 +332,7 @@
                                     </div>
                                 </div>
 
-                                <div className="bg-white rounded shadow border overflow-hidden flex flex-col h-[400px]">
+                                <div className="bg-white rounded shadow border overflow-hidden flex flex-col h-[350px]">
                                     <div className="p-2 bg-slate-50 border-b flex justify-between items-center">
                                         <h3 className="font-bold text-xs text-slate-700 flex gap-1"><Icon d={ICONS.Clock} size={14}/> 預約</h3>
                                         <div className="flex bg-slate-200 p-0.5 rounded text-[10px]">
@@ -353,14 +361,13 @@
                                 </div>
                             </>
                         ) : (
-                            /* STAFF MGR VIEW */
                             <div className="bg-white rounded shadow p-4">
                                 <h2 className="font-bold mb-4 flex gap-2"><Icon d={ICONS.Users}/> Quản Lý Check-In</h2>
                                 <div className="grid grid-cols-3 gap-3">
                                     {staffList.map(s => (
-                                        <div key={s.id} onClick={()=>toggleCheckIn(s)} className={`p-3 rounded border-2 cursor-pointer ${s.status!=='off'?'border-emerald-500 bg-emerald-50':'border-slate-200 bg-white grayscale'}`}>
+                                        <div key={s.id} onClick={()=>toggleCheckIn(s)} className={`p-3 rounded border-2 cursor-pointer text-center ${s.status!=='off'?'border-emerald-500 bg-emerald-50':'border-slate-200 bg-white grayscale'}`}>
                                             <div className="font-bold text-lg">{s.name}</div>
-                                            <div className="text-xs">{s.status!=='off'?'Đã đến':'Chưa đến'}</div>
+                                            <div className="text-xs mt-1">{s.status!=='off'?'Checked In':'Checked Out'}</div>
                                         </div>
                                     ))}
                                 </div>
@@ -382,7 +389,7 @@
                         </div>
                     )}
                     
-                    {/* MODAL ADD (BẠN GIỮ NGUYÊN CODE ADD MODAL TỪ BẢN TRƯỚC NHÉ, TÔI RÚT GỌN ĐỂ VỪA TIN NHẮN) */}
+                    {/* MODAL ADD */}
                     {isAddModal && (
                          <div className="fixed inset-0 bg-black/70 z-[60] flex items-center justify-center p-4">
                             <div className="bg-white rounded-xl w-full max-w-md p-6 shadow-2xl h-[80vh] flex flex-col">
@@ -392,14 +399,14 @@
                                     <input className="border w-full p-2 rounded" placeholder="SĐT" value={form.phone} onChange={e=>setForm({...form, phone:e.target.value})}/>
                                     <div className="flex gap-2">
                                         <input type="time" className="border w-full p-2 rounded" value={form.time} onChange={e=>setForm({...form, time:e.target.value})}/>
-                                        <select className="border w-full p-2 rounded font-bold" value={form.pax} onChange={e=>updateGuestCount(e.target.value)}>{[1,2,3,4,5].map(n=><option value={n}>{n} khách</option>)}</select>
+                                        <select className="border w-full p-2 rounded font-bold" value={form.pax} onChange={e=>updateGuestCount(e.target.value)}>{[1,2,3,4,5].map(n=><option value={n}>{n} Pax</option>)}</select>
                                     </div>
                                     {form.details.map((d, i) => (
                                         <div key={i} className="bg-slate-50 p-2 rounded border text-xs space-y-2">
                                             <div className="font-bold text-slate-500">Khách {i+1}</div>
                                             <div className="flex gap-2">
-                                                <select className="flex-1 border rounded p-1" value={d.serviceId} onChange={e=>{ const ng=[...form.details]; ng[i].serviceId=e.target.value; setForm({...form, details:ng}) }}>{SERVICES.map(s=><option value={s.id}>{s.name}</option>)}</select>
-                                                <select className="w-20 border rounded p-1" value={d.staffId} onChange={e=>{ const ng=[...form.details]; ng[i].staffId=e.target.value; setForm({...form, details:ng}) }}><option value="">Random</option>{staffList.map(s=><option value={s.id}>{s.name}</option>)}</select>
+                                                <select className="flex-1 border rounded p-1" value={d.serviceId} onChange={e=>{const ng=[...form.details]; ng[i].serviceId=e.target.value; setForm({...form, details:ng})}}>{SERVICES.map(s=><option value={s.id}>{s.name}</option>)}</select>
+                                                <select className="w-20 border rounded p-1" value={d.staffId} onChange={e=>{const ng=[...form.details]; ng[i].staffId=e.target.value; setForm({...form, details:ng})}}><option value="">Random</option>{staffList.map(s=><option value={s.id}>{s.name}</option>)}</select>
                                             </div>
                                         </div>
                                     ))}
@@ -408,7 +415,6 @@
                             </div>
                         </div>
                     )}
-
                 </div>
             );
         }
