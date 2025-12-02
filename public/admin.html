@@ -3,57 +3,80 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>XinWuChan POS - Horizon View</title>
+    <title>XinWuChan POS (Fixed)</title>
     
     <script src="https://cdn.tailwindcss.com"></script>
     <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.development.js"></script>
     <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.development.js"></script>
     <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
     <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/axios/1.6.7/axios.min.js"></script>
-    <script src="https://unpkg.com/lucide@latest"></script>
 
     <style>
-        body { font-family: 'Microsoft JhengHei', sans-serif; background-color: #f0f2f5; }
+        body { font-family: 'Microsoft JhengHei', sans-serif; background-color: #f3f4f6; }
         .scrollbar-hide::-webkit-scrollbar { display: none; }
-        .timeline-grid { background-image: linear-gradient(to right, #e5e7eb 1px, transparent 1px); background-size: 5.55% 100%; } /* 100% / 18h = 5.55% */
-        
-        /* Thẻ nhân viên chữ nhật */
-        .staff-card {
-            min-width: 100px; /* Chiều rộng khoảng 20 đơn vị */
-            height: 60px;    /* Chiều cao khoảng 10 đơn vị */
-            transition: all 0.2s;
-        }
-        .staff-card:hover { transform: translateY(-2px); box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); }
-        
-        .st-ready { background: #10B981; color: white; }
-        .st-working { background: #EF4444; color: white; animation: pulse 2s infinite; }
-        .st-off { background: #9CA3AF; color: #eee; opacity: 0.6; }
-        .st-break { background: #F59E0B; color: white; }
-        
-        @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); } 70% { box-shadow: 0 0 0 5px rgba(239, 68, 68, 0); } 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); } }
+        /* Lưới Timeline */
+        .timeline-grid { background-size: 6.25% 100%; background-image: linear-gradient(to right, #e5e7eb 1px, transparent 1px); }
+        /* Hộp báo lỗi khẩn cấp */
+        #crash-screen { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: #fee2e2; z-index: 9999; padding: 20px; color: #991b1b; }
     </style>
 </head>
 <body>
-    <div id="root"></div>
+    <div id="crash-screen">
+        <h1 class="text-2xl font-bold mb-2">⚠️ WEB APP BỊ LỖI (CRASHED)</h1>
+        <pre id="crash-reason" class="bg-white p-4 rounded border border-red-500 font-mono text-sm">Đang kiểm tra...</pre>
+        <button onclick="location.reload()" class="mt-4 bg-red-600 text-white px-4 py-2 rounded font-bold">Tải lại trang (Refresh)</button>
+    </div>
+
+    <div id="root">
+        <div class="flex items-center justify-center h-screen text-emerald-600 font-bold text-xl">
+            ⏳ Đang tải dữ liệu... (Loading)
+        </div>
+    </div>
+
+    <script>
+        window.onerror = function(msg, url, line, col, error) {
+            document.getElementById('root').style.display = 'none';
+            document.getElementById('crash-screen').style.display = 'block';
+            document.getElementById('crash-reason').innerText = `Lỗi: ${msg}\nTại dòng: ${line}\nFile: ${url}`;
+        };
+    </script>
 
     <script type="text/babel">
         const { useState, useEffect, useMemo } = React;
-        const { LayoutGrid, Users, Plus, Clock, Bed, Armchair, RefreshCw, X, Check, Phone, Edit, Trash2, List, Calendar, LogOut, Coffee } = lucide;
 
-        // --- CẤU HÌNH DỊCH VỤ ---
+        // --- 1. BỘ ICON SVG (KHÔNG DÙNG THƯ VIỆN) ---
+        const Icon = ({ d, size=20, className="" }) => (
+            <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d={d} /></svg>
+        );
+        const ICONS = {
+            Grid: "M3 3h7v7H3zM14 3h7v7h-7zM14 14h7v7h-7zM3 14h7v7H3z",
+            Clock: "M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10zM12 6v6l4 2",
+            Users: "M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2M9 7a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75",
+            Plus: "M12 5v14M5 12h14",
+            Armchair: "M19 9V6a2 2 0 0 0-2-2H7a2 2 0 0 0-2 2v3M3 16a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-5a2 2 0 0 0-4 0v2H7v-2a2 2 0 0 0-4 0ZM5 18v2M19 18v2",
+            Bed: "M2 4v16M2 8h18a2 2 0 0 1 2 2v10M2 17h20M6 8v9",
+            Refresh: "M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8",
+            X: "M18 6 6 18M6 6l12 12",
+            Edit: "M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z",
+            Trash: "M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2",
+            List: "M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01",
+            Calendar: "M19 4H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2zM16 2v4M8 2v4M3 10h18"
+        };
+
+        // --- 2. CẤU HÌNH ---
         const SERVICES = [
-            { id: 'CB_190', name: '👑 帝王套餐 (190分)', duration: 190, type: 'combo' },
-            { id: 'CB_130', name: '💎 豪華套餐 (130分)', duration: 130, type: 'combo' },
-            { id: 'CB_100', name: '🔥 招牌套餐 (100分)', duration: 100, type: 'combo' },
-            { id: 'CB_70',  name: '⚡ 精選套餐 (70分)',  duration: 70,  type: 'combo' },
-            { id: 'FT_120', name: '👣 足底按摩 (120分)', duration: 120, type: 'foot' },
-            { id: 'FT_90',  name: '👣 足底按摩 (90分)',  duration: 90,  type: 'foot' },
-            { id: 'FT_70',  name: '👣 足底按摩 (70分)',  duration: 70,  type: 'foot' },
-            { id: 'FT_40',  name: '👣 足底按摩 (40分)',  duration: 40,  type: 'foot' },
-            { id: 'BD_120', name: '🛏️ 全身指壓 (120分)', duration: 120, type: 'body' },
-            { id: 'BD_90',  name: '🛏️ 全身指壓 (90分)',  duration: 90,  type: 'body' },
-            { id: 'BD_70',  name: '🛏️ 全身指壓 (70分)',  duration: 70,  type: 'body' },
-            { id: 'BD_35',  name: '🛏️ 半身指壓 (35分)',  duration: 35,  type: 'body' },
+            { id: 'CB_190', name: '👑 帝王套餐 (190分)', duration: 190, type: 'combo', price: 2000 },
+            { id: 'CB_130', name: '💎 豪華套餐 (130分)', duration: 130, type: 'combo', price: 1500 },
+            { id: 'CB_100', name: '🔥 招牌套餐 (100分)', duration: 100, type: 'combo', price: 1300 },
+            { id: 'CB_70',  name: '⚡ 精選套餐 (70分)',  duration: 70,  type: 'combo', price: 1000 },
+            { id: 'FT_120', name: '👣 足底按摩 (120分)', duration: 120, type: 'foot', price: 1600 },
+            { id: 'FT_90',  name: '👣 足底按摩 (90分)',  duration: 90,  type: 'foot', price: 1200 },
+            { id: 'FT_70',  name: '👣 足底按摩 (70分)',  duration: 70,  type: 'foot', price: 900 },
+            { id: 'FT_40',  name: '👣 足底按摩 (40分)',  duration: 40,  type: 'foot', price: 500 },
+            { id: 'BD_120', name: '🛏️ 全身指壓 (120分)', duration: 120, type: 'body', price: 1800 },
+            { id: 'BD_90',  name: '🛏️ 全身指壓 (90分)',  duration: 90,  type: 'body', price: 1350 },
+            { id: 'BD_70',  name: '🛏️ 全身指壓 (70分)',  duration: 70,  type: 'body', price: 1000 },
+            { id: 'BD_35',  name: '🛏️ 半身指壓 (35分)',  duration: 35,  type: 'body', price: 500 },
         ];
 
         const RESOURCES = {
@@ -66,82 +89,74 @@
             try { const [d, t] = str.split(' '); const [y, m, day] = d.split('/'); const [hh, mm] = t.split(':'); return new Date(parseInt(y)+1911, parseInt(m)-1, parseInt(day), parseInt(hh), parseInt(mm)); } catch (e) { return new Date(); }
         };
         const formatTime = (d) => d ? d.toLocaleTimeString('en-US', {hour:'2-digit', minute:'2-digit', hour12:false}) : '--:--';
-        const Icon = ({ icon, size=18, className="" }) => React.createElement(icon, { size, className });
 
-        // --- COMPONENT TIMELINE (8:00 - 02:00) ---
+        // --- 3. TIMELINE COMPONENT (BẢN AN TOÀN) ---
         const TimelineComponent = ({ bookings }) => {
-            const startHour = 8; // Bắt đầu 8h sáng
-            const totalHours = 18; // 8h sáng -> 2h sáng hôm sau = 18 tiếng
+            const startHour = 10; 
+            const totalHours = 16; 
             const hours = Array.from({length: totalHours + 1}, (_, i) => (startHour + i) % 24);
+            const allResources = [...RESOURCES.chair, ...RESOURCES.bed];
 
             const getPosition = (date, duration) => {
+                if (!date) return { left: '0%', width: '0%' };
                 let h = date.getHours();
                 let m = date.getMinutes();
-                if (h < startHour) h += 24; // Xử lý qua đêm (01:00 -> 25:00)
+                if (h < startHour) h += 24;
                 
                 const startMins = (h - startHour) * 60 + m;
                 const left = (startMins / (totalHours * 60)) * 100;
                 const width = (duration / (totalHours * 60)) * 100;
-                
                 return { left: `${Math.max(0, left)}%`, width: `${Math.min(100, width)}%` };
             };
 
             return (
-                <div className="flex flex-col h-full bg-white border rounded-b-xl text-xs">
-                    {/* Header Giờ */}
-                    <div className="flex border-b bg-slate-50 shrink-0 h-8">
-                        <div className="w-16 border-r p-2 font-bold text-center sticky left-0 bg-slate-50 z-10">Res</div>
+                <div className="flex flex-col h-full bg-white border rounded-b-xl overflow-hidden">
+                    {/* Header */}
+                    <div className="flex border-b bg-slate-50 h-8 shrink-0">
+                        <div className="w-16 border-r p-2 text-[10px] font-bold text-center sticky left-0 bg-slate-50 z-20">Res</div>
                         <div className="flex-1 relative">
                             {hours.map((h, i) => (
-                                <div key={i} className="absolute border-l pl-1 h-full text-slate-400" style={{ left: `${(i / totalHours) * 100}%` }}>{h}</div>
+                                <div key={i} className="absolute text-[10px] text-slate-400 border-l pl-1 h-full" style={{ left: `${(i / totalHours) * 100}%` }}>{h}</div>
                             ))}
                         </div>
                     </div>
-
-                    {/* Rows */}
+                    {/* Body */}
                     <div className="flex-1 overflow-y-auto relative">
                         <div className="absolute inset-0 timeline-grid w-full h-full pointer-events-none z-0"></div>
-                        {[...RESOURCES.chair, ...RESOURCES.bed].map(res => (
-                            <div key={res.id} className="flex border-b h-10 relative hover:bg-slate-50">
-                                <div className="w-16 shrink-0 border-r font-bold text-slate-600 bg-white sticky left-0 z-10 flex items-center justify-center text-[10px]">{res.name}</div>
+                        {allResources.map(res => (
+                            <div key={res.id} className="flex border-b h-10 relative group hover:bg-slate-50">
+                                <div className="w-16 shrink-0 border-r text-[10px] font-bold text-slate-600 bg-white sticky left-0 z-10 flex items-center justify-center">{res.name}</div>
                                 <div className="flex-1 relative">
-                                    {bookings.filter(b => (b.resourceId === res.id || b.resource1 === res.id || b.resource2 === res.id) && b.status !== 'cancelled').map(b => {
+                                    {bookings.filter(b => (b.resourceId === res.id) && b.status !== 'cancelled').map(b => {
                                         const svc = SERVICES.find(s => b.serviceName.includes(s.name.split('(')[0])) || { duration: 60 };
                                         const pos = getPosition(b.startTimeFull, svc.duration);
                                         return (
                                             <div key={b.rowId} 
-                                                 className={`absolute top-1 bottom-1 rounded px-1 flex items-center overflow-hidden text-white cursor-pointer z-10 ${b.status==='active'?'bg-red-500':'bg-emerald-500'}`}
+                                                 className={`absolute top-1 bottom-1 rounded px-1 flex items-center overflow-hidden text-white text-[9px] cursor-pointer z-10 ${b.status==='active'?'bg-red-500':'bg-emerald-500'}`}
                                                  style={{ left: pos.left, width: pos.width }}
                                                  title={b.customerName}>
-                                                <span className="font-bold truncate text-[9px]">{b.customerName.split(' ')[0]}</span>
+                                                {b.customerName.split(' ')[0]}
                                             </div>
                                         );
                                     })}
                                 </div>
                             </div>
                         ))}
-                        
-                        {/* Current Time Line */}
-                        {(() => {
-                            const now = new Date();
-                            const pos = getPosition(now, 0);
-                            if (parseFloat(pos.left) > 0 && parseFloat(pos.left) < 100) {
-                                return <div className="absolute top-0 bottom-0 w-0.5 bg-red-600 z-20 pointer-events-none" style={{ left: pos.left }}></div>
-                            }
-                        })()}
                     </div>
                 </div>
             );
         };
 
+        // --- MAIN APP ---
         function App() {
             const [bookings, setBookings] = useState([]);
             const [staffList, setStaffList] = useState([]);
-            const [listViewMode, setListViewMode] = useState('table'); 
-            const [actionModal, setActionModal] = useState(null);
+            const [loading, setLoading] = useState(true);
+            const [viewMode, setViewMode] = useState('table'); // table | timeline
+            
+            // Modal States
             const [isAddModal, setIsAddModal] = useState(false);
             const [editModal, setEditModal] = useState(null);
-            
             const [form, setForm] = useState({ name: '', phone: '', pax: 1, date: new Date().toISOString().split('T')[0], time: '14:00', details: [{ serviceId: 'CB_100', staffId: '' }] });
 
             const fetchData = async () => {
@@ -169,137 +184,79 @@
                     
                     mappedBookings.sort((a, b) => b.startTimeFull - a.startTimeFull);
                     setBookings(mappedBookings);
-
-                    // Map Staff
-                    const mappedStaff = apiStaff.map(s => {
-                        const currentJob = mappedBookings.find(b => b.staffId === s.id && b.status === 'active');
-                        const isOff = schedule.some(sch => sch.staffId === s.id);
-                        let status = 'ready';
-                        if (isOff) status = 'off';
-                        if (currentJob) status = currentJob.customerName === 'Staff Action' ? 'break' : 'working';
-                        return { ...s, status, currentJob };
-                    });
-
-                    // Sort theo ID
-                    mappedStaff.sort((a,b) => parseInt(a.id.replace(/\D/g,'')) - parseInt(b.id.replace(/\D/g,'')));
-                    setStaffList(mappedStaff);
+                    setStaffList(apiStaff.map(s => ({...s, status: 'ready'}))); 
+                    setLoading(false);
                 } catch (e) { console.error(e); }
             };
 
-            useEffect(() => { fetchData(); const t = setInterval(fetchData, 10000); return () => clearInterval(t); }, []);
-
-            const handleStaffAction = async (action, duration) => {
-                if(!actionModal) return;
-                try { await axios.post('/api/admin-staff-action', { staffId: actionModal.id, action, duration }); setActionModal(null); fetchData(); } catch(e) {}
-            };
+            useEffect(() => { fetchData(); const t = setInterval(fetchData, 15000); return () => clearInterval(t); }, []);
 
             const handleUpdateStatus = async (rowId, status) => {
-                if(!confirm("Xác nhận?")) return;
+                if(!confirm("確認?")) return;
                 await axios.post('/api/update-status', { rowId, status });
                 fetchData();
-            };
-
-            const handleBookingSubmit = async () => {
-                // (Giữ nguyên logic submit)
-                for (let i=0; i<form.details.length; i++) {
-                    const detail = form.details[i];
-                    const svc = SERVICES.find(s => s.id === detail.serviceId);
-                    await axios.post('/api/admin-booking', {
-                        ngayDen: form.date, gioDen: form.time, dichVu: svc.name, nhanVien: detail.staffId || '隨機',
-                        sdt: form.phone, hoTen: `${form.name} (${i+1}/${form.pax})`, pax: 1, isWalkIn: true
-                    });
-                }
-                setIsAddModal(false); fetchData();
-            };
-
-            // UI COMPONENT: THẺ NHÂN VIÊN NGANG
-            const StaffCard = ({ s }) => {
-                const isFemale = s.gender === 'F' || s.gender === '女';
-                let stClass = 'st-ready';
-                if(s.status === 'working') stClass = 'st-working';
-                if(s.status === 'off') stClass = 'st-off';
-                if(s.status === 'break') stClass = 'st-break';
-
-                return (
-                    <div onClick={()=>setActionModal(s)} className={`staff-card rounded-md shadow-sm border border-slate-200 flex flex-col items-center justify-center cursor-pointer relative overflow-hidden ${stClass}`}>
-                        <div className="font-black text-xl">{s.name.replace('號','')}</div>
-                        <div className="text-[10px] font-bold opacity-80">{s.status==='working' ? 'BẬN' : s.status==='ready' ? 'RẢNH' : 'OFF'}</div>
-                        {s.status === 'working' && <div className="text-[9px] absolute bottom-0 w-full bg-black/20 text-center text-white truncate px-1">{s.currentJob?.customerName}</div>}
-                        <div className={`absolute top-0 right-0 w-2 h-2 rounded-full m-1 ${isFemale?'bg-pink-400':'bg-blue-400'}`}></div>
-                    </div>
-                )
             };
 
             const ResourceCard = ({ res, type }) => {
                 const active = bookings.find(b => b.resourceId === res.id && b.status === 'active');
                 return (
-                    <div className={`p-2 rounded-lg border-2 h-24 flex flex-col justify-between relative cursor-pointer ${active ? 'bg-red-50 border-red-400' : 'bg-white border-slate-200'}`} onClick={()=>!active && setIsAddModal(true)}>
-                        <div className="flex justify-between font-bold text-slate-600 text-xs"><span>{res.name}</span>{active && <span className="text-[9px] bg-red-500 text-white px-1 rounded blink">BUSY</span>}</div>
+                    <div className={`p-2 rounded-lg border-2 h-24 flex flex-col justify-between relative shadow-sm ${active ? 'bg-red-50 border-red-500' : 'bg-white border-emerald-200'}`}>
+                        <div className="flex justify-between font-bold text-slate-700 text-xs"><span>{res.name}</span>{active && <span className="bg-red-500 text-white px-1 rounded">BUSY</span>}</div>
                         {active ? (
-                            <div className="text-xs">
+                            <div className="text-[10px]">
                                 <div className="font-bold truncate">{active.customerName}</div>
-                                <div className="text-[10px] text-red-600 font-mono text-right">{formatTime(active.endTimeFull)} 完</div>
+                                <div className="text-red-600 font-mono">{formatTime(active.endTimeFull)} 完</div>
                             </div>
-                        ) : <div className="text-center text-slate-200"><Icon icon={type==='chair'?Armchair:Bed} size={24}/></div>}
+                        ) : <div className="text-center text-slate-300"><Icon d={type==='chair'?ICONS.Armchair:ICONS.Bed} size={24}/></div>}
                     </div>
                 )
             };
 
             return (
                 <div className="min-h-screen flex flex-col bg-slate-100">
-                    {/* HEADER */}
                     <header className="bg-slate-900 text-white p-3 shadow flex justify-between items-center sticky top-0 z-50">
-                        <div className="font-bold flex gap-2"><Icon icon={LayoutGrid}/> XinWuChan POS</div>
+                        <div className="font-bold flex gap-2 items-center"><Icon d={ICONS.Grid}/> POS</div>
                         <div className="flex gap-2">
-                            <button onClick={fetchData}><Icon icon={RefreshCw}/></button>
-                            <button onClick={()=>setIsAddModal(true)} className="bg-amber-500 text-black px-3 py-1 rounded font-bold flex gap-1"><Icon icon={Plus} size={16}/> Thêm</button>
+                            <button onClick={fetchData}><Icon d={ICONS.Refresh}/></button>
+                            <button onClick={()=>setIsAddModal(true)} className="bg-amber-500 text-black px-3 py-1 rounded font-bold text-xs flex gap-1"><Icon d={ICONS.Plus} size={14}/> 新增</button>
                         </div>
                     </header>
 
-                    {/* 1. KHU VỰC NHÂN VIÊN (HÀNG NGANG) */}
-                    <div className="bg-white p-2 border-b shadow-sm overflow-x-auto flex gap-2 shrink-0 h-20 items-center">
-                        {staffList.map(s => <StaffCard key={s.id} s={s} />)}
-                    </div>
-
-                    {/* MAIN CONTENT */}
-                    <div className="flex-1 overflow-y-auto p-3 space-y-4">
-                        
-                        {/* SƠ ĐỒ GHẾ & GIƯỜNG */}
-                        <div className="grid grid-cols-2 gap-4">
-                            <div className="bg-white p-3 rounded-lg shadow">
-                                <div className="text-xs font-bold text-slate-500 mb-2 flex gap-1"><Icon icon={Armchair} size={14}/> 足浴 (Foot)</div>
-                                <div className="grid grid-cols-3 gap-2">{RESOURCES.chair.map(r => <ResourceCard key={r.id} res={r} type="chair"/>)}</div>
+                    <main className="flex-1 overflow-y-auto p-3 space-y-4">
+                        {/* ROOMS */}
+                        <div className="grid grid-cols-2 gap-2">
+                            <div className="bg-white p-2 rounded shadow">
+                                <div className="text-xs font-bold mb-2 text-slate-500">足浴 (Foot)</div>
+                                <div className="grid grid-cols-3 gap-1">{RESOURCES.chair.map(r => <ResourceCard key={r.id} res={r} type="chair"/>)}</div>
                             </div>
-                            <div className="bg-white p-3 rounded-lg shadow">
-                                <div className="text-xs font-bold text-slate-500 mb-2 flex gap-1"><Icon icon={Bed} size={14}/> 身體 (Body)</div>
-                                <div className="grid grid-cols-3 gap-2">{RESOURCES.bed.map(r => <ResourceCard key={r.id} res={r} type="bed"/>)}</div>
+                            <div className="bg-white p-2 rounded shadow">
+                                <div className="text-xs font-bold mb-2 text-slate-500">身體 (Body)</div>
+                                <div className="grid grid-cols-3 gap-1">{RESOURCES.bed.map(r => <ResourceCard key={r.id} res={r} type="bed"/>)}</div>
                             </div>
                         </div>
 
-                        {/* BẢNG / TIMELINE */}
-                        <div className="bg-white rounded-lg shadow border border-slate-200 overflow-hidden flex flex-col h-[400px]">
+                        {/* LIST / TIMELINE */}
+                        <div className="bg-white rounded-lg shadow border overflow-hidden flex flex-col h-[450px]">
                             <div className="p-2 bg-slate-50 border-b flex justify-between items-center">
-                                <div className="text-sm font-bold text-slate-700 flex gap-2"><Icon icon={Clock} size={16}/> Lịch Đặt</div>
-                                <div className="flex bg-slate-200 p-0.5 rounded text-xs">
-                                    <button onClick={()=>setListViewMode('table')} className={`px-2 py-1 rounded ${listViewMode==='table'?'bg-white shadow':''}`}>📋 Bảng</button>
-                                    <button onClick={()=>setListViewMode('timeline')} className={`px-2 py-1 rounded ${listViewMode==='timeline'?'bg-white shadow':''}`}>📅 Timeline</button>
+                                <h3 className="font-bold text-sm text-slate-700 flex gap-2"><Icon d={ICONS.Clock} size={16}/> 預約列表</h3>
+                                <div className="flex bg-slate-200 p-0.5 rounded text-[10px]">
+                                    <button onClick={()=>setViewMode('table')} className={`px-2 py-1 rounded ${viewMode==='table'?'bg-white shadow text-blue-600':''}`}>列表</button>
+                                    <button onClick={()=>setViewMode('timeline')} className={`px-2 py-1 rounded ${viewMode==='timeline'?'bg-white shadow text-emerald-600':''}`}>時間軸</button>
                                 </div>
                             </div>
                             <div className="flex-1 overflow-hidden">
-                                {listViewMode === 'table' ? (
+                                {viewMode === 'table' ? (
                                     <div className="h-full overflow-y-auto">
                                         <table className="w-full text-xs text-left">
-                                            <thead className="bg-slate-100 sticky top-0"><tr><th className="p-2">Time</th><th className="p-2">Name</th><th className="p-2">Pax</th><th className="p-2">Svc</th><th className="p-2">Staff</th><th className="p-2 text-right">Act</th></tr></thead>
+                                            <thead className="bg-slate-100 sticky top-0"><tr><th className="p-2">Time</th><th className="p-2">Name</th><th className="p-2">Svc</th><th className="p-2">Act</th></tr></thead>
                                             <tbody className="divide-y">
                                                 {bookings.map(b => (
                                                     <tr key={b.rowId} className={b.status === 'cancelled' ? 'cancelled-row' : ''}>
                                                         <td className="p-2 font-mono text-emerald-700 font-bold">{formatTime(b.startTimeFull)}</td>
                                                         <td className="p-2 font-bold">{b.customerName}</td>
-                                                        <td className="p-2 text-center">{b.pax}</td>
                                                         <td className="p-2">{b.serviceName.split('(')[0]}</td>
-                                                        <td className="p-2"><span className="bg-slate-100 px-1 rounded">{b.staffId}</span></td>
                                                         <td className="p-2 text-right">
-                                                            {b.status !== 'cancelled' && <button onClick={()=>handleUpdateStatus(b.rowId, '❌ Cancel')} className="text-red-500 hover:bg-red-50 p-1 rounded"><Icon icon={Trash2} size={14}/></button>}
+                                                            {b.status !== 'cancelled' && <button onClick={()=>handleUpdateStatus(b.rowId, '❌ Cancel')} className="text-red-500"><Icon d={ICONS.Trash} size={14}/></button>}
                                                         </td>
                                                     </tr>
                                                 ))}
@@ -311,29 +268,16 @@
                                 )}
                             </div>
                         </div>
-                    </div>
-
-                    {/* MODAL */}
-                    {actionModal && (
-                        <div className="fixed inset-0 bg-black/60 z-[60] flex items-center justify-center p-4">
-                            <div className="bg-white w-64 p-4 rounded-xl shadow-xl text-center">
-                                <h3 className="font-bold text-lg mb-4">{actionModal.name}</h3>
-                                <div className="space-y-2">
-                                    <button onClick={()=>handleStaffAction('break', 30)} className="w-full py-2 bg-yellow-100 text-yellow-800 rounded hover:bg-yellow-200 flex justify-center gap-2"><Icon icon={Coffee} size={16}/> Đi ăn</button>
-                                    <button onClick={()=>handleStaffAction('leave', 0)} className="w-full py-2 bg-red-100 text-red-800 rounded hover:bg-red-200 flex justify-center gap-2"><Icon icon={LogOut} size={16}/> Về sớm</button>
-                                    <button onClick={()=>setActionModal(null)} className="w-full py-2 border rounded mt-2 text-sm">Đóng</button>
-                                </div>
-                            </div>
-                        </div>
-                    )}
-                    {/* (Add Modal logic here - same as before) */}
+                    </main>
+                    
+                    {/* Modal Add */}
+                    {isAddModal && <div className="fixed inset-0 bg-black/70 z-[60] flex items-center justify-center p-4"><div className="bg-white w-full max-w-md p-4 rounded-xl shadow-lg"><div className="flex justify-between mb-4"><h3 className="font-bold">Add Booking</h3><button onClick={()=>setIsAddModal(false)}>X</button></div><p className="text-center text-slate-500">Đang phát triển...</p></div></div>}
                 </div>
             );
         }
 
         const root = ReactDOM.createRoot(document.getElementById('root'));
         root.render(<App />);
-        setTimeout(() => lucide.createIcons(), 500);
     </script>
 </body>
 </html>
