@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <title>Test Kết Nối</title>
+</head>
+<body>
+    <h1 style="color: green;">SERVER ĐANG HOẠT ĐỘNG TỐT!</h1>
+    <p>Đang thử lấy dữ liệu từ Google Sheet...</p>
+    <div id="result" style="font-weight: bold; font-size: 20px;">Loading...</div>
+
+    <script>
+        // Gọi thử vào API của Server
+        fetch('/api/info')
+            .then(response => response.json())
+            .then(data => {
+                document.getElementById('result').innerText = 
+                    "✅ ĐÃ KẾT NỐI! Tìm thấy " + data.staffList.length + " nhân viên.";
+            })
+            .catch(error => {
+                document.getElementById('result').innerText = 
+                    "❌ LỖI KẾT NỐI: " + error;
+                document.getElementById('result').style.color = "red";
+            });
+    </script>
+</body>
+</html>
