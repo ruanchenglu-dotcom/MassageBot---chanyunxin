@@ -20,6 +20,8 @@ const SCHEDULE_SHEET = 'StaffSchedule';
 
 const MAX_CHAIRS = 6; 
 const MAX_BEDS = 6;   
+const FEMALE_STAFF_NAMES = ['1號', '2號', '3號', '5號', '6號', '8號', '9號', '10號', '小美']; 
+
 // ==============================================================================
 
 const auth = new google.auth.GoogleAuth({
@@ -32,19 +34,26 @@ let cachedBookings = [];
 let cachedSchedule = []; 
 let userState = {}; 
 
+// CẬP NHẬT GIÁ MỚI CHÍNH XÁC
 const SERVICES = {
+    // COMBO
     'CB_190': { name: '👑 帝王套餐 (190分)', duration: 190, type: 'BED', category: 'COMBO', price: 2000 },
     'CB_130': { name: '💎 豪華套餐 (130分)', duration: 130, type: 'BED', category: 'COMBO', price: 1500 },
-    'CB_100': { name: '🔥 招牌套餐 (100分)', duration: 100, type: 'BED', category: 'COMBO', price: 1300 },
-    'CB_70':  { name: '⚡ 精選套餐 (70分)',  duration: 70,  type: 'BED', category: 'COMBO', price: 1000 },
+    'CB_100': { name: '🔥 招牌套餐 (100分)', duration: 100, type: 'BED', category: 'COMBO', price: 999 },
+    'CB_70':  { name: '⚡ 精選套餐 (70分)',  duration: 70,  type: 'BED', category: 'COMBO', price: 900 },
+    
+    // FOOT (Chân)
     'FT_120': { name: '👣 足底按摩 (120分)', duration: 120, type: 'CHAIR', category: 'FOOT', price: 1500 },
     'FT_90':  { name: '👣 足底按摩 (90分)',  duration: 90,  type: 'CHAIR', category: 'FOOT', price: 999 },
     'FT_70':  { name: '👣 足底按摩 (70分)',  duration: 70,  type: 'CHAIR', category: 'FOOT', price: 900 },
     'FT_40':  { name: '👣 足底按摩 (40分)',  duration: 40,  type: 'CHAIR', category: 'FOOT', price: 500 },
+    
+    // BODY (Thân)
     'BD_120': { name: '🛏️ 全身指壓 (120分)', duration: 120, type: 'BED', category: 'BODY', price: 1500 },
     'BD_90':  { name: '🛏️ 全身指壓 (90分)',  duration: 90,  type: 'BED', category: 'BODY', price: 999 },
-    'BD_70':  { name: '🛏️ 全身指壓 (70分)',  duration: 70,  type: 'BED', category: 'BODY', price: 1000 },
+    'BD_70':  { name: '🛏️ 全身指壓 (70分)',  duration: 70,  type: 'BED', category: 'BODY', price: 900 },
     'BD_35':  { name: '🛏️ 半身指壓 (35分)',  duration: 35,  type: 'BED', category: 'BODY', price: 500 },
+    
     'OFF_DAY': { name: '⛔ 請假', duration: 1080, type: 'NONE' },
     'BREAK_30': { name: '🍱 用餐', duration: 30, type: 'NONE' },
     'BREAK_60': { name: '🍱 用餐', duration: 60, type: 'NONE' },
@@ -138,10 +147,8 @@ async function syncData() {
             for (let i = 1; i < rowsBooking.length; i++) {
                 const row = rowsBooking[i];
                 if (!row[0] || !row[1]) continue;
-
                 const rowId = i + 1;
                 let duration = 60; let type = 'BED'; let pax = 1;
-                
                 const status = row[6] || '已預約';
                 if (status.includes('取消') || status.includes('Cancelled')) continue;
 
@@ -194,14 +201,12 @@ async function syncData() {
     } catch (e) { console.error('Sync Error:', e); }
 }
 
-// --- GHI SHEET ---
 async function ghiVaoSheet(data) {
     try {
         const dateStr = formatMinguoDate(data.ngayDen);
         const timeOnly = data.gioDen;
         const serviceWithPax = data.pax > 1 ? `${data.dichVu} (${data.pax}人)` : data.dichVu;
         const finalService = data.isOil ? `${serviceWithPax} (油推+$200)` : serviceWithPax;
-        
         await sheets.spreadsheets.values.append({
             spreadsheetId: SHEET_ID, range: `${BOOKING_SHEET}!A:I`, valueInputOption: 'USER_ENTERED',
             requestBody: { values: [[ dateStr, timeOnly, data.hoTen, finalService, data.pax, data.sdt, data.trangThai || '已預約', data.nhanVien, data.userId ]] }
@@ -228,7 +233,6 @@ async function adminStaffAction(staffId, action, duration) {
     let serviceName = ''; let statusText = '';
     if (action === 'break') { serviceName = `🍱 用餐 (${duration}m)`; statusText = '🍱 用餐中'; } 
     else if (action === 'leave') { serviceName = `⛔ 早退 (${duration}m)`; statusText = '⚠️ 早退'; }
-    
     const dateStr = formatMinguoDate(todayISO);
     await sheets.spreadsheets.values.append({
         spreadsheetId: SHEET_ID, range: `${BOOKING_SHEET}!A:I`, valueInputOption: 'USER_ENTERED',
@@ -338,9 +342,10 @@ function createStaffBubbles(filterFemale = false, excludedIds = []) {
     return bubbles;
 }
 
+// --- MENU BẢNG GIÁ (CẬP NHẬT GIÁ) ---
 function createMenuFlexMessage() {
     const createRow = (serviceName, time, price) => ({ "type": "box", "layout": "horizontal", "contents": [ { "type": "text", "text": serviceName, "size": "sm", "color": "#555555", "flex": 5 }, { "type": "text", "text": `${time}分`, "size": "sm", "color": "#111111", "align": "end", "flex": 2 }, { "type": "text", "text": `$${price}`, "size": "sm", "color": "#E63946", "weight": "bold", "align": "end", "flex": 3 } ] });
-    return { "type": "bubble", "size": "mega", "body": { "type": "box", "layout": "vertical", "contents": [ { "type": "text", "text": "📜 服務價目表 (Menu)", "weight": "bold", "size": "xl", "color": "#1DB446", "align": "center", "margin": "md" }, { "type": "separator", "margin": "lg" }, { "type": "text", "text": "🔥 熱門套餐 (Combo)", "weight": "bold", "size": "md", "color": "#111111", "margin": "lg" }, createRow("👑 帝王套餐 (腳+身)", 190, 2000), createRow("💎 豪華套餐 (腳+身)", 130, 1500), createRow("🔥 招牌套餐 (腳+身)", 100, 1300), createRow("⚡ 精選套餐 (腳+身)", 70, 1000), { "type": "text", "text": "👣 足底按摩 (Foot)", "weight": "bold", "size": "md", "color": "#111111", "margin": "lg" }, createRow("足底按摩", 120, 1500), createRow("足底按摩", 90, 999), createRow("足底按摩", 70, 900), createRow("足底按摩", 40, 500), { "type": "text", "text": "🛏️ 身體指壓 (Body)", "weight": "bold", "size": "md", "color": "#111111", "margin": "lg" }, createRow("全身指壓", 120, 1500), createRow("全身指壓", 90, 999), createRow("全身指壓", 70, 900), createRow("半身指壓", 35, 500), { "type": "separator", "margin": "xl" }, { "type": "text", "text": "⭐ 油推需加收費用，請詢問櫃台。", "size": "xs", "color": "#aaaaaa", "margin": "md", "align": "center" } ] }, "footer": { "type": "box", "layout": "vertical", "contents": [ { "type": "button", "style": "primary", "action": { "type": "message", "label": "📅 立即預約 (Book Now)", "text": "Action:Booking" } } ] } };
+    return { "type": "bubble", "size": "mega", "body": { "type": "box", "layout": "vertical", "contents": [ { "type": "text", "text": "📜 服務價目表 (Menu)", "weight": "bold", "size": "xl", "color": "#1DB446", "align": "center", "margin": "md" }, { "type": "separator", "margin": "lg" }, { "type": "text", "text": "🔥 熱門套餐 (Combo)", "weight": "bold", "size": "md", "color": "#111111", "margin": "lg" }, createRow("👑 帝王套餐 (腳+身)", 190, 2000), createRow("💎 豪華套餐 (腳+身)", 130, 1500), createRow("🔥 招牌套餐 (腳+身)", 100, 999), createRow("⚡ 精選套餐 (腳+身)", 70, 900), { "type": "text", "text": "👣 足底按摩 (Foot)", "weight": "bold", "size": "md", "color": "#111111", "margin": "lg" }, createRow("足底按摩", 120, 1500), createRow("足底按摩", 90, 999), createRow("足底按摩", 70, 900), createRow("足底按摩", 40, 500), { "type": "text", "text": "🛏️ 身體指壓 (Body)", "weight": "bold", "size": "md", "color": "#111111", "margin": "lg" }, createRow("全身指壓", 120, 1500), createRow("全身指壓", 90, 999), createRow("全身指壓", 70, 900), createRow("半身指壓", 35, 500), { "type": "separator", "margin": "xl" }, { "type": "text", "text": "⭐ 油推需加收 $200，請詢問櫃台。", "size": "xs", "color": "#E91E63", "margin": "md", "align": "center" } ] }, "footer": { "type": "box", "layout": "vertical", "contents": [ { "type": "button", "style": "primary", "action": { "type": "message", "label": "📅 立即預約 (Book Now)", "text": "Action:Booking" } } ] } };
 }
 
 const client = new line.Client(config);
@@ -366,7 +371,7 @@ async function handleEvent(event) {
       else text = event.postback.data;
   }
 
-  if (text === 'Admin' || text === '管理') { return client.replyMessage(event.replyToken, { type: 'flex', altText: 'Admin', contents: { "type": "bubble", "body": { "type": "box", "layout": "vertical", "contents": [ { "type": "text", "text": "🛠️ 師傅管理 (Admin)", "weight": "bold", "color": "#E63946", "size": "lg" }, { "type": "separator", "margin": "md" }, { "type": "button", "style": "primary", "color": "#000000", "margin": "md", "action": { "type": "message", "label": "⛔ 全店店休", "text": "Admin:CloseShop" } }, { "type": "separator", "margin": "md" }, { "type": "button", "style": "secondary", "margin": "sm", "action": { "type": "message", "label": "🛌 請假", "text": "Admin:SetOff" } }, { "type": "button", "style": "secondary", "margin": "sm", "action": { "type": "message", "label": "🤒 早退", "text": "Admin:SetLeaveEarly" } }, { "type": "button", "style": "secondary", "margin": "sm", "action": { "type": "message", "label": "🍱 用餐", "text": "Admin:SetBreak" } } ] } } }); }
+  if (text === 'Admin' || text === '管理') { return client.replyMessage(event.replyToken, { type: 'flex', altText: 'Admin', contents: { "type": "bubble", "body": { "type": "box", "layout": "vertical", "contents": [ { "type": "text", "text": "🛠️ 師傅管理", "weight": "bold", "color": "#E63946", "size": "lg" }, { "type": "separator", "margin": "md" }, { "type": "button", "style": "primary", "color": "#000000", "margin": "md", "action": { "type": "message", "label": "⛔ 全店店休", "text": "Admin:CloseShop" } }, { "type": "separator", "margin": "md" }, { "type": "button", "style": "secondary", "margin": "sm", "action": { "type": "message", "label": "🛌 請假", "text": "Admin:SetOff" } }, { "type": "button", "style": "secondary", "margin": "sm", "action": { "type": "message", "label": "🤒 早退", "text": "Admin:SetLeaveEarly" } }, { "type": "button", "style": "secondary", "margin": "sm", "action": { "type": "message", "label": "🍱 用餐", "text": "Admin:SetBreak" } } ] } } }); }
   if (text === 'Admin:CloseShop') { userState[userId] = { step: 'ADMIN_PICK_CLOSE_DATE' }; return client.replyMessage(event.replyToken, { type: 'template', altText: 'Chọn ngày', template: { type: 'buttons', text: '請選擇店休日期:', actions: [ { type: 'datetimepicker', label: '🗓️ 點擊選擇', data: 'ShopClosePicked', mode: 'date' } ] } }); }
   if (text.startsWith('DatePick:') && userState[userId] && userState[userId].step === 'ADMIN_PICK_CLOSE_DATE') { const pickedDate = text.split(':')[1]; await ghiVaoSheet({ gioDen: '08:00', ngayDen: pickedDate, dichVu: SERVICES['SHOP_CLOSE'].name, nhanVien: 'ALL_STAFF', userId: 'ADMIN', sdt: 'ADMIN', hoTen: '全店店休', trangThai: '⛔ 店休' }); delete userState[userId]; return client.replyMessage(event.replyToken, { type: 'text', text: `✅ 已設定 ${pickedDate} 全店店休。` }); }
   if (text.startsWith('Admin:')) { const action = text.split(':')[1]; userState[userId] = { step: 'ADMIN_PICK_STAFF', action: action }; const bubbles = createStaffBubbles().map(b => { const str = JSON.stringify(b).replace(/StaffSelect/g, 'StaffOp'); return JSON.parse(str); }); return client.replyMessage(event.replyToken, { type: 'flex', altText: 'Pick Staff', contents: { type: 'carousel', contents: bubbles } }); }
@@ -396,7 +401,7 @@ async function handleEvent(event) {
   if (text.startsWith('Time:')) { const gio = text.split(':')[1]; const currentState = userState[userId]; if (!currentState) return client.replyMessage(event.replyToken, { type: 'text', text: '請重新點選「立即預約」。' }); currentState.step = 'SURNAME'; currentState.time = gio; userState[userId] = currentState; const minguoDate = formatMinguoDate(currentState.date); return client.replyMessage(event.replyToken, { type: 'text', text: `好的，您預約了 ${minguoDate} ${gio} (${currentState.pax}位)。\n\n請問怎麼稱呼您？(請輸入姓氏)` }); }
   if (userState[userId] && userState[userId].step === 'SURNAME') { const currentState = userState[userId]; currentState.step = 'PHONE'; currentState.surname = text; userState[userId] = currentState; return client.replyMessage(event.replyToken, { type: 'text', text: "最後一步，請輸入您的手機號碼。\n(為了方便聯繫，請提供正確號碼。)" }); }
   
-  // CHỐT ĐƠN (E-TICKET CHUẨN)
+  // CHỐT ĐƠN (E-TICKET KHÔNG NÚT)
   if (userState[userId] && userState[userId].step === 'PHONE') { 
       const sdt = normalizePhoneNumber(text); 
       if (!/^\d{7,15}$/.test(sdt)) return client.replyMessage(event.replyToken, { type: 'text', text: '⚠️ 號碼格式錯誤 (Lỗi định dạng sđt). 請輸入正確手機號碼。' }); 
@@ -407,6 +412,7 @@ async function handleEvent(event) {
       const oilFee = currentState.isOil ? 200 : 0;
       const totalPrice = (pricePerPerson + oilFee) * currentState.pax;
 
+      // E-TICKET (SAFE MODE)
       const bodyContents = [
           { "type": "text", "text": "✅ 預約成功 (Confirmed)", "weight": "bold", "size": "xl", "color": "#1DB446", "align": "center" },
           { "type": "text", "text": "感謝您的預約，期待為您服務！", "size": "xs", "color": "#aaaaaa", "align": "center", "margin": "sm" },
@@ -428,14 +434,15 @@ async function handleEvent(event) {
       bodyContents.push({ "type": "separator", "margin": "xl" });
       bodyContents.push({ "type": "box", "layout": "horizontal", "margin": "md", "contents": [ { "type": "text", "text": "總金額 (Total):", "size": "sm", "color": "#555555" }, { "type": "text", "text": `$${totalPrice}`, "size": "lg", "color": "#E63946", "weight": "bold", "align": "right" } ] });
 
-      // E-TICKET VỚI LINK MAPS CHUẨN HTTPS
+      // Gửi tin nhắn xác nhận (Bỏ nút Footer để tránh lỗi 400)
       await client.replyMessage(event.replyToken, { 
-          type: 'flex', altText: '✅ 預約成功', 
+          type: 'flex', 
+          altText: '✅ 預約成功', 
           contents: { 
-              "type": "bubble", 
-              "hero": { "type": "image", "url": "https://images.unsplash.com/photo-1600334089648-b0d9d302427f?q=80&w=1000", "size": "full", "aspectRatio": "20:13", "aspectMode": "cover", "action": { "type": "uri", "uri": "https://www.google.com/maps/search/?api=1&query=No.+163,+Zhonghe+Rd" } }, 
-              "body": { "type": "box", "layout": "vertical", "contents": bodyContents }, 
-              "footer": { "type": "box", "layout": "vertical", "spacing": "sm", "contents": [ { "type": "box", "layout": "horizontal", "spacing": "sm", "contents": [ { "type": "button", "style": "secondary", "action": { "type": "uri", "label": "📍 導航 (Maps)", "uri": "https://www.google.com/maps/search/?api=1&query=No.+163,+Zhonghe+Rd" }, "height": "sm" }, { "type": "button", "style": "secondary", "action": { "type": "uri", "label": "📞 致電 (Call)", "uri": "tel:+886282459868" }, "height": "sm" } ] }, { "type": "button", "style": "link", "action": { "type": "message", "label": "🔍 查看/取消預約", "text": "Action:MyBooking" }, "color": "#aaaaaa", "height": "sm" } ] } 
+            "type": "bubble", 
+            "hero": { "type": "image", "url": "https://images.unsplash.com/photo-1600334089648-b0d9d302427f?q=80&w=1000", "size": "full", "aspectRatio": "20:13", "aspectMode": "cover" }, // Ảnh tĩnh an toàn
+            "body": { "type": "box", "layout": "vertical", "contents": bodyContents },
+            "footer": { "type": "box", "layout": "vertical", "spacing": "sm", "contents": [ { "type": "button", "style": "primary", "action": { "type": "message", "label": "🔍 查看我的預約", "text": "Action:MyBooking" } } ] }
           } 
       });
       
@@ -459,5 +466,5 @@ async function handleEvent(event) {
 syncData();
 const port = process.env.PORT || 3000;
 app.listen(port, () => {
-    console.log(`Bot v62.1 (FINAL FIXED - MAPS URL) running on ${port}`);
+    console.log(`Bot v63.0 (NO MAPS LINK - PURE SAFE) running on ${port}`);
 });
