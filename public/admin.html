@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>XinWuChan POS (Fixed)</title>
+    <title>XinWuChan POS - Safe Staff View</title>
     
     <script src="https://cdn.tailwindcss.com"></script>
     <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.development.js"></script>
@@ -14,22 +14,34 @@
     <style>
         body { font-family: 'Microsoft JhengHei', sans-serif; background-color: #f3f4f6; }
         .scrollbar-hide::-webkit-scrollbar { display: none; }
-        /* Lưới Timeline */
-        .timeline-grid { background-size: 6.25% 100%; background-image: linear-gradient(to right, #e5e7eb 1px, transparent 1px); }
+        .timeline-grid { background-image: linear-gradient(to right, #e5e7eb 1px, transparent 1px); background-size: 5.55% 100%; }
+        
         /* Hộp báo lỗi khẩn cấp */
         #crash-screen { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: #fee2e2; z-index: 9999; padding: 20px; color: #991b1b; }
+
+        /* STYLE THẺ NHÂN VIÊN (CHỮ NHẬT ĐỨNG) */
+        .staff-card {
+            min-width: 90px;  /* Chiều rộng */
+            height: 110px;    /* Chiều cao */
+            transition: all 0.2s;
+        }
+        .staff-card:hover { transform: translateY(-4px); box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1); }
+        
+        /* Viền giới tính */
+        .border-female { border-bottom: 4px solid #F472B6; } /* Hồng */
+        .border-male { border-bottom: 4px solid #60A5FA; }   /* Xanh */
     </style>
 </head>
 <body>
     <div id="crash-screen">
         <h1 class="text-2xl font-bold mb-2">⚠️ WEB APP BỊ LỖI (CRASHED)</h1>
         <pre id="crash-reason" class="bg-white p-4 rounded border border-red-500 font-mono text-sm">Đang kiểm tra...</pre>
-        <button onclick="location.reload()" class="mt-4 bg-red-600 text-white px-4 py-2 rounded font-bold">Tải lại trang (Refresh)</button>
+        <button onclick="location.reload()" class="mt-4 bg-red-600 text-white px-4 py-2 rounded font-bold">Tải lại trang (F5)</button>
     </div>
 
     <div id="root">
         <div class="flex items-center justify-center h-screen text-emerald-600 font-bold text-xl">
-            ⏳ Đang tải dữ liệu... (Loading)
+            ⏳ Đang tải hệ thống...
         </div>
     </div>
 
@@ -37,46 +49,46 @@
         window.onerror = function(msg, url, line, col, error) {
             document.getElementById('root').style.display = 'none';
             document.getElementById('crash-screen').style.display = 'block';
-            document.getElementById('crash-reason').innerText = `Lỗi: ${msg}\nTại dòng: ${line}\nFile: ${url}`;
+            document.getElementById('crash-reason').innerText = `Lỗi: ${msg}\nTại dòng: ${line}`;
         };
     </script>
 
     <script type="text/babel">
         const { useState, useEffect, useMemo } = React;
 
-        // --- 1. BỘ ICON SVG (KHÔNG DÙNG THƯ VIỆN) ---
+        // --- 1. BỘ ICON SVG NỘI BỘ (KHÔNG LO LỖI THƯ VIỆN) ---
         const Icon = ({ d, size=20, className="" }) => (
             <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d={d} /></svg>
         );
-        const ICONS = {
+        const PATHS = {
             Grid: "M3 3h7v7H3zM14 3h7v7h-7zM14 14h7v7h-7zM3 14h7v7H3z",
-            Clock: "M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10zM12 6v6l4 2",
             Users: "M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2M9 7a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75",
             Plus: "M12 5v14M5 12h14",
+            Clock: "M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10zM12 6v6l4 2",
             Armchair: "M19 9V6a2 2 0 0 0-2-2H7a2 2 0 0 0-2 2v3M3 16a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-5a2 2 0 0 0-4 0v2H7v-2a2 2 0 0 0-4 0ZM5 18v2M19 18v2",
             Bed: "M2 4v16M2 8h18a2 2 0 0 1 2 2v10M2 17h20M6 8v9",
-            Refresh: "M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8",
+            Refresh: "M23 4v6h-6M1 20v-6h6",
             X: "M18 6 6 18M6 6l12 12",
-            Edit: "M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z",
+            Check: "M20 6 9 17 4 12",
             Trash: "M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2",
-            List: "M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01",
-            Calendar: "M19 4H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2zM16 2v4M8 2v4M3 10h18"
+            Coffee: "M18 8h1a4 4 0 0 1 0 8h-1M2 8h16v9a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V8zM6 1v3M10 1v3M14 1v3",
+            LogOut: "M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"
         };
 
         // --- 2. CẤU HÌNH ---
         const SERVICES = [
-            { id: 'CB_190', name: '👑 帝王套餐 (190分)', duration: 190, type: 'combo', price: 2000 },
-            { id: 'CB_130', name: '💎 豪華套餐 (130分)', duration: 130, type: 'combo', price: 1500 },
-            { id: 'CB_100', name: '🔥 招牌套餐 (100分)', duration: 100, type: 'combo', price: 1300 },
-            { id: 'CB_70',  name: '⚡ 精選套餐 (70分)',  duration: 70,  type: 'combo', price: 1000 },
-            { id: 'FT_120', name: '👣 足底按摩 (120分)', duration: 120, type: 'foot', price: 1600 },
-            { id: 'FT_90',  name: '👣 足底按摩 (90分)',  duration: 90,  type: 'foot', price: 1200 },
-            { id: 'FT_70',  name: '👣 足底按摩 (70分)',  duration: 70,  type: 'foot', price: 900 },
-            { id: 'FT_40',  name: '👣 足底按摩 (40分)',  duration: 40,  type: 'foot', price: 500 },
-            { id: 'BD_120', name: '🛏️ 全身指壓 (120分)', duration: 120, type: 'body', price: 1800 },
-            { id: 'BD_90',  name: '🛏️ 全身指壓 (90分)',  duration: 90,  type: 'body', price: 1350 },
-            { id: 'BD_70',  name: '🛏️ 全身指壓 (70分)',  duration: 70,  type: 'body', price: 1000 },
-            { id: 'BD_35',  name: '🛏️ 半身指壓 (35分)',  duration: 35,  type: 'body', price: 500 },
+            { id: 'CB_190', name: '👑 帝王套餐 (190分)', duration: 190, type: 'combo' },
+            { id: 'CB_130', name: '💎 豪華套餐 (130分)', duration: 130, type: 'combo' },
+            { id: 'CB_100', name: '🔥 招牌套餐 (100分)', duration: 100, type: 'combo' },
+            { id: 'CB_70',  name: '⚡ 精選套餐 (70分)',  duration: 70,  type: 'combo' },
+            { id: 'FT_120', name: '👣 足底按摩 (120分)', duration: 120, type: 'foot' },
+            { id: 'FT_90',  name: '👣 足底按摩 (90分)',  duration: 90,  type: 'foot' },
+            { id: 'FT_70',  name: '👣 足底按摩 (70分)',  duration: 70,  type: 'foot' },
+            { id: 'FT_40',  name: '👣 足底按摩 (40分)',  duration: 40,  type: 'foot' },
+            { id: 'BD_120', name: '🛏️ 全身指壓 (120分)', duration: 120, type: 'body' },
+            { id: 'BD_90',  name: '🛏️ 全身指壓 (90分)',  duration: 90,  type: 'body' },
+            { id: 'BD_70',  name: '🛏️ 全身指壓 (70分)',  duration: 70,  type: 'body' },
+            { id: 'BD_35',  name: '🛏️ 半身指壓 (35分)',  duration: 35,  type: 'body' },
         ];
 
         const RESOURCES = {
@@ -90,15 +102,14 @@
         };
         const formatTime = (d) => d ? d.toLocaleTimeString('en-US', {hour:'2-digit', minute:'2-digit', hour12:false}) : '--:--';
 
-        // --- 3. TIMELINE COMPONENT (BẢN AN TOÀN) ---
+        // --- 3. TIMELINE COMPONENT ---
         const TimelineComponent = ({ bookings }) => {
-            const startHour = 10; 
-            const totalHours = 16; 
+            const startHour = 8; 
+            const totalHours = 18; 
             const hours = Array.from({length: totalHours + 1}, (_, i) => (startHour + i) % 24);
-            const allResources = [...RESOURCES.chair, ...RESOURCES.bed];
 
             const getPosition = (date, duration) => {
-                if (!date) return { left: '0%', width: '0%' };
+                if(!date) return { left: '0%', width: '0%' };
                 let h = date.getHours();
                 let m = date.getMinutes();
                 if (h < startHour) h += 24;
@@ -106,38 +117,28 @@
                 const startMins = (h - startHour) * 60 + m;
                 const left = (startMins / (totalHours * 60)) * 100;
                 const width = (duration / (totalHours * 60)) * 100;
+                
                 return { left: `${Math.max(0, left)}%`, width: `${Math.min(100, width)}%` };
             };
 
             return (
-                <div className="flex flex-col h-full bg-white border rounded-b-xl overflow-hidden">
-                    {/* Header */}
-                    <div className="flex border-b bg-slate-50 h-8 shrink-0">
-                        <div className="w-16 border-r p-2 text-[10px] font-bold text-center sticky left-0 bg-slate-50 z-20">Res</div>
+                <div className="flex flex-col h-full bg-white border rounded-b-xl overflow-hidden text-xs">
+                    <div className="flex border-b bg-slate-50 shrink-0 h-8">
+                        <div className="w-16 border-r p-2 font-bold text-center sticky left-0 bg-slate-50 z-10">Res</div>
                         <div className="flex-1 relative">
-                            {hours.map((h, i) => (
-                                <div key={i} className="absolute text-[10px] text-slate-400 border-l pl-1 h-full" style={{ left: `${(i / totalHours) * 100}%` }}>{h}</div>
-                            ))}
+                            {hours.map((h, i) => (<div key={i} className="absolute text-[10px] text-slate-400 border-l pl-1 h-full" style={{ left: `${(i / totalHours) * 100}%` }}>{h}</div>))}
                         </div>
                     </div>
-                    {/* Body */}
                     <div className="flex-1 overflow-y-auto relative">
                         <div className="absolute inset-0 timeline-grid w-full h-full pointer-events-none z-0"></div>
-                        {allResources.map(res => (
-                            <div key={res.id} className="flex border-b h-10 relative group hover:bg-slate-50">
-                                <div className="w-16 shrink-0 border-r text-[10px] font-bold text-slate-600 bg-white sticky left-0 z-10 flex items-center justify-center">{res.name}</div>
+                        {[...RESOURCES.chair, ...RESOURCES.bed].map(res => (
+                            <div key={res.id} className="flex border-b h-10 relative hover:bg-slate-50">
+                                <div className="w-16 shrink-0 border-r font-bold text-slate-600 bg-white sticky left-0 z-10 flex items-center justify-center text-[10px]">{res.name}</div>
                                 <div className="flex-1 relative">
-                                    {bookings.filter(b => (b.resourceId === res.id) && b.status !== 'cancelled').map(b => {
+                                    {bookings.filter(b => (b.resourceId === res.id || b.resource1 === res.id || b.resource2 === res.id) && b.status !== 'cancelled').map(b => {
                                         const svc = SERVICES.find(s => b.serviceName.includes(s.name.split('(')[0])) || { duration: 60 };
                                         const pos = getPosition(b.startTimeFull, svc.duration);
-                                        return (
-                                            <div key={b.rowId} 
-                                                 className={`absolute top-1 bottom-1 rounded px-1 flex items-center overflow-hidden text-white text-[9px] cursor-pointer z-10 ${b.status==='active'?'bg-red-500':'bg-emerald-500'}`}
-                                                 style={{ left: pos.left, width: pos.width }}
-                                                 title={b.customerName}>
-                                                {b.customerName.split(' ')[0]}
-                                            </div>
-                                        );
+                                        return (<div key={b.rowId} className={`absolute top-1 bottom-1 rounded px-1 flex items-center overflow-hidden text-white text-[9px] cursor-pointer z-10 ${b.status==='active'?'bg-red-500':'bg-emerald-500'}`} style={{ left: pos.left, width: pos.width }} title={b.customerName}>{b.customerName.split(' ')[0]}</div>);
                                     })}
                                 </div>
                             </div>
@@ -152,11 +153,9 @@
             const [bookings, setBookings] = useState([]);
             const [staffList, setStaffList] = useState([]);
             const [loading, setLoading] = useState(true);
-            const [viewMode, setViewMode] = useState('table'); // table | timeline
-            
-            // Modal States
+            const [listViewMode, setListViewMode] = useState('table'); 
+            const [actionModal, setActionModal] = useState(null);
             const [isAddModal, setIsAddModal] = useState(false);
-            const [editModal, setEditModal] = useState(null);
             const [form, setForm] = useState({ name: '', phone: '', pax: 1, date: new Date().toISOString().split('T')[0], time: '14:00', details: [{ serviceId: 'CB_100', staffId: '' }] });
 
             const fetchData = async () => {
@@ -184,12 +183,32 @@
                     
                     mappedBookings.sort((a, b) => b.startTimeFull - a.startTimeFull);
                     setBookings(mappedBookings);
-                    setStaffList(apiStaff.map(s => ({...s, status: 'ready'}))); 
+
+                    const mappedStaff = apiStaff.map(s => {
+                        const currentJob = mappedBookings.find(b => b.staffId === s.id && b.status === 'active');
+                        const isOff = schedule.some(sch => sch.staffId === s.id);
+                        let status = 'ready';
+                        if (isOff) status = 'off';
+                        if (currentJob) status = currentJob.customerName === 'Staff Action' ? 'break' : 'working';
+                        return { ...s, status, currentJob };
+                    });
+
+                    mappedStaff.sort((a,b) => parseInt(a.id.replace(/\D/g,'')) - parseInt(b.id.replace(/\D/g,'')));
+                    setStaffList(mappedStaff);
                     setLoading(false);
-                } catch (e) { console.error(e); }
+                } catch (e) { 
+                    console.error(e);
+                    // Nếu lỗi API, đừng để trắng màn hình
+                    setLoading(false);
+                }
             };
 
-            useEffect(() => { fetchData(); const t = setInterval(fetchData, 15000); return () => clearInterval(t); }, []);
+            useEffect(() => { fetchData(); const t = setInterval(fetchData, 10000); return () => clearInterval(t); }, []);
+
+            const handleStaffAction = async (action, duration) => {
+                if(!actionModal) return;
+                try { await axios.post('/api/admin-staff-action', { staffId: actionModal.id, action, duration }); setActionModal(null); fetchData(); } catch(e) {}
+            };
 
             const handleUpdateStatus = async (rowId, status) => {
                 if(!confirm("確認?")) return;
@@ -197,17 +216,58 @@
                 fetchData();
             };
 
+            const handleBookingSubmit = async () => {
+                if (!form.name) return alert("Nhập tên!");
+                for (let i=0; i<form.details.length; i++) {
+                    const detail = form.details[i];
+                    const svc = SERVICES.find(s => s.id === detail.serviceId);
+                    await axios.post('/api/admin-booking', {
+                        ngayDen: form.date, gioDen: form.time, dichVu: svc.name, nhanVien: detail.staffId || '隨機',
+                        sdt: form.phone, hoTen: `${form.name} (${i+1}/${form.pax})`, pax: 1, isWalkIn: true
+                    });
+                }
+                setIsAddModal(false); fetchData();
+            };
+
+            // --- UI COMPONENTS ---
+
+            const StaffCard = ({ s }) => {
+                const isFemale = s.gender === 'F' || s.gender === '女';
+                let stClass = 'bg-emerald-500'; let stText = 'Ready';
+                if(s.status === 'working') { stClass = 'bg-red-500'; stText = 'Busy'; }
+                if(s.status === 'off') { stClass = 'bg-gray-400'; stText = 'OFF'; }
+                if(s.status === 'break') { stClass = 'bg-amber-500'; stText = 'Eat'; }
+
+                return (
+                    <div onClick={()=>setActionModal(s)} className={`staff-card shrink-0 rounded-lg shadow border bg-white cursor-pointer flex flex-col justify-between overflow-hidden relative ${isFemale?'border-female':'border-male'}`}>
+                        <div className={`h-1.5 w-full ${stClass}`}></div>
+                        <div className="flex-1 flex flex-col items-center justify-center p-1">
+                            <div className="font-black text-2xl text-slate-800">{s.name.replace('號','')}</div>
+                            <div className="text-[10px] font-bold text-slate-500">{isFemale?'女':'男'}</div>
+                        </div>
+                        <div className={`text-center text-[10px] text-white font-bold py-1 w-full ${stClass}`}>
+                            {stText}
+                        </div>
+                        {s.status === 'working' && s.currentJob && (
+                            <div className="absolute top-2 right-1 bg-black/60 text-white text-[8px] px-1 rounded">
+                                ~{formatTime(s.currentJob.endTimeFull)}
+                            </div>
+                        )}
+                    </div>
+                )
+            };
+
             const ResourceCard = ({ res, type }) => {
                 const active = bookings.find(b => b.resourceId === res.id && b.status === 'active');
                 return (
-                    <div className={`p-2 rounded-lg border-2 h-24 flex flex-col justify-between relative shadow-sm ${active ? 'bg-red-50 border-red-500' : 'bg-white border-emerald-200'}`}>
-                        <div className="flex justify-between font-bold text-slate-700 text-xs"><span>{res.name}</span>{active && <span className="bg-red-500 text-white px-1 rounded">BUSY</span>}</div>
+                    <div className={`p-2 rounded-xl border-2 h-24 flex flex-col justify-between relative cursor-pointer ${active ? 'bg-red-50 border-red-400' : 'bg-white border-emerald-200'}`} onClick={()=>!active && setIsAddModal(true)}>
+                        <div className="flex justify-between font-bold text-slate-600 text-xs"><span>{res.name}</span>{active && <span className="text-[9px] bg-red-500 text-white px-1 rounded animate-pulse">BUSY</span>}</div>
                         {active ? (
-                            <div className="text-[10px]">
+                            <div className="text-xs">
                                 <div className="font-bold truncate">{active.customerName}</div>
-                                <div className="text-red-600 font-mono">{formatTime(active.endTimeFull)} 完</div>
+                                <div className="text-[10px] text-red-600 font-mono text-right">{formatTime(active.endTimeFull)} 完</div>
                             </div>
-                        ) : <div className="text-center text-slate-300"><Icon d={type==='chair'?ICONS.Armchair:ICONS.Bed} size={24}/></div>}
+                        ) : <div className="text-center text-slate-300"><Icon d={type==='chair'?PATHS.Armchair:PATHS.Bed} size={24}/></div>}
                     </div>
                 )
             };
@@ -215,48 +275,54 @@
             return (
                 <div className="min-h-screen flex flex-col bg-slate-100">
                     <header className="bg-slate-900 text-white p-3 shadow flex justify-between items-center sticky top-0 z-50">
-                        <div className="font-bold flex gap-2 items-center"><Icon d={ICONS.Grid}/> POS</div>
+                        <div className="font-bold flex gap-2 items-center px-2"><Icon d={PATHS.Grid}/> POS</div>
                         <div className="flex gap-2">
-                            <button onClick={fetchData}><Icon d={ICONS.Refresh}/></button>
-                            <button onClick={()=>setIsAddModal(true)} className="bg-amber-500 text-black px-3 py-1 rounded font-bold text-xs flex gap-1"><Icon d={ICONS.Plus} size={14}/> 新增</button>
+                            <button onClick={fetchData} className="p-2 hover:bg-slate-700 rounded"><Icon d={PATHS.Refresh}/></button>
+                            <button onClick={()=>setIsAddModal(true)} className="bg-amber-500 text-black px-3 py-1 rounded font-bold flex gap-1 text-xs items-center"><Icon d={PATHS.Plus} size={14}/> 新增</button>
                         </div>
                     </header>
 
+                    {/* 1. STAFF RAIL (NGANG, TỪ PHẢI SANG TRÁI) */}
+                    <div className="bg-white p-2 border-b shadow-sm overflow-x-auto flex flex-row-reverse gap-2 shrink-0 h-32 items-center px-4">
+                        {staffList.map(s => <StaffCard key={s.id} s={s} />)}
+                    </div>
+
+                    {/* MAIN CONTENT */}
                     <main className="flex-1 overflow-y-auto p-3 space-y-4">
-                        {/* ROOMS */}
                         <div className="grid grid-cols-2 gap-2">
                             <div className="bg-white p-2 rounded shadow">
-                                <div className="text-xs font-bold mb-2 text-slate-500">足浴 (Foot)</div>
+                                <div className="text-xs font-bold mb-2 text-slate-500 flex gap-1"><Icon d={PATHS.Armchair} size={14}/> 足浴 (Foot)</div>
                                 <div className="grid grid-cols-3 gap-1">{RESOURCES.chair.map(r => <ResourceCard key={r.id} res={r} type="chair"/>)}</div>
                             </div>
                             <div className="bg-white p-2 rounded shadow">
-                                <div className="text-xs font-bold mb-2 text-slate-500">身體 (Body)</div>
+                                <div className="text-xs font-bold mb-2 text-slate-500 flex gap-1"><Icon d={PATHS.Bed} size={14}/> 身體 (Body)</div>
                                 <div className="grid grid-cols-3 gap-1">{RESOURCES.bed.map(r => <ResourceCard key={r.id} res={r} type="bed"/>)}</div>
                             </div>
                         </div>
 
-                        {/* LIST / TIMELINE */}
-                        <div className="bg-white rounded-lg shadow border overflow-hidden flex flex-col h-[450px]">
-                            <div className="p-2 bg-slate-50 border-b flex justify-between items-center">
-                                <h3 className="font-bold text-sm text-slate-700 flex gap-2"><Icon d={ICONS.Clock} size={16}/> 預約列表</h3>
+                        <div className="bg-white rounded-lg shadow border border-slate-200 overflow-hidden flex flex-col h-[450px]">
+                            <div className="p-2 bg-slate-50 border-b flex justify-between items-center shrink-0">
+                                <h3 className="font-bold text-sm text-slate-700 flex gap-2"><Icon d={PATHS.Clock} size={16}/> 預約列表</h3>
                                 <div className="flex bg-slate-200 p-0.5 rounded text-[10px]">
-                                    <button onClick={()=>setViewMode('table')} className={`px-2 py-1 rounded ${viewMode==='table'?'bg-white shadow text-blue-600':''}`}>列表</button>
-                                    <button onClick={()=>setViewMode('timeline')} className={`px-2 py-1 rounded ${viewMode==='timeline'?'bg-white shadow text-emerald-600':''}`}>時間軸</button>
+                                    <button onClick={()=>setListViewMode('table')} className={`px-2 py-1 rounded ${listViewMode==='table'?'bg-white shadow text-blue-600':''}`}>列表</button>
+                                    <button onClick={()=>setListViewMode('timeline')} className={`px-2 py-1 rounded ${listViewMode==='timeline'?'bg-white shadow text-emerald-600':''}`}>時間軸</button>
                                 </div>
                             </div>
                             <div className="flex-1 overflow-hidden">
-                                {viewMode === 'table' ? (
+                                {listViewMode === 'table' ? (
                                     <div className="h-full overflow-y-auto">
                                         <table className="w-full text-xs text-left">
-                                            <thead className="bg-slate-100 sticky top-0"><tr><th className="p-2">Time</th><th className="p-2">Name</th><th className="p-2">Svc</th><th className="p-2">Act</th></tr></thead>
+                                            <thead className="bg-slate-100 sticky top-0"><tr><th className="p-2">Time</th><th className="p-2">Name</th><th className="p-2">Pax</th><th className="p-2">Svc</th><th className="p-2">Staff</th><th className="p-2 text-right">Act</th></tr></thead>
                                             <tbody className="divide-y">
                                                 {bookings.map(b => (
                                                     <tr key={b.rowId} className={b.status === 'cancelled' ? 'cancelled-row' : ''}>
                                                         <td className="p-2 font-mono text-emerald-700 font-bold">{formatTime(b.startTimeFull)}</td>
                                                         <td className="p-2 font-bold">{b.customerName}</td>
+                                                        <td className="p-2 text-center">{b.pax}</td>
                                                         <td className="p-2">{b.serviceName.split('(')[0]}</td>
+                                                        <td className="p-2"><span className="bg-slate-100 px-1 rounded">{b.staffId}</span></td>
                                                         <td className="p-2 text-right">
-                                                            {b.status !== 'cancelled' && <button onClick={()=>handleUpdateStatus(b.rowId, '❌ Cancel')} className="text-red-500"><Icon d={ICONS.Trash} size={14}/></button>}
+                                                            {b.status !== 'cancelled' && <button onClick={()=>handleUpdateStatus(b.rowId, '❌ Cancel')} className="text-red-500 hover:bg-red-50 p-1 rounded"><Icon d={PATHS.Trash} size={14}/></button>}
                                                         </td>
                                                     </tr>
                                                 ))}
@@ -269,9 +335,20 @@
                             </div>
                         </div>
                     </main>
-                    
-                    {/* Modal Add */}
-                    {isAddModal && <div className="fixed inset-0 bg-black/70 z-[60] flex items-center justify-center p-4"><div className="bg-white w-full max-w-md p-4 rounded-xl shadow-lg"><div className="flex justify-between mb-4"><h3 className="font-bold">Add Booking</h3><button onClick={()=>setIsAddModal(false)}>X</button></div><p className="text-center text-slate-500">Đang phát triển...</p></div></div>}
+
+                    {/* MODAL */}
+                    {actionModal && (
+                        <div className="fixed inset-0 bg-black/60 z-[60] flex items-center justify-center p-4">
+                            <div className="bg-white w-64 p-4 rounded-xl shadow-xl text-center animate-in fade-in zoom-in duration-200">
+                                <h3 className="font-bold text-lg mb-1">{actionModal.name}</h3>
+                                <div className="space-y-2 mt-4">
+                                    <button onClick={()=>handleStaffAction('break', 30)} className="w-full py-2 bg-yellow-100 text-yellow-800 rounded hover:bg-yellow-200 flex justify-center gap-2"><Icon d={PATHS.Coffee} size={16}/> 用餐 (Eat)</button>
+                                    <button onClick={()=>handleStaffAction('leave', 0)} className="w-full py-2 bg-red-100 text-red-800 rounded hover:bg-red-200 flex justify-center gap-2"><Icon d={PATHS.LogOut} size={16}/> 下班 (Off)</button>
+                                    <button onClick={()=>setActionModal(null)} className="w-full py-2 border rounded mt-2 text-sm">Close</button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
                 </div>
             );
         }
