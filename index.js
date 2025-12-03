@@ -1,3 +1,6 @@
+// THÊM DÒNG NÀY Ở TRÊN CÙNG
+require('dotenv').config(); 
+
 const express = require('express');
 const line = require('@line/bot-sdk');
 const { google } = require('googleapis');
@@ -5,21 +8,25 @@ const cors = require('cors');
 const path = require('path');
 
 // ==============================================================================
-// 1. CONFIGURATION
+// 1. CONFIGURATION (ĐÃ SỬA ĐỂ LẤY TỪ FILE .ENV)
 // ==============================================================================
 const config = {
-  channelAccessToken: 'YkSEuh1sMTfZAWLcse8o6kqasIi7kAmWjFaML3paJlAG++WjX7XD8W3VJVRHDm7c8s6CMKKs6iBKqvhaJ967hPPPayZ8DxY2y/4cCnTGVjSDIxu/bdwCgTsOYhbuskcEtYQxr1jT3hF7wGj7U3r/FQdB04t89/1O/w1cDnyilFU=',
-  channelSecret: '2c1111a804ab8e59b1495ba6f742826f'
+  // Thay vì dán key trực tiếp, ta gọi từ file môi trường
+  channelAccessToken: process.env.CHANNEL_ACCESS_TOKEN,
+  channelSecret: process.env.CHANNEL_SECRET
 };
-const ID_BA_CHU = 'Ue576894a512399dd4256ed6f0063c6d3';
-const SHEET_ID = '1kSQb7DJqXGNQsd8nJaMt7P-bTs59dkMJmt-TeY8kTAQ';
+
+// Lấy ID từ file .env
+const ID_BA_CHU = process.env.ID_BA_CHU;
+const SHEET_ID = process.env.SHEET_ID;
 
 const BOOKING_SHEET = 'Sheet1';
 const STAFF_SHEET = 'StaffLog';
-const SCHEDULE_SHEET = 'StaffSchedule'; // Đã sửa tên đúng
+const SCHEDULE_SHEET = 'StaffSchedule';
 
 const MAX_CHAIRS = 6; 
 const MAX_BEDS = 6;   
+// ==============================================================================
 // ==============================================================================
 
 const auth = new google.auth.GoogleAuth({
