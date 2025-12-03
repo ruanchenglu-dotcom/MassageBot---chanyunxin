@@ -33,27 +33,22 @@ let cachedBookings = [];
 let cachedSchedule = []; 
 let userState = {}; 
 
-// --- CẬP NHẬT BẢNG GIÁ MỚI THEO ẢNH ---
 const SERVICES = {
-    // Combo (Chân + Thân)
     'CB_190': { name: '👑 帝王套餐 (190分)', duration: 190, type: 'BED', category: 'COMBO', price: 2000 },
     'CB_130': { name: '💎 豪華套餐 (130分)', duration: 130, type: 'BED', category: 'COMBO', price: 1500 },
-    'CB_100': { name: '🔥 招牌套餐 (100分)', duration: 100, type: 'BED', category: 'COMBO', price: 999 }, // Cập nhật 999
-    'CB_70':  { name: '⚡ 精選套餐 (70分)',  duration: 70,  type: 'BED', category: 'COMBO', price: 900 }, // Cập nhật 900
+    'CB_100': { name: '🔥 招牌套餐 (100分)', duration: 100, type: 'BED', category: 'COMBO', price: 999 },
+    'CB_70':  { name: '⚡ 精選套餐 (70分)',  duration: 70,  type: 'BED', category: 'COMBO', price: 900 },
     
-    // Foot (Chân)
     'FT_120': { name: '👣 足底按摩 (120分)', duration: 120, type: 'CHAIR', category: 'FOOT', price: 1500 },
     'FT_90':  { name: '👣 足底按摩 (90分)',  duration: 90,  type: 'CHAIR', category: 'FOOT', price: 999 },
     'FT_70':  { name: '👣 足底按摩 (70分)',  duration: 70,  type: 'CHAIR', category: 'FOOT', price: 900 },
     'FT_40':  { name: '👣 足底按摩 (40分)',  duration: 40,  type: 'CHAIR', category: 'FOOT', price: 500 },
     
-    // Body (Thân)
     'BD_120': { name: '🛏️ 全身指壓 (120分)', duration: 120, type: 'BED', category: 'BODY', price: 1500 },
     'BD_90':  { name: '🛏️ 全身指壓 (90分)',  duration: 90,  type: 'BED', category: 'BODY', price: 999 },
-    'BD_70':  { name: '🛏️ 全身指壓 (70分)',  duration: 70,  type: 'BED', category: 'BODY', price: 900 }, // Cập nhật 900
-    'BD_35':  { name: '🛏️ 半身指壓 (35分)',  duration: 35,  type: 'BED', category: 'BODY', price: 500 }, // 35p 500k
+    'BD_70':  { name: '🛏️ 全身指壓 (70分)',  duration: 70,  type: 'BED', category: 'BODY', price: 900 }, 
+    'BD_35':  { name: '🛏️ 半身指壓 (35分)',  duration: 35,  type: 'BED', category: 'BODY', price: 500 },
 
-    // Other
     'OFF_DAY': { name: '⛔ 請假', duration: 1080, type: 'NONE' },
     'BREAK_30': { name: '🍱 用餐', duration: 30, type: 'NONE' },
     'BREAK_60': { name: '🍱 用餐', duration: 60, type: 'NONE' },
@@ -273,16 +268,22 @@ async function ghiVaoSheet(data) {
             colK_Created  // K
         ]];
 
-        console.log("Writing to Sheet:", valuesToWrite);
+        console.log("[LOG] Đang ghi vào Sheet:", JSON.stringify(valuesToWrite));
 
+        // SỬA LẠI RANGE: Chỉ định rõ Sheet1!A:A để chắc chắn ghi đúng tab
         await sheets.spreadsheets.values.append({
             spreadsheetId: SHEET_ID, 
-            range: BOOKING_SHEET, 
+            range: 'Sheet1!A:A', // Google sẽ tự động điền vào các cột tiếp theo (B,C,D...)
             valueInputOption: 'USER_ENTERED',
             requestBody: { values: valuesToWrite }
         });
-        syncData();
-    } catch (e) { console.error('Write Error:', e); }
+        
+        console.log("[SUCCESS] Ghi thành công!");
+        await syncData(); // Chờ sync xong mới return
+        
+    } catch (e) { 
+        console.error('[ERROR] Lỗi ghi Sheet:', e); 
+    }
 }
 
 async function updateBookingStatus(rowId, newStatus) {
@@ -552,7 +553,7 @@ app.post('/api/admin-staff-action', async (req, res) => {
 });
 
 // ==============================================================================
-// 5. BOT HANDLE EVENT (SỬA LỖI VÒNG LẶP MENU)
+// 5. BOT HANDLE EVENT
 // ==============================================================================
 async function handleEvent(event) {
   if (event.type !== 'message' || event.message.type !== 'text' && event.type !== 'postback') return Promise.resolve(null);
@@ -563,14 +564,11 @@ async function handleEvent(event) {
       else text = event.postback.data;
   }
 
-  // --- ƯU TIÊN CÁC LỆNH HỆ THỐNG TRƯỚC (ĐỂ KHÔNG BỊ NHẦM VỚI MENU) ---
-
-  // 1. Lệnh Đặt lịch (QUAN TRỌNG: Đặt lên đầu để không bị text.includes('booking') bắt nhầm)
+  // --- ƯU TIÊN LỆNH HỆ THỐNG ---
   if (text === 'Action:Booking') {
       return client.replyMessage(event.replyToken, { type: 'flex', altText: '選擇服務', contents: { "type": "bubble", "body": { "type": "box", "layout": "vertical", "contents": [ { "type": "text", "text": "請選擇服務類別", "weight": "bold", "size": "lg", "align": "center", "color": "#1DB446" }, { "type": "separator", "margin": "md" }, { "type": "button", "style": "primary", "color": "#A17DF5", "margin": "md", "action": { "type": "message", "label": "🔥 套餐 (Combo)", "text": "Cat:COMBO" } }, { "type": "button", "style": "secondary", "margin": "sm", "action": { "type": "message", "label": "👣 足底按摩 (腳)", "text": "Cat:FOOT" } }, { "type": "button", "style": "secondary", "margin": "sm", "action": { "type": "message", "label": "🛏️ 身體指壓 (身)", "text": "Cat:BODY" } } ] } } });
   }
 
-  // 2. Các lệnh Admin
   if (text === 'Admin' || text === '管理') { return client.replyMessage(event.replyToken, { type: 'flex', altText: 'Admin', contents: { "type": "bubble", "body": { "type": "box", "layout": "vertical", "contents": [ { "type": "text", "text": "🛠️ 師傅管理 (Admin)", "weight": "bold", "color": "#E63946", "size": "lg" }, { "type": "separator", "margin": "md" }, { "type": "button", "style": "primary", "color": "#000000", "margin": "md", "action": { "type": "message", "label": "⛔ 全店店休", "text": "Admin:CloseShop" } }, { "type": "separator", "margin": "md" }, { "type": "button", "style": "secondary", "margin": "sm", "action": { "type": "message", "label": "🛌 請假", "text": "Admin:SetOff" } }, { "type": "button", "style": "secondary", "margin": "sm", "action": { "type": "message", "label": "🤒 早退", "text": "Admin:SetLeaveEarly" } }, { "type": "button", "style": "secondary", "margin": "sm", "action": { "type": "message", "label": "🍱 用餐", "text": "Admin:SetBreak" } } ] } } }); }
   if (text === 'Admin:CloseShop') { userState[userId] = { step: 'ADMIN_PICK_CLOSE_DATE' }; return client.replyMessage(event.replyToken, { type: 'template', altText: '選擇日期', template: { type: 'buttons', text: '請選擇店休日期:', actions: [ { type: 'datetimepicker', label: '🗓️ 點擊選擇', data: 'ShopClosePicked', mode: 'date' } ] } }); }
   if (text.startsWith('DatePick:') && userState[userId] && userState[userId].step === 'ADMIN_PICK_CLOSE_DATE') { const pickedDate = text.split(':')[1]; await ghiVaoSheet({ gioDen: '08:00', ngayDen: pickedDate, dichVu: SERVICES['SHOP_CLOSE'].name, nhanVien: 'ALL_STAFF', userId: 'ADMIN', sdt: 'ADMIN', hoTen: '全店店休', trangThai: '⛔ 店休' }); delete userState[userId]; return client.replyMessage(event.replyToken, { type: 'text', text: `✅ 已設定 ${pickedDate} 全店店休。` }); }
@@ -604,7 +602,6 @@ async function handleEvent(event) {
       return client.replyMessage(event.replyToken, { type: 'text', text: `✅ 已登記: ${staffId} - ${logType}\n(${logNote})` }); 
   }
 
-  // 3. Xử lý logic đặt lịch (Các bước tiếp theo)
   if (text.startsWith('Cat:')) { 
       const category = text.split(':')[1]; 
       const buttons = Object.keys(SERVICES).filter(k => SERVICES[k].category === category).map(key => ({ 
@@ -663,7 +660,7 @@ async function handleEvent(event) {
       
       if (userId !== ID_BA_CHU) client.pushMessage(ID_BA_CHU, { type: 'text', text: `💰 新訂單!\n${confirmMsg}` }); 
       
-      // GHI VÀO SHEET
+      // GHI SHEET VÀ CHỜ KẾT QUẢ
       await ghiVaoSheet({ gioDen: gio, ngayDen: currentState.date, dichVu: serviceName, nhanVien: staffDisplay, userId: userId, sdt: sdt, hoTen: hoTen, trangThai: '已預約', pax: currentState.pax, isOil: currentState.isOil }); 
       
       delete userState[userId]; 
@@ -684,7 +681,7 @@ async function handleEvent(event) {
   
   if (text === 'reset') { userState = {}; return client.replyMessage(event.replyToken, { type: 'text', text: '系統已重置。' }); }
 
-  // 4. Lệnh Menu (Đưa xuống cuối cùng)
+  // MENU (Đưa xuống cuối cùng để tránh xung đột)
   if (text.includes('預約') || text.toLowerCase().includes('booking') || text.includes('menu') || text.toLowerCase() === 'menu' || text.includes('價目表')) {
       delete userState[userId]; syncData();
       return client.replyMessage(event.replyToken, { type: 'flex', altText: '服務價目表', contents: createMenuFlexMessage() });
@@ -696,5 +693,5 @@ async function handleEvent(event) {
 syncData();
 const port = process.env.PORT || 3000;
 app.listen(port, () => {
-    console.log(`Bot v54.7 (Fix Loop & Update Price) running on ${port}`);
+    console.log(`Bot v54.8 (Fix Loop & Auto-Sheet Write) running on ${port}`);
 });
