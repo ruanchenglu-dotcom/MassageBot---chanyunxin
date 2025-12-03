@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Massage POS - Manager V4</title>
+    <title>Massage POS - Ultimate Manager</title>
     
     <script src="https://cdn.tailwindcss.com"></script>
     <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.development.js"></script>
@@ -12,49 +12,26 @@
     <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/axios/1.6.7/axios.min.js"></script>
 
     <style>
-        body { font-family: 'Microsoft JhengHei', sans-serif; background-color: #f3f4f6; }
+        body { font-family: 'Microsoft JhengHei', sans-serif; background-color: #f1f5f9; }
         .scrollbar-hide::-webkit-scrollbar { display: none; }
+        .modal-animate { animation: slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1); }
+        @keyframes slideUp { from { transform: translateY(50px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+
+        /* 3D CARDS */
+        .card-3d { transition: all 0.1s; position: relative; top: 0; }
+        .card-3d:active { transform: translateY(4px); border-bottom-width: 0px; margin-bottom: 4px; }
         
-        /* Animation */
-        .modal-animate { animation: slideUp 0.3s ease-out; }
-        @keyframes slideUp { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
-
-        /* Card Animation & Base */
-        .staff-card {
-            min-width: 100px; height: 120px;
-            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-            position: relative;
-        }
-        .staff-card:hover { transform: translateY(-4px); box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1); }
+        .style-male { background: white; border: 2px solid #3B82F6; border-bottom: 5px solid #2563EB; color: #1E3A8A; }
+        .style-female { background: white; border: 2px solid #F472B6; border-bottom: 5px solid #DB2777; color: #BE185D; }
         
-        /* --- STATUS STYLES (Màu Nền & Viền mặc định) --- */
-        .st-away { background: #E5E7EB; border: 2px solid #9CA3AF; color: #9CA3AF; } /* Xám */
-        .st-ready { background: #FFFFFF; border: 3px solid #10B981; color: #1f2937; } /* Trắng viền Xanh lá */
-        .st-eat { background: #FFEDD5; border: 3px solid #F97316; color: #C2410C; } /* Cam */
-        .st-out-short { background: #DCFCE7; border: 3px solid #22C55E; color: #15803D; } /* Xanh lá nhạt */
-        .st-out-long { background: #DBEAFE; border: 3px solid #3B82F6; color: #1D4ED8; } /* Xanh dương */
-        
-        .st-booked { background: #FEF9C3; border: 3px solid #EAB308; color: #A16207; } /* Vàng (Đợi khách) */
-        .st-busy { background: #FEE2E2; border: 3px solid #EF4444; color: #B91C1C; } /* Đỏ (Đang làm) */
+        /* Status Colors */
+        .st-busy { background: #FEF2F2; border-color: #EF4444; border-bottom-color: #B91C1C; color: #B91C1C; }
+        .st-booked { background: #FFFBEB; border-color: #F59E0B; border-bottom-color: #B45309; color: #B45309; }
+        .st-away { background: #F3F4F6; border-color: #9CA3AF; border-bottom-color: #6B7280; color: #9CA3AF; opacity: 0.6; }
+        .badge-queue { background: #10B981; box-shadow: 0 2px 5px rgba(0,0,0,0.2); }
 
-        /* --- FEMALE OVERRIDE (Nữ viền đỏ) --- */
-        .female-card {
-            border-color: #EF4444 !important; /* Luôn viền đỏ */
-            border-width: 3px !important;
-        }
-        .female-name { color: #DC2626 !important; font-weight: 900 !important; }
-
-        /* Badge số thứ tự */
-        .queue-badge {
-            position: absolute; top: -8px; left: -8px;
-            width: 24px; height: 24px;
-            background: #10B981; color: white;
-            border-radius: 50%; font-size: 12px; font-weight: bold;
-            display: flex; items-center: justify-center;
-            border: 2px solid white; shadow: sm;
-            z-index: 10;
-        }
-
+        /* Timeline Grid */
+        .timeline-bg { background-image: linear-gradient(to right, #f0f0f0 1px, transparent 1px); background-size: 4.16% 100%; } /* 24h/100% */
     </style>
 </head>
 <body>
@@ -63,96 +40,210 @@
     <script type="text/babel">
         const { useState, useEffect, useMemo } = React;
 
-        const Icon = ({ d, size=20, className="" }) => (
-            <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d={d} /></svg>
-        );
+        // --- ICONS ---
+        const Icon = ({ d, size=20, className="" }) => (<svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d={d} /></svg>);
         const PATHS = {
             Users: "M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2M9 7a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75",
-            Clock: "M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10zM12 6v6l4 2",
-            Settings: "M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.18-.08a2 2 0 0 0-2 0l-.45.45a2 2 0 0 0 0 2l.08.18a2 2 0 0 1 0 2l-.25.43a2 2 0 0 1-1.73 1H2a2 2 0 0 0-2 2v.44a2 2 0 0 0 2 2h.18a2 2 0 0 1 1.73 1l.25.43a2 2 0 0 1 0 2l-.08.18a2 2 0 0 0 0 2l.45.45a2 2 0 0 0 2 0l.18-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.18.08a2 2 0 0 0 2 0l.45-.45a2 2 0 0 0 0-2l-.08-.18a2 2 0 0 1 0-2l.25-.43a2 2 0 0 1 1.73-1H22a2 2 0 0 0 2-2v-.44a2 2 0 0 0-2-2h-.18a2 2 0 0 1-1.73-1l-.25-.43a2 2 0 0 1 0-2l.08-.18a2 2 0 0 0 0-2l.45-.45a2 2 0 0 0-2 0l-.18.08a2 2 0 0 1-2 0l.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z",
+            Grid: "M3 3h7v7H3zM14 3h7v7h-7zM14 14h7v7h-7zM3 14h7v7H3z",
+            List: "M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01",
+            Chart: "M12 20V10M18 20V4M6 20v-6",
+            Dollar: "M12 1v22M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6",
+            Settings: "M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.18-.08a2 2 0 0 0-2 0l-.45.45a2 2 0 0 0 0 2l.08.18a2 2 0 0 1 0 2l-.25.43a2 2 0 0 1-1.73 1H2a2 2 0 0 0-2 2v.44a2 2 0 0 0 2 2h.18a2 2 0 0 1 1.73 1l.25.43a2 2 0 0 1 0 2l-.08.18a2 2 0 0 0 0 2l.45.45a2 2 0 0 0 2 0l.18-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.18.08a2 2 0 0 0 2 0l.45-.45a2 2 0 0 0 0-2l-.08-.18a2 2 0 0 1 0-2l.25-.43a2 2 0 0 1 1.73-1H22a2 2 0 0 0 2-2v-.44a2 2 0 0 0-2-2h-.18a2 2 0 0 1-1.73-1l-.25-.43a2 2 0 0 1 0-2l.08-.18a2 2 0 0 0 0-2l.45-.45a2 2 0 0 0 2 0l.18.08a2 2 0 0 1-2 0l.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z",
             X: "M18 6 6 18M6 6l12 12",
             Check: "M20 6 9 17 4 12",
             Refresh: "M23 4v6h-6M1 20v-6h6"
         };
 
+        // --- CONSTANTS ---
+        const SERVICE_PRICES = {
+            '帝王': 2000, '豪華': 1500, '招牌': 999, '精選': 900,
+            '足底': 500, '全身': 1000, '半身': 500
+        };
+
+        // --- HELPERS ---
+        const parseTime = (str) => {
+            if(!str) return 0;
+            const [h, m] = str.split(':').map(Number);
+            return h * 60 + (m || 0);
+        };
+        const getPrice = (name) => {
+            for(let k in SERVICE_PRICES) if(name.includes(k)) return SERVICE_PRICES[k];
+            return 0;
+        };
+
         // --- COMPONENTS ---
 
-        // 1. MODAL QUẢN LÝ CHECK-IN
-        const CheckInBoard = ({ staffList, statusData, setStatusData, onClose }) => {
+        // 1. TIMELINE COMPONENT
+        const TimelineView = ({ bookings }) => {
+            const hours = Array.from({length: 15}, (_, i) => i + 10); // 10:00 -> 24:00
             
-            const handleStatusChange = (id, newStatus) => {
-                const now = Date.now();
-                // Nếu chuyển sang READY, cập nhật thời gian check-in để xếp hàng
-                const current = statusData[id] || {};
-                const newState = { 
-                    ...statusData, 
-                    [id]: { 
-                        status: newStatus, 
-                        checkInTime: newStatus === 'READY' ? now : (current.checkInTime || 0) 
-                    } 
-                };
-                setStatusData(newState);
-                localStorage.setItem('staff_status_v4', JSON.stringify(newState));
-            };
+            return (
+                <div className="bg-white border rounded-xl overflow-hidden shadow-sm h-96 flex flex-col">
+                    <div className="flex border-b bg-gray-50 h-10 shrink-0">
+                        <div className="w-20 border-r p-2 font-bold text-xs text-gray-500 flex items-center justify-center">Resource</div>
+                        <div className="flex-1 relative">
+                            {hours.map((h, i) => (
+                                <div key={h} className="absolute h-full border-l text-[10px] text-gray-400 pl-1" style={{left: `${(i/14)*100}%`}}>
+                                    {h}:00
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                    <div className="overflow-y-auto flex-1 relative timeline-bg">
+                        {/* 6 GIƯỜNG */}
+                        {Array.from({length: 6}, (_, i) => i+1).map(n => (
+                            <div key={`bed-${n}`} className="h-12 border-b flex relative group">
+                                <div className="w-20 border-r bg-gray-50 text-xs font-bold flex items-center justify-center text-purple-600">Bed {n}</div>
+                                <div className="flex-1 relative">
+                                    {bookings.filter(b => b.type === 'BED' && (b.id % 6) + 1 === n && b.status !== 'cancelled').map((b, idx) => {
+                                        const start = parseTime(b.time.split(' ')[1] || b.time); // Giả sử b.time = "14:00"
+                                        const left = ((start - 600) / 840) * 100; // 10:00 = 600min, total view 14h = 840min
+                                        const width = (b.duration / 840) * 100;
+                                        if (left < 0) return null;
+                                        return (
+                                            <div key={idx} className="absolute top-2 h-8 rounded bg-purple-500 text-white text-[10px] flex items-center px-2 shadow-sm overflow-hidden whitespace-nowrap z-10" 
+                                                 style={{left: `${left}%`, width: `${width}%`}} title={b.customerName}>
+                                                {b.customerName}
+                                            </div>
+                                        )
+                                    })}
+                                </div>
+                            </div>
+                        ))}
+                        {/* 6 GHẾ */}
+                        {Array.from({length: 6}, (_, i) => i+1).map(n => (
+                            <div key={`chair-${n}`} className="h-12 border-b flex relative group">
+                                <div className="w-20 border-r bg-gray-50 text-xs font-bold flex items-center justify-center text-emerald-600">Chair {n}</div>
+                                <div className="flex-1 relative">
+                                    {bookings.filter(b => b.type === 'CHAIR' && (b.id % 6) + 1 === n && b.status !== 'cancelled').map((b, idx) => {
+                                        const start = parseTime(b.time.split(' ')[1] || b.time);
+                                        const left = ((start - 600) / 840) * 100;
+                                        const width = (b.duration / 840) * 100;
+                                        if (left < 0) return null;
+                                        return (
+                                            <div key={idx} className="absolute top-2 h-8 rounded bg-emerald-500 text-white text-[10px] flex items-center px-2 shadow-sm overflow-hidden whitespace-nowrap z-10" 
+                                                 style={{left: `${left}%`, width: `${width}%`}} title={b.customerName}>
+                                                {b.customerName}
+                                            </div>
+                                        )
+                                    })}
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            );
+        };
+
+        // 2. REVENUE TABLE
+        const RevenueTable = ({ bookings }) => {
+            const revenue = bookings.reduce((acc, b) => {
+                if(b.status === 'cancelled') return acc;
+                const p = getPrice(b.serviceName);
+                const oil = b.serviceName.includes('油') ? 200 : 0;
+                return acc + (p + oil) * (b.pax || 1);
+            }, 0);
 
             return (
-                <div className="fixed inset-0 bg-black/70 z-[60] flex items-center justify-center p-4 backdrop-blur-sm">
-                    <div className="bg-white w-full max-w-3xl rounded-xl shadow-2xl modal-animate flex flex-col max-h-[90vh]">
-                        <div className="p-4 bg-purple-800 text-white rounded-t-xl flex justify-between items-center shrink-0">
-                            <h2 className="text-xl font-bold flex gap-2 items-center"><Icon d={PATHS.Users}/> 技師排班管理 (Quản lý Check-in)</h2>
-                            <button onClick={onClose} className="bg-white/20 hover:bg-white/30 p-1 rounded-full"><Icon d={PATHS.X}/></button>
+                <div className="bg-white p-6 rounded-xl shadow-sm border text-center">
+                    <h3 className="text-gray-500 font-bold mb-2 uppercase tracking-wide">Tổng Doanh Thu Hôm Nay</h3>
+                    <div className="text-4xl font-black text-emerald-600 flex justify-center items-center gap-2">
+                        <Icon d={PATHS.Dollar} size={32}/> {revenue.toLocaleString()} TWD
+                    </div>
+                    <div className="mt-4 grid grid-cols-3 gap-4 text-sm">
+                        <div className="bg-purple-50 p-2 rounded">
+                            <div className="font-bold text-purple-700">{bookings.filter(b => b.status !== 'cancelled').length}</div>
+                            <div className="text-gray-500">Đơn hàng</div>
                         </div>
-
-                        <div className="grid grid-cols-12 gap-2 p-3 bg-purple-50 font-bold text-purple-900 text-sm border-b shrink-0">
-                            <div className="col-span-2 pl-2">技師 (Thợ)</div>
-                            <div className="col-span-3 text-center">上班 (Bắt đầu)</div>
-                            <div className="col-span-3 text-center">下班 (Kết thúc)</div>
-                            <div className="col-span-4 text-center">狀態 (Trạng thái)</div>
+                        <div className="bg-blue-50 p-2 rounded">
+                            <div className="font-bold text-blue-700">{bookings.reduce((a,b) => b.status!=='cancelled' ? a + (b.pax||1) : a, 0)}</div>
+                            <div className="text-gray-500">Khách</div>
                         </div>
+                        <div className="bg-orange-50 p-2 rounded">
+                            <div className="font-bold text-orange-700">{bookings.filter(b=> b.status==='cancelled').length}</div>
+                            <div className="text-gray-500">Hủy</div>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
 
-                        <div className="overflow-y-auto flex-1 p-2 space-y-2 bg-gray-50">
-                            {staffList.filter(s => s.status !== 'off').map(s => {
-                                const current = statusData[s.id] || { status: 'AWAY' };
-                                const isFemale = s.gender === 'F' || s.gender === '女';
-                                return (
-                                    <div key={s.id} className="grid grid-cols-12 gap-2 items-center p-2 bg-white border rounded-lg hover:shadow-sm">
-                                        <div className="col-span-2 flex items-center gap-2">
-                                            <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs shadow-inner ${isFemale ? 'bg-pink-100 text-red-600 border border-red-300' : 'bg-slate-200 text-slate-700'}`}>
-                                                {s.id.replace('號','')}
-                                            </div>
-                                            <span className={`font-bold text-lg ${isFemale ? 'text-red-600' : 'text-gray-800'}`}>{s.name}</span>
-                                        </div>
-                                        
-                                        <div className="col-span-3 flex justify-center"><input type="time" defaultValue="10:00" className="border rounded px-2 py-1 text-sm bg-slate-50 text-center w-24"/></div>
-                                        <div className="col-span-3 flex justify-center"><input type="time" defaultValue="02:00" className="border rounded px-2 py-1 text-sm bg-slate-50 text-center w-24"/></div>
+        // 3. STAFF CARD 3D (V5 Logic)
+        const StaffCard3D = ({ s, statusData, queueIndex }) => {
+            const isFemale = s.gender === 'F' || s.gender === '女';
+            const local = statusData[s.id] || { status: 'AWAY' };
+            let displayStatus = local.status;
+            let statusClass = isFemale ? 'style-female' : 'style-male';
+            let label = '---';
 
-                                        <div className="col-span-4 flex justify-center">
-                                            <select 
-                                                value={current.status}
-                                                onChange={(e) => handleStatusChange(s.id, e.target.value)}
-                                                className={`w-full text-sm font-bold py-1.5 px-3 rounded-lg border-2 outline-none transition-colors ${
-                                                    current.status === 'AWAY' ? 'bg-gray-100 text-gray-500' :
-                                                    current.status === 'READY' ? 'bg-emerald-50 text-emerald-600 border-emerald-400' :
-                                                    'bg-blue-50 text-blue-600 border-blue-400'
-                                                }`}
-                                            >
-                                                <option value="AWAY">⚪ 未到 (Chưa đến)</option>
-                                                <option value="READY">🟢 在店 (Check-in)</option>
-                                                <option value="EAT">🟠 用餐 (Ăn cơm)</option>
-                                                <option value="OUT_SHORT">🔵 外出 (&lt;60p)</option>
-                                                <option value="OUT_LONG">🔵 外出 (&gt;60p)</option>
-                                            </select>
-                                        </div>
+            if (s.activeBooking) {
+                // Check time
+                const now = new Date();
+                try {
+                    const [h, m] = s.activeBooking.time.split(':').map(Number); // Simplified time parsing
+                    const bookTime = h * 60 + m;
+                    const curTime = now.getHours() * 60 + now.getMinutes();
+                    if(curTime >= bookTime) { displayStatus = 'BUSY'; statusClass = 'st-busy'; }
+                    else { displayStatus = 'BOOKED'; statusClass = 'st-booked'; }
+                } catch(e) { displayStatus = 'BOOKED'; statusClass = 'st-booked'; }
+            } else if (displayStatus === 'AWAY') statusClass = 'st-away';
+
+            // Custom Status Colors
+            if(displayStatus === 'EAT') { statusClass = 'bg-orange-100 border-orange-400 border-b-orange-600 text-orange-800'; label='Ăn cơm'; }
+            else if(displayStatus === 'OUT_SHORT') { statusClass = 'bg-green-100 border-green-400 border-b-green-600 text-green-800'; label='Ra ngoài'; }
+            else if(displayStatus === 'OUT_LONG') { statusClass = 'bg-blue-100 border-blue-400 border-b-blue-600 text-blue-800'; label='Ra lâu'; }
+            else if(displayStatus === 'AWAY') label = 'Chưa đến';
+            else if(displayStatus === 'READY') label = 'Sẵn sàng';
+            else if(displayStatus === 'BUSY') label = 'Đang làm';
+            else if(displayStatus === 'BOOKED') label = 'Khách đặt';
+
+            return (
+                <div className={`card-3d w-24 h-32 rounded-xl flex flex-col justify-between cursor-pointer select-none ${statusClass}`}>
+                    {displayStatus === 'READY' && queueIndex !== undefined && (
+                        <div className="absolute -top-3 -right-3 w-7 h-7 badge-queue text-white rounded-full flex items-center justify-center font-black text-sm border-2 border-white z-10">{queueIndex + 1}</div>
+                    )}
+                    <div className="flex-1 flex flex-col items-center justify-center p-2">
+                        <div className="text-3xl font-black">{s.id.replace('號','')}</div>
+                        <div className="text-[10px] font-bold mt-1 opacity-80 truncate w-full text-center">{s.name}</div>
+                    </div>
+                    <div className="text-center text-[10px] font-bold py-1 w-full bg-black/5 rounded-b-lg">{label}</div>
+                </div>
+            )
+        };
+
+        // 4. CHECK-IN MODAL
+        const CheckInBoard = ({ staffList, statusData, setStatusData, onClose }) => {
+            const handleStatusChange = (id, newStatus) => {
+                const now = Date.now();
+                const current = statusData[id] || {};
+                const newState = { ...statusData, [id]: { status: newStatus, checkInTime: newStatus === 'READY' && current.status !== 'READY' ? now : (current.checkInTime || 0) } };
+                setStatusData(newState);
+                localStorage.setItem('staff_status_final', JSON.stringify(newState));
+            };
+            return (
+                <div className="fixed inset-0 bg-slate-900/80 z-[60] flex items-center justify-center p-4 backdrop-blur-sm">
+                    <div className="bg-white w-full max-w-4xl rounded-2xl shadow-2xl modal-animate flex flex-col max-h-[90vh] overflow-hidden">
+                        <div className="p-4 bg-purple-700 text-white flex justify-between items-center shrink-0">
+                            <h2 className="text-xl font-bold flex gap-2 items-center"><Icon d={PATHS.Users}/> Check-in Manager</h2>
+                            <button onClick={onClose}><Icon d={PATHS.X}/></button>
+                        </div>
+                        <div className="overflow-y-auto flex-1 p-4 space-y-2 bg-slate-100">
+                            {staffList.filter(s=>s.status!=='off').map(s => (
+                                <div key={s.id} className="flex justify-between items-center p-3 bg-white border rounded-lg shadow-sm">
+                                    <div className="flex items-center gap-3 w-1/3">
+                                        <div className="font-bold text-lg text-slate-700">{s.id}</div>
+                                        <div className="font-bold text-slate-900">{s.name}</div>
                                     </div>
-                                )
-                            })}
+                                    <select value={(statusData[s.id]||{}).status || 'AWAY'} onChange={(e)=>handleStatusChange(s.id, e.target.value)} className="border-2 rounded px-3 py-1 font-bold text-sm outline-none focus:border-purple-500">
+                                        <option value="AWAY">⚪ Chưa đến</option>
+                                        <option value="READY">🟢 Sẵn sàng</option>
+                                        <option value="EAT">🟠 Ăn cơm</option>
+                                        <option value="OUT_SHORT">🔵 Ra ngoài</option>
+                                    </select>
+                                </div>
+                            ))}
                         </div>
-
-                        <div className="p-4 border-t bg-white rounded-b-xl flex justify-end">
-                            <button onClick={onClose} className="bg-purple-700 hover:bg-purple-800 text-white px-8 py-2 rounded-lg font-bold shadow-lg transform active:scale-95 transition-all flex items-center gap-2">
-                                <Icon d={PATHS.Check} size={18}/> 完成 (Xong)
-                            </button>
-                        </div>
+                        <div className="p-4 bg-white border-t flex justify-end"><button onClick={onClose} className="bg-purple-600 text-white px-6 py-2 rounded-lg font-bold">Xong</button></div>
                     </div>
                 </div>
             );
@@ -160,209 +251,115 @@
 
         // --- MAIN APP ---
         function App() {
+            const [activeTab, setActiveTab] = useState('list'); // list, timeline, revenue
             const [staffList, setStaffList] = useState([]);
             const [bookings, setBookings] = useState([]);
-            const [loading, setLoading] = useState(true);
+            const [statusData, setStatusData] = useState(() => JSON.parse(localStorage.getItem('staff_status_final')) || {});
             const [showManager, setShowManager] = useState(false);
-            
-            // State: { [id]: { status: 'READY', checkInTime: 123456789 } }
-            const [statusData, setStatusData] = useState(() => {
-                const saved = localStorage.getItem('staff_status_v4');
-                return saved ? JSON.parse(saved) : {};
-            });
 
             const fetchData = async () => {
                 try {
                     const res = await axios.get('/api/info');
                     const { bookings: apiBookings, staffList: apiStaff } = res.data;
-                    
-                    const mappedBookings = apiBookings.map((b, idx) => ({ ...b, id: idx, status: (b.status && b.status.includes('取消')) ? 'cancelled' : 'active' }));
+                    const mappedBookings = apiBookings.map((b, i) => ({ ...b, id: i, status: (b.status && b.status.includes('取消')) ? 'cancelled' : 'active' }));
                     setBookings(mappedBookings);
-
-                    // Map booking vào staff để biết ai đang có khách
+                    
                     const mappedStaff = apiStaff.map(s => {
-                        // Tìm booking hiện tại của staff
                         const activeBooking = mappedBookings.find(b => b.staffId === s.id && b.status === 'active');
                         return { ...s, activeBooking };
                     });
-                    
+                    // Sort ID
+                    mappedStaff.sort((a,b) => parseInt(a.id.replace(/\D/g,'')) - parseInt(b.id.replace(/\D/g,'')));
                     setStaffList(mappedStaff);
-                    setLoading(false);
-                } catch (e) { console.error(e); setLoading(false); }
+                } catch(e) { console.error(e); }
             };
 
             useEffect(() => { fetchData(); const t = setInterval(fetchData, 10000); return () => clearInterval(t); }, []);
 
-            // --- LOGIC PHÂN LOẠI & SẮP XẾP (XOAY TUA) ---
+            // SORTING LOGIC (Right to Left Priority)
             const workingStaff = staffList.filter(s => s.status !== 'off');
-
-            // 1. Nhóm chưa đến (Xám)
-            const awayStaffGroup = workingStaff.filter(s => !statusData[s.id] || statusData[s.id].status === 'AWAY');
-
-            // 2. Nhóm đã Check-in (Sẵn sàng / Đang làm / Ăn...)
-            let activeStaffGroup = workingStaff.filter(s => statusData[s.id] && statusData[s.id].status !== 'AWAY');
-
-            // --- SẮP XẾP XOAY TUA (QUAN TRỌNG) ---
-            // Ai Check-in trước (thời gian nhỏ hơn) -> Xếp trước (Bên trái)
-            activeStaffGroup.sort((a, b) => {
-                const timeA = statusData[a.id]?.checkInTime || 0;
-                const timeB = statusData[b.id]?.checkInTime || 0;
-                return timeA - timeB; // Tăng dần (Cũ nhất lên đầu)
-            });
-
-            // --- STAFF CARD COMPONENT ---
-            const StaffCard = ({ s, queueIndex }) => {
-                const isFemale = s.gender === 'F' || s.gender === '女';
-                const local = statusData[s.id] || { status: 'AWAY' };
-                
-                // MẶC ĐỊNH LẤY TRẠNG THÁI TỪ CHECK-IN
-                let displayStatus = local.status; // READY, EAT, OUT...
-                let cardClass = '';
-                let label = '';
-
-                // GHI ĐÈ NẾU CÓ KHÁCH (Dựa vào API Booking)
-                if (s.activeBooking) {
-                    // Logic: Nếu giờ hiện tại >= giờ đặt -> Đỏ (Đang làm). 
-                    // Nếu chưa đến giờ -> Vàng (Đợi khách).
-                    const now = new Date();
-                    // Giả sử s.activeBooking.startTimeString là "YYYY/MM/DD HH:mm"
-                    // Cần parse đơn giản
-                    try {
-                        const parts = s.activeBooking.startTimeString.split(' '); // [Date, Time]
-                        // Chỉ so sánh giờ phút cho nhanh
-                        const [h, m] = parts[1].split(':').map(Number);
-                        const bookingTime = h * 60 + m;
-                        const currentTime = now.getHours() * 60 + now.getMinutes();
-                        
-                        if (currentTime >= bookingTime) {
-                            displayStatus = 'BUSY'; // Đang làm (Đỏ)
-                        } else {
-                            displayStatus = 'BOOKED'; // Có khách (Vàng)
-                        }
-                    } catch(e) { displayStatus = 'BOOKED'; }
-                }
-
-                // MAP STYLE
-                switch (displayStatus) {
-                    case 'AWAY': cardClass = 'st-away'; label = '未到 (Away)'; break;
-                    case 'READY': cardClass = 'st-ready'; label = 'Sẵn sàng'; break;
-                    case 'EAT': cardClass = 'st-eat'; label = '用餐 (Ăn)'; break;
-                    case 'OUT_SHORT': cardClass = 'st-out-short'; label = '外出 (<60)'; break;
-                    case 'OUT_LONG': cardClass = 'st-out-long'; label = '外出 (>60)'; break;
-                    case 'BOOKED': cardClass = 'st-booked'; label = '指定 (Booked)'; break;
-                    case 'BUSY': cardClass = 'st-busy'; label = '工作中 (Busy)'; break;
-                    default: cardClass = 'st-away';
-                }
-
-                return (
-                    <div className={`staff-card flex flex-col justify-between rounded-xl shadow-sm cursor-pointer border select-none 
-                        ${cardClass} 
-                        ${isFemale ? 'female-card' : ''} 
-                    `}>
-                        {/* Số thứ tự xếp hàng (Chỉ hiện nếu đang READY) */}
-                        {displayStatus === 'READY' && queueIndex !== undefined && (
-                            <div className="absolute -top-2 -left-2 w-6 h-6 bg-emerald-600 text-white rounded-full flex items-center justify-center text-xs font-bold border-2 border-white shadow-sm z-10">
-                                {queueIndex + 1}
-                            </div>
-                        )}
-
-                        {/* Tên */}
-                        <div className="flex-1 flex flex-col items-center justify-center p-1">
-                            <div className={`text-2xl font-black ${isFemale ? 'female-name' : ''}`}>
-                                {s.id.replace('號','')}
-                            </div>
-                            <div className="text-[10px] font-bold opacity-80">{s.name}</div>
-                        </div>
-                        
-                        {/* Label trạng thái */}
-                        <div className="text-center text-[10px] font-bold py-1 w-full border-t border-black/10 bg-black/5">
-                            {label}
-                        </div>
-                    </div>
-                )
-            };
+            const awayStaff = workingStaff.filter(s => !statusData[s.id] || statusData[s.id].status === 'AWAY');
+            const activeStaff = workingStaff.filter(s => statusData[s.id] && statusData[s.id].status !== 'AWAY');
+            activeStaff.sort((a, b) => (statusData[a.id]?.checkInTime || 0) - (statusData[b.id]?.checkInTime || 0));
 
             return (
-                <div className="min-h-screen flex flex-col bg-slate-100">
-                    <header className="bg-slate-900 text-white p-3 shadow-lg flex justify-between items-center sticky top-0 z-50">
-                        <div className="font-bold flex gap-2 items-center px-2 text-lg">
-                            <span className="bg-amber-500 text-black px-2 rounded text-sm">POS</span>
-                            <span>Manager V4</span>
+                <div className="min-h-screen flex flex-col">
+                    {/* HEADER */}
+                    <header className="bg-slate-900 text-white p-3 shadow-xl flex justify-between items-center sticky top-0 z-50">
+                        <div className="font-bold flex gap-3 items-center px-2 text-lg">
+                            <span className="bg-amber-500 text-black px-2 rounded text-sm font-black">POS</span>
+                            <span>XinWuChan</span>
                         </div>
                         <div className="flex gap-2">
-                            <button onClick={fetchData} className="p-2 hover:bg-slate-700 rounded-full transition-colors"><Icon d={PATHS.Refresh}/></button>
-                            <button onClick={() => setShowManager(true)} className="bg-purple-600 hover:bg-purple-500 text-white px-3 py-1.5 rounded-lg font-bold flex gap-2 text-sm items-center shadow border border-purple-400 transition-transform active:scale-95">
-                                <Icon d={PATHS.Settings} size={16}/> Check-in
-                            </button>
+                            <button onClick={fetchData} className="p-2 bg-slate-800 rounded-full hover:bg-slate-700"><Icon d={PATHS.Refresh}/></button>
+                            <button onClick={()=>setShowManager(true)} className="bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-1.5 rounded-lg font-bold flex gap-2 items-center text-sm border-b-4 border-indigo-800 active:border-b-0 active:translate-y-1 transition-all"><Icon d={PATHS.Settings}/> Check-in</button>
                         </div>
                     </header>
 
-                    {/* MAIN STAFF RAIL */}
-                    <div className="bg-white border-b shadow-sm overflow-x-auto flex items-center gap-4 p-4 shrink-0 h-48">
-                        {loading ? <div className="text-gray-400 w-full text-center">Loading...</div> : (
-                            <>
-                                {/* TRÁI: CHƯA ĐẾN */}
-                                <div className="flex gap-3 pr-6 border-r-2 border-dashed border-gray-200 min-w-max">
-                                    {awayStaffGroup.length > 0 ? awayStaffGroup.map(s => <StaffCard key={s.id} s={s} />) : <div className="text-xs text-gray-300">All Checked-in</div>}
-                                </div>
-
-                                {/* PHẢI: ĐÃ CHECK-IN (SẮP XẾP THEO THỜI GIAN) */}
-                                <div className="flex gap-3 pl-2 min-w-max">
-                                    {activeStaffGroup.map((s, idx) => {
-                                        // Tính chỉ số hàng đợi (chỉ đếm những người đang READY)
-                                        const isReady = (!s.activeBooking && (!statusData[s.id] || statusData[s.id].status === 'READY'));
-                                        return <StaffCard key={s.id} s={s} queueIndex={isReady ? idx : undefined} />
-                                    })}
-                                    {activeStaffGroup.length === 0 && <div className="text-xs text-gray-300">No Active Staff</div>}
-                                </div>
-                            </>
-                        )}
+                    {/* STAFF RAIL (Top) */}
+                    <div className="bg-white border-b shadow-sm p-4 overflow-x-auto shrink-0">
+                        <div className="flex items-center gap-6 min-w-max">
+                            <div className="flex gap-3 pr-6 border-r-2 border-dashed border-slate-300">
+                                {awayStaff.map(s => <StaffCard3D key={s.id} s={s} statusData={statusData}/>)}
+                                {awayStaff.length===0 && <span className="text-xs text-gray-400">All In</span>}
+                            </div>
+                            <div className="flex flex-row-reverse gap-3 pl-2">
+                                {activeStaff.map((s, idx) => {
+                                    const isReady = (!s.activeBooking && statusData[s.id].status === 'READY');
+                                    return <StaffCard3D key={s.id} s={s} statusData={statusData} queueIndex={isReady?idx:undefined}/>
+                                })}
+                                {activeStaff.length===0 && <span className="text-xs text-gray-400">No Active</span>}
+                            </div>
+                        </div>
                     </div>
 
-                    {/* BOOKING TABLE */}
-                    <main className="flex-1 p-3 overflow-y-auto">
-                        <div className="bg-white rounded-xl shadow border border-slate-200 overflow-hidden">
-                            <div className="p-3 bg-slate-50 border-b font-bold text-slate-700 flex gap-2 items-center">
-                                <Icon d={PATHS.Clock} /> 預約列表 (Danh sách đặt)
-                            </div>
-                            <table className="w-full text-sm text-left">
-                                <thead className="bg-slate-100 text-slate-500">
-                                    <tr>
-                                        <th className="p-3">Time</th>
-                                        <th className="p-3">Name</th>
-                                        <th className="p-3">Svc</th>
-                                        <th className="p-3">Staff</th>
-                                        <th className="p-3">Status</th>
-                                    </tr>
-                                </thead>
-                                <tbody className="divide-y">
-                                    {bookings.map((b, i) => (
-                                        <tr key={i} className="hover:bg-slate-50">
-                                            <td className="p-3 font-mono font-bold text-emerald-700">{b.time}</td>
-                                            <td className="p-3 font-bold">{b.customerName}</td>
-                                            <td className="p-3 text-gray-600 truncate max-w-[150px]">{b.serviceName.split('(')[0]}</td>
-                                            <td className="p-3"><span className="bg-slate-200 px-2 py-0.5 rounded text-xs font-bold">{b.staffId}</span></td>
-                                            <td className="p-3">
-                                                <span className={`px-2 py-1 rounded text-xs font-bold ${b.status === 'cancelled' ? 'bg-red-100 text-red-600' : 'bg-green-100 text-green-600'}`}>
-                                                    {b.status}
-                                                </span>
-                                            </td>
-                                        </tr>
-                                    ))}
-                                    {bookings.length === 0 && <tr><td colSpan="5" className="p-8 text-center text-gray-400">Chưa có lịch đặt nào</td></tr>}
-                                </tbody>
-                            </table>
+                    {/* DASHBOARD TABS */}
+                    <main className="flex-1 p-4 overflow-y-auto flex flex-col gap-4">
+                        <div className="flex gap-2 mb-2">
+                            <button onClick={()=>setActiveTab('list')} className={`px-4 py-2 rounded-lg font-bold flex gap-2 items-center ${activeTab==='list'?'bg-slate-800 text-white':'bg-white text-slate-600 shadow'}`}><Icon d={PATHS.List} size={16}/> Danh sách</button>
+                            <button onClick={()=>setActiveTab('timeline')} className={`px-4 py-2 rounded-lg font-bold flex gap-2 items-center ${activeTab==='timeline'?'bg-slate-800 text-white':'bg-white text-slate-600 shadow'}`}><Icon d={PATHS.Chart} size={16}/> Sơ đồ & Timeline</button>
+                            <button onClick={()=>setActiveTab('revenue')} className={`px-4 py-2 rounded-lg font-bold flex gap-2 items-center ${activeTab==='revenue'?'bg-slate-800 text-white':'bg-white text-slate-600 shadow'}`}><Icon d={PATHS.Dollar} size={16}/> Doanh thu</button>
                         </div>
+
+                        {activeTab === 'list' && (
+                            <div className="bg-white rounded-xl shadow border overflow-hidden">
+                                <table className="w-full text-sm text-left">
+                                    <thead className="bg-slate-100 text-slate-500 uppercase"><tr><th className="p-3">Time</th><th className="p-3">Name</th><th className="p-3">Service</th><th className="p-3">Staff</th><th className="p-3">Status</th></tr></thead>
+                                    <tbody className="divide-y">
+                                        {bookings.map((b,i)=>(
+                                            <tr key={i} className="hover:bg-slate-50">
+                                                <td className="p-3 font-mono font-bold text-indigo-700">{b.time}</td>
+                                                <td className="p-3 font-bold">{b.customerName}</td>
+                                                <td className="p-3 text-gray-600">{b.serviceName.split('(')[0]}</td>
+                                                <td className="p-3"><span className="bg-indigo-50 text-indigo-700 px-2 py-1 rounded text-xs font-bold">{b.staffId}</span></td>
+                                                <td className="p-3"><span className={`px-2 py-1 rounded text-xs font-bold ${b.status==='cancelled'?'bg-red-100 text-red-600':'bg-emerald-100 text-emerald-600'}`}>{b.status}</span></td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        )}
+
+                        {activeTab === 'timeline' && (
+                            <div className="space-y-4">
+                                <TimelineView bookings={bookings} />
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div className="bg-white p-4 rounded-xl shadow h-40 flex flex-col justify-center items-center border border-purple-200">
+                                        <div className="text-3xl font-black text-purple-600">{6 - bookings.filter(b=>b.type==='BED' && b.status==='active').length} / 6</div>
+                                        <div className="text-gray-500 font-bold">Giường trống</div>
+                                    </div>
+                                    <div className="bg-white p-4 rounded-xl shadow h-40 flex flex-col justify-center items-center border border-emerald-200">
+                                        <div className="text-3xl font-black text-emerald-600">{6 - bookings.filter(b=>b.type==='CHAIR' && b.status==='active').length} / 6</div>
+                                        <div className="text-gray-500 font-bold">Ghế trống</div>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
+                        {activeTab === 'revenue' && <RevenueTable bookings={bookings} />}
                     </main>
 
-                    {showManager && (
-                        <CheckInBoard 
-                            staffList={staffList} 
-                            statusData={statusData} 
-                            setStatusData={setStatusData}
-                            onClose={() => setShowManager(false)} 
-                        />
-                    )}
+                    {showManager && <CheckInBoard staffList={staffList} statusData={statusData} setStatusData={setStatusData} onClose={()=>setShowManager(false)} />}
                 </div>
             );
         }
