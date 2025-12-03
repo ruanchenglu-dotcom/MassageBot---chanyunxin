@@ -1,3 +1,7 @@
+// ==============================================================================
+// PHIÊN BẢN V54.9 - ẨN MAP & SĐT TRONG TIN NHẮN XÁC NHẬN
+// ==============================================================================
+
 require('dotenv').config(); 
 
 const express = require('express');
@@ -6,9 +10,7 @@ const { google } = require('googleapis');
 const cors = require('cors');
 const path = require('path');
 
-// ==============================================================================
 // 1. CẤU HÌNH
-// ==============================================================================
 const config = {
   channelAccessToken: process.env.CHANNEL_ACCESS_TOKEN,
   channelSecret: process.env.CHANNEL_SECRET
@@ -234,15 +236,12 @@ async function syncData() {
 async function ghiVaoSheet(data) {
     try {
         const timeCreate = getCurrentMinguoTime(); 
-        
-        // --- XỬ LÝ DỮ LIỆU ĐỂ GHI (THỨ TỰ CỘT A -> K) ---
         let colA_Date = formatMinguoDisplay(data.ngayDen);     
         let colB_Time = data.gioDen || "";
         if (colB_Time.includes(' ')) colB_Time = colB_Time.split(' ')[1];
         if (colB_Time.length > 5) colB_Time = colB_Time.substring(0, 5);
 
         const colC_Name = data.hoTen || '現場客';             
-        
         let colD_Service = data.dichVu;
         if (data.isOil) colD_Service += " (油推+$200)";       
 
@@ -255,35 +254,22 @@ async function ghiVaoSheet(data) {
         const colK_Created = timeCreate; 
         
         const valuesToWrite = [[ 
-            colA_Date,    // A
-            colB_Time,    // B
-            colC_Name,    // C
-            colD_Service, // D
-            colE_Oil,     // E
-            colF_Pax,     // F
-            colG_Phone,   // G
-            colH_Status,  // H
-            colI_Staff,   // I
-            colJ_LineID,  // J
-            colK_Created  // K
+            colA_Date, colB_Time, colC_Name, colD_Service, colE_Oil, colF_Pax, colG_Phone, colH_Status, colI_Staff, colJ_LineID, colK_Created 
         ]];
 
         console.log("[LOG] Đang ghi vào Sheet:", JSON.stringify(valuesToWrite));
 
-        // SỬA LẠI RANGE: Chỉ định rõ Sheet1!A:A để chắc chắn ghi đúng tab
         await sheets.spreadsheets.values.append({
             spreadsheetId: SHEET_ID, 
-            range: 'Sheet1!A:A', // Google sẽ tự động điền vào các cột tiếp theo (B,C,D...)
+            range: 'Sheet1!A:A', 
             valueInputOption: 'USER_ENTERED',
             requestBody: { values: valuesToWrite }
         });
         
         console.log("[SUCCESS] Ghi thành công!");
-        await syncData(); // Chờ sync xong mới return
+        await syncData(); 
         
-    } catch (e) { 
-        console.error('[ERROR] Lỗi ghi Sheet:', e); 
-    }
+    } catch (e) { console.error('[ERROR] Lỗi ghi Sheet:', e); }
 }
 
 async function updateBookingStatus(rowId, newStatus) {
@@ -654,13 +640,14 @@ async function handleEvent(event) {
       let staffDisplay = '隨機'; if (currentState.selectedStaff && currentState.selectedStaff.length > 0) staffDisplay = currentState.selectedStaff.join(', ');
       const pricePerPerson = SERVICES[currentState.service].price || 0; const totalPrice = (pricePerPerson + (currentState.isOil ? 200 : 0)) * currentState.pax;
 
-      const confirmMsg = `✅ 預約成功\n\n👤 ${hoTen} (${sdt})\n📅 ${minguoDate} ${gio}\n💆 ${serviceName.split('(')[0]}\n👥 ${paxDisplay}\n🛠️ ${staffDisplay}\n${currentState.isOil ? '⭐ 包含油推 (+$200)\n' : ''}💵 總金額: $${totalPrice}\n\n📍 導航: https://maps.google.com\n📞 致電: tel:+886912345678`;
+      // --- TIN NHẮN XÁC NHẬN MỚI (ĐÃ BỎ MAP & PHONE) ---
+      const confirmMsg = `✅ 預約成功\n\n👤 ${hoTen} (${sdt})\n📅 ${minguoDate} ${gio}\n💆 ${serviceName.split('(')[0]}\n👥 ${paxDisplay}\n🛠️ ${staffDisplay}\n${currentState.isOil ? '⭐ 包含油推 (+$200)\n' : ''}💵 總金額: $${totalPrice}`;
       
       await client.replyMessage(event.replyToken, { type: 'text', text: confirmMsg });
       
       if (userId !== ID_BA_CHU) client.pushMessage(ID_BA_CHU, { type: 'text', text: `💰 新訂單!\n${confirmMsg}` }); 
       
-      // GHI SHEET VÀ CHỜ KẾT QUẢ
+      // GHI VÀO SHEET (Quan trọng)
       await ghiVaoSheet({ gioDen: gio, ngayDen: currentState.date, dichVu: serviceName, nhanVien: staffDisplay, userId: userId, sdt: sdt, hoTen: hoTen, trangThai: '已預約', pax: currentState.pax, isOil: currentState.isOil }); 
       
       delete userState[userId]; 
@@ -693,5 +680,5 @@ async function handleEvent(event) {
 syncData();
 const port = process.env.PORT || 3000;
 app.listen(port, () => {
-    console.log(`Bot v54.8 (Fix Loop & Auto-Sheet Write) running on ${port}`);
+    console.log(`Bot v54.9 (Remove Map & Phone) running on ${port}`);
 });
