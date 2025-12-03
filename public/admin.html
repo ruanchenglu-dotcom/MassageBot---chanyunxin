@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Massage POS - Manager V3</title>
+    <title>Massage POS - Manager V4</title>
     
     <script src="https://cdn.tailwindcss.com"></script>
     <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.development.js"></script>
@@ -19,20 +19,41 @@
         .modal-animate { animation: slideUp 0.3s ease-out; }
         @keyframes slideUp { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
 
-        /* Card Style */
+        /* Card Animation & Base */
         .staff-card {
-            min-width: 90px; height: 110px;
+            min-width: 100px; height: 120px;
             transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            position: relative;
         }
-        .staff-card:hover { transform: translateY(-2px); box-shadow: 0 8px 15px -3px rgba(0, 0, 0, 0.1); }
+        .staff-card:hover { transform: translateY(-4px); box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1); }
         
-        /* Status Colors */
-        .st-ready { background: #ffffff; color: #1f2937; border: 2px solid #10B981; } /* Trắng viền xanh */
-        .st-busy { background: #EF4444; color: white; border: 2px solid #EF4444; } /* Đỏ */
-        .st-eat { background: #F97316; color: white; border: 2px solid #F97316; } /* Cam */
-        .st-out-short { background: #22C55E; color: white; border: 2px solid #22C55E; } /* Xanh lá */
-        .st-out-long { background: #3B82F6; color: white; border: 2px solid #3B82F6; } /* Xanh dương */
-        .st-away { background: #E5E7EB; color: #9CA3AF; border: 2px solid #D1D5DB; } /* Xám */
+        /* --- STATUS STYLES (Màu Nền & Viền mặc định) --- */
+        .st-away { background: #E5E7EB; border: 2px solid #9CA3AF; color: #9CA3AF; } /* Xám */
+        .st-ready { background: #FFFFFF; border: 3px solid #10B981; color: #1f2937; } /* Trắng viền Xanh lá */
+        .st-eat { background: #FFEDD5; border: 3px solid #F97316; color: #C2410C; } /* Cam */
+        .st-out-short { background: #DCFCE7; border: 3px solid #22C55E; color: #15803D; } /* Xanh lá nhạt */
+        .st-out-long { background: #DBEAFE; border: 3px solid #3B82F6; color: #1D4ED8; } /* Xanh dương */
+        
+        .st-booked { background: #FEF9C3; border: 3px solid #EAB308; color: #A16207; } /* Vàng (Đợi khách) */
+        .st-busy { background: #FEE2E2; border: 3px solid #EF4444; color: #B91C1C; } /* Đỏ (Đang làm) */
+
+        /* --- FEMALE OVERRIDE (Nữ viền đỏ) --- */
+        .female-card {
+            border-color: #EF4444 !important; /* Luôn viền đỏ */
+            border-width: 3px !important;
+        }
+        .female-name { color: #DC2626 !important; font-weight: 900 !important; }
+
+        /* Badge số thứ tự */
+        .queue-badge {
+            position: absolute; top: -8px; left: -8px;
+            width: 24px; height: 24px;
+            background: #10B981; color: white;
+            border-radius: 50%; font-size: 12px; font-weight: bold;
+            display: flex; items-center: justify-center;
+            border: 2px solid white; shadow: sm;
+            z-index: 10;
+        }
 
     </style>
 </head>
@@ -42,50 +63,46 @@
     <script type="text/babel">
         const { useState, useEffect, useMemo } = React;
 
-        // --- ICONS ---
         const Icon = ({ d, size=20, className="" }) => (
             <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d={d} /></svg>
         );
         const PATHS = {
             Users: "M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2M9 7a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75",
             Clock: "M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10zM12 6v6l4 2",
-            Settings: "M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.18-.08a2 2 0 0 0-2 0l-.45.45a2 2 0 0 0 0 2l.08.18a2 2 0 0 1 0 2l-.25.43a2 2 0 0 1-1.73 1H2a2 2 0 0 0-2 2v.44a2 2 0 0 0 2 2h.18a2 2 0 0 1 1.73 1l.25.43a2 2 0 0 1 0 2l-.08.18a2 2 0 0 0 0 2l.45.45a2 2 0 0 0 2 0l.18-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.18.08a2 2 0 0 0 2 0l.45-.45a2 2 0 0 0 0-2l-.08-.18a2 2 0 0 1 0-2l.25-.43a2 2 0 0 1 1.73-1H22a2 2 0 0 0 2-2v-.44a2 2 0 0 0-2-2h-.18a2 2 0 0 1-1.73-1l-.25-.43a2 2 0 0 1 0-2l.08-.18a2 2 0 0 0 0-2l-.45-.45a2 2 0 0 0-2 0l-.18.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z",
+            Settings: "M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.18-.08a2 2 0 0 0-2 0l-.45.45a2 2 0 0 0 0 2l.08.18a2 2 0 0 1 0 2l-.25.43a2 2 0 0 1-1.73 1H2a2 2 0 0 0-2 2v.44a2 2 0 0 0 2 2h.18a2 2 0 0 1 1.73 1l.25.43a2 2 0 0 1 0 2l-.08.18a2 2 0 0 0 0 2l.45.45a2 2 0 0 0 2 0l.18-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.18.08a2 2 0 0 0 2 0l.45-.45a2 2 0 0 0 0-2l-.08-.18a2 2 0 0 1 0-2l.25-.43a2 2 0 0 1 1.73-1H22a2 2 0 0 0 2-2v-.44a2 2 0 0 0-2-2h-.18a2 2 0 0 1-1.73-1l-.25-.43a2 2 0 0 1 0-2l.08-.18a2 2 0 0 0 0-2l.45-.45a2 2 0 0 0-2 0l-.18.08a2 2 0 0 1-2 0l.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z",
             X: "M18 6 6 18M6 6l12 12",
             Check: "M20 6 9 17 4 12",
             Refresh: "M23 4v6h-6M1 20v-6h6"
         };
 
-        // --- CONSTANTS ---
-        // Định nghĩa các trạng thái và màu sắc
-        const STATUS_OPTIONS = {
-            AWAY: { label: '未到 (Chưa đến)', class: 'st-away', colorHex: '#9CA3AF' },
-            READY: { label: '在店 (Sẵn sàng)', class: 'st-ready', colorHex: '#10B981' },
-            EAT: { label: '用餐 (Ăn 30p)', class: 'st-eat', colorHex: '#F97316' },
-            OUT_SHORT: { label: '外出 (<60p)', class: 'st-out-short', colorHex: '#22C55E' },
-            OUT_LONG: { label: '外出 (>60p)', class: 'st-out-long', colorHex: '#3B82F6' }
-        };
-
         // --- COMPONENTS ---
 
-        // 1. MODAL QUẢN LÝ (CHECK-IN BOARD)
-        const CheckInBoard = ({ staffList, localStatus, setLocalStatus, onClose }) => {
+        // 1. MODAL QUẢN LÝ CHECK-IN
+        const CheckInBoard = ({ staffList, statusData, setStatusData, onClose }) => {
             
             const handleStatusChange = (id, newStatus) => {
-                const newState = { ...localStatus, [id]: newStatus };
-                setLocalStatus(newState);
-                localStorage.setItem('staff_status_v3', JSON.stringify(newState));
+                const now = Date.now();
+                // Nếu chuyển sang READY, cập nhật thời gian check-in để xếp hàng
+                const current = statusData[id] || {};
+                const newState = { 
+                    ...statusData, 
+                    [id]: { 
+                        status: newStatus, 
+                        checkInTime: newStatus === 'READY' ? now : (current.checkInTime || 0) 
+                    } 
+                };
+                setStatusData(newState);
+                localStorage.setItem('staff_status_v4', JSON.stringify(newState));
             };
 
             return (
                 <div className="fixed inset-0 bg-black/70 z-[60] flex items-center justify-center p-4 backdrop-blur-sm">
                     <div className="bg-white w-full max-w-3xl rounded-xl shadow-2xl modal-animate flex flex-col max-h-[90vh]">
-                        {/* Header */}
                         <div className="p-4 bg-purple-800 text-white rounded-t-xl flex justify-between items-center shrink-0">
                             <h2 className="text-xl font-bold flex gap-2 items-center"><Icon d={PATHS.Users}/> 技師排班管理 (Quản lý Check-in)</h2>
                             <button onClick={onClose} className="bg-white/20 hover:bg-white/30 p-1 rounded-full"><Icon d={PATHS.X}/></button>
                         </div>
 
-                        {/* Table Header */}
                         <div className="grid grid-cols-12 gap-2 p-3 bg-purple-50 font-bold text-purple-900 text-sm border-b shrink-0">
                             <div className="col-span-2 pl-2">技師 (Thợ)</div>
                             <div className="col-span-3 text-center">上班 (Bắt đầu)</div>
@@ -93,39 +110,34 @@
                             <div className="col-span-4 text-center">狀態 (Trạng thái)</div>
                         </div>
 
-                        {/* Staff List */}
                         <div className="overflow-y-auto flex-1 p-2 space-y-2 bg-gray-50">
                             {staffList.filter(s => s.status !== 'off').map(s => {
-                                const currentStatus = localStatus[s.id] || 'AWAY';
+                                const current = statusData[s.id] || { status: 'AWAY' };
+                                const isFemale = s.gender === 'F' || s.gender === '女';
                                 return (
                                     <div key={s.id} className="grid grid-cols-12 gap-2 items-center p-2 bg-white border rounded-lg hover:shadow-sm">
                                         <div className="col-span-2 flex items-center gap-2">
-                                            <div className="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center font-bold text-slate-700 text-xs shadow-inner">
+                                            <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs shadow-inner ${isFemale ? 'bg-pink-100 text-red-600 border border-red-300' : 'bg-slate-200 text-slate-700'}`}>
                                                 {s.id.replace('號','')}
                                             </div>
-                                            <span className="font-bold text-gray-800 text-lg">{s.name}</span>
+                                            <span className={`font-bold text-lg ${isFemale ? 'text-red-600' : 'text-gray-800'}`}>{s.name}</span>
                                         </div>
                                         
-                                        <div className="col-span-3 flex justify-center">
-                                            <input type="time" defaultValue="10:00" className="border rounded px-2 py-1 text-sm bg-slate-50 text-center w-24 focus:ring-purple-500 focus:border-purple-500"/>
-                                        </div>
-                                        <div className="col-span-3 flex justify-center">
-                                            <input type="time" defaultValue="02:00" className="border rounded px-2 py-1 text-sm bg-slate-50 text-center w-24 focus:ring-purple-500 focus:border-purple-500"/>
-                                        </div>
+                                        <div className="col-span-3 flex justify-center"><input type="time" defaultValue="10:00" className="border rounded px-2 py-1 text-sm bg-slate-50 text-center w-24"/></div>
+                                        <div className="col-span-3 flex justify-center"><input type="time" defaultValue="02:00" className="border rounded px-2 py-1 text-sm bg-slate-50 text-center w-24"/></div>
 
                                         <div className="col-span-4 flex justify-center">
                                             <select 
-                                                value={currentStatus}
+                                                value={current.status}
                                                 onChange={(e) => handleStatusChange(s.id, e.target.value)}
                                                 className={`w-full text-sm font-bold py-1.5 px-3 rounded-lg border-2 outline-none transition-colors ${
-                                                    currentStatus === 'AWAY' ? 'bg-gray-100 text-gray-500 border-gray-200' :
-                                                    currentStatus === 'READY' ? 'bg-emerald-50 text-emerald-600 border-emerald-400' :
-                                                    currentStatus === 'EAT' ? 'bg-orange-50 text-orange-600 border-orange-400' :
+                                                    current.status === 'AWAY' ? 'bg-gray-100 text-gray-500' :
+                                                    current.status === 'READY' ? 'bg-emerald-50 text-emerald-600 border-emerald-400' :
                                                     'bg-blue-50 text-blue-600 border-blue-400'
                                                 }`}
                                             >
                                                 <option value="AWAY">⚪ 未到 (Chưa đến)</option>
-                                                <option value="READY">🟢 在店 (Sẵn sàng)</option>
+                                                <option value="READY">🟢 在店 (Check-in)</option>
                                                 <option value="EAT">🟠 用餐 (Ăn cơm)</option>
                                                 <option value="OUT_SHORT">🔵 外出 (&lt;60p)</option>
                                                 <option value="OUT_LONG">🔵 外出 (&gt;60p)</option>
@@ -136,7 +148,6 @@
                             })}
                         </div>
 
-                        {/* Footer */}
                         <div className="p-4 border-t bg-white rounded-b-xl flex justify-end">
                             <button onClick={onClose} className="bg-purple-700 hover:bg-purple-800 text-white px-8 py-2 rounded-lg font-bold shadow-lg transform active:scale-95 transition-all flex items-center gap-2">
                                 <Icon d={PATHS.Check} size={18}/> 完成 (Xong)
@@ -154,9 +165,9 @@
             const [loading, setLoading] = useState(true);
             const [showManager, setShowManager] = useState(false);
             
-            // State quản lý trạng thái (Lưu LocalStorage)
-            const [localStatus, setLocalStatus] = useState(() => {
-                const saved = localStorage.getItem('staff_status_v3');
+            // State: { [id]: { status: 'READY', checkInTime: 123456789 } }
+            const [statusData, setStatusData] = useState(() => {
+                const saved = localStorage.getItem('staff_status_v4');
                 return saved ? JSON.parse(saved) : {};
             });
 
@@ -165,18 +176,16 @@
                     const res = await axios.get('/api/info');
                     const { bookings: apiBookings, staffList: apiStaff } = res.data;
                     
-                    // Xử lý booking
                     const mappedBookings = apiBookings.map((b, idx) => ({ ...b, id: idx, status: (b.status && b.status.includes('取消')) ? 'cancelled' : 'active' }));
                     setBookings(mappedBookings);
 
-                    // Xử lý Staff
+                    // Map booking vào staff để biết ai đang có khách
                     const mappedStaff = apiStaff.map(s => {
-                        const isBusy = mappedBookings.some(b => b.staffId === s.id && b.status === 'active');
-                        return { ...s, isBusy };
+                        // Tìm booking hiện tại của staff
+                        const activeBooking = mappedBookings.find(b => b.staffId === s.id && b.status === 'active');
+                        return { ...s, activeBooking };
                     });
                     
-                    // Sắp xếp ID
-                    mappedStaff.sort((a,b) => parseInt(a.id.replace(/\D/g,'')) - parseInt(b.id.replace(/\D/g,'')));
                     setStaffList(mappedStaff);
                     setLoading(false);
                 } catch (e) { console.error(e); setLoading(false); }
@@ -184,41 +193,90 @@
 
             useEffect(() => { fetchData(); const t = setInterval(fetchData, 10000); return () => clearInterval(t); }, []);
 
-            // --- LOGIC PHÂN LOẠI & HIỂN THỊ ---
-            
-            // 1. Lọc bỏ người nghỉ (status === 'off')
+            // --- LOGIC PHÂN LOẠI & SẮP XẾP (XOAY TUA) ---
             const workingStaff = staffList.filter(s => s.status !== 'off');
 
-            // 2. Chia nhóm: Bên Trái (Chưa đến) - Bên Phải (Đã Check-in)
-            const awayStaffGroup = workingStaff.filter(s => !localStatus[s.id] || localStatus[s.id] === 'AWAY');
-            const activeStaffGroup = workingStaff.filter(s => localStatus[s.id] && localStatus[s.id] !== 'AWAY');
+            // 1. Nhóm chưa đến (Xám)
+            const awayStaffGroup = workingStaff.filter(s => !statusData[s.id] || statusData[s.id].status === 'AWAY');
+
+            // 2. Nhóm đã Check-in (Sẵn sàng / Đang làm / Ăn...)
+            let activeStaffGroup = workingStaff.filter(s => statusData[s.id] && statusData[s.id].status !== 'AWAY');
+
+            // --- SẮP XẾP XOAY TUA (QUAN TRỌNG) ---
+            // Ai Check-in trước (thời gian nhỏ hơn) -> Xếp trước (Bên trái)
+            activeStaffGroup.sort((a, b) => {
+                const timeA = statusData[a.id]?.checkInTime || 0;
+                const timeB = statusData[b.id]?.checkInTime || 0;
+                return timeA - timeB; // Tăng dần (Cũ nhất lên đầu)
+            });
 
             // --- STAFF CARD COMPONENT ---
-            const StaffCard = ({ s }) => {
+            const StaffCard = ({ s, queueIndex }) => {
                 const isFemale = s.gender === 'F' || s.gender === '女';
-                let statusKey = localStatus[s.id] || 'AWAY';
+                const local = statusData[s.id] || { status: 'AWAY' };
                 
-                // Nếu đang có khách -> Ghi đè trạng thái thành BUSY (Màu Đỏ)
-                if (s.isBusy) statusKey = 'BUSY';
+                // MẶC ĐỊNH LẤY TRẠNG THÁI TỪ CHECK-IN
+                let displayStatus = local.status; // READY, EAT, OUT...
+                let cardClass = '';
+                let label = '';
 
-                // Lấy style config
-                const config = STATUS_OPTIONS[statusKey] || STATUS_OPTIONS.AWAY;
-                const statusClass = s.isBusy ? 'st-busy' : config.class;
-                const statusLabel = s.isBusy ? '工作中 (Busy)' : config.label;
+                // GHI ĐÈ NẾU CÓ KHÁCH (Dựa vào API Booking)
+                if (s.activeBooking) {
+                    // Logic: Nếu giờ hiện tại >= giờ đặt -> Đỏ (Đang làm). 
+                    // Nếu chưa đến giờ -> Vàng (Đợi khách).
+                    const now = new Date();
+                    // Giả sử s.activeBooking.startTimeString là "YYYY/MM/DD HH:mm"
+                    // Cần parse đơn giản
+                    try {
+                        const parts = s.activeBooking.startTimeString.split(' '); // [Date, Time]
+                        // Chỉ so sánh giờ phút cho nhanh
+                        const [h, m] = parts[1].split(':').map(Number);
+                        const bookingTime = h * 60 + m;
+                        const currentTime = now.getHours() * 60 + now.getMinutes();
+                        
+                        if (currentTime >= bookingTime) {
+                            displayStatus = 'BUSY'; // Đang làm (Đỏ)
+                        } else {
+                            displayStatus = 'BOOKED'; // Có khách (Vàng)
+                        }
+                    } catch(e) { displayStatus = 'BOOKED'; }
+                }
+
+                // MAP STYLE
+                switch (displayStatus) {
+                    case 'AWAY': cardClass = 'st-away'; label = '未到 (Away)'; break;
+                    case 'READY': cardClass = 'st-ready'; label = 'Sẵn sàng'; break;
+                    case 'EAT': cardClass = 'st-eat'; label = '用餐 (Ăn)'; break;
+                    case 'OUT_SHORT': cardClass = 'st-out-short'; label = '外出 (<60)'; break;
+                    case 'OUT_LONG': cardClass = 'st-out-long'; label = '外出 (>60)'; break;
+                    case 'BOOKED': cardClass = 'st-booked'; label = '指定 (Booked)'; break;
+                    case 'BUSY': cardClass = 'st-busy'; label = '工作中 (Busy)'; break;
+                    default: cardClass = 'st-away';
+                }
 
                 return (
-                    <div className={`staff-card shrink-0 rounded-lg shadow-sm border bg-white flex flex-col justify-between overflow-hidden relative select-none cursor-pointer ${statusClass}`}>
-                        
-                        {/* Thanh màu trên đầu */}
-                        <div className={`h-1.5 w-full bg-current opacity-50`}></div>
-                        
+                    <div className={`staff-card flex flex-col justify-between rounded-xl shadow-sm cursor-pointer border select-none 
+                        ${cardClass} 
+                        ${isFemale ? 'female-card' : ''} 
+                    `}>
+                        {/* Số thứ tự xếp hàng (Chỉ hiện nếu đang READY) */}
+                        {displayStatus === 'READY' && queueIndex !== undefined && (
+                            <div className="absolute -top-2 -left-2 w-6 h-6 bg-emerald-600 text-white rounded-full flex items-center justify-center text-xs font-bold border-2 border-white shadow-sm z-10">
+                                {queueIndex + 1}
+                            </div>
+                        )}
+
+                        {/* Tên */}
                         <div className="flex-1 flex flex-col items-center justify-center p-1">
-                            <div className="font-black text-2xl mb-1">{s.name.replace('號','')}</div>
-                            <div className="text-[10px] font-bold opacity-70">{isFemale?'女':'男'}</div>
+                            <div className={`text-2xl font-black ${isFemale ? 'female-name' : ''}`}>
+                                {s.id.replace('號','')}
+                            </div>
+                            <div className="text-[10px] font-bold opacity-80">{s.name}</div>
                         </div>
                         
-                        <div className={`text-center text-[10px] font-bold py-1 w-full border-t border-current/20`}>
-                            {statusLabel}
+                        {/* Label trạng thái */}
+                        <div className="text-center text-[10px] font-bold py-1 w-full border-t border-black/10 bg-black/5">
+                            {label}
                         </div>
                     </div>
                 )
@@ -226,34 +284,36 @@
 
             return (
                 <div className="min-h-screen flex flex-col bg-slate-100">
-                    {/* Header */}
                     <header className="bg-slate-900 text-white p-3 shadow-lg flex justify-between items-center sticky top-0 z-50">
                         <div className="font-bold flex gap-2 items-center px-2 text-lg">
                             <span className="bg-amber-500 text-black px-2 rounded text-sm">POS</span>
-                            <span>Manager V3</span>
+                            <span>Manager V4</span>
                         </div>
                         <div className="flex gap-2">
                             <button onClick={fetchData} className="p-2 hover:bg-slate-700 rounded-full transition-colors"><Icon d={PATHS.Refresh}/></button>
                             <button onClick={() => setShowManager(true)} className="bg-purple-600 hover:bg-purple-500 text-white px-3 py-1.5 rounded-lg font-bold flex gap-2 text-sm items-center shadow border border-purple-400 transition-transform active:scale-95">
-                                <Icon d={PATHS.Settings} size={16}/> 技師排班
+                                <Icon d={PATHS.Settings} size={16}/> Check-in
                             </button>
                         </div>
                     </header>
 
-                    {/* STAFF RAIL (THANH NHÂN VIÊN) */}
-                    <div className="bg-white border-b shadow-sm overflow-x-auto flex items-center gap-4 p-4 shrink-0 h-44">
+                    {/* MAIN STAFF RAIL */}
+                    <div className="bg-white border-b shadow-sm overflow-x-auto flex items-center gap-4 p-4 shrink-0 h-48">
                         {loading ? <div className="text-gray-400 w-full text-center">Loading...</div> : (
                             <>
-                                {/* NHÓM TRÁI: CHƯA ĐẾN (MÀU XÁM) */}
-                                <div className="flex gap-2 pr-4 border-r-2 border-dashed border-gray-200">
-                                    {awayStaffGroup.map(s => <StaffCard key={s.id} s={s} />)}
-                                    {awayStaffGroup.length === 0 && <div className="text-xs text-gray-300 w-20 text-center">All In</div>}
+                                {/* TRÁI: CHƯA ĐẾN */}
+                                <div className="flex gap-3 pr-6 border-r-2 border-dashed border-gray-200 min-w-max">
+                                    {awayStaffGroup.length > 0 ? awayStaffGroup.map(s => <StaffCard key={s.id} s={s} />) : <div className="text-xs text-gray-300">All Checked-in</div>}
                                 </div>
 
-                                {/* NHÓM PHẢI: ĐÃ CHECK-IN (MÀU SẮC) */}
-                                <div className="flex gap-2 pl-2">
-                                    {activeStaffGroup.map(s => <StaffCard key={s.id} s={s} />)}
-                                    {activeStaffGroup.length === 0 && <div className="text-xs text-gray-300 w-20 text-center">No Active</div>}
+                                {/* PHẢI: ĐÃ CHECK-IN (SẮP XẾP THEO THỜI GIAN) */}
+                                <div className="flex gap-3 pl-2 min-w-max">
+                                    {activeStaffGroup.map((s, idx) => {
+                                        // Tính chỉ số hàng đợi (chỉ đếm những người đang READY)
+                                        const isReady = (!s.activeBooking && (!statusData[s.id] || statusData[s.id].status === 'READY'));
+                                        return <StaffCard key={s.id} s={s} queueIndex={isReady ? idx : undefined} />
+                                    })}
+                                    {activeStaffGroup.length === 0 && <div className="text-xs text-gray-300">No Active Staff</div>}
                                 </div>
                             </>
                         )}
@@ -270,7 +330,7 @@
                                     <tr>
                                         <th className="p-3">Time</th>
                                         <th className="p-3">Name</th>
-                                        <th className="p-3">Service</th>
+                                        <th className="p-3">Svc</th>
                                         <th className="p-3">Staff</th>
                                         <th className="p-3">Status</th>
                                     </tr>
@@ -295,12 +355,11 @@
                         </div>
                     </main>
 
-                    {/* MODAL */}
                     {showManager && (
                         <CheckInBoard 
                             staffList={staffList} 
-                            localStatus={localStatus} 
-                            setLocalStatus={setLocalStatus}
+                            statusData={statusData} 
+                            setStatusData={setStatusData}
                             onClose={() => setShowManager(false)} 
                         />
                     )}
