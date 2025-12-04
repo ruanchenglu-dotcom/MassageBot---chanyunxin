@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Massage POS - Manager V11 (Standardized)</title>
+    <title>Massage POS - Operation Center V12 (Full)</title>
     
     <script src="https://cdn.tailwindcss.com"></script>
     <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.development.js"></script>
@@ -20,6 +20,7 @@
         /* RESOURCE CARDS */
         .res-card { transition: all 0.2s; position: relative; }
         .res-card:active { transform: scale(0.98); }
+        
         .res-empty { border: 2px dashed #CBD5E1; background: #F8FAFC; color: #94A3B8; }
         .res-chair { border-color: #10B981; background: #ECFDF5; } 
         .res-bed { border-color: #8B5CF6; background: #F5F3FF; } 
@@ -27,6 +28,7 @@
         /* STAFF 3D CARDS */
         .card-3d { transition: all 0.1s; position: relative; top: 0; }
         .card-3d:active { transform: translateY(4px); border-bottom-width: 0px; margin-bottom: 4px; }
+        
         .style-male { background: white; border: 2px solid #3B82F6; border-bottom: 5px solid #2563EB; color: #1E3A8A; }
         .style-female { background: white; border: 2px solid #F472B6; border-bottom: 5px solid #DB2777; color: #BE185D; }
         
@@ -36,8 +38,11 @@
         .st-away { background: #F3F4F6; border-color: #9CA3AF; border-bottom-color: #6B7280; color: #9CA3AF; opacity: 0.6; }
         .badge-queue { background: #10B981; box-shadow: 0 2px 5px rgba(0,0,0,0.2); }
 
-        /* Timeline */
-        .timeline-bg { background-image: linear-gradient(to right, #e2e8f0 1px, transparent 1px); background-size: 4.16% 100%; }
+        /* Timeline Grid */
+        .timeline-bg { 
+            background-image: linear-gradient(to right, #e2e8f0 1px, transparent 1px); 
+            background-size: 4.16% 100%; 
+        }
     </style>
 </head>
 <body>
@@ -46,7 +51,7 @@
     <script type="text/babel">
         const { useState, useEffect, useMemo } = React;
 
-        // ICONS
+        // --- ICONS ---
         const Icon = ({ d, size=18, className="" }) => (<svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d={d} /></svg>);
         const PATHS = {
             Users: "M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2M9 7a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75",
@@ -71,27 +76,20 @@
             '足底': 500, '全身': 1000, '半身': 500
         };
 
-        // --- IMPORTANT: DATE NORMALIZER (4-DIGIT STANDARD) ---
-        // Hàm này biến đổi mọi định dạng (114/12/04 hoặc 0114/12/04) về chuẩn 0114/12/04 để so sánh
+        // --- HELPERS ---
         const normalizeDate = (str) => {
             if(!str) return '';
-            // Tách phần ngày khỏi giờ (nếu có)
             const parts = str.toString().trim().split(' ')[0].split('/');
             if(parts.length < 3) return str;
-            
-            // Xử lý năm: Luôn thêm số 0 vào đầu cho đủ 4 số
-            let y = parseInt(parts[0], 10).toString();
-            y = y.padStart(4, '0'); // 114 -> 0114
-            
+            let y = parseInt(parts[0], 10).toString().padStart(4, '0');
             const m = parts[1].padStart(2, '0');
             const d = parts[2].padStart(2, '0');
-            
             return `${y}/${m}/${d}`;
         };
 
         const getTodayMinguo = () => {
             const d = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Taipei' }));
-            const year = (d.getFullYear() - 1911).toString().padStart(4, '0'); // Chuẩn 0114
+            const year = (d.getFullYear() - 1911).toString().padStart(4, '0');
             const month = (d.getMonth() + 1).toString().padStart(2, '0');
             const day = d.getDate().toString().padStart(2, '0');
             return `${year}/${month}/${day}`;
@@ -239,7 +237,7 @@
             );
         };
 
-        // 2. CHECK-IN BOARD (V9.0 - CHECK-IN PRO)
+        // 2. CHECK-IN BOARD
         const CheckInBoard = ({ staffList, statusData, setStatusData, onClose }) => {
             
             const toggleCheckIn = (id) => {
@@ -342,7 +340,7 @@
             );
         };
 
-        // 3. STAFF CARD 3D (Logic cũ V8)
+        // 3. STAFF CARD 3D
         const StaffCard3D = ({ s, statusData, queueIndex }) => {
             const isFemale = s.gender === 'F' || s.gender === '女';
             const local = statusData[s.id] || { status: 'AWAY' };
@@ -382,11 +380,10 @@
             )
         };
 
-        // 4. TIMELINE & REVENUE (Logic cũ V8)
+        // 4. TIMELINE
         const TimelineView = ({ bookings }) => {
             const hours = Array.from({length: 15}, (_, i) => i + 10);
             const today = getTodayMinguo();
-            // Lọc đúng ngày hôm nay (dù là 114 hay 0114)
             const todayBookings = bookings.filter(b => normalizeDate(b.date) === today && b.status !== 'cancelled');
             return (
                 <div className="bg-white border rounded-xl overflow-hidden shadow-sm flex flex-col h-[500px]">
@@ -412,7 +409,7 @@
             const revenue = todayBookings.reduce((acc, b) => acc + (getPrice(b.serviceName) + (b.serviceName.includes('油')?200:0)) * (b.pax||1), 0);
             return (
                 <div className="bg-white p-6 rounded-xl shadow-sm border text-center">
-                    <h3 className="text-gray-500 font-bold mb-2 uppercase tracking-wide">Doanh Thu Hôm Nay ({today})</h3>
+                    <h3 className="text-gray-500 font-bold mb-2 uppercase tracking-wide">Doanh Thu Hôm Nay</h3>
                     <div className="text-4xl font-black text-emerald-600 flex justify-center items-center gap-2"><Icon d={PATHS.Dollar} size={32}/> {revenue.toLocaleString()} TWD</div>
                 </div>
             );
@@ -440,25 +437,24 @@
             const fetchData = async () => {
                 try {
                     const res = await axios.get('/api/info');
-                    const { bookings: apiBookings, staffList: apiStaff, schedule } = res.data; // Lấy thêm schedule
-                    
+                    const { bookings: apiBookings, staffList: apiStaff, schedule } = res.data; 
                     const today = getTodayMinguo(); // Lấy ngày chuẩn (VD: 0114/12/04)
 
-                    // 1. FIX LỖI ĐỒNG BỘ: Chuẩn hóa ngày trước khi so sánh
+                    // 1. FILTER BOOKINGS BY TODAY
                     const todayBookings = apiBookings
                         .filter(b => normalizeDate(b.date) === today) 
                         .map((b, i) => ({ ...b, id: i, status: (b.status && b.status.includes('取消')) ? 'cancelled' : 'active' }));
                     
                     setBookings(todayBookings);
                     
-                    // 2. FIX LỖI NHÂN VIÊN OFF: Lọc danh sách nghỉ từ Schedule
+                    // 2. FILTER STAFF OFF TODAY
                     const offStaffIds = schedule
                         .filter(s => normalizeDate(s.date) === today)
                         .map(s => s.staffId);
 
                     const mappedStaff = apiStaff.map(s => {
                         const activeBooking = todayBookings.find(b => b.staffId === s.id && b.status === 'active');
-                        // Nếu có trong danh sách nghỉ hôm nay -> Set status = 'off'
+                        // QUAN TRỌNG: Kiểm tra xem có trong list nghỉ không
                         const isOff = offStaffIds.includes(s.id); 
                         return { ...s, status: isOff ? 'off' : 'ready', activeBooking };
                     });
