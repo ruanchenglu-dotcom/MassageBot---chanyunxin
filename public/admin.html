@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Massage POS - Realtime Sync</title>
+    <title>Massage POS - Full Version</title>
     
     <script src="https://cdn.tailwindcss.com"></script>
     <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.development.js"></script>
@@ -13,25 +13,37 @@
 
     <style>
         body { font-family: 'Microsoft JhengHei', sans-serif; background-color: #f0f2f5; user-select: none; }
-        .res-card { transition: all 0.2s; border-radius: 12px; display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .scrollbar-hide::-webkit-scrollbar { display: none; }
+        .modal-animate { animation: slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1); }
+        @keyframes slideUp { from { transform: translateY(50px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+
+        /* RESOURCE CARD */
+        .res-card { transition: all 0.2s; position: relative; border-radius: 12px; background: white; box-shadow: 0 2px 5px rgba(0,0,0,0.05); display: flex; flex-direction: column; overflow: hidden; }
         .res-empty { border: 2px dashed #CBD5E1; background: #F8FAFC; color: #94A3B8; align-items: center; justify-content: center; }
         .res-waiting { border: 2px solid #EAB308; background: #FEFCE8; animation: pulse-border 2s infinite; }
         .res-running { border: 2px solid #EF4444; background: #FEF2F2; }
         .res-paused  { border: 2px solid #F97316; background: #FFEDD5; }
+
         @keyframes pulse-border { 0% { border-color: #EAB308; } 50% { border-color: #FDE047; } 100% { border-color: #EAB308; } }
 
-        /* STAFF CARDS */
-        .card-3d { transition: all 0.1s; width: 85px; height: 105px; border-radius: 10px; display: flex; flex-direction: column; cursor: pointer; background: white; margin-right: 6px; flex-shrink: 0; }
-        .card-3d:active { transform: translateY(2px); }
-        .style-female { border: 2px solid #F472B6; border-bottom: 4px solid #DB2777; color: #BE185D; }
-        .style-male { border: 2px solid #3B82F6; border-bottom: 4px solid #2563EB; color: #1E3A8A; }
+        /* STAFF CARD */
+        .card-3d { 
+            transition: all 0.1s; position: relative; width: 90px; height: 110px; 
+            border-radius: 12px; display: flex; flex-direction: column; 
+            cursor: pointer; background: white; margin-right: 8px; flex-shrink: 0;
+        }
+        .card-3d:active { transform: translateY(4px); border-bottom-width: 0px; margin-bottom: 4px; }
+        
+        .style-male { border: 2px solid #3B82F6; border-bottom: 5px solid #2563EB; color: #1E3A8A; }
+        .style-female { border: 2px solid #F472B6; border-bottom: 5px solid #DB2777; color: #BE185D; }
         
         .st-busy { background: #FEF2F2; border-color: #EF4444 !important; border-bottom-color: #B91C1C !important; color: #B91C1C !important; }
         .st-booked { background: #FFFBEB; border-color: #F59E0B !important; border-bottom-color: #B45309 !important; color: #B45309 !important; }
-        .st-away { background: #F3F4F6; border-color: #D1D5DB !important; border-bottom-color: #9CA3AF !important; color: #9CA3AF !important; opacity: 0.7; }
+        .st-away { background: #E5E7EB; border-color: #9CA3AF !important; border-bottom-color: #6B7280 !important; color: #9CA3AF !important; opacity: 0.6; }
         
-        .btn-tool { padding: 6px; border-radius: 6px; font-weight: bold; font-size: 11px; color: white; display: flex; justify-content: center; align-items: center; }
+        .btn-tool { display: flex; align-items: center; justify-content: center; padding: 6px; border-radius: 6px; transition: all 0.1s; color: white; font-weight: bold; font-size: 11px; box-shadow: 0 1px 2px rgba(0,0,0,0.1); }
         .btn-tool:active { transform: scale(0.95); }
+        .timeline-bg { background-image: linear-gradient(to right, #e2e8f0 1px, transparent 1px); background-size: 5.55% 100%; }
     </style>
 </head>
 <body>
@@ -39,83 +51,112 @@
 
     <script type="text/babel">
         const { useState, useEffect, useMemo } = React;
-        const Icon = ({ d }) => (<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d={d} /></svg>);
+
+        // ICONS
+        const Icon = ({ d, size=16, className="" }) => (<svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d={d} /></svg>);
         const PATHS = { 
             Grid: "M3 3h7v7H3zM14 3h7v7h-7zM14 14h7v7h-7zM3 14h7v7H3z", 
             List: "M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01", 
-            Refresh: "M23 4v6h-6M1 20v-6h6", Play: "M5 3l14 9-14 9V3z", Pause: "M6 4h4v16H6zm8 0h4v16h-4z", Stop: "M6 6h12v12H6z", Plus: "M12 5v14M5 12h14", Trash: "M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2", Swap: "M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4", Settings: "M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.18-.08a2 2 0 0 0-2 0l-.45.45a2 2 0 0 0 0 2l.08.18a2 2 0 0 1 0 2l-.25.43a2 2 0 0 1-1.73 1H2a2 2 0 0 0-2 2v.44a2 2 0 0 0 2 2h.18a2 2 0 0 1 1.73 1l.25.43a2 2 0 0 1 0 2l-.08.18a2 2 0 0 0 0 2l.45.45a2 2 0 0 0 2 0l.18.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.18.08a2 2 0 0 0 2 0l.45-.45a2 2 0 0 0 0-2l-.08-.18a2 2 0 0 1 0-2l.25-.43a2 2 0 0 1 1.73-1H22a2 2 0 0 0 2-2v-.44a2 2 0 0 0-2-2h-.18a2 2 0 0 1-1.73-1l-.25-.43a2 2 0 0 1 0-2l.08-.18a2 2 0 0 0 0-2l.45-.45a2 2 0 0 0-2 0l-.18.08a2 2 0 0 1-2 0l.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"
+            Chart: "M12 20V10M18 20V4M6 20v-6", 
+            Dollar: "M12 1v22M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6", 
+            Settings: "M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.18-.08a2 2 0 0 0-2 0l-.45.45a2 2 0 0 0 0 2l.08.18a2 2 0 0 1 0 2l-.25.43a2 2 0 0 1-1.73 1H2a2 2 0 0 0-2 2v.44a2 2 0 0 0 2 2h.18a2 2 0 0 1 1.73 1l.25.43a2 2 0 0 1 0 2l-.08.18a2 2 0 0 0 0 2l.45.45a2 2 0 0 0 2 0l.18.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.18.08a2 2 0 0 0 2 0l.45-.45a2 2 0 0 0 0-2l-.08-.18a2 2 0 0 1 0-2l.25-.43a2 2 0 0 1 1.73-1H22a2 2 0 0 0 2-2v-.44a2 2 0 0 0-2-2h-.18a2 2 0 0 1-1.73-1l-.25-.43a2 2 0 0 1 0-2l.08-.18a2 2 0 0 0 0-2l.45-.45a2 2 0 0 0-2 0l-.18.08a2 2 0 0 1-2 0l.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z", 
+            X: "M18 6 6 18M6 6l12 12", 
+            Refresh: "M23 4v6h-6M1 20v-6h6", 
+            Play: "M5 3l14 9-14 9V3z", 
+            Pause: "M6 4h4v16H6zm8 0h4v16h-4z", 
+            Stop: "M6 6h12v12H6z", 
+            Trash: "M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2", 
+            Plus: "M12 5v14M5 12h14"
         };
 
-        const formatDate = (dateStr) => {
-            if(!dateStr) return '';
-            const d = new Date(dateStr);
-            const y = d.getFullYear(); const m = (d.getMonth()+1).toString().padStart(2,'0'); const day = d.getDate().toString().padStart(2,'0');
-            return `${y}/${m}/${day}`;
-        };
+        const SERVICE_PRICES = { '帝王': 2000, '豪華': 1500, '招牌': 999, '精選': 900, '足底': 500, '全身': 1000, '半身': 500 };
+
+        // UTILS
+        const formatDate = (d) => { if(!d) return ''; const date = new Date(d); return `${date.getFullYear()}/${(date.getMonth()+1).toString().padStart(2,'0')}/${date.getDate().toString().padStart(2,'0')}`; };
         const getTodayStr = () => formatDate(new Date().toLocaleString('en-US', { timeZone: 'Asia/Taipei' }));
         const addMinutes = (iso, m) => { if(!iso) return ''; const d = new Date(iso); d.setMinutes(d.getMinutes() + m); return d.toLocaleTimeString('en-US', { hour:'2-digit', minute:'2-digit', hour12:false }); };
         const formatTime = (iso) => { if(!iso) return '--:--'; return new Date(iso).toLocaleTimeString('en-US', { hour:'2-digit', minute:'2-digit', hour12:false }); };
+        const parseTime = (str) => { if(!str) return 0; const [h, m] = str.split(':').map(Number); return (h||0)*60 + (m||0); };
+        const getPrice = (n) => { for(let k in SERVICE_PRICES) if(n && n.includes(k)) return SERVICE_PRICES[k]; return 0; };
 
         // --- COMPONENTS ---
-        const ResourceMap = ({ bookings, resourceState, onUpdate, statusData }) => {
+
+        const ResourceMap = ({ bookings, resourceState, onUpdate, staffList }) => {
             const [selectedRes, setSelectedRes] = useState(null);
 
-            const handleStart = (id) => {
-                const current = resourceState[id]; if(!current) return;
-                onUpdate(id, { ...current, startTime: new Date().toISOString(), realStartTime: new Date().toISOString(), isRunning: true, isPaused: false });
-            };
-            const handlePause = (id) => {
-                const current = resourceState[id]; if(!current) return;
-                onUpdate(id, { ...current, isPaused: !current.isPaused });
-            };
-            const handleFinish = (id) => {
-                if(confirm('Khách đã xong?')) onUpdate(id, null, 'delete');
-            };
             const handleAssign = (booking) => {
                 const newState = { booking: booking, startTime: null, isRunning: false, isPaused: false };
-                onUpdate(selectedRes, newState);
+                onUpdate(selectedRes, newState, 'update');
                 setSelectedRes(null);
             };
 
-            const Card = ({ type, index }) => {
+            const ResourceCard = ({ type, index }) => {
                 const id = `${type}-${index}`;
                 const data = resourceState[id];
                 const isOccupied = !!data;
-                let bgClass = isOccupied ? (data.isRunning ? (data.isPaused ? 'res-paused' : 'res-running') : 'res-waiting') : 'res-empty hover:border-purple-400';
                 
+                let cardClass = 'res-empty hover:border-purple-400';
+                let statusLabel = '';
+                
+                if (isOccupied) {
+                    if (data.isRunning && !data.isPaused) { cardClass = 'res-running'; statusLabel = 'RUNNING'; }
+                    else if (data.isPaused) { cardClass = 'res-paused'; statusLabel = 'PAUSED'; }
+                    else { cardClass = 'res-waiting'; statusLabel = 'WAITING'; }
+                }
+
                 return (
-                    <div className={`res-card h-64 p-3 ${bgClass}`}>
-                        <div className="flex justify-between border-b pb-1 mb-2">
-                            <span className="text-xs font-bold uppercase text-gray-500">{type} {index}</span>
-                            {isOccupied && <span className="bg-white/50 text-[10px] px-2 rounded font-bold">{data.isRunning ? (data.isPaused ? 'PAUSED' : 'RUNNING') : 'WAITING'}</span>}
+                    <div className={`res-card h-64 p-3 ${cardClass}`}>
+                        <div className="flex justify-between items-center border-b pb-2 mb-2">
+                            <span className="font-bold uppercase text-xs text-gray-500">{type==='chair'?`Foot ${index}`:`Body ${index}`}</span>
+                            {isOccupied && <span className="bg-white/80 text-[10px] px-2 py-0.5 rounded font-bold shadow-sm">{statusLabel}</span>}
                         </div>
+
                         {isOccupied ? (
-                            <div className="flex flex-col h-full justify-between">
-                                <div>
-                                    <div className="font-black text-lg truncate">{data.booking.customerName.split('(')[0]}</div>
-                                    <div className="text-xs truncate mb-1">{data.booking.serviceName}</div>
-                                    <div className="bg-white/60 p-1 rounded flex items-center gap-2 mb-1">
-                                        <div className="w-5 h-5 bg-indigo-100 text-indigo-700 rounded-full flex items-center justify-center text-xs font-bold">{data.booking.staffId.replace('號','')}</div>
+                            <>
+                                <div className="flex-1 flex flex-col justify-start space-y-1">
+                                    <div className="font-black text-lg text-slate-800 leading-tight truncate">{data.booking.customerName.split('(')[0]}</div>
+                                    <div className="text-xs text-gray-500 truncate">{data.booking.serviceName.split('(')[0]}</div>
+                                    
+                                    <div className="flex items-center gap-2 bg-white/60 py-1 rounded border border-gray-100">
+                                        <div className="w-6 h-6 bg-indigo-100 text-indigo-700 rounded-full flex items-center justify-center font-bold text-xs">{data.booking.staffId.replace('號','')}</div>
                                         <span className="text-xs font-bold text-gray-600">NV</span>
                                     </div>
-                                    {data.isRunning && <div className="grid grid-cols-2 text-[10px] bg-white/50 p-1 rounded"><div className="text-center font-bold text-green-700">{formatTime(data.realStartTime)}</div><div className="text-center font-bold text-red-700">{addMinutes(data.startTime, data.booking.duration)}</div></div>}
-                                </div>
-                                <div className="grid grid-cols-2 gap-1 mt-2">
-                                    {!data.isRunning ? (
-                                        <button onClick={()=>handleStart(id)} className="col-span-2 btn-tool bg-green-600 hover:bg-green-700 py-2"><Icon d={PATHS.Play}/> BẮT ĐẦU</button>
-                                    ) : (
-                                        <>
-                                            <button onClick={()=>handlePause(id)} className={`btn-tool ${data.isPaused?'bg-green-500':'bg-orange-500'}`}><Icon d={data.isPaused?PATHS.Play:PATHS.Pause}/></button>
-                                            <button onClick={()=>handleFinish(id)} className="btn-tool bg-slate-600"><Icon d={PATHS.Stop}/></button>
-                                        </>
+
+                                    {data.isRunning && (
+                                        <div className="grid grid-cols-2 gap-1 text-[10px] bg-white/80 p-1 rounded border border-slate-100 shadow-sm">
+                                            <div className="text-center"><span className="text-gray-400 text-[9px] uppercase">Start</span><div className="font-mono font-bold text-green-600">{formatTime(data.realStartTime)}</div></div>
+                                            <div className="text-center"><span className="text-gray-400 text-[9px] uppercase">End</span><div className="font-mono font-bold text-red-600">{addMinutes(data.startTime, data.booking.duration)}</div></div>
+                                        </div>
                                     )}
-                                    <button onClick={()=>onUpdate(id, null, 'delete')} className="absolute top-1 right-1 text-gray-400 hover:text-red-500"><Icon d={PATHS.Trash}/></button>
                                 </div>
-                            </div>
+
+                                <div className="mt-2 space-y-1 pt-2 border-t border-black/5 w-full">
+                                    {!data.isRunning ? (
+                                        <button onClick={() => onUpdate(id, { ...data, startTime: new Date().toISOString(), realStartTime: new Date().toISOString(), isRunning: true, isPaused: false }, 'update')} 
+                                            className="btn-tool bg-green-600 hover:bg-green-700 w-full shadow-lg py-2">
+                                            <Icon d={PATHS.Play} size={16}/> BẮT ĐẦU
+                                        </button>
+                                    ) : (
+                                        <div className="grid grid-cols-2 gap-1">
+                                            <button onClick={() => onUpdate(id, { ...data, isPaused: !data.isPaused }, 'update')} 
+                                                className={`btn-tool text-white ${data.isPaused ? 'bg-green-500' : 'bg-orange-400'}`}>
+                                                <Icon d={data.isPaused ? PATHS.Play : PATHS.Pause}/> {data.isPaused ? 'Tiếp' : 'Dừng'}
+                                            </button>
+                                            <button onClick={() => { if(confirm('Hoàn thành?')) onUpdate(id, null, 'delete'); }} 
+                                                className="btn-tool bg-slate-600 hover:bg-slate-700">
+                                                <Icon d={PATHS.Stop}/> XONG
+                                            </button>
+                                        </div>
+                                    )}
+                                    <button onClick={() => { if(confirm('Hủy ghế này?')) onUpdate(id, null, 'delete'); }} 
+                                        className="absolute top-1 right-1 text-gray-400 hover:text-red-500"><Icon d={PATHS.Trash} size={14}/>
+                                    </button>
+                                </div>
+                            </>
                         ) : (
-                            <button onClick={()=>setSelectedRes(id)} className="h-full flex flex-col items-center justify-center text-gray-300 hover:text-purple-600 group">
-                                <div className="w-8 h-8 rounded-full bg-slate-100 group-hover:bg-purple-100 flex items-center justify-center mb-1"><Icon d={PATHS.Plus}/></div>
-                                <span className="text-[10px] font-bold">Xếp khách</span>
+                            <button onClick={()=>setSelectedRes(id)} className="flex flex-col items-center justify-center h-full text-gray-300 hover:text-purple-600 group">
+                                <div className="w-10 h-10 rounded-full bg-gray-100 group-hover:bg-purple-100 flex items-center justify-center mb-1 transition-colors"><Icon d={PATHS.Plus} size={20}/></div>
+                                <span className="text-[10px] font-bold group-hover:translate-y-1 transition-transform">Xếp khách</span>
                             </button>
                         )}
                     </div>
@@ -123,28 +164,35 @@
             };
 
             return (
-                <div className="space-y-4 pb-20">
-                    <div className="bg-white p-3 rounded-xl border border-emerald-100 shadow-sm">
-                        <h3 className="font-bold text-emerald-700 mb-2 border-b pb-1">KHU VỰC CHÂN (FOOT)</h3>
-                        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2">{[1,2,3,4,5,6].map(i=><Card key={i} type="chair" index={i}/>)}</div>
+                <div className="space-y-6 pb-20">
+                    <div className="bg-white p-4 rounded-2xl shadow-sm border border-emerald-100">
+                        <h3 className="font-bold text-emerald-700 mb-3 flex items-center gap-2 border-b pb-2"><Icon d={PATHS.Grid}/> KHU VỰC CHÂN (FOOT)</h3>
+                        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">{[1,2,3,4,5,6].map(i => <ResourceCard key={i} type="chair" index={i}/>)}</div>
                     </div>
-                    <div className="bg-white p-3 rounded-xl border border-purple-100 shadow-sm">
-                        <h3 className="font-bold text-purple-700 mb-2 border-b pb-1">KHU VỰC GIƯỜNG (BODY)</h3>
-                        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2">{[1,2,3,4,5,6].map(i=><Card key={i} type="bed" index={i}/>)}</div>
+                    <div className="bg-white p-4 rounded-2xl shadow-sm border border-purple-100">
+                        <h3 className="font-bold text-purple-700 mb-3 flex items-center gap-2 border-b pb-2"><Icon d={PATHS.Grid}/> KHU VỰC GIƯỜNG (BODY)</h3>
+                        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">{[1,2,3,4,5,6].map(i => <ResourceCard key={i} type="bed" index={i}/>)}</div>
                     </div>
-                    
+
                     {selectedRes && (
-                        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-                            <div className="bg-white w-full max-w-sm rounded-xl shadow-2xl flex flex-col max-h-[80vh]">
-                                <div className="p-3 border-b font-bold flex justify-between"><span>Chọn khách vào {selectedRes}</span><button onClick={()=>setSelectedRes(null)}>✕</button></div>
-                                <div className="overflow-y-auto p-2 space-y-2 flex-1 bg-slate-50">
-                                    {bookings.filter(b => b.status === 'active' || b.status === '已預約').map((b,i) => (
-                                        <div key={i} onClick={()=>handleAssign(b)} className="p-3 bg-white border rounded hover:bg-indigo-50 cursor-pointer flex justify-between items-center">
-                                            <div><div className="font-bold">{b.customerName}</div><div className="text-xs text-gray-500">{b.serviceName} ({b.time})</div></div>
-                                            <span className="text-blue-600 text-xs font-bold border border-blue-200 px-2 py-1 rounded">Chọn</span>
+                        <div className="fixed inset-0 bg-black/60 z-[70] flex items-center justify-center p-4">
+                            <div className="bg-white w-full max-w-md rounded-xl shadow-2xl modal-animate flex flex-col max-h-[80vh]">
+                                <div className="p-3 border-b font-bold flex justify-between items-center">
+                                    <span>Chọn khách vào {selectedRes}</span>
+                                    <button onClick={()=>setSelectedRes(null)}><Icon d={PATHS.X}/></button>
+                                </div>
+                                <div className="overflow-y-auto p-2 space-y-2 bg-slate-50 flex-1">
+                                    {bookings.filter(b => b.status === 'active' || b.status === '已預約').map((b, i) => (
+                                        <div key={i} className="p-3 bg-white border rounded flex justify-between items-center cursor-pointer hover:bg-blue-50" 
+                                             onClick={() => handleAssign(b)}>
+                                            <div>
+                                                <div className="font-bold">{b.customerName}</div>
+                                                <div className="text-xs text-gray-500">{b.serviceName} ({b.time})</div>
+                                            </div>
+                                            <div className="text-blue-600 font-bold text-sm">Chọn ➜</div>
                                         </div>
                                     ))}
-                                    {bookings.length===0 && <div className="text-center p-4 text-gray-400">Không có khách chờ</div>}
+                                    {bookings.length === 0 && <div className="text-center text-gray-400 p-4">Không có khách chờ</div>}
                                 </div>
                             </div>
                         </div>
@@ -153,59 +201,88 @@
             );
         };
 
-        const StaffCard = ({ s, statusData, resourceState }) => {
-            const isFemale = s.gender === 'F' || s.gender === '女';
-            const local = statusData[s.id] || { status: 'AWAY' };
-            let displayStatus = local.status;
-            let style = isFemale ? 'style-female' : 'style-male';
-            
-            // Check real-time busy
-            const isActuallyBusy = Object.values(resourceState).some(r => r.isRunning && r.booking.staffId === s.id);
-            if (isActuallyBusy) { displayStatus = 'BUSY'; style = 'st-busy'; }
-            else if (s.activeBooking) { displayStatus = 'BOOKED'; style = 'st-booked'; }
-            else if (displayStatus === 'AWAY') style = 'st-away';
+        const StaffCard3D = ({ s, statusData, resourceState }) => {
+            const isFemale = s.gender === 'F' || s.gender === '女'; 
+            const local = statusData[s.id] || { status: 'AWAY' }; 
+            let displayStatus = local.status; 
+            let cardStyle = isFemale ? 'style-female' : 'style-male';
+            let label = '---';
 
-            const labels = { AWAY: 'Chưa đến', READY: 'Sẵn sàng', BUSY: 'Đang làm', BOOKED: 'Khách chờ', EAT: 'Ăn cơm', OUT_SHORT: 'Ra ngoài' };
+            // Check Busy logic
+            const isActuallyRunning = Object.values(resourceState).some(r => r.booking.staffId === s.id && r.isRunning);
+            
+            if (isActuallyRunning) { displayStatus = 'BUSY'; cardStyle = 'st-busy'; }
+            else if (s.activeBooking) { displayStatus = 'BOOKED'; cardStyle = 'st-booked'; }
+            else if (displayStatus === 'AWAY') cardStyle = 'st-away';
+
+            if(displayStatus === 'EAT') label='Ăn cơm'; 
+            else if(displayStatus === 'OUT_SHORT') label='Ra ngoài'; 
+            else if(displayStatus === 'AWAY') label = 'Chưa đến'; 
+            else if(displayStatus === 'READY') label = 'Sẵn sàng'; 
+            else if(displayStatus === 'BUSY') label = 'Đang làm'; 
+            else if(displayStatus === 'BOOKED') label = 'Khách chờ';
 
             return (
-                <div className={`card-3d ${style}`}>
-                    <div className="flex-1 flex flex-col items-center justify-center">
-                        <span className="text-2xl font-black">{s.id.replace('號','')}</span>
-                        <span className="text-[9px] font-bold truncate px-1">{s.name}</span>
+                <div className={`card-3d ${cardStyle}`}>
+                    <div className="flex-1 flex flex-col items-center justify-center p-2">
+                        <div className="text-3xl font-black">{s.id.replace('號','')}</div>
+                        <div className="text-[10px] font-bold mt-1 opacity-80 truncate w-full text-center">{s.name}</div>
                     </div>
-                    <div className="text-[9px] font-bold text-center py-1 bg-black/5">{labels[displayStatus] || displayStatus}</div>
+                    <div className="text-center text-[10px] font-bold py-1 w-full bg-black/5 rounded-b-lg">{label}</div>
                 </div>
-            );
+            )
         };
 
-        const CheckInModal = ({ staffList, statusData, onClose, onUpdateStatus }) => {
-            const handleStatusChange = (sid, newStatus) => {
-                const newData = { status: newStatus, checkInTime: newStatus === 'READY' ? Date.now() : (statusData[sid]?.checkInTime || 0) };
-                onUpdateStatus(sid, newData);
+        const CheckInBoard = ({ staffList, statusData, onUpdateStatus, onClose }) => {
+            const handleDropdownChange = (id, val) => {
+                const current = statusData[id] || {};
+                const newData = { ...current, status: val, checkInTime: val === 'READY' ? Date.now() : (current.checkInTime || 0) };
+                onUpdateStatus(id, newData);
             };
 
+            const toggleCheckIn = (id) => {
+                const current = statusData[id] || {};
+                const isWorking = current.status !== 'AWAY';
+                if(isWorking) handleDropdownChange(id, 'AWAY');
+                else handleDropdownChange(id, 'READY');
+            };
+            
+            const formatCheckInTime = (ts) => ts ? new Date(ts).toLocaleTimeString('en-US', {hour:'2-digit', minute:'2-digit', hour12:false}) : '--:--';
+
             return (
-                <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
-                    <div className="bg-white w-full max-w-2xl rounded-xl shadow-xl flex flex-col max-h-[90vh]">
-                        <div className="p-4 bg-purple-700 text-white font-bold flex justify-between"><span>Quản lý Check-in Nhân viên</span><button onClick={onClose}>✕</button></div>
-                        <div className="overflow-y-auto p-4 space-y-2 bg-slate-100 flex-1">
+                <div className="fixed inset-0 bg-slate-900/80 z-[60] flex items-center justify-center p-4 backdrop-blur-sm">
+                    <div className="bg-white w-full max-w-4xl rounded-2xl shadow-2xl modal-animate flex flex-col max-h-[90vh] overflow-hidden">
+                        <div className="p-4 bg-purple-700 text-white flex justify-between items-center shrink-0">
+                            <h2 className="text-xl font-bold flex gap-2 items-center">Quản lý Check-in</h2>
+                            <button onClick={onClose}><Icon d={PATHS.X}/></button>
+                        </div>
+                        <div className="overflow-y-auto flex-1 p-4 space-y-2 bg-slate-100">
                             {staffList.filter(s=>s.status!=='off').map(s => {
-                                const st = statusData[s.id] || { status: 'AWAY' };
+                                const current = statusData[s.id] || { status: 'AWAY', checkInTime: 0 };
+                                const isWorking = current.status !== 'AWAY';
+                                const isFemale = s.gender === 'F' || s.gender === '女';
                                 return (
-                                    <div key={s.id} className="bg-white p-3 rounded shadow-sm flex items-center justify-between">
-                                        <div className="flex items-center gap-3">
-                                            <div className="w-10 h-10 bg-gray-200 rounded-full flex items-center justify-center font-bold">{s.id.replace('號','')}</div>
-                                            <span className="font-bold">{s.name}</span>
+                                    <div key={s.id} className="grid grid-cols-12 gap-3 items-center p-3 bg-white border rounded-lg shadow-sm">
+                                        <div className="col-span-3 flex items-center gap-3">
+                                            <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm shadow-inner ${isFemale ? 'bg-pink-100 text-pink-600' : 'bg-blue-100 text-blue-600'}`}>{s.id.replace('號','')}</div>
+                                            <span className={`font-bold text-lg ${isFemale ? 'text-pink-600' : 'text-slate-700'}`}>{s.name}</span>
                                         </div>
-                                        <div className="flex gap-2">
-                                            {['AWAY','READY','EAT','OUT_SHORT'].map(stat => (
-                                                <button key={stat} onClick={()=>handleStatusChange(s.id, stat)} className={`px-3 py-1 rounded text-xs font-bold border ${st.status===stat ? 'bg-purple-600 text-white' : 'bg-white text-gray-600'}`}>
-                                                    {stat}
-                                                </button>
-                                            ))}
+                                        <div className="col-span-2 text-center font-mono text-gray-500 font-bold">{isWorking ? formatCheckInTime(current.checkInTime) : '--:--'}</div>
+                                        <div className="col-span-4 flex justify-center">
+                                            <select value={current.status} onChange={(e) => handleDropdownChange(s.id, e.target.value)} disabled={!isWorking} className="w-full font-bold py-2 px-3 rounded-lg border-2 outline-none">
+                                                <option value="AWAY" disabled>⚪ Chưa đến</option>
+                                                <option value="READY">🟢 Sẵn sàng</option>
+                                                <option value="EAT">🟠 Ăn cơm</option>
+                                                <option value="OUT_SHORT">🔵 Ra ngoài</option>
+                                            </select>
+                                        </div>
+                                        <div className="col-span-3 flex justify-center">
+                                            <button onClick={() => toggleCheckIn(s.id)} className={`px-4 py-2 rounded-lg font-bold text-white shadow ${isWorking ? 'bg-red-500 hover:bg-red-600' : 'bg-emerald-500 hover:bg-emerald-600'}`}>
+                                                {isWorking ? 'Kết ca' : 'Vào ca'}
+                                            </button>
                                         </div>
                                     </div>
-                                );
+                                )
                             })}
                         </div>
                     </div>
@@ -213,97 +290,192 @@
             );
         };
 
+        const TimelineView = ({ bookings }) => {
+            const hours = Array.from({length: 19}, (_, i) => (8 + i) % 24); 
+            const today = getTodayStr();
+            const todayBookings = bookings.filter(b => b.status !== 'cancelled');
+            
+            return (
+                <div className="bg-white border rounded-xl overflow-hidden shadow-sm flex flex-col h-[500px]">
+                    <div className="flex border-b bg-gray-50 h-10 shrink-0">
+                        <div className="w-20 border-r p-2 font-bold text-xs text-gray-500 flex items-center justify-center">Res</div>
+                        <div className="flex-1 relative">
+                            {hours.map((h, i) => (<div key={i} className="absolute h-full border-l text-[10px] text-gray-400 pl-1" style={{left: `${(i/19)*100}%`}}>{h}:00</div>))}
+                        </div>
+                    </div>
+                    <div className="overflow-y-auto flex-1 relative timeline-bg">
+                        {['Body','Foot'].map((area, areaIdx) => (
+                            <div key={area}>
+                                <div className={`sticky top-0 z-20 text-xs font-bold px-2 py-1 border-b ${area==='Body'?'bg-purple-100 text-purple-800':'bg-emerald-100 text-emerald-800'}`}>{area.toUpperCase()} AREA</div>
+                                {Array.from({length: 6}, (_, i) => i+1).map(n => (
+                                    <div key={`${area}-${n}`} className="h-12 border-b flex relative">
+                                        <div className={`w-20 border-r bg-white text-xs font-bold flex items-center justify-center border-r-2 shrink-0 z-10 ${area==='Body'?'text-purple-600':'text-emerald-600'}`}>{area} {n}</div>
+                                        <div className="flex-1 relative h-full">
+                                            {todayBookings.filter(b => (area==='Body'?b.type==='BED':b.type==='CHAIR') && ((b.id % 6) + 1 === n)).map((b, idx) => {
+                                                const start = parseTime(b.time); 
+                                                let startMins = start - (8*60); 
+                                                if(start < 8*60) startMins += 24*60; 
+                                                const left = (startMins / (19*60)) * 100; 
+                                                const width = (b.duration / (19*60)) * 100;
+                                                if (left < 0) return null;
+                                                return (<div key={idx} className={`absolute top-1 h-10 rounded-md text-white text-[10px] flex flex-col justify-center px-2 shadow-md overflow-hidden z-10 border ${area==='Body'?'bg-purple-500 border-purple-600':'bg-emerald-500 border-emerald-600'}`} style={{left: `${left}%`, width: `${width}%`}} title={b.customerName}><div className="font-bold truncate">{b.time}</div><div className="truncate opacity-90">{b.customerName}</div></div>)
+                                            })}
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            );
+        };
+
+        const RevenueTable = ({ bookings }) => {
+            const todayBookings = bookings.filter(b => b.status !== 'cancelled');
+            const revenue = todayBookings.reduce((acc, b) => acc + (getPrice(b.serviceName) + (b.serviceName.includes('油')?200:0)) * (b.pax||1), 0);
+            return ( 
+                <div className="bg-white p-6 rounded-xl shadow-sm border text-center">
+                    <h3 className="text-gray-500 font-bold mb-2 uppercase tracking-wide">Doanh Thu Hôm Nay</h3>
+                    <div className="text-4xl font-black text-emerald-600 flex justify-center items-center gap-2">
+                        <Icon d={PATHS.Dollar} size={32}/> {revenue.toLocaleString()} TWD
+                    </div>
+                </div> 
+            );
+        };
+
         // --- MAIN APP ---
         function App() {
-            const [view, setView] = useState('map');
-            const [bookings, setBookings] = useState([]);
-            const [staffList, setStaffList] = useState([]);
-            const [resourceState, setResourceState] = useState({});
-            const [statusData, setStatusData] = useState({});
-            const [showCheckIn, setShowCheckIn] = useState(false);
-            const [lastUpdated, setLastUpdated] = useState(Date.now());
+            const [activeTab, setActiveTab] = useState('map'); 
+            const [staffList, setStaffList] = useState([]); 
+            const [bookings, setBookings] = useState([]); 
+            const [statusData, setStatusData] = useState({}); 
+            const [resourceState, setResourceState] = useState({}); 
+            const [showManager, setShowManager] = useState(false);
 
+            // API CALLS
             const fetchData = async () => {
                 try {
-                    const res = await axios.get('/api/info'); // Gọi API RAM (siêu nhanh)
-                    const { bookings: apiBookings, staffList: apiStaff, schedule, resourceState: sRes, staffStatus: sStaff } = res.data;
+                    const res = await axios.get('/api/info');
+                    const { bookings: apiBookings, staffList: apiStaff, schedule, resourceState: sRes, staffStatus: sStaff } = res.data; 
                     
-                    // 1. Process Bookings
-                    const today = getTodayStr();
+                    const today = getTodayStr(); 
+
+                    // Process Bookings
                     const todayBookings = apiBookings
-                        .filter(b => b.date && b.date.includes(today) && !(b.status||'').includes('取消'))
-                        .map((b,i) => ({...b, id: i, status: 'active'}));
+                        .filter(b => b.date && b.date.includes(today))
+                        .map((b, i) => ({ ...b, id: i, status: (b.status && b.status.includes('取消')) ? 'cancelled' : 'active' }));
                     setBookings(todayBookings);
+                    
+                    // Process Staff
+                    const offStaffIds = schedule.filter(s => s.date && s.date.includes(today)).map(s => s.staffId);
+                    const mappedStaff = apiStaff.map(s => { 
+                        const activeBooking = todayBookings.find(b => b.staffId === s.id && b.status === 'active'); 
+                        const isOff = offStaffIds.includes(s.id); 
+                        return { ...s, status: isOff ? 'off' : 'ready', activeBooking }; 
+                    });
+                    setStaffList(mappedStaff.sort((a,b) => parseInt(a.id.replace(/\D/g,'')) - parseInt(b.id.replace(/\D/g,''))));
 
-                    // 2. Process Staff
-                    const offIds = schedule.filter(s => s.date && s.date.includes(today)).map(s => s.staffId);
-                    setStaffList(apiStaff.map(s => ({ ...s, status: offIds.includes(s.id) ? 'off' : 'ready', activeBooking: todayBookings.find(b=>b.staffId===s.id) })).sort((a,b)=>parseInt(a.id.replace(/\D/g,''))-parseInt(b.id.replace(/\D/g,''))));
-
-                    // 3. Process State
+                    // Process States
                     setResourceState(sRes || {});
                     setStatusData(sStaff || {});
-                    setLastUpdated(Date.now());
+
                 } catch(e) { console.error(e); }
             };
 
-            // Sync Resource to Server
-            const updateResource = async (id, data, action='update') => {
-                const temp = { ...resourceState };
-                if (action === 'delete') delete temp[id]; else temp[id] = data;
-                setResourceState(temp); // Optimistic UI
-                await axios.post('/api/resource-update', { resourceId: id, data, action });
+            const updateResourceState = async (resId, data, action) => {
+                // Optimistic UI
+                const newState = { ...resourceState };
+                if (action === 'delete') delete newState[resId];
+                else newState[resId] = data;
+                setResourceState(newState);
+                
+                // Server Sync
+                await axios.post('/api/resource-update', { resourceId: resId, data, action });
             };
 
-            // Sync Staff Status to Server
-            const updateStaffStatus = async (sid, data) => {
-                const temp = { ...statusData, [sid]: data };
-                setStatusData(temp);
-                await axios.post('/api/staff-status-update', { staffId: sid, statusData: data });
+            const updateStaffStatus = async (staffId, data) => {
+                const newState = { ...statusData, [staffId]: data };
+                setStatusData(newState);
+                await axios.post('/api/staff-status-update', { staffId, statusData: data });
             };
 
-            useEffect(() => { fetchData(); const interval = setInterval(fetchData, 5000); return () => clearInterval(interval); }, []);
+            useEffect(() => { 
+                fetchData(); 
+                const t = setInterval(fetchData, 5000); // 5s Sync 1 lần
+                return () => clearInterval(t); 
+            }, []);
 
-            const activeStaff = staffList.filter(s => s.status!=='off' && statusData[s.id]?.status !== 'AWAY').sort((a,b)=>(statusData[a.id]?.checkInTime||0)-(statusData[b.id]?.checkInTime||0));
-            const awayStaff = staffList.filter(s => s.status!=='off' && (!statusData[s.id] || statusData[s.id]?.status === 'AWAY'));
+            // Helpers for UI
+            const workingStaff = staffList.filter(s => s.status !== 'off'); 
+            const awayStaff = workingStaff.filter(s => !statusData[s.id] || statusData[s.id].status === 'AWAY');
+            const activeStaff = workingStaff.filter(s => statusData[s.id] && statusData[s.id].status !== 'AWAY');
+            activeStaff.sort((a, b) => (statusData[a.id]?.checkInTime || 0) - (statusData[b.id]?.checkInTime || 0));
 
             return (
-                <div className="flex flex-col h-screen overflow-hidden">
-                    <header className="bg-slate-900 text-white p-3 shadow-md flex justify-between items-center z-10 shrink-0">
-                        <div className="font-bold flex items-center gap-2"><span className="bg-amber-400 text-black px-2 rounded text-xs py-1">POS V2</span><span>XinWuChan</span></div>
+                <div className="min-h-screen flex flex-col">
+                    <header className="bg-slate-900 text-white p-3 shadow-xl flex justify-between items-center sticky top-0 z-50">
+                        <div className="font-bold flex gap-3 items-center px-2 text-lg">
+                            <span className="bg-amber-500 text-black px-2 rounded text-sm font-black">POS</span>
+                            <span>XinWuChan ({getTodayStr()})</span>
+                        </div>
                         <div className="flex gap-2">
-                            <button onClick={fetchData} className="p-2 bg-slate-800 rounded hover:bg-slate-700"><Icon d={PATHS.Refresh}/></button>
-                            <button onClick={()=>setShowCheckIn(true)} className="bg-indigo-600 px-3 py-1 rounded font-bold text-sm flex items-center gap-2 hover:bg-indigo-500"><Icon d={PATHS.Settings}/> Check-in</button>
+                            <button onClick={fetchData} className="p-2 bg-slate-800 rounded-full hover:bg-slate-700"><Icon d={PATHS.Refresh}/></button>
+                            <button onClick={()=>setShowManager(true)} className="bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-1.5 rounded-lg font-bold flex gap-2 items-center text-sm border-b-4 border-indigo-800 active:border-b-0 active:translate-y-1 transition-all">
+                                <Icon d={PATHS.Settings}/> Check-in
+                            </button>
                         </div>
                     </header>
-                    
-                    {/* STAFF SCROLL AREA */}
-                    <div className="bg-white border-b p-2 overflow-x-auto shrink-0 shadow-sm z-0">
-                        <div className="flex min-w-max gap-4 px-2">
-                            <div className="flex gap-2 pr-4 border-r border-dashed border-gray-300">{awayStaff.map(s=><StaffCard key={s.id} s={s} statusData={statusData} resourceState={resourceState}/>)}</div>
-                            <div className="flex flex-row-reverse gap-2">{activeStaff.map(s=><StaffCard key={s.id} s={s} statusData={statusData} resourceState={resourceState}/>)}</div>
+
+                    <div className="bg-white border-b shadow-sm p-4 overflow-x-auto shrink-0">
+                        <div className="w-full flex justify-end items-center gap-6 min-w-max px-4">
+                            <div className="flex gap-3 pr-6 border-r-2 border-dashed border-slate-300">
+                                {awayStaff.map(s => <StaffCard3D key={s.id} s={s} statusData={statusData} resourceState={resourceState}/>)}
+                            </div>
+                            <div className="flex flex-row-reverse gap-3 pl-2">
+                                {activeStaff.map((s) => <StaffCard3D key={s.id} s={s} statusData={statusData} resourceState={resourceState}/>)}
+                            </div>
                         </div>
                     </div>
 
-                    {/* MAIN CONTENT */}
-                    <main className="flex-1 bg-slate-50 overflow-y-auto p-4 relative">
-                        <div className="flex gap-2 mb-4 sticky top-0 z-10 bg-slate-50 py-2">
-                            <button onClick={()=>setView('map')} className={`px-4 py-2 rounded font-bold text-sm shadow flex items-center gap-2 ${view==='map'?'bg-slate-800 text-white':'bg-white text-gray-600'}`}><Icon d={PATHS.Grid}/> Sơ đồ</button>
-                            <button onClick={()=>setView('list')} className={`px-4 py-2 rounded font-bold text-sm shadow flex items-center gap-2 ${view==='list'?'bg-slate-800 text-white':'bg-white text-gray-600'}`}><Icon d={PATHS.List}/> Danh sách</button>
+                    <main className="flex-1 p-4 overflow-y-auto flex flex-col gap-4">
+                        <div className="flex gap-2 mb-2">
+                            {['map', 'list', 'timeline', 'revenue'].map(tab => (
+                                <button key={tab} onClick={()=>setActiveTab(tab)} 
+                                    className={`px-4 py-2 rounded-lg font-bold flex gap-2 items-center transition-all capitalize ${activeTab===tab?'bg-slate-800 text-white':'bg-white text-slate-600 shadow'}`}>
+                                    {tab}
+                                </button>
+                            ))}
                         </div>
 
-                        {view === 'map' && <ResourceMap bookings={bookings} resourceState={resourceState} onUpdate={updateResource} statusData={statusData} />}
+                        {activeTab === 'map' && <ResourceMap bookings={bookings} resourceState={resourceState} onUpdate={updateResourceState} staffList={staffList} />}
                         
-                        {view === 'list' && (
-                            <div className="bg-white rounded shadow overflow-hidden">
-                                <table className="w-full text-sm">
-                                    <thead className="bg-slate-100 text-slate-600 font-bold"><tr><th className="p-3 text-left">Giờ</th><th className="p-3 text-left">Khách</th><th className="p-3 text-left">Dịch vụ</th><th className="p-3">SĐT</th><th className="p-3">Trạng thái</th></tr></thead>
-                                    <tbody className="divide-y">{bookings.map((b,i)=>(<tr key={i} className="hover:bg-slate-50"><td className="p-3 font-mono font-bold text-indigo-700">{b.time}</td><td className="p-3 font-bold">{b.customerName.split('(')[0]}</td><td className="p-3 text-gray-500">{b.serviceName}</td><td className="p-3 text-center text-gray-400">{b.customerName.includes('(')?b.customerName.split('(')[1].replace(')',''):''}</td><td className="p-3 text-center"><span className="bg-green-100 text-green-700 px-2 py-1 rounded text-xs font-bold">{b.status}</span></td></tr>))}</tbody>
+                        {activeTab === 'list' && (
+                            <div className="bg-white rounded-xl shadow border overflow-hidden">
+                                <table className="w-full text-sm text-left">
+                                    <thead className="bg-slate-100 text-slate-600 uppercase font-bold text-xs">
+                                        <tr><th className="p-3">Giờ</th><th className="p-3">Tên</th><th className="p-3">Dịch Vụ</th><th className="p-3">SĐT</th><th className="p-3">NV</th><th className="p-3">TT</th></tr>
+                                    </thead>
+                                    <tbody className="divide-y">
+                                        {bookings.map((b,i)=>(
+                                            <tr key={i} className="hover:bg-slate-50">
+                                                <td className="p-3 font-mono font-bold text-indigo-700">{b.time}</td>
+                                                <td className="p-3 font-bold text-gray-800">{b.customerName.split('(')[0]}</td>
+                                                <td className="p-3 text-gray-600 truncate">{b.serviceName}</td>
+                                                <td className="p-3 font-mono text-gray-500">{b.customerName.includes('(')?b.customerName.split('(')[1].replace(')',''):''}</td>
+                                                <td className="p-3"><span className="bg-indigo-50 text-indigo-700 px-2 py-1 rounded text-xs font-bold">{b.staffId}</span></td>
+                                                <td className="p-3"><span className={`px-2 py-1 rounded text-xs font-bold ${b.status==='cancelled'?'bg-red-100 text-red-600':'bg-emerald-100 text-emerald-600'}`}>{b.status}</span></td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
                                 </table>
                             </div>
                         )}
+
+                        {activeTab === 'timeline' && <TimelineView bookings={bookings} />}
+                        {activeTab === 'revenue' && <RevenueTable bookings={bookings} />}
                     </main>
 
-                    {showCheckIn && <CheckInModal staffList={staffList} statusData={statusData} onClose={()=>setShowCheckIn(false)} onUpdateStatus={updateStaffStatus} />}
+                    {showManager && <CheckInBoard staffList={staffList} statusData={statusData} onUpdateStatus={updateStaffStatus} onClose={()=>setShowManager(false)} />}
                 </div>
             );
         }
