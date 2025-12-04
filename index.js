@@ -1,5 +1,5 @@
 // ==============================================================================
-// PHIÊN BẢN V55.0 - FIX LỖI MẤT SỐ PHÚT (00)
+// PHIÊN BẢN V56.0 - CHUYỂN ĐỔI SANG NĂM DƯƠNG LỊCH (YYYY/MM/DD)
 // ==============================================================================
 
 require('dotenv').config(); 
@@ -35,7 +35,7 @@ let cachedBookings = [];
 let cachedSchedule = []; 
 let userState = {}; 
 
-// BẢNG GIÁ CHUẨN (ĐÃ CẬP NHẬT)
+// BẢNG GIÁ CHUẨN
 const SERVICES = {
     'CB_190': { name: '👑 帝王套餐 (190分)', duration: 190, type: 'BED', category: 'COMBO', price: 2000 },
     'CB_130': { name: '💎 豪華套餐 (130分)', duration: 130, type: 'BED', category: 'COMBO', price: 1500 },
@@ -59,7 +59,7 @@ const SERVICES = {
 };
 
 // ==============================================================================
-// HELPERS
+// HELPERS (Cập nhật sang Dương Lịch)
 // ==============================================================================
 
 function normalizePhoneNumber(phone) {
@@ -101,26 +101,32 @@ function isWithinShift(staff, requestTimeStr) {
     return requestMins >= startMins && requestMins < endMins;
 }
 
-function formatMinguoDisplay(dateInput) {
+// [UPDATED] Hiển thị ngày tháng năm Dương lịch (YYYY/MM/DD)
+function formatDateDisplay(dateInput) {
     if (!dateInput) return "";
     try {
         let str = dateInput.toString().trim();
-        if (str.includes('/')) return str.split(' ')[0];
+        // Nếu đã có dạng YYYY/MM/DD thì trả về luôn (cắt bỏ phần giờ nếu có)
+        if (str.includes('/') && str.split('/')[0].length === 4) return str.split(' ')[0];
+        
         let d = new Date(str);
         if (isNaN(d.getTime())) return str;
+        
         const taipeiString = d.toLocaleString('en-US', { timeZone: 'Asia/Taipei' });
         d = new Date(taipeiString);
-        const year = (d.getFullYear() - 1911).toString().padStart(4, '0'); 
+        
+        const year = d.getFullYear().toString(); // Không trừ 1911 nữa
         const month = (d.getMonth() + 1).toString().padStart(2, '0');
         const day = d.getDate().toString().padStart(2, '0');
         return `${year}/${month}/${day}`;
     } catch (e) { return dateInput; }
 }
 
-function getCurrentMinguoTime() {
+// [UPDATED] Lấy thời gian hiện tại Dương lịch
+function getCurrentDateTimeStr() {
     const now = new Date().toLocaleString('en-US', { timeZone: 'Asia/Taipei', hour12: false });
     const d = new Date(now);
-    const year = (d.getFullYear() - 1911).toString().padStart(4, '0');
+    const year = d.getFullYear().toString(); // Không trừ 1911
     const month = (d.getMonth() + 1).toString().padStart(2, '0');
     const day = d.getDate().toString().padStart(2, '0');
     const hh = d.getHours().toString().padStart(2, '0');
@@ -128,16 +134,21 @@ function getCurrentMinguoTime() {
     return `${year}/${month}/${day} ${hh}:${mm}`;
 }
 
-function parseMinguoToDate(minguoStr) {
-    if (!minguoStr || typeof minguoStr !== 'string') return null;
+// [UPDATED] Parse chuỗi ngày thành Date object (Xử lý Dương lịch)
+function parseStringToDate(dateStr) {
+    if (!dateStr || typeof dateStr !== 'string') return null;
     try {
-        const parts = minguoStr.trim().split(' ');
+        const parts = dateStr.trim().split(' ');
         const datePart = parts[0];
         let timePart = parts.length > 1 ? parts[1] : "00:00";
         const dateNums = datePart.split('/');
         const timeNums = timePart.split(':');
         if (dateNums.length < 3) return null;
-        const year = parseInt(dateNums[0]) + 1911;
+
+        // Xử lý năm: Nếu là 4 chữ số thì giữ nguyên, nếu < 1900 thì có thể là dữ liệu cũ (Minguo)
+        let year = parseInt(dateNums[0]);
+        if (year < 1900) year += 1911; // Fallback: nếu dữ liệu cũ là Minguo thì tự convert, còn dữ liệu mới > 2000 thì giữ nguyên
+
         const month = parseInt(dateNums[1]) - 1;
         const day = parseInt(dateNums[2]);
         const hour = parseInt(timeNums[0]) || 0;
@@ -218,8 +229,8 @@ async function syncData() {
                             const status = rows[i][j];
                             const rawDateStr = headerDates[j]; 
                             if (status && rawDateStr && status.trim() !== '') {
-                                const minguoDate = formatMinguoDisplay(rawDateStr);
-                                if (minguoDate) cachedSchedule.push({ date: minguoDate, staffId: cleanName });
+                                const formattedDate = formatDateDisplay(rawDateStr);
+                                if (formattedDate) cachedSchedule.push({ date: formattedDate, staffId: cleanName });
                             }
                         }
                     }
@@ -236,17 +247,13 @@ async function syncData() {
 
 async function ghiVaoSheet(data) {
     try {
-        const timeCreate = getCurrentMinguoTime(); 
+        const timeCreate = getCurrentDateTimeStr(); 
         
         // --- XỬ LÝ DỮ LIỆU ĐỂ GHI (THỨ TỰ CỘT A -> K) ---
-        let colA_Date = formatMinguoDisplay(data.ngayDen);     
+        let colA_Date = formatDateDisplay(data.ngayDen);     
         
-        // ----------------------------------------------------
-        // [FIXED] CHỈ LẤY GIỜ (HH:MM) - KHÔNG CẮT BỎ PHÚT NỮA
-        // ----------------------------------------------------
         let colB_Time = data.gioDen || "";
         if (colB_Time.includes(' ')) colB_Time = colB_Time.split(' ')[1];
-        // Đảm bảo có dạng 00:00 (5 ký tự)
         if (colB_Time.length > 5) colB_Time = colB_Time.substring(0, 5); 
 
         const colC_Name = data.hoTen || '現場客';             
@@ -321,8 +328,8 @@ async function layLichDatGanNhat(userId) {
 // 3. LOGIC
 // ==============================================================================
 function checkAvailability(dateStr, timeStr, serviceDuration, serviceType, specificStaffIds = null, pax = 1, requireFemale = false) {
-    const displayDate = formatMinguoDisplay(dateStr); 
-    const startRequest = parseMinguoToDate(`${displayDate} ${timeStr}`);
+    const displayDate = formatDateDisplay(dateStr); 
+    const startRequest = parseStringToDate(`${displayDate} ${timeStr}`);
     if (!startRequest) return false;
     const endRequest = new Date(startRequest.getTime() + serviceDuration * 60000);
 
@@ -351,7 +358,7 @@ function checkAvailability(dateStr, timeStr, serviceDuration, serviceType, speci
             const bookingDate = booking.startTimeString.split(' ')[0];
             if (bookingDate === displayDate) { isShopClosed = true; break; }
         }
-        const startExisting = parseMinguoToDate(booking.startTimeString);
+        const startExisting = parseStringToDate(booking.startTimeString);
         if (!startExisting) continue;
         const endExisting = new Date(startExisting.getTime() + booking.duration * 60000);
 
@@ -517,7 +524,7 @@ app.post('/api/admin-staff-action', async (req, res) => {
     const { staffId, action, duration } = req.body; 
     const now = new Date(); 
     const taipeiNowStr = now.toLocaleString('en-US', { timeZone: 'Asia/Taipei', hour12: false }); 
-    const todayISO = formatMinguoDisplay(new Date(taipeiNowStr)); 
+    const todayISO = formatDateDisplay(new Date(taipeiNowStr)); 
     const currentTimeStr = taipeiNowStr.split(', ')[1].substring(0, 5); 
     
     let serviceName = ''; 
@@ -573,7 +580,7 @@ async function handleEvent(event) {
       if (!currentState || currentState.step !== 'ADMIN_PICK_STAFF') return Promise.resolve(null); 
       const now = new Date(); 
       const taipeiNowStr = now.toLocaleString('en-US', { timeZone: 'Asia/Taipei', hour12: false }); 
-      const todayISO = formatMinguoDisplay(new Date(taipeiNowStr)); 
+      const todayISO = formatDateDisplay(new Date(taipeiNowStr)); 
       const currentTimeStr = taipeiNowStr.split(', ')[1].substring(0, 5); 
       let logType = ''; let logNote = ''; 
       if (currentState.action === 'SetOff') { 
@@ -637,15 +644,14 @@ async function handleEvent(event) {
   
   if (text.startsWith('StaffSelect:')) { const staffId = text.split(':')[1]; const currentState = userState[userId]; if (!currentState) return Promise.resolve(null); if (!currentState.selectedStaff) currentState.selectedStaff = []; currentState.selectedStaff.push(staffId); userState[userId] = currentState; if (currentState.selectedStaff.length < currentState.pax) { const bubbles = createStaffBubbles(currentState.isOil, currentState.selectedStaff); const currentGuestIndex = currentState.selectedStaff.length + 1; bubbles.forEach(b => { b.body.contents[0].text = `選第 ${currentGuestIndex} 位技師`; b.body.contents[0].color = "#E91E63"; }); return client.replyMessage(event.replyToken, { type: 'flex', altText: '選擇下一位師傅', contents: { type: 'carousel', contents: bubbles } }); } else { currentState.step = 'TIME'; const timeCarousel = generateTimeBubbles(currentState.date, currentState.service, currentState.selectedStaff, currentState.pax, currentState.isOil); if (!timeCarousel) return client.replyMessage(event.replyToken, { type: 'text', text: '😢 所選技師時間衝突，請重新選擇。' }); return client.replyMessage(event.replyToken, { type: 'flex', altText: '選擇時間', contents: timeCarousel }); } }
 
-  // [FIXED] CHỖ NÀY ĐÃ SỬA: Dùng replace thay vì split để lấy trọn 14:00
   if (text.startsWith('Time:')) { 
-      const gio = text.replace('Time:', '').trim(); // Lấy hết phần sau chữ Time:
+      const gio = text.replace('Time:', '').trim(); 
       const currentState = userState[userId]; 
       if (!currentState) return client.replyMessage(event.replyToken, { type: 'text', text: '請重新點選「立即預約」。' }); 
       currentState.step = 'SURNAME'; currentState.time = gio; 
       userState[userId] = currentState; 
-      const minguoDate = formatMinguoDisplay(currentState.date); 
-      return client.replyMessage(event.replyToken, { type: 'text', text: `好的，您預約了 ${minguoDate} ${gio} (${currentState.pax}位)。\n\n請問怎麼稱呼您？(請輸入姓氏)` }); 
+      const displayDate = formatDateDisplay(currentState.date); 
+      return client.replyMessage(event.replyToken, { type: 'text', text: `好的，您預約了 ${displayDate} ${gio} (${currentState.pax}位)。\n\n請問怎麼稱呼您？(請輸入姓氏)` }); 
   }
   
   if (userState[userId] && userState[userId].step === 'SURNAME') { const currentState = userState[userId]; currentState.step = 'PHONE'; currentState.surname = text; userState[userId] = currentState; return client.replyMessage(event.replyToken, { type: 'text', text: "最後一步，請輸入您的手機號碼。\n(為了方便聯繫，請提供正確號碼。)" }); }
@@ -653,11 +659,11 @@ async function handleEvent(event) {
   if (userState[userId] && userState[userId].step === 'PHONE') { 
       const sdt = normalizePhoneNumber(text); 
       if (!/^\d{7,15}$/.test(sdt)) return client.replyMessage(event.replyToken, { type: 'text', text: '⚠️ 號碼格式錯誤。請輸入正確手機號碼。' }); 
-      const currentState = userState[userId]; const serviceName = SERVICES[currentState.service].name; const gio = currentState.time; const minguoDate = formatMinguoDisplay(currentState.date); const hoTen = currentState.surname; const paxDisplay = `${currentState.pax} 位`;
+      const currentState = userState[userId]; const serviceName = SERVICES[currentState.service].name; const gio = currentState.time; const displayDate = formatDateDisplay(currentState.date); const hoTen = currentState.surname; const paxDisplay = `${currentState.pax} 位`;
       let staffDisplay = '隨機'; if (currentState.selectedStaff && currentState.selectedStaff.length > 0) staffDisplay = currentState.selectedStaff.join(', ');
       const pricePerPerson = SERVICES[currentState.service].price || 0; const totalPrice = (pricePerPerson + (currentState.isOil ? 200 : 0)) * currentState.pax;
 
-      const confirmMsg = `✅ 預約成功\n\n👤 ${hoTen} (${sdt})\n📅 ${minguoDate} ${gio}\n💆 ${serviceName.split('(')[0]}\n👥 ${paxDisplay}\n🛠️ ${staffDisplay}\n${currentState.isOil ? '⭐ 包含油推 (+$200)\n' : ''}💵 總金額: $${totalPrice}`;
+      const confirmMsg = `✅ 預約成功\n\n👤 ${hoTen} (${sdt})\n📅 ${displayDate} ${gio}\n💆 ${serviceName.split('(')[0]}\n👥 ${paxDisplay}\n🛠️ ${staffDisplay}\n${currentState.isOil ? '⭐ 包含油推 (+$200)\n' : ''}💵 總金額: $${totalPrice}`;
       
       await client.replyMessage(event.replyToken, { type: 'text', text: confirmMsg });
       
@@ -694,5 +700,5 @@ async function handleEvent(event) {
 syncData();
 const port = process.env.PORT || 3000;
 app.listen(port, () => {
-    console.log(`Bot v55.0 (Fix Time 00) running on ${port}`);
+    console.log(`Bot v56.0 (Gregorian Date) running on ${port}`);
 });
