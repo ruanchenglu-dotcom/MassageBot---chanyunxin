@@ -337,7 +337,7 @@
             );
         };
 
-        // 3. STAFF CARD 3D
+        // 3. STAFF CARD 3D (Logic cũ V8)
         const StaffCard3D = ({ s, statusData, queueIndex }) => {
             const isFemale = s.gender === 'F' || s.gender === '女';
             const local = statusData[s.id] || { status: 'AWAY' };
@@ -377,9 +377,11 @@
             )
         };
 
-        // 4. TIMELINE
+        // 4. TIMELINE & REVENUE (Logic cũ V8)
         const TimelineView = ({ bookings }) => {
             const hours = Array.from({length: 15}, (_, i) => i + 10);
+            const today = getTodayMinguo();
+            const todayBookings = bookings.filter(b => b.date === today && b.status !== 'cancelled');
             return (
                 <div className="bg-white border rounded-xl overflow-hidden shadow-sm flex flex-col h-[500px]">
                     <div className="flex border-b bg-gray-50 h-10 shrink-0">
@@ -388,10 +390,10 @@
                     </div>
                     <div className="overflow-y-auto flex-1 relative timeline-bg">
                         {Array.from({length: 6}, (_, i) => i+1).map(n => (
-                            <div key={`bed-${n}`} className="h-14 border-b flex relative"><div className="w-20 border-r bg-white text-xs font-bold flex items-center justify-center text-purple-600 border-r-2 shrink-0 z-10">Body {n}</div><div className="flex-1 relative h-full">{bookings.filter(b => b.type === 'BED' && ((b.id % 6) + 1 === n)).map((b, idx) => { const start = parseTime(b.time); const left = ((start - 600) / 840) * 100; const width = (b.duration / 840) * 100; if (left < 0 || width <= 0) return null; return (<div key={idx} className="absolute top-2 h-10 rounded-md bg-purple-500 text-white text-[10px] flex flex-col justify-center px-2 shadow-md overflow-hidden whitespace-nowrap z-10 border border-purple-600" style={{left: `${left}%`, width: `${width}%`}} title={b.customerName}><div className="font-bold truncate">{b.time}</div><div className="truncate opacity-90">{b.customerName}</div></div>) })}</div></div>
+                            <div key={`bed-${n}`} className="h-14 border-b flex relative"><div className="w-20 border-r bg-white text-xs font-bold flex items-center justify-center text-purple-600 border-r-2 shrink-0 z-10">Body {n}</div><div className="flex-1 relative h-full">{todayBookings.filter(b => b.type === 'BED' && ((b.id % 6) + 1 === n)).map((b, idx) => { const start = parseTime(b.time); const left = ((start - 600) / 840) * 100; const width = (b.duration / 840) * 100; if (left < 0 || width <= 0) return null; return (<div key={idx} className="absolute top-2 h-10 rounded-md bg-purple-500 text-white text-[10px] flex flex-col justify-center px-2 shadow-md overflow-hidden whitespace-nowrap z-10 border border-purple-600" style={{left: `${left}%`, width: `${width}%`}} title={b.customerName}><div className="font-bold truncate">{b.time}</div><div className="truncate opacity-90">{b.customerName}</div></div>) })}</div></div>
                         ))}
                         {Array.from({length: 6}, (_, i) => i+1).map(n => (
-                            <div key={`chair-${n}`} className="h-14 border-b flex relative"><div className="w-20 border-r bg-white text-xs font-bold flex items-center justify-center text-emerald-600 border-r-2 shrink-0 z-10">Foot {n}</div><div className="flex-1 relative h-full">{bookings.filter(b => b.type === 'CHAIR' && ((b.id % 6) + 1 === n)).map((b, idx) => { const start = parseTime(b.time); const left = ((start - 600) / 840) * 100; const width = (b.duration / 840) * 100; if (left < 0 || width <= 0) return null; return (<div key={idx} className="absolute top-2 h-10 rounded-md bg-emerald-500 text-white text-[10px] flex flex-col justify-center px-2 shadow-md overflow-hidden whitespace-nowrap z-10 border border-emerald-600" style={{left: `${left}%`, width: `${width}%`}} title={b.customerName}><div className="font-bold truncate">{b.time}</div><div className="truncate opacity-90">{b.customerName}</div></div>) })}</div></div>
+                            <div key={`chair-${n}`} className="h-14 border-b flex relative"><div className="w-20 border-r bg-white text-xs font-bold flex items-center justify-center text-emerald-600 border-r-2 shrink-0 z-10">Foot {n}</div><div className="flex-1 relative h-full">{todayBookings.filter(b => b.type === 'CHAIR' && ((b.id % 6) + 1 === n)).map((b, idx) => { const start = parseTime(b.time); const left = ((start - 600) / 840) * 100; const width = (b.duration / 840) * 100; if (left < 0 || width <= 0) return null; return (<div key={idx} className="absolute top-2 h-10 rounded-md bg-emerald-500 text-white text-[10px] flex flex-col justify-center px-2 shadow-md overflow-hidden whitespace-nowrap z-10 border border-emerald-600" style={{left: `${left}%`, width: `${width}%`}} title={b.customerName}><div className="font-bold truncate">{b.time}</div><div className="truncate opacity-90">{b.customerName}</div></div>) })}</div></div>
                         ))}
                     </div>
                 </div>
@@ -399,10 +401,12 @@
         };
 
         const RevenueTable = ({ bookings }) => {
-            const revenue = bookings.reduce((acc, b) => acc + (getPrice(b.serviceName) + (b.serviceName.includes('油')?200:0)) * (b.pax||1), 0);
+            const today = getTodayMinguo();
+            const todayBookings = bookings.filter(b => b.date === today && b.status !== 'cancelled');
+            const revenue = todayBookings.reduce((acc, b) => acc + (getPrice(b.serviceName) + (b.serviceName.includes('油')?200:0)) * (b.pax||1), 0);
             return (
                 <div className="bg-white p-6 rounded-xl shadow-sm border text-center">
-                    <h3 className="text-gray-500 font-bold mb-2 uppercase tracking-wide">Doanh Thu Hôm Nay</h3>
+                    <h3 className="text-gray-500 font-bold mb-2 uppercase tracking-wide">Doanh Thu Hôm Nay ({today})</h3>
                     <div className="text-4xl font-black text-emerald-600 flex justify-center items-center gap-2"><Icon d={PATHS.Dollar} size={32}/> {revenue.toLocaleString()} TWD</div>
                 </div>
             );
