@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Massage POS - Manager V15 (2025 Sync)</title>
+    <title>Massage POS - Manager V18 (2025 Full)</title>
     
     <script src="https://cdn.tailwindcss.com"></script>
     <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.development.js"></script>
@@ -12,32 +12,36 @@
     <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/axios/1.6.7/axios.min.js"></script>
 
     <style>
-        body { font-family: 'Microsoft JhengHei', sans-serif; background-color: #f8fafc; }
+        body { font-family: 'Microsoft JhengHei', sans-serif; background-color: #f0f2f5; }
         .scrollbar-hide::-webkit-scrollbar { display: none; }
+        
+        /* Hiệu ứng Modal */
         .modal-animate { animation: slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1); }
         @keyframes slideUp { from { transform: translateY(50px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
 
-        /* RESOURCE CARDS */
+        /* SƠ ĐỒ GIƯỜNG GHẾ */
         .res-card { transition: all 0.2s; position: relative; }
         .res-card:active { transform: scale(0.98); }
         .res-empty { border: 2px dashed #CBD5E1; background: #F8FAFC; color: #94A3B8; }
-        .res-chair { border-color: #10B981; background: #ECFDF5; } 
-        .res-bed { border-color: #8B5CF6; background: #F5F3FF; } 
+        .res-chair { border-color: #10B981; background: #ECFDF5; } /* Ghế xanh */
+        .res-bed { border-color: #8B5CF6; background: #F5F3FF; } /* Giường tím */
 
-        /* STAFF 3D CARDS */
+        /* THẺ NHÂN VIÊN 3D */
         .card-3d { transition: all 0.1s; position: relative; top: 0; }
         .card-3d:active { transform: translateY(4px); border-bottom-width: 0px; margin-bottom: 4px; }
         
+        /* Style Nam */
         .style-male { background: white; border: 2px solid #3B82F6; border-bottom: 5px solid #2563EB; color: #1E3A8A; }
+        /* Style Nữ (Hồng) */
         .style-female { background: white; border: 2px solid #F472B6; border-bottom: 5px solid #DB2777; color: #BE185D; }
         
-        /* Status Colors */
+        /* Trạng thái màu sắc */
         .st-busy { background: #FEF2F2; border-color: #EF4444; border-bottom-color: #B91C1C; color: #B91C1C; }
         .st-booked { background: #FFFBEB; border-color: #F59E0B; border-bottom-color: #B45309; color: #B45309; }
         .st-away { background: #F3F4F6; border-color: #9CA3AF; border-bottom-color: #6B7280; color: #9CA3AF; opacity: 0.6; }
         .badge-queue { background: #10B981; box-shadow: 0 2px 5px rgba(0,0,0,0.2); }
 
-        /* Timeline */
+        /* Timeline Grid */
         .timeline-bg { background-image: linear-gradient(to right, #e2e8f0 1px, transparent 1px); background-size: 4.16% 100%; }
     </style>
 </head>
@@ -47,7 +51,7 @@
     <script type="text/babel">
         const { useState, useEffect, useMemo } = React;
 
-        // ICONS
+        // --- ICONS ---
         const Icon = ({ d, size=18, className="" }) => (<svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d={d} /></svg>);
         const PATHS = {
             Users: "M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2M9 7a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75",
@@ -55,7 +59,7 @@
             List: "M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01",
             Chart: "M12 20V10M18 20V4M6 20v-6",
             Dollar: "M12 1v22M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6",
-            Settings: "M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.18-.08a2 2 0 0 0-2 0l-.45.45a2 2 0 0 0 0 2l.08.18a2 2 0 0 1 0 2l-.25.43a2 2 0 0 1-1.73 1H2a2 2 0 0 0-2 2v.44a2 2 0 0 0 2 2h.18a2 2 0 0 1 1.73 1l.25.43a2 2 0 0 1 0 2l-.08.18a2 2 0 0 0 0 2l.45.45a2 2 0 0 0 2 0l.18.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.18.08a2 2 0 0 0 2 0l.45-.45a2 2 0 0 0 0-2l-.08-.18a2 2 0 0 1 0-2l.25-.43a2 2 0 0 1 1.73-1H22a2 2 0 0 0 2-2v-.44a2 2 0 0 0-2-2h-.18a2 2 0 0 1-1.73-1l-.25-.43a2 2 0 0 1 0-2l.08-.18a2 2 0 0 0 0-2l.45-.45a2 2 0 0 0-2 0l-.18.08a2 2 0 0 1-2 0l.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z",
+            Settings: "M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.18-.08a2 2 0 0 0-2 0l-.45.45a2 2 0 0 0 0 2l.08.18a2 2 0 0 1 0 2l-.25.43a2 2 0 0 1-1.73 1H2a2 2 0 0 0-2 2v.44a2 2 0 0 0 2 2h.18a2 2 0 0 1 1.73 1l.25.43a2 2 0 0 1 0 2l-.08.18a2 2 0 0 0 0 2l.45.45a2 2 0 0 0 2 0l.18-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.18.08a2 2 0 0 0 2 0l.45-.45a2 2 0 0 0 0-2l-.08-.18a2 2 0 0 1 0-2l.25-.43a2 2 0 0 1 1.73-1H22a2 2 0 0 0 2-2v-.44a2 2 0 0 0-2-2h-.18a2 2 0 0 1-1.73-1l-.25-.43a2 2 0 0 1 0-2l.08-.18a2 2 0 0 0 0-2l.45-.45a2 2 0 0 0-2 0l-.18.08a2 2 0 0 1-2 0l.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z",
             X: "M18 6 6 18M6 6l12 12",
             Check: "M20 6 9 17 4 12",
             Refresh: "M23 4v6h-6M1 20v-6h6",
@@ -64,8 +68,7 @@
             Swap: "M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4",
             Trash: "M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2",
             Plus: "M12 5v14M5 12h14",
-            Power: "M18.36 6.64a9 9 0 1 1-12.73 0M12 2v10",
-            Edit: "M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"
+            Power: "M18.36 6.64a9 9 0 1 1-12.73 0M12 2v10"
         };
 
         const SERVICE_PRICES = {
@@ -73,33 +76,34 @@
             '足底': 500, '全身': 1000, '半身': 500
         };
 
-        // --- HELPERS (DƯƠNG LỊCH 2025) ---
-        const getTodayStandard = () => {
+        // --- HÀM XỬ LÝ NGÀY (DƯƠNG LỊCH 2025) ---
+        
+        const getToday2025 = () => {
             const d = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Taipei' }));
             const year = d.getFullYear();
             const month = (d.getMonth() + 1).toString().padStart(2, '0');
             const day = d.getDate().toString().padStart(2, '0');
-            return `${year}/${month}/${day}`; // 2025/12/04
+            return `${year}/${month}/${day}`; // Trả về 2025/12/04
         };
 
-        // Hàm chuẩn hóa ngày: Đưa mọi định dạng (114/12/04 hoặc 2025-12-04) về 2025/12/04 để so sánh
+        // Chuẩn hóa ngày về dạng YYYY/MM/DD để so sánh chính xác
         const normalizeDate = (str) => {
             if(!str) return '';
-            let cleanStr = str.toString().trim().split(' ')[0].replace(/-/g, '/'); // Đổi - thành /
+            let cleanStr = str.toString().trim();
+            if (cleanStr.includes(' ')) cleanStr = cleanStr.split(' ')[0]; // Bỏ giờ
             
-            // Nếu là dạng 114/12/04 (Minguo) -> Chuyển sang 2025
+            // Nếu là dạng 114/12/04 (Cũ) -> Chuyển sang 2025
             if (cleanStr.match(/^\d{3}\//)) {
                 const parts = cleanStr.split('/');
                 return `${parseInt(parts[0]) + 1911}/${parts[1]}/${parts[2]}`;
             }
-            
-            // Nếu là dạng 0114/12/04 (Minguo 4 số) -> Chuyển sang 2025
+            // Nếu là dạng 0114/12/04 -> Chuyển sang 2025
             if (cleanStr.match(/^0\d{3}\//)) {
                 const parts = cleanStr.split('/');
                 return `${parseInt(parts[0]) + 1911}/${parts[1]}/${parts[2]}`;
             }
 
-            return cleanStr; // Giữ nguyên nếu đã là 2025/12/04
+            return cleanStr; // Đã là 2025/12/04 thì giữ nguyên
         };
 
         const formatTime = (isoString) => {
@@ -132,7 +136,7 @@
 
         // --- COMPONENTS ---
 
-        // 1. RESOURCE MAP
+        // 1. RESOURCE MAP (SƠ ĐỒ GHẾ/GIƯỜNG)
         const ResourceMap = ({ bookings, resourceState, updateResourceState, onFinish, onCancel }) => {
             const [selectedRes, setSelectedRes] = useState(null);
 
@@ -244,7 +248,7 @@
             );
         };
 
-        // 2. CHECK-IN BOARD
+        // 2. CHECK-IN BOARD (NÚT BẤM PRO)
         const CheckInBoard = ({ staffList, statusData, setStatusData, onClose }) => {
             
             const toggleCheckIn = (id) => {
@@ -286,7 +290,7 @@
                             <div className="col-span-3 text-center">Hành động</div>
                         </div>
                         <div className="overflow-y-auto flex-1 p-4 space-y-2 bg-slate-100">
-                            {/* Lọc bỏ những người có status = off */}
+                            {/* LỌC: CHỈ HIỆN NHÂN VIÊN KHÔNG 'OFF' */}
                             {staffList.filter(s => s.status !== 'off').map(s => {
                                 const current = statusData[s.id] || { status: 'AWAY', checkInTime: 0 };
                                 const isWorking = current.status !== 'AWAY';
@@ -347,7 +351,7 @@
             );
         };
 
-        // 3. STAFF CARD 3D
+        // 3. STAFF CARD 3D (Hiển thị ngoài Dashboard)
         const StaffCard3D = ({ s, statusData, queueIndex }) => {
             const isFemale = s.gender === 'F' || s.gender === '女';
             const local = statusData[s.id] || { status: 'AWAY' };
@@ -387,13 +391,11 @@
             )
         };
 
-        // 4. TIMELINE
+        // 4. TIMELINE & REVENUE
         const TimelineView = ({ bookings }) => {
             const hours = Array.from({length: 15}, (_, i) => i + 10);
-            const today = getTodayStandard(); // 2025/12/04
-            // Lọc thông minh
+            const today = getToday2025();
             const todayBookings = bookings.filter(b => normalizeDate(b.date) === today && b.status !== 'cancelled');
-            
             return (
                 <div className="bg-white border rounded-xl overflow-hidden shadow-sm flex flex-col h-[500px]">
                     <div className="flex border-b bg-gray-50 h-10 shrink-0">
@@ -413,7 +415,7 @@
         };
 
         const RevenueTable = ({ bookings }) => {
-            const today = getTodayStandard();
+            const today = getToday2025();
             const todayBookings = bookings.filter(b => normalizeDate(b.date) === today && b.status !== 'cancelled');
             const revenue = todayBookings.reduce((acc, b) => acc + (getPrice(b.serviceName) + (b.serviceName.includes('油')?200:0)) * (b.pax||1), 0);
             return (
@@ -447,23 +449,21 @@
                 try {
                     const res = await axios.get('/api/info');
                     const { bookings: apiBookings, staffList: apiStaff, schedule } = res.data; 
-                    const today = getTodayStandard(); 
+                    const today = getToday2025(); 
 
-                    // 1. FILTER BOOKINGS BY TODAY (SMART NORMALIZE)
+                    // 1. FILTER BOOKINGS BY TODAY (2025)
                     const todayBookings = apiBookings
                         .filter(b => normalizeDate(b.date) === today) 
                         .map((b, i) => ({ ...b, id: i, status: (b.status && b.status.includes('取消')) ? 'cancelled' : 'active' }));
-                    
                     setBookings(todayBookings);
                     
-                    // 2. FILTER STAFF OFF TODAY
+                    // 2. FILTER STAFF OFF TODAY (2025)
                     const offStaffIds = schedule
                         .filter(s => normalizeDate(s.date) === today)
                         .map(s => s.staffId);
 
                     const mappedStaff = apiStaff.map(s => {
                         const activeBooking = todayBookings.find(b => b.staffId === s.id && b.status === 'active');
-                        // Nếu có trong danh sách nghỉ -> status = off
                         const isOff = offStaffIds.includes(s.id); 
                         return { ...s, status: isOff ? 'off' : 'ready', activeBooking };
                     });
@@ -480,7 +480,7 @@
             useEffect(() => { fetchData(); const t = setInterval(fetchData, 10000); return () => clearInterval(t); }, []);
 
             // SORTING LOGIC
-            const workingStaff = staffList.filter(s => s.status !== 'off');
+            const workingStaff = staffList.filter(s => s.status !== 'off'); 
             const awayStaff = workingStaff.filter(s => !statusData[s.id] || statusData[s.id].status === 'AWAY');
             const activeStaff = workingStaff.filter(s => statusData[s.id] && statusData[s.id].status !== 'AWAY');
             activeStaff.sort((a, b) => (statusData[a.id]?.checkInTime || 0) - (statusData[b.id]?.checkInTime || 0));
@@ -488,7 +488,7 @@
             return (
                 <div className="min-h-screen flex flex-col">
                     <header className="bg-slate-900 text-white p-3 shadow-xl flex justify-between items-center sticky top-0 z-50">
-                        <div className="font-bold flex gap-3 items-center px-2 text-lg"><span className="bg-amber-500 text-black px-2 rounded text-sm font-black">POS</span><span>XinWuChan ({getTodayStandard()})</span></div>
+                        <div className="font-bold flex gap-3 items-center px-2 text-lg"><span className="bg-amber-500 text-black px-2 rounded text-sm font-black">POS</span><span>XinWuChan ({getToday2025()})</span></div>
                         <div className="flex gap-2">
                             <button onClick={fetchData} className="p-2 bg-slate-800 rounded-full hover:bg-slate-700"><Icon d={PATHS.Refresh}/></button>
                             <button onClick={()=>setShowManager(true)} className="bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-1.5 rounded-lg font-bold flex gap-2 items-center text-sm border-b-4 border-indigo-800 active:border-b-0 active:translate-y-1 transition-all"><Icon d={PATHS.Settings}/> Check-in</button>
@@ -516,7 +516,7 @@
                             <div className="bg-white rounded-xl shadow border overflow-hidden">
                                 <table className="w-full text-sm text-left">
                                     <thead className="bg-slate-100 text-slate-600 uppercase font-bold text-xs"><tr><th className="p-3">Giờ</th><th className="p-3">Tên</th><th className="p-3">Dịch Vụ</th><th className="p-3 text-center">Pax</th><th className="p-3">SĐT</th><th className="p-3">NV</th><th className="p-3">TT</th><th className="p-3 text-right">Action</th></tr></thead>
-                                    <tbody className="divide-y">{bookings.map((b,i)=>(<tr key={i} className="hover:bg-slate-50"><td className="p-3 font-mono font-bold text-indigo-700">{b.time}</td><td className="p-3 font-bold text-gray-800">{b.customerName.split('(')[0]}</td><td className="p-3 text-gray-600 truncate" title={b.serviceName}>{b.serviceName}</td><td className="p-3 text-center">{b.pax}</td><td className="p-3 font-mono text-gray-500">{b.customerName.includes('(')?b.customerName.split('(')[1].replace(')',''):''}</td><td className="p-3"><span className="bg-indigo-50 text-indigo-700 px-2 py-1 rounded text-xs font-bold">{b.staffId}</span></td><td className="p-3"><span className={`px-2 py-1 rounded text-xs font-bold ${b.status==='cancelled'?'bg-red-100 text-red-600':'bg-emerald-100 text-emerald-600'}`}>{b.status}</span></td><td className="p-3 text-right flex justify-end gap-2">{b.status!=='cancelled'&&<button onClick={()=>handleUpdateStatus(b.rowId, '❌ Cancelled')} className="text-red-600 border border-red-200 px-2 py-1 rounded hover:bg-red-50"><Icon d={PATHS.Trash} size={14}/></button>}</td></tr>))}</tbody>
+                                    <tbody className="divide-y">{bookings.map((b,i)=>(<tr key={i} className="hover:bg-slate-50"><td className="p-3 font-mono font-bold text-indigo-700">{b.time}</td><td className="p-3 font-bold text-gray-800">{b.customerName.split('(')[0]}</td><td className="p-3 text-gray-600 truncate">{b.serviceName}</td><td className="p-3 text-center">{b.pax}</td><td className="p-3 font-mono text-gray-500">{b.customerName.includes('(')?b.customerName.split('(')[1].replace(')',''):''}</td><td className="p-3"><span className="bg-indigo-50 text-indigo-700 px-2 py-1 rounded text-xs font-bold">{b.staffId}</span></td><td className="p-3"><span className={`px-2 py-1 rounded text-xs font-bold ${b.status==='cancelled'?'bg-red-100 text-red-600':'bg-emerald-100 text-emerald-600'}`}>{b.status}</span></td><td className="p-3 text-right flex justify-end gap-2">{b.status!=='cancelled'&&<button onClick={()=>handleUpdateStatus(b.rowId, '❌ Cancelled')} className="text-red-600 border border-red-200 px-2 py-1 rounded hover:bg-red-50"><Icon d={PATHS.Trash} size={14}/></button>}</td></tr>))}</tbody>
                                 </table>
                             </div>
                         )}
