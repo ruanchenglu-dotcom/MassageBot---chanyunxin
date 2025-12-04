@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Massage POS - Manager V10</title>
+    <title>Massage POS - Manager V11 (Standardized)</title>
     
     <script src="https://cdn.tailwindcss.com"></script>
     <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.development.js"></script>
@@ -71,22 +71,27 @@
             '足底': 500, '全身': 1000, '半身': 500
         };
 
-        // --- IMPORTANT: DATE NORMALIZER ---
-        // Hàm này cực quan trọng: Biến đổi mọi định dạng ngày (0114/12/04 hoặc 114/12/04) về chung 1 kiểu để so sánh
+        // --- IMPORTANT: DATE NORMALIZER (4-DIGIT STANDARD) ---
+        // Hàm này biến đổi mọi định dạng (114/12/04 hoặc 0114/12/04) về chuẩn 0114/12/04 để so sánh
         const normalizeDate = (str) => {
             if(!str) return '';
+            // Tách phần ngày khỏi giờ (nếu có)
             const parts = str.toString().trim().split(' ')[0].split('/');
             if(parts.length < 3) return str;
-            // Lấy năm, bỏ số 0 ở đầu (0114 -> 114, 114 -> 114)
-            const y = parseInt(parts[0], 10);
+            
+            // Xử lý năm: Luôn thêm số 0 vào đầu cho đủ 4 số
+            let y = parseInt(parts[0], 10).toString();
+            y = y.padStart(4, '0'); // 114 -> 0114
+            
             const m = parts[1].padStart(2, '0');
             const d = parts[2].padStart(2, '0');
+            
             return `${y}/${m}/${d}`;
         };
 
         const getTodayMinguo = () => {
             const d = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Taipei' }));
-            const year = (d.getFullYear() - 1911); // Không thêm padStart ở đây để khớp với normalize
+            const year = (d.getFullYear() - 1911).toString().padStart(4, '0'); // Chuẩn 0114
             const month = (d.getMonth() + 1).toString().padStart(2, '0');
             const day = d.getDate().toString().padStart(2, '0');
             return `${year}/${month}/${day}`;
@@ -381,7 +386,8 @@
         const TimelineView = ({ bookings }) => {
             const hours = Array.from({length: 15}, (_, i) => i + 10);
             const today = getTodayMinguo();
-            const todayBookings = bookings.filter(b => b.date === today && b.status !== 'cancelled');
+            // Lọc đúng ngày hôm nay (dù là 114 hay 0114)
+            const todayBookings = bookings.filter(b => normalizeDate(b.date) === today && b.status !== 'cancelled');
             return (
                 <div className="bg-white border rounded-xl overflow-hidden shadow-sm flex flex-col h-[500px]">
                     <div className="flex border-b bg-gray-50 h-10 shrink-0">
@@ -402,7 +408,7 @@
 
         const RevenueTable = ({ bookings }) => {
             const today = getTodayMinguo();
-            const todayBookings = bookings.filter(b => b.date === today && b.status !== 'cancelled');
+            const todayBookings = bookings.filter(b => normalizeDate(b.date) === today && b.status !== 'cancelled');
             const revenue = todayBookings.reduce((acc, b) => acc + (getPrice(b.serviceName) + (b.serviceName.includes('油')?200:0)) * (b.pax||1), 0);
             return (
                 <div className="bg-white p-6 rounded-xl shadow-sm border text-center">
@@ -436,7 +442,7 @@
                     const res = await axios.get('/api/info');
                     const { bookings: apiBookings, staffList: apiStaff, schedule } = res.data; // Lấy thêm schedule
                     
-                    const today = getTodayMinguo(); // Lấy ngày chuẩn (VD: 114/12/04)
+                    const today = getTodayMinguo(); // Lấy ngày chuẩn (VD: 0114/12/04)
 
                     // 1. FIX LỖI ĐỒNG BỘ: Chuẩn hóa ngày trước khi so sánh
                     const todayBookings = apiBookings
