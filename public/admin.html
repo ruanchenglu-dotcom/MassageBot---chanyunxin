@@ -42,11 +42,6 @@
         .style-female { background: white; border: 2px solid #F472B6; border-bottom: 5px solid #DB2777; color: #BE185D; }
         .style-designated { background: #FEF9C3; border: 2px solid #FACC15; border-bottom: 5px solid #CA8A04; color: #854D0E; }
         
-        /* STATUS BADGES */
-        .st-busy { background: #FEF2F2; border-color: #EF4444; border-bottom-color: #B91C1C; color: #B91C1C; }
-        .st-booked { background: #FFFBEB; border-color: #F59E0B; border-bottom-color: #B45309; color: #B45309; }
-        .st-away { background: #F3F4F6; border-color: #9CA3AF; border-bottom-color: #6B7280; color: #9CA3AF; opacity: 0.6; }
-        
         /* BUTTONS */
         .btn-icon { display: flex; align-items: center; justify-content: center; width: 100%; padding: 6px; border-radius: 8px; font-weight: bold; font-size: 12px; transition: all 0.2s; }
         .btn-icon:hover { transform: translateY(-1px); filter: brightness(1.1); }
@@ -68,7 +63,7 @@
             List: "M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01", 
             Chart: "M12 20V10M18 20V4M6 20v-6", 
             Dollar: "M12 1v22M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6", 
-            Settings: "M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.18-.08a2 2 0 0 0-2 0l-.45.45a2 2 0 0 0 0 2l.08.18a2 2 0 0 1 0 2l-.25.43a2 2 0 0 1-1.73 1H2a2 2 0 0 0-2 2v.44a2 2 0 0 0 2 2h.18a2 2 0 0 1 1.73 1l.25.43a2 2 0 0 1 0 2l-.08.18a2 2 0 0 0 0 2l.45.45a2 2 0 0 0 2 0l.18-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.18.08a2 2 0 0 0 2 0l.45-.45a2 2 0 0 0 0-2l-.08-.18a2 2 0 0 1 0-2l.25-.43a2 2 0 0 1 1.73-1H22a2 2 0 0 0 2-2v-.44a2 2 0 0 0-2-2h-.18a2 2 0 0 1-1.73-1l-.25-.43a2 2 0 0 1 0-2l.08-.18a2 2 0 0 0 0-2l.45-.45a2 2 0 0 0-2 0l-.18.08a2 2 0 0 1-2 0l.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z", 
+            Settings: "M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.18-.08a2 2 0 0 0-2 0l-.45.45a2 2 0 0 0 0 2l.08.18a2 2 0 0 1 0 2l-.25.43a2 2 0 0 1-1.73 1H2a2 2 0 0 0-2 2v.44a2 2 0 0 0 2 2h.18a2 2 0 0 1 1.73 1l.25.43a2 2 0 0 1 0 2l-.08.18a2 2 0 0 0 0 2l.45.45a2 2 0 0 0-2 0l-.18.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.18.08a2 2 0 0 0 2 0l.45-.45a2 2 0 0 0 0-2l-.08-.18a2 2 0 0 1 0-2l.25-.43a2 2 0 0 1 1.73-1H22a2 2 0 0 0 2-2v-.44a2 2 0 0 0-2-2h-.18a2 2 0 0 1-1.73-1l-.25-.43a2 2 0 0 1 0-2l.08-.18a2 2 0 0 0 0-2l.45-.45a2 2 0 0 0-2 0l-.18.08a2 2 0 0 1-2 0l.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z", 
             X: "M18 6 6 18M6 6l12 12", 
             Check: "M20 6 9 17 4 12", 
             Refresh: "M23 4v6h-6M1 20v-6h6", 
@@ -100,9 +95,16 @@
             const handleStartClick = (resId) => {
                 const current = resourceState[resId];
                 if (!current) return;
+                // BẮT ĐẦU TÍNH GIỜ (Chuyển isRunning = true)
                 const newState = { 
                     ...resourceState, 
-                    [resId]: { ...current, startTime: new Date().toISOString(), realStartTime: new Date().toISOString(), isRunning: true, isPaused: false } 
+                    [resId]: { 
+                        ...current,
+                        startTime: new Date().toISOString(), // Lấy giờ hiện tại làm mốc
+                        realStartTime: new Date().toISOString(), 
+                        isRunning: true,
+                        isPaused: false
+                    }
                 };
                 updateResourceState(newState);
             };
@@ -204,7 +206,13 @@
                         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">{[1,2,3,4,5,6].map(i => <ResourceCard key={i} type="bed" index={i}/>)}</div>
                     </div>
                     
-                    {selectedRes && ( <div className="fixed inset-0 bg-black/60 z-[70] flex items-center justify-center p-4"><div className="bg-white w-full max-w-md rounded-xl shadow-2xl modal-animate flex flex-col max-h-[80vh]"><div className="p-3 border-b font-bold flex justify-between items-center"><span>Chọn khách vào {selectedRes}</span><button onClick={()=>setSelectedRes(null)}><Icon d={PATHS.X}/></button></div><div className="overflow-y-auto p-2 space-y-2 bg-slate-50 flex-1">{bookings.filter(b => b.status === 'active' || b.status === '已預約').map((b, i) => (<div key={i} className="p-3 bg-white border rounded flex justify-between items-center"><div><div className="font-bold">{b.customerName}</div><div className="text-xs text-gray-500">{b.serviceName}</div></div><button onClick={() => { const newState = { ...resourceState, [selectedRes]: { booking: b, startTime: null, isRunning: false }}; updateResourceState(newState); setSelectedRes(null); }} className="bg-blue-600 text-white px-3 py-1 rounded text-xs font-bold">Chọn</button></div>))}{bookings.length === 0 && <div className="text-center text-gray-400 p-4">Không có khách chờ</div>}</div></div></div> )}
+                    {selectedRes && ( <div className="fixed inset-0 bg-black/60 z-[70] flex items-center justify-center p-4"><div className="bg-white w-full max-w-md rounded-xl shadow-2xl modal-animate flex flex-col max-h-[80vh]"><div className="p-3 border-b font-bold flex justify-between items-center"><span>Chọn khách vào {selectedRes}</span><button onClick={()=>setSelectedRes(null)}><Icon d={PATHS.X}/></button></div><div className="overflow-y-auto p-2 space-y-2 bg-slate-50 flex-1">{bookings.filter(b => b.status === 'active' || b.status === '已預約').map((b, i) => (<div key={i} className="p-3 bg-white border rounded flex justify-between items-center"><div><div className="font-bold">{b.customerName}</div><div className="text-xs text-gray-500">{b.serviceName}</div></div>
+                    {/* Manual select -> Auto Start or Waiting? Let's make it waiting */}
+                    <button onClick={() => { 
+                         const newState = { ...resourceState, [selectedRes]: { booking: b, startTime: null, isRunning: false }};
+                         updateResourceState(newState);
+                         setSelectedRes(null); 
+                    }} className="bg-blue-600 text-white px-3 py-1 rounded text-xs font-bold">Chọn</button></div>))}{bookings.length === 0 && <div className="text-center text-gray-400 p-4">Không có khách chờ</div>}</div></div></div> )}
                     {comboModal && ( <div className="fixed inset-0 bg-black/60 z-[80] flex items-center justify-center p-4"><div className="bg-white w-80 p-5 rounded-xl shadow-xl text-center"><h3 className="font-bold text-lg mb-2 text-purple-700">Gói Combo!</h3><div className="grid grid-cols-2 gap-3"><button onClick={() => startService(comboModal.resId, comboModal.booking, comboModal.split.foot)} className="bg-emerald-100 border-2 border-emerald-500 p-3 rounded-lg hover:bg-emerald-200"><div className="font-black text-emerald-700">CHÂN</div><div className="text-xs font-bold">{comboModal.split.foot}p</div></button><button onClick={() => startService(comboModal.resId, comboModal.booking, comboModal.split.body)} className="bg-purple-100 border-2 border-purple-500 p-3 rounded-lg hover:bg-purple-200"><div className="font-black text-purple-700">BODY</div><div className="text-xs font-bold">{comboModal.split.body}p</div></button></div><button onClick={() => setComboModal(null)} className="mt-4 text-gray-400 text-xs underline">Hủy</button></div></div> )}
                 </div>
             );
