@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Massage POS - Manager V42 (Final Fixed)</title>
+    <title>Massage POS - Manager V43 (Final Logic)</title>
     
     <script src="https://cdn.tailwindcss.com"></script>
     <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.development.js"></script>
@@ -18,14 +18,13 @@
         @keyframes slideUp { from { transform: translateY(50px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
 
         /* RESOURCE CARD */
-        .res-card { transition: all 0.2s; position: relative; border-radius: 12px; background: white; box-shadow: 0 2px 5px rgba(0,0,0,0.05); display: flex; flex-direction: column; overflow: hidden; }
+        .res-card { transition: all 0.2s; position: relative; border-radius: 12px; background: white; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); display: flex; flex-direction: column; overflow: hidden; }
         .res-empty { border: 2px dashed #CBD5E1; background: #F8FAFC; color: #94A3B8; align-items: center; justify-content: center; }
         
         /* Trạng thái Resource */
         .res-waiting { border: 4px solid #FACC15; background: #FEFCE8; } /* Vàng đậm - Chờ */
         .res-running { border: 2px solid #EF4444; background: #FEF2F2; } /* Đỏ - Đang chạy */
-        .res-paused  { border: 2px solid #F97316; background: #FFEDD5; } /* Cam - Tạm dừng */
-
+        
         /* STAFF 3D CARD */
         .card-3d { 
             transition: all 0.1s; position: relative; top: 0; 
@@ -65,7 +64,7 @@
             List: "M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01", 
             Chart: "M12 20V10M18 20V4M6 20v-6", 
             Dollar: "M12 1v22M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6", 
-            Settings: "M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.18-.08a2 2 0 0 0-2 0l-.45.45a2 2 0 0 0 0 2l.08.18a2 2 0 0 1 0 2l-.25.43a2 2 0 0 1-1.73 1H2a2 2 0 0 0-2 2v.44a2 2 0 0 0 2 2h.18a2 2 0 0 1 1.73 1l.25.43a2 2 0 0 1 0 2l-.08.18a2 2 0 0 0 0 2l.45.45a2 2 0 0 0 2 0l.18.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.18.08a2 2 0 0 0 2 0l.45-.45a2 2 0 0 0 0-2l-.08-.18a2 2 0 0 1 0-2l.25-.43a2 2 0 0 1 1.73-1H22a2 2 0 0 0 2-2v-.44a2 2 0 0 0-2-2h-.18a2 2 0 0 1-1.73-1l-.25-.43a2 2 0 0 1 0-2l.08-.18a2 2 0 0 0 0-2l.45-.45a2 2 0 0 0-2 0l-.18.08a2 2 0 0 1-2 0l.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z", 
+            Settings: "M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.18-.08a2 2 0 0 0-2 0l-.45.45a2 2 0 0 0 0 2l.08.18a2 2 0 0 1 0 2l-.25.43a2 2 0 0 1-1.73 1H2a2 2 0 0 0-2 2v.44a2 2 0 0 0 2 2h.18a2 2 0 0 1 1.73 1l.25.43a2 2 0 0 1 0 2l-.08.18a2 2 0 0 0 0 2l.45.45a2 2 0 0 0-2 0l-.18.08a2 2 0 0 1-2 0l.43.25a2 2 0 0 1-1-1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.18.08a2 2 0 0 0 2 0l.45-.45a2 2 0 0 0 0-2l-.08-.18a2 2 0 0 1 0-2l.25-.43a2 2 0 0 1 1.73-1H22a2 2 0 0 0 2-2v-.44a2 2 0 0 0-2-2h-.18a2 2 0 0 1-1.73-1l-.25-.43a2 2 0 0 1 0-2l.08-.18a2 2 0 0 0 0-2l.45-.45a2 2 0 0 0-2 0l-.18.08a2 2 0 0 1-2 0l.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z", 
             X: "M18 6 6 18M6 6l12 12", 
             Check: "M20 6 9 17 4 12", 
             Refresh: "M23 4v6h-6M1 20v-6h6", 
@@ -129,14 +128,10 @@
                 let statusBg = '';
 
                 if (isOccupied) {
-                    if (data.isRunning && !data.isPaused) { 
+                    if (data.isRunning) { 
                         cardClass = 'res-running min-h-[220px] h-auto'; 
                         statusLabel = 'ĐANG CHẠY'; 
                         statusBg = 'bg-red-500'; 
-                    } else if (data.isPaused) { 
-                        cardClass = 'res-paused min-h-[220px] h-auto'; 
-                        statusLabel = 'TẠM DỪNG'; 
-                        statusBg = 'bg-orange-500'; 
                     } else { 
                         // TRẠNG THÁI CHỜ (QUAN TRỌNG: Viền vàng đậm)
                         cardClass = 'res-waiting min-h-[220px] h-auto'; 
@@ -297,7 +292,7 @@
                     const mappedStaff = apiStaff.map(s => { const activeBooking = todayBookings.find(b => b.staffId === s.id && b.status === 'active'); const isOff = offStaffIds.includes(s.id); return { ...s, status: isOff ? 'off' : 'ready', activeBooking }; });
                     setStaffList(mappedStaff.sort((a,b) => parseInt(a.id.replace(/\D/g,'')) - parseInt(b.id.replace(/\D/g,''))));
 
-                    // AUTO ASSIGN (Fix: Luôn set trạng thái Waiting)
+                    // AUTO ASSIGN (FIXED: LUÔN SET TRẠNG THÁI WAITING, KHÔNG TỰ CHẠY)
                     const currentRes = { ...JSON.parse(localStorage.getItem('resource_state')) || {} };
                     let changed = false;
                     const now = new Date();
@@ -307,6 +302,7 @@
                     todayBookings.forEach(b => {
                         if (b.status === 'active' || b.status === '已預約') {
                             const bTimeVal = parseTime(b.time);
+                            // Chỉ xếp nếu trong khung 40 phút và chưa xếp
                             if (Math.abs(currentTimeVal - bTimeVal) <= 40 && !Object.values(currentRes).some(r => r.booking.rowId === b.rowId)) {
                                 let targetType = 'bed'; if (b.type === 'CHAIR' || b.type === 'COMBO') targetType = 'chair';
                                 let slotId = null; for(let i=1; i<=6; i++) { if (!currentRes[`${targetType}-${i}`]) { slotId = `${targetType}-${i}`; break; } }
@@ -322,7 +318,7 @@
                                         booking: { ...b, staffId: assignedStaff }, 
                                         startTime: null, 
                                         realStartTime: null,
-                                        isRunning: false,  // <-- Nút Bắt đầu sẽ hiện ra
+                                        isRunning: false,  // <-- Nút Bắt đầu sẽ hiện ra (Màu vàng)
                                         isPaused: false 
                                     }; 
                                     changed = true;
