@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Massage POS - Manager V23 (Right Align & Auto)</title>
+    <title>Massage POS - Manager V24 (Final)</title>
     
     <script src="https://cdn.tailwindcss.com"></script>
     <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.development.js"></script>
@@ -16,181 +16,75 @@
         .scrollbar-hide::-webkit-scrollbar { display: none; }
         .modal-animate { animation: slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1); }
         @keyframes slideUp { from { transform: translateY(50px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
-
-        /* RESOURCE CARDS */
-        .res-card { transition: all 0.2s; position: relative; }
+        .res-card { transition: all 0.3s; position: relative; overflow: hidden; }
         .res-card:active { transform: scale(0.98); }
         .res-empty { border: 2px dashed #CBD5E1; background: #F8FAFC; color: #94A3B8; }
         .res-chair { border-color: #10B981; background: #ECFDF5; } 
         .res-bed { border-color: #8B5CF6; background: #F5F3FF; } 
-
-        /* STAFF 3D CARDS */
-        .card-3d { transition: all 0.1s; position: relative; top: 0; }
-        .card-3d:active { transform: translateY(4px); border-bottom-width: 0px; margin-bottom: 4px; }
-        
+        .card-3d { transition: all 0.1s; position: relative; top: 0; } .card-3d:active { transform: translateY(4px); border-bottom-width: 0px; margin-bottom: 4px; }
         .style-male { background: white; border: 2px solid #3B82F6; border-bottom: 5px solid #2563EB; color: #1E3A8A; }
         .style-female { background: white; border: 2px solid #F472B6; border-bottom: 5px solid #DB2777; color: #BE185D; }
         .style-designated { background: #FEF9C3; border: 2px solid #FACC15; border-bottom: 5px solid #CA8A04; color: #854D0E; }
-        
-        /* Status Colors */
         .st-busy { background: #FEF2F2; border-color: #EF4444; border-bottom-color: #B91C1C; color: #B91C1C; }
         .st-booked { background: #FFFBEB; border-color: #F59E0B; border-bottom-color: #B45309; color: #B45309; }
         .st-away { background: #F3F4F6; border-color: #9CA3AF; border-bottom-color: #6B7280; color: #9CA3AF; opacity: 0.6; }
         .badge-queue { background: #10B981; box-shadow: 0 2px 5px rgba(0,0,0,0.2); }
-
-        /* Timeline */
         .timeline-bg { background-image: linear-gradient(to right, #e2e8f0 1px, transparent 1px); background-size: 5.55% 100%; }
     </style>
 </head>
 <body>
     <div id="root"></div>
-
     <script type="text/babel">
         const { useState, useEffect, useMemo } = React;
-
         const Icon = ({ d, size=18, className="" }) => (<svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d={d} /></svg>);
-        const PATHS = { Users: "M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2M9 7a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75", Grid: "M3 3h7v7H3zM14 3h7v7h-7zM14 14h7v7h-7zM3 14h7v7H3z", List: "M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01", Chart: "M12 20V10M18 20V4M6 20v-6", Dollar: "M12 1v22M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6", Settings: "M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.18-.08a2 2 0 0 0-2 0l-.45.45a2 2 0 0 0 0 2l.08.18a2 2 0 0 1 0 2l-.25.43a2 2 0 0 1-1.73 1H2a2 2 0 0 0-2 2v.44a2 2 0 0 0 2 2h.18a2 2 0 0 1 1.73 1l.25.43a2 2 0 0 1 0 2l-.08.18a2 2 0 0 0 0 2l.45.45a2 2 0 0 0-2 0l-.18.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z", X: "M18 6 6 18M6 6l12 12", Check: "M20 6 9 17 4 12", Refresh: "M23 4v6h-6M1 20v-6h6", Play: "M5 3l14 9-14 9V3z", Stop: "M6 6h12v12H6z", Swap: "M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4", Trash: "M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2", Plus: "M12 5v14M5 12h14", Power: "M18.36 6.64a9 9 0 1 1-12.73 0M12 2v10", Edit: "M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" };
+        const PATHS = { Users: "M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2M9 7a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75", Grid: "M3 3h7v7H3zM14 3h7v7h-7zM14 14h7v7h-7zM3 14h7v7H3z", List: "M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01", Chart: "M12 20V10M18 20V4M6 20v-6", Dollar: "M12 1v22M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6", Settings: "M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.18-.08a2 2 0 0 0-2 0l-.45.45a2 2 0 0 0 0 2l.08.18a2 2 0 0 1 0 2l-.25.43a2 2 0 0 1-1.73 1H2a2 2 0 0 0-2 2v.44a2 2 0 0 0 2 2h.18a2 2 0 0 1 1.73 1l.25.43a2 2 0 0 1 0 2l-.08.18a2 2 0 0 0 0 2l.45.45a2 2 0 0 0 2 0l.18.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z", X: "M18 6 6 18M6 6l12 12", Check: "M20 6 9 17 4 12", Refresh: "M23 4v6h-6M1 20v-6h6", Play: "M5 3l14 9-14 9V3z", Stop: "M6 6h12v12H6z", Swap: "M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4", Trash: "M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2", Plus: "M12 5v14M5 12h14", Power: "M18.36 6.64a9 9 0 1 1-12.73 0M12 2v10", Edit: "M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" };
         const SERVICE_PRICES = { '帝王': 2000, '豪華': 1500, '招牌': 999, '精選': 900, '足底': 500, '全身': 1000, '半身': 500 };
         
-        const formatDate2025 = (str) => {
-            if(!str) return '';
-            let cleanStr = str.toString().trim();
-            if(cleanStr.includes('T')) cleanStr = cleanStr.split('T')[0];
-            if(cleanStr.match(/^\d{4}[\/\-]\d{2}[\/\-]\d{2}$/)) return cleanStr.replace(/-/g, '/');
-            let d = new Date(cleanStr);
-            if(isNaN(d.getTime())) return cleanStr;
-            const taipeiString = d.toLocaleString('en-US', { timeZone: 'Asia/Taipei' });
-            d = new Date(taipeiString);
-            const year = d.getFullYear(); 
-            const month = (d.getMonth() + 1).toString().padStart(2, '0');
-            const day = d.getDate().toString().padStart(2, '0');
-            return `${year}/${month}/${day}`;
-        };
+        const formatDate2025 = (str) => { if(!str) return ''; let clean = str.toString().trim().split('T')[0]; if(clean.match(/^\d{4}[\/\-]\d{2}[\/\-]\d{2}$/)) return clean.replace(/-/g, '/'); let d = new Date(clean); if(isNaN(d.getTime())) return clean; return `${d.getFullYear()}/${(d.getMonth()+1).toString().padStart(2,'0')}/${d.getDate().toString().padStart(2,'0')}`; };
+        const getToday2025 = () => { const d = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Taipei' })); return `${d.getFullYear()}/${(d.getMonth()+1).toString().padStart(2,'0')}/${d.getDate().toString().padStart(2,'0')}`; };
+        const formatTime = (iso) => { if(!iso) return '--:--'; return new Date(iso).toLocaleTimeString('en-US', { hour:'2-digit', minute:'2-digit', hour12:false }); };
+        const addMinutes = (iso, m) => { if(!iso) return ''; const d = new Date(iso); d.setMinutes(d.getMinutes() + m); return d.toLocaleTimeString('en-US', { hour:'2-digit', minute:'2-digit', hour12:false }); };
+        const parseTime = (str) => { if(!str) return 0; const [h, m] = str.split(':').map(Number); return (h||0)*60 + (m||0); };
+        const getPrice = (n) => { for(let k in SERVICE_PRICES) if(n && n.includes(k)) return SERVICE_PRICES[k]; return 0; };
+        const getComboSplit = (serviceName) => { if (serviceName.includes('100')) return { foot: 40, body: 60 }; if (serviceName.includes('130')) return { foot: 60, body: 70 }; if (serviceName.includes('190')) return { foot: 90, body: 100 }; if (serviceName.includes('70')) return { foot: 30, body: 40 }; return null; };
 
-        const getToday2025 = () => {
-            const d = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Taipei' }));
-            const year = d.getFullYear();
-            const month = (d.getMonth() + 1).toString().padStart(2, '0');
-            const day = d.getDate().toString().padStart(2, '0');
-            return `${year}/${month}/${day}`; 
-        };
-
-        const formatTime = (isoString) => { if(!isoString) return '--:--'; const d = new Date(isoString); return d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false }); };
-        const addMinutes = (isoString, minutes) => { if(!isoString) return ''; const d = new Date(isoString); d.setMinutes(d.getMinutes() + minutes); return d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false }); };
-        const parseTime = (str) => { if(!str || typeof str !== 'string') return 0; const parts = str.split(':'); if (parts.length < 2) return 0; const h = parseInt(parts[0]); const m = parseInt(parts[1]); return (isNaN(h) ? 0 : h) * 60 + (isNaN(m) ? 0 : m); };
-        const getPrice = (name) => { if(!name) return 0; for(let k in SERVICE_PRICES) if(name.includes(k)) return SERVICE_PRICES[k]; return 0; };
-
-        // Helper to check Combo logic
-        const getComboSplit = (serviceName) => {
-            if (serviceName.includes('100')) return { foot: 40, body: 60 }; 
-            if (serviceName.includes('130')) return { foot: 60, body: 70 }; 
-            if (serviceName.includes('190')) return { foot: 90, body: 100 }; 
-            if (serviceName.includes('70')) return { foot: 30, body: 40 }; 
-            return null;
-        };
-
-        // COMPONENTS
         const ResourceMap = ({ bookings, resourceState, updateResourceState, onFinish, onCancel, staffList, statusData }) => {
             const [selectedRes, setSelectedRes] = useState(null);
             const [comboModal, setComboModal] = useState(null);
 
-            const handleStartClick = (booking, resId) => {
-                const split = getComboSplit(booking.serviceName);
-                if (split) { setComboModal({ booking, resId, split }); } 
-                else { startService(resId, booking); }
-            };
-
+            const handleStartClick = (booking, resId) => { const split = getComboSplit(booking.serviceName); if (split) { setComboModal({ booking, resId, split }); } else { startService(resId, booking); } };
             const startService = (resId, booking, durationOverride) => {
-                // Auto Pick Staff
                 let assignedStaff = booking.staffId;
                 if (assignedStaff === '隨機' || assignedStaff === 'Random') {
-                    // Pick Ready Staff with earliest check-in
-                    const readyStaff = staffList
-                        .filter(s => statusData[s.id]?.status === 'READY')
-                        .sort((a,b) => (statusData[a.id].checkInTime || 0) - (statusData[b.id].checkInTime || 0));
-                    
-                    if (readyStaff.length > 0) {
-                        assignedStaff = readyStaff[0].id;
-                        // Update local status to BUSY immediately for UI feedback
-                        statusData[assignedStaff].status = 'BUSY'; 
-                    }
+                    const readyStaff = staffList.filter(s => statusData[s.id]?.status === 'READY').sort((a,b) => (statusData[a.id].checkInTime || 0) - (statusData[b.id].checkInTime || 0));
+                    if (readyStaff.length > 0) { assignedStaff = readyStaff[0].id; statusData[assignedStaff].status = 'BUSY'; }
                 }
-
-                const newState = { 
-                    ...resourceState, 
-                    [resId]: { 
-                        booking: { ...booking, staffId: assignedStaff, duration: durationOverride || booking.duration }, 
-                        startTime: new Date().toISOString(), 
-                        realStartTime: new Date().toISOString(), 
-                        isRunning: true 
-                    }
-                };
-                updateResourceState(newState);
-                setComboModal(null);
+                const newState = { ...resourceState, [resId]: { booking: { ...booking, staffId: assignedStaff, duration: durationOverride || booking.duration }, startTime: new Date().toISOString(), realStartTime: new Date().toISOString(), isRunning: true }};
+                updateResourceState(newState); setComboModal(null);
             };
 
-            const handleSwitch = (fromId, toType) => {
-                const currentData = resourceState[fromId]; if(!currentData) return;
-                for(let i=1; i<=6; i++) {
-                    const targetId = `${toType}-${i}`;
-                    if (!resourceState[targetId]) {
-                        const newState = { ...resourceState }; delete newState[fromId]; newState[targetId] = currentData; updateResourceState(newState); return;
-                    }
-                }
-                alert(`Hết ${toType === 'bed' ? 'Giường' : 'Ghế'} trống!`);
-            };
-
+            const handleSwitch = (fromId, toType) => { const currentData = resourceState[fromId]; if(!currentData) return; for(let i=1; i<=6; i++) { const targetId = `${toType}-${i}`; if (!resourceState[targetId]) { const newState = { ...resourceState }; delete newState[fromId]; newState[targetId] = currentData; updateResourceState(newState); return; } } alert(`Hết chỗ ${toType === 'bed' ? 'Giường' : 'Ghế'} trống!`); };
             const ResourceCard = ({ type, index }) => {
-                const id = `${type}-${index}`; const data = resourceState[id]; const isOccupied = !!data;
-                let endTime = '--:--'; if(isOccupied && data.startTime) endTime = addMinutes(data.startTime, data.booking.duration);
-
+                const id = `${type}-${index}`; const data = resourceState[id]; const isOccupied = !!data; let endTime = '--:--'; if(isOccupied && data.startTime) endTime = addMinutes(data.startTime, data.booking.duration);
                 return (
                     <div className={`p-2 rounded-xl border-2 flex flex-col justify-between h-44 shadow-sm relative transition-all ${isOccupied ? (type==='chair'?'res-chair':'res-bed') : 'res-empty hover:border-purple-400'}`}>
                         <div className="flex justify-between items-center border-b pb-1 mb-1"><span className="font-bold uppercase text-xs text-gray-500">{type==='chair'?`Foot ${index}`:`Body ${index}`}</span>{isOccupied && <span className="bg-red-500 text-white text-[10px] px-1 rounded animate-pulse">RUNNING</span>}</div>
-                        {isOccupied ? (
-                            <>
-                                <div className="flex-1 text-xs space-y-1">
-                                    <div className="font-black text-base truncate">{data.booking.customerName.split('(')[0]}</div>
-                                    <div className="text-gray-600 truncate">{data.booking.serviceName.split('(')[0]}</div>
-                                    <div className="flex items-center gap-1 font-bold text-indigo-700"><Icon d={PATHS.Users} size={12}/> {data.booking.staffId}</div>
-                                    <div className="flex justify-between text-[10px] bg-white/50 p-1 rounded"><span className="text-green-700">Start: {formatTime(data.realStartTime)}</span><span className="text-red-700">End: {endTime}</span></div>
-                                </div>
-                                <div className="grid grid-cols-3 gap-1 mt-1">
-                                    <button onClick={()=>onFinish(id, data)} className="bg-emerald-500 text-white rounded p-1 hover:bg-emerald-600"><Icon d={PATHS.Check}/></button>
-                                    <button onClick={()=>handleSwitch(id, type==='chair'?'bed':'chair')} className="bg-blue-500 text-white rounded p-1 hover:bg-blue-600"><Icon d={PATHS.Swap}/></button>
-                                    <button onClick={()=>onCancel(id)} className="bg-red-500 text-white rounded p-1 hover:bg-red-600"><Icon d={PATHS.Trash}/></button>
-                                </div>
-                            </>
-                        ) : (
-                            <button onClick={()=>setSelectedRes(id)} className="flex flex-col items-center justify-center h-full text-gray-400 hover:text-purple-600"><Icon d={PATHS.Plus} size={28}/><span className="text-[10px] font-bold">Xếp</span></button>
-                        )}
+                        {isOccupied ? ( <> <div className="flex-1 text-xs space-y-1"><div className="font-black text-base truncate">{data.booking.customerName.split('(')[0]}</div><div className="text-gray-600 truncate">{data.booking.serviceName.split('(')[0]}</div><div className="flex items-center gap-1 font-bold text-indigo-700"><Icon d={PATHS.Users} size={12}/> {data.booking.staffId}</div><div className="flex justify-between text-[10px] bg-white/50 p-1 rounded"><span className="text-green-700">Start: {formatTime(data.realStartTime)}</span><span className="text-red-700">End: {endTime}</span></div></div><div className="grid grid-cols-3 gap-1 mt-1"><button onClick={()=>onFinish(id, data)} className="bg-emerald-500 text-white rounded p-1 hover:bg-emerald-600"><Icon d={PATHS.Check}/></button><button onClick={()=>handleSwitch(id, type==='chair'?'bed':'chair')} className="bg-blue-500 text-white rounded p-1 hover:bg-blue-600"><Icon d={PATHS.Swap}/></button><button onClick={()=>onCancel(id)} className="bg-red-500 text-white rounded p-1 hover:bg-red-600"><Icon d={PATHS.Trash}/></button></div> </> ) : ( <button onClick={()=>setSelectedRes(id)} className="flex flex-col items-center justify-center h-full text-gray-400 hover:text-purple-600"><Icon d={PATHS.Plus} size={28}/><span className="text-[10px] font-bold">Xếp</span></button> )}
                     </div>
                 );
             };
-
             return (
                 <div className="space-y-4">
                     <div className="bg-white p-4 rounded-xl shadow border border-emerald-100"><h3 className="font-bold text-emerald-700 mb-3 flex items-center gap-2"><Icon d={PATHS.Grid}/> KHU VỰC CHÂN (FOOT)</h3><div className="grid grid-cols-3 md:grid-cols-6 gap-3">{[1,2,3,4,5,6].map(i => <ResourceCard key={i} type="chair" index={i}/>)}</div></div>
                     <div className="bg-white p-4 rounded-xl shadow border border-purple-100"><h3 className="font-bold text-purple-700 mb-3 flex items-center gap-2"><Icon d={PATHS.Grid}/> KHU VỰC GIƯỜNG (BODY)</h3><div className="grid grid-cols-3 md:grid-cols-6 gap-3">{[1,2,3,4,5,6].map(i => <ResourceCard key={i} type="bed" index={i}/>)}</div></div>
                     {selectedRes && ( <div className="fixed inset-0 bg-black/60 z-[70] flex items-center justify-center p-4"><div className="bg-white w-full max-w-md rounded-xl shadow-2xl modal-animate flex flex-col max-h-[80vh]"><div className="p-3 border-b font-bold flex justify-between items-center"><span>Chọn khách vào {selectedRes}</span><button onClick={()=>setSelectedRes(null)}><Icon d={PATHS.X}/></button></div><div className="overflow-y-auto p-2 space-y-2 bg-slate-50 flex-1">{bookings.filter(b => b.status === 'active' || b.status === '已預約').map((b, i) => (<div key={i} className="p-3 bg-white border rounded flex justify-between items-center"><div><div className="font-bold">{b.customerName}</div><div className="text-xs text-gray-500">{b.serviceName}</div></div><button onClick={() => { handleStartClick(b, selectedRes); setSelectedRes(null); }} className="bg-green-600 text-white px-3 py-1 rounded text-xs font-bold flex items-center gap-1"><Icon d={PATHS.Play} size={12}/> Bắt đầu</button></div>))}{bookings.length === 0 && <div className="text-center text-gray-400 p-4">Không có khách chờ</div>}</div></div></div> )}
-                    {comboModal && (
-                        <div className="fixed inset-0 bg-black/60 z-[80] flex items-center justify-center p-4">
-                            <div className="bg-white w-80 p-5 rounded-xl shadow-xl text-center">
-                                <h3 className="font-bold text-lg mb-2 text-purple-700">Gói Combo!</h3>
-                                <div className="grid grid-cols-2 gap-3">
-                                    <button onClick={() => startService(comboModal.resId, comboModal.booking, comboModal.split.foot)} className="bg-emerald-100 border-2 border-emerald-500 p-3 rounded-lg"><div className="font-black text-emerald-700">CHÂN</div><div className="text-xs font-bold">{comboModal.split.foot}p</div></button>
-                                    <button onClick={() => startService(comboModal.resId, comboModal.booking, comboModal.split.body)} className="bg-purple-100 border-2 border-purple-500 p-3 rounded-lg"><div className="font-black text-purple-700">BODY</div><div className="text-xs font-bold">{comboModal.split.body}p</div></button>
-                                </div>
-                                <button onClick={() => setComboModal(null)} className="mt-4 text-gray-400 text-xs underline">Hủy</button>
-                            </div>
-                        </div>
-                    )}
+                    {comboModal && ( <div className="fixed inset-0 bg-black/60 z-[80] flex items-center justify-center p-4"><div className="bg-white w-80 p-5 rounded-xl shadow-xl text-center"><h3 className="font-bold text-lg mb-2 text-purple-700">Gói Combo!</h3><div className="grid grid-cols-2 gap-3"><button onClick={() => startService(comboModal.resId, comboModal.booking, comboModal.split.foot)} className="bg-emerald-100 border-2 border-emerald-500 p-3 rounded-lg"><div className="font-black text-emerald-700">CHÂN</div><div className="text-xs font-bold">{comboModal.split.foot}p</div></button><button onClick={() => startService(comboModal.resId, comboModal.booking, comboModal.split.body)} className="bg-purple-100 border-2 border-purple-500 p-3 rounded-lg"><div className="font-black text-purple-700">BODY</div><div className="text-xs font-bold">{comboModal.split.body}p</div></button></div><button onClick={() => setComboModal(null)} className="mt-4 text-gray-400 text-xs underline">Hủy</button></div></div> )}
                 </div>
             );
         };
 
         const CheckInBoard = ({ staffList, statusData, setStatusData, onClose }) => {
-            const toggleCheckIn = (id) => { const current = statusData[id] || {}; const now = Date.now(); let newState; if (current.status === 'READY' || current.status === 'EAT' || current.status === 'OUT_SHORT') { newState = { ...statusData, [id]: { status: 'AWAY', checkInTime: 0 } }; } else { newState = { ...statusData, [id]: { status: 'READY', checkInTime: now } }; } setStatusData(newState); localStorage.setItem('staff_status_final', JSON.stringify(newState)); };
+            const toggleCheckIn = (id) => { const current = statusData[id] || {}; const now = Date.now(); let newState = { ...statusData, [id]: { status: (current.status==='READY'||current.status==='EAT'||current.status==='OUT_SHORT') ? 'AWAY' : 'READY', checkInTime: (current.status==='READY') ? 0 : now } }; setStatusData(newState); localStorage.setItem('staff_status_final', JSON.stringify(newState)); };
             const handleDropdownChange = (id, val) => { const current = statusData[id] || {}; const newState = { ...statusData, [id]: { ...current, status: val } }; setStatusData(newState); localStorage.setItem('staff_status_final', JSON.stringify(newState)); };
             const formatCheckInTime = (ts) => ts ? new Date(ts).toLocaleTimeString('en-US', {hour:'2-digit', minute:'2-digit', hour12:false}) : '--:--';
             return (
@@ -200,14 +94,8 @@
 
         const StaffCard3D = ({ s, statusData, queueIndex }) => {
             const isFemale = s.gender === 'F' || s.gender === '女'; const local = statusData[s.id] || { status: 'AWAY' }; let displayStatus = local.status; let statusClass = isFemale ? 'style-female' : 'style-male'; let label = '---';
-            
-            if (s.activeBooking && s.activeBooking.staffId !== '隨機' && s.activeBooking.staffId !== 'Random') {
-                displayStatus = 'DESIGNATED'; statusClass = 'style-designated'; label = 'Khách Chọn';
-            } else if (s.activeBooking) { displayStatus = 'BUSY'; statusClass = 'st-busy'; } 
-            else if (displayStatus === 'AWAY') statusClass = 'st-away';
-
+            if (s.activeBooking && s.activeBooking.staffId !== '隨機' && s.activeBooking.staffId !== 'Random') { displayStatus = 'DESIGNATED'; statusClass = 'style-designated'; label = 'Khách Chọn'; } else if (s.activeBooking) { displayStatus = 'BUSY'; statusClass = 'st-busy'; } else if (displayStatus === 'AWAY') statusClass = 'st-away';
             if(displayStatus === 'EAT') { statusClass = 'bg-orange-100 border-orange-400 border-b-orange-600 text-orange-800'; label='Ăn cơm'; } else if(displayStatus === 'OUT_SHORT') { statusClass = 'bg-green-100 border-green-400 border-b-green-600 text-green-800'; label='Ra ngoài'; } else if(displayStatus === 'AWAY') label = 'Chưa đến'; else if(displayStatus === 'READY') label = 'Sẵn sàng'; else if(displayStatus === 'BUSY') label = 'Đang làm';
-            
             return (
                 <div className={`card-3d w-24 h-32 rounded-xl flex flex-col justify-between cursor-pointer select-none ${statusClass}`}>
                     {displayStatus === 'READY' && queueIndex !== undefined && ( <div className="absolute -top-3 -right-3 w-7 h-7 badge-queue text-white rounded-full flex items-center justify-center font-black text-sm border-2 border-white z-10">{queueIndex + 1}</div> )}
@@ -217,49 +105,28 @@
         };
 
         const TimelineView = ({ bookings }) => {
-            const startHour = 8; const totalHours = 18; // 08:00 -> 26:00
-            const hours = Array.from({length: totalHours + 1}, (_, i) => (startHour + i) % 24);
-            const today = getToday2025();
-            const todayBookings = bookings.filter(b => formatDate2025(b.date) === today && b.status !== 'cancelled');
+            const startHour = 8; const totalHours = 18; const hours = Array.from({length: totalHours + 1}, (_, i) => (startHour + i) % 24); const today = getToday2025(); const todayBookings = bookings.filter(b => formatDate2025(b.date) === today && b.status !== 'cancelled');
             return (
                 <div className="bg-white border rounded-xl overflow-hidden shadow-sm flex flex-col h-[500px]">
                     <div className="flex border-b bg-gray-50 h-10 shrink-0"><div className="w-20 border-r p-2 font-bold text-xs text-gray-500 flex items-center justify-center">Res</div><div className="flex-1 relative">{hours.map((h, i) => (<div key={i} className="absolute h-full border-l text-[10px] text-gray-400 pl-1" style={{left: `${(i/totalHours)*100}%`}}>{h}:00</div>))}</div></div>
                     <div className="overflow-y-auto flex-1 relative timeline-bg">
-                        <div className="sticky top-0 z-20 bg-purple-100 text-purple-800 text-xs font-bold px-2 py-1 border-b">BODY AREA</div>
-                        {Array.from({length: 6}, (_, i) => i+1).map(n => ( <div key={`bed-${n}`} className="h-12 border-b flex relative"><div className="w-20 border-r bg-white text-xs font-bold flex items-center justify-center text-purple-600 border-r-2 shrink-0 z-10">Body {n}</div><div className="flex-1 relative h-full">{todayBookings.filter(b => b.type === 'BED' && ((b.id % 6) + 1 === n)).map((b, idx) => { const start = parseTime(b.time); let startMins = start - (startHour*60); if(start < startHour*60) startMins += 24*60; const left = (startMins / (totalHours*60)) * 100; const width = (b.duration / (totalHours*60)) * 100; if (left < 0) return null; return (<div key={idx} className="absolute top-1 h-10 rounded-md bg-purple-500 text-white text-[10px] flex flex-col justify-center px-2 shadow-md overflow-hidden whitespace-nowrap z-10 border border-purple-600" style={{left: `${left}%`, width: `${width}%`}} title={b.customerName}><div className="font-bold truncate">{b.time}</div><div className="truncate opacity-90">{b.customerName}</div></div>) })}</div></div> ))}
-                        <div className="h-2 bg-orange-400 w-full border-y border-orange-600"></div>
-                        <div className="sticky top-0 z-20 bg-emerald-100 text-emerald-800 text-xs font-bold px-2 py-1 border-b">FOOT AREA</div>
-                        {Array.from({length: 6}, (_, i) => i+1).map(n => ( <div key={`chair-${n}`} className="h-12 border-b flex relative"><div className="w-20 border-r bg-white text-xs font-bold flex items-center justify-center text-emerald-600 border-r-2 shrink-0 z-10">Foot {n}</div><div className="flex-1 relative h-full">{todayBookings.filter(b => b.type === 'CHAIR' && ((b.id % 6) + 1 === n)).map((b, idx) => { const start = parseTime(b.time); let startMins = start - (startHour*60); if(start < startHour*60) startMins += 24*60; const left = (startMins / (totalHours*60)) * 100; const width = (b.duration / (totalHours*60)) * 100; if (left < 0) return null; return (<div key={idx} className="absolute top-1 h-10 rounded-md bg-emerald-500 text-white text-[10px] flex flex-col justify-center px-2 shadow-md overflow-hidden whitespace-nowrap z-10 border border-emerald-600" style={{left: `${left}%`, width: `${width}%`}} title={b.customerName}><div className="font-bold truncate">{b.time}</div><div className="truncate opacity-90">{b.customerName}</div></div>) })}</div></div> ))}
+                        <div className="sticky top-0 z-20 bg-purple-100 text-purple-800 text-xs font-bold px-2 py-1 border-b">BODY AREA</div>{Array.from({length: 6}, (_, i) => i+1).map(n => ( <div key={`bed-${n}`} className="h-12 border-b flex relative"><div className="w-20 border-r bg-white text-xs font-bold flex items-center justify-center text-purple-600 border-r-2 shrink-0 z-10">Body {n}</div><div className="flex-1 relative h-full">{todayBookings.filter(b => b.type === 'BED' && ((b.id % 6) + 1 === n)).map((b, idx) => { const start = parseTime(b.time); let startMins = start - (startHour*60); if(start < startHour*60) startMins += 24*60; const left = (startMins / (totalHours*60)) * 100; const width = (b.duration / (totalHours*60)) * 100; if (left < 0) return null; return (<div key={idx} className="absolute top-1 h-10 rounded-md bg-purple-500 text-white text-[10px] flex flex-col justify-center px-2 shadow-md overflow-hidden whitespace-nowrap z-10 border border-purple-600" style={{left: `${left}%`, width: `${width}%`}} title={b.customerName}><div className="font-bold truncate">{b.time}</div><div className="truncate opacity-90">{b.customerName}</div></div>) })}</div></div> ))}
+                        <div className="h-2 bg-orange-400 w-full border-y border-orange-600"></div><div className="sticky top-0 z-20 bg-emerald-100 text-emerald-800 text-xs font-bold px-2 py-1 border-b">FOOT AREA</div>{Array.from({length: 6}, (_, i) => i+1).map(n => ( <div key={`chair-${n}`} className="h-12 border-b flex relative"><div className="w-20 border-r bg-white text-xs font-bold flex items-center justify-center text-emerald-600 border-r-2 shrink-0 z-10">Foot {n}</div><div className="flex-1 relative h-full">{todayBookings.filter(b => b.type === 'CHAIR' && ((b.id % 6) + 1 === n)).map((b, idx) => { const start = parseTime(b.time); let startMins = start - (startHour*60); if(start < startHour*60) startMins += 24*60; const left = (startMins / (totalHours*60)) * 100; const width = (b.duration / (totalHours*60)) * 100; if (left < 0) return null; return (<div key={idx} className="absolute top-1 h-10 rounded-md bg-emerald-500 text-white text-[10px] flex flex-col justify-center px-2 shadow-md overflow-hidden whitespace-nowrap z-10 border border-emerald-600" style={{left: `${left}%`, width: `${width}%`}} title={b.customerName}><div className="font-bold truncate">{b.time}</div><div className="truncate opacity-90">{b.customerName}</div></div>) })}</div></div> ))}
                     </div>
                 </div>
             );
         };
 
         const RevenueTable = ({ bookings }) => {
-            const today = getToday2025();
-            const todayBookings = bookings.filter(b => formatDate2025(b.date) === today && b.status !== 'cancelled');
-            const revenue = todayBookings.reduce((acc, b) => acc + (getPrice(b.serviceName) + (b.serviceName.includes('油')?200:0)) * (b.pax||1), 0);
+            const today = getToday2025(); const todayBookings = bookings.filter(b => formatDate2025(b.date) === today && b.status !== 'cancelled'); const revenue = todayBookings.reduce((acc, b) => acc + (getPrice(b.serviceName) + (b.serviceName.includes('油')?200:0)) * (b.pax||1), 0);
             return ( <div className="bg-white p-6 rounded-xl shadow-sm border text-center"><h3 className="text-gray-500 font-bold mb-2 uppercase tracking-wide">Doanh Thu Hôm Nay</h3><div className="text-4xl font-black text-emerald-600 flex justify-center items-center gap-2"><Icon d={PATHS.Dollar} size={32}/> {revenue.toLocaleString()} TWD</div></div> );
         };
 
         // --- MAIN APP ---
         function App() {
-            const [activeTab, setActiveTab] = useState('map'); 
-            const [staffList, setStaffList] = useState([]);
-            const [bookings, setBookings] = useState([]); 
-            const [statusData, setStatusData] = useState(() => JSON.parse(localStorage.getItem('staff_status_final')) || {});
-            const [resourceState, setResourceState] = useState(() => JSON.parse(localStorage.getItem('resource_state')) || {});
-            const [showManager, setShowManager] = useState(false);
+            const [activeTab, setActiveTab] = useState('map'); const [staffList, setStaffList] = useState([]); const [bookings, setBookings] = useState([]); const [statusData, setStatusData] = useState(() => JSON.parse(localStorage.getItem('staff_status_final')) || {}); const [resourceState, setResourceState] = useState(() => JSON.parse(localStorage.getItem('resource_state')) || {}); const [showManager, setShowManager] = useState(false);
 
-            const updateResourceState = (newState) => {
-                setResourceState(newState);
-                localStorage.setItem('resource_state', JSON.stringify(newState));
-                const newStatusData = { ...statusData };
-                for(let sid in newStatusData) if(newStatusData[sid].status === 'BUSY') newStatusData[sid].status = 'READY';
-                for(let rid in newState) { const sid = newState[rid].booking.staffId; if(newStatusData[sid]) newStatusData[sid].status = 'BUSY'; }
-                setStatusData(newStatusData);
-                localStorage.setItem('staff_status_final', JSON.stringify(newStatusData));
-            };
+            const updateResourceState = (newState) => { setResourceState(newState); localStorage.setItem('resource_state', JSON.stringify(newState)); const newStatusData = { ...statusData }; for(let sid in newStatusData) if(newStatusData[sid].status === 'BUSY') newStatusData[sid].status = 'READY'; for(let rid in newState) { const sid = newState[rid].booking.staffId; if(newStatusData[sid]) newStatusData[sid].status = 'BUSY'; } setStatusData(newStatusData); localStorage.setItem('staff_status_final', JSON.stringify(newStatusData)); };
 
             const fetchData = async () => {
                 try {
@@ -267,6 +134,8 @@
                     const { bookings: apiBookings, staffList: apiStaff, schedule } = res.data; 
                     const today = getToday2025(); 
 
+                    // [FIXED] Đọc đúng cột theo cấu trúc mới (A->K)
+                    // A:Date, B:Time, C:Name, D:Svc, E:Oil, F:Pax, G:Phone, H:Status, I:Staff, J:ID, K:Created
                     const todayBookings = apiBookings
                         .filter(b => formatDate2025(b.date) === today) 
                         .map((b, i) => ({ ...b, id: i, status: (b.status && b.status.includes('取消')) ? 'cancelled' : 'active' }));
@@ -278,65 +147,38 @@
                         const isOff = offStaffIds.includes(s.id); 
                         return { ...s, status: isOff ? 'off' : 'ready', activeBooking };
                     });
-                    
                     setStaffList(mappedStaff.sort((a,b) => parseInt(a.id.replace(/\D/g,'')) - parseInt(b.id.replace(/\D/g,''))));
 
-                    // --- [NEW V23] AUTO ASSIGN LOGIC ---
+                    // Auto-Assign Logic
                     const currentRes = { ...JSON.parse(localStorage.getItem('resource_state')) || {} };
                     let changed = false;
                     const newStatus = { ...statusData };
                     const now = new Date();
-
                     todayBookings.forEach(b => {
                         if (b.status === 'active' || b.status === '已預約') {
-                            const startTime = parseDate114(b.startTimeString); // Using parseDate114 helper or similar
-                            const timeDiff = (startTime - now) / 60000; 
-
-                            // Auto assign if within 15 mins and not assigned
-                            if (timeDiff <= 15 && !Object.values(currentRes).some(r => r.booking.rowId === b.rowId)) {
-                                let targetType = 'bed';
-                                if (b.type === 'CHAIR') targetType = 'chair';
-                                else if (b.type === 'COMBO') {
-                                     // If combo, check if foot done? Simplified: default Chair first
-                                     targetType = 'chair'; 
-                                }
-
-                                let slotId = null;
-                                for(let i=1; i<=6; i++) { if (!currentRes[`${targetType}-${i}`]) { slotId = `${targetType}-${i}`; break; } }
-                                
+                            const startTime = parseTime(b.time); // Chỉ cần HH:mm để so sánh
+                            const nowTime = now.getHours()*60 + now.getMinutes();
+                            // Nếu sắp đến giờ (15p) hoặc đã quá giờ
+                            if (Math.abs(nowTime - startTime) <= 15 && !Object.values(currentRes).some(r => r.booking.rowId === b.rowId)) {
+                                let targetType = 'bed'; if (b.type === 'CHAIR') targetType = 'chair'; else if (b.type === 'COMBO') targetType = 'chair';
+                                let slotId = null; for(let i=1; i<=6; i++) { if (!currentRes[`${targetType}-${i}`]) { slotId = `${targetType}-${i}`; break; } }
                                 if (slotId) {
                                     let assignedStaff = b.staffId;
                                     if (assignedStaff === '隨機' || assignedStaff === 'Random') {
-                                        const readyStaff = mappedStaff
-                                            .filter(s => s.status !== 'off' && newStatus[s.id]?.status === 'READY')
-                                            .sort((x,y) => (newStatus[x.id]?.checkInTime||0) - (newStatus[y.id]?.checkInTime||0));
-                                        if (readyStaff.length > 0) {
-                                            assignedStaff = readyStaff[0].id;
-                                            newStatus[assignedStaff].status = 'BUSY';
-                                        }
+                                        const readyStaff = mappedStaff.filter(s => s.status !== 'off' && newStatus[s.id]?.status === 'READY').sort((x,y) => (newStatus[x.id]?.checkInTime||0) - (newStatus[y.id]?.checkInTime||0));
+                                        if (readyStaff.length > 0) { assignedStaff = readyStaff[0].id; newStatus[assignedStaff].status = 'BUSY'; }
                                     }
-                                    currentRes[slotId] = { booking: { ...b, staffId: assignedStaff }, startTime: new Date().toISOString(), isRunning: true };
-                                    changed = true;
+                                    currentRes[slotId] = { booking: { ...b, staffId: assignedStaff }, startTime: new Date().toISOString(), isRunning: true }; changed = true;
                                 }
                             }
                         }
                     });
-
-                    if (changed) {
-                        setResourceState(currentRes);
-                        setStatusData(newStatus);
-                        localStorage.setItem('resource_state', JSON.stringify(currentRes));
-                        localStorage.setItem('staff_status_final', JSON.stringify(newStatus));
-                    }
-                    // -----------------------------------
+                    if (changed) { setResourceState(currentRes); setStatusData(newStatus); localStorage.setItem('resource_state', JSON.stringify(currentRes)); localStorage.setItem('staff_status_final', JSON.stringify(newStatus)); }
 
                 } catch(e) { console.error(e); }
             };
 
-            const handleUpdateStatus = async (rowId, status) => {
-                if(!confirm(`Xác nhận: ${status}?`)) return;
-                try { await axios.post('/api/update-status', { rowId, status }); fetchData(); } catch(e) { alert('Lỗi!'); }
-            };
+            const handleUpdateStatus = async (rowId, status) => { if(!confirm(`Xác nhận: ${status}?`)) return; try { await axios.post('/api/update-status', { rowId, status }); fetchData(); } catch(e) { alert('Lỗi!'); } };
 
             useEffect(() => { fetchData(); const t = setInterval(fetchData, 10000); return () => clearInterval(t); }, []);
 
@@ -356,7 +198,7 @@
                     </header>
 
                     <div className="bg-white border-b shadow-sm p-4 overflow-x-auto shrink-0">
-                        <div className="w-full flex justify-end items-center gap-6 min-w-max px-4">
+                        <div className="flex items-center gap-6 min-w-max">
                             <div className="flex gap-3 pr-6 border-r-2 border-dashed border-slate-300">{awayStaff.map(s => <StaffCard3D key={s.id} s={s} statusData={statusData}/>)}</div>
                             <div className="flex flex-row-reverse gap-3 pl-2">{activeStaff.map((s, idx) => <StaffCard3D key={s.id} s={s} statusData={statusData} queueIndex={statusData[s.id].status==='READY' && !s.activeBooking ? idx : undefined}/>)}</div>
                         </div>
