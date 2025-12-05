@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Massage POS - Manager V56 (Fixed Sync)</title>
+    <title>Massage POS - Manager V60 (Smart Combo)</title>
     
     <script src="https://cdn.tailwindcss.com"></script>
     <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.development.js"></script>
@@ -49,6 +49,10 @@
         .btn-tool:active { transform: scale(0.95); }
 
         .timeline-bg { background-image: linear-gradient(to right, #e2e8f0 1px, transparent 1px); background-size: 5.55% 100%; }
+        
+        /* Tag loại dịch vụ */
+        .tag-foot { background-color: #d1fae5; color: #065f46; border: 1px solid #34d399; }
+        .tag-body { background-color: #e0e7ff; color: #3730a3; border: 1px solid #818cf8; }
     </style>
 </head>
 <body>
@@ -64,7 +68,7 @@
             List: "M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01", 
             Chart: "M12 20V10M18 20V4M6 20v-6", 
             Dollar: "M12 1v22M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6", 
-            Settings: "M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.18-.08a2 2 0 0 0-2 0l-.45.45a2 2 0 0 0 0 2l.08.18a2 2 0 0 1 0 2l-.25.43a2 2 0 0 1-1.73 1H2a2 2 0 0 0-2 2v.44a2 2 0 0 0 2 2h.18a2 2 0 0 1 1.73 1l.25.43a2 2 0 0 1 0 2l-.08.18a2 2 0 0 0 0 2l.45.45a2 2 0 0 0-2 0l-.18.08a2 2 0 0 1-2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.18.08a2 2 0 0 0 2 0l.45-.45a2 2 0 0 0 0-2l-.08-.18a2 2 0 0 1 0-2l.25-.43a2 2 0 0 1 1.73-1H22a2 2 0 0 0 2-2v-.44a2 2 0 0 0-2-2h-.18a2 2 0 0 1-1.73-1l-.25-.43a2 2 0 0 1 0-2l.08-.18a2 2 0 0 0 0-2l.45-.45a2 2 0 0 0-2 0l-.18.08a2 2 0 0 1-2 0l.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z", 
+            Settings: "M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.18-.08a2 2 0 0 0-2 0l-.45.45a2 2 0 0 0 0 2l.08.18a2 2 0 0 1 0 2l-.25.43a2 2 0 0 1-1.73 1H2a2 2 0 0 0-2 2v.44a2 2 0 0 0 2 2h.18a2 2 0 0 1 1.73 1l.25.43a2 2 0 0 1 0 2l-.08.18a2 2 0 0 0 0 2l.45.45a2 2 0 0 0-2 0l-.18.08a2 2 0 0 1-2 0l.43.25a2 2 0 0 1-1-1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.18.08a2 2 0 0 0 2 0l.45-.45a2 2 0 0 0 0-2l-.08-.18a2 2 0 0 1 0-2l.25-.43a2 2 0 0 1 1.73-1H22a2 2 0 0 0 2-2v-.44a2 2 0 0 0-2-2h-.18a2 2 0 0 1-1.73-1l-.25-.43a2 2 0 0 1 0-2l.08-.18a2 2 0 0 0 0-2l.45-.45a2 2 0 0 0-2 0l-.18.08a2 2 0 0 1-2 0l.43.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z", 
             X: "M18 6 6 18M6 6l12 12", 
             Check: "M20 6 9 17 4 12", 
             Refresh: "M23 4v6h-6M1 20v-6h6", 
@@ -79,7 +83,15 @@
 
         const SERVICE_PRICES = { '帝王': 2000, '豪華': 1500, '招牌': 999, '精選': 900, '足底': 500, '全身': 1000, '半身': 500 };
         
-        // DATA CLEANER
+        // --- 1. CẤU HÌNH LUẬT CHIA COMBO (SPLIT RULES) ---
+        // Ưu tiên theo thứ tự mảng: Index 0 là Ưu tiên A, Index 1 là Ưu tiên B
+        const SPLIT_RULES = {
+            '190': [{foot: 90, body: 100}, {foot: 80, body: 110}],
+            '130': [{foot: 50, body: 80},  {foot: 60, body: 70}],
+            '100': [{foot: 40, body: 60},  {foot: 50, body: 50}],
+            '70':  [{foot: 35, body: 35},  {foot: 30, body: 40}]
+        };
+
         const cleanDataStr = (str) => { if(!str) return ""; let s = str.toString().trim(); if(s.includes(' ')) s = s.split(' ')[0]; return s; };
         const cleanTimeStr = (str) => { if(!str) return "00:00"; let s = str.toString().trim(); if(!s.includes(':')) return `${s}:00`; return s; };
         
@@ -90,6 +102,7 @@
         };
 
         const parseTime = (str) => { if(!str) return 0; const [h, m] = str.split(':').map(Number); return (h||0)*60 + (m||0); };
+        const minToTime = (min) => { const h = Math.floor(min/60); const m = min%60; return `${h.toString().padStart(2,'0')}:${m.toString().padStart(2,'0')}`; };
         const addMinutes = (iso, m) => { if(!iso) return ''; const d = new Date(iso); d.setMinutes(d.getMinutes() + m); return d.toLocaleTimeString('en-US', { hour:'2-digit', minute:'2-digit', hour12:false }); };
         const formatTime = (iso) => { if(!iso) return '--:--'; return new Date(iso).toLocaleTimeString('en-US', { hour:'2-digit', minute:'2-digit', hour12:false }); };
         const getPrice = (n) => { for(let k in SERVICE_PRICES) if(n && n.includes(k)) return SERVICE_PRICES[k]; return 0; };
@@ -120,21 +133,26 @@
                 let endTime = '--:--'; 
                 if(isOccupied && data.isRunning && !data.isPaused && data.startTime) endTime = addMinutes(data.startTime, data.booking.duration);
 
-                let cardClass = 'res-empty hover:border-purple-400 min-h-[220px] h-auto'; 
+                let cardClass = 'res-empty hover:border-purple-400 min-h-[240px] h-auto'; 
                 let statusLabel = '';
                 let statusBg = '';
 
                 if (isOccupied) {
                     if (data.isRunning) { 
-                        cardClass = 'res-running min-h-[220px] h-auto'; 
+                        cardClass = 'res-running min-h-[240px] h-auto'; 
                         statusLabel = 'ĐANG CHẠY'; 
                         statusBg = 'bg-red-500'; 
                     } else { 
-                        cardClass = 'res-waiting min-h-[220px] h-auto'; 
+                        cardClass = 'res-waiting min-h-[240px] h-auto'; 
                         statusLabel = 'CHỜ BẤM NÚT'; 
                         statusBg = 'bg-yellow-600'; 
                     }
                 }
+
+                // Nhãn phân loại (Chân/Body)
+                const isPart = data?.booking?.partType;
+                const partLabel = isPart === 'FOOT' ? 'CHÂN (Phần 1)' : (isPart === 'BODY' ? 'BODY (Phần 2)' : '');
+                const partClass = isPart === 'FOOT' ? 'tag-foot' : 'tag-body';
 
                 return (
                     <div className={`res-card p-3 ${cardClass} flex flex-col justify-between`}>
@@ -148,9 +166,24 @@
                                 <div className="flex flex-col gap-1">
                                     <div className="font-black text-xl text-slate-800 leading-tight">{data.booking.customerName.split('(')[0]}</div>
                                     <div className="text-sm font-bold text-gray-600 truncate">{data.booking.serviceName}</div>
+                                    
+                                    {/* Hiển thị Combo Part nếu có */}
+                                    {isPart && (
+                                        <div className={`text-[10px] font-bold px-2 py-0.5 rounded w-max mt-1 ${partClass}`}>
+                                            {partLabel} ({data.booking.duration}p)
+                                        </div>
+                                    )}
+
                                     <div className="flex items-center gap-2 mt-2">
                                         <span className="bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded text-xs font-bold">NV: {data.booking.staffId.replace('號','')}</span>
                                     </div>
+
+                                    {/* Hiển thị giờ dự kiến bắt đầu */}
+                                    {!data.isRunning && (
+                                        <div className="mt-2 text-xs font-bold text-gray-500">
+                                            Dự kiến: <span className="text-black font-mono text-sm">{data.booking.time}</span>
+                                        </div>
+                                    )}
                                     
                                     {data.isRunning && (
                                         <div className="mt-3 bg-white/60 p-2 rounded text-center border border-black/5 shadow-sm">
@@ -274,14 +307,8 @@
 
                     const todayBookings = apiBookings
                         .map(b => {
-                            // --- FIX QUAN TRỌNG: Tự động tách chuỗi startTimeString thành Ngày và Giờ ---
-                            let d = b.date;
-                            let t = b.time;
-                            if (b.startTimeString) {
-                                const parts = b.startTimeString.split(' ');
-                                d = parts[0];
-                                t = parts[1] || '00:00';
-                            }
+                            let d = b.date; let t = b.time;
+                            if (b.startTimeString) { const parts = b.startTimeString.split(' '); d = parts[0]; t = parts[1] || '00:00'; }
                             return { ...b, date: cleanDataStr(d), time: cleanTimeStr(t) };
                         })
                         .filter(b => b.date === today) 
@@ -293,40 +320,126 @@
                     const mappedStaff = apiStaff.map(s => { const activeBooking = todayBookings.find(b => b.staffId === s.id && b.status === 'active'); const isOff = offStaffIds.includes(s.id); return { ...s, status: isOff ? 'off' : 'ready', activeBooking }; });
                     setStaffList(mappedStaff.sort((a,b) => parseInt(a.id.replace(/\D/g,'')) - parseInt(b.id.replace(/\D/g,''))));
 
-                    // AUTO ASSIGN (FIXED: KHÔNG TỰ CHẠY)
+                    // --- SMART AUTO ASSIGN (LOGIC MỚI) ---
                     const currentRes = { ...JSON.parse(localStorage.getItem('resource_state')) || {} };
                     let changed = false;
                     const now = new Date();
                     const currentHour = now.getHours(); const currentMin = now.getMinutes();
                     const currentTimeVal = currentHour * 60 + currentMin;
 
+                    // Hàm kiểm tra trùng lịch trong resourceState
+                    const isSlotFree = (type, index, start, end, existingRes) => {
+                        const id = `${type}-${index}`;
+                        const occupied = existingRes[id];
+                        if (!occupied) return true;
+                        
+                        // Kiểm tra va chạm thời gian
+                        let occupiedStart = parseTime(occupied.booking.time);
+                        let occupiedEnd = occupiedStart + occupied.booking.duration;
+                        
+                        // Nếu đang chạy thực tế thì dùng giờ thực
+                        if (occupied.isRunning && occupied.realStartTime) {
+                             const realStart = new Date(occupied.realStartTime);
+                             occupiedStart = realStart.getHours() * 60 + realStart.getMinutes();
+                             occupiedEnd = occupiedStart + occupied.booking.duration;
+                        }
+
+                        if (start < occupiedEnd && end > occupiedStart) return false;
+                        return true;
+                    };
+
                     todayBookings.forEach(b => {
                         if (b.status === 'active' || b.status === '已預約') {
+                            // Bỏ qua nếu đã xếp rồi (kiểm tra rowId trong resourceState)
+                            const isAlreadyAssigned = Object.values(currentRes).some(r => r.booking.rowId === b.rowId);
+                            if (isAlreadyAssigned) return;
+
                             const bTimeVal = parseTime(b.time);
-                            // Chỉ xếp nếu trong khung 40 phút và chưa xếp
-                            if (Math.abs(currentTimeVal - bTimeVal) <= 40 && !Object.values(currentRes).some(r => r.booking.rowId === b.rowId)) {
-                                let targetType = 'bed'; if (b.type === 'CHAIR' || b.type === 'COMBO') targetType = 'chair';
-                                let slotId = null; for(let i=1; i<=6; i++) { if (!currentRes[`${targetType}-${i}`]) { slotId = `${targetType}-${i}`; break; } }
-                                if (slotId) {
-                                    let assignedStaff = b.staffId;
-                                    if (assignedStaff === '隨機') {
-                                        const ready = mappedStaff.filter(s => statusData[s.id]?.status === 'READY').sort((x,y) => (statusData[x.id].checkInTime||0) - (statusData[y.id].checkInTime||0));
-                                        if(ready.length > 0) assignedStaff = ready[0].id;
-                                    }
+                            // Chỉ xếp nếu trong khung 40 phút
+                            if (Math.abs(currentTimeVal - bTimeVal) > 40) return;
+
+                            let assignedStaff = b.staffId;
+                            if (assignedStaff === '隨機') {
+                                const ready = mappedStaff.filter(s => statusData[s.id]?.status === 'READY').sort((x,y) => (statusData[x.id].checkInTime||0) - (statusData[y.id].checkInTime||0));
+                                if(ready.length > 0) assignedStaff = ready[0].id;
+                            }
+
+                            // 1. XỬ LÝ COMBO (CHIA TÁCH)
+                            if (b.type === 'COMBO') {
+                                let durationStr = b.duration.toString();
+                                let rules = SPLIT_RULES[durationStr];
+                                if (!rules) rules = [{ foot: 40, body: b.duration - 40 }]; // Fallback mặc định
+
+                                let assigned = false;
+                                
+                                // Duyệt qua từng phương án ưu tiên (A -> B)
+                                for (let rule of rules) {
+                                    if (assigned) break;
                                     
-                                    // --- QUAN TRỌNG: MẶC ĐỊNH CHƯA CHẠY ---
-                                    currentRes[slotId] = { 
-                                        booking: { ...b, staffId: assignedStaff }, 
-                                        startTime: null, 
-                                        realStartTime: null,
-                                        isRunning: false,  // <-- Nút Bắt đầu sẽ hiện ra (Màu vàng)
-                                        isPaused: false 
-                                    }; 
+                                    const footTime = rule.foot;
+                                    const bodyTime = rule.body;
+                                    
+                                    // Tìm ghế trống (Giai đoạn 1)
+                                    const start1 = bTimeVal;
+                                    const end1 = start1 + footTime;
+                                    
+                                    // Tìm giường trống (Giai đoạn 2)
+                                    const start2 = end1;
+                                    const end2 = start2 + bodyTime;
+
+                                    let foundChair = null;
+                                    let foundBed = null;
+
+                                    for(let c=1; c<=6; c++) {
+                                        if (isSlotFree('chair', c, start1, end1, currentRes)) { foundChair = c; break; }
+                                    }
+
+                                    for(let bed=1; bed<=6; bed++) {
+                                        if (isSlotFree('bed', bed, start2, end2, currentRes)) { foundBed = bed; break; }
+                                    }
+
+                                    // Nếu tìm được CẢ HAI (Đủ bộ) -> Chốt đơn
+                                    if (foundChair && foundBed) {
+                                        // Ghi nhận Ghế
+                                        currentRes[`chair-${foundChair}`] = {
+                                            booking: { ...b, staffId: assignedStaff, duration: footTime, partType: 'FOOT' },
+                                            startTime: null, realStartTime: null, isRunning: false, isPaused: false
+                                        };
+                                        // Ghi nhận Giường (Giờ bắt đầu lùi lại)
+                                        currentRes[`bed-${foundBed}`] = {
+                                            booking: { 
+                                                ...b, staffId: assignedStaff, duration: bodyTime, partType: 'BODY',
+                                                time: minToTime(start2) // Cập nhật giờ hiển thị trên thẻ Giường
+                                            },
+                                            startTime: null, realStartTime: null, isRunning: false, isPaused: false
+                                        };
+                                        changed = true;
+                                        assigned = true;
+                                    }
+                                }
+                            } 
+                            // 2. XỬ LÝ DỊCH VỤ THƯỜNG (CHÂN HOẶC BODY)
+                            else {
+                                let targetType = b.type === 'CHAIR' ? 'chair' : 'bed';
+                                let start = bTimeVal;
+                                let end = start + b.duration;
+                                let foundSlot = null;
+
+                                for(let i=1; i<=6; i++) {
+                                    if (isSlotFree(targetType, i, start, end, currentRes)) { foundSlot = i; break; }
+                                }
+
+                                if (foundSlot) {
+                                    currentRes[`${targetType}-${foundSlot}`] = {
+                                        booking: { ...b, staffId: assignedStaff },
+                                        startTime: null, realStartTime: null, isRunning: false, isPaused: false
+                                    };
                                     changed = true;
                                 }
                             }
                         }
                     });
+                    
                     if (changed) { setResourceState(currentRes); localStorage.setItem('resource_state', JSON.stringify(currentRes)); }
 
                 } catch(e) { console.error(e); }
