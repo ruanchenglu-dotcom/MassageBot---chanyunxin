@@ -1,122 +1,88 @@
 {
-  "bed-3": {
-    "booking": {
-      "rowId": 3,
-      "startTimeString": "2025/12/05 12:30",
-      "date": "2025/12/05",
-      "time": "12:30",
-      "duration": 100,
-      "type": "BED",
-      "staffId": "隨機",
-      "pax": 2,
-      "customerName": "王  (1/2)",
-      "serviceName": "🔥 招牌套餐 (100分)",
-      "status": "active",
-      "lineId": "Ue576894a512399dd4256ed6f0063c6d3",
-      "id": 1,
-      "uniqueId": "3_1"
+  "sessions": {
+    "bed-3": {
+      "booking": {
+        "rowId": 3,
+        "startTimeString": "2025/12/05 12:30",
+        "date": "2025/12/05",
+        "time": "12:30",
+        "duration": 100,
+        "type": "BED",
+        "staffId": "隨機",
+        "pax": 2,
+        "customerName": "王  (1/2)",
+        "serviceName": "🔥 招牌套餐 (100分)",
+        "status": "active",
+        "lineId": "Ue576894a512399dd4256ed6f0063c6d3",
+        "id": 1,
+        "uniqueId": "3_1"
+      },
+      "startTime": null,
+      "isRunning": false
     },
-    "startTime": null,
-    "isRunning": false
+    "bed-4": {
+      "booking": {
+        "rowId": 3,
+        "startTimeString": "2025/12/05 12:30",
+        "date": "2025/12/05",
+        "time": "12:30",
+        "duration": 100,
+        "type": "BED",
+        "staffId": "隨機",
+        "pax": 2,
+        "customerName": "王  (2/2)",
+        "serviceName": "🔥 招牌套餐 (100分)",
+        "status": "active",
+        "lineId": "Ue576894a512399dd4256ed6f0063c6d3",
+        "id": 1,
+        "uniqueId": "3_2"
+      },
+      "startTime": null,
+      "isRunning": false
+    },
+    "bed-5": {
+      "booking": {
+        "rowId": 4,
+        "startTimeString": "2025/12/05 12:30",
+        "date": "2025/12/05",
+        "time": "12:30",
+        "duration": 100,
+        "type": "BED",
+        "staffId": "隨機",
+        "pax": 2,
+        "customerName": "蔡  (1/2)",
+        "serviceName": "🔥 招牌套餐 (100分) (油推+$200)",
+        "status": "active",
+        "lineId": "Ue576894a512399dd4256ed6f0063c6d3",
+        "id": 2,
+        "uniqueId": "4_1"
+      },
+      "startTime": null,
+      "isRunning": false
+    },
+    "bed-6": {
+      "booking": {
+        "rowId": 4,
+        "startTimeString": "2025/12/05 12:30",
+        "date": "2025/12/05",
+        "time": "12:30",
+        "duration": 100,
+        "type": "BED",
+        "staffId": "隨機",
+        "pax": 2,
+        "customerName": "蔡  (2/2)",
+        "serviceName": "🔥 招牌套餐 (100分) (油推+$200)",
+        "status": "active",
+        "lineId": "Ue576894a512399dd4256ed6f0063c6d3",
+        "id": 2,
+        "uniqueId": "4_2"
+      },
+      "startTime": null,
+      "isRunning": false
+    }
   },
-  "bed-4": {
-    "booking": {
-      "rowId": 3,
-      "startTimeString": "2025/12/05 12:30",
-      "date": "2025/12/05",
-      "time": "12:30",
-      "duration": 100,
-      "type": "BED",
-      "staffId": "隨機",
-      "pax": 2,
-      "customerName": "王  (2/2)",
-      "serviceName": "🔥 招牌套餐 (100分)",
-      "status": "active",
-      "lineId": "Ue576894a512399dd4256ed6f0063c6d3",
-      "id": 1,
-      "uniqueId": "3_2"
-    },
-    "startTime": null,
-    "isRunning": false
-  },
-  "bed-5": {
-    "booking": {
-      "rowId": 4,
-      "startTimeString": "2025/12/05 12:30",
-      "date": "2025/12/05",
-      "time": "12:30",
-      "duration": 100,
-      "type": "BED",
-      "staffId": "隨機",
-      "pax": 2,
-      "customerName": "蔡  (1/2)",
-      "serviceName": "🔥 招牌套餐 (100分) (油推+$200)",
-      "status": "active",
-      "lineId": "Ue576894a512399dd4256ed6f0063c6d3",
-      "id": 2,
-      "uniqueId": "4_1"
-    },
-    "startTime": null,
-    "isRunning": false
-  },
-  "bed-6": {
-    "booking": {
-      "rowId": 4,
-      "startTimeString": "2025/12/05 12:30",
-      "date": "2025/12/05",
-      "time": "12:30",
-      "duration": 100,
-      "type": "BED",
-      "staffId": "隨機",
-      "pax": 2,
-      "customerName": "蔡  (2/2)",
-      "serviceName": "🔥 招牌套餐 (100分) (油推+$200)",
-      "status": "active",
-      "lineId": "Ue576894a512399dd4256ed6f0063c6d3",
-      "id": 2,
-      "uniqueId": "4_2"
-    },
-    "startTime": null,
-    "isRunning": false
-  },
-  "bed-2": {
-    "booking": {
-      "rowId": 2,
-      "startTimeString": "2025/12/05 12:30",
-      "date": "2025/12/05",
-      "time": "12:30",
-      "duration": 100,
-      "type": "BED",
-      "staffId": "隨機",
-      "pax": 2,
-      "customerName": "王  (2/2)",
-      "serviceName": "🔥 招牌套餐 (100分) (油推+$200)",
-      "status": "active",
-      "lineId": "Ue576894a512399dd4256ed6f0063c6d3",
-      "id": 0,
-      "uniqueId": "2_2"
-    },
-    "startTime": null,
-    "isRunning": false
-  },
-  "bed-1": {
-    "booking": {
-      "rowId": 2,
-      "startTimeString": "2025/12/05 12:30",
-      "date": "2025/12/05",
-      "time": "12:30",
-      "duration": 100,
-      "type": "BED",
-      "staffId": "隨機",
-      "pax": 2,
-      "customerName": "王  (1/2)",
-      "serviceName": "🔥 招牌套餐 (100分) (油推+$200)",
-      "status": "active",
-      "lineId": "Ue576894a512399dd4256ed6f0063c6d3",
-      "id": 0,
-      "uniqueId": "2_1"
-    },
-    "startTime": null,
-    "isRunning": false
-  }
+  "completedIds": [
+    "2_2",
+    "2_1"
+  ]
 }
