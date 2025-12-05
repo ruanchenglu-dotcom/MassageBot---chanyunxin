@@ -1,5 +1,5 @@
 // ==============================================================================
-// PHIÊN BẢN V56.0 - SERVER BACKEND
+// SERVER V85 - FULL FEATURES (LINE BOT + GOOGLE SHEET + SERVER DB)
 // ==============================================================================
 
 require('dotenv').config(); 
@@ -9,6 +9,7 @@ const line = require('@line/bot-sdk');
 const { google } = require('googleapis');
 const cors = require('cors');
 const path = require('path');
+const fs = require('fs'); // Module đọc ghi file database
 
 // 1. CẤU HÌNH
 const config = {
@@ -21,6 +22,7 @@ const SHEET_ID = process.env.SHEET_ID;
 const BOOKING_SHEET = 'Sheet1'; 
 const STAFF_SHEET = 'StaffLog';
 const SCHEDULE_SHEET = 'StaffSchedule';
+const DB_FILE = 'sessions.json'; // File lưu trạng thái ghế/giường
 const MAX_CHAIRS = 6; 
 const MAX_BEDS = 6;   
 
@@ -34,6 +36,29 @@ let STAFF_LIST = [];
 let cachedBookings = []; 
 let cachedSchedule = []; 
 let userState = {}; 
+
+// --- QUẢN LÝ DATABASE FILE (sessions.json) ---
+function readSessionDB() {
+    try {
+        if (!fs.existsSync(DB_FILE)) {
+            fs.writeFileSync(DB_FILE, JSON.stringify({}), 'utf8');
+            return {};
+        }
+        const data = fs.readFileSync(DB_FILE, 'utf8');
+        return JSON.parse(data || '{}');
+    } catch (e) {
+        console.error("Lỗi đọc DB:", e);
+        return {};
+    }
+}
+
+function writeSessionDB(data) {
+    try {
+        fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2), 'utf8');
+    } catch (e) {
+        console.error("Lỗi ghi DB:", e);
+    }
+}
 
 // BẢNG GIÁ CHUẨN
 const SERVICES = {
@@ -181,7 +206,9 @@ async function syncData() {
 
                 cachedBookings.push({
                     rowId: rowId,
-                    startTimeString: `${dateStr} ${timeStr}`, // Frontend sẽ tự cắt chuỗi này
+                    startTimeString: `${dateStr} ${timeStr}`,
+                    date: dateStr, // Thêm trường riêng để Frontend dùng
+                    time: timeStr, // Thêm trường riêng để Frontend dùng
                     duration: duration,
                     type: type,
                     staffId: row[8] || '隨機', 
@@ -301,7 +328,7 @@ async function layLichDatGanNhat(userId) {
 }
 
 // ==============================================================================
-// 3. LOGIC (Availability & Menu) - Giữ nguyên logic của bạn
+// 3. LOGIC (Availability & Menu)
 // ==============================================================================
 function checkAvailability(dateStr, timeStr, serviceDuration, serviceType, specificStaffIds = null, pax = 1, requireFemale = false) {
     const displayDate = formatDateDisplay(dateStr); 
@@ -422,70 +449,50 @@ app.post('/callback', line.middleware(config), (req, res) => {
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
+// API: Lấy info + Server DB
 app.get('/api/info', async (req, res) => { 
     await syncData(); 
-    res.json({ staffList: STAFF_LIST, bookings: cachedBookings, schedule: cachedSchedule, resources: { chairs: MAX_CHAIRS, beds: MAX_BEDS } }); 
+    const currentSessions = readSessionDB(); 
+    res.json({ staffList: STAFF_LIST, bookings: cachedBookings, schedule: cachedSchedule, resources: { chairs: MAX_CHAIRS, beds: MAX_BEDS }, resourceState: currentSessions }); 
 });
 
+// API: Cập nhật trạng thái ghế (Lưu vào file JSON)
+app.post('/api/update-state', (req, res) => {
+    const newState = req.body;
+    writeSessionDB(newState);
+    res.json({ success: true });
+});
+
+// API: Admin Booking
 app.post('/api/admin-booking', async (req, res) => { 
     const data = req.body; 
-    await ghiVaoSheet({ 
-        ngayDen: data.ngayDen, 
-        gioDen: data.gioDen, 
-        dichVu: data.dichVu, 
-        nhanVien: data.nhanVien, 
-        userId: 'ADMIN_WEB', 
-        sdt: data.sdt || '現場客', 
-        hoTen: data.hoTen || '現場客', 
-        trangThai: '已預約', 
-        pax: data.pax || 1,
-        isOil: false 
-    }); 
+    await ghiVaoSheet({ ngayDen: data.ngayDen, gioDen: data.gioDen, dichVu: data.dichVu, nhanVien: data.nhanVien, userId: 'ADMIN_WEB', sdt: data.sdt || '現場客', hoTen: data.hoTen || '現場客', trangThai: '已預約', pax: data.pax || 1, isOil: false }); 
     res.json({ success: true }); 
 });
 
+// API: Update Status
 app.post('/api/update-status', async (req, res) => { 
     const { rowId, status } = req.body; 
     await updateBookingStatus(rowId, status); 
     res.json({ success: true }); 
 });
 
+// API: Admin Staff Action
 app.post('/api/admin-staff-action', async (req, res) => { 
     const { staffId, action, duration } = req.body; 
     const now = new Date(); 
     const taipeiNowStr = now.toLocaleString('en-US', { timeZone: 'Asia/Taipei', hour12: false }); 
     const todayISO = formatDateDisplay(new Date(taipeiNowStr)); 
     const currentTimeStr = taipeiNowStr.split(', ')[1].substring(0, 5); 
-    
-    let serviceName = ''; 
-    let statusText = ''; 
-    
-    if (action === 'break') { 
-        serviceName = `🍱 用餐 (${duration}分)`; 
-        statusText = '🍱 用餐中'; 
-    } else if (action === 'leave') { 
-        serviceName = `⛔ 早退 (${duration}分)`; 
-        statusText = '⚠️ 早退'; 
-    } 
-    
-    await ghiVaoSheet({ 
-        gioDen: currentTimeStr, 
-        ngayDen: todayISO, 
-        dichVu: serviceName, 
-        nhanVien: staffId, 
-        userId: 'ADMIN_WEB', 
-        sdt: 'ADMIN', 
-        hoTen: '員工操作', 
-        trangThai: statusText, 
-        pax: 1, 
-        isOil: false 
-    }); 
-    
+    let serviceName = ''; let statusText = ''; 
+    if (action === 'break') { serviceName = `🍱 用餐 (${duration}分)`; statusText = '🍱 用餐中'; } 
+    else if (action === 'leave') { serviceName = `⛔ 早退 (${duration}分)`; statusText = '⚠️ 早退'; } 
+    await ghiVaoSheet({ gioDen: currentTimeStr, ngayDen: todayISO, dichVu: serviceName, nhanVien: staffId, userId: 'ADMIN_WEB', sdt: 'ADMIN', hoTen: '員工操作', trangThai: statusText, pax: 1, isOil: false }); 
     res.json({ success: true }); 
 });
 
 // ==============================================================================
-// 5. BOT HANDLE EVENT
+// 5. BOT HANDLE EVENT (FULL LOGIC)
 // ==============================================================================
 async function handleEvent(event) {
   if (event.type !== 'message' || event.message.type !== 'text' && event.type !== 'postback') return Promise.resolve(null);
@@ -624,11 +631,11 @@ async function handleEvent(event) {
       return client.replyMessage(event.replyToken, { type: 'flex', altText: '服務價目表', contents: createMenuFlexMessage() });
   }
 
-  return client.replyMessage(event.replyToken, { type: 'flex', altText: '預約服務', contents: { "type": "bubble", "body": { "type": "box", "layout": "vertical", "contents": [ { "type": "text", "text": "您好 👋", "weight": "bold", "size": "lg", "align": "center" }, { "type": "text", "text": "請問您是要預約按摩服務嗎？", "wrap": true, "size": "sm", "color": "#555555", "align": "center", "margin": "md" } ] }, "footer": { "type": "box", "layout": "horizontal", "spacing": "sm", "contents": [ { "type": "button", "style": "primary", "action": { "type": "message", "label": "✅ 立即預約 (Book)", "text": "Action:Booking" } }, { "type": "button", "style": "secondary", "action": { "type": "message", "label": "📄 服務價目 (Menu)", "text": "Menu" } } ] } } });
+  return client.replyMessage(event.replyToken, { type: 'flex', altText: '預約服務', contents: { "type": "bubble", "body": { "type": "box", "layout": "vertical", "contents": [ { "type": "text", "text": "您好 👋", "weight": "bold", "size": "lg", "align": "center", "color": "#1DB446" }, { "type": "text", "text": "請問您是要預約按摩服務嗎？", "wrap": true, "size": "sm", "color": "#555555", "align": "center", "margin": "md" } ] }, "footer": { "type": "box", "layout": "horizontal", "spacing": "sm", "contents": [ { "type": "button", "style": "primary", "action": { "type": "message", "label": "✅ 立即預約 (Book)", "text": "Action:Booking" } }, { "type": "button", "style": "secondary", "action": { "type": "message", "label": "📄 服務價目 (Menu)", "text": "Menu" } } ] } } });
 }
 
 syncData();
 const port = process.env.PORT || 3000;
 app.listen(port, () => {
-    console.log(`Bot v56.0 (Gregorian Date) running on ${port}`);
+    console.log(`Bot v85 (Full Features & Server DB) running on ${port}`);
 });
