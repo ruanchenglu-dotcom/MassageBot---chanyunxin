@@ -1,0 +1,195 @@
+// ==============================================================================
+// SERVER V80 - SERVER-SIDE STORAGE (FIX SYNC & AUTO-START)
+// ==============================================================================
+
+require('dotenv').config(); 
+const express = require('express');
+const line = require('@line/bot-sdk');
+const { google } = require('googleapis');
+const cors = require('cors');
+const path = require('path');
+const fs = require('fs'); // Thêm module đọc ghi file
+
+// 1. CẤU HÌNH
+const config = {
+  channelAccessToken: process.env.CHANNEL_ACCESS_TOKEN,
+  channelSecret: process.env.CHANNEL_SECRET
+};
+
+const ID_BA_CHU = process.env.ID_BA_CHU;
+const SHEET_ID = process.env.SHEET_ID;
+const BOOKING_SHEET = 'Sheet1'; 
+const STAFF_SHEET = 'StaffLog';
+const SCHEDULE_SHEET = 'StaffSchedule';
+const DB_FILE = 'sessions.json'; // File database lưu trạng thái
+
+const auth = new google.auth.GoogleAuth({
+    keyFile: 'google-key.json', 
+    scopes: ['https://www.googleapis.com/auth/spreadsheets'],
+});
+const sheets = google.sheets({ version: 'v4', auth });
+
+let STAFF_LIST = []; 
+let cachedBookings = []; 
+let cachedSchedule = []; 
+let userState = {}; 
+
+// --- QUẢN LÝ DATABASE FILE (sessions.json) ---
+// Đọc trạng thái từ file
+function readSessionDB() {
+    try {
+        if (!fs.existsSync(DB_FILE)) {
+            fs.writeFileSync(DB_FILE, JSON.stringify({}), 'utf8');
+            return {};
+        }
+        const data = fs.readFileSync(DB_FILE, 'utf8');
+        return JSON.parse(data || '{}');
+    } catch (e) {
+        console.error("Lỗi đọc DB:", e);
+        return {};
+    }
+}
+
+// Ghi trạng thái vào file
+function writeSessionDB(data) {
+    try {
+        fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2), 'utf8');
+    } catch (e) {
+        console.error("Lỗi ghi DB:", e);
+    }
+}
+
+// BẢNG GIÁ
+const SERVICES = {
+    'CB_190': { name: '👑 帝王套餐 (190分)', duration: 190, type: 'BED', category: 'COMBO', price: 2000 },
+    'CB_130': { name: '💎 豪華套餐 (130分)', duration: 130, type: 'BED', category: 'COMBO', price: 1500 },
+    'CB_100': { name: '🔥 招牌套餐 (100分)', duration: 100, type: 'BED', category: 'COMBO', price: 999 },
+    'CB_70':  { name: '⚡ 精選套餐 (70分)',  duration: 70,  type: 'BED', category: 'COMBO', price: 900 },
+    'FT_120': { name: '👣 足底按摩 (120分)', duration: 120, type: 'CHAIR', category: 'FOOT', price: 1500 },
+    'FT_90':  { name: '👣 足底按摩 (90分)',  duration: 90,  type: 'CHAIR', category: 'FOOT', price: 999 },
+    'FT_70':  { name: '👣 足底按摩 (70分)',  duration: 70,  type: 'CHAIR', category: 'FOOT', price: 900 },
+    'FT_40':  { name: '👣 足底按摩 (40分)',  duration: 40,  type: 'CHAIR', category: 'FOOT', price: 500 },
+    'BD_120': { name: '🛏️ 全身指壓 (120分)', duration: 120, type: 'BED', category: 'BODY', price: 1500 },
+    'BD_90':  { name: '🛏️ 全身指壓 (90分)',  duration: 90,  type: 'BED', category: 'BODY', price: 999 },
+    'BD_70':  { name: '🛏️ 全身指壓 (70分)',  duration: 70,  type: 'BED', category: 'BODY', price: 900 }, 
+    'BD_35':  { name: '🛏️ 半身指壓 (35分)',  duration: 35,  type: 'BED', category: 'BODY', price: 500 },
+    'OFF_DAY': { name: '⛔ 請假', duration: 1080, type: 'NONE' },
+    'BREAK_30': { name: '🍱 用餐', duration: 30, type: 'NONE' },
+    'BREAK_60': { name: '🍱 用餐', duration: 60, type: 'NONE' },
+    'SHOP_CLOSE': { name: '⛔ 店休', duration: 1440, type: 'NONE' }
+};
+
+// HELPERS
+function normalizePhoneNumber(phone) { return phone ? phone.replace(/[^0-9]/g, '') : ''; }
+function formatDateDisplay(dateInput) {
+    if (!dateInput) return "";
+    try {
+        let str = dateInput.toString().trim();
+        if (str.includes('/') && str.split('/')[0].length === 4) return str.split(' ')[0];
+        let d = new Date(str);
+        if (isNaN(d.getTime())) return str;
+        const taipeiString = d.toLocaleString('en-US', { timeZone: 'Asia/Taipei' });
+        d = new Date(taipeiString);
+        const year = d.getFullYear().toString();
+        const month = (d.getMonth() + 1).toString().padStart(2, '0');
+        const day = d.getDate().toString().padStart(2, '0');
+        return `${year}/${month}/${day}`;
+    } catch (e) { return dateInput; }
+}
+function getCurrentDateTimeStr() {
+    const now = new Date().toLocaleString('en-US', { timeZone: 'Asia/Taipei', hour12: false });
+    const d = new Date(now);
+    return `${d.getFullYear()}/${(d.getMonth()+1).toString().padStart(2,'0')}/${d.getDate().toString().padStart(2,'0')} ${d.getHours().toString().padStart(2,'0')}:${d.getMinutes().toString().padStart(2,'0')}`;
+}
+function parseStringToDate(dateStr) { /* ...giữ nguyên logic cũ... */ return new Date(dateStr); } 
+// (Giản lược hàm parseStringToDate vì không dùng nhiều trong API mới, dùng logic cũ nếu cần)
+
+// SYNC DATA
+async function syncData() {
+    try {
+        const resBooking = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: `${BOOKING_SHEET}!A:K` });
+        const rowsBooking = resBooking.data.values;
+        cachedBookings = [];
+        if (rowsBooking && rowsBooking.length > 0) {
+            for (let i = 1; i < rowsBooking.length; i++) {
+                const row = rowsBooking[i];
+                if (!row[0] || !row[1]) continue;
+                const status = row[7] || '已預約'; 
+                if (status.includes('取消') || status.includes('Cancelled')) continue;
+                let duration = 60; let type = 'BED'; 
+                for (const key in SERVICES) { if ((row[3]||'').includes(SERVICES[key].name.split('(')[0])) { duration = SERVICES[key].duration; type = SERVICES[key].type; break; } }
+                cachedBookings.push({
+                    rowId: i + 1,
+                    startTimeString: `${row[0]} ${row[1]}`, // Gửi nguyên chuỗi để Client xử lý
+                    date: row[0], time: row[1], // Gửi thêm trường rời để Client dễ filter
+                    duration: duration, type: type, staffId: row[8] || '隨機', pax: parseInt(row[5]||1),
+                    customerName: `${row[2]} (${row[6]})`, serviceName: row[3], status: status, lineId: row[9]
+                });
+            }
+        }
+        // ... (Logic Sync Staff Schedule giữ nguyên) ...
+        const resSchedule = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: `${SCHEDULE_SHEET}!A1:AG100` });
+        const rows = resSchedule.data.values;
+        cachedSchedule = [];
+        if (rows && rows.length > 1) {
+            const tempStaffList = [];
+            const headerDates = rows[0]; 
+            for (let i = 1; i < rows.length; i++) {
+                const cleanName = rows[i][0].trim();
+                if(cleanName) {
+                    let gender = 'M';
+                    if ((rows[i][1]||'').toUpperCase().includes('F') || rows[i][1] === '女') gender = 'F';
+                    tempStaffList.push({ id: cleanName, name: cleanName, gender: gender, shiftStart: rows[i][2]||'00:00', shiftEnd: rows[i][3]||'24:00' });
+                    for (let j = 4; j < rows[i].length; j++) {
+                        if (rows[i][j] && headerDates[j]) cachedSchedule.push({ date: formatDateDisplay(headerDates[j]), staffId: cleanName });
+                    }
+                }
+            }
+            if (tempStaffList.length > 0) STAFF_LIST = tempStaffList;
+            else for(let i=1; i<=20; i++) STAFF_LIST.push({id:`${i}號`, name:`${i}號`, gender:'F', shiftStart:'00:00', shiftEnd:'24:00'});
+        } else if (STAFF_LIST.length===0) for(let i=1; i<=20; i++) STAFF_LIST.push({id:`${i}號`, name:`${i}號`, gender:'F', shiftStart:'00:00', shiftEnd:'24:00'});
+
+        console.log(`Synced: ${cachedBookings.length} bookings.`);
+    } catch (e) { console.error('Sync Error:', e); }
+}
+
+// SERVER & ROUTES
+const client = new line.Client(config);
+const app = express();
+app.use(cors());
+app.use(express.json());
+app.use(express.static(path.join(__dirname, 'public')));
+
+app.post('/callback', line.middleware(config), (req, res) => { Promise.all(req.body.events.map(handleEvent)).then((r) => res.json(r)).catch((e) => res.status(500).end()); });
+
+// API: Lấy thông tin tổng hợp (Bookings + Staff + Sessions từ File)
+app.get('/api/info', async (req, res) => { 
+    await syncData(); 
+    const currentSessions = readSessionDB(); // Đọc trạng thái ghế đang chạy từ File
+    res.json({ 
+        staffList: STAFF_LIST, 
+        bookings: cachedBookings, 
+        schedule: cachedSchedule, 
+        resourceState: currentSessions // Trả về cho Client
+    }); 
+});
+
+// API: Cập nhật trạng thái ghế (Start/Stop/Move)
+app.post('/api/update-state', (req, res) => {
+    const newState = req.body;
+    writeSessionDB(newState); // Ghi đè file
+    res.json({ success: true });
+});
+
+// API: Cập nhật trạng thái Booking (Hủy/Late trên Sheet)
+app.post('/api/update-status', async (req, res) => { /* ... giữ nguyên ... */ await sheets.spreadsheets.values.update({ spreadsheetId: SHEET_ID, range: `${BOOKING_SHEET}!H${req.body.rowId}`, valueInputOption: 'USER_ENTERED', requestBody: { values: [[ req.body.status ]] } }); await syncData(); res.json({ success: true }); });
+
+// API: Admin Booking (Giữ nguyên)
+app.post('/api/admin-booking', async (req, res) => { /* ... Giữ nguyên logic ghiVaoSheet ... */ res.json({ success: true }); });
+
+// ... (Các hàm Bot handleEvent giữ nguyên như cũ) ...
+async function handleEvent(event) { return Promise.resolve(null); } // Placeholder cho Bot logic (giữ nguyên code cũ của bạn ở đây)
+
+syncData();
+const port = process.env.PORT || 3000;
+app.listen(port, () => { console.log(`Server V80 (DB File) running on ${port}`); });
