@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Massage POS - Manager V43 (Final Logic)</title>
+    <title>Massage POS - Manager V56 (Fixed Sync)</title>
     
     <script src="https://cdn.tailwindcss.com"></script>
     <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.development.js"></script>
@@ -64,7 +64,7 @@
             List: "M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01", 
             Chart: "M12 20V10M18 20V4M6 20v-6", 
             Dollar: "M12 1v22M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6", 
-            Settings: "M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.18-.08a2 2 0 0 0-2 0l-.45.45a2 2 0 0 0 0 2l.08.18a2 2 0 0 1 0 2l-.25.43a2 2 0 0 1-1.73 1H2a2 2 0 0 0-2 2v.44a2 2 0 0 0 2 2h.18a2 2 0 0 1 1.73 1l.25.43a2 2 0 0 1 0 2l-.08.18a2 2 0 0 0 0 2l.45.45a2 2 0 0 0-2 0l-.18.08a2 2 0 0 1-2 0l.43.25a2 2 0 0 1-1-1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.18.08a2 2 0 0 0 2 0l.45-.45a2 2 0 0 0 0-2l-.08-.18a2 2 0 0 1 0-2l.25-.43a2 2 0 0 1 1.73-1H22a2 2 0 0 0 2-2v-.44a2 2 0 0 0-2-2h-.18a2 2 0 0 1-1.73-1l-.25-.43a2 2 0 0 1 0-2l.08-.18a2 2 0 0 0 0-2l.45-.45a2 2 0 0 0-2 0l-.18.08a2 2 0 0 1-2 0l.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z", 
+            Settings: "M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.18-.08a2 2 0 0 0-2 0l-.45.45a2 2 0 0 0 0 2l.08.18a2 2 0 0 1 0 2l-.25.43a2 2 0 0 1-1.73 1H2a2 2 0 0 0-2 2v.44a2 2 0 0 0 2 2h.18a2 2 0 0 1 1.73 1l.25.43a2 2 0 0 1 0 2l-.08.18a2 2 0 0 0 0 2l.45.45a2 2 0 0 0-2 0l-.18.08a2 2 0 0 1-2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.18.08a2 2 0 0 0 2 0l.45-.45a2 2 0 0 0 0-2l-.08-.18a2 2 0 0 1 0-2l.25-.43a2 2 0 0 1 1.73-1H22a2 2 0 0 0 2-2v-.44a2 2 0 0 0-2-2h-.18a2 2 0 0 1-1.73-1l-.25-.43a2 2 0 0 1 0-2l.08-.18a2 2 0 0 0 0-2l.45-.45a2 2 0 0 0-2 0l-.18.08a2 2 0 0 1-2 0l.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z", 
             X: "M18 6 6 18M6 6l12 12", 
             Check: "M20 6 9 17 4 12", 
             Refresh: "M23 4v6h-6M1 20v-6h6", 
@@ -101,7 +101,6 @@
             const handleStartClick = (resId) => {
                 const current = resourceState[resId];
                 if (!current) return;
-                // BẮT ĐẦU: Update isRunning = true, set RealStartTime
                 const newState = { 
                     ...resourceState, 
                     [resId]: { 
@@ -118,11 +117,9 @@
             const ResourceCard = ({ type, index }) => {
                 const id = `${type}-${index}`; const data = resourceState[id]; const isOccupied = !!data;
                 
-                // Tính toán giờ kết thúc
                 let endTime = '--:--'; 
                 if(isOccupied && data.isRunning && !data.isPaused && data.startTime) endTime = addMinutes(data.startTime, data.booking.duration);
 
-                // CSS: Dùng h-auto và min-h lớn để đảm bảo không bao giờ bị che
                 let cardClass = 'res-empty hover:border-purple-400 min-h-[220px] h-auto'; 
                 let statusLabel = '';
                 let statusBg = '';
@@ -133,7 +130,6 @@
                         statusLabel = 'ĐANG CHẠY'; 
                         statusBg = 'bg-red-500'; 
                     } else { 
-                        // TRẠNG THÁI CHỜ (QUAN TRỌNG: Viền vàng đậm)
                         cardClass = 'res-waiting min-h-[220px] h-auto'; 
                         statusLabel = 'CHỜ BẤM NÚT'; 
                         statusBg = 'bg-yellow-600'; 
@@ -142,7 +138,6 @@
 
                 return (
                     <div className={`res-card p-3 ${cardClass} flex flex-col justify-between`}>
-                        {/* PHẦN THÔNG TIN KHÁCH */}
                         <div className="w-full mb-2">
                             <div className="flex justify-between items-center border-b border-black/10 pb-2 mb-2">
                                 <span className="font-bold uppercase text-xs text-gray-500">{type==='chair'?`Ghế ${index}`:`Giường ${index}`}</span>
@@ -157,7 +152,6 @@
                                         <span className="bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded text-xs font-bold">NV: {data.booking.staffId.replace('號','')}</span>
                                     </div>
                                     
-                                    {/* Hiển thị giờ nếu đang chạy */}
                                     {data.isRunning && (
                                         <div className="mt-3 bg-white/60 p-2 rounded text-center border border-black/5 shadow-sm">
                                             <div className="text-[10px] text-gray-500 uppercase font-bold">Kết thúc lúc</div>
@@ -173,16 +167,13 @@
                             )}
                         </div>
 
-                        {/* PHẦN NÚT BẤM (ĐÃ TỐI GIẢN CHỈ CÒN 1 NÚT) */}
                         {isOccupied && (
                             <div className="mt-auto w-full pt-3 border-t border-black/10">
                                 {!data.isRunning ? (
-                                    // --- NÚT BẮT ĐẦU DUY NHẤT (RẤT TO) ---
                                     <button onClick={()=>handleStartClick(id)} className="w-full bg-green-600 hover:bg-green-700 text-white font-black py-4 rounded-xl shadow-lg text-lg flex items-center justify-center gap-2 animate-bounce transition-transform active:scale-95">
                                         <Icon d={PATHS.Play} size={24}/> BẮT ĐẦU
                                     </button>
                                 ) : (
-                                    // Nút khi đang chạy (Chỉ hiện nút Thanh toán)
                                     <button onClick={()=>onFinish(id, data)} className="w-full bg-slate-700 hover:bg-slate-800 text-white font-bold py-3 rounded-lg text-sm flex items-center justify-center gap-2 shadow transition-transform active:scale-95">
                                         <Icon d={PATHS.Check}/> THANH TOÁN
                                     </button>
@@ -209,7 +200,6 @@
             );
         };
 
-        // --- STAFF CARD 3D ---
         const StaffCard3D = ({ s, statusData, resourceState }) => {
             const isFemale = s.gender === 'F' || s.gender === '女'; 
             const local = statusData[s.id] || { status: 'AWAY' }; 
@@ -283,16 +273,27 @@
                     const today = getToday2025(); 
 
                     const todayBookings = apiBookings
-                        .map(b => ({ ...b, date: cleanDataStr(b.date), time: cleanTimeStr(b.time) }))
+                        .map(b => {
+                            // --- FIX QUAN TRỌNG: Tự động tách chuỗi startTimeString thành Ngày và Giờ ---
+                            let d = b.date;
+                            let t = b.time;
+                            if (b.startTimeString) {
+                                const parts = b.startTimeString.split(' ');
+                                d = parts[0];
+                                t = parts[1] || '00:00';
+                            }
+                            return { ...b, date: cleanDataStr(d), time: cleanTimeStr(t) };
+                        })
                         .filter(b => b.date === today) 
                         .map((b, i) => ({ ...b, id: i, status: (b.status && b.status.includes('取消')) ? 'cancelled' : 'active' }));
+                    
                     setBookings(todayBookings);
                     
                     const offStaffIds = schedule.filter(s => cleanDataStr(s.date) === today).map(s => s.staffId);
                     const mappedStaff = apiStaff.map(s => { const activeBooking = todayBookings.find(b => b.staffId === s.id && b.status === 'active'); const isOff = offStaffIds.includes(s.id); return { ...s, status: isOff ? 'off' : 'ready', activeBooking }; });
                     setStaffList(mappedStaff.sort((a,b) => parseInt(a.id.replace(/\D/g,'')) - parseInt(b.id.replace(/\D/g,''))));
 
-                    // AUTO ASSIGN (FIXED: LUÔN SET TRẠNG THÁI WAITING, KHÔNG TỰ CHẠY)
+                    // AUTO ASSIGN (FIXED: KHÔNG TỰ CHẠY)
                     const currentRes = { ...JSON.parse(localStorage.getItem('resource_state')) || {} };
                     let changed = false;
                     const now = new Date();

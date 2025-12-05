@@ -1,5 +1,5 @@
 // ==============================================================================
-// PHIÊN BẢN V56.0 - CHUYỂN ĐỔI SANG NĂM DƯƠNG LỊCH (YYYY/MM/DD)
+// PHIÊN BẢN V56.0 - SERVER BACKEND
 // ==============================================================================
 
 require('dotenv').config(); 
@@ -59,7 +59,7 @@ const SERVICES = {
 };
 
 // ==============================================================================
-// HELPERS (Cập nhật sang Dương Lịch)
+// HELPERS
 // ==============================================================================
 
 function normalizePhoneNumber(phone) {
@@ -81,12 +81,6 @@ function getNext7Days() {
     return days; 
 }
 
-function isFemale(staffId) {
-    const staff = STAFF_LIST.find(s => s.id === staffId);
-    if (!staff) return false;
-    return (staff.gender === 'F' || staff.gender === '女');
-}
-
 function isWithinShift(staff, requestTimeStr) {
     if (!staff.shiftStart || !staff.shiftEnd) return true;
     const getMins = (t) => {
@@ -101,32 +95,26 @@ function isWithinShift(staff, requestTimeStr) {
     return requestMins >= startMins && requestMins < endMins;
 }
 
-// [UPDATED] Hiển thị ngày tháng năm Dương lịch (YYYY/MM/DD)
 function formatDateDisplay(dateInput) {
     if (!dateInput) return "";
     try {
         let str = dateInput.toString().trim();
-        // Nếu đã có dạng YYYY/MM/DD thì trả về luôn (cắt bỏ phần giờ nếu có)
         if (str.includes('/') && str.split('/')[0].length === 4) return str.split(' ')[0];
-        
         let d = new Date(str);
         if (isNaN(d.getTime())) return str;
-        
         const taipeiString = d.toLocaleString('en-US', { timeZone: 'Asia/Taipei' });
         d = new Date(taipeiString);
-        
-        const year = d.getFullYear().toString(); // Không trừ 1911 nữa
+        const year = d.getFullYear().toString();
         const month = (d.getMonth() + 1).toString().padStart(2, '0');
         const day = d.getDate().toString().padStart(2, '0');
         return `${year}/${month}/${day}`;
     } catch (e) { return dateInput; }
 }
 
-// [UPDATED] Lấy thời gian hiện tại Dương lịch
 function getCurrentDateTimeStr() {
     const now = new Date().toLocaleString('en-US', { timeZone: 'Asia/Taipei', hour12: false });
     const d = new Date(now);
-    const year = d.getFullYear().toString(); // Không trừ 1911
+    const year = d.getFullYear().toString();
     const month = (d.getMonth() + 1).toString().padStart(2, '0');
     const day = d.getDate().toString().padStart(2, '0');
     const hh = d.getHours().toString().padStart(2, '0');
@@ -134,7 +122,6 @@ function getCurrentDateTimeStr() {
     return `${year}/${month}/${day} ${hh}:${mm}`;
 }
 
-// [UPDATED] Parse chuỗi ngày thành Date object (Xử lý Dương lịch)
 function parseStringToDate(dateStr) {
     if (!dateStr || typeof dateStr !== 'string') return null;
     try {
@@ -144,11 +131,8 @@ function parseStringToDate(dateStr) {
         const dateNums = datePart.split('/');
         const timeNums = timePart.split(':');
         if (dateNums.length < 3) return null;
-
-        // Xử lý năm: Nếu là 4 chữ số thì giữ nguyên, nếu < 1900 thì có thể là dữ liệu cũ (Minguo)
         let year = parseInt(dateNums[0]);
-        if (year < 1900) year += 1911; // Fallback: nếu dữ liệu cũ là Minguo thì tự convert, còn dữ liệu mới > 2000 thì giữ nguyên
-
+        if (year < 1900) year += 1911; 
         const month = parseInt(dateNums[1]) - 1;
         const day = parseInt(dateNums[2]);
         const hour = parseInt(timeNums[0]) || 0;
@@ -197,7 +181,7 @@ async function syncData() {
 
                 cachedBookings.push({
                     rowId: rowId,
-                    startTimeString: `${dateStr} ${timeStr}`,
+                    startTimeString: `${dateStr} ${timeStr}`, // Frontend sẽ tự cắt chuỗi này
                     duration: duration,
                     type: type,
                     staffId: row[8] || '隨機', 
@@ -248,10 +232,7 @@ async function syncData() {
 async function ghiVaoSheet(data) {
     try {
         const timeCreate = getCurrentDateTimeStr(); 
-        
-        // --- XỬ LÝ DỮ LIỆU ĐỂ GHI (THỨ TỰ CỘT A -> K) ---
         let colA_Date = formatDateDisplay(data.ngayDen);     
-        
         let colB_Time = data.gioDen || "";
         if (colB_Time.includes(' ')) colB_Time = colB_Time.split(' ')[1];
         if (colB_Time.length > 5) colB_Time = colB_Time.substring(0, 5); 
@@ -272,18 +253,13 @@ async function ghiVaoSheet(data) {
             colA_Date, colB_Time, colC_Name, colD_Service, colE_Oil, colF_Pax, colG_Phone, colH_Status, colI_Staff, colJ_LineID, colK_Created 
         ]];
 
-        console.log("[LOG] Đang ghi vào Sheet:", JSON.stringify(valuesToWrite));
-
         await sheets.spreadsheets.values.append({
             spreadsheetId: SHEET_ID, 
             range: 'Sheet1!A:A', 
             valueInputOption: 'USER_ENTERED',
             requestBody: { values: valuesToWrite }
         });
-        
-        console.log("[SUCCESS] Ghi thành công!");
         await syncData(); 
-        
     } catch (e) { console.error('[ERROR] Lỗi ghi Sheet:', e); }
 }
 
@@ -325,19 +301,18 @@ async function layLichDatGanNhat(userId) {
 }
 
 // ==============================================================================
-// 3. LOGIC
+// 3. LOGIC (Availability & Menu) - Giữ nguyên logic của bạn
 // ==============================================================================
 function checkAvailability(dateStr, timeStr, serviceDuration, serviceType, specificStaffIds = null, pax = 1, requireFemale = false) {
     const displayDate = formatDateDisplay(dateStr); 
     const startRequest = parseStringToDate(`${displayDate} ${timeStr}`);
     if (!startRequest) return false;
     const endRequest = new Date(startRequest.getTime() + serviceDuration * 60000);
-
     const staffOffToday = cachedSchedule.filter(s => s.date === displayDate).map(s => s.staffId);
     
     const workingStaffs = STAFF_LIST.filter(staff => {
         if (staffOffToday.includes(staff.id)) return false; 
-        if (requireFemale && staff.gender !== 'F' && staff.gender !== '女') return false;
+        if (requireFemale && (staff.gender !== 'F' && staff.gender !== '女')) return false;
         if (!isWithinShift(staff, timeStr)) return false; 
         return true;
     });
@@ -379,13 +354,10 @@ function checkAvailability(dateStr, timeStr, serviceDuration, serviceType, speci
 
     if (isShopClosed) return false;
     if (isSpecificStaffBusy) return false;
-
     const availableStaffCount = workingStaffs.length - workingStaffBusy;
     if (!specificStaffIds && availableStaffCount < pax) return false;
-
     if (serviceType === 'CHAIR' && (usedChairs + pax) > MAX_CHAIRS) return false;
     if (serviceType === 'BED' && (usedBeds + pax) > MAX_BEDS) return false;
-
     return true;
 }
 
@@ -405,7 +377,6 @@ function generateTimeBubbles(selectedDate, serviceCode, specificStaffIds = null,
     const bubbles = groups.filter(g => g.slots.length > 0).map(group => {
         const buttons = group.slots.map(h => {
             const timeStr = formatTime(h);
-            // GIÁ TRỊ GỬI VỀ PHẢI LÀ FULL TIME (Vd: 14:00)
             const valueToSend = h < 24 ? `${h.toString().padStart(2, '0')}:00` : `${(h - 24).toString().padStart(2, '0')}:00`;
             return { "type": "button", "style": "primary", "margin": "xs", "height": "sm", "action": { "type": "message", "label": timeStr, "text": `Time:${valueToSend}` } };
         });
@@ -418,21 +389,14 @@ function createStaffBubbles(filterFemale = false, excludedIds = []) {
     let list = STAFF_LIST;
     if (filterFemale) list = STAFF_LIST.filter(s => s.gender === 'F' || s.gender === '女');
     if (excludedIds && excludedIds.length > 0) list = list.filter(s => !excludedIds.includes(s.id));
-
-    if (!list || list.length === 0) {
-        return [{ "type": "bubble", "body": { "type": "box", "layout": "vertical", "contents": [{ "type": "text", "text": filterFemale ? "無女技師" : "無其他技師", "align": "center" }] } }];
-    }
-    const bubbles = [];
-    const chunkSize = 12; 
+    if (!list || list.length === 0) return [{ "type": "bubble", "body": { "type": "box", "layout": "vertical", "contents": [{ "type": "text", "text": filterFemale ? "無女技師" : "無其他技師", "align": "center" }] } }];
+    const bubbles = []; const chunkSize = 12; 
     for (let i = 0; i < list.length; i += chunkSize) {
         const chunk = list.slice(i, i + chunkSize);
         const rows = [];
         for (let j = 0; j < chunk.length; j += 3) {
             const rowItems = chunk.slice(j, j + 3);
-            const rowButtons = rowItems.map(s => ({
-                "type": "button", "style": "secondary", "color": (s.gender === 'F' || s.gender === '女') ? "#F48FB1" : "#90CAF9", "height": "sm", "margin": "xs", "flex": 1,
-                "action": { "type": "message", "label": s.name, "text": `StaffSelect:${s.id}` }
-            }));
+            const rowButtons = rowItems.map(s => ({ "type": "button", "style": "secondary", "color": (s.gender === 'F' || s.gender === '女') ? "#F48FB1" : "#90CAF9", "height": "sm", "margin": "xs", "flex": 1, "action": { "type": "message", "label": s.name, "text": `StaffSelect:${s.id}` } }));
             rows.push({ "type": "box", "layout": "horizontal", "spacing": "xs", "contents": rowButtons });
         }
         bubbles.push({ "type": "bubble", "body": { "type": "box", "layout": "vertical", "contents": [ { "type": "text", "text": filterFemale ? "選擇女技師" : "指定技師", "weight": "bold", "align": "center", "color": "#1DB446" }, { "type": "separator", "margin": "md" }, ...rows ] } });
@@ -441,42 +405,8 @@ function createStaffBubbles(filterFemale = false, excludedIds = []) {
 }
 
 function createMenuFlexMessage() {
-    const createRow = (serviceName, time, price) => ({
-        "type": "box", "layout": "horizontal", "contents": [
-            { "type": "text", "text": serviceName, "size": "sm", "color": "#555555", "flex": 5 },
-            { "type": "text", "text": `${time}分`, "size": "sm", "color": "#111111", "align": "end", "flex": 2 },
-            { "type": "text", "text": `$${price}`, "size": "sm", "color": "#E63946", "weight": "bold", "align": "end", "flex": 3 }
-        ]
-    });
-
-    return {
-        "type": "bubble",
-        "size": "mega",
-        "body": {
-            "type": "box", "layout": "vertical", "contents": [
-                { "type": "text", "text": "📜 服務價目表 (Menu)", "weight": "bold", "size": "xl", "color": "#1DB446", "align": "center", "margin": "md" },
-                { "type": "separator", "margin": "lg" },
-                { "type": "text", "text": "🔥 熱門套餐 (Combo)", "weight": "bold", "size": "md", "color": "#111111", "margin": "lg" },
-                createRow("👑 帝王套餐 (腳+身)", 190, 2000),
-                createRow("💎 豪華套餐 (腳+身)", 130, 1500),
-                createRow("🔥 招牌套餐 (腳+身)", 100, 999),
-                createRow("⚡ 精選套餐 (腳+身)", 70, 900),
-                { "type": "text", "text": "👣 足底按摩 (Foot)", "weight": "bold", "size": "md", "color": "#111111", "margin": "lg" },
-                createRow("足底按摩", 120, 1500),
-                createRow("足底按摩", 90, 999),
-                createRow("足底按摩", 70, 900),
-                createRow("足底按摩", 40, 500),
-                { "type": "text", "text": "🛏️ 身體指壓 (Body)", "weight": "bold", "size": "md", "color": "#111111", "margin": "lg" },
-                createRow("全身指壓", 120, 1500),
-                createRow("全身指壓", 90, 999),
-                createRow("全身指壓", 70, 900),
-                createRow("半身指壓", 35, 500),
-                { "type": "separator", "margin": "xl" },
-                { "type": "text", "text": "⭐ 油推需加收 $200，請詢問櫃台。", "size": "xs", "color": "#aaaaaa", "margin": "md", "align": "center" }
-            ]
-        },
-        "footer": { "type": "box", "layout": "vertical", "contents": [ { "type": "button", "style": "primary", "action": { "type": "message", "label": "📅 立即預約 (Book Now)", "text": "Action:Booking" } } ] }
-    };
+    const createRow = (serviceName, time, price) => ({ "type": "box", "layout": "horizontal", "contents": [ { "type": "text", "text": serviceName, "size": "sm", "color": "#555555", "flex": 5 }, { "type": "text", "text": `${time}分`, "size": "sm", "color": "#111111", "align": "end", "flex": 2 }, { "type": "text", "text": `$${price}`, "size": "sm", "color": "#E63946", "weight": "bold", "align": "end", "flex": 3 } ] });
+    return { "type": "bubble", "size": "mega", "body": { "type": "box", "layout": "vertical", "contents": [ { "type": "text", "text": "📜 服務價目表 (Menu)", "weight": "bold", "size": "xl", "color": "#1DB446", "align": "center", "margin": "md" }, { "type": "separator", "margin": "lg" }, { "type": "text", "text": "🔥 熱門套餐 (Combo)", "weight": "bold", "size": "md", "color": "#111111", "margin": "lg" }, createRow("👑 帝王套餐 (腳+身)", 190, 2000), createRow("💎 豪華套餐 (腳+身)", 130, 1500), createRow("🔥 招牌套餐 (腳+身)", 100, 999), createRow("⚡ 精選套餐 (腳+身)", 70, 900), { "type": "text", "text": "👣 足底按摩 (Foot)", "weight": "bold", "size": "md", "color": "#111111", "margin": "lg" }, createRow("足底按摩", 120, 1500), createRow("足底按摩", 90, 999), createRow("足底按摩", 70, 900), createRow("足底按摩", 40, 500), { "type": "text", "text": "🛏️ 身體指壓 (Body)", "weight": "bold", "size": "md", "color": "#111111", "margin": "lg" }, createRow("全身指壓", 120, 1500), createRow("全身指壓", 90, 999), createRow("全身指壓", 70, 900), createRow("半身指壓", 35, 500), { "type": "separator", "margin": "xl" }, { "type": "text", "text": "⭐ 油推需加收 $200，請詢問櫃台。", "size": "xs", "color": "#aaaaaa", "margin": "md", "align": "center" } ] }, "footer": { "type": "box", "layout": "vertical", "contents": [ { "type": "button", "style": "primary", "action": { "type": "message", "label": "📅 立即預約 (Book Now)", "text": "Action:Booking" } } ] } };
 }
 
 // ==============================================================================
