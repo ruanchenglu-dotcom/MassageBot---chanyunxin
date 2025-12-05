@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Massage POS - Manager V87 (Anti-Zombie)</title>
+    <title>XinWuChan POS - Safe Staff View</title>
     
     <script src="https://cdn.tailwindcss.com"></script>
     <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.development.js"></script>
@@ -12,307 +12,349 @@
     <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/axios/1.6.7/axios.min.js"></script>
 
     <style>
-        body { font-family: 'Microsoft JhengHei', sans-serif; background-color: #f0f2f5; }
+        body { font-family: 'Microsoft JhengHei', sans-serif; background-color: #f3f4f6; }
         .scrollbar-hide::-webkit-scrollbar { display: none; }
-        .modal-animate { animation: slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1); }
-        @keyframes slideUp { from { transform: translateY(50px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+        .timeline-grid { background-image: linear-gradient(to right, #e5e7eb 1px, transparent 1px); background-size: 5.55% 100%; }
         
-        .res-card { transition: all 0.2s; position: relative; border-radius: 12px; background: white; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); display: flex; flex-direction: column; overflow: hidden; }
-        .res-empty { border: 2px dashed #CBD5E1; background: #F8FAFC; color: #94A3B8; align-items: center; justify-content: center; }
-        .res-waiting { border: 4px solid #EAB308; background: #FEFCE8; } 
-        .res-running { border: 3px solid #EF4444; background: #FEF2F2; }
-        .res-paused  { border: 3px solid #F97316; background: #FFEDD5; }
+        /* Hộp báo lỗi khẩn cấp */
+        #crash-screen { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: #fee2e2; z-index: 9999; padding: 20px; color: #991b1b; }
+
+        /* STYLE THẺ NHÂN VIÊN (CHỮ NHẬT ĐỨNG) */
+        .staff-card {
+            min-width: 90px;  /* Chiều rộng */
+            height: 110px;    /* Chiều cao */
+            transition: all 0.2s;
+        }
+        .staff-card:hover { transform: translateY(-4px); box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1); }
         
-        .card-3d { transition: all 0.1s; width: 90px; height: 110px; border-radius: 12px; display: flex; flex-direction: column; cursor: pointer; background: white; }
-        .card-3d:active { transform: translateY(4px); border-bottom-width: 0px; margin-bottom: 4px; }
-        .style-male { border: 2px solid #3B82F6; border-bottom: 5px solid #2563EB; color: #1E3A8A; }
-        .style-female { border: 2px solid #F472B6; border-bottom: 5px solid #DB2777; color: #BE185D; }
-        .st-busy { background: #FEF2F2; border-color: #EF4444 !important; border-bottom-color: #B91C1C !important; color: #B91C1C !important; }
-        .st-booked { background: #FFFBEB; border-color: #F59E0B !important; border-bottom-color: #B45309 !important; color: #B45309 !important; } 
-        .st-away { background: #E5E7EB; border-color: #9CA3AF !important; border-bottom-color: #6B7280 !important; color: #9CA3AF !important; opacity: 0.6; }
-        
-        .btn-tool { display: flex; align-items: center; justify-content: center; padding: 8px; border-radius: 6px; font-weight: bold; font-size: 11px; box-shadow: 0 1px 2px rgba(0,0,0,0.1); cursor: pointer; transition: all 0.1s; }
-        .btn-tool:active { transform: scale(0.95); }
-        .tag-foot { background-color: #d1fae5; color: #065f46; border: 1px solid #34d399; }
-        .tag-body { background-color: #e0e7ff; color: #3730a3; border: 1px solid #818cf8; }
+        /* Viền giới tính */
+        .border-female { border-bottom: 4px solid #F472B6; } /* Hồng */
+        .border-male { border-bottom: 4px solid #60A5FA; }   /* Xanh */
     </style>
 </head>
 <body>
-    <div id="root"></div>
+    <div id="crash-screen">
+        <h1 class="text-2xl font-bold mb-2">⚠️ WEB APP BỊ LỖI (CRASHED)</h1>
+        <pre id="crash-reason" class="bg-white p-4 rounded border border-red-500 font-mono text-sm">Đang kiểm tra...</pre>
+        <button onclick="location.reload()" class="mt-4 bg-red-600 text-white px-4 py-2 rounded font-bold">Tải lại trang (F5)</button>
+    </div>
+
+    <div id="root">
+        <div class="flex items-center justify-center h-screen text-emerald-600 font-bold text-xl">
+            ⏳ Đang tải hệ thống...
+        </div>
+    </div>
+
+    <script>
+        window.onerror = function(msg, url, line, col, error) {
+            document.getElementById('root').style.display = 'none';
+            document.getElementById('crash-screen').style.display = 'block';
+            document.getElementById('crash-reason').innerText = `Lỗi: ${msg}\nTại dòng: ${line}`;
+        };
+    </script>
 
     <script type="text/babel">
-        const { useState, useEffect } = React;
-        const Icon = ({ d, size=16 }) => (<svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d={d} /></svg>);
-        const PATHS = { Grid: "M3 3h7v7H3zM14 3h7v7h-7zM14 14h7v7h-7zM3 14h7v7H3z", List: "M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01", Dollar: "M12 1v22M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6", Check: "M20 6 9 17 4 12", Refresh: "M23 4v6h-6M1 20v-6h6", Play: "M5 3l14 9-14 9V3z", Pause: "M6 4h4v16H6zm8 0h4v16h-4z", Swap: "M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4", Trash: "M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2", Plus: "M12 5v14M5 12h14", X: "M18 6 6 18M6 6l12 12", Settings: "M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.18-.08a2 2 0 0 0-2 0l-.45.45a2 2 0 0 0 0 2l.08.18a2 2 0 0 1 0 2l-.25.43a2 2 0 0 1-1.73 1H2a2 2 0 0 0-2 2v.44a2 2 0 0 0 2 2h.18a2 2 0 0 1 1.73 1l.25.43a2 2 0 0 1 0 2l-.08.18a2 2 0 0 0 0 2l.45.45a2 2 0 0 0-2 0l-.18.08a2 2 0 0 1-2 0l.43.25a2 2 0 0 1 1-1.73V4a2 2 0 0 0-2-2z" };
-        const SERVICE_PRICES = { '帝王': 2000, '豪華': 1500, '招牌': 999, '精選': 900, '足底': 500, '全身': 1000, '半身': 500 };
-        const SPLIT_RULES = { '190': [{foot: 90, body: 100}, {foot: 80, body: 110}], '130': [{foot: 50, body: 80}, {foot: 60, body: 70}], '100': [{foot: 40, body: 60}, {foot: 50, body: 50}], '70': [{foot: 35, body: 35}, {foot: 30, body: 40}] };
-        
-        const cleanDataStr = (str) => { if(!str) return ""; let s = str.toString().trim(); if(s.includes(' ')) s = s.split(' ')[0]; return s; };
-        const cleanTimeStr = (str) => { if(!str) return "00:00"; let s = str.toString().trim(); if(!s.includes(':')) return `${s}:00`; return s; };
-        const getToday2025 = () => { const d = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Taipei' })); return `${d.getFullYear()}/${(d.getMonth()+1).toString().padStart(2,'0')}/${d.getDate().toString().padStart(2,'0')}`; };
-        const parseTime = (str) => { if(!str) return 0; const [h, m] = str.split(':').map(Number); return (h||0)*60 + (m||0); };
-        const minToTime = (min) => { const h = Math.floor(min/60); const m = min%60; return `${h.toString().padStart(2,'0')}:${m.toString().padStart(2,'0')}`; };
-        const addMinutes = (iso, m) => { if(!iso) return ''; const d = new Date(iso); d.setMinutes(d.getMinutes() + m); return d.toLocaleTimeString('en-US', { hour:'2-digit', minute:'2-digit', hour12:false }); };
-        const formatTime = (iso) => { if(!iso) return '--:--'; return new Date(iso).toLocaleTimeString('en-US', { hour:'2-digit', minute:'2-digit', hour12:false }); };
-        const getPrice = (n) => { for(let k in SERVICE_PRICES) if(n && n.includes(k)) return SERVICE_PRICES[k]; return 0; };
+        const { useState, useEffect, useMemo } = React;
 
-        // --- COMPONENTS ---
-        const BillingModal = ({ members, onClose, onPayOne }) => {
-            const totalGroup = members.reduce((sum, m) => sum + getPrice(m.data.booking.serviceName) + (m.data.booking.serviceName.includes('油')?200:0), 0);
+        // --- 1. BỘ ICON SVG NỘI BỘ (KHÔNG LO LỖI THƯ VIỆN) ---
+        const Icon = ({ d, size=20, className="" }) => (
+            <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d={d} /></svg>
+        );
+        const PATHS = {
+            Grid: "M3 3h7v7H3zM14 3h7v7h-7zM14 14h7v7h-7zM3 14h7v7H3z",
+            Users: "M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2M9 7a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75",
+            Plus: "M12 5v14M5 12h14",
+            Clock: "M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10zM12 6v6l4 2",
+            Armchair: "M19 9V6a2 2 0 0 0-2-2H7a2 2 0 0 0-2 2v3M3 16a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-5a2 2 0 0 0-4 0v2H7v-2a2 2 0 0 0-4 0ZM5 18v2M19 18v2",
+            Bed: "M2 4v16M2 8h18a2 2 0 0 1 2 2v10M2 17h20M6 8v9",
+            Refresh: "M23 4v6h-6M1 20v-6h6",
+            X: "M18 6 6 18M6 6l12 12",
+            Check: "M20 6 9 17 4 12",
+            Trash: "M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2",
+            Coffee: "M18 8h1a4 4 0 0 1 0 8h-1M2 8h16v9a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V8zM6 1v3M10 1v3M14 1v3",
+            LogOut: "M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"
+        };
+
+        // --- 2. CẤU HÌNH ---
+        const SERVICES = [
+            { id: 'CB_190', name: '👑 帝王套餐 (190分)', duration: 190, type: 'combo' },
+            { id: 'CB_130', name: '💎 豪華套餐 (130分)', duration: 130, type: 'combo' },
+            { id: 'CB_100', name: '🔥 招牌套餐 (100分)', duration: 100, type: 'combo' },
+            { id: 'CB_70',  name: '⚡ 精選套餐 (70分)',  duration: 70,  type: 'combo' },
+            { id: 'FT_120', name: '👣 足底按摩 (120分)', duration: 120, type: 'foot' },
+            { id: 'FT_90',  name: '👣 足底按摩 (90分)',  duration: 90,  type: 'foot' },
+            { id: 'FT_70',  name: '👣 足底按摩 (70分)',  duration: 70,  type: 'foot' },
+            { id: 'FT_40',  name: '👣 足底按摩 (40分)',  duration: 40,  type: 'foot' },
+            { id: 'BD_120', name: '🛏️ 全身指壓 (120分)', duration: 120, type: 'body' },
+            { id: 'BD_90',  name: '🛏️ 全身指壓 (90分)',  duration: 90,  type: 'body' },
+            { id: 'BD_70',  name: '🛏️ 全身指壓 (70分)',  duration: 70,  type: 'body' },
+            { id: 'BD_35',  name: '🛏️ 半身指壓 (35分)',  duration: 35,  type: 'body' },
+        ];
+
+        const RESOURCES = {
+            chair: Array.from({ length: 6 }, (_, i) => ({ id: `chair_${i + 1}`, name: `Foot ${i + 1}` })),
+            bed: Array.from({ length: 6 }, (_, i) => ({ id: `bed_${i + 1}`, name: `Body ${i + 1}` })),
+        };
+
+        const parseDate114 = (str) => {
+            if (!str) return new Date();
+            try { const [d, t] = str.split(' '); const [y, m, day] = d.split('/'); const [hh, mm] = t.split(':'); return new Date(parseInt(y)+1911, parseInt(m)-1, parseInt(day), parseInt(hh), parseInt(mm)); } catch (e) { return new Date(); }
+        };
+        const formatTime = (d) => d ? d.toLocaleTimeString('en-US', {hour:'2-digit', minute:'2-digit', hour12:false}) : '--:--';
+
+        // --- 3. TIMELINE COMPONENT ---
+        const TimelineComponent = ({ bookings }) => {
+            const startHour = 8; 
+            const totalHours = 18; 
+            const hours = Array.from({length: totalHours + 1}, (_, i) => (startHour + i) % 24);
+
+            const getPosition = (date, duration) => {
+                if(!date) return { left: '0%', width: '0%' };
+                let h = date.getHours();
+                let m = date.getMinutes();
+                if (h < startHour) h += 24;
+                
+                const startMins = (h - startHour) * 60 + m;
+                const left = (startMins / (totalHours * 60)) * 100;
+                const width = (duration / (totalHours * 60)) * 100;
+                
+                return { left: `${Math.max(0, left)}%`, width: `${Math.min(100, width)}%` };
+            };
+
             return (
-                <div className="fixed inset-0 bg-black/70 z-[100] flex items-center justify-center p-4 backdrop-blur-sm modal-animate">
-                    <div className="bg-white w-full max-w-lg rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
-                        <div className="bg-slate-800 text-white p-4 text-center shrink-0"><h3 className="text-xl font-bold flex items-center justify-center gap-2"><Icon d={PATHS.Dollar}/> THANH TOÁN</h3></div>
-                        <div className="p-4 overflow-y-auto bg-slate-50 flex-1 space-y-3">
-                            {members.map((m) => {
-                                const price = getPrice(m.data.booking.serviceName); const oil = m.data.booking.serviceName.includes('油') ? 200 : 0;
-                                const isChair = m.resId.includes('chair');
-                                return (
-                                    <div key={m.resId} className="bg-white p-3 rounded-xl border border-gray-200 shadow-sm flex justify-between items-center hover:border-emerald-400">
-                                        <div className="flex-1">
-                                            <div className="flex items-center gap-2"><span className={`text-[10px] font-bold px-2 rounded uppercase ${isChair?'bg-emerald-100 text-emerald-700':'bg-purple-100 text-purple-700'}`}>{isChair ? `Ghế ${m.resId.split('-')[1]}` : `Giường ${m.resId.split('-')[1]}`}</span><span className="font-black text-slate-800">{m.data.booking.customerName}</span></div>
-                                            <div className="text-xs text-gray-500 mt-1">{m.data.booking.serviceName}</div>
-                                            {oil>0 && <div className="text-[10px] text-orange-600 font-bold">+ Oil ($200)</div>}
-                                        </div>
-                                        <div className="flex items-center gap-3"><div className="text-right font-black text-lg text-emerald-600">${(price+oil).toLocaleString()}</div><button onClick={() => onPayOne(m.resId, m.data.booking)} className="bg-emerald-500 hover:bg-emerald-600 text-white p-2 rounded-lg shadow min-w-[80px] flex flex-col items-center"><Icon d={PATHS.Check} size={18}/><span className="text-[9px] uppercase font-bold">Thu Ngay</span></button></div>
-                                    </div>
-                                );
-                            })}
+                <div className="flex flex-col h-full bg-white border rounded-b-xl overflow-hidden text-xs">
+                    <div className="flex border-b bg-slate-50 shrink-0 h-8">
+                        <div className="w-16 border-r p-2 font-bold text-center sticky left-0 bg-slate-50 z-10">Res</div>
+                        <div className="flex-1 relative">
+                            {hours.map((h, i) => (<div key={i} className="absolute text-[10px] text-slate-400 border-l pl-1 h-full" style={{ left: `${(i / totalHours) * 100}%` }}>{h}</div>))}
                         </div>
-                        <div className="p-4 bg-white border-t space-y-3 shrink-0"><div className="flex justify-between items-center text-xl font-black text-slate-800 px-2"><span>TỔNG NHÓM</span><span className="text-emerald-600">${totalGroup.toLocaleString()}</span></div><button onClick={onClose} className="w-full py-3 rounded-xl font-bold bg-gray-200 text-gray-600">Đóng / Quay lại</button></div>
+                    </div>
+                    <div className="flex-1 overflow-y-auto relative">
+                        <div className="absolute inset-0 timeline-grid w-full h-full pointer-events-none z-0"></div>
+                        {[...RESOURCES.chair, ...RESOURCES.bed].map(res => (
+                            <div key={res.id} className="flex border-b h-10 relative hover:bg-slate-50">
+                                <div className="w-16 shrink-0 border-r font-bold text-slate-600 bg-white sticky left-0 z-10 flex items-center justify-center text-[10px]">{res.name}</div>
+                                <div className="flex-1 relative">
+                                    {bookings.filter(b => (b.resourceId === res.id || b.resource1 === res.id || b.resource2 === res.id) && b.status !== 'cancelled').map(b => {
+                                        const svc = SERVICES.find(s => b.serviceName.includes(s.name.split('(')[0])) || { duration: 60 };
+                                        const pos = getPosition(b.startTimeFull, svc.duration);
+                                        return (<div key={b.rowId} className={`absolute top-1 bottom-1 rounded px-1 flex items-center overflow-hidden text-white text-[9px] cursor-pointer z-10 ${b.status==='active'?'bg-red-500':'bg-emerald-500'}`} style={{ left: pos.left, width: pos.width }} title={b.customerName}>{b.customerName.split(' ')[0]}</div>);
+                                    })}
+                                </div>
+                            </div>
+                        ))}
                     </div>
                 </div>
             );
         };
 
-        const ResourceMap = ({ bookings, resourceState, completedIds, updateState, staffList, statusData }) => {
-            const [billModal, setBillModal] = useState(null);
-            
-            // --- SYNC START ---
-            const handleStartClick = (resId) => {
-                const current = resourceState[resId]; if (!current) return;
-                const rowId = current.booking.rowId;
-                const newState = { sessions: { ...resourceState }, completedIds: [...completedIds] };
-                const now = new Date().toISOString();
-                
-                Object.keys(newState.sessions).forEach(key => {
-                    const item = newState.sessions[key];
-                    if (item.booking.rowId === rowId && !item.isRunning) {
-                        newState.sessions[key] = { ...item, startTime: now, realStartTime: now, isRunning: true, isPaused: false };
-                    }
-                });
-                updateState(newState);
-            };
-
-            // --- PAY ONE (SỬA LỖI KHÁCH MA) ---
-            const handlePayOne = async (resId, booking) => {
-                const newState = { 
-                    sessions: { ...resourceState }, 
-                    completedIds: [...completedIds, booking.uniqueId] // Thêm vào blacklist
-                };
-                delete newState.sessions[resId]; // Xóa khỏi ghế
-                
-                // Cập nhật lên Server
-                await updateState(newState);
-
-                // Kiểm tra xem nhóm này đã hết sạch người chưa để đổi status trên Sheet
-                const rowId = booking.rowId;
-                const remaining = Object.values(newState.sessions).some(b => b.booking.rowId === rowId);
-                if (!remaining) {
-                    try { await axios.post('/api/update-status', { rowId, status: '✅ 已結帳' }); } catch(e){}
-                }
-
-                setBillModal(prev => { const nm = prev.members.filter(m => m.resId !== resId); return nm.length ? { members: nm } : null; });
-            };
-
-            // CÁC HÀM KHÁC
-            const handlePauseClick = (resId) => { const current = resourceState[resId]; updateState({ sessions: { ...resourceState, [resId]: { ...current, isPaused: !current.isPaused } }, completedIds }); };
-            const handleCancelClick = (resId) => { if(!confirm("Hủy khách này?")) return; const n = { sessions: { ...resourceState }, completedIds }; delete n.sessions[resId]; updateState(n); };
-            const handleSwitchClick = (fromId) => {
-                const current = resourceState[fromId]; if(!current) return;
-                const targetType = fromId.includes('chair') ? 'bed' : 'chair';
-                let targetId = null; for(let i=1; i<=6; i++) { if (!resourceState[`${targetType}-${i}`]) { targetId = `${targetType}-${i}`; break; } }
-                if(targetId) { const n = { sessions: { ...resourceState }, completedIds }; delete n.sessions[fromId]; n.sessions[targetId] = current; updateState(n); } else alert("Hết chỗ!");
-            };
-
-            const handleFinishClick = (resId) => {
-                const current = resourceState[resId];
-                const rowId = current.booking.rowId;
-                const members = Object.keys(resourceState).filter(k => resourceState[k].booking.rowId === rowId).map(k => ({ resId: k, data: resourceState[k] }));
-                setBillModal({ members });
-            };
-
-            const ResourceCard = ({ type, index }) => {
-                const id = `${type}-${index}`; const data = resourceState[id]; const isOccupied = !!data;
-                let endTime = '--:--'; if(isOccupied && data.isRunning && !data.isPaused && data.startTime) endTime = addMinutes(data.startTime, data.booking.duration);
-                
-                if (!isOccupied) return (<div className="res-card p-3 res-empty min-h-[260px] h-auto"><div className="flex justify-between items-center border-b pb-2 mb-2"><span className="font-bold text-xs text-gray-500">{type==='chair'?`Ghế ${index}`:`Giường ${index}`}</span></div><div className="w-full h-32 flex flex-col items-center justify-center text-gray-300"><Icon d={PATHS.Plus} size={32}/><span className="text-xs font-bold mt-2">Trống</span></div></div>);
-
-                let cardClass = data.isRunning ? (data.isPaused ? 'res-paused' : 'res-running') : 'res-waiting';
-                let statusLabel = data.isRunning ? (data.isPaused ? 'TẠM DỪNG' : 'ĐANG CHẠY') : 'CHỜ BẤM NÚT';
-                let statusBg = data.isRunning ? (data.isPaused ? 'bg-orange-500' : 'bg-red-500') : 'bg-yellow-600';
-
-                return (
-                    <div className={`res-card p-3 ${cardClass} min-h-[260px] h-auto flex flex-col justify-between`}>
-                        <div>
-                            <div className="flex justify-between items-center border-b border-black/10 pb-2 mb-2">
-                                <span className="font-bold uppercase text-xs text-gray-500">{type==='chair'?`Ghế ${index}`:`Giường ${index}`}</span>
-                                <span className={`${statusBg} text-white text-[10px] px-2 py-0.5 rounded-full font-bold`}>{statusLabel}</span>
-                            </div>
-                            <div className="flex flex-col gap-1">
-                                <div className="font-black text-xl text-slate-800 leading-tight">{data.booking.customerName}</div>
-                                <div className="text-xs font-bold text-gray-500 truncate">{data.booking.serviceName}</div>
-                                {data.booking.partType && <div className={`text-[10px] font-bold px-2 py-0.5 rounded w-max mt-1 ${data.booking.partType==='FOOT'?'tag-foot':'tag-body'}`}>{data.booking.partType} ({data.booking.duration}p)</div>}
-                                <div className="flex items-center gap-2 mt-2"><span className="bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded text-xs font-bold">NV: {data.booking.staffId.replace('號','')}</span></div>
-                                {!data.isRunning && <div className="mt-2 text-xs font-bold text-gray-500">Dự kiến: <span className="text-black font-mono text-sm">{data.booking.time}</span></div>}
-                                {data.isRunning && <div className="mt-2 bg-white/60 p-2 rounded text-center border border-black/5 shadow-sm grid grid-cols-2 gap-2"><div><div className="text-[9px] text-gray-400">Bắt đầu</div><div className="font-mono font-bold text-emerald-600">{formatTime(data.realStartTime)}</div></div><div><div className="text-[9px] text-gray-400">Kết thúc</div><div className="font-mono font-bold text-red-600">{endTime}</div></div></div>}
-                            </div>
-                        </div>
-                        <div className="mt-auto w-full pt-3 border-t border-black/10 space-y-2">
-                            {!data.isRunning ? (
-                                <div className="grid grid-cols-4 gap-1"><button onClick={()=>handleStartClick(id)} className="col-span-3 btn-tool bg-green-600 hover:bg-green-700 text-white shadow-lg animate-bounce flex items-center justify-center gap-1"><Icon d={PATHS.Play} size={14}/> BẮT ĐẦU</button><button onClick={()=>handleCancelClick(id)} className="col-span-1 btn-tool bg-white border border-red-200 text-red-500 hover:bg-red-50"><Icon d={PATHS.Trash} size={14}/></button></div>
-                            ) : (
-                                <div className="grid grid-cols-4 gap-1"><button onClick={()=>handlePauseClick(id)} className={`col-span-1 btn-tool text-white ${data.isPaused ? 'bg-green-500' : 'bg-orange-400'}`}><Icon d={data.isPaused ? PATHS.Play : PATHS.Pause} size={14}/></button><button onClick={()=>handleSwitchClick(id)} className="col-span-1 btn-tool bg-blue-500 hover:bg-blue-600 text-white"><Icon d={PATHS.Swap} size={14}/></button><button onClick={()=>handleFinishClick(id)} className="col-span-2 btn-tool bg-slate-800 hover:bg-black text-white flex items-center justify-center gap-1"><Icon d={PATHS.Check} size={14}/> XONG</button></div>
-                            )}
-                        </div>
-                    </div>
-                );
-            };
-
-            return (
-                <div className="space-y-6 pb-10">
-                    <div className="bg-white p-4 rounded-2xl shadow-sm border border-emerald-100"><h3 className="font-bold text-emerald-700 mb-3 flex items-center gap-2 border-b pb-2"><Icon d={PATHS.Grid}/> KHU VỰC CHÂN</h3><div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">{[1,2,3,4,5,6].map(i => <ResourceCard key={i} type="chair" index={i}/>)}</div></div>
-                    <div className="bg-white p-4 rounded-2xl shadow-sm border border-purple-100"><h3 className="font-bold text-purple-700 mb-3 flex items-center gap-2 border-b pb-2"><Icon d={PATHS.Grid}/> KHU VỰC GIƯỜNG</h3><div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">{[1,2,3,4,5,6].map(i => <ResourceCard key={i} type="bed" index={i}/>)}</div></div>
-                    {billModal && <BillingModal members={billModal.members} onClose={()=>setBillModal(null)} onPayOne={handlePayOne} />}
-                </div>
-            );
-        };
-
-        const StaffCard3D = ({ s, statusData, resourceState }) => {
-            const isFemale = s.gender === 'F' || s.gender === '女'; const local = statusData[s.id] || { status: 'AWAY' }; let displayStatus = local.status; 
-            const isActuallyRunning = Object.values(resourceState).some(r => r.booking.staffId === s.id && r.isRunning);
-            let cardStyle = isFemale ? 'style-female' : 'style-male'; if (isActuallyRunning) { displayStatus = 'BUSY'; cardStyle = 'st-busy'; } else if (s.activeBooking) { displayStatus = 'BOOKED'; cardStyle = 'st-booked'; } else if (displayStatus === 'AWAY') cardStyle = 'st-away';
-            return (<div className={`card-3d ${cardStyle}`}><div className="flex-1 flex flex-col items-center justify-center p-2"><div className="text-3xl font-black">{s.id.replace('號','')}</div><div className="text-[10px] font-bold mt-1 opacity-80 truncate w-full text-center">{s.name}</div></div><div className="text-center text-[10px] font-bold py-1 w-full bg-black/5 rounded-b-lg">{displayStatus}</div></div>);
-        };
-
-        const CheckInBoard = ({ staffList, statusData, setStatusData, onClose }) => {
-            const toggleCheckIn = (id) => { const current = statusData[id] || {}; const now = Date.now(); const newState = { ...statusData, [id]: { status: (current.status==='READY'||current.status==='EAT')?'AWAY':'READY', checkInTime: now } }; setStatusData(newState); localStorage.setItem('staff_status_final', JSON.stringify(newState)); };
-            return (<div className="fixed inset-0 bg-black/50 z-[60] flex items-center justify-center p-4"><div className="bg-white w-full max-w-md rounded-xl shadow-xl flex flex-col max-h-[80vh]"><div className="p-4 bg-purple-700 text-white flex justify-between items-center"><h3>Quản lý Check-in</h3><button onClick={onClose}><Icon d={PATHS.X}/></button></div><div className="overflow-y-auto flex-1 p-4 space-y-2">{staffList.map(s => (<div key={s.id} className="flex justify-between items-center border p-2 rounded"><span>{s.id} - {s.name}</span><button onClick={()=>toggleCheckIn(s.id)} className={`px-3 py-1 rounded text-white ${statusData[s.id]?.status==='READY'?'bg-red-500':'bg-green-500'}`}>{statusData[s.id]?.status==='READY'?'Kết ca':'Vào ca'}</button></div>))}</div></div></div>);
-        };
-
-        const TimelineView = ({ bookings }) => (<div className="bg-white border p-4 text-center text-gray-400">Timeline View</div>);
-        const RevenueTable = ({ bookings }) => (<div className="bg-white p-6 rounded-xl shadow border text-center"><h3 className="text-gray-500 font-bold mb-2">Doanh Thu</h3><div className="text-4xl font-black text-emerald-600">${bookings.reduce((a,b)=>a+getPrice(b.serviceName),0).toLocaleString()}</div></div>);
-
+        // --- MAIN APP ---
         function App() {
-            const [activeTab, setActiveTab] = useState('map'); const [staffList, setStaffList] = useState([]); const [bookings, setBookings] = useState([]); const [statusData, setStatusData] = useState(() => JSON.parse(localStorage.getItem('staff_status_final')) || {}); 
-            const [resourceState, setResourceState] = useState({}); 
-            const [completedIds, setCompletedIds] = useState([]);
-            const [showManager, setShowManager] = useState(false);
-
-            // GỌI API CẬP NHẬT (Gửi cả sessions + completedIds)
-            const updateState = async (newState) => { 
-                setResourceState(newState.sessions); 
-                setCompletedIds(newState.completedIds);
-                try { await axios.post('/api/update-state', newState); } catch(e) { console.error("Lỗi lưu DB:", e); }
-            };
+            const [bookings, setBookings] = useState([]);
+            const [staffList, setStaffList] = useState([]);
+            const [loading, setLoading] = useState(true);
+            const [listViewMode, setListViewMode] = useState('table'); 
+            const [actionModal, setActionModal] = useState(null);
+            const [isAddModal, setIsAddModal] = useState(false);
+            const [form, setForm] = useState({ name: '', phone: '', pax: 1, date: new Date().toISOString().split('T')[0], time: '14:00', details: [{ serviceId: 'CB_100', staffId: '' }] });
 
             const fetchData = async () => {
                 try {
                     const res = await axios.get('/api/info');
-                    const { bookings: apiBookings, staffList: apiStaff, resourceState: serverSessions, completedIds: serverCompleted } = res.data;
-                    const today = getToday2025();
-                    
-                    const todayBookings = apiBookings
-                        .map(b => {
-                            let d = b.date; let t = b.time;
-                            if (b.startTimeString) { const parts = b.startTimeString.split(' '); d = parts[0]; t = parts[1] || '00:00'; }
-                            return { ...b, date: cleanDataStr(d), time: cleanTimeStr(t) };
-                        })
-                        .filter(b => b.date === today)
-                        .map((b, i) => ({ ...b, id: i, status: (b.status && b.status.includes('取消')) ? 'cancelled' : 'active' }));
-                    
-                    setBookings(todayBookings);
-                    setStaffList(apiStaff);
-                    setResourceState(serverSessions || {}); 
-                    setCompletedIds(serverCompleted || []);
-
-                    // --- AUTO ASSIGN LOGIC ---
-                    const currentRes = { ...serverSessions };
-                    const currentCompleted = serverCompleted || [];
-                    let changed = false;
+                    const { bookings: apiBookings, staffList: apiStaff, schedule } = res.data;
                     const now = new Date();
-                    const currentHour = now.getHours(); const currentMin = now.getMinutes(); const currentTimeVal = currentHour*60 + currentMin;
 
-                    const isSlotFree = (type, index, start, end, existingRes) => {
-                        const id = `${type}-${index}`; if (!existingRes[id]) return true;
-                        const occ = existingRes[id];
-                        let occStart = parseTime(occ.booking.time);
-                        if(occ.isRunning && occ.realStartTime) { const rs = new Date(occ.realStartTime); occStart = rs.getHours()*60 + rs.getMinutes(); }
-                        let occEnd = occStart + occ.booking.duration;
-                        if (start < occEnd && end > occStart) return false;
-                        return true;
-                    };
+                    const mappedBookings = apiBookings.map((b, idx) => {
+                        const start = parseDate114(b.startTimeString);
+                        const svc = SERVICES.find(s => b.serviceName.includes(s.name.split('(')[0])) || SERVICES[0];
+                        const end = new Date(start.getTime() + svc.duration * 60000);
+                        
+                        let resId = 'queue';
+                        if (svc.type === 'foot') resId = `chair_${(idx%6)+1}`;
+                        else if (svc.type === 'body') resId = `bed_${(idx%6)+1}`;
+                        else resId = `bed_${(idx%6)+1}`; 
 
-                    todayBookings.forEach(b => {
-                        if (b.status !== 'active' && b.status !== '已預約') return;
-                        const bTimeVal = parseTime(b.time);
-                        if (Math.abs(currentTimeVal - bTimeVal) > 40) return;
+                        let status = 'scheduled';
+                        if (b.status && b.status.includes('取消')) status = 'cancelled';
+                        else if (now >= start && now <= end) status = 'active';
+                        
+                        return { ...b, id: idx, startTimeFull: start, endTimeFull: end, status, resourceId: resId };
+                    });
+                    
+                    mappedBookings.sort((a, b) => b.startTimeFull - a.startTimeFull);
+                    setBookings(mappedBookings);
 
-                        for (let paxIdx = 1; paxIdx <= (b.pax || 1); paxIdx++) {
-                            const uId = `${b.rowId}_${paxIdx}`;
-                            // KIỂM TRA ĐÃ CÓ TRÊN GHẾ CHƯA
-                            if (Object.values(currentRes).some(r => r.booking.uniqueId === uId)) continue;
-                            // KIỂM TRA ĐÃ THANH TOÁN XONG CHƯA (FIX ZOMBIE)
-                            if (currentCompleted.includes(uId)) continue; 
-
-                            let aStaff = b.staffId; if (aStaff==='隨機'||b.pax>1) aStaff='隨機';
-                            const bPax = { ...b, customerName: b.customerName.split('(')[0] + (b.pax>1?` (${paxIdx}/${b.pax})`:''), uniqueId: uId, staffId: aStaff };
-
-                            if (b.type === 'COMBO') {
-                                let rules = SPLIT_RULES[b.duration] || [{foot:40, body: b.duration-40}];
-                                let assigned = false;
-                                for (let rule of rules) {
-                                    if(assigned) break;
-                                    let s1 = bTimeVal; let e1 = s1+rule.foot; let s2 = e1; let e2 = s2+rule.body;
-                                    let c=null; let bd=null;
-                                    for(let i=1; i<=6; i++) if(isSlotFree('chair',i,s1,e1,currentRes)) { c=i; break; }
-                                    for(let i=1; i<=6; i++) if(isSlotFree('bed',i,s2,e2,currentRes)) { bd=i; break; }
-                                    if(c && bd) {
-                                        currentRes[`chair-${c}`] = { booking: {...bPax, duration: rule.foot, partType:'FOOT'}, startTime: null, isRunning: false };
-                                        currentRes[`bed-${bd}`] = { booking: {...bPax, duration: rule.body, partType:'BODY', time: minToTime(s2)}, startTime: null, isRunning: false };
-                                        changed = true; assigned = true;
-                                    }
-                                }
-                            } else {
-                                let tType = b.type==='CHAIR'?'chair':'bed';
-                                let s = bTimeVal; let e = s+b.duration;
-                                let slot=null; for(let i=1; i<=6; i++) if(isSlotFree(tType,i,s,e,currentRes)) { slot=i; break; }
-                                if(slot) { currentRes[`${tType}-${slot}`] = { booking: bPax, startTime: null, isRunning: false }; changed = true; }
-                            }
-                        }
+                    const mappedStaff = apiStaff.map(s => {
+                        const currentJob = mappedBookings.find(b => b.staffId === s.id && b.status === 'active');
+                        const isOff = schedule.some(sch => sch.staffId === s.id);
+                        let status = 'ready';
+                        if (isOff) status = 'off';
+                        if (currentJob) status = currentJob.customerName === 'Staff Action' ? 'break' : 'working';
+                        return { ...s, status, currentJob };
                     });
 
-                    if (changed) { try { await axios.post('/api/update-state', { sessions: currentRes, completedIds: currentCompleted }); setResourceState(currentRes); } catch(e){} }
-
-                } catch(e) { console.error(e); }
+                    mappedStaff.sort((a,b) => parseInt(a.id.replace(/\D/g,'')) - parseInt(b.id.replace(/\D/g,'')));
+                    setStaffList(mappedStaff);
+                    setLoading(false);
+                } catch (e) { 
+                    console.error(e);
+                    // Nếu lỗi API, đừng để trắng màn hình
+                    setLoading(false);
+                }
             };
 
-            useEffect(() => { fetchData(); const t = setInterval(fetchData, 5000); return () => clearInterval(t); }, []);
+            useEffect(() => { fetchData(); const t = setInterval(fetchData, 10000); return () => clearInterval(t); }, []);
+
+            const handleStaffAction = async (action, duration) => {
+                if(!actionModal) return;
+                try { await axios.post('/api/admin-staff-action', { staffId: actionModal.id, action, duration }); setActionModal(null); fetchData(); } catch(e) {}
+            };
+
+            const handleUpdateStatus = async (rowId, status) => {
+                if(!confirm("確認?")) return;
+                await axios.post('/api/update-status', { rowId, status });
+                fetchData();
+            };
+
+            const handleBookingSubmit = async () => {
+                if (!form.name) return alert("Nhập tên!");
+                for (let i=0; i<form.details.length; i++) {
+                    const detail = form.details[i];
+                    const svc = SERVICES.find(s => s.id === detail.serviceId);
+                    await axios.post('/api/admin-booking', {
+                        ngayDen: form.date, gioDen: form.time, dichVu: svc.name, nhanVien: detail.staffId || '隨機',
+                        sdt: form.phone, hoTen: `${form.name} (${i+1}/${form.pax})`, pax: 1, isWalkIn: true
+                    });
+                }
+                setIsAddModal(false); fetchData();
+            };
+
+            // --- UI COMPONENTS ---
+
+            const StaffCard = ({ s }) => {
+                const isFemale = s.gender === 'F' || s.gender === '女';
+                let stClass = 'bg-emerald-500'; let stText = 'Ready';
+                if(s.status === 'working') { stClass = 'bg-red-500'; stText = 'Busy'; }
+                if(s.status === 'off') { stClass = 'bg-gray-400'; stText = 'OFF'; }
+                if(s.status === 'break') { stClass = 'bg-amber-500'; stText = 'Eat'; }
+
+                return (
+                    <div onClick={()=>setActionModal(s)} className={`staff-card shrink-0 rounded-lg shadow border bg-white cursor-pointer flex flex-col justify-between overflow-hidden relative ${isFemale?'border-female':'border-male'}`}>
+                        <div className={`h-1.5 w-full ${stClass}`}></div>
+                        <div className="flex-1 flex flex-col items-center justify-center p-1">
+                            <div className="font-black text-2xl text-slate-800">{s.name.replace('號','')}</div>
+                            <div className="text-[10px] font-bold text-slate-500">{isFemale?'女':'男'}</div>
+                        </div>
+                        <div className={`text-center text-[10px] text-white font-bold py-1 w-full ${stClass}`}>
+                            {stText}
+                        </div>
+                        {s.status === 'working' && s.currentJob && (
+                            <div className="absolute top-2 right-1 bg-black/60 text-white text-[8px] px-1 rounded">
+                                ~{formatTime(s.currentJob.endTimeFull)}
+                            </div>
+                        )}
+                    </div>
+                )
+            };
+
+            const ResourceCard = ({ res, type }) => {
+                const active = bookings.find(b => b.resourceId === res.id && b.status === 'active');
+                return (
+                    <div className={`p-2 rounded-xl border-2 h-24 flex flex-col justify-between relative cursor-pointer ${active ? 'bg-red-50 border-red-400' : 'bg-white border-emerald-200'}`} onClick={()=>!active && setIsAddModal(true)}>
+                        <div className="flex justify-between font-bold text-slate-600 text-xs"><span>{res.name}</span>{active && <span className="text-[9px] bg-red-500 text-white px-1 rounded animate-pulse">BUSY</span>}</div>
+                        {active ? (
+                            <div className="text-xs">
+                                <div className="font-bold truncate">{active.customerName}</div>
+                                <div className="text-[10px] text-red-600 font-mono text-right">{formatTime(active.endTimeFull)} 完</div>
+                            </div>
+                        ) : <div className="text-center text-slate-300"><Icon d={type==='chair'?PATHS.Armchair:PATHS.Bed} size={24}/></div>}
+                    </div>
+                )
+            };
 
             return (
-                <div className="min-h-screen flex flex-col">
-                    <header className="bg-slate-900 text-white p-3 flex justify-between sticky top-0 z-50"><div className="font-bold text-lg">XinWuChan ({getToday2025()})</div><div className="flex gap-2"><button onClick={fetchData} className="p-2 bg-slate-800 rounded"><Icon d={PATHS.Refresh}/></button><button onClick={()=>setShowManager(true)} className="bg-indigo-600 px-4 rounded">Check-in</button></div></header>
-                    <div className="bg-white border-b p-4 overflow-x-auto"><div className="flex gap-4">{staffList.map(s=><StaffCard3D key={s.id} s={s} statusData={statusData} resourceState={resourceState}/>)}</div></div>
-                    <main className="flex-1 p-4 gap-4 flex flex-col">
-                        <div className="flex gap-2"><button onClick={()=>setActiveTab('map')} className="px-4 py-2 bg-slate-800 text-white rounded">Sơ đồ</button><button onClick={()=>setActiveTab('list')} className="px-4 py-2 bg-white shadow rounded">Danh sách</button></div>
-                        {activeTab==='map' && <ResourceMap bookings={bookings} resourceState={resourceState} completedIds={completedIds} updateState={updateState} />}
-                        {activeTab==='list' && <div className="bg-white rounded shadow p-4">{bookings.length===0?"Trống":bookings.map(b=><div key={b.id} className="border-b p-2 flex justify-between"><span>{b.time} - {b.customerName}</span><span>{b.serviceName}</span></div>)}</div>}
+                <div className="min-h-screen flex flex-col bg-slate-100">
+                    <header className="bg-slate-900 text-white p-3 shadow flex justify-between items-center sticky top-0 z-50">
+                        <div className="font-bold flex gap-2 items-center px-2"><Icon d={PATHS.Grid}/> POS</div>
+                        <div className="flex gap-2">
+                            <button onClick={fetchData} className="p-2 hover:bg-slate-700 rounded"><Icon d={PATHS.Refresh}/></button>
+                            <button onClick={()=>setIsAddModal(true)} className="bg-amber-500 text-black px-3 py-1 rounded font-bold flex gap-1 text-xs items-center"><Icon d={PATHS.Plus} size={14}/> 新增</button>
+                        </div>
+                    </header>
+
+                    {/* 1. STAFF RAIL (NGANG, TỪ PHẢI SANG TRÁI) */}
+                    <div className="bg-white p-2 border-b shadow-sm overflow-x-auto flex flex-row-reverse gap-2 shrink-0 h-32 items-center px-4">
+                        {staffList.map(s => <StaffCard key={s.id} s={s} />)}
+                    </div>
+
+                    {/* MAIN CONTENT */}
+                    <main className="flex-1 overflow-y-auto p-3 space-y-4">
+                        <div className="grid grid-cols-2 gap-2">
+                            <div className="bg-white p-2 rounded shadow">
+                                <div className="text-xs font-bold mb-2 text-slate-500 flex gap-1"><Icon d={PATHS.Armchair} size={14}/> 足浴 (Foot)</div>
+                                <div className="grid grid-cols-3 gap-1">{RESOURCES.chair.map(r => <ResourceCard key={r.id} res={r} type="chair"/>)}</div>
+                            </div>
+                            <div className="bg-white p-2 rounded shadow">
+                                <div className="text-xs font-bold mb-2 text-slate-500 flex gap-1"><Icon d={PATHS.Bed} size={14}/> 身體 (Body)</div>
+                                <div className="grid grid-cols-3 gap-1">{RESOURCES.bed.map(r => <ResourceCard key={r.id} res={r} type="bed"/>)}</div>
+                            </div>
+                        </div>
+
+                        <div className="bg-white rounded-lg shadow border border-slate-200 overflow-hidden flex flex-col h-[450px]">
+                            <div className="p-2 bg-slate-50 border-b flex justify-between items-center shrink-0">
+                                <h3 className="font-bold text-sm text-slate-700 flex gap-2"><Icon d={PATHS.Clock} size={16}/> 預約列表</h3>
+                                <div className="flex bg-slate-200 p-0.5 rounded text-[10px]">
+                                    <button onClick={()=>setListViewMode('table')} className={`px-2 py-1 rounded ${listViewMode==='table'?'bg-white shadow text-blue-600':''}`}>列表</button>
+                                    <button onClick={()=>setListViewMode('timeline')} className={`px-2 py-1 rounded ${listViewMode==='timeline'?'bg-white shadow text-emerald-600':''}`}>時間軸</button>
+                                </div>
+                            </div>
+                            <div className="flex-1 overflow-hidden">
+                                {listViewMode === 'table' ? (
+                                    <div className="h-full overflow-y-auto">
+                                        <table className="w-full text-xs text-left">
+                                            <thead className="bg-slate-100 sticky top-0"><tr><th className="p-2">Time</th><th className="p-2">Name</th><th className="p-2">Pax</th><th className="p-2">Svc</th><th className="p-2">Staff</th><th className="p-2 text-right">Act</th></tr></thead>
+                                            <tbody className="divide-y">
+                                                {bookings.map(b => (
+                                                    <tr key={b.rowId} className={b.status === 'cancelled' ? 'cancelled-row' : ''}>
+                                                        <td className="p-2 font-mono text-emerald-700 font-bold">{formatTime(b.startTimeFull)}</td>
+                                                        <td className="p-2 font-bold">{b.customerName}</td>
+                                                        <td className="p-2 text-center">{b.pax}</td>
+                                                        <td className="p-2">{b.serviceName.split('(')[0]}</td>
+                                                        <td className="p-2"><span className="bg-slate-100 px-1 rounded">{b.staffId}</span></td>
+                                                        <td className="p-2 text-right">
+                                                            {b.status !== 'cancelled' && <button onClick={()=>handleUpdateStatus(b.rowId, '❌ Cancel')} className="text-red-500 hover:bg-red-50 p-1 rounded"><Icon d={PATHS.Trash} size={14}/></button>}
+                                                        </td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                ) : (
+                                    <TimelineComponent bookings={bookings} />
+                                )}
+                            </div>
+                        </div>
                     </main>
-                    {showManager && <CheckInBoard staffList={staffList} statusData={statusData} setStatusData={setStatusData} onClose={()=>setShowManager(false)} />}
+
+                    {/* MODAL */}
+                    {actionModal && (
+                        <div className="fixed inset-0 bg-black/60 z-[60] flex items-center justify-center p-4">
+                            <div className="bg-white w-64 p-4 rounded-xl shadow-xl text-center animate-in fade-in zoom-in duration-200">
+                                <h3 className="font-bold text-lg mb-1">{actionModal.name}</h3>
+                                <div className="space-y-2 mt-4">
+                                    <button onClick={()=>handleStaffAction('break', 30)} className="w-full py-2 bg-yellow-100 text-yellow-800 rounded hover:bg-yellow-200 flex justify-center gap-2"><Icon d={PATHS.Coffee} size={16}/> 用餐 (Eat)</button>
+                                    <button onClick={()=>handleStaffAction('leave', 0)} className="w-full py-2 bg-red-100 text-red-800 rounded hover:bg-red-200 flex justify-center gap-2"><Icon d={PATHS.LogOut} size={16}/> 下班 (Off)</button>
+                                    <button onClick={()=>setActionModal(null)} className="w-full py-2 border rounded mt-2 text-sm">Close</button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
                 </div>
             );
         }
-        const root = ReactDOM.createRoot(document.getElementById('root')); root.render(<App />);
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
     </script>
 </body>
 </html>
