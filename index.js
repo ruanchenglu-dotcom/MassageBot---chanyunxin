@@ -1,5 +1,5 @@
 // ==============================================================================
-// PHIÊN BẢN V56.1 - UPDATE SYNC DATA (Fix Data Mismatch)
+// PHIÊN BẢN V56.0 - CHUYỂN ĐỔI SANG NĂM DƯƠNG LỊCH (YYYY/MM/DD)
 // ==============================================================================
 
 require('dotenv').config(); 
@@ -101,10 +101,12 @@ function isWithinShift(staff, requestTimeStr) {
     return requestMins >= startMins && requestMins < endMins;
 }
 
+// [UPDATED] Hiển thị ngày tháng năm Dương lịch (YYYY/MM/DD)
 function formatDateDisplay(dateInput) {
     if (!dateInput) return "";
     try {
         let str = dateInput.toString().trim();
+        // Nếu đã có dạng YYYY/MM/DD thì trả về luôn (cắt bỏ phần giờ nếu có)
         if (str.includes('/') && str.split('/')[0].length === 4) return str.split(' ')[0];
         
         let d = new Date(str);
@@ -113,17 +115,18 @@ function formatDateDisplay(dateInput) {
         const taipeiString = d.toLocaleString('en-US', { timeZone: 'Asia/Taipei' });
         d = new Date(taipeiString);
         
-        const year = d.getFullYear().toString(); 
+        const year = d.getFullYear().toString(); // Không trừ 1911 nữa
         const month = (d.getMonth() + 1).toString().padStart(2, '0');
         const day = d.getDate().toString().padStart(2, '0');
         return `${year}/${month}/${day}`;
     } catch (e) { return dateInput; }
 }
 
+// [UPDATED] Lấy thời gian hiện tại Dương lịch
 function getCurrentDateTimeStr() {
     const now = new Date().toLocaleString('en-US', { timeZone: 'Asia/Taipei', hour12: false });
     const d = new Date(now);
-    const year = d.getFullYear().toString(); 
+    const year = d.getFullYear().toString(); // Không trừ 1911
     const month = (d.getMonth() + 1).toString().padStart(2, '0');
     const day = d.getDate().toString().padStart(2, '0');
     const hh = d.getHours().toString().padStart(2, '0');
@@ -131,6 +134,7 @@ function getCurrentDateTimeStr() {
     return `${year}/${month}/${day} ${hh}:${mm}`;
 }
 
+// [UPDATED] Parse chuỗi ngày thành Date object (Xử lý Dương lịch)
 function parseStringToDate(dateStr) {
     if (!dateStr || typeof dateStr !== 'string') return null;
     try {
@@ -141,8 +145,9 @@ function parseStringToDate(dateStr) {
         const timeNums = timePart.split(':');
         if (dateNums.length < 3) return null;
 
+        // Xử lý năm: Nếu là 4 chữ số thì giữ nguyên, nếu < 1900 thì có thể là dữ liệu cũ (Minguo)
         let year = parseInt(dateNums[0]);
-        if (year < 1900) year += 1911; 
+        if (year < 1900) year += 1911; // Fallback: nếu dữ liệu cũ là Minguo thì tự convert, còn dữ liệu mới > 2000 thì giữ nguyên
 
         const month = parseInt(dateNums[1]) - 1;
         const day = parseInt(dateNums[2]);
@@ -153,7 +158,7 @@ function parseStringToDate(dateStr) {
 }
 
 // ==============================================================================
-// 2. DATA SYNC (ĐÃ CẬP NHẬT)
+// 2. DATA SYNC
 // ==============================================================================
 
 async function syncData() {
@@ -190,13 +195,8 @@ async function syncData() {
                 let pax = 1;
                 if (row[5]) pax = parseInt(row[5]); 
 
-                // --- [UPDATE] Đọc cột Oil (Cột E / Index 4) ---
-                const isOilColumn = row[4] && (row[4] === 'Yes' || row[4] === '是');
-
                 cachedBookings.push({
                     rowId: rowId,
-                    date: dateStr,      // Gửi riêng ngày
-                    time: timeStr,      // Gửi riêng giờ
                     startTimeString: `${dateStr} ${timeStr}`,
                     duration: duration,
                     type: type,
@@ -205,8 +205,7 @@ async function syncData() {
                     customerName: `${row[2]} (${row[6]})`,
                     serviceName: serviceStr,
                     status: status,
-                    lineId: row[9],
-                    isOil: isOilColumn  // Gửi trạng thái Oil
+                    lineId: row[9] 
                 });
             }
         }
@@ -250,6 +249,7 @@ async function ghiVaoSheet(data) {
     try {
         const timeCreate = getCurrentDateTimeStr(); 
         
+        // --- XỬ LÝ DỮ LIỆU ĐỂ GHI (THỨ TỰ CỘT A -> K) ---
         let colA_Date = formatDateDisplay(data.ngayDen);     
         
         let colB_Time = data.gioDen || "";
@@ -272,7 +272,7 @@ async function ghiVaoSheet(data) {
             colA_Date, colB_Time, colC_Name, colD_Service, colE_Oil, colF_Pax, colG_Phone, colH_Status, colI_Staff, colJ_LineID, colK_Created 
         ]];
 
-        console.log("[LOG] Writing to Sheet:", JSON.stringify(valuesToWrite));
+        console.log("[LOG] Đang ghi vào Sheet:", JSON.stringify(valuesToWrite));
 
         await sheets.spreadsheets.values.append({
             spreadsheetId: SHEET_ID, 
@@ -281,10 +281,10 @@ async function ghiVaoSheet(data) {
             requestBody: { values: valuesToWrite }
         });
         
-        console.log("[SUCCESS] Written successfully!");
+        console.log("[SUCCESS] Ghi thành công!");
         await syncData(); 
         
-    } catch (e) { console.error('[ERROR] Write Error:', e); }
+    } catch (e) { console.error('[ERROR] Lỗi ghi Sheet:', e); }
 }
 
 async function updateBookingStatus(rowId, newStatus) {
@@ -325,7 +325,7 @@ async function layLichDatGanNhat(userId) {
 }
 
 // ==============================================================================
-// 3. LOGIC (Giữ nguyên)
+// 3. LOGIC
 // ==============================================================================
 function checkAvailability(dateStr, timeStr, serviceDuration, serviceType, specificStaffIds = null, pax = 1, requireFemale = false) {
     const displayDate = formatDateDisplay(dateStr); 
@@ -405,6 +405,7 @@ function generateTimeBubbles(selectedDate, serviceCode, specificStaffIds = null,
     const bubbles = groups.filter(g => g.slots.length > 0).map(group => {
         const buttons = group.slots.map(h => {
             const timeStr = formatTime(h);
+            // GIÁ TRỊ GỬI VỀ PHẢI LÀ FULL TIME (Vd: 14:00)
             const valueToSend = h < 24 ? `${h.toString().padStart(2, '0')}:00` : `${(h - 24).toString().padStart(2, '0')}:00`;
             return { "type": "button", "style": "primary", "margin": "xs", "height": "sm", "action": { "type": "message", "label": timeStr, "text": `Time:${valueToSend}` } };
         });
@@ -508,7 +509,7 @@ app.post('/api/admin-booking', async (req, res) => {
         hoTen: data.hoTen || '現場客', 
         trangThai: '已預約', 
         pax: data.pax || 1,
-        isOil: data.isOil || false 
+        isOil: false 
     }); 
     res.json({ success: true }); 
 });
@@ -699,5 +700,5 @@ async function handleEvent(event) {
 syncData();
 const port = process.env.PORT || 3000;
 app.listen(port, () => {
-    console.log(`Bot v56.1 (Data Sync Fixed) running on ${port}`);
+    console.log(`Bot v56.0 (Gregorian Date) running on ${port}`);
 });
