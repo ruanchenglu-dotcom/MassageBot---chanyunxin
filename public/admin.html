@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Massage POS - Manager V60 (Smart Combo)</title>
+    <title>Massage POS - Manager V61 (Right Align & Smart Auto)</title>
     
     <script src="https://cdn.tailwindcss.com"></script>
     <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.development.js"></script>
@@ -57,7 +57,8 @@
             X: "M18 6 6 18M6 6l12 12", Play: "M5 3l14 9-14 9V3z", Pause: "M6 4h4v16H6zm8 0h4v16h-4z", 
             Plus: "M12 5v14M5 12h14", Edit: "M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z",
             Check: "M20 6 9 17 4 12", Trash: "M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2",
-            Refresh: "M23 4v6h-6M1 20v-6h6", User: "M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2", Bolt: "M13 2L3 14h9l-1 8 10-12h-9l1-8z"
+            Refresh: "M23 4v6h-6M1 20v-6h6", User: "M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2", Bolt: "M13 2L3 14h9l-1 8 10-12h-9l1-8z",
+            Clock: "M12 20V10M18 20V4M6 20v-6"
         };
         const SERVICES_LIST = ['👣 足底按摩 (40分)', '👣 足底按摩 (70分)', '🛏️ 全身指壓 (70分)', '🛏️ 全身指壓 (90分)', '👑 帝王套餐 (190分)', '💎 豪華套餐 (130分)', '🔥 招牌套餐 (100分)'];
         
@@ -78,12 +79,12 @@
             else if (s.activeBooking) { displayStatus = 'BOOKED'; cardStyle = 'st-booked'; }
             else if (displayStatus === 'AWAY') cardStyle = 'st-away';
 
-            if(displayStatus === 'EAT') label='Ăn cơm'; 
-            else if(displayStatus === 'OUT_SHORT') label='Ra ngoài'; 
-            else if(displayStatus === 'AWAY') label = 'Chưa đến'; 
-            else if(displayStatus === 'READY') label = `Sẵn sàng #${queueIndex !== undefined ? queueIndex + 1 : '?'}`; 
-            else if(displayStatus === 'BUSY') label = 'Đang làm'; 
-            else if(displayStatus === 'BOOKED') label = 'Khách chờ';
+            if(displayStatus === 'EAT') label='🍱 用餐'; 
+            else if(displayStatus === 'OUT_SHORT') label='⏳ 外出'; 
+            else if(displayStatus === 'AWAY') label = '⛔ 未到'; 
+            else if(displayStatus === 'READY') label = `🟢 待命 #${queueIndex !== undefined ? queueIndex + 1 : '?'}`; 
+            else if(displayStatus === 'BUSY') label = '🔴 上鐘'; 
+            else if(displayStatus === 'BOOKED') label = '🟡 客滿';
 
             return (
                 <div className={`card-3d ${cardStyle}`}>
@@ -97,28 +98,60 @@
         };
 
         const CheckInBoard = ({ staffList, statusData, setStatusData, onClose }) => {
-            const toggleCheckIn = (id) => { const current = statusData[id] || {}; const newState = { ...statusData, [id]: { status: current.status === 'READY' || current.status === 'EAT' ? 'AWAY' : 'READY', checkInTime: current.status === 'READY' ? 0 : Date.now() } }; setStatusData(newState); localStorage.setItem('staff_status_final', JSON.stringify(newState)); };
-            const sortedList = [...staffList].sort((a,b) => { const statA = statusData[a.id]?.status || 'AWAY'; const statB = statusData[b.id]?.status || 'AWAY'; if(statA !== 'AWAY' && statB === 'AWAY') return -1; if(statA === 'AWAY' && statB !== 'AWAY') return 1; return parseInt(a.id.replace(/\D/g,'')) - parseInt(b.id.replace(/\D/g,'')); });
+            const toggleCheckIn = (id) => { 
+                const current = statusData[id] || {}; 
+                const newState = { ...statusData, [id]: { status: current.status === 'READY' || current.status === 'EAT' ? 'AWAY' : 'READY', checkInTime: current.status === 'READY' ? 0 : Date.now() } }; 
+                setStatusData(newState); localStorage.setItem('staff_status_final', JSON.stringify(newState)); 
+            };
+            
+            // Sort theo ID
+            const sortedList = [...staffList].sort((a,b) => parseInt(a.id.replace(/\D/g,'')) - parseInt(b.id.replace(/\D/g,'')));
+
             return ( 
                 <div className="fixed inset-0 bg-slate-900/80 z-[60] flex items-center justify-center p-4 backdrop-blur-sm">
-                    <div className="bg-white w-full max-w-4xl rounded-2xl shadow-2xl modal-animate flex flex-col max-h-[90vh] overflow-hidden">
-                        <div className="p-4 bg-purple-700 text-white flex justify-between items-center shrink-0"><h2 className="text-xl font-bold flex gap-2 items-center"><Icon d={PATHS.User}/> Quản lý Check-in</h2><button onClick={onClose}><Icon d={PATHS.X}/></button></div>
-                        <div className="grid grid-cols-12 gap-2 p-3 bg-purple-50 font-bold text-purple-900 text-sm border-b shrink-0"><div className="col-span-4 pl-4">Nhân viên</div><div className="col-span-2 text-center">Giờ vào</div><div className="col-span-3 text-center">Trạng thái</div><div className="col-span-3 text-center">Hành động</div></div>
+                    <div className="bg-white w-full max-w-5xl rounded-2xl shadow-2xl modal-animate flex flex-col max-h-[90vh] overflow-hidden">
+                        <div className="p-4 bg-purple-700 text-white flex justify-between items-center shrink-0">
+                            <h2 className="text-xl font-bold flex gap-2 items-center"><Icon d={PATHS.User}/> 技師管理 (Staff Mgmt)</h2>
+                            <button onClick={onClose}><Icon d={PATHS.X}/></button>
+                        </div>
+                        <div className="grid grid-cols-12 gap-2 p-3 bg-purple-50 font-bold text-purple-900 text-sm border-b shrink-0 text-center">
+                            <div className="col-span-2 text-left pl-4">姓名 (Name)</div>
+                            <div className="col-span-2">上班 (Start)</div>
+                            <div className="col-span-2">下班 (End)</div>
+                            <div className="col-span-3">打卡 (Check-in)</div>
+                            <div className="col-span-3">狀態 (Status)</div>
+                        </div>
                         <div className="overflow-y-auto flex-1 p-4 space-y-2 bg-slate-100">
                             {sortedList.map(s => { 
                                 const current = statusData[s.id] || { status: 'AWAY', checkInTime: 0 }; 
                                 const isWorking = current.status !== 'AWAY';
-                                const isFemale = s.gender === 'F' || s.gender === '女';
                                 return ( 
-                                    <div key={s.id} className="grid grid-cols-12 gap-3 items-center p-3 bg-white border rounded-lg shadow-sm">
-                                        <div className="col-span-4 flex items-center gap-3"><div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm shadow-inner ${isFemale ? 'bg-pink-100 text-pink-600' : 'bg-blue-100 text-blue-600'}`}>{s.id.replace('號','')}</div><span className={`font-bold text-lg ${isFemale ? 'text-pink-600' : 'text-slate-700'}`}>{s.name}</span></div>
-                                        <div className="col-span-2 text-center font-mono text-gray-500 font-bold">{isWorking && current.checkInTime ? new Date(current.checkInTime).toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit',hour12:false}) : '--:--'}</div>
-                                        <div className="col-span-3 text-center"><span className={`px-3 py-1 rounded-full text-xs font-bold ${isWorking ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>{isWorking ? 'Đã vào ca' : 'Chưa đến'}</span></div>
-                                        <div className="col-span-3 flex justify-center"><button onClick={() => toggleCheckIn(s.id)} className={`w-full py-2 rounded-lg font-bold text-white shadow ${isWorking ? 'bg-red-500 hover:bg-red-600' : 'bg-emerald-500 hover:bg-emerald-600'}`}>{isWorking ? 'Kết ca' : 'Vào ca'}</button></div>
+                                    <div key={s.id} className="grid grid-cols-12 gap-3 items-center p-3 bg-white border rounded-lg shadow-sm text-sm">
+                                        <div className="col-span-2 font-bold text-lg text-left pl-2">{s.id.replace('號','')} <span className="text-gray-400 text-xs ml-1">{s.name}</span></div>
+                                        <div className="col-span-2 text-center border p-1 rounded bg-gray-50">{s.shiftStart}</div>
+                                        <div className="col-span-2 text-center border p-1 rounded bg-gray-50">{s.shiftEnd}</div>
+                                        <div className="col-span-3 flex justify-center">
+                                            {isWorking ? 
+                                                <div className="flex items-center gap-2 border px-3 py-1 rounded bg-white w-full justify-between">
+                                                    <span className="font-mono font-bold">{new Date(current.checkInTime).toLocaleTimeString('en-US',{hour12:false, hour:'2-digit', minute:'2-digit'})}</span>
+                                                    <button onClick={() => toggleCheckIn(s.id)} className="text-red-500 hover:text-red-700 font-bold">X</button>
+                                                </div> 
+                                                : <button onClick={() => toggleCheckIn(s.id)} className="bg-blue-500 hover:bg-blue-600 text-white px-4 py-1 rounded font-bold w-full">➜ 打卡 (Check-in)</button>
+                                            }
+                                        </div>
+                                        <div className="col-span-3 text-center">
+                                            <select className={`w-full border p-1 rounded font-bold ${isWorking ? 'text-green-600 border-green-200 bg-green-50' : 'text-gray-400 bg-gray-100'}`} disabled={!isWorking} value={current.status} onChange={(e)=>{ const n={...statusData, [s.id]:{...current, status:e.target.value}}; setStatusData(n); localStorage.setItem('staff_status_final', JSON.stringify(n)); }}>
+                                                <option value="AWAY">⚪ 未到 (Not Arrived)</option>
+                                                <option value="READY">🟢 待命 (Ready)</option>
+                                                <option value="EAT">🟠 用餐 (Eat)</option>
+                                                <option value="OUT_SHORT">🔵 外出 (Out)</option>
+                                            </select>
+                                        </div>
                                     </div> 
                                 )
                             })}
                         </div>
+                        <div className="p-3 bg-white border-t flex justify-end"><button onClick={onClose} className="px-6 py-2 bg-purple-600 text-white font-bold rounded hover:bg-purple-700">完成 (Done)</button></div>
                     </div>
                 </div> 
             ); 
@@ -222,13 +255,14 @@
                         const bTime = parseTime(b.startTimeString.split(' ')[1]);
                         const isAssigned = Object.values(currentRes).some(r => r.booking.rowId === b.rowId);
 
+                        // Chỉ tự động xếp các đơn của ngày hôm nay, chưa hủy/xong, và chưa được xếp
                         if (bDate === today && !b.status.includes('取消') && !b.status.includes('完成') && !isAssigned) {
                             const diffMins = bTime - nowMins;
                             
                             // 1. Logic cho Gói COMBO (Linh hoạt)
                             if (b.category === 'COMBO') {
                                 // Check nếu sát giờ (<40p)
-                                if (Math.abs(diffMins) <= 40) {
+                                if (diffMins >= -30 && diffMins <= 40) {
                                     const freeChairs = getFreeSlots('chair');
                                     const freeBeds = getFreeSlots('bed');
                                     
@@ -246,7 +280,7 @@
                             }
                             // 2. Logic cho BODY (Bed) - Vào khi < 35p
                             else if (b.type === 'BED') {
-                                if (Math.abs(diffMins) <= 35) {
+                                if (diffMins >= -30 && diffMins <= 35) {
                                     const freeBeds = getFreeSlots('bed');
                                     if (freeBeds.length > 0) {
                                         currentRes[freeBeds[0]] = { booking: b, startTime: null, isRunning: false };
@@ -256,7 +290,7 @@
                             }
                             // 3. Logic cho FOOT (Chair) - Vào khi < 40p
                             else {
-                                if (Math.abs(diffMins) <= 40) {
+                                if (diffMins >= -30 && diffMins <= 40) {
                                     const freeChairs = getFreeSlots('chair');
                                     if (freeChairs.length > 0) {
                                         currentRes[freeChairs[0]] = { booking: b, startTime: null, isRunning: false };
@@ -298,7 +332,7 @@
             return (
                 <div className="min-h-screen flex flex-col bg-slate-50">
                     <header className="bg-slate-900 text-white p-3 shadow-md flex justify-between items-center sticky top-0 z-50">
-                        <div className="flex items-center gap-3"><span className="bg-amber-500 text-black px-2 py-1 rounded font-black text-sm">POS V60</span><span className="font-bold">XinWuChan ({getToday()})</span></div>
+                        <div className="flex items-center gap-3"><span className="bg-amber-500 text-black px-2 py-1 rounded font-black text-sm">POS V61</span><span className="font-bold">XinWuChan ({getToday()})</span></div>
                         <div className="flex gap-2">
                             <button onClick={()=>setShowWalkIn(true)} className="bg-amber-500 hover:bg-amber-400 text-black px-4 py-1.5 rounded font-bold text-sm flex gap-1 items-center"><Icon d={PATHS.Bolt}/> Tạo đơn nhanh</button>
                             <button onClick={()=>setShowCheckIn(true)} className="bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-1.5 rounded font-bold text-sm flex gap-1 items-center"><Icon d={PATHS.User}/> Check-in</button>
@@ -327,16 +361,17 @@
                         {activeTab === 'map' && (
                             <div className="grid grid-cols-12 gap-6">
                                 <div className="col-span-9 space-y-6">
-                                    <div><h3 className="font-bold text-emerald-600 mb-3 border-b pb-1">KHU VỰC CHÂN</h3><div className="grid grid-cols-6 gap-3">{[1,2,3,4,5,6].map(i => <ResourceCard key={`chair-${i}`} id={`chair-${i}`} type="FOOT" index={i} data={resourceState[`chair-${i}`]} busyStaffIds={busyStaffIds} onAction={handleResourceAction} onSelect={()=>setSelectedSlot(`chair-${i}`)} />)}</div></div>
-                                    <div><h3 className="font-bold text-purple-600 mb-3 border-b pb-1">KHU VỰC GIƯỜNG</h3><div className="grid grid-cols-6 gap-3">{[1,2,3,4,5,6].map(i => <ResourceCard key={`bed-${i}`} id={`bed-${i}`} type="BODY" index={i} data={resourceState[`bed-${i}`]} busyStaffIds={busyStaffIds} onAction={handleResourceAction} onSelect={()=>setSelectedSlot(`bed-${i}`)} />)}</div></div>
+                                    <div><h3 className="font-bold text-emerald-600 mb-3 border-b pb-1">KHU VỰC CHÂN (Foot)</h3><div className="grid grid-cols-6 gap-3">{[1,2,3,4,5,6].map(i => <ResourceCard key={`chair-${i}`} id={`chair-${i}`} type="FOOT" index={i} data={resourceState[`chair-${i}`]} busyStaffIds={busyStaffIds} onAction={handleResourceAction} onSelect={()=>setSelectedSlot(`chair-${i}`)} />)}</div></div>
+                                    <div><h3 className="font-bold text-purple-600 mb-3 border-b pb-1">KHU VỰC GIƯỜNG (Body)</h3><div className="grid grid-cols-6 gap-3">{[1,2,3,4,5,6].map(i => <ResourceCard key={`bed-${i}`} id={`bed-${i}`} type="BODY" index={i} data={resourceState[`bed-${i}`]} busyStaffIds={busyStaffIds} onAction={handleResourceAction} onSelect={()=>setSelectedSlot(`bed-${i}`)} />)}</div></div>
                                 </div>
                                 <div className="col-span-3 bg-white rounded-lg shadow p-4 h-fit sticky top-2">
                                     <h3 className="font-bold text-gray-700 mb-3">Khách chờ ({bookings.filter(b=>b.status==='已預約').length})</h3>
                                     <div className="space-y-2 max-h-[500px] overflow-y-auto">
                                         {bookings.filter(b=>b.status==='已預約').map(b => (
-                                            <div key={b.rowId} className="border p-2 rounded hover:bg-slate-50 relative group">
-                                                <div className="flex justify-between font-bold text-sm"><span>{b.customerName}</span><span className="text-indigo-600">{b.startTimeString.split(' ')[1]}</span></div>
-                                                <div className="text-xs text-gray-500">{b.serviceName}</div>
+                                            <div key={b.rowId} className="border p-2 rounded hover:bg-slate-50 relative group bg-white shadow-sm">
+                                                <div className="flex justify-between font-bold text-sm"><span>{b.customerName}</span><span className="text-indigo-600 font-mono">{b.startTimeString.split(' ')[1]}</span></div>
+                                                <div className="text-xs text-gray-500 font-bold">{b.serviceName}</div>
+                                                {b.isOil && <div className="text-[10px] text-purple-500 font-bold">💧 油推 (Oil)</div>}
                                                 {selectedSlot && <button onClick={()=>handleAssignBooking(b)} className="absolute inset-0 bg-green-500/90 text-white font-bold flex items-center justify-center rounded animate-pulse">Chọn vào {selectedSlot}</button>}
                                             </div>
                                         ))}
