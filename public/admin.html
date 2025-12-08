@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Massage POS - Manager V70 (Smart Timeline)</title>
+    <title>Massage POS - Manager V68.1 (14 Days + 6 Pax)</title>
     
     <script src="https://cdn.tailwindcss.com"></script>
     <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.development.js"></script>
@@ -23,30 +23,32 @@
             border-radius: 12px; 
             display: flex; flex-direction: column; 
             cursor: pointer; user-select: none;
-            background: white;
+            background: white; /* Luôn là nền trắng trừ khi Busy */
             box-shadow: 0 4px 6px rgba(0,0,0,0.1);
             margin: 0 4px; flex-shrink: 0;
         }
         .card-3d:active { transform: translateY(4px); border-bottom-width: 0px; margin-bottom: 4px; }
+        
+        /* Gender Borders */
         .style-male { border: 2px solid #3B82F6; border-bottom: 5px solid #2563EB; color: #1E3A8A; }
         .style-female { border: 2px solid #F472B6; border-bottom: 5px solid #DB2777; color: #BE185D; }
         
-        .st-busy { background-color: #fee2e2 !important; border: 2px solid #ef4444 !important; border-bottom: 5px solid #b91c1c !important; color: #b91c1c !important; }
-        .st-booked { background: #FFFBEB; border-color: #F59E0B !important; border-bottom-color: #B45309 !important; color: #B45309 !important; } 
-        .st-away { background: #E5E7EB; border-color: #9CA3AF !important; border-bottom-color: #6B7280 !important; color: #9CA3AF !important; opacity: 0.6; }
+        /* STATUS OVERRIDES */
+        /* Busy: Light Red Background */
+        .st-busy { background-color: #fee2e2 !important; border-color: #ef4444 !important; border-bottom-color: #b91c1c !important; color: #b91c1c !important; }
+        /* Away: Gray & Transparent */
+        .st-away { background-color: #f3f4f6 !important; border-color: #d1d5db !important; border-bottom-color: #9ca3af !important; color: #9ca3af !important; opacity: 0.5; }
+        /* Ready: White Background (Default), just emphasized by position */
+        .st-ready { /* Giữ nguyên nền trắng của card-3d, không override màu nền */ }
 
         .res-card { position: relative; overflow: hidden; transition: all 0.2s; border-radius: 12px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
         .res-card:hover { transform: translateY(-2px); box-shadow: 0 8px 16px rgba(0,0,0,0.1); }
         .progress-bar { transition: width 1s linear; }
         
+        /* Scrollbar */
         .staff-scroll::-webkit-scrollbar { height: 6px; }
         .staff-scroll::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
         .staff-scroll::-webkit-scrollbar-track { background: transparent; }
-
-        /* Timeline Styles */
-        .timeline-bg { background-image: linear-gradient(to right, #e2e8f0 1px, transparent 1px); background-size: 5.55% 100%; }
-        .timeline-bar-planned { opacity: 0.7; border: 2px dashed; background-image: linear-gradient(45deg,rgba(255,255,255,.15) 25%,transparent 25%,transparent 50%,rgba(255,255,255,.15) 50%,rgba(255,255,255,.15) 75%,transparent 75%,transparent); background-size: 1rem 1rem; }
-        .timeline-bar-real { opacity: 1; box-shadow: 0 4px 6px rgba(0,0,0,0.3); border: 1px solid white; }
     </style>
 </head>
 <body>
@@ -66,7 +68,7 @@
             Clock: "M12 20V10M18 20V4M6 20v-6", Dollar: "M12 1v22M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6",
             Chart: "M12 20V10M18 20V4M6 20v-6", Swap: "M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4"
         };
-        const SERVICES_LIST = ['👣 足底按摩 (40分)', '👣 足底按摩 (70分)', '👣 足底按摩 (90分)', '👣 足底按摩 (120分)', '🛏️ 半身指壓 (35分)', '🛏️ 全身指壓 (70分)', '🛏️ 全身指壓 (90分)', '🛏️ 全身指壓 (120分)', '👑 帝王套餐 (190分)', '💎 豪華套餐 (130分)', '🔥 招牌套餐 (100分)', '⚡ 精選套餐 (70分)'];
+        const SERVICES_LIST = ['👣 足底按摩 (40分)', '👣 足底按摩 (70分)', '🛏️ 全身指壓 (70分)', '🛏️ 全身指壓 (90分)', '👑 帝王套餐 (190分)', '💎 豪華套餐 (130分)', '🔥 招牌套餐 (100分)'];
         const SERVICE_PRICES = { '帝王': 2000, '豪華': 1500, '招牌': 999, '精選': 900, '120分': 1500, '90分': 999, '70分': 900, '40分': 500, '35分': 500 };
         
         const getToday = () => { const d = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Taipei' })); return `${d.getFullYear()}/${(d.getMonth()+1).toString().padStart(2,'0')}/${d.getDate().toString().padStart(2,'0')}`; };
@@ -74,12 +76,6 @@
         const parseTime = (str) => { if(!str) return 0; const [h, m] = str.split(':').map(Number); return (h||0)*60 + (m||0); };
         const getPrice = (n) => { for(let k in SERVICE_PRICES) if(n && n.includes(k)) return SERVICE_PRICES[k]; return 0; };
         const getOilPrice = (isOil) => isOil ? 200 : 0;
-        const addMinutesToTime = (timeStr, mins) => {
-            const totalMins = parseTime(timeStr) + mins;
-            const h = Math.floor(totalMins / 60) % 24;
-            const m = totalMins % 60;
-            return `${h.toString().padStart(2,'0')}:${m.toString().padStart(2,'0')}`;
-        };
 
         // --- COMPONENTS ---
         const StaffCard3D = ({ s, statusData, resourceState, queueIndex }) => {
@@ -90,9 +86,10 @@
             let label = '---';
             const isActuallyRunning = Object.values(resourceState).some(r => r.booking.staffId === s.id && r.isRunning && !r.isPaused);
             
-            if (isActuallyRunning) { displayStatus = 'BUSY'; cardStyle = 'st-busy'; }
+            if (isActuallyRunning) { displayStatus = 'BUSY'; cardStyle = 'st-busy'; } // Đỏ nhạt
             else if (s.activeBooking) { displayStatus = 'BOOKED'; cardStyle = 'st-booked'; }
             else if (displayStatus === 'AWAY') cardStyle = 'st-away';
+            // Ready dùng mặc định (Trắng)
 
             if(displayStatus === 'EAT') label='🍱 用餐'; 
             else if(displayStatus === 'OUT_SHORT') label='⏳ 外出'; 
@@ -128,11 +125,7 @@
                             <button onClick={onClose}><Icon d={PATHS.X}/></button>
                         </div>
                         <div className="grid grid-cols-12 gap-2 p-4 bg-[#f3e8ff] font-bold text-[#6b21a8] text-sm border-b shrink-0 text-center items-center">
-                            <div className="col-span-2 text-left pl-4">姓名 (Name)</div>
-                            <div className="col-span-2">上班 (Start)</div>
-                            <div className="col-span-2">下班 (End)</div>
-                            <div className="col-span-3">打卡 (Check-in)</div>
-                            <div className="col-span-3">狀態 (Status)</div>
+                            <div className="col-span-2 text-left pl-4">姓名 (Name)</div><div className="col-span-2">上班 (Start)</div><div className="col-span-2">下班 (End)</div><div className="col-span-3">打卡 (Check-in)</div><div className="col-span-3">狀態 (Status)</div>
                         </div>
                         <div className="overflow-y-auto flex-1 p-4 space-y-3 bg-white">
                             {sortedList.map(s => { 
@@ -168,8 +161,14 @@
         };
 
         const BillingModal = ({ activeBooking, relatedBookings, onConfirm, onCancel }) => {
-            const [mode, setMode] = useState(relatedBookings.length === 0 ? 'SINGLE' : null);
+            const [mode, setMode] = useState(null); // Force null to show selection screen first if multiple
             const [selectedRowId, setSelectedRowId] = useState(activeBooking.rowId);
+            
+            // Auto detect if single
+            useEffect(() => {
+                if (relatedBookings.length === 0) setMode('SINGLE');
+            }, [relatedBookings]);
+
             const calculateTotal = (bookings) => bookings.reduce((sum, b) => sum + getPrice(b.serviceName) + getOilPrice(b.isOil || (b.serviceName && (b.serviceName.includes('油') || b.serviceName.includes('Oil')))), 0);
             
             const handlePay = () => {
@@ -184,7 +183,10 @@
                         <div className="p-6 flex-1 overflow-y-auto">
                             {!mode ? (
                                 <div className="space-y-4">
-                                    <div className="text-center p-4 bg-yellow-50 rounded-xl border border-yellow-200"><div className="font-bold text-yellow-800 text-lg">⚠️ Phát hiện nhóm {relatedBookings.length + 1} khách</div><div className="text-yellow-600 text-sm">Bạn muốn thanh toán thế nào?</div></div>
+                                    <div className="text-center p-4 bg-yellow-50 rounded-xl border border-yellow-200">
+                                        <div className="font-bold text-yellow-800 text-lg">⚠️ Phát hiện nhóm {relatedBookings.length + 1} khách</div>
+                                        <div className="text-yellow-600 text-sm">Bạn muốn thanh toán thế nào?</div>
+                                    </div>
                                     <button onClick={() => setMode('ALL')} className="w-full p-4 bg-emerald-100 border-2 border-emerald-500 rounded-xl flex justify-between items-center hover:bg-emerald-200 transition"><div className="text-left"><div className="font-bold text-emerald-800 text-lg">Thanh toán CHUNG</div><div className="text-sm text-emerald-600">Tổng cả nhóm</div></div><div className="font-black text-xl text-emerald-700">${calculateTotal([activeBooking, ...relatedBookings])}</div></button>
                                     <button onClick={() => setMode('SINGLE')} className="w-full p-4 bg-slate-100 border-2 border-slate-300 rounded-xl flex justify-between items-center hover:bg-slate-200 transition"><div className="text-left"><div className="font-bold text-slate-700 text-lg">Thanh toán RIÊNG</div><div className="text-sm text-slate-500">Từng người một</div></div><div className="font-black text-xl text-slate-600">➜</div></button>
                                 </div>
@@ -226,78 +228,10 @@
                     </div>
                     <div className="bg-white rounded-xl shadow border overflow-hidden">
                         <div className="p-3 bg-slate-50 border-b font-bold text-slate-700">Chi tiết giao dịch</div>
-                        <table className="w-full text-sm text-left"><thead className="bg-white text-slate-500"><tr><th className="p-3">Giờ</th><th className="p-3">Khách</th><th className="p-3">Dịch vụ</th><th className="p-3">NV</th><th className="p-3 text-right">Tiền</th></tr></thead><tbody className="divide-y">{finishedBookings.map((b,i) => (<tr key={i}><td className="p-3 font-mono">{b.startTimeString.split(' ')[1]}</td><td className="p-3 font-bold">{b.customerName}</td><td className="p-3">{b.serviceName}</td><td className="p-3">{b.staffId}</td><td className="p-3 text-right font-bold">${getPrice(b.serviceName) + getOilPrice(b.isOil)}</td></tr>))}</tbody></table>
-                    </div>
-                </div>
-            );
-        };
-
-        // --- UPDATED TIMELINE VIEW (V70 Smart Logic) ---
-        const TimelineView = ({ resourceState }) => {
-            const hours = Array.from({length: 18}, (_, i) => (10 + i) % 24); // 10:00 -> 04:00 (18 slots)
-            const rows = [];
-            for(let i=1; i<=6; i++) rows.push({id:`chair-${i}`, label:`Foot ${i}`, type:'chair'});
-            for(let i=1; i<=6; i++) rows.push({id:`bed-${i}`, label:`Body ${i}`, type:'bed'});
-
-            return (
-                <div className="bg-white border rounded-xl overflow-hidden shadow-sm flex flex-col h-[600px]">
-                    <div className="flex border-b bg-gray-50 h-10 shrink-0">
-                        <div className="w-20 border-r p-2 font-bold text-xs text-gray-500 flex items-center justify-center">Zone</div>
-                        <div className="flex-1 relative">
-                            {hours.map((h, i) => (<div key={i} className="absolute h-full border-l text-[10px] text-gray-400 pl-1" style={{left: `${(i/18)*100}%`}}>{h}:00</div>))}
-                        </div>
-                    </div>
-                    <div className="overflow-y-auto flex-1 relative timeline-bg">
-                        {rows.map(r => {
-                            const current = resourceState[r.id];
-                            if (!current) return <div key={r.id} className="h-14 border-b flex relative"><div className={`w-20 border-r bg-white text-xs font-bold flex items-center justify-center shrink-0 z-10 ${r.type==='bed'?'text-purple-600':'text-emerald-600'}`}>{r.label}</div><div className="flex-1 relative h-full"></div></div>;
-
-                            let startTimeObj;
-                            let isReal = false;
-
-                            if (current.isRunning && current.startTime) {
-                                // REAL MODE
-                                startTimeObj = new Date(current.startTime);
-                                isReal = true;
-                            } else {
-                                // PLAN MODE (Based on Booking Time)
-                                const timeStr = current.booking.startTimeString.split(' ')[1]; // "12:00"
-                                const [h, m] = timeStr.split(':').map(Number);
-                                const now = new Date();
-                                startTimeObj = new Date(now.getFullYear(), now.getMonth(), now.getDate(), h, m);
-                            }
-
-                            // Calculate Timeline Position (10:00 AM start = 600 mins)
-                            let startMins = startTimeObj.getHours() * 60 + startTimeObj.getMinutes();
-                            if (startMins < 600) startMins += 24 * 60; // Handle next day hours (e.g., 01:00 AM)
-                            
-                            const timelineStartMins = 600; 
-                            const totalTimelineMins = 18 * 60; 
-
-                            const leftPercent = ((startMins - timelineStartMins) / totalTimelineMins) * 100;
-                            const widthPercent = (current.booking.duration / totalTimelineMins) * 100;
-
-                            const barColor = r.type==='bed' ? '#9333ea' : '#10b981';
-
-                            return (
-                                <div key={r.id} className="h-14 border-b flex relative">
-                                    <div className={`w-20 border-r bg-white text-xs font-bold flex items-center justify-center shrink-0 z-10 ${r.type==='bed'?'text-purple-600':'text-emerald-600'}`}>{r.label}</div>
-                                    <div className="flex-1 relative h-full">
-                                        <div className={`absolute top-2 h-10 rounded-md flex flex-col justify-center px-2 whitespace-nowrap z-20 overflow-hidden text-[10px] text-white ${isReal ? 'timeline-bar-real' : 'timeline-bar-planned text-slate-600 border-slate-400'}`}
-                                             style={{
-                                                 left: `${leftPercent}%`,
-                                                 width: `${widthPercent}%`,
-                                                 backgroundColor: isReal ? barColor : 'transparent',
-                                                 color: isReal ? 'white' : '#475569',
-                                                 borderColor: isReal ? 'white' : barColor
-                                             }}>
-                                            <div className="font-bold">{isReal ? '▶ ' : '🕒 '}{current.booking.staffId !== '隨機' ? current.booking.staffId : '?'} - {current.booking.customerName.split('(')[0]}</div>
-                                            <div className="opacity-90">{startTimeObj.toLocaleTimeString('en-US',{hour12:false,hour:'2-digit',minute:'2-digit'})} - {addMinutesToTime(startTimeObj.toLocaleTimeString('en-US',{hour12:false}).slice(0,5), current.booking.duration)}</div>
-                                        </div>
-                                    </div>
-                                </div>
-                            )
-                        })}
+                        <table className="w-full text-sm text-left">
+                            <thead className="bg-white text-slate-500"><tr><th className="p-3">Giờ</th><th className="p-3">Khách</th><th className="p-3">Dịch vụ</th><th className="p-3">NV</th><th className="p-3 text-right">Tiền</th></tr></thead>
+                            <tbody className="divide-y">{finishedBookings.map((b,i) => (<tr key={i}><td className="p-3 font-mono">{b.startTimeString.split(' ')[1]}</td><td className="p-3 font-bold">{b.customerName}</td><td className="p-3">{b.serviceName}</td><td className="p-3">{b.staffId}</td><td className="p-3 text-right font-bold">${getPrice(b.serviceName) + getOilPrice(b.isOil)}</td></tr>))}</tbody>
+                        </table>
                     </div>
                 </div>
             );
@@ -312,7 +246,7 @@
                         <div className="space-y-3">
                             <div><label className="text-xs font-bold text-gray-500">Tên khách</label><input className="w-full p-2 border rounded font-bold" value={form.hoTen} onChange={e=>setForm({...form, hoTen: e.target.value})} /></div>
                             <div><label className="text-xs font-bold text-gray-500">Dịch vụ</label><select className="w-full p-2 border rounded font-bold" value={form.dichVu} onChange={e=>setForm({...form, dichVu: e.target.value})}>{SERVICES_LIST.map(s=><option key={s} value={s}>{s}</option>)}</select></div>
-                            <div className="flex gap-3"><div className="flex-1"><label className="text-xs font-bold text-gray-500">Số khách</label><select className="w-full p-2 border rounded font-bold" value={form.pax} onChange={e=>setForm({...form, pax: parseInt(e.target.value)})}>{[1,2,3,4].map(n=><option key={n} value={n}>{n} khách</option>)}</select></div><div className="flex-1"><label className="text-xs font-bold text-gray-500">Dầu (Oil)</label><button onClick={()=>setForm({...form, isOil: !form.isOil})} className={`w-full p-2 border rounded font-bold flex items-center justify-center gap-2 ${form.isOil ? 'bg-purple-100 border-purple-500 text-purple-700' : 'bg-gray-50'}`}>{form.isOil ? 'Có' : 'Không'}</button></div></div>
+                            <div className="flex gap-3"><div className="flex-1"><label className="text-xs font-bold text-gray-500">Số khách</label><select className="w-full p-2 border rounded font-bold" value={form.pax} onChange={e=>setForm({...form, pax: parseInt(e.target.value)})}>{[1,2,3,4,5,6].map(n=><option key={n} value={n}>{n} khách</option>)}</select></div><div className="flex-1"><label className="text-xs font-bold text-gray-500">Dầu (Oil)</label><button onClick={()=>setForm({...form, isOil: !form.isOil})} className={`w-full p-2 border rounded font-bold flex items-center justify-center gap-2 ${form.isOil ? 'bg-purple-100 border-purple-500 text-purple-700' : 'bg-gray-50'}`}>{form.isOil ? 'Có' : 'Không'}</button></div></div>
                             <div><label className="text-xs font-bold text-gray-500">Thợ</label><select className="w-full p-2 border rounded font-bold" value={form.nhanVien} onChange={e=>setForm({...form, nhanVien: e.target.value})}><option value="隨機">-- Ngẫu nhiên --</option>{staffList.map(s=><option key={s.id} value={s.id}>{s.id} - {s.name}</option>)}</select></div>
                         </div>
                         <div className="mt-6 grid grid-cols-2 gap-3"><button onClick={onClose} className="p-3 bg-gray-100 text-gray-500 font-bold rounded-lg hover:bg-gray-200">Hủy</button><button onClick={()=>onSave({ ...form, ngayDen: getToday(), gioDen: getCurrentTime() })} className="p-3 bg-indigo-600 text-white font-bold rounded-lg hover:bg-indigo-700 shadow-lg shadow-indigo-200">Lưu</button></div>
@@ -521,7 +455,7 @@
             return (
                 <div className="min-h-screen flex flex-col bg-slate-50">
                     <header className="bg-[#1e1b4b] text-white p-3 shadow-md flex justify-between items-center sticky top-0 z-50">
-                        <div className="flex items-center gap-3"><span className="bg-amber-500 text-black px-2 py-1 rounded font-black text-sm">POS V70</span><span className="font-bold">XinWuChan ({getToday()})</span></div>
+                        <div className="flex items-center gap-3"><span className="bg-amber-500 text-black px-2 py-1 rounded font-black text-sm">POS V68.1</span><span className="font-bold">XinWuChan ({getToday()})</span></div>
                         <div className="flex gap-2">
                             <button onClick={()=>setShowWalkIn(true)} className="bg-amber-500 hover:bg-amber-400 text-black px-4 py-1.5 rounded font-bold text-sm flex gap-1 items-center"><Icon d={PATHS.Bolt}/> Tạo đơn nhanh</button>
                             <button onClick={()=>setShowCheckIn(true)} className="bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-1.5 rounded font-bold text-sm flex gap-1 items-center"><Icon d={PATHS.User}/> Check-in</button>
@@ -573,10 +507,13 @@
                         )}
                         {activeTab === 'list' && (
                             <div className="bg-white rounded shadow overflow-hidden">
-                                <table className="w-full text-sm text-left"><thead className="bg-slate-100 text-slate-600 font-bold"><tr><th className="p-3">Giờ</th><th className="p-3">Tên</th><th className="p-3">Dịch Vụ</th><th className="p-3">NV</th><th className="p-3">Trạng thái</th><th className="p-3 text-right">Action</th></tr></thead><tbody className="divide-y">{bookings.map(b=>(<tr key={b.rowId} className="hover:bg-slate-50"><td className="p-3 font-mono text-indigo-700 font-bold">{b.startTimeString.split(' ')[1]}</td><td className="p-3 font-bold">{b.customerName}</td><td className="p-3 text-gray-600">{b.serviceName}</td><td className="p-3"><span className="bg-indigo-50 text-indigo-700 px-2 py-1 rounded text-xs font-bold">{b.staffId}</span></td><td className="p-3"><span className={`px-2 py-1 rounded text-xs font-bold ${b.status.includes('取消')?'bg-red-100 text-red-600':'bg-green-100 text-green-600'}`}>{b.status}</span></td><td className="p-3 text-right"><button onClick={()=>handleManualUpdateStatus(b.rowId, '❌ Cancelled')} className="text-red-500 hover:bg-red-50 px-2 py-1 rounded"><Icon d={PATHS.Trash} size={14}/></button></td></tr>))}</tbody></table>
+                                <table className="w-full text-sm text-left">
+                                    <thead className="bg-slate-100 text-slate-600 font-bold"><tr><th className="p-3">Giờ</th><th className="p-3">Tên</th><th className="p-3">Dịch Vụ</th><th className="p-3">NV</th><th className="p-3">Trạng thái</th><th className="p-3 text-right">Action</th></tr></thead>
+                                    <tbody className="divide-y">{bookings.map(b=>(<tr key={b.rowId} className="hover:bg-slate-50"><td className="p-3 font-mono text-indigo-700 font-bold">{b.startTimeString.split(' ')[1]}</td><td className="p-3 font-bold">{b.customerName}</td><td className="p-3 text-gray-600">{b.serviceName}</td><td className="p-3"><span className="bg-indigo-50 text-indigo-700 px-2 py-1 rounded text-xs font-bold">{b.staffId}</span></td><td className="p-3"><span className={`px-2 py-1 rounded text-xs font-bold ${b.status.includes('取消')?'bg-red-100 text-red-600':'bg-green-100 text-green-600'}`}>{b.status}</span></td><td className="p-3 text-right"><button onClick={()=>handleManualUpdateStatus(b.rowId, '❌ Cancelled')} className="text-red-500 hover:bg-red-50 px-2 py-1 rounded"><Icon d={PATHS.Trash} size={14}/></button></td></tr>))}</tbody>
+                                </table>
                             </div>
                         )}
-                        {activeTab === 'timeline' && <TimelineView resourceState={resourceState} />}
+                        {activeTab === 'timeline' && <TimelineView bookings={bookings} />}
                         {activeTab === 'report' && <ReportView bookings={bookings} />}
                     </main>
 

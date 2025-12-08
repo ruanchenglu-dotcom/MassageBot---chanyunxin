@@ -1,5 +1,5 @@
 // ==============================================================================
-// PHIÊN BẢN V61.0 - FULL FEATURES (SMART LOGIC + GREGORIAN DATE)
+// PHIÊN BẢN V68.1 - UPDATE (14 DAYS + 6 PAX)
 // ==============================================================================
 
 require('dotenv').config(); 
@@ -67,10 +67,11 @@ function normalizePhoneNumber(phone) {
     return phone.replace(/[^0-9]/g, '');
 }
 
-function getNext7Days() { 
+// [UPDATED] Hàm lấy 14 ngày thay vì 7 ngày
+function getNext14Days() { 
     let days = []; 
     const t = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Taipei' })); 
-    for(let i=0; i<7; i++) { 
+    for(let i=0; i<14; i++) { // Changed from 7 to 14
         let d = new Date(t); d.setDate(t.getDate()+i); 
         const v = d.toISOString().split('T')[0]; 
         const w = d.toLocaleDateString('zh-TW', { weekday: 'short' }); 
@@ -210,7 +211,7 @@ async function syncData() {
                     const staffGenderRaw = rows[i][1];
                     let gender = 'M';
                     if (staffGenderRaw && (staffGenderRaw.trim() === '女' || staffGenderRaw.trim().toUpperCase() === 'F')) gender = 'F';
-                    // Đọc giờ làm việc từ Sheet (Cột C và D)
+                    
                     const shiftStart = rows[i][2] || '10:00';
                     const shiftEnd = rows[i][3] || '02:00';
                     
@@ -594,17 +595,19 @@ async function handleEvent(event) {
 
       if (service.category === 'FOOT') {
           userState[userId].step = 'PAX'; userState[userId].isOil = false;
-          const paxButtons = [1, 2, 3, 4].map(n => ({ "type": "button", "style": "secondary", "margin": "sm", "height": "sm", "action": { "type": "message", "label": `${n} 位`, "text": `Pax:${n}` } }));
+          // [UPDATED] Mở rộng Pax lên 1-6
+          const paxButtons = [1, 2, 3, 4, 5, 6].map(n => ({ "type": "button", "style": "secondary", "margin": "sm", "height": "sm", "action": { "type": "message", "label": `${n} 位`, "text": `Pax:${n}` } }));
           return client.replyMessage(event.replyToken, { type: 'flex', altText: '選擇人數', contents: { "type": "bubble", "body": { "type": "box", "layout": "vertical", "contents": [ { "type": "text", "text": "請問幾位貴賓?", "weight": "bold", "size": "lg", "align": "center", "color": "#1DB446" }, { "type": "separator", "margin": "md" }, ...paxButtons ] } } });
       }
       return client.replyMessage(event.replyToken, { type: 'template', altText: '油推?', template: { type: 'buttons', text: '請問是否需要油推？(指定女技師 +$200)', actions: [ { type: 'message', label: '要 (Yes)', text: 'Oil:Yes' }, { type: 'message', label: '不要 (No)', text: 'Oil:No' } ] } });
   }
   if (text.startsWith('Oil:')) {
       const isOil = text.split(':')[1] === 'Yes'; const currentState = userState[userId]; if (!currentState) return Promise.resolve(null); currentState.step = 'PAX'; currentState.isOil = isOil; userState[userId] = currentState;
-      const paxButtons = [1, 2, 3, 4].map(n => ({ "type": "button", "style": "secondary", "margin": "sm", "height": "sm", "action": { "type": "message", "label": `${n} 位`, "text": `Pax:${n}` } }));
+      // [UPDATED] Mở rộng Pax lên 1-6
+      const paxButtons = [1, 2, 3, 4, 5, 6].map(n => ({ "type": "button", "style": "secondary", "margin": "sm", "height": "sm", "action": { "type": "message", "label": `${n} 位`, "text": `Pax:${n}` } }));
       return client.replyMessage(event.replyToken, { type: 'flex', altText: '選擇人數', contents: { "type": "bubble", "body": { "type": "box", "layout": "vertical", "contents": [ { "type": "text", "text": "請問幾位貴賓?", "weight": "bold", "size": "lg", "align": "center", "color": "#1DB446" }, { "type": "separator", "margin": "md" }, ...paxButtons ] } } });
   }
-  if (text.startsWith('Pax:')) { const num = parseInt(text.split(':')[1]); const currentState = userState[userId]; if (!currentState) return Promise.resolve(null); currentState.step = 'DATE'; currentState.pax = num; currentState.selectedStaff = []; userState[userId] = currentState; const days = getNext7Days(); const dateButtons = days.map(d => ({ "type": "button", "style": "secondary", "margin": "sm", "height": "sm", "action": { "type": "message", "label": d.label, "text": `Date:${d.value}` } })); return client.replyMessage(event.replyToken, { type: 'flex', altText: '選擇日期', contents: { "type": "bubble", "body": { "type": "box", "layout": "vertical", "contents": [ { "type": "text", "text": `📅 請選擇日期 (${num}位)`, "weight": "bold", "size": "lg", "align": "center", "color": "#1DB446" }, { "type": "separator", "margin": "md" }, ...dateButtons ] } } }); }
+  if (text.startsWith('Pax:')) { const num = parseInt(text.split(':')[1]); const currentState = userState[userId]; if (!currentState) return Promise.resolve(null); currentState.step = 'DATE'; currentState.pax = num; currentState.selectedStaff = []; userState[userId] = currentState; const days = getNext14Days(); const dateButtons = days.map(d => ({ "type": "button", "style": "secondary", "margin": "sm", "height": "sm", "action": { "type": "message", "label": d.label, "text": `Date:${d.value}` } })); return client.replyMessage(event.replyToken, { type: 'flex', altText: '選擇日期', contents: { "type": "bubble", "body": { "type": "box", "layout": "vertical", "contents": [ { "type": "text", "text": `📅 請選擇日期 (${num}位)`, "weight": "bold", "size": "lg", "align": "center", "color": "#1DB446" }, { "type": "separator", "margin": "md" }, ...dateButtons ] } } }); }
   
   if (text.startsWith('Date:')) {
       const selectedDate = text.split(':')[1]; const currentState = userState[userId]; 
@@ -675,5 +678,5 @@ async function handleEvent(event) {
 syncData();
 const port = process.env.PORT || 3000;
 app.listen(port, () => {
-    console.log(`Bot v61.0 (Smart Combo) running on ${port}`);
+    console.log(`Bot v68.1 (14 Days + 6 Pax) running on ${port}`);
 });
