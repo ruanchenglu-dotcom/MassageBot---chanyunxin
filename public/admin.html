@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Massage POS - V73 (Ultimate Sync)</title>
+    <title>Massage POS - V74 (Ultimate)</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.development.js"></script>
     <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.development.js"></script>
@@ -14,14 +14,12 @@
         body { font-family: 'Segoe UI', 'Microsoft JhengHei', sans-serif; background-color: #f8fafc; user-select: none; }
         .modal-animate { animation: fadeInScale 0.2s ease-out forwards; }
         @keyframes fadeInScale { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }
-        /* [V68 FEATURE] 3D Staff Cards */
         .card-3d { transition: all 0.3s ease; position: relative; width: 80px; height: 100px; border-radius: 12px; display: flex; flex-direction: column; cursor: pointer; background: white; box-shadow: 0 4px 6px rgba(0,0,0,0.1); margin: 0 4px; flex-shrink: 0; }
         .card-3d:active { transform: translateY(4px); }
         .style-male { border: 2px solid #3B82F6; border-bottom: 5px solid #2563EB; color: #1E3A8A; }
         .style-female { border: 2px solid #F472B6; border-bottom: 5px solid #DB2777; color: #BE185D; }
         .st-busy { background-color: #fee2e2 !important; border-color: #ef4444 !important; border-bottom-color: #b91c1c !important; color: #b91c1c !important; }
         .st-away { background-color: #f3f4f6 !important; border-color: #d1d5db !important; border-bottom-color: #9ca3af !important; color: #9ca3af !important; opacity: 0.5; }
-        /* Resource Card */
         .res-card { position: relative; overflow: hidden; transition: all 0.2s; border-radius: 12px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
         .res-card:hover { transform: translateY(-2px); box-shadow: 0 8px 16px rgba(0,0,0,0.1); }
         .progress-bar { transition: width 1s linear; }
@@ -114,7 +112,6 @@
         const BillingModal = ({ activeBooking, relatedBookings, onConfirm, onCancel }) => {
             const [mode, setMode] = useState(null); const [selectedRowId, setSelectedRowId] = useState(activeBooking.rowId);
             useEffect(() => { if (relatedBookings.length === 0) setMode('SINGLE'); }, [relatedBookings]);
-            // [V68 FEATURE] Split Bill Logic & Oil Surcharge
             const calculateTotal = (bookings) => bookings.reduce((sum, b) => sum + getPrice(b.serviceName) + getOilPrice(b.isOil || (b.serviceName && (b.serviceName.includes('油') || b.serviceName.includes('Oil')))), 0);
             const handlePay = () => { if (mode === 'ALL') { const all = [activeBooking, ...relatedBookings]; onConfirm(all.map(b=>b.rowId), calculateTotal(all)); } else { const target = [activeBooking, ...relatedBookings].find(b => b.rowId === selectedRowId); if(target) onConfirm([selectedRowId], calculateTotal([target])); } };
             return (
@@ -325,7 +322,7 @@
             return (
                 <div className="min-h-screen flex flex-col bg-slate-50">
                     <header className="bg-[#1e1b4b] text-white p-3 shadow-md flex justify-between items-center sticky top-0 z-50">
-                        <div className="flex items-center gap-3"><span className="bg-amber-500 text-black px-2 py-1 rounded font-black text-sm">V73 (Ultimate)</span><span className="font-bold">XinWuChan ({getToday()})</span></div>
+                        <div className="flex items-center gap-3"><span className="bg-amber-500 text-black px-2 py-1 rounded font-black text-sm">V74 (Full)</span><span className="font-bold">XinWuChan ({getToday()})</span></div>
                         <div className="flex gap-2">
                             <button onClick={()=>setShowWalkIn(true)} className="bg-amber-500 text-black px-4 py-1.5 rounded font-bold text-sm flex gap-1 items-center"><Icon d={PATHS.Bolt}/> Walk-in</button>
                             <button onClick={()=>setShowCheckIn(true)} className="bg-indigo-600 text-white px-4 py-1.5 rounded font-bold text-sm flex gap-1 items-center"><Icon d={PATHS.User}/> Check-in</button>
