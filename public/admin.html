@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Massage POS - Manager V76 (Auto-Assign & Sync)</title>
+    <title>Massage POS - Manager V77 (Today Only)</title>
     
     <script src="https://cdn.tailwindcss.com"></script>
     <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.development.js"></script>
@@ -82,7 +82,7 @@
             const isActuallyRunning = Object.values(resourceState).some(r => r.booking.staffId === s.id && r.isRunning && !r.isPaused);
             
             if (isActuallyRunning) { displayStatus = 'BUSY'; cardStyle = 'st-busy'; }
-            else if (s.activeBooking) { displayStatus = 'BOOKED'; cardStyle = 'st-booked'; } // Logic: Nếu có booking mà chưa chạy -> Booked
+            else if (s.activeBooking) { displayStatus = 'BOOKED'; cardStyle = 'st-booked'; } 
             else if (displayStatus === 'AWAY') cardStyle = 'st-away';
 
             if(displayStatus === 'EAT') label='🍱 用餐'; 
@@ -169,14 +169,11 @@
                                 </div>
                             ) : (
                                 <div>
-                                    {mode === 'SINGLE' && relatedBookings.length > 0 && (<div className="mb-4"><label className="block text-xs font-bold text-gray-500 mb-1">Chọn người thanh toán:</label><select className="w-full p-2 border-2 border-indigo-200 rounded-lg font-bold text-indigo-900" value={selectedRowId} onChange={e => setSelectedRowId(Number(e.target.value))}>{[activeBooking, ...relatedBookings].map(b => (<option key={b.rowId} value={b.rowId}>{b.customerName} - {b.serviceName}</option>))}</select></div>)}
+                                    {mode === 'SINGLE' && relatedBookings.length > 0 && (<div className="mb-4"><label className="block text-xs font-bold text-gray-500 mb-1">Chọn người thanh toán:</label><select className="w-full p-2 border-2 border-indigo-200 rounded-lg font-bold text-indigo-900" value={selectedRowId} onChange={e => setSelectedRowId(Number(e.target.value))}>{[activeBooking, ...relatedBookings].map(b => (<option key={b.rowId} value={b.rowId}>{b.customerName}</option>))}</select></div>)}
                                     <div className="bg-slate-50 p-4 rounded-xl border mb-6">
-                                        {[activeBooking, ...relatedBookings].filter(b => mode === 'ALL' || b.rowId === selectedRowId).map(b => (
-                                            <div key={b.rowId} className="flex justify-between py-2 border-b last:border-0 border-slate-200"><div><div className="font-bold text-slate-700">{b.serviceName}</div><div className="text-xs text-gray-500">{b.customerName} ({b.staffId})</div></div><div className="font-mono font-bold text-slate-800">${getPrice(b.serviceName) + getOilPrice(b.isOil || (b.serviceName && b.serviceName.includes('油')))}</div></div>
-                                        ))}
-                                        <div className="flex justify-between pt-3 mt-2 border-t border-slate-300"><span className="font-black text-xl text-slate-800">TỔNG CỘNG</span><span className="font-black text-2xl text-emerald-600">${mode === 'ALL' ? calculateTotal([activeBooking, ...relatedBookings]) : calculateTotal([[activeBooking, ...relatedBookings].find(b => b.rowId === selectedRowId)])}</span></div>
+                                        <div className="flex justify-between pt-3 mt-2 border-t border-slate-300"><span className="font-black text-xl text-slate-800">TỔNG</span><span className="font-black text-2xl text-emerald-600">${mode === 'ALL' ? calculateTotal([activeBooking, ...relatedBookings]) : calculateTotal([[activeBooking, ...relatedBookings].find(b => b.rowId === selectedRowId)])}</span></div>
                                     </div>
-                                    <div className="grid grid-cols-2 gap-3"><button onClick={onCancel} className="p-3 rounded-lg font-bold text-gray-500 hover:bg-gray-100">Quay lại</button><button onClick={handlePay} className="p-3 rounded-lg font-bold bg-emerald-600 text-white hover:bg-emerald-700 shadow-lg">Xác nhận thu tiền</button></div>
+                                    <div className="grid grid-cols-2 gap-3"><button onClick={onCancel} className="p-3 bg-gray-100 rounded">Quay lại</button><button onClick={handlePay} className="p-3 bg-emerald-600 text-white rounded shadow">Xác nhận</button></div>
                                 </div>
                             )}
                         </div>
@@ -295,7 +292,6 @@
             const [activeTab, setActiveTab] = useState('map');
             const [staffList, setStaffList] = useState([]); 
             const [bookings, setBookings] = useState([]); 
-            // [V76] Sử dụng empty state ban đầu, đợi API
             const [resourceState, setResourceState] = useState({}); 
             const [statusData, setStatusData] = useState({});
             const [showWalkIn, setShowWalkIn] = useState(false);
@@ -305,10 +301,9 @@
 
             const busyStaffIds = useMemo(() => Object.values(resourceState).filter(r => r.isRunning && !r.isPaused && r.booking.staffId !== '隨機').map(r => r.booking.staffId), [resourceState]);
 
-            // [V76] SYNC FUNCTION
             const updateResource = async (newState) => {
-                setResourceState(newState); // Cập nhật UI ngay cho mượt
-                await axios.post('/api/sync-resource', newState); // Gửi lên Server
+                setResourceState(newState); 
+                await axios.post('/api/sync-resource', newState); 
             };
 
             const updateStaffStatus = async (newStatus) => {
@@ -323,16 +318,13 @@
                     
                     setBookings(apiBookings);
                     setStaffList(apiStaff);
-                    // Nếu Server chưa có dữ liệu (lần đầu chạy), dùng {}
                     const currentRes = serverRes || {};
                     const currentStaffStat = serverStaff || {};
                     
                     setStatusData(currentStaffStat);
 
-                    // --- [V76 LOGIC TỰ ĐỘNG XẾP CHỖ (AUTO-ASSIGN) CHO KHÁCH < 35 PHÚT] ---
                     let changed = false;
-                    let newResState = { ...currentRes }; // Clone trạng thái Server về để xử lý
-                    
+                    let newResState = { ...currentRes }; 
                     const now = new Date();
                     const nowMins = now.getHours() * 60 + now.getMinutes();
                     const today = getToday();
@@ -348,30 +340,24 @@
                     apiBookings.forEach(b => {
                         const bDate = b.startTimeString.split(' ')[0];
                         const bTime = parseTime(b.startTimeString.split(' ')[1]);
-                        
-                        // Kiểm tra khách này đã được xếp vào ghế nào chưa (trên Server)
                         const isAssigned = Object.values(newResState).some(r => r.booking.rowId === b.rowId);
 
                         if (bDate === today && !b.status.includes('取消') && !b.status.includes('完成') && !isAssigned) {
                             const diffMins = bTime - nowMins;
-                            
-                            // [V76 Logic] Chỉ tự xếp nếu thời gian < 35 phút (và không quá trễ)
                             let targetType = null;
                             if (b.category === 'COMBO' && diffMins <= 35 && diffMins >= -30) targetType = 'any'; 
                             else if (b.type === 'BED' && diffMins <= 35 && diffMins >= -30) targetType = 'bed';
-                            else if (diffMins <= 35 && diffMins >= -30) targetType = 'chair'; // Logic cho Foot
+                            else if (diffMins <= 35 && diffMins >= -30) targetType = 'chair';
 
                             if (targetType) {
                                 const currentlyAssignedCount = Object.values(newResState).filter(r => r.booking.rowId === b.rowId).length;
                                 const needed = b.pax || 1;
-                                
                                 if (currentlyAssignedCount < needed) {
                                     const neededNow = needed - currentlyAssignedCount;
                                     for (let p = 0; p < neededNow; p++) {
                                         let slotId = null;
                                         const freeChairs = getFreeSlots('chair', newResState);
                                         const freeBeds = getFreeSlots('bed', newResState);
-
                                         if (targetType === 'any') { if (freeChairs.length > 0) slotId = freeChairs[0]; else if (freeBeds.length > 0) slotId = freeBeds[0]; } 
                                         else if (targetType === 'bed' && freeBeds.length > 0) { slotId = freeBeds[0]; } 
                                         else if (targetType === 'chair' && freeChairs.length > 0) { slotId = freeChairs[0]; }
@@ -380,7 +366,6 @@
                                             const finalStaff = b.staffId === '隨機' ? '隨機' : b.staffId;
                                             const paxIndex = currentlyAssignedCount + p + 1;
                                             const displayName = needed > 1 ? `${b.customerName} (${paxIndex})` : b.customerName;
-                                            // Xếp vào chỗ nhưng chưa chạy (isRunning: false)
                                             newResState[slotId] = { booking: { ...b, staffId: finalStaff, customerName: displayName }, startTime: null, isRunning: false };
                                             changed = true;
                                         }
@@ -390,25 +375,16 @@
                         }
                     });
 
-                    if(changed) { 
-                        // Nếu có thay đổi do tự xếp, cập nhật ngay lên Server
-                        setResourceState(newResState); 
-                        await axios.post('/api/sync-resource', newResState);
-                    } else {
-                        // Nếu không, chỉ cập nhật UI để hiển thị đúng trạng thái Server
-                        setResourceState(currentRes);
-                    }
-                    // ---------------------------------------------------------------------
+                    if(changed) { setResourceState(newResState); await axios.post('/api/sync-resource', newResState); } 
+                    else { setResourceState(currentRes); }
 
                 } catch(e) { console.error(e); }
             };
 
-            // Polling mỗi 2 giây để đồng bộ
             useEffect(() => { fetchData(); const t = setInterval(fetchData, 2000); return () => clearInterval(t); }, []);
 
             const handleResourceAction = async (id, action) => {
                 const current = resourceState[id]; if (!current) return;
-                
                 if (action === 'start') {
                     let finalStaffId = current.booking.staffId;
                     if (finalStaffId === '隨機') {
@@ -417,17 +393,13 @@
                         let candidates = readyStaff;
                         if (isOilRequest) candidates = readyStaff.filter(s => s.gender === 'F' || s.gender === '女' || s.gender === 'Female');
                         candidates.sort((a,b) => (statusData[a.id]?.checkInTime||0) - (statusData[b.id]?.checkInTime||0));
-
                         if (candidates.length === 0) { alert(isOilRequest ? "⚠️ Khách cần Đẩy Dầu nhưng không có Nữ nhân viên sẵn sàng!" : "⚠️ Không có nhân viên sẵn sàng!"); return; }
                         finalStaffId = candidates[0].id;
                     }
-
                     if (finalStaffId !== '隨機') {
                         const newStatusData = { ...statusData, [finalStaffId]: { ...statusData[finalStaffId], status: 'BUSY' } };
-                        updateStaffStatus(newStatusData); // Sync Staff
-                        
+                        updateStaffStatus(newStatusData); 
                         const newBooking = { ...current.booking, staffId: finalStaffId };
-                        // Update Resource Sync
                         updateResource({ ...resourceState, [id]: { ...current, booking: newBooking, startTime: new Date().toISOString(), isRunning: true } });
                         axios.post('/api/update-booking-details', { rowId: current.booking.rowId, staffId: finalStaffId });
                     }
@@ -457,20 +429,18 @@
                 try {
                     for (const rid of rowIdsToPay) { await axios.post('/api/update-status', { rowId: rid, status: '✅ 完成' }); }
                     const newState = { ...resourceState };
-                    const newStatusData = { ...statusData }; // Clone để update local rồi sync
-                    
+                    const newStatusData = { ...statusData }; 
                     Object.keys(newState).forEach(key => {
                         if (rowIdsToPay.includes(newState[key].booking.rowId)) {
                              const staffId = newState[key].booking.staffId;
                              if(staffId !== '隨機' && newStatusData[staffId]) {
-                                 newStatusData[staffId] = { status: 'READY', checkInTime: Date.now() }; // Back to Ready
+                                 newStatusData[staffId] = { status: 'READY', checkInTime: Date.now() }; 
                              }
                              delete newState[key];
                         }
                     });
-                    
                     updateResource(newState);
-                    updateStaffStatus(newStatusData); // Sync Staff Ready
+                    updateStaffStatus(newStatusData); 
                     setBillingData(null);
                     alert(`✅ Thanh toán thành công: $${totalAmount}`);
                     fetchData();
@@ -485,10 +455,12 @@
             const busyStaff = staffList.filter(s => statusData[s.id]?.status === 'BUSY');
             const awayStaff = staffList.filter(s => !statusData[s.id] || statusData[s.id].status === 'AWAY');
 
+            const todaysBookings = useMemo(() => bookings.filter(b => b.startTimeString.split(' ')[0] === getToday()), [bookings]);
+
             return (
                 <div className="min-h-screen flex flex-col bg-slate-50">
                     <header className="bg-[#1e1b4b] text-white p-3 shadow-md flex justify-between items-center sticky top-0 z-50">
-                        <div className="flex items-center gap-3"><span className="bg-amber-500 text-black px-2 py-1 rounded font-black text-sm">POS V76 (Sync)</span><span className="font-bold">XinWuChan ({getToday()})</span></div>
+                        <div className="flex items-center gap-3"><span className="bg-amber-500 text-black px-2 py-1 rounded font-black text-sm">V77 (Today)</span><span className="font-bold">XinWuChan ({getToday()})</span></div>
                         <div className="flex gap-2">
                             <button onClick={()=>setShowWalkIn(true)} className="bg-amber-500 hover:bg-amber-400 text-black px-4 py-1.5 rounded font-bold text-sm flex gap-1 items-center"><Icon d={PATHS.Bolt}/> Tạo đơn nhanh</button>
                             <button onClick={()=>setShowCheckIn(true)} className="bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-1.5 rounded font-bold text-sm flex gap-1 items-center"><Icon d={PATHS.User}/> Check-in</button>
@@ -522,9 +494,9 @@
                                     <div><h3 className="font-bold text-purple-600 mb-3 border-b pb-1">KHU VỰC GIƯỜNG (Body)</h3><div className="grid grid-cols-6 gap-3">{[1,2,3,4,5,6].map(i => <ResourceCard key={`bed-${i}`} id={`bed-${i}`} type="BODY" index={i} data={resourceState[`bed-${i}`]} busyStaffIds={busyStaffIds} onAction={handleResourceAction} onSelect={()=>setSelectedSlot(`bed-${i}`)} onSwitch={handleSwitch} />)}</div></div>
                                 </div>
                                 <div className="col-span-3 bg-white rounded-lg shadow p-4 h-fit sticky top-2">
-                                    <h3 className="font-bold text-gray-700 mb-3">Khách chờ ({bookings.filter(b=>b.status==='已預約').length})</h3>
+                                    <h3 className="font-bold text-gray-700 mb-3">Khách chờ ({todaysBookings.filter(b=>b.status==='已預約').length})</h3>
                                     <div className="space-y-2 max-h-[500px] overflow-y-auto">
-                                        {bookings.filter(b=>b.status==='已預約').map(b => (
+                                        {todaysBookings.filter(b=>b.status==='已預約').map(b => (
                                             <div key={b.rowId} className="border p-2 rounded hover:bg-slate-50 relative group bg-white shadow-sm">
                                                 <div className="flex justify-between font-bold text-sm"><span>{b.customerName}</span><span className="text-indigo-600 font-mono">{b.startTimeString.split(' ')[1]}</span></div>
                                                 <div className="text-xs text-gray-500 font-bold">{b.serviceName}</div>
@@ -542,16 +514,16 @@
                             <div className="bg-white rounded shadow overflow-hidden">
                                 <table className="w-full text-sm text-left">
                                     <thead className="bg-slate-100 text-slate-600 font-bold"><tr><th className="p-3">Giờ</th><th className="p-3">Tên</th><th className="p-3">Dịch Vụ</th><th className="p-3">NV</th><th className="p-3">Trạng thái</th><th className="p-3 text-right">Action</th></tr></thead>
-                                    <tbody className="divide-y">{bookings.map(b=>(<tr key={b.rowId} className="hover:bg-slate-50"><td className="p-3 font-mono text-indigo-700 font-bold">{b.startTimeString.split(' ')[1]}</td><td className="p-3 font-bold">{b.customerName}</td><td className="p-3 text-gray-600">{b.serviceName}</td><td className="p-3"><span className="bg-indigo-50 text-indigo-700 px-2 py-1 rounded text-xs font-bold">{b.staffId}</span></td><td className="p-3"><span className={`px-2 py-1 rounded text-xs font-bold ${b.status.includes('取消')?'bg-red-100 text-red-600':'bg-green-100 text-green-600'}`}>{b.status}</span></td><td className="p-3 text-right"><button onClick={()=>handleManualUpdateStatus(b.rowId, '❌ Cancelled')} className="text-red-500 hover:bg-red-50 px-2 py-1 rounded"><Icon d={PATHS.Trash} size={14}/></button></td></tr>))}</tbody>
+                                    <tbody className="divide-y">{todaysBookings.map(b=>(<tr key={b.rowId} className="hover:bg-slate-50"><td className="p-3 font-mono text-indigo-700 font-bold">{b.startTimeString.split(' ')[1]}</td><td className="p-3 font-bold">{b.customerName}</td><td className="p-3 text-gray-600">{b.serviceName}</td><td className="p-3"><span className="bg-indigo-50 text-indigo-700 px-2 py-1 rounded text-xs font-bold">{b.staffId}</span></td><td className="p-3"><span className={`px-2 py-1 rounded text-xs font-bold ${b.status.includes('取消')?'bg-red-100 text-red-600':'bg-green-100 text-green-600'}`}>{b.status}</span></td><td className="p-3 text-right"><button onClick={()=>handleManualUpdateStatus(b.rowId, '❌ Cancelled')} className="text-red-500 hover:bg-red-50 px-2 py-1 rounded"><Icon d={PATHS.Trash} size={14}/></button></td></tr>))}</tbody>
                                 </table>
                             </div>
                         )}
-                        {activeTab === 'timeline' && <TimelineView bookings={bookings} />}
-                        {activeTab === 'report' && <ReportView bookings={bookings} />}
+                        {activeTab === 'timeline' && <TimelineView bookings={todaysBookings} />}
+                        {activeTab === 'report' && <ReportView bookings={todaysBookings} />}
                     </main>
 
                     {showWalkIn && <WalkInModal onClose={()=>setShowWalkIn(false)} onSave={handleWalkInSave} staffList={staffList} />}
-                    {showCheckIn && <CheckInBoard staffList={staffList} statusData={statusData} onUpdateStatus={updateStaffStatus} onClose={()=>setShowCheckIn(false)} />}
+                    {showCheckIn && <CheckInBoard staffList={staffList} statusData={statusData} setStatusData={setStatusData} onClose={()=>setShowCheckIn(false)} />}
                     {selectedSlot && !bookings.find(b=>b.status==='已預約') && <div className="fixed inset-0 bg-black/30 z-50 flex items-center justify-center text-white font-bold" onClick={()=>setSelectedSlot(null)}>Không có khách chờ!</div>}
                     {billingData && <BillingModal activeBooking={billingData.activeBooking} relatedBookings={billingData.relatedBookings} onConfirm={handleConfirmPayment} onCancel={() => setBillingData(null)} />}
                 </div>
