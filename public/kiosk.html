@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="vi">
+<html lang="zh-TW">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>XinWuChan Kiosk V2</title>
+    <title>XinWuChan Kiosk V79 (Full Logic)</title>
     
     <script src="https://cdn.tailwindcss.com"></script>
     <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.development.js"></script>
@@ -11,14 +11,13 @@
     <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
     <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/axios/1.6.7/axios.min.js"></script>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/animate.css/4.1.1/animate.min.css" rel="stylesheet"/>
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet"/>
 
     <style>
-        body { font-family: 'Segoe UI', sans-serif; background-color: #f0fdf4; user-select: none; touch-action: manipulation; }
-        .glass { background: rgba(255, 255, 255, 0.9); backdrop-filter: blur(10px); border-radius: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.1); border: 1px solid rgba(255,255,255,0.5); }
-        .btn-touch { transition: transform 0.1s; }
-        .btn-touch:active { transform: scale(0.95); }
-        .hide-scroll::-webkit-scrollbar { display: none; }
+        body { font-family: 'Microsoft JhengHei', sans-serif; background-color: #f8fafc; user-select: none; touch-action: manipulation; }
+        .glass { background: rgba(255, 255, 255, 0.95); backdrop-filter: blur(10px); border-radius: 24px; box-shadow: 0 20px 40px rgba(0,0,0,0.1); }
+        .btn-touch { transition: transform 0.1s; cursor: pointer; }
+        .btn-touch:active { transform: scale(0.96); }
+        ::-webkit-scrollbar { width: 0px; background: transparent; }
     </style>
 </head>
 <body>
@@ -27,29 +26,22 @@
     <script type="text/babel">
         const { useState, useEffect, useMemo } = React;
 
-        // --- CẤU HÌNH DỮ LIỆU ---
-        const SERVICE_MENU = [
-            { id: 'FT', name: 'Massage Chân (Foot)', icon: '👣', types: [
-                { name: 'Chân 40 phút', time: 40, price: 500, type: 'CHAIR' },
-                { name: 'Chân 70 phút', time: 70, price: 900, type: 'CHAIR' },
-                { name: 'Chân 90 phút', time: 90, price: 999, type: 'CHAIR' },
+        // --- CẤU HÌNH DỊCH VỤ ---
+        const SERVICES_MENU = [
+            { id: 'FT', name: '👣 足底按摩 (Foot)', items: [
+                { name: '足底按摩 (40分)', time: 40, price: 500, type: 'CHAIR' },
+                { name: '足底按摩 (70分)', time: 70, price: 900, type: 'CHAIR' },
+                { name: '足底按摩 (90分)', time: 90, price: 999, type: 'CHAIR' }
             ]},
-            { id: 'BD', name: 'Massage Body', icon: '🛏️', types: [
-                { name: 'Body 70 phút', time: 70, price: 900, type: 'BED' },
-                { name: 'Body 90 phút', time: 90, price: 999, type: 'BED' },
-                { name: 'Body 120 phút', time: 120, price: 1500, type: 'BED' },
+            { id: 'BD', name: '🛏️ 身體指壓 (Body)', items: [
+                { name: '半身指壓 (35分)', time: 35, price: 500, type: 'BED' },
+                { name: '全身指壓 (70分)', time: 70, price: 900, type: 'BED' },
+                { name: '全身指壓 (90分)', time: 90, price: 999, type: 'BED' }
             ]},
-            { id: 'CB', name: 'Combo (Chân+Body)', icon: '🔥', types: [
-                { name: 'Combo 100 phút', time: 100, price: 999, type: 'BED' },
-                { name: 'Combo 130 phút', time: 130, price: 1500, type: 'BED' },
+            { id: 'CB', name: '🔥 套餐 (Combo)', items: [
+                { name: '招牌套餐 (100分)', time: 100, price: 999, type: 'BED' },
+                { name: '豪華套餐 (130分)', time: 130, price: 1500, type: 'BED' }
             ]}
-        ];
-
-        const STAFF_PREF = [
-            { id: 'ANY', name: 'Ngẫu nhiên (Nhanh nhất)', icon: '⚡' },
-            { id: 'FEMALE', name: 'Nữ', icon: '👩' },
-            { id: 'MALE', name: 'Nam', icon: '👨' },
-            { id: 'OIL', name: 'Nữ (Đẩy dầu +$200)', icon: '💧' }
         ];
 
         // --- UTILS ---
@@ -62,88 +54,84 @@
         };
 
         const App = () => {
-            const [mode, setMode] = useState('HOME'); // HOME, CHECKIN, BOOKING
-            const [step, setStep] = useState(1);
+            const [view, setView] = useState('HOME'); 
             const [phone, setPhone] = useState('');
-            const [apiData, setApiData] = useState({ bookings: [], staffList: [], resourceState: {}, resources: {} });
+            const [data, setData] = useState({ bookings: [], staffList: [], resourceState: {}, staffStatus: {} });
             const [myBooking, setMyBooking] = useState(null);
             
-            // Booking State
-            const [cart, setCart] = useState({ service: null, pax: 1, staffPref: 'ANY', foundSlot: null });
+            // State Walk-in
+            const [wForm, setWForm] = useState({ service: null, pax: 1, staffPref: 'ANY', specificStaff: null, resultTime: null });
             const [isSearching, setIsSearching] = useState(false);
+            const [showStaffGrid, setShowStaffGrid] = useState(false); // [RESTORED] Chọn thợ đích danh
 
-            // Fetch Data
+            // 1. Tải dữ liệu từ Server (Real-time Sync)
             const fetchData = async () => {
                 try {
                     const res = await axios.get('/api/info');
-                    setApiData(res.data);
+                    setData(res.data);
                 } catch(e) { console.error(e); }
             };
-            useEffect(() => { fetchData(); const t = setInterval(fetchData, 5000); return () => clearInterval(t); }, []);
+            useEffect(() => { fetchData(); const t = setInterval(fetchData, 3000); return () => clearInterval(t); }, []);
 
-            // --- LOGIC 1: CHECK-IN ---
-            const handleFindBooking = () => {
-                const today = new Date().toISOString().split('T')[0].replace(/-/g,'/'); // Simplistic date match
-                // Lọc đơn hàng theo SĐT (tìm 4 số cuối hoặc full)
-                const found = apiData.bookings.find(b => {
+            // --- CHỨC NĂNG 1: CHECK-IN (KHÁCH CŨ) ---
+            const handleSearchBooking = () => {
+                const found = data.bookings.find(b => {
                     const cleanPhone = b.sdt.replace(/[^0-9]/g, '');
-                    return cleanPhone.endsWith(phone) && !b.status.includes('取消') && !b.status.includes('完成');
+                    const isToday = b.startTimeString.includes(new Date().toLocaleDateString('zh-TW', {year:'numeric', month:'2-digit', day:'2-digit'}).replace(/\//g,'/'));
+                    const statusOk = !b.status.includes('取消') && !b.status.includes('完成') && !b.status.includes('Check-in');
+                    return isToday && statusOk && cleanPhone.endsWith(phone);
                 });
 
-                if (found) {
-                    setMyBooking(found);
-                    setStep(2);
-                } else {
-                    alert('Không tìm thấy đơn đặt lịch nào với số điện thoại này hôm nay!');
-                }
+                if (found) { setMyBooking(found); } 
+                else { alert('⚠️ 找不到預約 (Not Found)\n請確認手機號碼或洽詢櫃台。'); setPhone(''); }
             };
 
-            const handleConfirmCheckIn = async () => {
-                if (!myBooking) return;
+            const confirmCheckIn = async () => {
+                if(!myBooking) return;
                 try {
-                    await axios.post('/api/update-status', { rowId: myBooking.rowId, status: '👋 Khách đã đến' });
-                    alert(`Check-in thành công! Mời quý khách ngồi chờ.`);
-                    window.location.reload();
-                } catch(e) { alert('Lỗi hệ thống'); }
+                    await axios.post('/api/update-status', { rowId: myBooking.rowId, status: '👋 已到店 (Arrived)' });
+                    setView('SUCCESS');
+                    setTimeout(() => { setView('HOME'); setPhone(''); setMyBooking(null); }, 3000);
+                } catch(e) { alert('Error'); }
             };
 
-            // --- LOGIC 2: SMART SEARCH (TÌM GIỜ SỚM NHẤT) ---
+            // --- CHỨC NĂNG 2: WALK-IN (KHÁCH MỚI - LOGIC THẬT) ---
+            
+            // [RESTORED] Thuật toán tính toán tài nguyên thực tế
             const findEarliestSlot = () => {
                 setIsSearching(true);
                 setTimeout(() => {
-                    // 1. Xác định thời gian bắt đầu tìm (Hiện tại làm tròn lên 10p)
                     const nowMins = getCurrentTimeMins();
-                    let startSearchMins = Math.ceil(nowMins / 10) * 10 + 10; // +10p để khách kịp chuẩn bị
+                    const startSearchMins = Math.ceil(nowMins / 15) * 15 + 15; // Bắt đầu tìm từ 15p tới
                     
-                    // 2. Lấy thông tin tài nguyên
                     const totalChairs = 6;
                     const totalBeds = 6;
-                    const duration = cart.service.time;
-                    const reqType = cart.service.type; // CHAIR or BED
-                    const reqPax = cart.pax;
+                    const duration = wForm.service.time;
+                    const reqType = wForm.service.type;
+                    const reqPax = wForm.pax;
 
-                    // 3. Quét từng khung giờ (từ startSearchMins -> 26h đêm)
                     let foundTime = null;
-                    
-                    // Giả lập quét 12 khung giờ tiếp theo (2 tiếng tới)
-                    // *Lưu ý: Logic này ở Client chỉ mang tính chất tương đối dựa trên dữ liệu đã tải*
+
+                    // Quét từng khung giờ (từ startSearchMins -> 26h đêm)
                     for (let t = startSearchMins; t < 26*60; t += 15) {
-                        // Tính số ghế/giường đang bận tại thời điểm t
                         let busyChairs = 0;
                         let busyBeds = 0;
                         let busyStaff = 0;
+                        let specificStaffBusy = false;
 
-                        // Check Realtime Resources (Đang nằm trên giường)
-                        Object.values(apiData.resourceState).forEach(res => {
+                        // 1. Check Server Resources (Khách đang nằm)
+                        Object.values(data.resourceState).forEach(res => {
                             if (res.isRunning && !res.isPaused) {
                                 if (res.booking.type === 'CHAIR') busyChairs++;
                                 if (res.booking.type === 'BED') busyBeds++;
                                 busyStaff++;
+                                // Check trùng thợ chỉ định
+                                if (wForm.specificStaff && res.booking.staffId === wForm.specificStaff) specificStaffBusy = true;
                             }
                         });
 
-                        // Check Future Bookings (Đã đặt trong sheet)
-                        apiData.bookings.forEach(b => {
+                        // 2. Check Future Bookings (Đơn đã đặt)
+                        data.bookings.forEach(b => {
                             if (b.status.includes('取消')) return;
                             const bStartH = parseInt(b.startTimeString.split(' ')[1].split(':')[0]);
                             const bStartM = parseInt(b.startTimeString.split(' ')[1].split(':')[1]);
@@ -155,209 +143,247 @@
                                 if (b.type === 'CHAIR') busyChairs += b.pax;
                                 if (b.type === 'BED') busyBeds += b.pax;
                                 busyStaff += b.pax;
+                                if (wForm.specificStaff && b.staffId.includes(wForm.specificStaff)) specificStaffBusy = true;
                             }
                         });
 
-                        // Kiểm tra tính khả dụng
-                        const totalStaff = apiData.staffList.length; // Tổng thợ (Giả định đơn giản)
-                        // Lọc thợ theo giới tính nếu cần
-                        let availableStaffCount = totalStaff - busyStaff; // Logic đơn giản hóa
+                        // 3. Logic Tổng hợp
+                        if (specificStaffBusy) continue; // Thợ chỉ định bận -> Bỏ qua giờ này
+
+                        const totalStaff = data.staffList.length;
+                        // Lọc số lượng thợ khả dụng (trừ đi thợ nghỉ/bận)
+                        const availableStaffCount = totalStaff - busyStaff; 
 
                         let resourcesOk = false;
                         if (reqType === 'CHAIR') resourcesOk = (busyChairs + reqPax) <= totalChairs;
                         else resourcesOk = (busyBeds + reqPax) <= totalBeds;
 
-                        if (resourcesOk && availableStaffCount >= reqPax) {
+                        // Nếu đủ giường/ghế VÀ đủ thợ (hoặc thợ chỉ định rảnh)
+                        if (resourcesOk && (wForm.specificStaff ? true : availableStaffCount >= reqPax)) {
                             foundTime = t;
-                            break; // Tìm thấy giờ sớm nhất!
+                            break; 
                         }
                     }
 
                     if (foundTime) {
-                        setCart({ ...cart, foundSlot: formatTime(foundTime) });
-                        setStep(4); // Move to confirm
+                        setWForm({ ...wForm, resultTime: formatTime(foundTime) });
                     } else {
-                        alert('Rất tiếc, hiện tại đã kín lịch trong 2 giờ tới!');
-                        setStep(1);
+                        alert('抱歉，今日已無空位 (Fully Booked Today)');
                     }
                     setIsSearching(false);
-                }, 1500); // Fake delay loading effect
+                }, 1500);
             };
 
-            const handleCreateWalkIn = async () => {
+            const submitWalkIn = async () => {
+                if(!phone || phone.length < 4) { alert('請輸入手機號碼 (Phone)'); return; }
                 const now = new Date();
-                const todayStr = `${now.getFullYear()}/${(now.getMonth()+1).toString().padStart(2,'0')}/${now.getDate().toString().padStart(2,'0')}`;
+                const today = `${now.getFullYear()}/${(now.getMonth()+1).toString().padStart(2,'0')}/${now.getDate().toString().padStart(2,'0')}`;
                 
-                const payload = {
-                    hoTen: `Khách lẻ (${phone})`,
-                    sdt: phone,
-                    dichVu: cart.service.name,
-                    pax: cart.pax,
-                    nhanVien: cart.staffPref === 'ANY' ? '隨機' : (cart.staffPref === 'OIL' ? 'Nữ (Dầu)' : cart.staffPref),
-                    ngayDen: todayStr,
-                    gioDen: cart.foundSlot,
-                    isOil: cart.staffPref === 'OIL',
-                    trangThai: 'đã check-in' // Đánh dấu luôn
-                };
+                // Format staff name
+                let finalStaff = '隨機';
+                if (wForm.staffPref === 'SPECIFIC') finalStaff = wForm.specificStaff;
+                else if (wForm.staffPref === 'OIL') finalStaff = '女師傅(油)';
+                else if (wForm.staffPref === 'FEMALE') finalStaff = '女師傅';
+                else if (wForm.staffPref === 'MALE') finalStaff = '男師傅';
 
+                const payload = {
+                    hoTen: '現場客 (Walk-in)', sdt: phone,
+                    dichVu: wForm.service.name, pax: wForm.pax,
+                    nhanVien: finalStaff,
+                    ngayDen: today, gioDen: wForm.resultTime,
+                    isOil: wForm.staffPref === 'OIL',
+                    trangThai: '已預約'
+                };
+                
                 try {
                     await axios.post('/api/admin-booking', payload);
-                    setStep(5); // Success Screen
-                    setTimeout(() => window.location.reload(), 5000);
-                } catch(e) { alert('Lỗi kết nối!'); }
+                    setView('SUCCESS');
+                    setTimeout(() => { setView('HOME'); setWForm({ service: null, pax: 1, staffPref: 'ANY', specificStaff: null, resultTime: null }); setPhone(''); }, 3000);
+                } catch(e) { alert('Error'); }
             };
 
             // --- UI COMPONENTS ---
-            const Numpad = ({ value, onChange, onEnter }) => (
-                <div className="grid grid-cols-3 gap-3 max-w-xs mx-auto">
-                    {[1,2,3,4,5,6,7,8,9].map(n => <button key={n} onClick={() => onChange(value + n)} className="py-4 bg-white rounded-xl shadow text-2xl font-bold text-slate-700 active:bg-slate-200 btn-touch">{n}</button>)}
-                    <button onClick={() => onChange(value.slice(0, -1))} className="py-4 bg-red-50 text-red-500 rounded-xl font-bold shadow btn-touch">⌫</button>
-                    <button onClick={() => onChange(value + '0')} className="py-4 bg-white rounded-xl shadow text-2xl font-bold text-slate-700 active:bg-slate-200 btn-touch">0</button>
-                    <button onClick={onEnter} className="py-4 bg-green-500 text-white rounded-xl font-bold shadow text-xl btn-touch">OK</button>
+            const Numpad = ({ val, setVal, onEnter }) => (
+                <div className="grid grid-cols-3 gap-3 w-full max-w-xs mx-auto mt-4">
+                    {[1,2,3,4,5,6,7,8,9].map(n => <button key={n} onClick={()=>setVal(val+n)} className="h-16 bg-white rounded-xl text-2xl font-bold shadow text-slate-700 btn-touch">{n}</button>)}
+                    <button onClick={()=>setVal('')} className="h-16 bg-red-50 text-red-500 rounded-xl font-bold btn-touch">C</button>
+                    <button onClick={()=>setVal(val+'0')} className="h-16 bg-white rounded-xl text-2xl font-bold shadow text-slate-700 btn-touch">0</button>
+                    <button onClick={onEnter} className="h-16 bg-emerald-500 text-white rounded-xl font-bold text-xl shadow btn-touch">OK</button>
                 </div>
             );
 
-            // --- MAIN RENDER ---
-            if (mode === 'HOME') return (
-                <div className="h-screen flex flex-col items-center justify-center bg-[url('https://images.unsplash.com/photo-1544161515-4ab6ce6db874?q=80&w=2070&auto=format&fit=crop')] bg-cover">
-                    <div className="absolute inset-0 bg-black/40 backdrop-blur-sm"></div>
-                    <div className="z-10 text-center space-y-8 animate__animated animate__fadeIn">
-                        <h1 className="text-6xl font-black text-white drop-shadow-lg mb-8">XinWuChan Massage</h1>
-                        <div className="flex gap-8">
-                            <button onClick={() => setMode('CHECKIN')} className="w-64 h-64 glass flex flex-col items-center justify-center gap-4 text-emerald-800 hover:bg-white/90 btn-touch">
-                                <span className="text-6xl">📅</span>
-                                <span className="text-2xl font-bold">Đã Đặt Lịch<br/><span className="text-sm font-normal">(Check-in)</span></span>
-                            </button>
-                            <button onClick={() => setMode('BOOKING')} className="w-64 h-64 glass flex flex-col items-center justify-center gap-4 text-purple-800 hover:bg-white/90 btn-touch">
-                                <span className="text-6xl">⚡</span>
-                                <span className="text-2xl font-bold">Khách Mới<br/><span className="text-sm font-normal">(Đặt ngay)</span></span>
-                            </button>
+            // [RESTORED] Màn hình chọn thợ đích danh
+            const StaffSelectionGrid = () => {
+                // Filter thợ đang rảnh (READY)
+                const available = data.staffList.filter(s => {
+                    const status = data.staffStatus[s.id]?.status;
+                    return status !== 'AWAY' && status !== 'OFF'; 
+                });
+
+                return (
+                    <div className="fixed inset-0 bg-slate-100 z-50 flex flex-col p-6 animate__animated animate__slideInUp">
+                        <div className="flex justify-between items-center mb-6">
+                            <h2 className="text-2xl font-bold text-slate-700">請選擇師傅 (Select Staff)</h2>
+                            <button onClick={()=>setShowStaffGrid(false)} className="px-6 py-3 bg-gray-200 rounded-xl font-bold">取消 (Cancel)</button>
+                        </div>
+                        <div className="flex-1 overflow-y-auto grid grid-cols-4 gap-4">
+                            {available.map(s => {
+                                const status = data.staffStatus[s.id]?.status || 'READY';
+                                const isBusy = status === 'BUSY' || status === 'OUT_SHORT';
+                                return (
+                                    <button key={s.id} disabled={isBusy} 
+                                        onClick={()=>{ setWForm({...wForm, staffPref: 'SPECIFIC', specificStaff: s.id}); setShowStaffGrid(false); findEarliestSlot(); }}
+                                        className={`p-4 rounded-xl shadow-sm border-b-4 flex flex-col items-center justify-center h-32 ${isBusy ? 'bg-gray-100 border-gray-300 opacity-50' : 'bg-white border-indigo-400 btn-touch'}`}>
+                                        <span className="text-3xl font-black text-slate-700">{s.id.replace('號','')}</span>
+                                        <span className="text-sm font-bold mt-1 text-slate-500">{s.name}</span>
+                                        {isBusy && <span className="text-xs bg-red-100 text-red-600 px-2 rounded mt-1">忙碌</span>}
+                                    </button>
+                                )
+                            })}
+                        </div>
+                    </div>
+                );
+            };
+
+            // --- SCREENS ---
+            if(view === 'HOME') return (
+                <div className="h-screen flex flex-col items-center justify-center p-6 bg-gradient-to-br from-slate-100 to-indigo-50">
+                    <h1 className="text-5xl font-black text-slate-800 mb-2 tracking-wide">XinWuChan</h1>
+                    <p className="text-xl text-slate-500 mb-12">Self-Service Kiosk</p>
+                    <div className="flex gap-8 w-full max-w-4xl h-96">
+                        <div onClick={() => setView('CHECKIN')} className="flex-1 bg-white rounded-3xl shadow-xl flex flex-col items-center justify-center gap-4 btn-touch border-b-8 border-emerald-500 hover:bg-emerald-50">
+                            <div className="w-24 h-24 bg-emerald-100 rounded-full flex items-center justify-center text-5xl">📅</div>
+                            <div className="text-center">
+                                <div className="text-3xl font-bold text-slate-800">Check-in</div>
+                                <div className="text-lg text-slate-500 mt-1">我是預約客 (Booked)</div>
+                            </div>
+                        </div>
+                        <div onClick={() => setView('WALK_IN')} className="flex-1 bg-white rounded-3xl shadow-xl flex flex-col items-center justify-center gap-4 btn-touch border-b-8 border-purple-500 hover:bg-purple-50">
+                            <div className="w-24 h-24 bg-purple-100 rounded-full flex items-center justify-center text-5xl">⚡</div>
+                            <div className="text-center">
+                                <div className="text-3xl font-bold text-slate-800">現場候位</div>
+                                <div className="text-lg text-slate-500 mt-1">我是新客人 (Walk-in)</div>
+                            </div>
                         </div>
                     </div>
                 </div>
             );
 
-            if (mode === 'CHECKIN') return (
-                <div className="h-screen flex flex-col items-center justify-center p-4">
-                    <button onClick={() => setMode('HOME')} className="absolute top-8 left-8 p-3 bg-white rounded-full shadow">🏠 Trang chủ</button>
-                    
-                    {step === 1 && (
-                        <div className="glass p-8 w-full max-w-lg text-center animate__animated animate__fadeInUp">
-                            <h2 className="text-2xl font-bold mb-4">Nhập số điện thoại đặt lịch</h2>
-                            <div className="text-4xl font-mono font-bold tracking-widest bg-white p-4 rounded-xl mb-6 border-2 border-emerald-200 min-h-[80px] flex items-center justify-center">{phone || "_ _ _ _"}</div>
-                            <Numpad value={phone} onChange={setPhone} onEnter={handleFindBooking} />
-                        </div>
-                    )}
-
-                    {step === 2 && myBooking && (
-                        <div className="glass p-8 w-full max-w-lg text-center animate__animated animate__fadeIn">
-                            <h2 className="text-2xl font-bold text-emerald-700 mb-2">Xin chào, {myBooking.customerName.split('(')[0]}!</h2>
-                            <div className="bg-white p-6 rounded-xl shadow-inner mb-6 text-left space-y-3">
-                                <div className="flex justify-between border-b pb-2"><span>Dịch vụ:</span> <span className="font-bold">{myBooking.serviceName}</span></div>
-                                <div className="flex justify-between border-b pb-2"><span>Giờ đặt:</span> <span className="font-bold text-xl text-blue-600">{myBooking.startTimeString.split(' ')[1]}</span></div>
-                                <div className="flex justify-between"><span>Nhân viên:</span> <span className="font-bold">{myBooking.staffId}</span></div>
+            if(view === 'CHECKIN') return (
+                <div className="h-screen flex flex-col bg-slate-50 p-6">
+                    <button onClick={()=>setView('HOME')} className="self-start px-6 py-3 bg-white rounded-xl font-bold text-slate-600 shadow mb-8">🏠 首頁 (Home)</button>
+                    <div className="flex-1 flex flex-col items-center justify-center">
+                        {!myBooking ? (
+                            <div className="w-full max-w-md text-center animate__animated animate__fadeInUp">
+                                <h2 className="text-3xl font-bold text-slate-700 mb-2">輸入手機號碼</h2>
+                                <p className="text-slate-500 mb-6">Enter Phone Number to Check-in</p>
+                                <div className="bg-white p-4 rounded-2xl shadow-inner mb-4 text-4xl font-mono text-center tracking-[0.5em] text-emerald-600 font-bold h-20 flex items-center justify-center border-2 border-emerald-100">{phone || "____"}</div>
+                                <Numpad val={phone} setVal={setPhone} onEnter={handleSearchBooking} />
                             </div>
-                            <button onClick={handleConfirmCheckIn} className="w-full py-4 bg-emerald-600 text-white rounded-xl font-bold text-xl shadow-lg btn-touch">✅ Tôi đã đến (Check-in)</button>
-                        </div>
-                    )}
+                        ) : (
+                            <div className="glass p-8 w-full max-w-lg animate__animated animate__zoomIn">
+                                <div className="text-center mb-6">
+                                    <div className="inline-block px-4 py-1 bg-emerald-100 text-emerald-700 rounded-full font-bold text-sm mb-2">Booking Found</div>
+                                    <h2 className="text-3xl font-bold text-slate-800">{myBooking.customerName.split('(')[0]} 您好!</h2>
+                                </div>
+                                <div className="space-y-4 bg-slate-50 p-6 rounded-xl border border-slate-100 mb-8">
+                                    <div className="flex justify-between text-lg"><span>服務:</span> <span className="font-bold">{myBooking.serviceName}</span></div>
+                                    <div className="flex justify-between text-lg"><span>時間:</span> <span className="font-bold text-blue-600 text-2xl">{myBooking.startTimeString.split(' ')[1]}</span></div>
+                                    <div className="flex justify-between text-lg"><span>師傅:</span> <span className="font-bold">{myBooking.staffId}</span></div>
+                                </div>
+                                <button onClick={confirmCheckIn} className="w-full py-5 bg-emerald-600 text-white rounded-2xl font-bold text-2xl shadow-lg shadow-emerald-200 btn-touch">✅ 確認報到 (Confirm)</button>
+                                <button onClick={()=>{setMyBooking(null); setPhone('')}} className="w-full mt-4 py-3 text-slate-400 font-bold">取消 (Cancel)</button>
+                            </div>
+                        )}
+                    </div>
                 </div>
             );
 
-            if (mode === 'BOOKING') return (
+            if(view === 'WALK_IN') return (
                 <div className="h-screen flex flex-col bg-slate-50">
-                    <div className="bg-white p-4 shadow-sm flex justify-between items-center">
-                        <button onClick={() => setMode('HOME')} className="px-4 py-2 bg-slate-100 rounded-lg font-bold">🏠</button>
-                        <h2 className="font-bold text-lg text-slate-700">Đặt Lịch Nhanh (Walk-in)</h2>
+                    {showStaffGrid && <StaffSelectionGrid />}
+                    
+                    <div className="bg-white p-4 shadow flex justify-between items-center z-10">
+                        <button onClick={()=>setView('HOME')} className="px-4 py-2 bg-slate-100 rounded-lg font-bold">🏠</button>
+                        <h2 className="text-xl font-bold text-slate-700">現場候位 (Walk-in)</h2>
                         <div className="w-10"></div>
                     </div>
-
-                    <div className="flex-1 overflow-y-auto p-4 pb-24">
-                        {step === 1 && (
-                            <div className="space-y-6 animate__animated animate__slideInRight">
-                                <h3 className="text-xl font-bold text-slate-600">1. Chọn Dịch Vụ</h3>
-                                {SERVICE_MENU.map(cat => (
+                    
+                    <div className="flex-1 overflow-y-auto p-6">
+                        {!wForm.service ? (
+                            <div className="space-y-6 animate__animated animate__fadeInRight">
+                                {SERVICES_MENU.map(cat => (
                                     <div key={cat.id}>
-                                        <div className="text-sm font-bold text-gray-400 mb-2 uppercase">{cat.name}</div>
+                                        <h3 className="text-slate-400 font-bold mb-3 ml-1">{cat.name}</h3>
                                         <div className="grid grid-cols-1 gap-3">
-                                            {cat.types.map((svc, i) => (
-                                                <button key={i} onClick={() => { setCart({...cart, service: svc}); setStep(2); }} className="bg-white p-4 rounded-xl shadow-sm flex justify-between items-center btn-touch border-l-4 border-indigo-500">
-                                                    <span className="font-bold text-lg">{svc.name}</span>
-                                                    <span className="font-black text-amber-500 text-xl">${svc.price}</span>
-                                                </button>
+                                            {cat.items.map((svc, i) => (
+                                                <div key={i} onClick={()=>setWForm({...wForm, service: svc})} className="bg-white p-5 rounded-2xl shadow-sm flex justify-between items-center btn-touch border border-slate-100">
+                                                    <span className="text-xl font-bold text-slate-700">{svc.name}</span>
+                                                    <span className="text-xl font-black text-amber-500">${svc.price}</span>
+                                                </div>
                                             ))}
                                         </div>
                                     </div>
                                 ))}
                             </div>
-                        )}
+                        ) : !wForm.resultTime ? (
+                            <div className="h-full flex flex-col animate__animated animate__fadeInRight">
+                                <div className="bg-white p-6 rounded-2xl shadow-sm mb-6">
+                                    <h3 className="text-lg font-bold text-slate-400 mb-4">已選: <span className="text-slate-800">{wForm.service.name}</span></h3>
+                                    
+                                    <div className="mb-6">
+                                        <label className="block text-sm font-bold text-slate-500 mb-2">人數 (Pax)</label>
+                                        <div className="flex gap-2">
+                                            {[1,2,3,4].map(n => <button key={n} onClick={()=>setWForm({...wForm, pax: n})} className={`flex-1 py-3 rounded-xl font-bold text-lg border-2 ${wForm.pax===n ? 'border-indigo-500 bg-indigo-50 text-indigo-700' : 'border-slate-100 text-slate-400'}`}>{n}人</button>)}
+                                        </div>
+                                    </div>
 
-                        {step === 2 && (
-                            <div className="space-y-6 animate__animated animate__slideInRight">
-                                <h3 className="text-xl font-bold text-slate-600">2. Số lượng khách</h3>
-                                <div className="grid grid-cols-2 gap-4">
-                                    {[1,2,3,4,5,6].map(n => (
-                                        <button key={n} onClick={() => { setCart({...cart, pax: n}); setStep(3); }} className="py-8 bg-white rounded-xl shadow-sm text-4xl font-bold text-indigo-600 btn-touch border-2 border-transparent focus:border-indigo-500">
-                                            {n} <span className="text-sm text-gray-400">Người</span>
-                                        </button>
-                                    ))}
+                                    <div>
+                                        <label className="block text-sm font-bold text-slate-500 mb-2">師傅需求 (Staff)</label>
+                                        <div className="grid grid-cols-2 gap-3">
+                                            <button onClick={()=>setWForm({...wForm, staffPref:'ANY', specificStaff:null})} className={`py-3 rounded-xl font-bold border-2 ${wForm.staffPref==='ANY'?'border-orange-500 bg-orange-50 text-orange-700':'border-slate-100'}`}>⚡ 隨機 (快)</button>
+                                            <button onClick={()=>setWForm({...wForm, staffPref:'OIL', specificStaff:null})} className={`py-3 rounded-xl font-bold border-2 ${wForm.staffPref==='OIL'?'border-purple-500 bg-purple-50 text-purple-700':'border-slate-100'}`}>💧 油推 (女)</button>
+                                            <button onClick={()=>setWForm({...wForm, staffPref:'FEMALE', specificStaff:null})} className={`py-3 rounded-xl font-bold border-2 ${wForm.staffPref==='FEMALE'?'border-pink-500 bg-pink-50 text-pink-700':'border-slate-100'}`}>👩 女師傅</button>
+                                            <button onClick={()=>setWForm({...wForm, staffPref:'MALE', specificStaff:null})} className={`py-3 rounded-xl font-bold border-2 ${wForm.staffPref==='MALE'?'border-blue-500 bg-blue-50 text-blue-700':'border-slate-100'}`}>👨 男師傅</button>
+                                            
+                                            {/* Nút Chọn thợ đích danh */}
+                                            <button onClick={()=>setShowStaffGrid(true)} className={`col-span-2 py-3 rounded-xl font-bold border-2 ${wForm.staffPref==='SPECIFIC'?'border-indigo-500 bg-indigo-50 text-indigo-700':'border-slate-100 bg-slate-50'}`}>
+                                                {wForm.specificStaff ? `👉 已選: ${wForm.specificStaff}` : '👉 指定師傅 (Specific)'}
+                                            </button>
+                                        </div>
+                                    </div>
                                 </div>
-                                <button onClick={() => setStep(1)} className="w-full py-3 text-gray-400 mt-4">Quay lại</button>
+
+                                <button onClick={findEarliestSlot} className="w-full py-5 bg-indigo-600 text-white rounded-2xl font-bold text-2xl shadow-lg mt-auto btn-touch">
+                                    {isSearching ? '🔍 查詢中...' : '🔍 查詢空位 (Search)'}
+                                </button>
+                                <button onClick={()=>setWForm({...wForm, service: null})} className="w-full py-4 text-slate-400 font-bold mt-2">重新選擇</button>
                             </div>
-                        )}
-
-                        {step === 3 && (
-                            <div className="space-y-6 animate__animated animate__slideInRight">
-                                <h3 className="text-xl font-bold text-slate-600">3. Chọn Nhân Viên</h3>
-                                <div className="grid grid-cols-1 gap-4">
-                                    {STAFF_PREF.map(pref => (
-                                        <button key={pref.id} onClick={() => { setCart({...cart, staffPref: pref.id}); findEarliestSlot(); }} className="bg-white p-6 rounded-xl shadow-sm flex items-center gap-4 btn-touch">
-                                            <span className="text-4xl">{pref.icon}</span>
-                                            <span className="font-bold text-xl">{pref.name}</span>
-                                        </button>
-                                    ))}
-                                </div>
-                                <button onClick={() => setStep(2)} className="w-full py-3 text-gray-400 mt-4">Quay lại</button>
-                            </div>
-                        )}
-
-                        {isSearching && (
-                            <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center backdrop-blur-sm">
-                                <div className="bg-white p-8 rounded-2xl flex flex-col items-center animate__animated animate__pulse animate__infinite">
-                                    <div className="text-6xl mb-4">🔍</div>
-                                    <div className="text-xl font-bold">Đang tìm giờ trống sớm nhất...</div>
-                                </div>
-                            </div>
-                        )}
-
-                        {step === 4 && (
-                            <div className="animate__animated animate__fadeIn">
-                                <div className="glass p-6 text-center mb-6 border-2 border-emerald-400 bg-emerald-50">
-                                    <div className="text-sm text-emerald-600 font-bold uppercase mb-2">Tìm thấy giờ trống!</div>
-                                    <div className="text-6xl font-black text-emerald-700 mb-2">{cart.foundSlot}</div>
-                                    <div className="text-gray-500">Hôm nay</div>
-                                </div>
-                                
-                                <div className="bg-white p-4 rounded-xl shadow-sm mb-6 space-y-2">
-                                    <div className="flex justify-between"><span>Dịch vụ:</span> <b>{cart.service.name}</b></div>
-                                    <div className="flex justify-between"><span>Số khách:</span> <b>{cart.pax}</b></div>
-                                    <div className="flex justify-between"><span>Yêu cầu:</span> <b>{STAFF_PREF.find(p=>p.id===cart.staffPref).name}</b></div>
+                        ) : (
+                            <div className="h-full flex flex-col items-center animate__animated animate__fadeInUp">
+                                <div className="w-full bg-emerald-50 border-2 border-emerald-200 p-6 rounded-2xl text-center mb-6">
+                                    <div className="text-emerald-600 font-bold uppercase tracking-wider text-sm mb-1">Available Time</div>
+                                    <div className="text-6xl font-black text-emerald-800">{wForm.resultTime}</div>
+                                    <div className="text-emerald-600 font-bold mt-2">可安排入場</div>
                                 </div>
 
-                                <h3 className="font-bold mb-2">Nhập SĐT để chốt đơn:</h3>
-                                <div className="text-3xl font-mono text-center bg-white p-3 rounded-lg border mb-4 tracking-widest">{phone || "..."}</div>
-                                <Numpad value={phone} onChange={setPhone} onEnter={handleCreateWalkIn} />
-                                <button onClick={() => setStep(3)} className="w-full py-3 text-gray-400 mt-4">Chọn lại</button>
-                            </div>
-                        )}
-
-                        {step === 5 && (
-                            <div className="h-full flex flex-col items-center justify-center text-emerald-600">
-                                <div className="text-8xl mb-4 animate__animated animate__bounceIn">🎉</div>
-                                <h2 className="text-3xl font-bold">Đặt lịch thành công!</h2>
-                                <p className="mt-2 text-slate-500">Vui lòng đợi nhân viên sắp xếp.</p>
+                                <div className="w-full max-w-sm">
+                                    <label className="block text-center text-slate-500 mb-2">輸入手機以確認 (Phone to Confirm)</label>
+                                    <div className="text-3xl font-mono text-center bg-white p-3 rounded-xl border-2 border-indigo-100 mb-4 tracking-widest">{phone || "..."}</div>
+                                    <Numpad val={phone} setVal={setPhone} onEnter={submitWalkIn} />
+                                    <button onClick={()=>setWForm({...wForm, resultTime: null})} className="w-full py-4 text-slate-400 font-bold mt-4">返回 (Back)</button>
+                                </div>
                             </div>
                         )}
                     </div>
+                </div>
+            );
+
+            if(view === 'SUCCESS') return (
+                <div className="h-screen flex flex-col items-center justify-center bg-emerald-500 text-white">
+                    <div className="text-9xl mb-6 animate__animated animate__tada">🎉</div>
+                    <h2 className="text-4xl font-bold mb-2">完成! (Success)</h2>
+                    <p className="text-xl opacity-90">請稍候，我們將為您安排。</p>
                 </div>
             );
         };
