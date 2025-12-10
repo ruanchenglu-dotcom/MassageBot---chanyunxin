@@ -1,6 +1,5 @@
 // ==============================================================================
-// PHIÊN BẢN V79 - CHINESE LANGUAGE UNITY
-// (Logic V78.1 + Ngôn ngữ Tiếng Trung Phồn Thể)
+// PHIÊN BẢN V80 - FINAL FIX (CRASH PROOF + ROBUST DATE LOGIC)
 // ==============================================================================
 
 require('dotenv').config(); 
@@ -41,23 +40,20 @@ let cachedBookings = [];
 let cachedSchedule = []; 
 let userState = {}; 
 
-// BẢNG GIÁ CHUẨN (TIẾNG TRUNG)
+// BẢNG GIÁ CHUẨN
 const SERVICES = {
     'CB_190': { name: '👑 帝王套餐 (190分)', duration: 190, type: 'BED', category: 'COMBO', price: 2000 },
     'CB_130': { name: '💎 豪華套餐 (130分)', duration: 130, type: 'BED', category: 'COMBO', price: 1500 },
     'CB_100': { name: '🔥 招牌套餐 (100分)', duration: 100, type: 'BED', category: 'COMBO', price: 999 },
     'CB_70':  { name: '⚡ 精選套餐 (70分)',  duration: 70,  type: 'BED', category: 'COMBO', price: 900 },
-    
     'FT_120': { name: '👣 足底按摩 (120分)', duration: 120, type: 'CHAIR', category: 'FOOT', price: 1500 },
     'FT_90':  { name: '👣 足底按摩 (90分)',  duration: 90,  type: 'CHAIR', category: 'FOOT', price: 999 },
     'FT_70':  { name: '👣 足底按摩 (70分)',  duration: 70,  type: 'CHAIR', category: 'FOOT', price: 900 },
     'FT_40':  { name: '👣 足底按摩 (40分)',  duration: 40,  type: 'CHAIR', category: 'FOOT', price: 500 },
-    
     'BD_120': { name: '🛏️ 全身指壓 (120分)', duration: 120, type: 'BED', category: 'BODY', price: 1500 },
     'BD_90':  { name: '🛏️ 全身指壓 (90分)',  duration: 90,  type: 'BED', category: 'BODY', price: 999 },
     'BD_70':  { name: '🛏️ 全身指壓 (70分)',  duration: 70,  type: 'BED', category: 'BODY', price: 900 }, 
     'BD_35':  { name: '🛏️ 半身指壓 (35分)',  duration: 35,  type: 'BED', category: 'BODY', price: 500 },
-
     'OFF_DAY': { name: '⛔ 請假', duration: 1080, type: 'NONE' },
     'BREAK_30': { name: '🍱 用餐', duration: 30, type: 'NONE' },
     'BREAK_60': { name: '🍱 用餐', duration: 60, type: 'NONE' },
@@ -68,10 +64,15 @@ const SERVICES = {
 function normalizePhoneNumber(phone) { if (!phone) return ''; return phone.replace(/[^0-9]/g, ''); }
 
 function getNext15Days() { 
-    let days = []; const t = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Taipei' })); 
+    let days = []; 
+    // Dùng múi giờ Đài Loan chuẩn xác để tránh lệch ngày
+    const t = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Taipei' })); 
     for(let i=0; i<15; i++) { 
         let d = new Date(t); d.setDate(t.getDate()+i); 
-        const v = d.toISOString().split('T')[0]; 
+        const year = d.getFullYear();
+        const month = (d.getMonth()+1).toString().padStart(2, '0');
+        const day = d.getDate().toString().padStart(2, '0');
+        const v = `${year}-${month}-${day}`; // ISO Format YYYY-MM-DD
         const w = d.toLocaleDateString('zh-TW', { weekday: 'short' }); 
         let l = `${d.getMonth()+1}/${d.getDate()} (${w})`; 
         if(i===0) l="今天 (Today)"; if(i===1) l="明天 (Tmr)"; 
@@ -91,9 +92,14 @@ function isWithinShift(staff, requestTimeStr) {
 function formatDateDisplay(dateInput) {
     if (!dateInput) return "";
     try {
-        let str = dateInput.toString().trim(); if (str.includes('/') && str.split('/')[0].length === 4) return str.split(' ')[0];
-        let d = new Date(str); if (isNaN(d.getTime())) return str;
-        const taipeiString = d.toLocaleString('en-US', { timeZone: 'Asia/Taipei' }); d = new Date(taipeiString);
+        let str = dateInput.toString().trim(); 
+        // Xử lý các định dạng ngày khác nhau
+        if (str.includes('/')) str = str.replace(/\//g, '-');
+        let d = new Date(str); 
+        if (isNaN(d.getTime())) return str;
+        // Force Taipei Time
+        const taipeiString = d.toLocaleString('en-US', { timeZone: 'Asia/Taipei' }); 
+        d = new Date(taipeiString);
         return `${d.getFullYear()}/${(d.getMonth() + 1).toString().padStart(2, '0')}/${d.getDate().toString().padStart(2, '0')}`;
     } catch (e) { return dateInput; }
 }
@@ -106,8 +112,11 @@ function getCurrentDateTimeStr() {
 function parseStringToDate(dateStr) {
     if (!dateStr || typeof dateStr !== 'string') return null;
     try {
+        // Hỗ trợ định dạng "YYYY/MM/DD HH:mm"
         const parts = dateStr.trim().split(' '); const datePart = parts[0]; let timePart = parts.length > 1 ? parts[1] : "00:00";
-        const dateNums = datePart.split('/'); const timeNums = timePart.split(':'); if (dateNums.length < 3) return null;
+        const dateNums = datePart.split(/[-/]/); 
+        const timeNums = timePart.split(':'); 
+        if (dateNums.length < 3) return null;
         let year = parseInt(dateNums[0]); if (year < 1900) year += 1911; 
         return new Date(year, parseInt(dateNums[1]) - 1, parseInt(dateNums[2]), parseInt(timeNums[0])||0, parseInt(timeNums[1])||0);
     } catch (e) { return null; }
@@ -125,14 +134,20 @@ async function syncData() {
                 if (!row[0] || !row[1]) continue;
                 const status = row[7] || '已預約'; if (status.includes('取消') || status.includes('Cancelled')) continue;
                 let duration = 60; let type = 'BED'; let category = 'BODY';
-                if (row[3] && row[3].includes('早退')) {
-                } else {
-                    for (const key in SERVICES) {
-                        if (row[3] && row[3].includes(SERVICES[key].name.split('(')[0])) { 
-                            duration = SERVICES[key].duration; type = SERVICES[key].type; category = SERVICES[key].category; break;
+                
+                // Logic duration an toàn hơn
+                if (row[3]) {
+                    if (row[3].includes('早退')) {
+                       // Skip logic
+                    } else {
+                        for (const key in SERVICES) {
+                            if (row[3].includes(SERVICES[key].name.split('(')[0])) { 
+                                duration = SERVICES[key].duration; type = SERVICES[key].type; category = SERVICES[key].category; break;
+                            }
                         }
                     }
                 }
+                
                 cachedBookings.push({
                     rowId: i + 1, startTimeString: `${row[0]} ${row[1]}`, duration: duration, type: type, category: category,
                     staffId: row[8] || '隨機', pax: parseInt(row[5]||1), customerName: `${row[2]} (${row[6]})`, serviceName: row[3], status: status, lineId: row[9] 
@@ -148,7 +163,12 @@ async function syncData() {
                 const staffName = rows[i][0];
                 if (staffName && staffName.trim() !== '') {
                     const cleanName = staffName.trim(); let gender = 'M'; 
-                    if (rows[i][1] && (rows[i][1].trim() === '女' || rows[i][1].trim().toUpperCase() === 'F')) gender = 'F';
+                    // Robust gender check
+                    if (rows[i][1]) {
+                        const g = rows[i][1].trim().toUpperCase();
+                        if (g === '女' || g === 'F' || g === 'FEMALE') gender = 'F';
+                    }
+                    
                     tempStaffList.push({ id: cleanName, name: cleanName, gender: gender, shiftStart: rows[i][2] || '10:00', shiftEnd: rows[i][3] || '02:00' });
                     if (headerDates.length > 4) {
                         for (let j = 4; j < rows[i].length; j++) {
@@ -157,9 +177,13 @@ async function syncData() {
                     }
                 }
             }
-            if (tempStaffList.length > 0) STAFF_LIST = tempStaffList; else if (STAFF_LIST.length === 0) for(let i=1; i<=20; i++) STAFF_LIST.push({id:`${i}號`, name:`${i}號`, gender:'F', shiftStart:'10:00', shiftEnd:'02:00'});
-        } else if (STAFF_LIST.length === 0) for(let i=1; i<=20; i++) STAFF_LIST.push({id:`${i}號`, name:`${i}號`, gender:'F', shiftStart:'10:00', shiftEnd:'02:00'});
-        console.log(`Synced: ${cachedBookings.length} bookings.`);
+            if (tempStaffList.length > 0) STAFF_LIST = tempStaffList; 
+            // Fallback nếu sheet lỗi
+            else if (STAFF_LIST.length === 0) for(let i=1; i<=20; i++) STAFF_LIST.push({id:`${i}號`, name:`${i}號`, gender:'F', shiftStart:'10:00', shiftEnd:'02:00'});
+        } else if (STAFF_LIST.length === 0) {
+             for(let i=1; i<=20; i++) STAFF_LIST.push({id:`${i}號`, name:`${i}號`, gender:'F', shiftStart:'10:00', shiftEnd:'02:00'});
+        }
+        console.log(`Synced: ${cachedBookings.length} bookings. Staff count: ${STAFF_LIST.length}`);
     } catch (e) { console.error('Sync Error:', e); }
 }
 
@@ -169,7 +193,7 @@ async function ghiVaoSheet(data) {
         const valuesToWrite = [[ formatDateDisplay(data.ngayDen), (data.gioDen||"").split(' ')[1]?.substring(0,5), data.hoTen || '現場客', colD_Service, data.isOil ? "Yes" : "", data.pax || 1, data.sdt, data.trangThai || '已預約', data.nhanVien || '隨機', data.userId, getCurrentDateTimeStr() ]];
         await sheets.spreadsheets.values.append({ spreadsheetId: SHEET_ID, range: 'Sheet1!A:A', valueInputOption: 'USER_ENTERED', requestBody: { values: valuesToWrite } });
         await syncData(); 
-    } catch (e) { console.error('[ERROR] Sheet Write Error:', e); }
+    } catch (e) { console.error('[ERROR] Lỗi ghi Sheet:', e); }
 }
 
 async function updateBookingStatus(rowId, newStatus) {
@@ -201,7 +225,9 @@ function checkAvailability(dateStr, timeStr, serviceDuration, serviceType, speci
     if (!startRequest) return false;
     const endRequest = new Date(startRequest.getTime() + serviceDuration * 60000);
     const now = new Date();
+
     const isBookingForNow = (startRequest.getTime() - now.getTime()) < 30 * 60000 && (startRequest.getTime() - now.getTime()) > -30 * 60000;
+
     const staffOffToday = cachedSchedule.filter(s => s.date === displayDate).map(s => s.staffId);
     
     const workingStaffs = STAFF_LIST.filter(staff => {
@@ -209,6 +235,7 @@ function checkAvailability(dateStr, timeStr, serviceDuration, serviceType, speci
         if (requireFemale && staff.gender !== 'F' && staff.gender !== '女') return false;
         if (requireMale && staff.gender !== 'M' && staff.gender !== '男') return false;
         if (!isWithinShift(staff, timeStr)) return false; 
+        
         if (isBookingForNow) {
             const status = SERVER_STAFF_STATUS[staff.id];
             if (status && (status.status === 'BUSY' || status.status === 'AWAY' || status.status === 'OUT_SHORT')) return false;
@@ -228,6 +255,7 @@ function checkAvailability(dateStr, timeStr, serviceDuration, serviceType, speci
         const startExisting = parseStringToDate(booking.startTimeString);
         if (!startExisting) continue;
         const endExisting = new Date(startExisting.getTime() + booking.duration * 60000);
+
         if (startRequest < endExisting && endRequest > startExisting) {
             workingStaffBusy += booking.pax;
             if (booking.type === 'CHAIR') usedChairs += booking.pax;
@@ -253,11 +281,18 @@ function checkAvailability(dateStr, timeStr, serviceDuration, serviceType, speci
     if (!specificStaffIds && (workingStaffs.length - workingStaffBusy) < pax) return false;
     if (serviceType === 'CHAIR' && (usedChairs + pax) > MAX_CHAIRS) return false;
     if (serviceType === 'BED' && (usedBeds + pax) > MAX_BEDS) return false;
+
     return true;
 }
 
 function generateTimeBubbles(selectedDate, serviceCode, specificStaffIds = null, pax = 1, requireFemale = false, requireMale = false) {
-    const now = new Date(); const taipeiNowStr = now.toLocaleString('en-US', { timeZone: 'Asia/Taipei', hour12: false }); const currentHour = parseInt(taipeiNowStr.split(', ')[1].split(':')[0]); const taipeiDate = new Date(taipeiNowStr); const todayStr = taipeiDate.toISOString().split('T')[0]; const isToday = (selectedDate === todayStr);
+    // [FIX] Tính giờ hiện tại an toàn
+    const taipeiDate = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Taipei' }));
+    const currentHour = taipeiDate.getHours();
+    const todayStr = taipeiDate.toISOString().split('T')[0];
+    // So sánh ngày cẩn thận hơn
+    const isToday = (formatDateDisplay(selectedDate) === formatDateDisplay(todayStr));
+
     const service = SERVICES[serviceCode]; if (!service) return null;
     let allSlots = []; for (let h = 8; h <= 26; h++) allSlots.push(h);
     let availableSlots = isToday ? (currentHour >= 3 && currentHour < 8 ? [] : (currentHour >= 0 && currentHour < 3 ? allSlots.filter(h => h > (currentHour + 24)) : allSlots.filter(h => h > currentHour))) : allSlots;
@@ -268,7 +303,7 @@ function generateTimeBubbles(selectedDate, serviceCode, specificStaffIds = null,
     }
     if (validSlots.length === 0) return null;
     const formatTime = (h) => h < 24 ? `${h.toString().padStart(2, '0')}:00` : `${(h - 24).toString().padStart(2, '0')}:00 (凌晨)`;
-    const groups = [ { name: '🌞 早安時段 (Morning)', slots: validSlots.filter(h => h >= 8 && h < 12) }, { name: '☀️ 下午時段 (Afternoon)', slots: validSlots.filter(h => h >= 12 && h < 18) }, { name: '🌙 晚安時段 (Evening)', slots: validSlots.filter(h => h >= 18 && h < 24) }, { name: '✨ 深夜時段 (Late Night)', slots: validSlots.filter(h => h >= 24 && h <= 26) } ];
+    const groups = [ { name: '🌞 早安時段 (Sáng)', slots: validSlots.filter(h => h >= 8 && h < 12) }, { name: '☀️ 下午時段 (Chiều)', slots: validSlots.filter(h => h >= 12 && h < 18) }, { name: '🌙 晚安時段 (Tối)', slots: validSlots.filter(h => h >= 18 && h < 24) }, { name: '✨ 深夜時段 (Khuya)', slots: validSlots.filter(h => h >= 24 && h <= 26) } ];
     const bubbles = groups.filter(g => g.slots.length > 0).map(group => {
         const buttons = group.slots.map(h => ({ "type": "button", "style": "primary", "margin": "xs", "height": "sm", "action": { "type": "message", "label": formatTime(h), "text": `Time:${h < 24 ? `${h.toString().padStart(2, '0')}:00` : `${(h - 24).toString().padStart(2, '0')}:00`}` } }));
         return { "type": "bubble", "size": "kilo", "body": { "type": "box", "layout": "vertical", "contents": [{ "type": "text", "text": group.name, "weight": "bold", "color": "#1DB446", "align": "center" }, { "type": "separator", "margin": "sm" }, ...buttons] } };
@@ -288,7 +323,7 @@ function createStaffBubbles(filterFemale = false, excludedIds = []) {
             const rowButtons = chunk.slice(j, j + 3).map(s => ({ "type": "button", "style": "secondary", "color": (s.gender === 'F' || s.gender === '女') ? "#F48FB1" : "#90CAF9", "height": "sm", "margin": "xs", "flex": 1, "action": { "type": "message", "label": s.name, "text": `StaffSelect:${s.id}` } }));
             rows.push({ "type": "box", "layout": "horizontal", "spacing": "xs", "contents": rowButtons });
         }
-        bubbles.push({ "type": "bubble", "body": { "type": "box", "layout": "vertical", "contents": [ { "type": "text", "text": filterFemale ? "選擇女技師 (Select Female)" : "指定技師 (Pick Staff)", "weight": "bold", "align": "center", "color": "#1DB446" }, { "type": "separator", "margin": "md" }, ...rows ] } });
+        bubbles.push({ "type": "bubble", "body": { "type": "box", "layout": "vertical", "contents": [ { "type": "text", "text": filterFemale ? "選擇女技師" : "指定技師", "weight": "bold", "align": "center", "color": "#1DB446" }, { "type": "separator", "margin": "md" }, ...rows ] } });
     }
     return bubbles;
 }
@@ -313,7 +348,7 @@ app.post('/api/admin-booking', async (req, res) => { const data = req.body; awai
 app.post('/api/update-status', async (req, res) => { const { rowId, status } = req.body; await updateBookingStatus(rowId, status); res.json({ success: true }); });
 app.post('/api/update-booking-details', async (req, res) => { try { const { rowId, staffId, serviceName } = req.body; if (serviceName) await sheets.spreadsheets.values.update({ spreadsheetId: SHEET_ID, range: `${BOOKING_SHEET}!D${rowId}`, valueInputOption: 'USER_ENTERED', requestBody: { values: [[serviceName]] } }); if (staffId) await sheets.spreadsheets.values.update({ spreadsheetId: SHEET_ID, range: `${BOOKING_SHEET}!I${rowId}`, valueInputOption: 'USER_ENTERED', requestBody: { values: [[staffId]] } }); await syncData(); res.json({ success: true }); } catch (e) { res.status(500).json({ error: e.message }); } });
 
-// 5. BOT HANDLE EVENT (CHINESE)
+// 5. BOT HANDLE EVENT (FIXED & SAFER)
 async function handleEvent(event) {
   if (event.type !== 'message' || event.message.type !== 'text' && event.type !== 'postback') return Promise.resolve(null);
   let text = ''; let userId = event.source.userId;
@@ -323,9 +358,9 @@ async function handleEvent(event) {
   // --- ADMIN OPS ---
   if (text === 'Admin' || text === '管理') return client.replyMessage(event.replyToken, { type: 'flex', altText: 'Admin', contents: { "type": "bubble", "body": { "type": "box", "layout": "vertical", "contents": [ { "type": "text", "text": "🛠️ 師傅管理 (Admin)", "weight": "bold", "color": "#E63946", "size": "lg" }, { "type": "separator", "margin": "md" }, { "type": "button", "style": "primary", "color": "#000000", "margin": "md", "action": { "type": "message", "label": "⛔ 全店店休", "text": "Admin:CloseShop" } }, { "type": "separator", "margin": "md" }, { "type": "button", "style": "secondary", "margin": "sm", "action": { "type": "message", "label": "🛌 請假", "text": "Admin:SetOff" } }, { "type": "button", "style": "secondary", "margin": "sm", "action": { "type": "message", "label": "🤒 早退", "text": "Admin:SetLeaveEarly" } }, { "type": "button", "style": "secondary", "margin": "sm", "action": { "type": "message", "label": "🍱 用餐", "text": "Admin:SetBreak" } } ] } } });
   if (text === 'Admin:CloseShop') { userState[userId] = { step: 'ADMIN_PICK_CLOSE_DATE' }; return client.replyMessage(event.replyToken, { type: 'template', altText: '選擇日期', template: { type: 'buttons', text: '請選擇店休日期:', actions: [ { type: 'datetimepicker', label: '🗓️ 點擊選擇', data: 'ShopClosePicked', mode: 'date' } ] } }); }
-  if (text.startsWith('DatePick:') && userState[userId]?.step === 'ADMIN_PICK_CLOSE_DATE') { await ghiVaoSheet({ gioDen: '08:00', ngayDen: text.split(':')[1], dichVu: SERVICES['SHOP_CLOSE'].name, nhanVien: 'ALL_STAFF', userId: 'ADMIN', sdt: 'ADMIN', hoTen: '全店店休', trangThai: '⛔ 店休' }); delete userState[userId]; return client.replyMessage(event.replyToken, { type: 'text', text: `✅ 已設定 ${text.split(':')[1]} 全店店休。` }); }
+  if (text.startsWith('DatePick:') && userState[userId] && userState[userId].step === 'ADMIN_PICK_CLOSE_DATE') { await ghiVaoSheet({ gioDen: '08:00', ngayDen: text.split(':')[1], dichVu: SERVICES['SHOP_CLOSE'].name, nhanVien: 'ALL_STAFF', userId: 'ADMIN', sdt: 'ADMIN', hoTen: '全店店休', trangThai: '⛔ 店休' }); delete userState[userId]; return client.replyMessage(event.replyToken, { type: 'text', text: `✅ 已設定 ${text.split(':')[1]} 全店店休。` }); }
   if (text.startsWith('Admin:')) { const action = text.split(':')[1]; userState[userId] = { step: 'ADMIN_PICK_STAFF', action: action }; const bubbles = createStaffBubbles().map(b => JSON.parse(JSON.stringify(b).replace(/StaffSelect/g, 'StaffOp'))); return client.replyMessage(event.replyToken, { type: 'flex', altText: '選擇師傅', contents: { type: 'carousel', contents: bubbles } }); }
-  if (text.startsWith('StaffOp:') && userState[userId]?.step === 'ADMIN_PICK_STAFF') { 
+  if (text.startsWith('StaffOp:') && userState[userId] && userState[userId].step === 'ADMIN_PICK_STAFF') { 
       const staffId = text.split(':')[1]; const act = userState[userId].action; const now = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Taipei' })); const nowStr = getCurrentDateTimeStr();
       let logType = '';
       if (act === 'SetOff') logType = '⛔ 請假 (Off)';
@@ -336,24 +371,33 @@ async function handleEvent(event) {
       delete userState[userId]; return client.replyMessage(event.replyToken, { type: 'text', text: `✅ 已更新: ${staffId} - ${logType}` }); 
   }
 
-  // --- BOOKING FLOW (CN) ---
-  if (text === 'Action:Booking') return client.replyMessage(event.replyToken, { type: 'flex', altText: '選擇服務', contents: { "type": "bubble", "body": { "type": "box", "layout": "vertical", "contents": [ { "type": "text", "text": "請選擇服務類別 (Service)", "weight": "bold", "size": "lg", "align": "center", "color": "#1DB446" }, { "type": "separator", "margin": "md" }, { "type": "button", "style": "primary", "color": "#A17DF5", "margin": "md", "action": { "type": "message", "label": "🔥 套餐 (Combo)", "text": "Cat:COMBO" } }, { "type": "button", "style": "secondary", "margin": "sm", "action": { "type": "message", "label": "👣 足底按摩 (Foot)", "text": "Cat:FOOT" } }, { "type": "button", "style": "secondary", "margin": "sm", "action": { "type": "message", "label": "🛏️ 身體指壓 (Body)", "text": "Cat:BODY" } } ] } } });
+  // --- BOOKING FLOW ---
+  // [FIX] Khởi tạo state an toàn khi bắt đầu
+  if (text === 'Action:Booking') {
+      userState[userId] = {}; // Reset state
+      return client.replyMessage(event.replyToken, { type: 'flex', altText: '選擇服務', contents: { "type": "bubble", "body": { "type": "box", "layout": "vertical", "contents": [ { "type": "text", "text": "請選擇服務類別 (Service)", "weight": "bold", "size": "lg", "align": "center", "color": "#1DB446" }, { "type": "separator", "margin": "md" }, { "type": "button", "style": "primary", "color": "#A17DF5", "margin": "md", "action": { "type": "message", "label": "🔥 套餐 (Combo)", "text": "Cat:COMBO" } }, { "type": "button", "style": "secondary", "margin": "sm", "action": { "type": "message", "label": "👣 足底按摩 (Foot)", "text": "Cat:FOOT" } }, { "type": "button", "style": "secondary", "margin": "sm", "action": { "type": "message", "label": "🛏️ 身體指壓 (Body)", "text": "Cat:BODY" } } ] } } });
+  }
+  
   if (text.startsWith('Cat:')) { const cat = text.split(':')[1]; const btns = Object.keys(SERVICES).filter(k => SERVICES[k].category === cat).map(k => ({ "type": "button", "style": "primary", "margin": "sm", "height": "sm", "action": { "type": "message", "label": `${SERVICES[k].name} ($${SERVICES[k].price})`, "text": `Svc:${k}` } })); return client.replyMessage(event.replyToken, { type: 'flex', altText: '選擇方案', contents: { "type": "bubble", "body": { "type": "box", "layout": "vertical", "contents": [ { "type": "text", "text": "選擇方案 (Select)", "weight": "bold", "size": "xl", "align": "center" }, { "type": "separator", "margin": "md" }, ...btns ] } } }); }
   
   if (text.startsWith('Svc:')) { userState[userId] = { step: 'DATE', service: text.split(':')[1] }; const days = getNext15Days(); return client.replyMessage(event.replyToken, { type: 'flex', altText: 'Date', contents: { "type": "bubble", "body": { "type": "box", "layout": "vertical", "contents": [ { "type": "text", "text": "📅 請選擇日期 (Date)", "align": "center", "weight": "bold" }, ...days.map(d=>({ "type": "button", "style": "secondary", "margin": "sm", "action": { "type": "message", "label": d.label, "text": `Date:${d.value}` } })) ] } } }); }
   
+  // [FIX] Kiểm tra state tồn tại trước khi xử lý các bước tiếp theo
   if (text.startsWith('Date:')) {
+      if (!userState[userId]) return client.replyMessage(event.replyToken, { type: 'text', text: '⚠️ 連線逾時，請重新點擊「立即預約」。(Session expired)' });
       const selectedDate = text.split(':')[1]; userState[userId].date = selectedDate; userState[userId].step = 'PREF';
       return client.replyMessage(event.replyToken, { type: 'flex', altText: '師傅', contents: { "type": "bubble", "body": { "type": "box", "layout": "vertical", "contents": [ { "type": "text", "text": "💆 請選擇師傅需求 (Staff)", "weight": "bold", "size": "lg", "align": "center", "color": "#1DB446" }, { "type": "separator", "margin": "md" }, { "type": "button", "style": "primary", "color": "#E91E63", "margin": "md", "action": { "type": "message", "label": "💧 指定女師傅推油 (+$200)", "text": "Pref:OIL" } }, { "type": "button", "style": "secondary", "margin": "sm", "action": { "type": "message", "label": "👩 指定女師傅 (無油)", "text": "Pref:FEMALE" } }, { "type": "button", "style": "secondary", "margin": "sm", "action": { "type": "message", "label": "👨 指定男師傅", "text": "Pref:MALE" } }, { "type": "button", "style": "secondary", "margin": "sm", "action": { "type": "message", "label": "🎲 不指定 (隨機)", "text": "Pref:RANDOM" } }, { "type": "separator", "margin": "md" }, { "type": "button", "style": "primary", "color": "#333333", "margin": "sm", "action": { "type": "message", "label": "👉 指定特定號碼", "text": "Pref:SPECIFIC" } } ] } } });
   }
 
   if (text.startsWith('Pref:')) {
+      if (!userState[userId]) return client.replyMessage(event.replyToken, { type: 'text', text: '⚠️ 連線逾時，請重新點擊「立即預約」。' });
       const pref = text.split(':')[1]; userState[userId].pref = pref; userState[userId].step = 'PAX';
       const paxButtons = [1, 2, 3, 4, 5, 6].map(n => ({ "type": "button", "style": "secondary", "margin": "sm", "height": "sm", "action": { "type": "message", "label": `${n} 位`, "text": `Pax:${n}` } }));
       return client.replyMessage(event.replyToken, { type: 'flex', altText: 'Pax', contents: { "type": "bubble", "body": { "type": "box", "layout": "vertical", "contents": [ { "type": "text", "text": "👥 請問幾位貴賓? (Pax)", "weight": "bold", "size": "lg", "align": "center", "color": "#1DB446" }, { "type": "separator", "margin": "md" }, ...paxButtons ] } } });
   }
 
   if (text.startsWith('Pax:')) {
+      if (!userState[userId]) return client.replyMessage(event.replyToken, { type: 'text', text: '⚠️ 連線逾時，請重新點擊「立即預約」。' });
       const num = parseInt(text.split(':')[1]); const s = userState[userId]; s.pax = num; s.selectedStaff = []; userState[userId] = s;
       if (s.pref === 'SPECIFIC') { const bubbles = createStaffBubbles(false, []); bubbles.forEach((b,i) => { b.body.contents[0].text = `選第 1/${num} 位`; b.body.contents[0].color = "#E91E63"; }); return client.replyMessage(event.replyToken, { type: 'flex', altText: 'Select Staff', contents: { type: 'carousel', contents: bubbles } }); }
       
@@ -366,6 +410,7 @@ async function handleEvent(event) {
   }
 
   if (text.startsWith('StaffSelect:')) {
+      if (!userState[userId]) return client.replyMessage(event.replyToken, { type: 'text', text: '⚠️ 連線逾時，請重新點擊「立即預約」。' });
       const staffId = text.split(':')[1]; const s = userState[userId]; if(!s.selectedStaff) s.selectedStaff=[]; s.selectedStaff.push(staffId); userState[userId]=s;
       if (s.selectedStaff.length < s.pax) { const bubbles = createStaffBubbles(false, s.selectedStaff); bubbles.forEach(b=>{ b.body.contents[0].text=`選第 ${s.selectedStaff.length+1}/${s.pax} 位`; b.body.contents[0].color="#E91E63"; }); return client.replyMessage(event.replyToken, { type: 'flex', altText: 'Next', contents: { type: 'carousel', contents: bubbles } }); }
       else {
@@ -375,7 +420,7 @@ async function handleEvent(event) {
       }
   }
 
-  if (text.startsWith('Time:')) { userState[userId].step = 'SURNAME'; userState[userId].time = text.replace('Time:', '').trim(); return client.replyMessage(event.replyToken, { type: 'text', text: '請問怎麼稱呼您？(姓氏/Surname)' }); }
+  if (text.startsWith('Time:')) { if (!userState[userId]) return; userState[userId].step = 'SURNAME'; userState[userId].time = text.replace('Time:', '').trim(); return client.replyMessage(event.replyToken, { type: 'text', text: '請問怎麼稱呼您？(姓氏/Surname)' }); }
   if (userState[userId]?.step === 'SURNAME') { userState[userId].step = 'PHONE'; userState[userId].surname = text; return client.replyMessage(event.replyToken, { type: 'text', text: '請輸入手機號碼 (Phone):' }); }
   
   if (userState[userId]?.step === 'PHONE') { 
@@ -401,4 +446,4 @@ async function handleEvent(event) {
 
 syncData();
 const port = process.env.PORT || 3000;
-app.listen(port, () => console.log(`Bot V79 (Chinese) running on ${port}`));
+app.listen(port, () => console.log(`Bot V80 (Final Fix) running on ${port}`));
