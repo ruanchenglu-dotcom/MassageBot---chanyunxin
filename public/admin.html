@@ -3,22 +3,25 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Massage POS - Manager V86 (Full Stable)</title>
+    <title>Massage POS - Manager V115 (Final Complete)</title>
     
     <script src="https://cdn.tailwindcss.com"></script>
     <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.development.js"></script>
     <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.development.js"></script>
     <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
     <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/axios/1.6.7/axios.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/animate.css/4.1.1/animate.min.css" rel="stylesheet"/>
 
     <style>
-        body { font-family: 'Microsoft JhengHei', 'Segoe UI', sans-serif; background-color: #f8fafc; user-select: none; }
+        body { font-family: 'Microsoft JhengHei', 'Segoe UI', sans-serif; background-color: #f8fafc; user-select: none; overflow: hidden; }
         .modal-animate { animation: fadeInScale 0.2s ease-out forwards; }
         @keyframes fadeInScale { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }
 
         /* --- 3D STAFF CARDS --- */
         .card-3d { 
-            transition: all 0.3s ease; position: relative; top: 0; 
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1); 
+            position: relative; top: 0; 
             width: 80px; height: 100px; 
             border-radius: 12px; 
             display: flex; flex-direction: column; 
@@ -28,21 +31,23 @@
             margin: 0 4px; flex-shrink: 0;
         }
         .card-3d:active { transform: translateY(4px); border-bottom-width: 0px; margin-bottom: 4px; }
+        .card-3d:hover { transform: translateY(-2px); box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1); }
         
-        /* Màu viền theo giới tính */
         .style-male { border: 2px solid #3B82F6; border-bottom: 5px solid #2563EB; color: #1E3A8A; }
         .style-female { border: 2px solid #F472B6; border-bottom: 5px solid #DB2777; color: #BE185D; }
         
-        /* Trạng thái */
+        /* STATUS OVERRIDES */
         .st-busy { background-color: #fee2e2 !important; border-color: #ef4444 !important; border-bottom-color: #b91c1c !important; color: #b91c1c !important; }
-        .st-away { background-color: #f3f4f6 !important; border-color: #d1d5db !important; border-bottom-color: #9ca3af !important; color: #9ca3af !important; opacity: 0.6; filter: grayscale(100%); }
+        .st-away { background-color: #f3f4f6 !important; border-color: #d1d5db !important; border-bottom-color: #9ca3af !important; color: #9ca3af !important; opacity: 0.5; }
         .st-booked { background-color: #fef3c7 !important; border-color: #d97706 !important; border-bottom-color: #b45309 !important; color: #92400e !important; }
+        .st-eat { background-color: #ffedd5 !important; border-color: #f97316 !important; border-bottom-color: #c2410c !important; color: #c2410c !important; }
+        .st-out { background-color: #fef9c3 !important; border-color: #eab308 !important; border-bottom-color: #ca8a04 !important; color: #854d0e !important; }
 
-        /* Resource Card */
         .res-card { position: relative; overflow: hidden; transition: all 0.2s; border-radius: 12px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
         .res-card:hover { transform: translateY(-2px); box-shadow: 0 8px 16px rgba(0,0,0,0.1); }
         .progress-bar { transition: width 1s linear; }
         
+        /* Scrollbar */
         .staff-scroll::-webkit-scrollbar { height: 8px; }
         .staff-scroll::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
         .staff-scroll::-webkit-scrollbar-track { background: transparent; }
@@ -51,54 +56,46 @@
 <body>
     <div id="root"></div>
 
+    <audio id="notifySound" src="https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3" preload="auto"></audio>
+
     <script type="text/babel">
         const { useState, useEffect, useMemo } = React;
 
-        // --- ICONS & CONSTANTS ---
-        const Icon = ({ d, size=18, className="" }) => (<svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d={d} /></svg>);
-        const PATHS = { 
-            Grid: "M3 3h7v7H3zM14 3h7v7h-7zM14 14h7v7h-7zM3 14h7v7H3z", 
-            List: "M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01", 
-            X: "M18 6 6 18M6 6l12 12", Play: "M5 3l14 9-14 9V3z", Pause: "M6 4h4v16H6zm8 0h4v16h-4z", 
-            Plus: "M12 5v14M5 12h14", Edit: "M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z",
-            Check: "M20 6 9 17 4 12", Trash: "M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2",
-            Refresh: "M23 4v6h-6M1 20v-6h6", User: "M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2", Bolt: "M13 2L3 14h9l-1 8 10-12h-9l1-8z",
-            Clock: "M12 20V10M18 20V4M6 20v-6", Dollar: "M12 1v22M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6",
-            Chart: "M12 20V10M18 20V4M6 20v-6", Swap: "M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4"
-        };
+        // --- CONSTANTS ---
         const SERVICES_LIST = ['👣 足底按摩 (40分)', '👣 足底按摩 (70分)', '🛏️ 全身指壓 (70分)', '🛏️ 全身指壓 (90分)', '👑 帝王套餐 (190分)', '💎 豪華套餐 (130分)', '🔥 招牌套餐 (100分)'];
         const SERVICE_PRICES = { '帝王': 2000, '豪華': 1500, '招牌': 999, '精選': 900, '120分': 1500, '90分': 999, '70分': 900, '40分': 500, '35分': 500 };
-        
-        const getToday = () => { const d = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Taipei' })); return `${d.getFullYear()}/${(d.getMonth()+1).toString().padStart(2,'0')}/${d.getDate().toString().padStart(2,'0')}`; };
-        const getCurrentTime = () => { const d = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Taipei' })); return `${d.getHours().toString().padStart(2,'0')}:${d.getMinutes().toString().padStart(2,'0')}`; };
+
+        // --- HELPERS ---
+        const getTaipeiDate = () => new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Taipei' }));
+        const getToday = () => { const d = getTaipeiDate(); return `${d.getFullYear()}/${(d.getMonth()+1).toString().padStart(2,'0')}/${d.getDate().toString().padStart(2,'0')}`; };
+        const getCurrentTime = () => { const d = getTaipeiDate(); return `${d.getHours().toString().padStart(2,'0')}:${d.getMinutes().toString().padStart(2,'0')}`; };
         const parseTime = (str) => { if(!str) return 0; const [h, m] = str.split(':').map(Number); return (h||0)*60 + (m||0); };
         const getPrice = (n) => { for(let k in SERVICE_PRICES) if(n && n.includes(k)) return SERVICE_PRICES[k]; return 0; };
         const getOilPrice = (isOil) => isOil ? 200 : 0;
+        
+        // --- COMPONENTS ---
 
-        // --- COMPONENT: THẺ NHÂN VIÊN 3D ---
+        // 1. STAFF CARD 3D
         const StaffCard3D = ({ s, statusData, resourceState, queueIndex }) => {
             const isFemale = s.gender === 'F' || s.gender === '女'; 
             const local = statusData[s.id] || { status: 'AWAY' }; 
             let displayStatus = local.status; 
             let cardStyle = isFemale ? 'style-female' : 'style-male';
             let label = '---';
-            
-            // Logic: Kiểm tra xem thợ có đang làm trong resourceState không
             const isActuallyRunning = Object.values(resourceState).some(r => r.booking.staffId === s.id && r.isRunning && !r.isPaused);
             
-            if (isActuallyRunning) { 
-                displayStatus = 'BUSY'; 
-                cardStyle = 'st-busy'; 
-                label = '🔴 上鐘 (Busy)';
-            } else if (displayStatus === 'AWAY') {
-                cardStyle = 'st-away';
-                label = '⛔ 未到 (Away)';
-            } else if (displayStatus === 'READY') {
-                // Hiển thị số thứ tự hàng chờ
-                label = `🟢 #${queueIndex !== undefined ? queueIndex + 1 : '?'}`; 
-            } else if (displayStatus === 'EAT') {
-                label = '🍱 用餐 (Eat)';
-            }
+            if (isActuallyRunning) { displayStatus = 'BUSY'; } 
+            
+            if (displayStatus === 'BUSY') cardStyle = 'st-busy';
+            else if (displayStatus === 'AWAY' || displayStatus === 'OFF') cardStyle = 'st-away';
+            else if (displayStatus === 'EAT') cardStyle = 'st-eat';
+            else if (displayStatus === 'OUT_SHORT') cardStyle = 'st-out';
+
+            if(displayStatus === 'EAT') label='🍱 用餐'; 
+            else if(displayStatus === 'OUT_SHORT') label='⏳ 外出'; 
+            else if(displayStatus === 'AWAY' || displayStatus === 'OFF') label = '⛔ 未到'; 
+            else if(displayStatus === 'READY') label = `🟢 待命 #${queueIndex !== undefined ? queueIndex + 1 : '?'}`; 
+            else if(displayStatus === 'BUSY') label = '🔴 上鐘'; 
 
             return (
                 <div className={`card-3d ${cardStyle}`}>
@@ -111,12 +108,12 @@
             )
         };
 
-        // --- COMPONENT: BẢNG ĐIỂM DANH (CHECK-IN) ---
+        // 2. CHECK-IN BOARD
         const CheckInBoard = ({ staffList, statusData, onClose, onUpdateStatus }) => {
             const toggleCheckIn = (id) => { 
                 const current = statusData[id] || {}; 
                 const newState = { ...statusData, [id]: { status: current.status === 'READY' || current.status === 'EAT' ? 'AWAY' : 'READY', checkInTime: current.status === 'READY' ? 0 : Date.now() } }; 
-                onUpdateStatus(newState); // Gọi API Sync
+                onUpdateStatus(newState); 
             };
             const sortedList = [...staffList].sort((a,b) => parseInt(a.id.replace(/\D/g,'')) - parseInt(b.id.replace(/\D/g,'')));
 
@@ -124,21 +121,21 @@
                 <div className="fixed inset-0 bg-slate-900/80 z-[60] flex items-center justify-center p-4 backdrop-blur-sm">
                     <div className="bg-white w-full max-w-5xl rounded-t-xl shadow-2xl modal-animate flex flex-col max-h-[90vh] overflow-hidden">
                         <div className="p-4 bg-[#7e22ce] text-white flex justify-between items-center shrink-0">
-                            <h2 className="text-xl font-bold flex gap-2 items-center"><Icon d={PATHS.User}/> 技師管理 (Staff Mgmt)</h2>
-                            <button onClick={onClose}><Icon d={PATHS.X}/></button>
+                            <h2 className="text-xl font-bold flex gap-2 items-center"><i className="fas fa-user-clock"></i> 技師管理 (Staff Mgmt)</h2>
+                            <button onClick={onClose}><i className="fas fa-times text-xl"></i></button>
                         </div>
                         <div className="overflow-y-auto flex-1 p-4 space-y-3 bg-white">
                             {sortedList.map(s => { 
                                 const current = statusData[s.id] || { status: 'AWAY', checkInTime: 0 }; 
-                                const isWorking = current.status !== 'AWAY';
+                                const isWorking = current.status !== 'AWAY' && current.status !== 'OFF';
                                 return ( 
                                     <div key={s.id} className="grid grid-cols-12 gap-3 items-center py-2 px-2 border border-gray-200 rounded-lg hover:shadow-sm text-sm transition-all">
                                         <div className="col-span-2 flex items-center"><div className="font-bold text-lg text-slate-700 border px-3 py-1 rounded min-w-[60px] text-center">{s.id.replace('號','')}</div></div>
-                                        <div className="col-span-2 text-center flex items-center justify-center gap-1 border p-2 rounded-lg bg-white text-slate-600 font-mono font-bold">{s.shiftStart} <Icon d={PATHS.Clock} size={14}/></div>
-                                        <div className="col-span-2 text-center flex items-center justify-center gap-1 border p-2 rounded-lg bg-white text-slate-600 font-mono font-bold">{s.shiftEnd} <Icon d={PATHS.Clock} size={14}/></div>
+                                        <div className="col-span-2 text-center flex items-center justify-center gap-1 border p-2 rounded-lg bg-white text-slate-600 font-mono font-bold">{s.shiftStart} <i className="far fa-clock"></i></div>
+                                        <div className="col-span-2 text-center flex items-center justify-center gap-1 border p-2 rounded-lg bg-white text-slate-600 font-mono font-bold">{s.shiftEnd} <i className="far fa-clock"></i></div>
                                         <div className="col-span-3 flex justify-center">
                                             {isWorking ? 
-                                                <div className="flex items-center justify-between w-full max-w-[140px] border border-gray-300 rounded px-2 py-1.5 bg-white"><span className="font-mono font-bold text-slate-700">{new Date(current.checkInTime).toLocaleTimeString('en-US',{hour12:false, hour:'2-digit', minute:'2-digit'})} S</span><button onClick={() => toggleCheckIn(s.id)} className="text-red-500 hover:text-red-700 font-bold ml-2">✕</button></div> 
+                                                <div className="flex items-center justify-between w-full max-w-[140px] border border-gray-300 rounded px-2 py-1.5 bg-white"><span className="font-mono font-bold text-slate-700">{new Date(current.checkInTime).toLocaleTimeString('en-US',{hour12:false, hour:'2-digit', minute:'2-digit'})}</span><button onClick={() => toggleCheckIn(s.id)} className="text-red-500 hover:text-red-700 font-bold ml-2">✕</button></div> 
                                                 : <button onClick={() => toggleCheckIn(s.id)} className="bg-[#3b82f6] hover:bg-[#2563eb] text-white px-4 py-2 rounded font-bold w-full max-w-[140px] flex items-center justify-center gap-1">➜ 打卡 (Check-in)</button>
                                             }
                                         </div>
@@ -159,40 +156,74 @@
             ); 
         };
 
-        // --- COMPONENT: THANH TOÁN (BILLING) ---
+        // 3. BILLING MODAL (SMART GROUPING)
         const BillingModal = ({ activeBooking, relatedBookings, onConfirm, onCancel }) => {
-            const [mode, setMode] = useState(null); 
-            const [selectedRowId, setSelectedRowId] = useState(activeBooking.rowId);
-            useEffect(() => { if (relatedBookings.length === 0) setMode('SINGLE'); }, [relatedBookings]);
-            const calculateTotal = (bookings) => bookings.reduce((sum, b) => sum + getPrice(b.serviceName) + getOilPrice(b.isOil || (b.serviceName && (b.serviceName.includes('油') || b.serviceName.includes('Oil')))), 0);
-            const handlePay = () => { if (mode === 'ALL') { const all = [activeBooking, ...relatedBookings]; onConfirm(all.map(b=>b.rowId), calculateTotal(all)); } else { const target = [activeBooking, ...relatedBookings].find(b => b.rowId === selectedRowId); if(target) onConfirm([selectedRowId], calculateTotal([target])); } };
+            const allCandidates = useMemo(() => [activeBooking, ...relatedBookings], [activeBooking, relatedBookings]);
+            const [selectedIds, setSelectedIds] = useState(allCandidates.map(b => b.rowId));
+
+            const total = useMemo(() => {
+                return allCandidates
+                    .filter(b => selectedIds.includes(b.rowId))
+                    .reduce((sum, b) => sum + getPrice(b.serviceName) + getOilPrice(b.isOil || (b.serviceName && (b.serviceName.includes('油') || b.serviceName.includes('Oil')))), 0);
+            }, [selectedIds, allCandidates]);
+
+            const toggleId = (id) => {
+                if (selectedIds.includes(id)) setSelectedIds(selectedIds.filter(sid => sid !== id));
+                else setSelectedIds([...selectedIds, id]);
+            };
+
+            const handlePay = () => {
+                if(selectedIds.length === 0) return alert("請至少選擇一筆 (Please select at least one)");
+                onConfirm(selectedIds, total);
+            };
+
             return (
                 <div className="fixed inset-0 bg-slate-900/90 z-[90] flex items-center justify-center p-4">
                     <div className="bg-white w-full max-w-md rounded-2xl shadow-2xl modal-animate overflow-hidden flex flex-col max-h-[90vh]">
-                        <div className="bg-emerald-600 p-4 text-white text-center shrink-0"><h3 className="text-xl font-bold flex justify-center items-center gap-2"><Icon d={PATHS.Dollar}/> 結帳 (Billing)</h3></div>
+                        <div className="bg-emerald-600 p-4 text-white text-center shrink-0">
+                            <h3 className="text-xl font-bold flex justify-center items-center gap-2"><i className="fas fa-dollar-sign"></i> 結帳 (Billing)</h3>
+                        </div>
                         <div className="p-6 flex-1 overflow-y-auto">
-                            {!mode ? (
-                                <div className="space-y-4">
-                                    <div className="text-center p-4 bg-yellow-50 rounded-xl border border-yellow-200"><div className="font-bold text-yellow-800 text-lg">⚠️ 發現同行 (Group) {relatedBookings.length + 1} 位</div></div>
-                                    <button onClick={() => setMode('ALL')} className="w-full p-4 bg-emerald-100 border-2 border-emerald-500 rounded-xl flex justify-between items-center"><div className="text-left"><div className="font-bold text-emerald-800 text-lg">合併 (All)</div><div className="text-sm text-emerald-600">總金額</div></div><div className="font-black text-xl text-emerald-700">${calculateTotal([activeBooking, ...relatedBookings])}</div></button>
-                                    <button onClick={() => setMode('SINGLE')} className="w-full p-4 bg-slate-100 border-2 border-slate-300 rounded-xl flex justify-between items-center"><div className="text-left"><div className="font-bold text-slate-700 text-lg">個別 (Split)</div><div className="text-sm text-slate-500">分開付</div></div><div className="font-black text-xl text-slate-600">➜</div></button>
-                                </div>
-                            ) : (
-                                <div>
-                                    {mode === 'SINGLE' && relatedBookings.length > 0 && (<div className="mb-4"><label className="block text-xs font-bold text-gray-500 mb-1">選擇付款人:</label><select className="w-full p-2 border-2 border-indigo-200 rounded-lg font-bold text-indigo-900" value={selectedRowId} onChange={e => setSelectedRowId(Number(e.target.value))}>{[activeBooking, ...relatedBookings].map(b => (<option key={b.rowId} value={b.rowId}>{b.customerName}</option>))}</select></div>)}
-                                    <div className="bg-slate-50 p-4 rounded-xl border mb-6">
-                                        <div className="flex justify-between pt-3 mt-2 border-t border-slate-300"><span className="font-black text-xl text-slate-800">總計 (Total)</span><span className="font-black text-2xl text-emerald-600">${mode === 'ALL' ? calculateTotal([activeBooking, ...relatedBookings]) : calculateTotal([[activeBooking, ...relatedBookings].find(b => b.rowId === selectedRowId)])}</span></div>
-                                    </div>
-                                    <div className="grid grid-cols-2 gap-3"><button onClick={onCancel} className="p-3 rounded-lg font-bold text-gray-500 hover:bg-gray-100">取消 (Cancel)</button><button onClick={handlePay} className="p-3 rounded-lg font-bold bg-emerald-600 text-white rounded shadow">確認 (Confirm)</button></div>
-                                </div>
-                            )}
+                            <div className="mb-4 text-sm text-gray-500 text-center font-bold">
+                                請勾選要一起結帳的項目 (Select items to pay)
+                            </div>
+                            <div className="space-y-2">
+                                {allCandidates.map(b => {
+                                    const price = getPrice(b.serviceName) + getOilPrice(b.isOil || (b.serviceName && b.serviceName.includes('油')));
+                                    const isSelected = selectedIds.includes(b.rowId);
+                                    return (
+                                        <div key={b.rowId} onClick={() => toggleId(b.rowId)} 
+                                            className={`flex items-center p-3 rounded-lg border-2 cursor-pointer transition-all ${isSelected ? 'border-emerald-500 bg-emerald-50' : 'border-slate-200 hover:bg-slate-50'}`}>
+                                            <div className={`w-6 h-6 rounded border-2 flex items-center justify-center mr-3 ${isSelected ? 'bg-emerald-500 border-emerald-500' : 'bg-white border-gray-300'}`}>
+                                                {isSelected && <span className="text-white font-bold">✓</span>}
+                                            </div>
+                                            <div className="flex-1">
+                                                <div className="font-bold text-slate-800">{b.customerName} <span className="text-xs text-indigo-600 bg-indigo-50 px-1 rounded">{b.staffId}</span></div>
+                                                <div className="text-xs text-gray-500">{b.serviceName}</div>
+                                            </div>
+                                            <div className="font-mono font-bold text-lg text-slate-700">${price}</div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                        <div className="p-4 border-t bg-slate-50">
+                            <div className="flex justify-between items-end mb-4">
+                                <span className="text-gray-500 font-bold">總計 (Total):</span>
+                                <span className="text-3xl font-black text-emerald-600">${total}</span>
+                            </div>
+                            <div className="grid grid-cols-2 gap-3">
+                                <button onClick={onCancel} className="p-3 rounded-lg font-bold text-gray-500 bg-white border border-gray-300 hover:bg-gray-100">取消 (Cancel)</button>
+                                <button onClick={handlePay} className="p-3 rounded-lg font-bold bg-emerald-600 text-white hover:bg-emerald-700 shadow-lg">
+                                    結帳 {selectedIds.length} 筆 (Pay)
+                                </button>
+                            </div>
                         </div>
                     </div>
                 </div>
             );
         };
 
-        // --- COMPONENT: BÁO CÁO (REPORT) ---
         const ReportView = ({ bookings }) => {
             const finishedBookings = bookings.filter(b => b.status.includes('完成') || b.status.includes('Done'));
             const totalRevenue = finishedBookings.reduce((sum, b) => sum + getPrice(b.serviceName) + getOilPrice(b.isOil || (b.serviceName && (b.serviceName.includes('油')))), 0);
@@ -207,7 +238,6 @@
             );
         };
 
-        // --- COMPONENT: TIMELINE ---
         const TimelineView = ({ bookings }) => {
             const hours = []; for(let i=10; i<=26; i++) hours.push(i);
             return (
@@ -238,13 +268,12 @@
             );
         };
 
-        // --- COMPONENT: WALK-IN (KHÁCH LẺ) ---
         const WalkInModal = ({ onClose, onSave, staffList }) => {
             const [form, setForm] = useState({ hoTen: '現場客', dichVu: '👣 足底按摩 (40分)', pax: 1, nhanVien: '隨機', isOil: false });
             return (
                 <div className="fixed inset-0 bg-black/60 z-[90] flex items-center justify-center p-4">
                     <div className="bg-white w-full max-w-sm rounded-xl shadow-2xl modal-animate p-5">
-                        <h3 className="text-xl font-black text-slate-800 mb-4 flex items-center gap-2"><Icon d={PATHS.Bolt} className="text-amber-500"/> 現場客 (Walk-in)</h3>
+                        <h3 className="text-xl font-black text-slate-800 mb-4 flex items-center gap-2"><i className="fas fa-bolt text-amber-500"></i> 現場客 (Walk-in)</h3>
                         <div className="space-y-3">
                             <div><label className="text-xs font-bold text-gray-500">顧客姓名 (Name)</label><input className="w-full p-2 border rounded font-bold" value={form.hoTen} onChange={e=>setForm({...form, hoTen: e.target.value})} /></div>
                             <div><label className="text-xs font-bold text-gray-500">服務項目 (Service)</label><select className="w-full p-2 border rounded font-bold" value={form.dichVu} onChange={e=>setForm({...form, dichVu: e.target.value})}>{SERVICES_LIST.map(s=><option key={s} value={s}>{s}</option>)}</select></div>
@@ -257,33 +286,21 @@
             );
         };
 
-        // --- COMPONENT: GHẾ/GIƯỜNG (RESOURCE CARD) ---
         const ResourceCard = ({ id, type, index, data, busyStaffIds, onAction, onSelect, onSwitch }) => {
-            const [timeLeft, setTimeLeft] = useState(0); 
-            const [percent, setPercent] = useState(0);
-
-            // [FIX LOGIC] Timer sử dụng thời gian thực để không bị Reset khi F5
+            const [timeLeft, setTimeLeft] = useState(0); const [percent, setPercent] = useState(0);
             useEffect(() => {
                 if (data && data.isRunning && !data.isPaused && data.startTime) {
                     const timer = setInterval(() => {
-                        const now = Date.now();
-                        const start = new Date(data.startTime).getTime();
-                        const totalDurationMs = data.booking.duration * 60000;
-                        const elapsedMs = now - start;
-                        const remainingMs = totalDurationMs - elapsedMs;
-
-                        setTimeLeft(Math.floor(remainingMs / 60000));
-                        setPercent(Math.min(100, Math.max(0, (elapsedMs / totalDurationMs) * 100)));
-                    }, 1000); 
-                    return () => clearInterval(timer);
+                        const start = new Date(data.startTime).getTime(); const now = new Date().getTime();
+                        const totalMs = data.booking.duration * 60000; const elapsed = now - start;
+                        setTimeLeft(Math.floor((totalMs - elapsed) / 60000)); setPercent(Math.min(100, Math.max(0, (elapsed / totalMs) * 100)));
+                    }, 1000); return () => clearInterval(timer);
                 } else { setPercent(0); setTimeLeft(0); }
             }, [data]);
-
             const isOccupied = !!data;
             let statusColor = isOccupied ? (data.isRunning ? (data.isPaused ? 'bg-gray-100' : 'bg-white border-green-500 shadow-md') : 'bg-yellow-50 border-yellow-300') : 'bg-slate-50 border-slate-200 border-dashed';
-            const showStaffName = isOccupied ? (data.booking.staffId === '隨機' ? (data.booking.isOil ? '女(油)' : '隨機') : data.booking.staffId) : '';
+            const showStaffName = isOccupied ? (data.booking.staffId === '隨機' ? '隨機' : data.booking.staffId) : '';
             const isOilJob = isOccupied && (data.booking.isOil || (data.booking.serviceName && (data.booking.serviceName.includes('油') || data.booking.serviceName.includes('Oil'))));
-
             return (
                 <div className={`res-card h-48 flex flex-col border-2 ${statusColor}`}>
                     <div className="flex justify-between items-center p-2 border-b border-black/5 bg-black/5"><span className="font-black text-xs text-gray-500 uppercase">{type} {index}</span>{isOccupied && data.isRunning && (<div className={`text-xs font-mono font-bold ${timeLeft < 0 ? 'text-red-600 animate-pulse' : 'text-green-700'}`}>{timeLeft}m</div>)}</div>
@@ -298,14 +315,14 @@
                                     <div className={`inline-block px-3 py-1 rounded font-black text-sm mt-1 ${data.booking.staffId==='隨機'?'bg-gray-200 text-gray-500':'bg-indigo-100 text-indigo-700'}`}>{showStaffName}</div>
                                 </div>
                             </>
-                        ) : (<button onClick={onSelect} className="w-full h-full flex flex-col items-center justify-center text-gray-300 hover:text-green-600 transition-colors group"><Icon d={PATHS.Plus} size={40}/><span className="text-xs font-bold mt-2">排入 (Assign)</span></button>)}
+                        ) : (<button onClick={onSelect} className="w-full h-full flex flex-col items-center justify-center text-gray-300 hover:text-green-600 transition-colors group"><i className="fas fa-plus text-4xl"></i><span className="text-xs font-bold mt-2">排入 (Assign)</span></button>)}
                     </div>
                     {isOccupied && (
                         <div className="p-2 grid grid-cols-2 gap-2 border-t border-black/5 bg-white z-20">
                             {!data.isRunning ? (
                                 <><button onClick={()=>onAction(id, 'start')} className="py-1 rounded text-xs font-bold text-white bg-green-600 hover:bg-green-700">開始 (Start)</button><button onClick={()=>onAction(id, 'cancel')} className="py-1 rounded text-xs font-bold text-red-600 bg-red-50 border border-red-200">取消 (Cancel)</button></>
                             ) : (
-                                <><button onClick={()=>onAction(id, 'finish')} className="py-1 rounded text-xs font-bold text-white bg-blue-600 hover:bg-blue-700">結帳 (Bill)</button><button onClick={()=>onSwitch(id, type==='FOOT'?'bed':'chair')} className="py-1 rounded text-xs font-bold text-white bg-orange-500 hover:bg-orange-600 flex items-center justify-center"><Icon d={PATHS.Swap} size={14}/></button></>
+                                <><button onClick={()=>onAction(id, 'finish')} className="py-1 rounded text-xs font-bold text-white bg-blue-600 hover:bg-blue-700">結帳 (Bill)</button><button onClick={()=>onSwitch(id, type==='FOOT'?'bed':'chair')} className="py-1 rounded text-xs font-bold text-white bg-orange-500 hover:bg-orange-600 flex items-center justify-center"><i className="fas fa-exchange-alt"></i></button></>
                             )}
                         </div>
                     )}
@@ -340,17 +357,16 @@
                 try {
                     const res = await axios.get('/api/info');
                     const { bookings: apiBookings, staffList: apiStaff, resourceState: serverRes, staffStatus: serverStaff } = res.data;
-                    
                     setBookings(apiBookings);
                     setStaffList(apiStaff);
                     const currentRes = serverRes || {};
                     const currentStaffStat = serverStaff || {};
-                    
                     setStatusData(currentStaffStat);
 
+                    // --- [AUTO ASSIGN LOGIC - 35 MINS] ---
                     let changed = false;
                     let newResState = { ...currentRes }; 
-                    const now = new Date();
+                    const now = getTaipeiDate();
                     const nowMins = now.getHours() * 60 + now.getMinutes();
                     const today = getToday();
 
@@ -369,14 +385,17 @@
 
                         if (bDate === today && !b.status.includes('取消') && !b.status.includes('完成') && !isAssigned) {
                             const diffMins = bTime - nowMins;
-                            let targetType = null;
-                            if (b.category === 'COMBO' && diffMins <= 35 && diffMins >= -30) targetType = 'any'; 
-                            else if (b.type === 'BED' && diffMins <= 35 && diffMins >= -30) targetType = 'bed';
-                            else if (diffMins <= 35 && diffMins >= -30) targetType = 'chair';
+                            
+                            // 35 Minutes Check
+                            if (diffMins <= 35 && diffMins >= -30) {
+                                let targetType = null;
+                                if (b.category === 'COMBO') targetType = 'any'; 
+                                else if (b.type === 'BED') targetType = 'bed';
+                                else targetType = 'chair';
 
-                            if (targetType) {
                                 const currentlyAssignedCount = Object.values(newResState).filter(r => r.booking.rowId === b.rowId).length;
                                 const needed = b.pax || 1;
+                                
                                 if (currentlyAssignedCount < needed) {
                                     const neededNow = needed - currentlyAssignedCount;
                                     for (let p = 0; p < neededNow; p++) {
@@ -410,31 +429,55 @@
 
             const handleResourceAction = async (id, action) => {
                 const current = resourceState[id]; if (!current) return;
+                
                 if (action === 'start') {
                     let finalStaffId = current.booking.staffId;
-                    if (finalStaffId === '隨機') {
-                        const readyStaff = staffList.filter(s => { const stat = statusData[s.id]; return stat && stat.status === 'READY' && !busyStaffIds.includes(s.id); });
-                        const isOilRequest = current.booking.isOil || (current.booking.serviceName && (current.booking.serviceName.includes('油') || current.booking.serviceName.includes('Oil')));
+                    const reqStaff = finalStaffId;
+
+                    if (['隨機', '男', '女', 'Oil'].some(k => reqStaff.includes(k))) {
+                        const readyStaff = staffList.filter(s => {
+                            const stat = statusData[s.id];
+                            return stat && stat.status === 'READY' && !busyStaffIds.includes(s.id);
+                        });
+
                         let candidates = readyStaff;
-                        if (isOilRequest) candidates = readyStaff.filter(s => s.gender === 'F' || s.gender === '女' || s.gender === 'Female');
+                        if (reqStaff.includes('男') || reqStaff.includes('Male')) {
+                            candidates = candidates.filter(s => s.gender === 'M' || s.gender === '男');
+                        } else if (reqStaff.includes('女') || reqStaff.includes('Female') || current.booking.isOil) {
+                            candidates = candidates.filter(s => s.gender === 'F' || s.gender === '女');
+                        }
+
                         candidates.sort((a,b) => (statusData[a.id]?.checkInTime||0) - (statusData[b.id]?.checkInTime||0));
-                        if (candidates.length === 0) { alert(isOilRequest ? "⚠️ 需要精油但無女師傅!" : "⚠️ 無空閒師傅!"); return; }
+
+                        if (candidates.length === 0) {
+                            let msg = "⚠️ 目前無空閒師傅 (No Ready Staff)!";
+                            if (reqStaff.includes('男')) msg = "⚠️ 無空閒【男】師傅!";
+                            if (reqStaff.includes('女')) msg = "⚠️ 無空閒【女】師傅!";
+                            alert(msg);
+                            return; 
+                        }
                         finalStaffId = candidates[0].id;
                     }
-                    if (finalStaffId !== '隨機') {
-                        const newStatusData = { ...statusData, [finalStaffId]: { ...statusData[finalStaffId], status: 'BUSY' } };
-                        updateStaffStatus(newStatusData); 
-                        const newBooking = { ...current.booking, staffId: finalStaffId };
-                        updateResource({ ...resourceState, [id]: { ...current, booking: newBooking, startTime: new Date().toISOString(), isRunning: true } });
-                        axios.post('/api/update-booking-details', { rowId: current.booking.rowId, staffId: finalStaffId });
-                    }
+
+                    const newStatusData = { ...statusData, [finalStaffId]: { ...statusData[finalStaffId], status: 'BUSY' } };
+                    updateStaffStatus(newStatusData); 
+                    const newBooking = { ...current.booking, staffId: finalStaffId };
+                    updateResource({ ...resourceState, [id]: { ...current, booking: newBooking, startTime: new Date().toISOString(), isRunning: true } });
+                    axios.post('/api/update-booking-details', { rowId: current.booking.rowId, staffId: finalStaffId });
                 }
+                
                 else if (action === 'pause') { updateResource({ ...resourceState, [id]: { ...current, isPaused: !current.isPaused } }); }
-                else if (action === 'cancel') { if (confirm('確認取消?')) { const n = { ...resourceState }; delete n[id]; updateResource(n); } }
+                else if (action === 'cancel') { if (confirm('確認將顧客從床位移除?')) { const n = { ...resourceState }; delete n[id]; updateResource(n); } }
                 else if (action === 'finish') {
                     const related = Object.values(resourceState).filter(r => r.isRunning && r.booking.rowId !== current.booking.rowId).map(r => r.booking).filter(b => {
                         if (current.booking.lineId && current.booking.lineId !== 'ADMIN_WEB' && current.booking.lineId === b.lineId) return true;
-                        if (current.booking.lineId === 'ADMIN_WEB' && b.lineId === 'ADMIN_WEB' && b.customerName.split('(')[0] === current.booking.customerName.split('(')[0] && Math.abs(parseTime(b.startTimeString.split(' ')[1]) - parseTime(current.booking.startTimeString.split(' ')[1])) < 15) return true;
+                        // SMART GROUPING BY PHONE OR LINE ID
+                        if (current.booking.lineId === 'ADMIN_WEB' && b.lineId === 'ADMIN_WEB') {
+                             // Check Phone
+                             const p1 = (current.booking.sdt||'').replace(/\D/g,'');
+                             const p2 = (b.sdt||'').replace(/\D/g,'');
+                             if(p1 && p2 && p1.length > 5 && p1 === p2) return true;
+                        }
                         return false;
                     });
                     setBillingData({ activeBooking: current.booking, relatedBookings: related, currentResId: id });
@@ -459,7 +502,6 @@
                         if (rowIdsToPay.includes(newState[key].booking.rowId)) {
                              const staffId = newState[key].booking.staffId;
                              if(staffId !== '隨機' && newStatusData[staffId]) {
-                                 // [FIX] Cập nhật thời gian check-in mới = thời điểm kết thúc -> Đẩy xuống cuối hàng
                                  newStatusData[staffId] = { status: 'READY', checkInTime: Date.now() }; 
                              }
                              delete newState[key];
@@ -477,44 +519,89 @@
             const handleAssignBooking = (booking) => { if (!selectedSlot) return; updateResource({ ...resourceState, [selectedSlot]: { booking, startTime: null, isRunning: false } }); setSelectedSlot(null); };
             const handleManualUpdateStatus = async (rowId, status) => { if(confirm('確認更新狀態?')) { await axios.post('/api/update-status', { rowId, status }); fetchData(); } };
 
-            // [ORDER FIX] Sắp xếp: Chưa Check-in (Trái) -> Bận (Giữa) -> Sẵn sàng (Phải)
-            const activeStaff = staffList.filter(s => statusData[s.id]?.status === 'READY').sort((a,b) => (statusData[a.id]?.checkInTime||0) - (statusData[b.id]?.checkInTime||0));
-            const busyStaff = staffList.filter(s => statusData[s.id]?.status === 'BUSY');
-            const awayStaff = staffList.filter(s => !statusData[s.id] || statusData[s.id].status === 'AWAY');
+            // --- [FINAL SORTING LOGIC V115] ---
+            
+            const getStatus = (id) => statusData[id]?.status || 'AWAY';
+            const getWeight = (id) => {
+                const num = parseInt(id.replace(/\D/g, ''));
+                if (isNaN(num)) return 9000 + id.charCodeAt(0); 
+                return num;
+            };
+            const sortIdAsc = (a, b) => getWeight(a.id) - getWeight(b.id);
 
+            // 1. AWAY (Left)
+            const awayStaff = staffList.filter(s => {
+                const st = getStatus(s.id);
+                return st === 'AWAY' || st === 'OFF';
+            }).sort(sortIdAsc);
+
+            // 2. BUSY (Middle) - Corrected: TĂNG DẦN START TIME (Oldest First)
+            const busyStaff = staffList.filter(s => getStatus(s.id) === 'BUSY').sort((a,b) => {
+                const resA = Object.values(resourceState).find(r => r.booking.staffId === a.id);
+                const resB = Object.values(resourceState).find(r => r.booking.staffId === b.id);
+                const timeA = resA?.startTime ? new Date(resA.startTime).getTime() : 0;
+                const timeB = resB?.startTime ? new Date(resB.startTime).getTime() : 0;
+                
+                // Tăng dần: Time nhỏ (cũ) -> Đầu mảng -> Flex Reverse -> Phải cùng
+                if (timeA && timeB) return timeA - timeB; 
+                return sortIdAsc(a, b);
+            });
+
+            // 3. READY (Right) - TĂNG DẦN CHECK-IN TIME
+            const readyStaff = staffList.filter(s => {
+                const st = getStatus(s.id);
+                return st === 'READY' || st === 'EAT' || st === 'OUT_SHORT';
+            }).sort((a,b) => {
+                const timeA = statusData[a.id]?.checkInTime || 0;
+                const timeB = statusData[b.id]?.checkInTime || 0;
+                
+                // Tăng dần: Time nhỏ (đợi lâu) -> Đầu mảng -> Flex Reverse -> Phải cùng
+                if (timeA !== timeB) return timeA - timeB; 
+                return sortIdAsc(a, b);
+            });
+
+            const readyQueue = readyStaff.filter(s => getStatus(s.id) === 'READY').map(s => s.id);
             const todaysBookings = useMemo(() => bookings.filter(b => b.startTimeString.split(' ')[0] === getToday()), [bookings]);
 
             return (
                 <div className="min-h-screen flex flex-col bg-slate-50">
                     <header className="bg-[#1e1b4b] text-white p-3 shadow-md flex justify-between items-center sticky top-0 z-50">
-                        <div className="flex items-center gap-3"><span className="bg-amber-500 text-black px-2 py-1 rounded font-black text-sm">V86 (Full)</span><span className="font-bold">XinWuChan ({getToday()})</span></div>
+                        <div className="flex items-center gap-3"><span className="bg-amber-500 text-black px-2 py-1 rounded font-black text-sm">V115 (Ultimate)</span><span className="font-bold">XinWuChan ({getToday()})</span></div>
                         <div className="flex gap-2">
-                            <button onClick={()=>setShowWalkIn(true)} className="bg-amber-500 hover:bg-amber-400 text-black px-4 py-1.5 rounded font-bold text-sm flex gap-1 items-center"><Icon d={PATHS.Bolt}/> 快速接單</button>
-                            <button onClick={()=>setShowCheckIn(true)} className="bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-1.5 rounded font-bold text-sm flex gap-1 items-center"><Icon d={PATHS.User}/> 技師打卡</button>
+                            <button onClick={()=>setShowWalkIn(true)} className="bg-amber-500 hover:bg-amber-400 text-black px-4 py-1.5 rounded font-bold text-sm flex gap-1 items-center"><i className="fas fa-bolt"></i> 快速接單</button>
+                            <button onClick={()=>setShowCheckIn(true)} className="bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-1.5 rounded font-bold text-sm flex gap-1 items-center"><i className="fas fa-user-clock"></i> 技師打卡</button>
                         </div>
                     </header>
                     
                     <div className="bg-white border-b shadow-sm p-3 overflow-x-auto whitespace-nowrap staff-scroll">
-                        <div className="flex w-full justify-start items-center min-w-max gap-4">
-                            <div className="flex gap-2 opacity-40 grayscale">
+                        <div className="flex w-full justify-between items-center min-w-max">
+                            
+                            {/* LEFT: AWAY */}
+                            <div className="flex gap-2 opacity-30 scale-90 border-r-2 pr-4 mr-2 border-dashed border-slate-300">
                                 {awayStaff.map(s => <StaffCard3D key={s.id} s={s} statusData={statusData} resourceState={resourceState} />)}
                             </div>
-                            {awayStaff.length > 0 && <div className="h-20 w-px bg-slate-300 mx-2"></div>}
-                            <div className="flex gap-2">
-                                {busyStaff.map(s => <StaffCard3D key={s.id} s={s} statusData={statusData} resourceState={resourceState} />)}
+                            
+                            {/* RIGHT: BUSY & READY */}
+                            <div className="flex items-center flex-1 justify-end pl-4">
+                                <div className="flex flex-row-reverse gap-2 px-4 border-r border-red-100">
+                                    {busyStaff.map(s => <StaffCard3D key={s.id} s={s} statusData={statusData} resourceState={resourceState} />)}
+                                </div>
+                                <div className="flex flex-row-reverse gap-2 pl-4">
+                                    {readyStaff.map((s, idx) => {
+                                        const qIdx = readyQueue.indexOf(s.id);
+                                        return <StaffCard3D key={s.id} s={s} statusData={statusData} resourceState={resourceState} queueIndex={qIdx !== -1 ? qIdx : undefined} />;
+                                    })}
+                                </div>
                             </div>
-                            {activeStaff.length > 0 && <div className="h-20 w-px bg-slate-300 mx-2"></div>}
-                            <div className="flex gap-2 flex-row-reverse">
-                                {activeStaff.map((s, idx) => <StaffCard3D key={s.id} s={s} statusData={statusData} resourceState={resourceState} queueIndex={idx} />)}
-                            </div>
+
                         </div>
                     </div>
 
                     <div className="p-4 flex gap-2">
-                        <button onClick={()=>setActiveTab('map')} className={`px-4 py-2 rounded font-bold flex gap-2 items-center ${activeTab==='map'?'bg-[#1e1b4b] text-white':'bg-white shadow'}`}><Icon d={PATHS.Grid}/> 平面圖 (Map)</button>
-                        <button onClick={()=>setActiveTab('list')} className={`px-4 py-2 rounded font-bold flex gap-2 items-center ${activeTab==='list'?'bg-[#1e1b4b] text-white':'bg-white shadow'}`}><Icon d={PATHS.List}/> 列表 (List)</button>
-                        <button onClick={()=>setActiveTab('timeline')} className={`px-4 py-2 rounded font-bold flex gap-2 items-center ${activeTab==='timeline'?'bg-[#1e1b4b] text-white':'bg-white shadow'}`}><Icon d={PATHS.List}/> 時間軸 (Timeline)</button>
-                        <button onClick={()=>setActiveTab('report')} className={`px-4 py-2 rounded font-bold flex gap-2 items-center ${activeTab==='report'?'bg-[#1e1b4b] text-white':'bg-white shadow'}`}><Icon d={PATHS.Chart}/> 營業報告 (Report)</button>
+                        <button onClick={()=>setActiveTab('map')} className={`px-4 py-2 rounded font-bold flex gap-2 items-center ${activeTab==='map'?'bg-[#1e1b4b] text-white':'bg-white shadow'}`}><i className="fas fa-th"></i> 平面圖 (Map)</button>
+                        <button onClick={()=>setActiveTab('list')} className={`px-4 py-2 rounded font-bold flex gap-2 items-center ${activeTab==='list'?'bg-[#1e1b4b] text-white':'bg-white shadow'}`}><i className="fas fa-list"></i> 列表 (List)</button>
+                        <button onClick={()=>setActiveTab('timeline')} className={`px-4 py-2 rounded font-bold flex gap-2 items-center ${activeTab==='timeline'?'bg-[#1e1b4b] text-white':'bg-white shadow'}`}><i className="fas fa-stream"></i> 時間軸 (Timeline)</button>
+                        <button onClick={()=>setActiveTab('report')} className={`px-4 py-2 rounded font-bold flex gap-2 items-center ${activeTab==='report'?'bg-[#1e1b4b] text-white':'bg-white shadow'}`}><i className="fas fa-chart-line"></i> 營業報告 (Report)</button>
                     </div>
 
                     <main className="flex-1 p-4 overflow-y-auto">
@@ -525,7 +612,7 @@
                                     <div><h3 className="font-bold text-purple-600 mb-3 border-b pb-1">身體指壓區 (Body)</h3><div className="grid grid-cols-6 gap-3">{[1,2,3,4,5,6].map(i => <ResourceCard key={`bed-${i}`} id={`bed-${i}`} type="BODY" index={i} data={resourceState[`bed-${i}`]} busyStaffIds={busyStaffIds} onAction={handleResourceAction} onSelect={()=>setSelectedSlot(`bed-${i}`)} onSwitch={handleSwitch} />)}</div></div>
                                 </div>
                                 <div className="col-span-3 bg-white rounded-lg shadow p-4 h-fit sticky top-2">
-                                    <h3 className="font-bold text-gray-700 mb-3">候位名單 (Wait) ({todaysBookings.filter(b=>b.status==='已預約').length})</h3>
+                                    <h3 className="font-bold text-gray-700 mb-3">候位名單 (Waiting) ({todaysBookings.filter(b=>b.status==='已預約').length})</h3>
                                     <div className="space-y-2 max-h-[500px] overflow-y-auto">
                                         {todaysBookings.filter(b=>b.status==='已預約').map(b => (
                                             <div key={b.rowId} className="border p-2 rounded hover:bg-slate-50 relative group bg-white shadow-sm">
@@ -534,7 +621,7 @@
                                                 { (b.isOil || (b.serviceName && b.serviceName.includes('油'))) && <div className="text-[10px] bg-purple-100 text-purple-700 inline-block px-1 rounded mt-1 font-bold border border-purple-200">💧 精油 (Oil)</div> }
                                                 {b.pax > 1 && <div className="text-[10px] bg-orange-100 text-orange-600 inline-block px-1 rounded mt-1 ml-1 font-bold">{b.pax} 人</div>}
                                                 {selectedSlot && <button onClick={()=>handleAssignBooking(b)} className="absolute inset-0 bg-green-500/90 text-white font-bold flex items-center justify-center rounded animate-pulse">排入 {selectedSlot}</button>}
-                                                <button onClick={()=>handleManualUpdateStatus(b.rowId, '❌ Cancelled')} className="absolute top-1 right-1 text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100"><Icon d={PATHS.Trash} size={14}/></button>
+                                                <button onClick={()=>handleManualUpdateStatus(b.rowId, '❌ Cancelled')} className="absolute top-1 right-1 text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100"><i className="fas fa-trash"></i></button>
                                             </div>
                                         ))}
                                     </div>
@@ -545,7 +632,7 @@
                             <div className="bg-white rounded shadow overflow-hidden">
                                 <table className="w-full text-sm text-left">
                                     <thead className="bg-slate-100 text-slate-600 font-bold"><tr><th className="p-3">時間</th><th className="p-3">姓名</th><th className="p-3">服務項目</th><th className="p-3">師傅</th><th className="p-3">狀態</th><th className="p-3 text-right">操作</th></tr></thead>
-                                    <tbody className="divide-y">{todaysBookings.map(b=>(<tr key={b.rowId} className="hover:bg-slate-50"><td className="p-3 font-mono text-indigo-700 font-bold">{b.startTimeString.split(' ')[1]}</td><td className="p-3 font-bold">{b.customerName}</td><td className="p-3 text-gray-600">{b.serviceName}</td><td className="p-3"><span className="bg-indigo-50 text-indigo-700 px-2 py-1 rounded text-xs font-bold">{b.staffId}</span></td><td className="p-3"><span className={`px-2 py-1 rounded text-xs font-bold ${b.status.includes('取消')?'bg-red-100 text-red-600':'bg-green-100 text-green-600'}`}>{b.status}</span></td><td className="p-3 text-right"><button onClick={()=>handleManualUpdateStatus(b.rowId, '❌ Cancelled')} className="text-red-500 hover:bg-red-50 px-2 py-1 rounded"><Icon d={PATHS.Trash} size={14}/></button></td></tr>))}</tbody>
+                                    <tbody className="divide-y">{todaysBookings.map(b=>(<tr key={b.rowId} className="hover:bg-slate-50"><td className="p-3 font-mono text-indigo-700 font-bold">{b.startTimeString.split(' ')[1]}</td><td className="p-3 font-bold">{b.customerName}</td><td className="p-3 text-gray-600">{b.serviceName}</td><td className="p-3"><span className="bg-indigo-50 text-indigo-700 px-2 py-1 rounded text-xs font-bold">{b.staffId}</span></td><td className="p-3"><span className={`px-2 py-1 rounded text-xs font-bold ${b.status.includes('取消')?'bg-red-100 text-red-600':'bg-green-100 text-green-600'}`}>{b.status}</span></td><td className="p-3 text-right"><button onClick={()=>handleManualUpdateStatus(b.rowId, '❌ Cancelled')} className="text-red-500 hover:bg-red-50 px-2 py-1 rounded"><i className="fas fa-trash"></i></button></td></tr>))}</tbody>
                                 </table>
                             </div>
                         )}
