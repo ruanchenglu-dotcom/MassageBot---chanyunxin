@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Massage POS - Manager V115 (Final Complete)</title>
+    <title>Massage POS - Manager V120 (Final Logic Fix)</title>
     
     <script src="https://cdn.tailwindcss.com"></script>
     <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.development.js"></script>
@@ -15,8 +15,10 @@
 
     <style>
         body { font-family: 'Microsoft JhengHei', 'Segoe UI', sans-serif; background-color: #f8fafc; user-select: none; overflow: hidden; }
-        .modal-animate { animation: fadeInScale 0.2s ease-out forwards; }
-        @keyframes fadeInScale { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }
+        
+        /* Modal Animation */
+        .modal-animate { animation: zoomIn 0.2s ease-out forwards; }
+        @keyframes zoomIn { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }
 
         /* --- 3D STAFF CARDS --- */
         .card-3d { 
@@ -29,9 +31,10 @@
             background: white; 
             box-shadow: 0 4px 6px rgba(0,0,0,0.1);
             margin: 0 4px; flex-shrink: 0;
+            border: 1px solid rgba(0,0,0,0.05);
         }
         .card-3d:active { transform: translateY(4px); border-bottom-width: 0px; margin-bottom: 4px; }
-        .card-3d:hover { transform: translateY(-2px); box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1); }
+        .card-3d:hover { transform: translateY(-2px); box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.15); }
         
         .style-male { border: 2px solid #3B82F6; border-bottom: 5px solid #2563EB; color: #1E3A8A; }
         .style-female { border: 2px solid #F472B6; border-bottom: 5px solid #DB2777; color: #BE185D; }
@@ -43,11 +46,12 @@
         .st-eat { background-color: #ffedd5 !important; border-color: #f97316 !important; border-bottom-color: #c2410c !important; color: #c2410c !important; }
         .st-out { background-color: #fef9c3 !important; border-color: #eab308 !important; border-bottom-color: #ca8a04 !important; color: #854d0e !important; }
 
+        /* RESOURCE CARDS */
         .res-card { position: relative; overflow: hidden; transition: all 0.2s; border-radius: 12px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
         .res-card:hover { transform: translateY(-2px); box-shadow: 0 8px 16px rgba(0,0,0,0.1); }
         .progress-bar { transition: width 1s linear; }
         
-        /* Scrollbar */
+        /* SCROLLBAR */
         .staff-scroll::-webkit-scrollbar { height: 8px; }
         .staff-scroll::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
         .staff-scroll::-webkit-scrollbar-track { background: transparent; }
@@ -59,7 +63,7 @@
     <audio id="notifySound" src="https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3" preload="auto"></audio>
 
     <script type="text/babel">
-        const { useState, useEffect, useMemo } = React;
+        const { useState, useEffect, useMemo, useCallback } = React;
 
         // --- CONSTANTS ---
         const SERVICES_LIST = ['👣 足底按摩 (40分)', '👣 足底按摩 (70分)', '🛏️ 全身指壓 (70分)', '🛏️ 全身指壓 (90分)', '👑 帝王套餐 (190分)', '💎 豪華套餐 (130分)', '🔥 招牌套餐 (100分)'];
@@ -82,15 +86,20 @@
             let displayStatus = local.status; 
             let cardStyle = isFemale ? 'style-female' : 'style-male';
             let label = '---';
+
+            // Check if currently working in a resource
             const isActuallyRunning = Object.values(resourceState).some(r => r.booking.staffId === s.id && r.isRunning && !r.isPaused);
             
+            // Priority Status Logic
             if (isActuallyRunning) { displayStatus = 'BUSY'; } 
             
+            // Apply Styles based on Status
             if (displayStatus === 'BUSY') cardStyle = 'st-busy';
             else if (displayStatus === 'AWAY' || displayStatus === 'OFF') cardStyle = 'st-away';
             else if (displayStatus === 'EAT') cardStyle = 'st-eat';
             else if (displayStatus === 'OUT_SHORT') cardStyle = 'st-out';
 
+            // Label Logic
             if(displayStatus === 'EAT') label='🍱 用餐'; 
             else if(displayStatus === 'OUT_SHORT') label='⏳ 外出'; 
             else if(displayStatus === 'AWAY' || displayStatus === 'OFF') label = '⛔ 未到'; 
@@ -100,7 +109,7 @@
             return (
                 <div className={`card-3d ${cardStyle}`}>
                     <div className="flex-1 flex flex-col items-center justify-center p-2">
-                        <div className="text-3xl font-black">{s.id.replace('號','')}</div>
+                        <div className="text-3xl font-black text-slate-800">{s.id.replace('號','')}</div>
                         <div className="text-[10px] font-bold mt-1 opacity-80 truncate w-full text-center">{s.name}</div>
                     </div>
                     <div className="text-center text-[10px] font-bold py-1 w-full bg-black/5 rounded-b-lg truncate px-1">{label}</div>
@@ -115,7 +124,13 @@
                 const newState = { ...statusData, [id]: { status: current.status === 'READY' || current.status === 'EAT' ? 'AWAY' : 'READY', checkInTime: current.status === 'READY' ? 0 : Date.now() } }; 
                 onUpdateStatus(newState); 
             };
-            const sortedList = [...staffList].sort((a,b) => parseInt(a.id.replace(/\D/g,'')) - parseInt(b.id.replace(/\D/g,'')));
+            
+            // Sort by ID for easier finding
+            const sortedList = [...staffList].sort((a,b) => {
+                const numA = parseInt(a.id.replace(/\D/g,'')) || 999;
+                const numB = parseInt(b.id.replace(/\D/g,'')) || 999;
+                return numA - numB;
+            });
 
             return ( 
                 <div className="fixed inset-0 bg-slate-900/80 z-[60] flex items-center justify-center p-4 backdrop-blur-sm">
@@ -363,7 +378,7 @@
                     const currentStaffStat = serverStaff || {};
                     setStatusData(currentStaffStat);
 
-                    // --- [AUTO ASSIGN LOGIC - 35 MINS] ---
+                    // --- [AUTO ASSIGN LOGIC: <35 Mins] ---
                     let changed = false;
                     let newResState = { ...currentRes }; 
                     const now = getTaipeiDate();
@@ -450,10 +465,7 @@
                         candidates.sort((a,b) => (statusData[a.id]?.checkInTime||0) - (statusData[b.id]?.checkInTime||0));
 
                         if (candidates.length === 0) {
-                            let msg = "⚠️ 目前無空閒師傅 (No Ready Staff)!";
-                            if (reqStaff.includes('男')) msg = "⚠️ 無空閒【男】師傅!";
-                            if (reqStaff.includes('女')) msg = "⚠️ 無空閒【女】師傅!";
-                            alert(msg);
+                            alert("⚠️ No suitable staff available!");
                             return; 
                         }
                         finalStaffId = candidates[0].id;
@@ -473,7 +485,6 @@
                         if (current.booking.lineId && current.booking.lineId !== 'ADMIN_WEB' && current.booking.lineId === b.lineId) return true;
                         // SMART GROUPING BY PHONE OR LINE ID
                         if (current.booking.lineId === 'ADMIN_WEB' && b.lineId === 'ADMIN_WEB') {
-                             // Check Phone
                              const p1 = (current.booking.sdt||'').replace(/\D/g,'');
                              const p2 = (b.sdt||'').replace(/\D/g,'');
                              if(p1 && p2 && p1.length > 5 && p1 === p2) return true;
@@ -501,6 +512,7 @@
                     Object.keys(newState).forEach(key => {
                         if (rowIdsToPay.includes(newState[key].booking.rowId)) {
                              const staffId = newState[key].booking.staffId;
+                             // Reset staff to READY but push to end of queue (Reset Time)
                              if(staffId !== '隨機' && newStatusData[staffId]) {
                                  newStatusData[staffId] = { status: 'READY', checkInTime: Date.now() }; 
                              }
@@ -519,43 +531,50 @@
             const handleAssignBooking = (booking) => { if (!selectedSlot) return; updateResource({ ...resourceState, [selectedSlot]: { booking, startTime: null, isRunning: false } }); setSelectedSlot(null); };
             const handleManualUpdateStatus = async (rowId, status) => { if(confirm('確認更新狀態?')) { await axios.post('/api/update-status', { rowId, status }); fetchData(); } };
 
-            // --- [FINAL SORTING LOGIC V115] ---
+            // --- [FINAL SORTING LOGIC V120] ---
             
             const getStatus = (id) => statusData[id]?.status || 'AWAY';
+            
+            // Helper Weight: Text > Number
             const getWeight = (id) => {
                 const num = parseInt(id.replace(/\D/g, ''));
                 if (isNaN(num)) return 9000 + id.charCodeAt(0); 
                 return num;
             };
+            
+            // Sort Tăng Dần (1 -> 9 -> Text)
             const sortIdAsc = (a, b) => getWeight(a.id) - getWeight(b.id);
 
-            // 1. AWAY (Left)
+            // 1. NHÓM TRÁI (Away/Off/Missing)
             const awayStaff = staffList.filter(s => {
                 const st = getStatus(s.id);
-                return st === 'AWAY' || st === 'OFF';
+                return st === 'AWAY' || st === 'OFF' || !st; // Ensure missing status falls here
             }).sort(sortIdAsc);
 
-            // 2. BUSY (Middle) - Corrected: TĂNG DẦN START TIME (Oldest First)
+            // 2. NHÓM GIỮA (Busy ONLY)
+            // Sort by StartTime ASCENDING (Oldest first)
+            // Flex-Reverse => Oldest will be on RIGHT.
             const busyStaff = staffList.filter(s => getStatus(s.id) === 'BUSY').sort((a,b) => {
                 const resA = Object.values(resourceState).find(r => r.booking.staffId === a.id);
                 const resB = Object.values(resourceState).find(r => r.booking.staffId === b.id);
                 const timeA = resA?.startTime ? new Date(resA.startTime).getTime() : 0;
                 const timeB = resB?.startTime ? new Date(resB.startTime).getTime() : 0;
                 
-                // Tăng dần: Time nhỏ (cũ) -> Đầu mảng -> Flex Reverse -> Phải cùng
-                if (timeA && timeB) return timeA - timeB; 
+                if (timeA && timeB && timeA !== timeB) return timeA - timeB; 
                 return sortIdAsc(a, b);
             });
 
-            // 3. READY (Right) - TĂNG DẦN CHECK-IN TIME
+            // 3. NHÓM PHẢI (Ready/Eat/Out)
+            // Sort by CheckIn Time ASCENDING (Oldest checkin first)
+            // Flex-Reverse => Oldest will be on RIGHT.
             const readyStaff = staffList.filter(s => {
                 const st = getStatus(s.id);
-                return st === 'READY' || st === 'EAT' || st === 'OUT_SHORT';
+                // Strict check: NOT Busy AND NOT Away/Off
+                return st !== 'BUSY' && st !== 'AWAY' && st !== 'OFF';
             }).sort((a,b) => {
                 const timeA = statusData[a.id]?.checkInTime || 0;
                 const timeB = statusData[b.id]?.checkInTime || 0;
                 
-                // Tăng dần: Time nhỏ (đợi lâu) -> Đầu mảng -> Flex Reverse -> Phải cùng
                 if (timeA !== timeB) return timeA - timeB; 
                 return sortIdAsc(a, b);
             });
@@ -566,7 +585,7 @@
             return (
                 <div className="min-h-screen flex flex-col bg-slate-50">
                     <header className="bg-[#1e1b4b] text-white p-3 shadow-md flex justify-between items-center sticky top-0 z-50">
-                        <div className="flex items-center gap-3"><span className="bg-amber-500 text-black px-2 py-1 rounded font-black text-sm">V115 (Ultimate)</span><span className="font-bold">XinWuChan ({getToday()})</span></div>
+                        <div className="flex items-center gap-3"><span className="bg-amber-500 text-black px-2 py-1 rounded font-black text-sm">V120 (Final Sort)</span><span className="font-bold">XinWuChan ({getToday()})</span></div>
                         <div className="flex gap-2">
                             <button onClick={()=>setShowWalkIn(true)} className="bg-amber-500 hover:bg-amber-400 text-black px-4 py-1.5 rounded font-bold text-sm flex gap-1 items-center"><i className="fas fa-bolt"></i> 快速接單</button>
                             <button onClick={()=>setShowCheckIn(true)} className="bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-1.5 rounded font-bold text-sm flex gap-1 items-center"><i className="fas fa-user-clock"></i> 技師打卡</button>
@@ -576,16 +595,18 @@
                     <div className="bg-white border-b shadow-sm p-3 overflow-x-auto whitespace-nowrap staff-scroll">
                         <div className="flex w-full justify-between items-center min-w-max">
                             
-                            {/* LEFT: AWAY */}
+                            {/* 1. LEFT: AWAY */}
                             <div className="flex gap-2 opacity-30 scale-90 border-r-2 pr-4 mr-2 border-dashed border-slate-300">
                                 {awayStaff.map(s => <StaffCard3D key={s.id} s={s} statusData={statusData} resourceState={resourceState} />)}
                             </div>
                             
-                            {/* RIGHT: BUSY & READY */}
+                            {/* 2. MIDDLE: BUSY (Flex Reverse: Oldest on Right) */}
+                            <div className="flex flex-row-reverse gap-2 px-6 border-r-2 border-l-2 border-red-100 bg-red-50/20 rounded mx-2">
+                                {busyStaff.map(s => <StaffCard3D key={s.id} s={s} statusData={statusData} resourceState={resourceState} />)}
+                            </div>
+
+                            {/* 3. RIGHT: READY (Flex Reverse: #1 on Right) */}
                             <div className="flex items-center flex-1 justify-end pl-4">
-                                <div className="flex flex-row-reverse gap-2 px-4 border-r border-red-100">
-                                    {busyStaff.map(s => <StaffCard3D key={s.id} s={s} statusData={statusData} resourceState={resourceState} />)}
-                                </div>
                                 <div className="flex flex-row-reverse gap-2 pl-4">
                                     {readyStaff.map((s, idx) => {
                                         const qIdx = readyQueue.indexOf(s.id);
