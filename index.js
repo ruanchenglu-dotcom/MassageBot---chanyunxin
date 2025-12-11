@@ -1,5 +1,5 @@
 // ==============================================================================
-// PHIÊN BẢN V118 - FIX LỖI CA ĐÊM (00:00-02:00) & LOGIC THỜI GIAN
+// PHIÊN BẢN V119 - FIX LỖI NGÀY CA ĐÊM (0H -> HÔM SAU)
 // ==============================================================================
 
 require('dotenv').config(); 
@@ -117,11 +117,8 @@ function isWithinShift(staff, requestTimeStr) {
     // Nếu ca làm việc qua đêm (VD: 10:00 -> 02:00 hôm sau)
     if (endMins < startMins) {
         // Chuyển endMins thành dạng > 24h (VD: 02:00 -> 26:00)
-        // Lưu ý: requestMins ở đây đã được getMins xử lý cộng 24 nếu < 8
-        const adjustedEnd = endMins + (24 * 60); // Đoạn này logic cũ có thể dư thừa nếu getMins đã xử lý, nhưng giữ an toàn
-        // Thực tế getMins đã biến 02:00 thành 26*60. 
-        // Nên so sánh trực tiếp là ổn.
-        return requestMins >= startMins && requestMins < endMins;
+        const adjustedEnd = endMins + (24 * 60);
+        return requestMins >= startMins && requestMins < adjustedEnd;
     } else {
         // Ca ngày bình thường
         return requestMins >= startMins && requestMins < endMins;
@@ -282,7 +279,7 @@ async function syncData() {
             console.log("⚠️ Không tìm thấy nhân viên trong Sheet. Tạo dữ liệu mẫu.");
             STAFF_LIST = [];
             for(let i=1; i<=20; i++) {
-                STAFF_LIST.push({id:`${i}號`, name:`${i}號`, gender:'F', shiftStart:'10:00', shiftEnd:'02:00'});
+                STAFF_LIST.push({id:`${i}號`, name:`${i}號`, gender:'F', shiftStart:'09:00', shiftEnd:'03:00'});
             }
         }
         
@@ -337,6 +334,32 @@ async function updateBookingStatus(rowId, newStatus) {
     } catch (e) { console.error('Update Error:', e); }
 }
 
+async function updateBookingDetails(rowId, staffId, serviceName) {
+    try {
+        if (serviceName) {
+            await sheets.spreadsheets.values.update({
+                spreadsheetId: SHEET_ID,
+                range: `${BOOKING_SHEET}!D${rowId}`,
+                valueInputOption: 'USER_ENTERED',
+                requestBody: { values: [[serviceName]] }
+            });
+        }
+        if (staffId) {
+            await sheets.spreadsheets.values.update({
+                spreadsheetId: SHEET_ID,
+                range: `${BOOKING_SHEET}!I${rowId}`,
+                valueInputOption: 'USER_ENTERED',
+                requestBody: { values: [[staffId]] }
+            });
+        }
+        await syncData();
+        res.json({ success: true });
+    } catch (e) {
+        console.error('Update Details Error:', e);
+        res.status(500).json({ error: e.message });
+    }
+}
+
 async function layLichDatGanNhat(userId) {
     try {
         const res = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: `${BOOKING_SHEET}!A:K` });
@@ -369,29 +392,24 @@ async function layLichDatGanNhat(userId) {
 function checkAvailability(dateStr, timeStr, serviceDuration, serviceType, specificStaffIds = null, pax = 1, requireFemale = false, requireMale = false) {
     const displayDate = formatDateDisplay(dateStr); 
     
-    // 1. Parse thời gian yêu cầu và thời gian hiện tại CÙNG HỆ QUY CHIẾU (Taipei)
+    // 1. Parse thời gian yêu cầu
     const startRequest = parseStringToDate(`${displayDate} ${timeStr}`);
     
     // --- [FIX: XỬ LÝ CA ĐÊM (00:00 - 08:00)] ---
-    // Nếu giờ yêu cầu < 8, ta hiểu đó là rạng sáng ngày hôm sau của ngày booking
-    // Ví dụ: Đặt ngày 25/12 lúc 01:00 -> Hiểu là rạng sáng 26/12
-    // Tuy nhiên, logic này phụ thuộc vào cách ta gọi hàm.
-    // Nếu gọi với giờ "25:00", startRequest sẽ trả về null hoặc sai.
-    // Tốt nhất là xử lý thủ công:
     const hourVal = parseInt(timeStr.split(':')[0]);
     if (hourVal < 8) {
-        // Tăng thêm 1 ngày cho startRequest
+        // Nếu giờ < 8, tự động hiểu là sáng hôm sau của ngày đã chọn
         startRequest.setDate(startRequest.getDate() + 1);
     }
 
     if (!startRequest) return false;
     
-    // Lấy giờ hiện tại chuẩn Đài Loan
+    // 2. Lấy giờ hiện tại chuẩn Đài Loan
     const nowTaipeiStr = new Date().toLocaleString('en-US', { timeZone: 'Asia/Taipei', hour12: false });
     const now = parseStringToDate(nowTaipeiStr); 
 
     // --- CHẶN ĐẶT LỊCH TRONG QUÁ KHỨ (STRICT) ---
-    // Không cho phép nới lỏng. Phải lớn hơn hiện tại.
+    // Không cho phép đặt lùi (phải > hiện tại)
     if (startRequest.getTime() <= now.getTime()) {
         return false;
     }
@@ -399,7 +417,7 @@ function checkAvailability(dateStr, timeStr, serviceDuration, serviceType, speci
     const endRequest = new Date(startRequest.getTime() + serviceDuration * 60000);
     const isBookingForNow = (startRequest.getTime() - now.getTime()) < 30 * 60000;
 
-    // Lấy danh sách nghỉ (Check theo ngày hiển thị)
+    // Lấy danh sách nghỉ
     const staffOffToday = cachedSchedule.filter(s => s.date === displayDate).map(s => s.staffId);
     
     // Lọc nhân viên đi làm
@@ -409,10 +427,8 @@ function checkAvailability(dateStr, timeStr, serviceDuration, serviceType, speci
         if (requireFemale && staff.gender !== 'F' && staff.gender !== '女') return false;
         if (requireMale && staff.gender !== 'M' && staff.gender !== '男') return false;
 
-        // Check ca làm việc (isWithinShift đã xử lý logic +24h cho ca đêm)
         if (!isWithinShift(staff, timeStr)) return false; 
         
-        // Check trạng thái thực tế
         if (isBookingForNow) {
             const status = SERVER_STAFF_STATUS[staff.id];
             if (status && (status.status === 'BUSY' || status.status === 'AWAY')) return false;
@@ -441,10 +457,10 @@ function checkAvailability(dateStr, timeStr, serviceDuration, serviceType, speci
             if (bookingDate === displayDate) { isShopClosed = true; break; }
         }
         
-        // --- [FIX: XỬ LÝ BOOKING CŨ CÓ GIỜ CA ĐÊM] ---
         let startExisting = parseStringToDate(booking.startTimeString);
         if (!startExisting) continue;
-        
+
+        // --- [FIX: XỬ LÝ BOOKING CŨ CÓ GIỜ CA ĐÊM] ---
         const bHour = parseInt(booking.startTimeString.split(' ')[1].split(':')[0]);
         if (bHour < 8) {
              startExisting.setDate(startExisting.getDate() + 1);
@@ -497,35 +513,32 @@ function generateTimeBubbles(selectedDate, serviceCode, specificStaffIds = null,
     const month = (nowTaipei.getMonth() + 1).toString().padStart(2, '0');
     const day = nowTaipei.getDate().toString().padStart(2, '0');
     const todayString = `${year}/${month}/${day}`; 
-    const currentHour = nowTaipei.getHours();
+    const currentHourFloat = nowTaipei.getHours() + (nowTaipei.getMinutes() / 60);
     
     const isToday = (formatDateDisplay(selectedDate) === todayString);
     const service = SERVICES[serviceCode]; 
     if (!service) return null;
     
-    // --- BƯỚC NHẢY 30 PHÚT ---
+    // --- BƯỚC NHẢY 30 PHÚT: 08:00 đến 24:30 (0h30 hôm sau) ---
+    // Vì quán đóng cửa 2h sáng, nên nhận khách muộn nhất tầm 0h30-1h
     let allSlots = []; 
-    for (let h = 8; h <= 26; h++) {
-        allSlots.push(h);       // Giờ chẵn
-        if(h < 26) allSlots.push(h + 0.5); // Giờ rưỡi
+    for (let h = 8; h <= 24; h++) {
+        allSlots.push(h);       
+        if(h < 24.5) allSlots.push(h + 0.5); 
     }
+    // Đảm bảo có 24.5 (00:30) nếu vòng lặp thiếu
+    if (allSlots[allSlots.length-1] !== 24.5) allSlots.push(24.5);
     
     let availableSlots = [];
-
-    // Nếu là hôm nay, lọc giờ QUÁ KHỨ (STRICT)
     if (isToday) {
-        const currentHourFloat = nowTaipei.getHours() + (nowTaipei.getMinutes() / 60);
         availableSlots = allSlots.filter(h => {
-             let slotVal = h;
-             let curVal = currentHourFloat;
-             
-             // Xử lý logic qua đêm: 0h-8h sáng (tức 24h-32h theo hệ 24+)
-             // Nếu giờ hiện tại < 8 (vd 1h sáng), ta coi nó là 25h
-             if (curVal < 8) curVal += 24; 
-             
-             // Giờ slot luôn > 8 rồi (do loop từ 8), nên chỉ cần so sánh trực tiếp
-             // Nếu h > 24 (tức 1h, 2h sáng mai) thì slotVal > curVal là đúng
-             return slotVal > curVal; 
+            let slotVal = h;
+            let curVal = currentHourFloat;
+            // Xử lý logic qua đêm: nếu hiện tại là 1h sáng, nó là 25h
+            if (curVal < 8) curVal += 24; 
+            
+            // Lọc giờ quá khứ
+            return slotVal > curVal; 
         });
     } else {
         availableSlots = allSlots;
@@ -535,11 +548,12 @@ function generateTimeBubbles(selectedDate, serviceCode, specificStaffIds = null,
     for (const h of availableSlots) {
         const hourInt = Math.floor(h);
         const minuteStr = (h % 1) > 0 ? '30' : '00';
-        // Truyền giờ gốc (ví dụ 25:00) sẽ không được parse đúng bởi Date()
-        // Nên ta truyền 01:00, và để hàm checkAvailability tự cộng ngày nếu < 8
+        
+        // Truyền giờ gốc (24h+) không được, phải truyền giờ hiển thị (0h+)
         const displayH = hourInt < 24 ? hourInt : hourInt - 24; 
         const timeStr = `${displayH.toString().padStart(2, '0')}:${minuteStr}`;
         
+        // Hàm checkAvailability đã có logic tự cộng ngày nếu giờ < 8
         if (checkAvailability(selectedDate, timeStr, service.duration, service.type, specificStaffIds, pax, requireFemale, requireMale)) { 
             validSlots.push(h); 
         }
@@ -547,6 +561,7 @@ function generateTimeBubbles(selectedDate, serviceCode, specificStaffIds = null,
     
     if (validSlots.length === 0) return null;
     
+    // Format hiển thị cho User
     const formatTime = (h) => {
         const hourInt = Math.floor(h);
         const minuteStr = (h % 1) > 0 ? '30' : '00';
@@ -554,6 +569,7 @@ function generateTimeBubbles(selectedDate, serviceCode, specificStaffIds = null,
         return `${(hourInt - 24).toString().padStart(2, '0')}:${minuteStr} (凌晨)`;
     };
     
+    // Value gửi đi
     const formatValue = (h) => {
         const hourInt = Math.floor(h);
         const minuteStr = (h % 1) > 0 ? '30' : '00';
@@ -807,18 +823,33 @@ async function handleEvent(event) {
       const buttons = [
           { "type": "text", "text": "💆 請選擇師傅需求 (Staff)", "weight": "bold", "size": "lg", "align": "center", "color": "#1DB446" },
           { "type": "separator", "margin": "md" },
+          
           { "type": "button", "style": "secondary", "margin": "sm", "action": { "type": "message", "label": "🎲 不指定 (隨機)", "text": "Pref:RANDOM" } },
           { "type": "button", "style": "secondary", "margin": "sm", "action": { "type": "message", "label": "👨 指定男師傅", "text": "Pref:MALE" } },
           { "type": "button", "style": "primary", "color": "#333333", "margin": "sm", "action": { "type": "message", "label": "👉 指定特定號碼", "text": "Pref:SPECIFIC" } },
           { "type": "button", "style": "secondary", "margin": "sm", "action": { "type": "message", "label": "👩 指定女師傅 (無油)", "text": "Pref:FEMALE" } }
       ];
+
       if (serviceType !== 'FOOT') {
-          buttons.push({ "type": "button", "style": "primary", "color": "#E91E63", "margin": "sm", "action": { "type": "message", "label": "💧 指定女師傅推油 (+$200)", "text": "Pref:OIL" } });
+          buttons.push(
+              { "type": "button", "style": "primary", "color": "#E91E63", "margin": "sm", "action": { "type": "message", "label": "💧 指定女師傅推油 (+$200)", "text": "Pref:OIL" } }
+          );
       } else {
            buttons.push({ "type": "text", "text": "(足底按摩無油壓選項)", "size": "xs", "color": "#aaaaaa", "align": "center", "margin": "sm" });
       }
 
-      return client.replyMessage(event.replyToken, { type: 'flex', altText: '師傅', contents: { "type": "bubble", "body": { "type": "box", "layout": "vertical", "contents": buttons } } });
+      return client.replyMessage(event.replyToken, {
+          type: 'flex',
+          altText: '師傅',
+          contents: {
+              "type": "bubble",
+              "body": {
+                  "type": "box",
+                  "layout": "vertical",
+                  "contents": buttons
+              }
+          }
+      });
   }
 
   if (text.startsWith('Pref:')) {
@@ -847,7 +878,10 @@ async function handleEvent(event) {
           return client.replyMessage(event.replyToken, { type: 'flex', altText: 'Select Staff', contents: { type: 'carousel', contents: bubbles } }); 
       }
 
-      let requireFemale = false, requireMale = false, isOil = false;
+      let requireFemale = false;
+      let requireMale = false;
+      let isOil = false;
+
       if (currentState.pref === 'OIL') { isOil = true; requireFemale = true; }
       else if (currentState.pref === 'FEMALE') { requireFemale = true; }
       else if (currentState.pref === 'MALE') { requireMale = true; }
@@ -911,6 +945,18 @@ async function handleEvent(event) {
       const sdt = normalizePhoneNumber(text); 
       const s = userState[userId];
       
+      // AUTO FIX DATE IF NIGHT SHIFT (00:00 - 08:00)
+      let finalDate = s.date;
+      const hour = parseInt(s.time.split(':')[0]);
+      if (hour < 8) {
+          const d = new Date(s.date);
+          d.setDate(d.getDate() + 1);
+          const yyyy = d.getFullYear();
+          const mm = (d.getMonth() + 1).toString().padStart(2, '0');
+          const dd = d.getDate().toString().padStart(2, '0');
+          finalDate = `${yyyy}/${mm}/${dd}`;
+      }
+
       let basePrice = SERVICES[s.service].price; 
       if (s.isOil) basePrice += 200; 
       const totalPrice = basePrice * s.pax;
@@ -921,12 +967,12 @@ async function handleEvent(event) {
       else if (s.pref === 'MALE') staffDisplay = '男師傅';
       else if (s.pref === 'OIL') staffDisplay = '女師傅(油)';
 
-      const confirmMsg = `✅ 預約成功\n\n👤 ${s.surname} (${sdt})\n📅 ${s.date} ${s.time}\n💆 ${SERVICES[s.service].name}\n👥 ${s.pax} 位\n🛠️ ${staffDisplay}\n💵 總金額: $${totalPrice}`;
+      const confirmMsg = `✅ 預約成功\n\n👤 ${s.surname} (${sdt})\n📅 ${finalDate} ${s.time}\n💆 ${SERVICES[s.service].name}\n👥 ${s.pax} 位\n🛠️ ${staffDisplay}\n💵 總金額: $${totalPrice}`;
       
       await client.replyMessage(event.replyToken, { type: 'text', text: confirmMsg });
       client.pushMessage(ID_BA_CHU, { type: 'text', text: `💰 New Booking: ${s.surname} - $${totalPrice}` });
       
-      await ghiVaoSheet({ gioDen: s.time, ngayDen: s.date, dichVu: SERVICES[s.service].name, nhanVien: staffDisplay, userId: userId, sdt: sdt, hoTen: s.surname, trangThai: '已預約', pax: s.pax, isOil: s.isOil });
+      await ghiVaoSheet({ gioDen: s.time, ngayDen: finalDate, dichVu: SERVICES[s.service].name, nhanVien: staffDisplay, userId: userId, sdt: sdt, hoTen: s.surname, trangThai: '已預約', pax: s.pax, isOil: s.isOil });
       
       delete userState[userId]; 
       return; 
@@ -951,5 +997,5 @@ async function handleEvent(event) {
 syncData();
 const port = process.env.PORT || 3000;
 app.listen(port, () => {
-    console.log(`Bot V118 (Fix Midnight Bug) running on ${port}`);
+    console.log(`Bot V120 (Ultimate Restoration) running on ${port}`);
 });
