@@ -1,6 +1,6 @@
 // ==============================================================================
 // PHIÊN BẢN V86 - FINAL STABLE
-// (FIX: TIMEZONE, MENU ORDER, FULL FLOW)
+// (FIX: TIMEZONE, LOGIC ẨN DẦU, CHECK AVAILABILITY)
 // ==============================================================================
 
 require('dotenv').config(); 
@@ -42,7 +42,7 @@ let cachedBookings = [];
 let cachedSchedule = []; 
 let userState = {}; 
 
-// BẢNG GIÁ DỊCH VỤ (SERVICES)
+// BẢNG GIÁ DỊCH VỤ
 const SERVICES = {
     // COMBO
     'CB_190': { name: '👑 帝王套餐 (190分)', duration: 190, type: 'BED', category: 'COMBO', price: 2000 },
@@ -70,7 +70,7 @@ const SERVICES = {
 };
 
 // ==============================================================================
-// HELPERS (HÀM HỖ TRỢ XỬ LÝ NGÀY GIỜ)
+// HELPERS (HÀM HỖ TRỢ)
 // ==============================================================================
 
 function normalizePhoneNumber(phone) {
@@ -80,7 +80,7 @@ function normalizePhoneNumber(phone) {
 
 function getNext15Days() { 
     let days = []; 
-    // Lấy giờ hiện tại theo giờ Đài Loan để tạo lịch
+    // Lấy giờ hiện tại theo giờ Đài Loan
     const t = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Taipei' })); 
     for(let i=0; i<15; i++) { 
         let d = new Date(t); 
@@ -176,7 +176,7 @@ function parseStringToDate(dateStr) {
 }
 
 // ==============================================================================
-// 2. DATA SYNC (ĐỒNG BỘ DỮ LIỆU GOOGLE SHEET)
+// 2. DATA SYNC (ĐỒNG BỘ DỮ LIỆU)
 // ==============================================================================
 
 async function syncData() {
@@ -255,7 +255,7 @@ async function syncData() {
                     
                     tempStaffList.push({ id: cleanName, name: cleanName, gender: gender, shiftStart: shiftStart, shiftEnd: shiftEnd });
                     
-                    // Đọc lịch nghỉ từ cột E trở đi
+                    // Đọc lịch nghỉ
                     if (headerDates.length > 4) {
                         for (let j = 4; j < rows[i].length; j++) {
                             const status = rows[i][j];
@@ -359,7 +359,7 @@ async function layLichDatGanNhat(userId) {
 }
 
 // ==============================================================================
-// 3. LOGIC KIỂM TRA TRỐNG (CHECK AVAILABILITY)
+// 3. LOGIC KIỂM TRA TRỐNG (CHECK AVAILABILITY) - ĐÃ FIX TIMEZONE
 // ==============================================================================
 
 function checkAvailability(dateStr, timeStr, serviceDuration, serviceType, specificStaffIds = null, pax = 1, requireFemale = false, requireMale = false) {
@@ -527,71 +527,6 @@ function generateTimeBubbles(selectedDate, serviceCode, specificStaffIds = null,
     return { type: 'carousel', contents: bubbles };
 }
 
-function createStaffBubbles(filterFemale = false, excludedIds = []) {
-    let list = STAFF_LIST;
-    if (filterFemale) list = STAFF_LIST.filter(s => s.gender === 'F' || s.gender === '女');
-    if (excludedIds && excludedIds.length > 0) list = list.filter(s => !excludedIds.includes(s.id));
-
-    if (!list || list.length === 0) {
-        return [{ "type": "bubble", "body": { "type": "box", "layout": "vertical", "contents": [{ "type": "text", "text": filterFemale ? "無女技師" : "無其他技師", "align": "center" }] } }];
-    }
-    const bubbles = [];
-    const chunkSize = 12; 
-    for (let i = 0; i < list.length; i += chunkSize) {
-        const chunk = list.slice(i, i + chunkSize);
-        const rows = [];
-        for (let j = 0; j < chunk.length; j += 3) {
-            const rowItems = chunk.slice(j, j + 3);
-            const rowButtons = rowItems.map(s => ({
-                "type": "button", "style": "secondary", "color": (s.gender === 'F' || s.gender === '女') ? "#F48FB1" : "#90CAF9", "height": "sm", "margin": "xs", "flex": 1,
-                "action": { "type": "message", "label": s.name, "text": `StaffSelect:${s.id}` }
-            }));
-            rows.push({ "type": "box", "layout": "horizontal", "spacing": "xs", "contents": rowButtons });
-        }
-        bubbles.push({ "type": "bubble", "body": { "type": "box", "layout": "vertical", "contents": [ { "type": "text", "text": filterFemale ? "選擇女技師" : "指定技師", "weight": "bold", "align": "center", "color": "#1DB446" }, { "type": "separator", "margin": "md" }, ...rows ] } });
-    }
-    return bubbles;
-}
-
-function createMenuFlexMessage() {
-    const createRow = (serviceName, time, price) => ({
-        "type": "box", "layout": "horizontal", "contents": [
-            { "type": "text", "text": serviceName, "size": "sm", "color": "#555555", "flex": 5 },
-            { "type": "text", "text": `${time}分`, "size": "sm", "color": "#111111", "align": "end", "flex": 2 },
-            { "type": "text", "text": `$${price}`, "size": "sm", "color": "#E63946", "weight": "bold", "align": "end", "flex": 3 }
-        ]
-    });
-
-    return {
-        "type": "bubble",
-        "size": "mega",
-        "body": {
-            "type": "box", "layout": "vertical", "contents": [
-                { "type": "text", "text": "📜 服務價目表 (Menu)", "weight": "bold", "size": "xl", "color": "#1DB446", "align": "center", "margin": "md" },
-                { "type": "separator", "margin": "lg" },
-                { "type": "text", "text": "🔥 熱門套餐 (Combo)", "weight": "bold", "size": "md", "color": "#111111", "margin": "lg" },
-                createRow("👑 帝王套餐 (腳+身)", 190, 2000),
-                createRow("💎 豪華套餐 (腳+身)", 130, 1500),
-                createRow("🔥 招牌套餐 (腳+身)", 100, 999),
-                createRow("⚡ 精選套餐 (腳+身)", 70, 900),
-                { "type": "text", "text": "👣 足底按摩 (Foot)", "weight": "bold", "size": "md", "color": "#111111", "margin": "lg" },
-                createRow("足底按摩", 120, 1500),
-                createRow("足底按摩", 90, 999),
-                createRow("足底按摩", 70, 900),
-                createRow("足底按摩", 40, 500),
-                { "type": "text", "text": "🛏️ 身體指壓 (Body)", "weight": "bold", "size": "md", "color": "#111111", "margin": "lg" },
-                createRow("全身指壓", 120, 1500),
-                createRow("全身指壓", 90, 999),
-                createRow("全身指壓", 70, 900),
-                createRow("半身指壓", 35, 500),
-                { "type": "separator", "margin": "xl" },
-                { "type": "text", "text": "⭐ 油推需加收 $200，請詢問櫃台。", "size": "xs", "color": "#aaaaaa", "margin": "md", "align": "center" }
-            ]
-        },
-        "footer": { "type": "box", "layout": "vertical", "contents": [ { "type": "button", "style": "primary", "action": { "type": "message", "label": "📅 立即預約 (Book Now)", "text": "Action:Booking" } } ] }
-    };
-}
-
 // ==============================================================================
 // 4. SERVER & ROUTES
 // ==============================================================================
@@ -740,7 +675,7 @@ async function handleEvent(event) {
       return client.replyMessage(event.replyToken, { type: 'flex', altText: 'Date', contents: { "type": "bubble", "body": { "type": "box", "layout": "vertical", "contents": [ { "type": "text", "text": "📅 請選擇日期 (Date)", "align": "center", "weight": "bold" }, ...days.map(d=>({ "type": "button", "style": "secondary", "margin": "sm", "action": { "type": "message", "label": d.label, "text": `Date:${d.value}` } })) ] } } }); 
   }
 
-  // --- SỬA LOGIC MENU THEO THỨ TỰ YÊU CẦU ---
+  // --- DATE SELECTED & STAFF PREF ---
   if (text.startsWith('Date:')) {
       if (!userState[userId]) return client.replyMessage(event.replyToken, { type: 'text', text: '⚠️ 連線逾時，請重新點擊「立即預約」。(Session expired)' });
       
@@ -753,37 +688,30 @@ async function handleEvent(event) {
       const serviceCode = currentState.service;
       const serviceType = SERVICES[serviceCode].category; 
 
-      // Danh sách nút bấm theo thứ tự:
-      // 1. Không chỉ định (Random)
-      // 2. Chỉ định nam (Male)
-      // 3. Chỉ định đích danh sư phụ (Specific)
-      // 4. Chỉ định nữ (Không dầu) (Female No Oil)
-      // 5. Chỉ định nữ (Có dầu) (Female Oil) - Chỉ hiển thị nếu không phải gói Chân
+      let buttons = [];
 
-      const buttons = [
-          { "type": "text", "text": "💆 請選擇師傅需求 (Staff)", "weight": "bold", "size": "lg", "align": "center", "color": "#1DB446" },
-          { "type": "separator", "margin": "md" },
-          
-          // 1. Không chỉ định
-          { "type": "button", "style": "secondary", "margin": "sm", "action": { "type": "message", "label": "🎲 不指定 (隨機)", "text": "Pref:RANDOM" } },
-          
-          // 2. Chỉ định nam
-          { "type": "button", "style": "secondary", "margin": "sm", "action": { "type": "message", "label": "👨 指定男師傅", "text": "Pref:MALE" } },
-          
-          // 3. Chỉ định đích danh sư phụ
-          { "type": "button", "style": "primary", "color": "#333333", "margin": "sm", "action": { "type": "message", "label": "👉 指定特定號碼", "text": "Pref:SPECIFIC" } },
-          
-          // 4. Chỉ định nữ (Không dầu)
-          { "type": "button", "style": "secondary", "margin": "sm", "action": { "type": "message", "label": "👩 指定女師傅 (無油)", "text": "Pref:FEMALE" } }
-      ];
-
-      // 5. Chỉ định nữ (Có dầu) - Ẩn nếu là gói Chân
-      if (serviceType !== 'FOOT') {
-          buttons.push(
-              { "type": "button", "style": "primary", "color": "#E91E63", "margin": "sm", "action": { "type": "message", "label": "💧 指定女師傅推油 (+$200)", "text": "Pref:OIL" } }
-          );
+      // [TÍNH NĂNG ẨN DẦU]
+      if (serviceType === 'FOOT') {
+          // Menu cho Chân: Không có Dầu
+          buttons = [
+              { "type": "text", "text": "💆 請選擇師傅需求 (Staff)", "weight": "bold", "size": "lg", "align": "center", "color": "#1DB446" },
+              { "type": "separator", "margin": "md" },
+              { "type": "button", "style": "secondary", "margin": "sm", "action": { "type": "message", "label": "🎲 不指定 (隨機)", "text": "Pref:RANDOM" } },
+              { "type": "button", "style": "secondary", "margin": "sm", "action": { "type": "message", "label": "👨 指定男師傅", "text": "Pref:MALE" } },
+              { "type": "button", "style": "primary", "color": "#333333", "margin": "sm", "action": { "type": "message", "label": "👉 指定特定號碼", "text": "Pref:SPECIFIC" } },
+              { "type": "button", "style": "secondary", "margin": "sm", "action": { "type": "message", "label": "👩 指定女師傅 (無油)", "text": "Pref:FEMALE" } }
+          ];
       } else {
-           buttons.push({ "type": "text", "text": "(足底按摩無油壓選項)", "size": "xs", "color": "#aaaaaa", "align": "center", "margin": "sm" });
+          // Menu cho Body/Combo: Có Dầu (Full Options)
+          buttons = [
+              { "type": "text", "text": "💆 請選擇師傅需求 (Staff)", "weight": "bold", "size": "lg", "align": "center", "color": "#1DB446" },
+              { "type": "separator", "margin": "md" },
+              { "type": "button", "style": "secondary", "margin": "sm", "action": { "type": "message", "label": "🎲 不指定 (隨機)", "text": "Pref:RANDOM" } },
+              { "type": "button", "style": "secondary", "margin": "sm", "action": { "type": "message", "label": "👨 指定男師傅", "text": "Pref:MALE" } },
+              { "type": "button", "style": "primary", "color": "#333333", "margin": "sm", "action": { "type": "message", "label": "👉 指定特定號碼", "text": "Pref:SPECIFIC" } },
+              { "type": "button", "style": "secondary", "margin": "sm", "action": { "type": "message", "label": "👩 指定女師傅 (無油)", "text": "Pref:FEMALE" } },
+              { "type": "button", "style": "primary", "color": "#E91E63", "margin": "sm", "action": { "type": "message", "label": "💧 指定女師傅推油 (+$200)", "text": "Pref:OIL" } }
+          ];
       }
 
       return client.replyMessage(event.replyToken, {
