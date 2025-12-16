@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Massage POS - Manager V120 (Final Logic Fix)</title>
+    <title>XinWuChan Admin V146 (Full Ultimate Edition)</title>
     
     <script src="https://cdn.tailwindcss.com"></script>
     <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.development.js"></script>
@@ -15,22 +15,16 @@
 
     <style>
         body { font-family: 'Microsoft JhengHei', 'Segoe UI', sans-serif; background-color: #f8fafc; user-select: none; overflow: hidden; }
-        
-        /* Modal Animation */
-        .modal-animate { animation: zoomIn 0.2s ease-out forwards; }
-        @keyframes zoomIn { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }
+        .modal-animate { animation: fadeInScale 0.2s ease-out forwards; }
+        @keyframes fadeInScale { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }
 
-        /* --- 3D STAFF CARDS --- */
+        /* STAFF CARDS */
         .card-3d { 
             transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1); 
-            position: relative; top: 0; 
-            width: 80px; height: 100px; 
-            border-radius: 12px; 
-            display: flex; flex-direction: column; 
-            cursor: pointer; user-select: none;
-            background: white; 
-            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-            margin: 0 4px; flex-shrink: 0;
+            position: relative; top: 0; width: 80px; height: 100px; 
+            border-radius: 12px; display: flex; flex-direction: column; 
+            cursor: pointer; user-select: none; background: white; 
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1); margin: 0 4px; flex-shrink: 0;
             border: 1px solid rgba(0,0,0,0.05);
         }
         .card-3d:active { transform: translateY(4px); border-bottom-width: 0px; margin-bottom: 4px; }
@@ -39,22 +33,45 @@
         .style-male { border: 2px solid #3B82F6; border-bottom: 5px solid #2563EB; color: #1E3A8A; }
         .style-female { border: 2px solid #F472B6; border-bottom: 5px solid #DB2777; color: #BE185D; }
         
-        /* STATUS OVERRIDES */
+        /* STATUS COLORS */
         .st-busy { background-color: #fee2e2 !important; border-color: #ef4444 !important; border-bottom-color: #b91c1c !important; color: #b91c1c !important; }
         .st-away { background-color: #f3f4f6 !important; border-color: #d1d5db !important; border-bottom-color: #9ca3af !important; color: #9ca3af !important; opacity: 0.5; }
         .st-booked { background-color: #fef3c7 !important; border-color: #d97706 !important; border-bottom-color: #b45309 !important; color: #92400e !important; }
         .st-eat { background-color: #ffedd5 !important; border-color: #f97316 !important; border-bottom-color: #c2410c !important; color: #c2410c !important; }
         .st-out { background-color: #fef9c3 !important; border-color: #eab308 !important; border-bottom-color: #ca8a04 !important; color: #854d0e !important; }
 
-        /* RESOURCE CARDS */
-        .res-card { position: relative; overflow: hidden; transition: all 0.2s; border-radius: 12px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+        /* RESOURCE CARDS - INCREASED HEIGHT FOR VISIBILITY */
+        .res-card { position: relative; overflow: visible; transition: all 0.2s; border-radius: 12px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
         .res-card:hover { transform: translateY(-2px); box-shadow: 0 8px 16px rgba(0,0,0,0.1); }
         .progress-bar { transition: width 1s linear; }
         
-        /* SCROLLBAR */
         .staff-scroll::-webkit-scrollbar { height: 8px; }
         .staff-scroll::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
         .staff-scroll::-webkit-scrollbar-track { background: transparent; }
+
+        /* TIMELINE STYLES */
+        .timeline-row { height: 50px; border-bottom: 1px solid #e2e8f0; position: relative; display: flex; items-center; }
+        .timeline-row.odd { background-color: #ffffff; }
+        .timeline-row.even { background-color: #f8fafc; }
+        .timeline-divider { height: 4px; background-color: #475569; margin: 0; z-index: 50; }
+        .timeline-label { width: 100px; flex-shrink: 0; font-weight: bold; font-size: 0.85rem; padding-left: 10px; color: #475569; border-right: 2px solid #e2e8f0; height: 100%; display: flex; items-center; background: #f1f5f9; z-index: 20; position: sticky; left: 0; }
+        .timeline-grid { flex: 1; position: relative; height: 100%; overflow: hidden; }
+        
+        .grid-line { position: absolute; top: 0; bottom: 0; border-left: 1px solid #e2e8f0; z-index: 0; pointer-events: none; }
+        .grid-line.hour-mark { border-left: 2px solid #cbd5e1; opacity: 0.6; }
+        
+        /* Timeline Bar Style */
+        .timeline-bar {
+            position: absolute; top: 6px; height: 38px; border-radius: 6px; 
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1); z-index: 10;
+            display: flex; flex-direction: column; justify-content: center; padding: 0 4px;
+            overflow: hidden; white-space: nowrap; border: 1px solid rgba(0,0,0,0.1);
+            transition: all 0.3s ease; font-size: 10px;
+        }
+        .timeline-bar:hover { z-index: 30; transform: scale(1.02); box-shadow: 0 4px 8px rgba(0,0,0,0.2); }
+        .timeline-bar.planned { opacity: 0.65; border: 2px dashed rgba(0,0,0,0.1); } 
+
+        .switch-marker { position: absolute; top: 0; bottom: 0; width: 2px; background-color: rgba(255,255,255,0.7); border-left: 1px dashed #ef4444; z-index: 20; }
     </style>
 </head>
 <body>
@@ -63,13 +80,11 @@
     <audio id="notifySound" src="https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3" preload="auto"></audio>
 
     <script type="text/babel">
-        const { useState, useEffect, useMemo, useCallback } = React;
+        const { useState, useEffect, useMemo } = React;
 
-        // --- CONSTANTS ---
         const SERVICES_LIST = ['👣 足底按摩 (40分)', '👣 足底按摩 (70分)', '🛏️ 全身指壓 (70分)', '🛏️ 全身指壓 (90分)', '👑 帝王套餐 (190分)', '💎 豪華套餐 (130分)', '🔥 招牌套餐 (100分)'];
         const SERVICE_PRICES = { '帝王': 2000, '豪華': 1500, '招牌': 999, '精選': 900, '120分': 1500, '90分': 999, '70分': 900, '40分': 500, '35分': 500 };
 
-        // --- HELPERS ---
         const getTaipeiDate = () => new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Taipei' }));
         const getToday = () => { const d = getTaipeiDate(); return `${d.getFullYear()}/${(d.getMonth()+1).toString().padStart(2,'0')}/${d.getDate().toString().padStart(2,'0')}`; };
         const getCurrentTime = () => { const d = getTaipeiDate(); return `${d.getHours().toString().padStart(2,'0')}:${d.getMinutes().toString().padStart(2,'0')}`; };
@@ -77,9 +92,35 @@
         const getPrice = (n) => { for(let k in SERVICE_PRICES) if(n && n.includes(k)) return SERVICE_PRICES[k]; return 0; };
         const getOilPrice = (isOil) => isOil ? 200 : 0;
         
+        // --- HELPERS ---
+        const stringToColor = (str) => {
+            let hash = 0;
+            for (let i = 0; i < str.length; i++) hash = str.charCodeAt(i) + ((hash << 5) - hash);
+            const c = (hash & 0x00FFFFFF).toString(16).toUpperCase();
+            return '#' + '00000'.substring(0, 6 - c.length) + c;
+        };
+        const normalizePhone = (p) => p ? p.replace(/\D/g, '') : '';
+        const idToColor = (id) => stringToColor(id.toString());
+
+        const normalizeToTimelineMins = (timeStr) => {
+            if (!timeStr) return 0;
+            const [h, m] = timeStr.split(':').map(Number);
+            let totalMins = h * 60 + m;
+            if (h < 8) totalMins += 24 * 60; // Handle 00:00 -> 08:00 as next day
+            return totalMins;
+        };
+
+        const getComboSplit = (duration, isMaxMode, sequence = 'FB') => {
+            if (!duration) return { phase1: 0, phase2: 0, type1: '?', type2: '?' };
+            const footRatio = isMaxMode ? 0.5 : 0.4;
+            const footTime = Math.floor(duration * footRatio);
+            const bodyTime = duration - footTime;
+            if (sequence === 'FB') return { phase1: footTime, phase2: bodyTime, type1: 'FOOT', type2: 'BODY' };
+            else return { phase1: bodyTime, phase2: footTime, type1: 'BODY', type2: 'FOOT' };
+        };
+
         // --- COMPONENTS ---
 
-        // 1. STAFF CARD 3D
         const StaffCard3D = ({ s, statusData, resourceState, queueIndex }) => {
             const isFemale = s.gender === 'F' || s.gender === '女'; 
             const local = statusData[s.id] || { status: 'AWAY' }; 
@@ -87,23 +128,18 @@
             let cardStyle = isFemale ? 'style-female' : 'style-male';
             let label = '---';
 
-            // Check if currently working in a resource
             const isActuallyRunning = Object.values(resourceState).some(r => r.booking.staffId === s.id && r.isRunning && !r.isPaused);
-            
-            // Priority Status Logic
             if (isActuallyRunning) { displayStatus = 'BUSY'; } 
             
-            // Apply Styles based on Status
             if (displayStatus === 'BUSY') cardStyle = 'st-busy';
             else if (displayStatus === 'AWAY' || displayStatus === 'OFF') cardStyle = 'st-away';
             else if (displayStatus === 'EAT') cardStyle = 'st-eat';
             else if (displayStatus === 'OUT_SHORT') cardStyle = 'st-out';
 
-            // Label Logic
             if(displayStatus === 'EAT') label='🍱 用餐'; 
             else if(displayStatus === 'OUT_SHORT') label='⏳ 外出'; 
             else if(displayStatus === 'AWAY' || displayStatus === 'OFF') label = '⛔ 未到'; 
-            else if(displayStatus === 'READY') label = `🟢 待命 #${queueIndex !== undefined ? queueIndex + 1 : '?'}`; 
+            else if(displayStatus === 'READY') label = `🟢 待命`; 
             else if(displayStatus === 'BUSY') label = '🔴 上鐘'; 
 
             return (
@@ -117,20 +153,13 @@
             )
         };
 
-        // 2. CHECK-IN BOARD
         const CheckInBoard = ({ staffList, statusData, onClose, onUpdateStatus }) => {
             const toggleCheckIn = (id) => { 
                 const current = statusData[id] || {}; 
                 const newState = { ...statusData, [id]: { status: current.status === 'READY' || current.status === 'EAT' ? 'AWAY' : 'READY', checkInTime: current.status === 'READY' ? 0 : Date.now() } }; 
                 onUpdateStatus(newState); 
             };
-            
-            // Sort by ID for easier finding
-            const sortedList = [...staffList].sort((a,b) => {
-                const numA = parseInt(a.id.replace(/\D/g,'')) || 999;
-                const numB = parseInt(b.id.replace(/\D/g,'')) || 999;
-                return numA - numB;
-            });
+            const sortedList = [...staffList].sort((a,b) => parseInt(a.id.replace(/\D/g,'')) - parseInt(b.id.replace(/\D/g,'')));
 
             return ( 
                 <div className="fixed inset-0 bg-slate-900/80 z-[60] flex items-center justify-center p-4 backdrop-blur-sm">
@@ -171,49 +200,114 @@
             ); 
         };
 
-        // 3. BILLING MODAL (SMART GROUPING)
+        const ComboStartModal = ({ onConfirm, onCancel, bookingName }) => {
+            return (
+                <div className="fixed inset-0 bg-black/70 z-[100] flex items-center justify-center p-4">
+                    <div className="bg-white w-full max-w-sm rounded-2xl shadow-2xl modal-animate p-6 flex flex-col items-center">
+                        <h3 className="text-xl font-bold text-slate-800 mb-2">開始套餐 (Start Combo)</h3>
+                        <p className="text-slate-500 mb-6 text-center">請選擇優先順序 (Select Sequence)<br/><span className="font-bold text-indigo-600">{bookingName}</span></p>
+                        <div className="grid grid-cols-2 gap-4 w-full mb-4">
+                            <button onClick={() => onConfirm('FB')} className="flex flex-col items-center justify-center p-4 rounded-xl border-2 border-emerald-200 bg-emerald-50 hover:bg-emerald-100 transition-all">
+                                <span className="text-4xl mb-2">👣</span>
+                                <span className="font-bold text-emerald-700">先做腳 (Foot First)</span>
+                                <span className="text-xs text-emerald-600 mt-1">Foot ➜ Body</span>
+                            </button>
+                            <button onClick={() => onConfirm('BF')} className="flex flex-col items-center justify-center p-4 rounded-xl border-2 border-purple-200 bg-purple-50 hover:bg-purple-100 transition-all">
+                                <span className="text-4xl mb-2">🛏️</span>
+                                <span className="font-bold text-purple-700">先做身 (Body First)</span>
+                                <span className="text-xs text-purple-600 mt-1">Body ➜ Foot</span>
+                            </button>
+                        </div>
+                        <button onClick={onCancel} className="text-slate-400 font-bold hover:text-slate-600">取消 (Cancel)</button>
+                    </div>
+                </div>
+            );
+        };
+
+        // --- BILLING MODAL (V146: ABSOLUTE GROUP DETECTION) ---
         const BillingModal = ({ activeBooking, relatedBookings, onConfirm, onCancel }) => {
-            const allCandidates = useMemo(() => [activeBooking, ...relatedBookings], [activeBooking, relatedBookings]);
-            const [selectedIds, setSelectedIds] = useState(allCandidates.map(b => b.rowId));
+            const hasGroup = relatedBookings.length > 0;
+            const [step, setStep] = useState(hasGroup ? 'CHOICE' : 'CONFIRM');
+            
+            // targetItems: Danh sách những Resource đang được chọn để thanh toán
+            const [targetItems, setTargetItems] = useState(hasGroup ? [] : [{ booking: activeBooking, resourceId: relatedBookings.find(r=>r.isCurrent)?.resourceId || 'unknown' }]);
 
-            const total = useMemo(() => {
-                return allCandidates
-                    .filter(b => selectedIds.includes(b.rowId))
-                    .reduce((sum, b) => sum + getPrice(b.serviceName) + getOilPrice(b.isOil || (b.serviceName && (b.serviceName.includes('油') || b.serviceName.includes('Oil')))), 0);
-            }, [selectedIds, allCandidates]);
+            // Gộp Active và Related thành 1 danh sách đầy đủ
+            const allCandidates = useMemo(() => {
+                const list = [...relatedBookings];
+                // Kiểm tra xem activeBooking đã có trong relatedBookings chưa (dựa trên resourceId)
+                // Trong V146 App logic bên dưới, relatedBookings ĐÃ BAO GỒM cả activeItem. 
+                return list; 
+            }, [relatedBookings]);
+            
+            const calculateTotal = (list) => list.reduce((sum, item) => sum + getPrice(item.booking.serviceName) + getOilPrice(item.booking.isOil || (item.booking.serviceName && (item.booking.serviceName.includes('油') || item.booking.serviceName.includes('Oil')))), 0);
 
-            const toggleId = (id) => {
-                if (selectedIds.includes(id)) setSelectedIds(selectedIds.filter(sid => sid !== id));
-                else setSelectedIds([...selectedIds, id]);
+            const handleChoice = (type) => {
+                if (type === 'GROUP') {
+                    setTargetItems(allCandidates);
+                    setStep('CONFIRM');
+                } else {
+                    // Tìm item hiện tại đang thao tác
+                    const current = allCandidates.find(c => c.isCurrent);
+                    setTargetItems([current]);
+                    setStep('CONFIRM');
+                }
             };
 
-            const handlePay = () => {
-                if(selectedIds.length === 0) return alert("請至少選擇一筆 (Please select at least one)");
-                onConfirm(selectedIds, total);
+            const handleFinalPay = () => {
+                const amount = calculateTotal(targetItems);
+                // Gửi danh sách Resource ID để xóa khỏi màn hình
+                onConfirm(
+                    targetItems.map(t => t.booking.rowId), // Dùng để update sheet
+                    targetItems.map(t => t.resourceId),    // Dùng để xóa card trên màn hình
+                    amount
+                );
             };
+
+            if (step === 'CHOICE') {
+                return (
+                    <div className="fixed inset-0 bg-slate-900/90 z-[90] flex items-center justify-center p-4">
+                        <div className="bg-white w-full max-w-md rounded-2xl shadow-2xl modal-animate p-6 flex flex-col items-center text-center">
+                            <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mb-4 text-3xl text-blue-600"><i className="fas fa-users"></i></div>
+                            <h3 className="text-2xl font-black text-slate-800 mb-2">發現同組客人 (Cùng nhóm)</h3>
+                            <p className="text-gray-500 mb-6">手機 (Phone): <span className="font-bold font-mono">{activeBooking.sdt}</span><br/>共 <span className="font-bold text-blue-600">{allCandidates.length}</span> 位在現場</p>
+                            
+                            <div className="grid grid-cols-2 gap-3 w-full mb-4">
+                                <button onClick={() => handleChoice('SINGLE')} className="p-4 rounded-xl border-2 border-gray-200 hover:border-emerald-500 hover:bg-emerald-50 transition-all">
+                                    <div className="text-3xl mb-1">👤</div>
+                                    <div className="font-bold text-slate-700">個別結帳</div>
+                                    <div className="text-xs text-gray-400">Thanh toán Lẻ</div>
+                                </button>
+                                <button onClick={() => handleChoice('GROUP')} className="p-4 rounded-xl border-2 border-blue-200 bg-blue-50 hover:bg-blue-100 hover:border-blue-300 transition-all shadow-md">
+                                    <div className="text-3xl mb-1">👥</div>
+                                    <div className="font-bold text-blue-700">合併結帳</div>
+                                    <div className="text-xs text-blue-600">Thanh toán Gộp</div>
+                                </button>
+                            </div>
+                            <button onClick={onCancel} className="text-gray-400 font-bold hover:text-gray-600">取消 (Cancel)</button>
+                        </div>
+                    </div>
+                )
+            }
 
             return (
                 <div className="fixed inset-0 bg-slate-900/90 z-[90] flex items-center justify-center p-4">
                     <div className="bg-white w-full max-w-md rounded-2xl shadow-2xl modal-animate overflow-hidden flex flex-col max-h-[90vh]">
                         <div className="bg-emerald-600 p-4 text-white text-center shrink-0">
-                            <h3 className="text-xl font-bold flex justify-center items-center gap-2"><i className="fas fa-dollar-sign"></i> 結帳 (Billing)</h3>
+                            <h3 className="text-xl font-bold flex justify-center items-center gap-2"><i className="fas fa-dollar-sign"></i> 確認結帳 (Confirm)</h3>
                         </div>
                         <div className="p-6 flex-1 overflow-y-auto">
-                            <div className="mb-4 text-sm text-gray-500 text-center font-bold">
-                                請勾選要一起結帳的項目 (Select items to pay)
-                            </div>
                             <div className="space-y-2">
-                                {allCandidates.map(b => {
+                                {targetItems.map(t => {
+                                    const b = t.booking;
                                     const price = getPrice(b.serviceName) + getOilPrice(b.isOil || (b.serviceName && b.serviceName.includes('油')));
-                                    const isSelected = selectedIds.includes(b.rowId);
                                     return (
-                                        <div key={b.rowId} onClick={() => toggleId(b.rowId)} 
-                                            className={`flex items-center p-3 rounded-lg border-2 cursor-pointer transition-all ${isSelected ? 'border-emerald-500 bg-emerald-50' : 'border-slate-200 hover:bg-slate-50'}`}>
-                                            <div className={`w-6 h-6 rounded border-2 flex items-center justify-center mr-3 ${isSelected ? 'bg-emerald-500 border-emerald-500' : 'bg-white border-gray-300'}`}>
-                                                {isSelected && <span className="text-white font-bold">✓</span>}
-                                            </div>
+                                        <div key={t.resourceId} className="flex items-center p-3 rounded-lg border border-slate-200 bg-slate-50">
                                             <div className="flex-1">
-                                                <div className="font-bold text-slate-800">{b.customerName} <span className="text-xs text-indigo-600 bg-indigo-50 px-1 rounded">{b.staffId}</span></div>
+                                                <div className="font-bold text-slate-800 flex items-center gap-2">
+                                                    {b.customerName} <span className="text-xs text-indigo-600 bg-indigo-50 px-1 rounded">{b.staffId}</span>
+                                                    {t.isCurrent && <span className="text-[10px] bg-red-100 text-red-600 px-1 rounded">本次</span>}
+                                                </div>
                                                 <div className="text-xs text-gray-500">{b.serviceName}</div>
                                             </div>
                                             <div className="font-mono font-bold text-lg text-slate-700">${price}</div>
@@ -222,17 +316,15 @@
                                 })}
                             </div>
                         </div>
-                        <div className="p-4 border-t bg-slate-50">
+                        <div className="p-4 border-t bg-white">
                             <div className="flex justify-between items-end mb-4">
-                                <span className="text-gray-500 font-bold">總計 (Total):</span>
-                                <span className="text-3xl font-black text-emerald-600">${total}</span>
+                                <span className="text-gray-500 font-bold">總金額 (Total):</span>
+                                <span className="text-4xl font-black text-emerald-600">${calculateTotal(targetItems)}</span>
                             </div>
-                            <div className="grid grid-cols-2 gap-3">
-                                <button onClick={onCancel} className="p-3 rounded-lg font-bold text-gray-500 bg-white border border-gray-300 hover:bg-gray-100">取消 (Cancel)</button>
-                                <button onClick={handlePay} className="p-3 rounded-lg font-bold bg-emerald-600 text-white hover:bg-emerald-700 shadow-lg">
-                                    結帳 {selectedIds.length} 筆 (Pay)
-                                </button>
-                            </div>
+                            <button onClick={handleFinalPay} className="w-full p-4 rounded-xl font-bold bg-emerald-600 text-white hover:bg-emerald-700 shadow-lg text-lg">
+                                ✅ 確認結帳 (Pay)
+                            </button>
+                            <button onClick={onCancel} className="w-full py-3 text-gray-400 font-bold hover:text-gray-600 mt-2">取消 (Cancel)</button>
                         </div>
                     </div>
                 </div>
@@ -245,39 +337,190 @@
             return (
                 <div className="p-4 space-y-4">
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div className="bg-white p-6 rounded-xl shadow-sm border border-emerald-100"><h3 className="text-gray-500 font-bold mb-2">本日營收 (Revenue)</h3><div className="text-4xl font-black text-emerald-600">${totalRevenue.toLocaleString()}</div></div>
-                        <div className="bg-white p-6 rounded-xl shadow-sm border border-blue-100"><h3 className="text-gray-500 font-bold mb-2">已完成單數 (Finished)</h3><div className="text-4xl font-black text-blue-600">{finishedBookings.length}</div></div>
+                        <div className="bg-white p-6 rounded-xl shadow-sm border border-emerald-100"><h3 className="text-gray-500 font-bold mb-2">本日營收</h3><div className="text-4xl font-black text-emerald-600">${totalRevenue.toLocaleString()}</div></div>
+                        <div className="bg-white p-6 rounded-xl shadow-sm border border-blue-100"><h3 className="text-gray-500 font-bold mb-2">已完成單數</h3><div className="text-4xl font-black text-blue-600">{finishedBookings.length}</div></div>
                     </div>
-                    <div className="bg-white rounded-xl shadow border overflow-hidden"><div className="p-3 bg-slate-50 border-b font-bold text-slate-700">交易明細 (Details)</div><table className="w-full text-sm text-left"><thead className="bg-white text-slate-500"><tr><th className="p-3">時間</th><th className="p-3">姓名</th><th className="p-3">服務</th><th className="p-3">師傅</th><th className="p-3 text-right">金額</th></tr></thead><tbody className="divide-y">{finishedBookings.map((b,i) => (<tr key={i}><td className="p-3 font-mono">{b.startTimeString.split(' ')[1]}</td><td className="p-3 font-bold">{b.customerName}</td><td className="p-3">{b.serviceName}</td><td className="p-3">{b.staffId}</td><td className="p-3 text-right font-bold">${getPrice(b.serviceName) + getOilPrice(b.isOil)}</td></tr>))}</tbody></table></div>
+                    <div className="bg-white rounded-xl shadow border overflow-hidden"><div className="p-3 bg-slate-50 border-b font-bold text-slate-700">交易明細</div><table className="w-full text-sm text-left"><thead className="bg-white text-slate-500"><tr><th className="p-3">時間</th><th className="p-3">姓名</th><th className="p-3">服務</th><th className="p-3">師傅</th><th className="p-3 text-right">金額</th></tr></thead><tbody className="divide-y">{finishedBookings.map((b,i) => (<tr key={i}><td className="p-3 font-mono">{b.startTimeString.split(' ')[1]}</td><td className="p-3 font-bold">{b.customerName}</td><td className="p-3">{b.serviceName}</td><td className="p-3">{b.staffId}</td><td className="p-3 text-right font-bold">${getPrice(b.serviceName) + getOilPrice(b.isOil)}</td></tr>))}</tbody></table></div>
                 </div>
             );
         };
 
-        const TimelineView = ({ bookings }) => {
-            const hours = []; for(let i=10; i<=26; i++) hours.push(i);
+        // --- TIMELINE VIEW (V146: MATRIX ALLOCATOR + PAX LOOP) ---
+        const TimelineView = ({ bookings, resourceState }) => {
+            const rows = [
+                ...[1,2,3,4,5,6].map(i => ({ id: `chair-${i}`, label: `💺 足 ${i}`, type: 'FOOT' })),
+                { type: 'DIVIDER' }, 
+                ...[1,2,3,4,5,6].map(i => ({ id: `bed-${i}`, label: `🛏️ 身 ${i}`, type: 'BODY' }))
+            ];
+            const hours = []; for(let i=8; i<=32; i++) hours.push(i);
+
+            const calculateStyle = (startMins, duration) => {
+                const timelineStartMins = 480; 
+                const timelineEndMins = 1920; 
+                const offset = startMins - timelineStartMins;
+                const totalTimelineMins = timelineEndMins - timelineStartMins;
+                const left = (offset / totalTimelineMins) * 100;
+                const width = (duration / totalTimelineMins) * 100;
+                return { left: `${left}%`, width: `${width}%` };
+            };
+
+            const timelineItems = useMemo(() => {
+                const items = [];
+                // Occupied Matrix: Key = RowID, Value = Array of {start, end}
+                const occupied = {}; 
+                [...rows].forEach(r => { if(r.id) occupied[r.id] = []; });
+
+                // Helper to check overlap
+                const isOverlapping = (resId, start, end) => {
+                    if (!occupied[resId]) return true;
+                    return occupied[resId].some(slot => (start < slot.end && end > slot.start));
+                };
+
+                // Helper to mark busy
+                const markBusy = (resId, start, end) => {
+                    if(occupied[resId]) occupied[resId].push({ start, end });
+                }
+
+                // Helper to find free row
+                const findFreeRow = (type, start, duration) => {
+                    const prefix = type === 'FOOT' ? 'chair' : 'bed';
+                    let end = start + duration;
+                    for(let i=1; i<=6; i++) {
+                        const id = `${prefix}-${i}`;
+                        if (!isOverlapping(id, start, end)) return id;
+                    }
+                    return null;
+                };
+
+                // 1. PLACE ACTIVE JOBS FIRST (FIXED)
+                Object.keys(resourceState).forEach(key => {
+                    const res = resourceState[key];
+                    if (res.isRunning && res.booking) {
+                        let startMins;
+                        if(res.startTime) {
+                            const d = new Date(res.startTime);
+                            startMins = d.getHours()*60 + d.getMinutes();
+                        } else {
+                            startMins = normalizeToTimelineMins(res.booking.startTimeString.split(' ')[1]);
+                        }
+                        if(startMins < 480) startMins += 1440;
+                        const endMins = startMins + res.booking.duration;
+                        markBusy(key, startMins, endMins);
+                    }
+                });
+
+                // 2. SORT AND PROCESS ALL BOOKINGS
+                const sorted = [...bookings].sort((a,b) => normalizeToTimelineMins(a.startTimeString.split(' ')[1]) - normalizeToTimelineMins(b.startTimeString.split(' ')[1]));
+
+                sorted.forEach(b => {
+                    if (b.status.includes('取消') || b.status.includes('Cancelled')) return;
+
+                    // PAX LOOP
+                    const totalPax = b.pax || 1;
+                    const activeKeys = Object.keys(resourceState).filter(k => resourceState[k].booking.rowId === b.rowId);
+
+                    for(let i=0; i<totalPax; i++) {
+                        const activeKey = activeKeys[i];
+                        const isCombo = b.category === 'COMBO' || b.serviceName.includes('套餐');
+                        
+                        let start1, dur1;
+                        if (activeKey) {
+                            const res = resourceState[activeKey];
+                            start1 = normalizeToTimelineMins(res.startTime ? new Date(res.startTime).toLocaleTimeString('en-US',{hour12:false}) : b.startTimeString.split(' ')[1]);
+                            if (res.startTime) {
+                                const d = new Date(res.startTime);
+                                start1 = d.getHours()*60 + d.getMinutes();
+                                if(start1 < 480) start1 += 1440;
+                            }
+                        } else {
+                            start1 = normalizeToTimelineMins(b.startTimeString.split(' ')[1]);
+                            if(start1 < 480) start1 += 1440;
+                        }
+
+                        const split = getComboSplit(b.duration, false, 'FB'); 
+                        dur1 = isCombo ? split.phase1 : b.duration;
+                        
+                        // Phase 1 Placement
+                        let row1 = activeKey;
+                        if (!row1) {
+                            const type1 = isCombo ? 'FOOT' : (b.type === 'CHAIR' ? 'FOOT' : 'BODY');
+                            row1 = findFreeRow(type1, start1, dur1);
+                        }
+
+                        if (row1) {
+                            markBusy(row1, start1, start1 + dur1);
+                            items.push({
+                                id: `${b.rowId}_${i}_1`, rowId: row1, 
+                                style: calculateStyle(start1, dur1),
+                                color: idToColor(b.rowId), 
+                                label: b.customerName + (totalPax > 1 ? ` (${i+1})` : ''),
+                                sub: isCombo ? 'Phase 1' : b.serviceName,
+                                isPlanned: !activeKey, isCombo
+                            });
+
+                            if (isCombo) {
+                                const start2 = start1 + dur1;
+                                const dur2 = split.phase2;
+                                let row2 = null;
+                                // Try to find target from active state first
+                                if (activeKey && resourceState[activeKey].comboMeta?.targetId) {
+                                    const tid = resourceState[activeKey].comboMeta.targetId;
+                                    if (!isOverlapping(tid, start2, start2 + dur2)) row2 = tid; 
+                                }
+                                if (!row2) row2 = findFreeRow('BODY', start2, dur2);
+
+                                if (row2) {
+                                    markBusy(row2, start2, start2 + dur2);
+                                    items.push({
+                                        id: `${b.rowId}_${i}_2`, rowId: row2, 
+                                        style: calculateStyle(start2, dur2),
+                                        color: idToColor(b.rowId), 
+                                        label: b.customerName + (totalPax > 1 ? ` (${i+1})` : ''),
+                                        sub: 'Phase 2',
+                                        isPlanned: true, isCombo
+                                    });
+                                }
+                            }
+                        }
+                    }
+                });
+                return items;
+            }, [bookings, resourceState]);
+
             return (
-                <div className="bg-white rounded shadow p-4 overflow-x-auto">
-                    <div className="min-w-[800px]">
-                        <div className="flex border-b pb-2"><div className="w-20 shrink-0 font-bold">時間</div>{hours.map(h => <div key={h} className="flex-1 text-center font-mono font-bold text-gray-500">{h < 24 ? h : h-24}:00</div>)}</div>
-                        <div className="space-y-2 mt-2">
-                            {bookings.filter(b=>!b.status.includes('取消')).map(b => {
-                                const startH = parseInt(b.startTimeString.split(' ')[1].split(':')[0]);
-                                const startM = parseInt(b.startTimeString.split(' ')[1].split(':')[1]);
-                                const totalStartMins = (startH < 8 ? startH+24 : startH)*60 + startM;
-                                const offsetStart = totalStartMins - (10*60);
-                                const width = b.duration;
-                                const left = (offsetStart / (17*60)) * 100;
-                                const wPercent = (width / (17*60)) * 100;
-                                if(left < 0 || left > 100) return null;
-                                return (
-                                    <div key={b.rowId} className="relative h-12 bg-slate-50 rounded border border-slate-100 flex items-center">
-                                        <div className="absolute h-8 rounded-lg bg-indigo-100 border border-indigo-300 text-xs flex items-center px-2 truncate font-bold text-indigo-700" style={{left: `${left}%`, width: `${wPercent}%`}}>
-                                            {b.customerName} ({b.staffId})
-                                        </div>
-                                    </div>
-                                );
-                            })}
+                <div className="bg-white rounded shadow overflow-hidden flex flex-col h-full">
+                    <div className="flex border-b bg-slate-100">
+                        <div className="w-[100px] shrink-0 border-r border-slate-300 p-2 font-bold text-slate-600 text-center">區域</div>
+                        <div className="flex-1 relative h-8">
+                            {hours.map((h, i) => (
+                                <div key={h} className="absolute top-0 bottom-0 text-[10px] font-mono text-slate-500 pl-1 border-l border-slate-300" 
+                                     style={{left: `${(i / (hours.length-1)) * 100}%`}}>
+                                    {h < 24 ? h : h-24}:00
+                                </div>
+                            ))}
                         </div>
+                    </div>
+                    <div className="flex-1 overflow-y-auto relative bg-slate-50">
+                        <div className="absolute inset-0 z-0 pointer-events-none">{hours.map((h, i) => <div key={h} className="grid-line hour-mark" style={{left: `${(i / (hours.length-1)) * 100}%`}}></div>)}</div>
+                        {rows.map((row, index) => {
+                            if (row.type === 'DIVIDER') return <div key="div" className="timeline-divider"></div>;
+                            const rowItems = timelineItems.filter(item => item.rowId === row.id);
+                            return (
+                                <div key={row.id} className={`timeline-row ${index % 2 === 0 ? 'even' : 'odd'}`}>
+                                    <div className="timeline-label justify-center"><span className={row.type==='FOOT'?'text-emerald-600':'text-purple-600'}>{row.label}</span></div>
+                                    <div className="timeline-grid">
+                                        {rowItems.map(item => (
+                                            <div key={item.id} className={`timeline-bar ${item.isPlanned ? 'planned' : ''}`} style={{ ...item.style, backgroundColor: `${item.color}33`, borderColor: item.color, color: '#334155' }}>
+                                                {item.isCombo && item.sub.includes('Phase 1') && <div className="switch-marker" style={{right:0, left:'auto', borderLeft:'none', borderRight:'1px dashed #ef4444'}}></div>}
+                                                {item.isCombo && item.sub.includes('Phase 2') && <div className="switch-marker" style={{left:0}}></div>}
+                                                <div className="font-bold truncate">{item.label}</div>
+                                                <div className="truncate opacity-75">{item.sub}</div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            );
+                        })}
                     </div>
                 </div>
             );
@@ -301,44 +544,71 @@
             );
         };
 
-        const ResourceCard = ({ id, type, index, data, busyStaffIds, onAction, onSelect, onSwitch }) => {
+        const ResourceCard = ({ id, type, index, data, busyStaffIds, onAction, onSelect, onSwitch, onToggleMax, onToggleSequence }) => {
             const [timeLeft, setTimeLeft] = useState(0); const [percent, setPercent] = useState(0);
+            const [phaseLabel, setPhaseLabel] = useState(null);
+            const [phaseTimeLeft, setPhaseTimeLeft] = useState(0);
+            const [switchPercent, setSwitchPercent] = useState(null);
+
             useEffect(() => {
                 if (data && data.isRunning && !data.isPaused && data.startTime) {
                     const timer = setInterval(() => {
                         const start = new Date(data.startTime).getTime(); const now = new Date().getTime();
                         const totalMs = data.booking.duration * 60000; const elapsed = now - start;
-                        setTimeLeft(Math.floor((totalMs - elapsed) / 60000)); setPercent(Math.min(100, Math.max(0, (elapsed / totalMs) * 100)));
+                        const totalLeft = Math.floor((totalMs - elapsed) / 60000);
+                        setTimeLeft(totalLeft); setPercent(Math.min(100, Math.max(0, (elapsed / totalMs) * 100)));
+
+                        const isCombo = data.booking.category === 'COMBO' || (data.booking.serviceName && data.booking.serviceName.includes('套餐'));
+                        if (isCombo) {
+                            const sequence = (data.comboMeta && data.comboMeta.sequence) || 'FB';
+                            const split = getComboSplit(data.booking.duration, data.isMaxMode, sequence);
+                            const phase1Ms = split.phase1 * 60000;
+                            const currentSwitchPct = (split.phase1 / data.booking.duration) * 100;
+                            setSwitchPercent(currentSwitchPct);
+                            if (elapsed < phase1Ms) { setPhaseTimeLeft(Math.floor((phase1Ms - elapsed) / 60000)); setPhaseLabel(split.type1 === 'FOOT' ? '👣 足部 (Phase 1)' : '🛏️ 身體 (Phase 1)'); } 
+                            else { setPhaseTimeLeft(totalLeft); setPhaseLabel(split.type2 === 'FOOT' ? '👣 足部 (Phase 2)' : '🛏️ 身體 (Phase 2)'); }
+                        } else { setPhaseLabel(null); setSwitchPercent(null); }
                     }, 1000); return () => clearInterval(timer);
-                } else { setPercent(0); setTimeLeft(0); }
+                } else { setPercent(0); setTimeLeft(0); setPhaseLabel(null); }
             }, [data]);
+            
             const isOccupied = !!data;
             let statusColor = isOccupied ? (data.isRunning ? (data.isPaused ? 'bg-gray-100' : 'bg-white border-green-500 shadow-md') : 'bg-yellow-50 border-yellow-300') : 'bg-slate-50 border-slate-200 border-dashed';
             const showStaffName = isOccupied ? (data.booking.staffId === '隨機' ? '隨機' : data.booking.staffId) : '';
             const isOilJob = isOccupied && (data.booking.isOil || (data.booking.serviceName && (data.booking.serviceName.includes('油') || data.booking.serviceName.includes('Oil'))));
+            const isCombo = isOccupied && (data.booking.category === 'COMBO' || data.booking.serviceName.includes('套餐'));
+
+            let splitText = '';
+            if (isCombo) {
+                const sequence = (data.comboMeta && data.comboMeta.sequence) || 'FB';
+                const split = getComboSplit(data.booking.duration, data.isMaxMode, sequence);
+                splitText = sequence === 'FB' ? `(足:${split.phase1} ➜ 身:${split.phase2})` : `(身:${split.phase1} ➜ 足:${split.phase2})`;
+            }
+
             return (
-                <div className={`res-card h-48 flex flex-col border-2 ${statusColor}`}>
+                <div className={`res-card h-72 flex flex-col border-2 ${statusColor} relative`}>
                     <div className="flex justify-between items-center p-2 border-b border-black/5 bg-black/5"><span className="font-black text-xs text-gray-500 uppercase">{type} {index}</span>{isOccupied && data.isRunning && (<div className={`text-xs font-mono font-bold ${timeLeft < 0 ? 'text-red-600 animate-pulse' : 'text-green-700'}`}>{timeLeft}m</div>)}</div>
-                    <div className="flex-1 p-2 relative flex flex-col justify-center">
+                    <div className="flex-1 p-2 relative flex flex-col justify-center text-center pb-12">
                         {isOccupied ? (
                             <>
-                                {data.isRunning && (<div className="absolute bottom-0 left-0 h-1 bg-green-500 progress-bar z-0" style={{width: `${percent}%`}}></div>)}
-                                <div className="z-10 relative text-center">
-                                    <div className="font-bold text-slate-800 text-xl truncate">{data.booking.customerName.split('(')[0]}</div>
-                                    <div className="text-xs text-gray-500 font-bold mb-2 truncate">{data.booking.serviceName}</div>
-                                    {isOilJob && <div className="text-[10px] text-purple-600 font-bold mb-1 border border-purple-200 bg-purple-50 rounded px-1 inline-block">💧 精油 (Oil)</div>}
-                                    <div className={`inline-block px-3 py-1 rounded font-black text-sm mt-1 ${data.booking.staffId==='隨機'?'bg-gray-200 text-gray-500':'bg-indigo-100 text-indigo-700'}`}>{showStaffName}</div>
+                                {data.isRunning && (<><div className="absolute bottom-0 left-0 h-1 bg-green-500 progress-bar z-0" style={{width: `${percent}%`}}></div>{isCombo && switchPercent && (<div className="absolute bottom-0 h-full w-[2px] bg-red-400 z-0 opacity-30 border-r border-white" style={{left: `${switchPercent}%`}}></div>)}</>)}
+                                <div className="z-10 relative flex flex-col gap-2">
+                                    <div className="absolute -top-12 right-0 z-40 bg-white border-2 border-slate-200 rounded-lg shadow-sm px-3 py-1"><span className="text-xl font-black text-slate-800">{showStaffName}</span></div>
+                                    {isCombo && (<div className="absolute -top-12 left-0 flex gap-1"><button onClick={(e) => { e.stopPropagation(); onToggleSequence(id); }} className="text-xs font-bold px-2 py-1 rounded shadow z-50 bg-blue-100 text-blue-700 hover:bg-blue-200"><i className="fas fa-sync-alt"></i></button><button onClick={(e) => { e.stopPropagation(); onToggleMax(id); }} className={`text-xs font-bold px-2 py-1 rounded shadow z-50 transition-colors ${data.isMaxMode ? 'bg-yellow-400 text-black' : 'bg-gray-200 text-gray-500'}`}><i className="fas fa-bolt"></i> Max</button></div>)}
+                                    <div className="font-bold text-slate-800 text-2xl truncate mt-4">{data.booking.customerName.split('(')[0]}</div>
+                                    <div className="text-sm text-gray-500 font-bold truncate">{data.booking.serviceName}</div>
+                                    {isCombo && <div className="text-xs text-slate-400 font-mono">{splitText}</div>}
+                                    {isCombo && data.isRunning && phaseLabel && (<div className={`text-sm font-black p-2 rounded border bg-white/80 ${phaseLabel.includes('足') ? 'text-emerald-700 border-emerald-200' : 'text-purple-700 border-purple-200'}`}>{phaseLabel} <div className="text-xl font-mono mt-1">{phaseTimeLeft}分</div></div>)}
+                                    {isCombo && data.isRunning && data.comboMeta && data.comboMeta.targetId && (<div className="text-[10px] text-gray-400">➜ 轉: {data.comboMeta.targetId.toUpperCase()}</div>)}
+                                    {isOilJob && <div className="text-xs text-purple-600 font-bold border border-purple-200 bg-purple-50 rounded px-2 py-1 inline-block">💧 精油 (Oil)</div>}
+                                    <div className={`inline-block px-3 py-1 rounded font-black text-lg ${data.booking.staffId==='隨機'?'bg-gray-200 text-gray-500':'bg-indigo-100 text-indigo-700'}`}>{showStaffName}</div>
                                 </div>
                             </>
-                        ) : (<button onClick={onSelect} className="w-full h-full flex flex-col items-center justify-center text-gray-300 hover:text-green-600 transition-colors group"><i className="fas fa-plus text-4xl"></i><span className="text-xs font-bold mt-2">排入 (Assign)</span></button>)}
+                        ) : (<button onClick={onSelect} className="w-full h-full flex flex-col items-center justify-center text-gray-300 hover:text-green-600 transition-colors group"><i className="fas fa-plus text-5xl"></i><span className="text-sm font-bold mt-2">排入 (Assign)</span></button>)}
                     </div>
                     {isOccupied && (
-                        <div className="p-2 grid grid-cols-2 gap-2 border-t border-black/5 bg-white z-20">
-                            {!data.isRunning ? (
-                                <><button onClick={()=>onAction(id, 'start')} className="py-1 rounded text-xs font-bold text-white bg-green-600 hover:bg-green-700">開始 (Start)</button><button onClick={()=>onAction(id, 'cancel')} className="py-1 rounded text-xs font-bold text-red-600 bg-red-50 border border-red-200">取消 (Cancel)</button></>
-                            ) : (
-                                <><button onClick={()=>onAction(id, 'finish')} className="py-1 rounded text-xs font-bold text-white bg-blue-600 hover:bg-blue-700">結帳 (Bill)</button><button onClick={()=>onSwitch(id, type==='FOOT'?'bed':'chair')} className="py-1 rounded text-xs font-bold text-white bg-orange-500 hover:bg-orange-600 flex items-center justify-center"><i className="fas fa-exchange-alt"></i></button></>
-                            )}
+                        <div className="absolute bottom-0 left-0 w-full p-3 grid grid-cols-2 gap-3 border-t border-black/5 bg-white z-50">
+                            {!data.isRunning ? (<><button onClick={()=>onAction(id, 'start')} className="py-2 rounded font-bold text-white bg-green-600 hover:bg-green-700 text-sm shadow-md">開始 (Start)</button><button onClick={()=>onAction(id, 'cancel')} className="py-2 rounded font-bold text-red-600 bg-red-50 border border-red-200 text-sm shadow-sm">取消 (Cancel)</button></>) : (<><button onClick={()=>onAction(id, 'finish')} className="py-2 rounded font-bold text-white bg-blue-600 hover:bg-blue-700 text-sm shadow-md">結帳 (Bill)</button><button onClick={()=>onSwitch(id, type==='FOOT'?'bed':'chair')} className="py-2 rounded font-bold text-white bg-orange-500 hover:bg-orange-600 flex items-center justify-center text-sm shadow-md"><i className="fas fa-exchange-alt"></i></button></>)}
                         </div>
                     )}
                 </div>
@@ -355,30 +625,20 @@
             const [showCheckIn, setShowCheckIn] = useState(false);
             const [selectedSlot, setSelectedSlot] = useState(null);
             const [billingData, setBillingData] = useState(null);
+            const [comboStartData, setComboStartData] = useState(null);
 
             const busyStaffIds = useMemo(() => Object.values(resourceState).filter(r => r.isRunning && !r.isPaused && r.booking.staffId !== '隨機').map(r => r.booking.staffId), [resourceState]);
 
-            const updateResource = async (newState) => {
-                setResourceState(newState); 
-                await axios.post('/api/sync-resource', newState); 
-            };
-
-            const updateStaffStatus = async (newStatus) => {
-                setStatusData(newStatus);
-                await axios.post('/api/sync-staff-status', newStatus);
-            }
+            const updateResource = async (newState) => { setResourceState(newState); await axios.post('/api/sync-resource', newState); };
+            const updateStaffStatus = async (newStatus) => { setStatusData(newStatus); await axios.post('/api/sync-staff-status', newStatus); }
 
             const fetchData = async () => {
                 try {
                     const res = await axios.get('/api/info');
                     const { bookings: apiBookings, staffList: apiStaff, resourceState: serverRes, staffStatus: serverStaff } = res.data;
-                    setBookings(apiBookings);
-                    setStaffList(apiStaff);
-                    const currentRes = serverRes || {};
-                    const currentStaffStat = serverStaff || {};
-                    setStatusData(currentStaffStat);
+                    setBookings(apiBookings); setStaffList(apiStaff);
+                    const currentRes = serverRes || {}; setStatusData(serverStaff || {});
 
-                    // --- [AUTO ASSIGN LOGIC: <35 Mins] ---
                     let changed = false;
                     let newResState = { ...currentRes }; 
                     const now = getTaipeiDate();
@@ -396,126 +656,148 @@
                     apiBookings.forEach(b => {
                         const bDate = b.startTimeString.split(' ')[0];
                         const bTime = parseTime(b.startTimeString.split(' ')[1]);
-                        const isAssigned = Object.values(newResState).some(r => r.booking.rowId === b.rowId);
-
-                        if (bDate === today && !b.status.includes('取消') && !b.status.includes('完成') && !isAssigned) {
+                        let currentCount = Object.values(newResState).filter(r => r.booking.rowId === b.rowId).length;
+                        const needed = b.pax || 1;
+                        if (bDate === today && !b.status.includes('取消') && !b.status.includes('完成') && currentCount < needed) {
                             const diffMins = bTime - nowMins;
-                            
-                            // 35 Minutes Check
-                            if (diffMins <= 35 && diffMins >= -30) {
-                                let targetType = null;
-                                if (b.category === 'COMBO') targetType = 'any'; 
-                                else if (b.type === 'BED') targetType = 'bed';
-                                else targetType = 'chair';
-
-                                const currentlyAssignedCount = Object.values(newResState).filter(r => r.booking.rowId === b.rowId).length;
-                                const needed = b.pax || 1;
-                                
-                                if (currentlyAssignedCount < needed) {
-                                    const neededNow = needed - currentlyAssignedCount;
-                                    for (let p = 0; p < neededNow; p++) {
-                                        let slotId = null;
-                                        const freeChairs = getFreeSlots('chair', newResState);
-                                        const freeBeds = getFreeSlots('bed', newResState);
-                                        if (targetType === 'any') { if (freeChairs.length > 0) slotId = freeChairs[0]; else if (freeBeds.length > 0) slotId = freeBeds[0]; } 
-                                        else if (targetType === 'bed' && freeBeds.length > 0) { slotId = freeBeds[0]; } 
-                                        else if (targetType === 'chair' && freeChairs.length > 0) { slotId = freeChairs[0]; }
-
-                                        if (slotId) {
-                                            const finalStaff = b.staffId === '隨機' ? '隨機' : b.staffId;
-                                            const paxIndex = currentlyAssignedCount + p + 1;
-                                            const displayName = needed > 1 ? `${b.customerName} (${paxIndex})` : b.customerName;
-                                            newResState[slotId] = { booking: { ...b, staffId: finalStaff, customerName: displayName }, startTime: null, isRunning: false };
-                                            changed = true;
-                                        }
+                            if (diffMins <= 240 && diffMins >= -30) {
+                                while (currentCount < needed) {
+                                    let allocatedId = null;
+                                    let comboMeta = null;
+                                    const findId = (type) => {
+                                        const prefix = type === 'FOOT' ? 'chair' : 'bed';
+                                        for(let i=1; i<=6; i++) { if(!newResState[`${prefix}-${i}`]) return `${prefix}-${i}`; }
+                                        return null;
+                                    };
+                                    if (b.category === 'COMBO') {
+                                        const chair = findId('FOOT');
+                                        const bed = findId('BODY');
+                                        if (chair) { allocatedId = chair; comboMeta = { sequence: 'FB', targetId: bed }; }
+                                        else if (bed) { allocatedId = bed; comboMeta = { sequence: 'BF', targetId: chair }; }
+                                    } else {
+                                        const type = b.type === 'CHAIR' ? 'FOOT' : 'BODY';
+                                        allocatedId = findId(type);
                                     }
+                                    if (allocatedId) {
+                                        const finalStaff = b.staffId === '隨機' ? '隨機' : b.staffId;
+                                        const idxLabel = needed > 1 ? ` (${currentCount + 1})` : '';
+                                        const displayName = b.customerName + idxLabel;
+                                        newResState[allocatedId] = { booking: { ...b, customerName: displayName, staffId: finalStaff }, startTime: null, isRunning: false, comboMeta: comboMeta };
+                                        changed = true;
+                                        currentCount++;
+                                    } else { break; }
                                 }
                             }
                         }
                     });
-
-                    if(changed) { setResourceState(newResState); await axios.post('/api/sync-resource', newResState); } 
-                    else { setResourceState(currentRes); }
-
+                    if(changed) { setResourceState(newResState); await axios.post('/api/sync-resource', newResState); } else { setResourceState(currentRes); }
                 } catch(e) { console.error(e); }
             };
-
             useEffect(() => { fetchData(); const t = setInterval(fetchData, 2000); return () => clearInterval(t); }, []);
 
             const handleResourceAction = async (id, action) => {
                 const current = resourceState[id]; if (!current) return;
-                
                 if (action === 'start') {
-                    let finalStaffId = current.booking.staffId;
-                    const reqStaff = finalStaffId;
-
-                    if (['隨機', '男', '女', 'Oil'].some(k => reqStaff.includes(k))) {
-                        const readyStaff = staffList.filter(s => {
-                            const stat = statusData[s.id];
-                            return stat && stat.status === 'READY' && !busyStaffIds.includes(s.id);
-                        });
-
-                        let candidates = readyStaff;
-                        if (reqStaff.includes('男') || reqStaff.includes('Male')) {
-                            candidates = candidates.filter(s => s.gender === 'M' || s.gender === '男');
-                        } else if (reqStaff.includes('女') || reqStaff.includes('Female') || current.booking.isOil) {
-                            candidates = candidates.filter(s => s.gender === 'F' || s.gender === '女');
-                        }
-
-                        candidates.sort((a,b) => (statusData[a.id]?.checkInTime||0) - (statusData[b.id]?.checkInTime||0));
-
-                        if (candidates.length === 0) {
-                            alert("⚠️ No suitable staff available!");
-                            return; 
-                        }
-                        finalStaffId = candidates[0].id;
-                    }
-
-                    const newStatusData = { ...statusData, [finalStaffId]: { ...statusData[finalStaffId], status: 'BUSY' } };
-                    updateStaffStatus(newStatusData); 
-                    const newBooking = { ...current.booking, staffId: finalStaffId };
-                    updateResource({ ...resourceState, [id]: { ...current, booking: newBooking, startTime: new Date().toISOString(), isRunning: true } });
-                    axios.post('/api/update-booking-details', { rowId: current.booking.rowId, staffId: finalStaffId });
+                    const isCombo = current.booking.category === 'COMBO' || (current.booking.serviceName && current.booking.serviceName.includes('套餐'));
+                    if (isCombo && !current.isRunning) { setComboStartData({ id, booking: current.booking }); return; }
+                    executeStart(id, null); 
                 }
-                
                 else if (action === 'pause') { updateResource({ ...resourceState, [id]: { ...current, isPaused: !current.isPaused } }); }
                 else if (action === 'cancel') { if (confirm('確認將顧客從床位移除?')) { const n = { ...resourceState }; delete n[id]; updateResource(n); } }
                 else if (action === 'finish') {
-                    const related = Object.values(resourceState).filter(r => r.isRunning && r.booking.rowId !== current.booking.rowId).map(r => r.booking).filter(b => {
-                        if (current.booking.lineId && current.booking.lineId !== 'ADMIN_WEB' && current.booking.lineId === b.lineId) return true;
-                        // SMART GROUPING BY PHONE OR LINE ID
-                        if (current.booking.lineId === 'ADMIN_WEB' && b.lineId === 'ADMIN_WEB') {
-                             const p1 = (current.booking.sdt||'').replace(/\D/g,'');
-                             const p2 = (b.sdt||'').replace(/\D/g,'');
-                             if(p1 && p2 && p1.length > 5 && p1 === p2) return true;
+                    // [V146 FIX: Group Detection]
+                    const normalize = (p) => p ? p.replace(/\D/g, '') : '';
+                    const currentPhone = normalize(current.booking.sdt);
+                    const currentLineID = current.booking.lineId;
+                    
+                    // Create LIST including current one
+                    const related = [];
+                    Object.keys(resourceState).forEach(key => {
+                        const r = resourceState[key];
+                        if (r.isRunning) {
+                            const b = r.booking;
+                            const bPhone = normalize(b.sdt);
+                            let isMatch = false;
+                            
+                            // Check same booking (Pax > 1)
+                            if (b.rowId === current.booking.rowId) isMatch = true;
+                            // Check same phone
+                            else if (currentPhone && currentPhone.length > 4 && bPhone === currentPhone) isMatch = true;
+                            // Check same LineID
+                            else if (currentLineID && currentLineID !== 'ADMIN_WEB' && b.lineId === currentLineID) isMatch = true;
+
+                            if (isMatch) {
+                                // Add to list with resourceID to allow specific deletion
+                                related.push({ booking: b, resourceId: key, isCurrent: key === id });
+                            }
                         }
-                        return false;
                     });
-                    setBillingData({ activeBooking: current.booking, relatedBookings: related, currentResId: id });
+
+                    // Remove current from "related" PROP, pass allCandidates to Modal state logic
+                    // But to keep it simple, we pass `related` (which contains ALL) to `relatedBookings` 
+                    // and let Modal handle it. But standard prop implies *others*.
+                    // Let's filter others for the prop, but Modal logic v146 will reconstruct using logic.
+                    // Wait, V146 BillingModal logic above uses `relatedBookings` to build `allCandidates`.
+                    // So we should pass JUST OTHERS in `relatedBookings`.
+                    
+                    const others = related.filter(r => r.resourceId !== id);
+                    setBillingData({ activeBooking: current.booking, relatedBookings: others, currentResId: id });
                 }
             };
 
-            const handleSwitch = (fromId, toType) => { 
-                const currentData = resourceState[fromId]; if(!currentData) return; 
-                for(let i=1; i<=6; i++) { 
-                    const targetId = `${toType}-${i}`; 
-                    if (!resourceState[targetId]) { const newState = { ...resourceState }; delete newState[fromId]; newState[targetId] = currentData; updateResource(newState); return; } 
-                } 
-                alert(`該區域 (${toType === 'chair' ? '足底區' : '身體區'}) 已無空位!`); 
+            const executeStart = (id, comboSequence) => {
+                const current = resourceState[id];
+                let finalStaffId = current.booking.staffId;
+                const reqStaff = finalStaffId;
+                let currentId = id; let shouldMove = false; let targetMoveId = null;
+                if (comboSequence) {
+                    const currentType = id.split('-')[0];
+                    if (comboSequence === 'BF' && currentType === 'chair') { shouldMove = true; for(let i=1; i<=6; i++) { if(!resourceState[`bed-${i}`]) { targetMoveId = `bed-${i}`; break; } } }
+                    else if (comboSequence === 'FB' && currentType === 'bed') { shouldMove = true; for(let i=1; i<=6; i++) { if(!resourceState[`chair-${i}`]) { targetMoveId = `chair-${i}`; break; } } }
+                }
+                if (shouldMove) { if (!targetMoveId) { alert("⚠️ 無法切換區域: 目標區域已滿!"); return; } currentId = targetMoveId; }
+
+                if (['隨機', '男', '女', 'Oil'].some(k => reqStaff.includes(k))) {
+                    const readyStaff = staffList.filter(s => { const stat = statusData[s.id]; return stat && stat.status === 'READY' && !busyStaffIds.includes(s.id); });
+                    let candidates = readyStaff;
+                    if (reqStaff.includes('男') || reqStaff.includes('Male')) candidates = candidates.filter(s => s.gender === 'M' || s.gender === '男');
+                    else if (reqStaff.includes('女') || reqStaff.includes('Female') || current.booking.isOil) candidates = candidates.filter(s => s.gender === 'F' || s.gender === '女');
+                    candidates.sort((a,b) => (statusData[a.id]?.checkInTime||0) - (statusData[b.id]?.checkInTime||0));
+                    if (candidates.length === 0) { alert("⚠️ No suitable staff available!"); return; }
+                    finalStaffId = candidates[0].id;
+                }
+                const newStatusData = { ...statusData, [finalStaffId]: { ...statusData[finalStaffId], status: 'BUSY' } };
+                updateStaffStatus(newStatusData); 
+                const newBooking = { ...current.booking, staffId: finalStaffId };
+                let comboMeta = current.comboMeta || null;
+                if (comboSequence) {
+                    const currentType = currentId.split('-')[0]; const index = currentId.split('-')[1]; let ghostTargetId = null; const targetTypePrefix = currentType === 'chair' ? 'bed' : 'chair';
+                    if (!resourceState[`${targetTypePrefix}-${index}`] && `${targetTypePrefix}-${index}` !== id) { ghostTargetId = `${targetTypePrefix}-${index}`; } else { for(let i=1; i<=6; i++) { const tid = `${targetTypePrefix}-${i}`; if(!resourceState[tid] && tid !== id) { ghostTargetId = tid; break; } } }
+                    comboMeta = { sequence: comboSequence, targetId: ghostTargetId };
+                }
+                const newState = { ...resourceState };
+                if (shouldMove) delete newState[id];
+                newState[currentId] = { ...current, booking: newBooking, startTime: new Date().toISOString(), isRunning: true, comboMeta };
+                updateResource(newState);
+                axios.post('/api/update-booking-details', { rowId: current.booking.rowId, staffId: finalStaffId });
             };
 
-            const handleConfirmPayment = async (rowIdsToPay, totalAmount) => {
+            const confirmComboStart = (sequence) => { if (comboStartData) { executeStart(comboStartData.id, sequence); setComboStartData(null); } };
+            const handleSwitch = (fromId, toType) => { const currentData = resourceState[fromId]; if(!currentData) return; for(let i=1; i<=6; i++) { const targetId = `${toType}-${i}`; if (!resourceState[targetId]) { const newState = { ...resourceState }; delete newState[fromId]; newState[targetId] = currentData; updateResource(newState); return; } } alert(`該區域 (${toType === 'chair' ? '足底區' : '身體區'}) 已無空位!`); };
+            const handleToggleMax = async (resId) => { const res = resourceState[resId]; if (!res) return; const newRes = { ...res, isMaxMode: !res.isMaxMode }; updateResource({ ...resourceState, [resId]: newRes }); };
+            const handleToggleSequence = async (resId) => { const res = resourceState[resId]; if (!res || !res.comboMeta) return; const newSeq = res.comboMeta.sequence === 'FB' ? 'BF' : 'FB'; const newRes = { ...res, comboMeta: { ...res.comboMeta, sequence: newSeq } }; updateResource({ ...resourceState, [resId]: newRes }); }
+
+            // [FIX] Payment Handler - deletes specific Resource IDs
+            const handleConfirmPayment = async (rowIdsToPay, resourceIdsToDelete, totalAmount) => {
                 try {
-                    for (const rid of rowIdsToPay) { await axios.post('/api/update-status', { rowId: rid, status: '✅ 完成' }); }
+                    const uniqueRowIds = [...new Set(rowIdsToPay)];
+                    for (const rid of uniqueRowIds) { await axios.post('/api/update-status', { rowId: rid, status: '✅ 完成' }); }
                     const newState = { ...resourceState };
                     const newStatusData = { ...statusData }; 
-                    Object.keys(newState).forEach(key => {
-                        if (rowIdsToPay.includes(newState[key].booking.rowId)) {
+                    resourceIdsToDelete.forEach(key => {
+                        if (newState[key]) {
                              const staffId = newState[key].booking.staffId;
-                             // Reset staff to READY but push to end of queue (Reset Time)
-                             if(staffId !== '隨機' && newStatusData[staffId]) {
-                                 newStatusData[staffId] = { status: 'READY', checkInTime: Date.now() }; 
-                             }
+                             if(staffId !== '隨機' && newStatusData[staffId]) { newStatusData[staffId] = { status: 'READY', checkInTime: Date.now() }; }
                              delete newState[key];
                         }
                     });
@@ -531,146 +813,37 @@
             const handleAssignBooking = (booking) => { if (!selectedSlot) return; updateResource({ ...resourceState, [selectedSlot]: { booking, startTime: null, isRunning: false } }); setSelectedSlot(null); };
             const handleManualUpdateStatus = async (rowId, status) => { if(confirm('確認更新狀態?')) { await axios.post('/api/update-status', { rowId, status }); fetchData(); } };
 
-            // --- [FINAL SORTING LOGIC V120] ---
-            
-            const getStatus = (id) => statusData[id]?.status || 'AWAY';
-            
-            // Helper Weight: Text > Number
-            const getWeight = (id) => {
-                const num = parseInt(id.replace(/\D/g, ''));
-                if (isNaN(num)) return 9000 + id.charCodeAt(0); 
-                return num;
-            };
-            
-            // Sort Tăng Dần (1 -> 9 -> Text)
-            const sortIdAsc = (a, b) => getWeight(a.id) - getWeight(b.id);
-
-            // 1. NHÓM TRÁI (Away/Off/Missing)
-            const awayStaff = staffList.filter(s => {
-                const st = getStatus(s.id);
-                return st === 'AWAY' || st === 'OFF' || !st; // Ensure missing status falls here
-            }).sort(sortIdAsc);
-
-            // 2. NHÓM GIỮA (Busy ONLY)
-            // Sort by StartTime ASCENDING (Oldest first)
-            // Flex-Reverse => Oldest will be on RIGHT.
-            const busyStaff = staffList.filter(s => getStatus(s.id) === 'BUSY').sort((a,b) => {
-                const resA = Object.values(resourceState).find(r => r.booking.staffId === a.id);
-                const resB = Object.values(resourceState).find(r => r.booking.staffId === b.id);
-                const timeA = resA?.startTime ? new Date(resA.startTime).getTime() : 0;
-                const timeB = resB?.startTime ? new Date(resB.startTime).getTime() : 0;
-                
-                if (timeA && timeB && timeA !== timeB) return timeA - timeB; 
-                return sortIdAsc(a, b);
-            });
-
-            // 3. NHÓM PHẢI (Ready/Eat/Out)
-            // Sort by CheckIn Time ASCENDING (Oldest checkin first)
-            // Flex-Reverse => Oldest will be on RIGHT.
-            const readyStaff = staffList.filter(s => {
-                const st = getStatus(s.id);
-                // Strict check: NOT Busy AND NOT Away/Off
-                return st !== 'BUSY' && st !== 'AWAY' && st !== 'OFF';
-            }).sort((a,b) => {
-                const timeA = statusData[a.id]?.checkInTime || 0;
-                const timeB = statusData[b.id]?.checkInTime || 0;
-                
-                if (timeA !== timeB) return timeA - timeB; 
-                return sortIdAsc(a, b);
-            });
-
-            const readyQueue = readyStaff.filter(s => getStatus(s.id) === 'READY').map(s => s.id);
-            const todaysBookings = useMemo(() => bookings.filter(b => b.startTimeString.split(' ')[0] === getToday()), [bookings]);
-
             return (
                 <div className="min-h-screen flex flex-col bg-slate-50">
                     <header className="bg-[#1e1b4b] text-white p-3 shadow-md flex justify-between items-center sticky top-0 z-50">
-                        <div className="flex items-center gap-3"><span className="bg-amber-500 text-black px-2 py-1 rounded font-black text-sm">V120 (Final Sort)</span><span className="font-bold">XinWuChan ({getToday()})</span></div>
+                        <div className="flex items-center gap-3"><span className="bg-amber-500 text-black px-2 py-1 rounded font-black text-sm">V146 (Full Ultimate)</span><span className="font-bold">XinWuChan ({getToday()})</span></div>
                         <div className="flex gap-2">
                             <button onClick={()=>setShowWalkIn(true)} className="bg-amber-500 hover:bg-amber-400 text-black px-4 py-1.5 rounded font-bold text-sm flex gap-1 items-center"><i className="fas fa-bolt"></i> 快速接單</button>
                             <button onClick={()=>setShowCheckIn(true)} className="bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-1.5 rounded font-bold text-sm flex gap-1 items-center"><i className="fas fa-user-clock"></i> 技師打卡</button>
                         </div>
                     </header>
-                    
-                    <div className="bg-white border-b shadow-sm p-3 overflow-x-auto whitespace-nowrap staff-scroll">
-                        <div className="flex w-full justify-between items-center min-w-max">
-                            
-                            {/* 1. LEFT: AWAY */}
-                            <div className="flex gap-2 opacity-30 scale-90 border-r-2 pr-4 mr-2 border-dashed border-slate-300">
-                                {awayStaff.map(s => <StaffCard3D key={s.id} s={s} statusData={statusData} resourceState={resourceState} />)}
-                            </div>
-                            
-                            {/* 2. MIDDLE: BUSY (Flex Reverse: Oldest on Right) */}
-                            <div className="flex flex-row-reverse gap-2 px-6 border-r-2 border-l-2 border-red-100 bg-red-50/20 rounded mx-2">
-                                {busyStaff.map(s => <StaffCard3D key={s.id} s={s} statusData={statusData} resourceState={resourceState} />)}
-                            </div>
-
-                            {/* 3. RIGHT: READY (Flex Reverse: #1 on Right) */}
-                            <div className="flex items-center flex-1 justify-end pl-4">
-                                <div className="flex flex-row-reverse gap-2 pl-4">
-                                    {readyStaff.map((s, idx) => {
-                                        const qIdx = readyQueue.indexOf(s.id);
-                                        return <StaffCard3D key={s.id} s={s} statusData={statusData} resourceState={resourceState} queueIndex={qIdx !== -1 ? qIdx : undefined} />;
-                                    })}
-                                </div>
-                            </div>
-
-                        </div>
-                    </div>
-
+                    <div className="bg-white border-b shadow-sm p-3 overflow-x-auto whitespace-nowrap staff-scroll"><div className="flex w-full justify-between items-center min-w-max"><div className="flex gap-2 opacity-30 scale-90 border-r-2 pr-4 mr-2 border-dashed border-slate-300">{/*AWAY*/}{staffList.filter(s=>(statusData[s.id]?.status==='AWAY'||statusData[s.id]?.status==='OFF')).map(s => <StaffCard3D key={s.id} s={s} statusData={statusData} resourceState={resourceState} />)}</div><div className="flex items-center flex-1 justify-end pl-4"><div className="flex flex-row-reverse gap-2 px-4 border-r border-red-100">{/*BUSY*/}{staffList.filter(s=>statusData[s.id]?.status==='BUSY').map(s => <StaffCard3D key={s.id} s={s} statusData={statusData} resourceState={resourceState} />)}</div><div className="flex flex-row-reverse gap-2 pl-4">{/*READY*/}{staffList.filter(s=>statusData[s.id]?.status==='READY'||statusData[s.id]?.status==='EAT'||statusData[s.id]?.status==='OUT_SHORT').map(s => <StaffCard3D key={s.id} s={s} statusData={statusData} resourceState={resourceState} queueIndex={qIdx !== -1 ? qIdx : undefined} />)}</div></div></div></div>
                     <div className="p-4 flex gap-2">
                         <button onClick={()=>setActiveTab('map')} className={`px-4 py-2 rounded font-bold flex gap-2 items-center ${activeTab==='map'?'bg-[#1e1b4b] text-white':'bg-white shadow'}`}><i className="fas fa-th"></i> 平面圖 (Map)</button>
                         <button onClick={()=>setActiveTab('list')} className={`px-4 py-2 rounded font-bold flex gap-2 items-center ${activeTab==='list'?'bg-[#1e1b4b] text-white':'bg-white shadow'}`}><i className="fas fa-list"></i> 列表 (List)</button>
                         <button onClick={()=>setActiveTab('timeline')} className={`px-4 py-2 rounded font-bold flex gap-2 items-center ${activeTab==='timeline'?'bg-[#1e1b4b] text-white':'bg-white shadow'}`}><i className="fas fa-stream"></i> 時間軸 (Timeline)</button>
                         <button onClick={()=>setActiveTab('report')} className={`px-4 py-2 rounded font-bold flex gap-2 items-center ${activeTab==='report'?'bg-[#1e1b4b] text-white':'bg-white shadow'}`}><i className="fas fa-chart-line"></i> 營業報告 (Report)</button>
                     </div>
-
                     <main className="flex-1 p-4 overflow-y-auto">
-                        {activeTab === 'map' && (
-                            <div className="grid grid-cols-12 gap-6">
-                                <div className="col-span-9 space-y-6">
-                                    <div><h3 className="font-bold text-emerald-600 mb-3 border-b pb-1">足底按摩區 (Foot)</h3><div className="grid grid-cols-6 gap-3">{[1,2,3,4,5,6].map(i => <ResourceCard key={`chair-${i}`} id={`chair-${i}`} type="FOOT" index={i} data={resourceState[`chair-${i}`]} busyStaffIds={busyStaffIds} onAction={handleResourceAction} onSelect={()=>setSelectedSlot(`chair-${i}`)} onSwitch={handleSwitch} />)}</div></div>
-                                    <div><h3 className="font-bold text-purple-600 mb-3 border-b pb-1">身體指壓區 (Body)</h3><div className="grid grid-cols-6 gap-3">{[1,2,3,4,5,6].map(i => <ResourceCard key={`bed-${i}`} id={`bed-${i}`} type="BODY" index={i} data={resourceState[`bed-${i}`]} busyStaffIds={busyStaffIds} onAction={handleResourceAction} onSelect={()=>setSelectedSlot(`bed-${i}`)} onSwitch={handleSwitch} />)}</div></div>
-                                </div>
-                                <div className="col-span-3 bg-white rounded-lg shadow p-4 h-fit sticky top-2">
-                                    <h3 className="font-bold text-gray-700 mb-3">候位名單 (Waiting) ({todaysBookings.filter(b=>b.status==='已預約').length})</h3>
-                                    <div className="space-y-2 max-h-[500px] overflow-y-auto">
-                                        {todaysBookings.filter(b=>b.status==='已預約').map(b => (
-                                            <div key={b.rowId} className="border p-2 rounded hover:bg-slate-50 relative group bg-white shadow-sm">
-                                                <div className="flex justify-between font-bold text-sm"><span>{b.customerName}</span><span className="text-indigo-600 font-mono">{b.startTimeString.split(' ')[1]}</span></div>
-                                                <div className="text-xs text-gray-500 font-bold">{b.serviceName}</div>
-                                                { (b.isOil || (b.serviceName && b.serviceName.includes('油'))) && <div className="text-[10px] bg-purple-100 text-purple-700 inline-block px-1 rounded mt-1 font-bold border border-purple-200">💧 精油 (Oil)</div> }
-                                                {b.pax > 1 && <div className="text-[10px] bg-orange-100 text-orange-600 inline-block px-1 rounded mt-1 ml-1 font-bold">{b.pax} 人</div>}
-                                                {selectedSlot && <button onClick={()=>handleAssignBooking(b)} className="absolute inset-0 bg-green-500/90 text-white font-bold flex items-center justify-center rounded animate-pulse">排入 {selectedSlot}</button>}
-                                                <button onClick={()=>handleManualUpdateStatus(b.rowId, '❌ Cancelled')} className="absolute top-1 right-1 text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100"><i className="fas fa-trash"></i></button>
-                                            </div>
-                                        ))}
-                                    </div>
-                                </div>
-                            </div>
-                        )}
-                        {activeTab === 'list' && (
-                            <div className="bg-white rounded shadow overflow-hidden">
-                                <table className="w-full text-sm text-left">
-                                    <thead className="bg-slate-100 text-slate-600 font-bold"><tr><th className="p-3">時間</th><th className="p-3">姓名</th><th className="p-3">服務項目</th><th className="p-3">師傅</th><th className="p-3">狀態</th><th className="p-3 text-right">操作</th></tr></thead>
-                                    <tbody className="divide-y">{todaysBookings.map(b=>(<tr key={b.rowId} className="hover:bg-slate-50"><td className="p-3 font-mono text-indigo-700 font-bold">{b.startTimeString.split(' ')[1]}</td><td className="p-3 font-bold">{b.customerName}</td><td className="p-3 text-gray-600">{b.serviceName}</td><td className="p-3"><span className="bg-indigo-50 text-indigo-700 px-2 py-1 rounded text-xs font-bold">{b.staffId}</span></td><td className="p-3"><span className={`px-2 py-1 rounded text-xs font-bold ${b.status.includes('取消')?'bg-red-100 text-red-600':'bg-green-100 text-green-600'}`}>{b.status}</span></td><td className="p-3 text-right"><button onClick={()=>handleManualUpdateStatus(b.rowId, '❌ Cancelled')} className="text-red-500 hover:bg-red-50 px-2 py-1 rounded"><i className="fas fa-trash"></i></button></td></tr>))}</tbody>
-                                </table>
-                            </div>
-                        )}
-                        {activeTab === 'timeline' && <TimelineView bookings={todaysBookings} />}
+                        {activeTab === 'map' && (<div className="grid grid-cols-12 gap-6"><div className="col-span-9 space-y-6"><div><h3 className="font-bold text-emerald-600 mb-3 border-b pb-1">足底按摩區 (Foot)</h3><div className="grid grid-cols-6 gap-3">{[1,2,3,4,5,6].map(i => <ResourceCard key={`chair-${i}`} id={`chair-${i}`} type="FOOT" index={i} data={resourceState[`chair-${i}`]} busyStaffIds={busyStaffIds} onAction={handleResourceAction} onSelect={()=>setSelectedSlot(`chair-${i}`)} onSwitch={handleSwitch} onToggleMax={handleToggleMax} onToggleSequence={handleToggleSequence} />)}</div></div><div><h3 className="font-bold text-purple-600 mb-3 border-b pb-1">身體指壓區 (Body)</h3><div className="grid grid-cols-6 gap-3">{[1,2,3,4,5,6].map(i => <ResourceCard key={`bed-${i}`} id={`bed-${i}`} type="BODY" index={i} data={resourceState[`bed-${i}`]} busyStaffIds={busyStaffIds} onAction={handleResourceAction} onSelect={()=>setSelectedSlot(`bed-${i}`)} onSwitch={handleSwitch} onToggleMax={handleToggleMax} onToggleSequence={handleToggleSequence} />)}</div></div></div><div className="col-span-3 bg-white rounded-lg shadow p-4 h-fit sticky top-2"><h3 className="font-bold text-gray-700 mb-3">候位名單 (Waiting) ({todaysBookings.filter(b=>b.status==='已預約').length})</h3><div className="space-y-2 max-h-[500px] overflow-y-auto">{todaysBookings.filter(b=>b.status==='已預約').map(b => (<div key={b.rowId} className="border p-2 rounded hover:bg-slate-50 relative group bg-white shadow-sm"><div className="flex justify-between font-bold text-sm"><span>{b.customerName}</span><span className="text-indigo-600 font-mono">{b.startTimeString.split(' ')[1]}</span></div><div className="text-xs text-gray-500 font-bold">{b.serviceName}</div>{(b.isOil || (b.serviceName && b.serviceName.includes('油'))) && <div className="text-[10px] bg-purple-100 text-purple-700 inline-block px-1 rounded mt-1 font-bold border border-purple-200">💧 精油 (Oil)</div>}{b.pax > 1 && <div className="text-[10px] bg-orange-100 text-orange-600 inline-block px-1 rounded mt-1 ml-1 font-bold">{b.pax} 人</div>}{selectedSlot && <button onClick={()=>handleAssignBooking(b)} className="absolute inset-0 bg-green-500/90 text-white font-bold flex items-center justify-center rounded animate-pulse">排入 {selectedSlot}</button>}<button onClick={()=>handleManualUpdateStatus(b.rowId, '❌ Cancelled')} className="absolute top-1 right-1 text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100"><i className="fas fa-trash"></i></button></div>))}</div></div></div>)}
+                        {activeTab === 'list' && (<div className="bg-white rounded shadow overflow-hidden"><table className="w-full text-sm text-left"><thead className="bg-slate-100 text-slate-600 font-bold"><tr><th className="p-3">預約日期</th><th className="p-3">時間</th><th className="p-3">姓名</th><th className="p-3">項目</th><th className="p-3">油推</th><th className="p-3">人數</th><th className="p-3">電話</th><th className="p-3">狀態</th><th className="p-3">指定師傅</th><th className="p-3 text-right">操作</th></tr></thead><tbody className="divide-y">{todaysBookings.map(b => { const nameParts = b.customerName.split('('); const name = nameParts[0].trim(); const phone = nameParts.length > 1 ? nameParts[1].replace(')', '').trim() : (b.sdt || ''); const isOil = b.serviceName.includes('油') ? 'Yes' : ''; return (<tr key={b.rowId} className="hover:bg-slate-50"><td className="p-3 font-mono">{b.startTimeString.split(' ')[0]}</td><td className="p-3 font-mono font-bold text-indigo-700">{b.startTimeString.split(' ')[1]}</td><td className="p-3 font-bold">{name}</td><td className="p-3 text-gray-600">{b.serviceName}</td><td className="p-3 text-center">{isOil && <span className="text-purple-600 font-bold">Yes</span>}</td><td className="p-3 text-center">{b.pax}</td><td className="p-3 font-mono text-gray-500">{phone}</td><td className="p-3"><span className={`px-2 py-1 rounded text-xs font-bold ${b.status.includes('取消')?'bg-red-100 text-red-600':'bg-green-100 text-green-600'}`}>{b.status}</span></td><td className="p-3"><span className="bg-indigo-50 text-indigo-700 px-2 py-1 rounded text-xs font-bold">{b.staffId}</span></td><td className="p-3 text-right"><button onClick={()=>handleManualUpdateStatus(b.rowId, '❌ Cancelled')} className="text-red-500 hover:bg-red-50 px-2 py-1 rounded"><i className="fas fa-trash"></i></button></td></tr>); })}</tbody></table></div>)}
+                        {activeTab === 'timeline' && <TimelineView bookings={todaysBookings} resourceState={resourceState} />}
                         {activeTab === 'report' && <ReportView bookings={todaysBookings} />}
                     </main>
-
                     {showWalkIn && <WalkInModal onClose={()=>setShowWalkIn(false)} onSave={handleWalkInSave} staffList={staffList} />}
                     {showCheckIn && <CheckInBoard staffList={staffList} statusData={statusData} onUpdateStatus={updateStaffStatus} onClose={()=>setShowCheckIn(false)} />}
+                    {comboStartData && <ComboStartModal onConfirm={confirmComboStart} onCancel={()=>setComboStartData(null)} bookingName={comboStartData.booking.serviceName} />}
                     {selectedSlot && !bookings.find(b=>b.status==='已預約') && <div className="fixed inset-0 bg-black/30 z-50 flex items-center justify-center text-white font-bold" onClick={()=>setSelectedSlot(null)}>目前無候位! (No Waiting)</div>}
                     {billingData && <BillingModal activeBooking={billingData.activeBooking} relatedBookings={billingData.relatedBookings} onConfirm={handleConfirmPayment} onCancel={() => setBillingData(null)} />}
                 </div>
             );
         };
-
-        const root = ReactDOM.createRoot(document.getElementById('root'));
-        root.render(<App />);
+        const root = ReactDOM.createRoot(document.getElementById('root')); root.render(<App />);
     </script>
 </body>
 </html>
