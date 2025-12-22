@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>XinWuChan Admin V170 (Staff Swap & Card UI)</title>
+    <title>XinWuChan Admin V231 (Smart Wiggle +/- 5m)</title>
     
     <script src="https://cdn.tailwindcss.com"></script>
     <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.development.js"></script>
@@ -14,17 +14,37 @@
     <link href="https://cdnjs.cloudflare.com/ajax/libs/animate.css/4.1.1/animate.min.css" rel="stylesheet"/>
 
     <style>
-        body { font-family: 'Microsoft JhengHei', 'Segoe UI', sans-serif; background-color: #f8fafc; user-select: none; overflow: hidden; }
-        .modal-animate { animation: fadeInScale 0.2s ease-out forwards; }
-        @keyframes fadeInScale { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }
+        /* --- GLOBAL STYLES --- */
+        body { 
+            font-family: 'Microsoft JhengHei', 'Segoe UI', sans-serif; 
+            background-color: #f8fafc; 
+            user-select: none; 
+            overflow: hidden; 
+        }
 
-        /* STAFF CARDS */
+        /* --- ANIMATIONS --- */
+        .modal-animate { animation: fadeInScale 0.2s ease-out forwards; }
+        @keyframes fadeInScale { 
+            from { opacity: 0; transform: scale(0.95); } 
+            to { opacity: 1; transform: scale(1); } 
+        }
+
+        /* --- STAFF CARD STYLES --- */
         .card-3d { 
             transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1); 
-            position: relative; top: 0; width: 80px; height: 100px; 
-            border-radius: 12px; display: flex; flex-direction: column; 
-            cursor: pointer; user-select: none; background: white; 
-            box-shadow: 0 4px 6px rgba(0,0,0,0.1); margin: 0 4px; flex-shrink: 0;
+            position: relative; 
+            top: 0; 
+            width: 80px; 
+            height: 100px; 
+            border-radius: 12px; 
+            display: flex; 
+            flex-direction: column; 
+            cursor: pointer; 
+            user-select: none; 
+            background: white; 
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1); 
+            margin: 0 4px; 
+            flex-shrink: 0;
             border: 1px solid rgba(0,0,0,0.05);
         }
         .card-3d:active { transform: translateY(4px); border-bottom-width: 0px; margin-bottom: 4px; }
@@ -33,13 +53,13 @@
         .style-male { border: 2px solid #3B82F6; border-bottom: 5px solid #2563EB; color: #1E3A8A; }
         .style-female { border: 2px solid #F472B6; border-bottom: 5px solid #DB2777; color: #BE185D; }
         
-        /* STATUS COLORS */
+        /* --- STATUS COLORS --- */
         .st-busy { background-color: #fee2e2 !important; border-color: #ef4444 !important; border-bottom-color: #b91c1c !important; color: #b91c1c !important; }
         .st-away { background-color: #f3f4f6 !important; border-color: #d1d5db !important; border-bottom-color: #9ca3af !important; color: #9ca3af !important; opacity: 0.5; }
         .st-eat { background-color: #ffedd5 !important; border-color: #f97316 !important; border-bottom-color: #c2410c !important; color: #c2410c !important; }
         .st-out { background-color: #fef9c3 !important; border-color: #eab308 !important; border-bottom-color: #ca8a04 !important; color: #854d0e !important; }
 
-        /* RESOURCE CARDS */
+        /* --- RESOURCE CARDS --- */
         .res-card { position: relative; overflow: visible; transition: all 0.2s; border-radius: 12px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
         .res-card:hover { transform: translateY(-2px); box-shadow: 0 8px 16px rgba(0,0,0,0.1); }
         .progress-bar { transition: width 1s linear; }
@@ -47,7 +67,7 @@
         .staff-scroll::-webkit-scrollbar { height: 8px; }
         .staff-scroll::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
 
-        /* TIMELINE STYLES */
+        /* --- TIMELINE STYLES --- */
         .timeline-row { height: 50px; border-bottom: 1px solid #e2e8f0; position: relative; display: flex; items-center; }
         .timeline-row.odd { background-color: #ffffff; }
         .timeline-row.even { background-color: #f8fafc; }
@@ -66,9 +86,8 @@
             transition: all 0.3s ease; font-size: 10px;
         }
         .timeline-bar:hover { z-index: 60 !important; transform: scale(1.05); box-shadow: 0 8px 12px rgba(0,0,0,0.2); }
-        .timeline-bar.planned { opacity: 0.7; border: 2px dashed rgba(0,0,0,0.2); background-image: linear-gradient(45deg,rgba(255,255,255,.15) 25%,transparent 25%,transparent 50%,rgba(255,255,255,.15) 50%,rgba(255,255,255,.15) 75%,transparent 75%,transparent); background-size: 1rem 1rem; } 
+        .timeline-bar.planned { opacity: 0.8; border: 2px dashed rgba(0,0,0,0.2); background-image: linear-gradient(45deg,rgba(255,255,255,.15) 25%,transparent 25%,transparent 50%,rgba(255,255,255,.15) 50%,rgba(255,255,255,.15) 75%,transparent 75%,transparent); background-size: 1rem 1rem; } 
         
-        /* CONFLICT STYLE */
         .timeline-bar.conflict { 
             background-color: #fee2e2 !important; 
             border-color: #ef4444 !important; 
@@ -76,6 +95,14 @@
             z-index: 50; 
             box-shadow: 0 0 0 2px #ef4444, 0 4px 6px rgba(0,0,0,0.3);
             opacity: 0.9 !important;
+        }
+        
+        .timeline-bar.waiting {
+            background-color: #fff7ed !important; 
+            border-color: #f97316 !important; 
+            color: #c2410c !important;
+            border-style: dotted !important; 
+            z-index: 45;
         }
 
         .switch-marker { position: absolute; top: 0; bottom: 0; width: 2px; background-color: rgba(255,255,255,0.7); border-left: 1px dashed #ef4444; z-index: 20; }
@@ -87,7 +114,7 @@
     <script type="text/babel">
         const { useState, useEffect, useMemo } = React;
 
-        // --- FULL SERVICE DATA (DEFINITIONS) ---
+        // --- FULL SERVICE DATA ---
         const SERVICES_DATA = {
             '👑 帝王套餐 (190分)': { duration: 190, price: 2000, type: 'BED', category: 'COMBO' },
             '💎 豪華套餐 (130分)': { duration: 130, price: 1500, type: 'BED', category: 'COMBO' },
@@ -104,7 +131,14 @@
         };
         const SERVICES_LIST = Object.keys(SERVICES_DATA);
 
-        // --- TIME & DATE HELPERS ---
+        const getSafeDuration = (serviceName, fallbackDuration) => {
+            if (!serviceName) return fallbackDuration || 60;
+            if (SERVICES_DATA[serviceName]) return SERVICES_DATA[serviceName].duration;
+            const key = SERVICES_LIST.find(k => serviceName.includes(k));
+            if (key) return SERVICES_DATA[key].duration;
+            return fallbackDuration || 60;
+        };
+
         const getTaipeiDate = () => new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Taipei' }));
         
         const getOperationalDateInputFormat = () => {
@@ -129,13 +163,11 @@
             return false;
         };
 
-        const getTodayDisplay = () => getOperationalDateInputFormat().replace(/-/g, '/');
-
         const normalizeToTimelineMins = (timeStr) => {
             if (!timeStr) return 0;
             const [h, m] = timeStr.split(':').map(Number);
             let totalMins = h * 60 + m;
-            if (h < 8) totalMins += 24 * 60; // Ca đêm (01:00 -> 25:00)
+            if (h < 8) totalMins += 24 * 60; 
             return totalMins;
         };
 
@@ -154,10 +186,13 @@
         };
 
         const getComboSplit = (duration, isMaxMode, sequence = 'FB') => {
-            if (!duration) return { phase1: 0, phase2: 0, type1: '?', type2: '?' };
-            const footRatio = isMaxMode ? 0.5 : 0.4;
-            const footTime = Math.floor(duration * footRatio);
-            const bodyTime = duration - footTime;
+            const dur = parseInt(duration);
+            if (!dur) return { phase1: 0, phase2: 0, type1: '?', type2: '?' };
+            
+            // Default 50/50 for calculation baseline
+            let footTime = Math.floor(dur / 2);
+            let bodyTime = dur - footTime;
+
             if (sequence === 'FB') return { phase1: footTime, phase2: bodyTime, type1: 'FOOT', type2: 'BODY' };
             else return { phase1: bodyTime, phase2: footTime, type1: 'BODY', type2: 'FOOT' };
         };
@@ -168,7 +203,7 @@
             const isFemale = s.gender === 'F' || s.gender === '女'; 
             const local = statusData[s.id] || { status: 'AWAY' }; 
             let displayStatus = local.status; 
-            const isActuallyRunning = Object.values(resourceState).some(r => r.booking.staffId === s.id && r.isRunning && !r.isPaused);
+            const isActuallyRunning = Object.values(resourceState || {}).some(r => r.booking && r.booking.staffId === s.id && r.isRunning && !r.isPaused);
             if (isActuallyRunning) { displayStatus = 'BUSY'; } 
             
             let cardStyle = isFemale ? 'style-female' : 'style-male';
@@ -230,7 +265,6 @@
             const hasGroup = relatedItems.length > 0;
             const [step, setStep] = useState(hasGroup ? 'CHOICE' : 'CONFIRM');
             const [targetItems, setTargetItems] = useState(hasGroup ? [] : [activeItem]);
-
             const allCandidates = useMemo(() => [activeItem, ...relatedItems], [activeItem, relatedItems]);
             
             useEffect(() => {
@@ -307,22 +341,24 @@
             );
         };
 
-        // --- TIMELINE OPTIMIZED ---
-        
+        // --- TIMELINE ---
         const TimelineView = ({ bookings, resourceState }) => {
-            const rows = [
+            const rows = useMemo(() => [
                 ...[1,2,3,4,5,6].map(i => ({ id: `chair-${i}`, label: `💺 足 ${i}`, type: 'FOOT' })),
                 { type: 'DIVIDER' }, 
                 ...[1,2,3,4,5,6].map(i => ({ id: `bed-${i}`, label: `🛏️ 身 ${i}`, type: 'BODY' }))
-            ];
+            ], []);
 
             const hours = []; for(let i=8; i<=32; i++) hours.push(i);
+            const TRANSITION_BUFFER = 5; 
 
             const calculateStyle = (startMins, duration) => {
-                const timelineStartMins = 8 * 60; // 480
-                const timelineEndMins = 32 * 60; // 1920
-                const offset = startMins - timelineStartMins;
-                const totalTimelineMins = 1440;
+                const timelineStartMins = 8 * 60; 
+                const totalTimelineMins = 1440; 
+                let effectiveStart = startMins;
+                if (effectiveStart < timelineStartMins) effectiveStart += 1440;
+
+                const offset = effectiveStart - timelineStartMins;
                 const left = (offset / totalTimelineMins) * 100;
                 const width = (duration / totalTimelineMins) * 100;
                 return { left: `${left}%`, width: `${width}%` };
@@ -335,16 +371,15 @@
 
                 const isColliding = (rowId, start, end) => {
                     if (!grid[rowId]) return true;
-                    for (let m = start; m < end; m++) if (grid[rowId].has(m)) return true;
+                    for (let m = Math.floor(start); m < Math.ceil(end); m++) { if (grid[rowId].has(m)) return true; }
                     return false;
                 };
 
                 const lockGrid = (rowId, start, end) => {
-                    if (grid[rowId]) for (let m = start; m < end; m++) grid[rowId].add(m);
+                    if (grid[rowId]) { for (let m = Math.floor(start); m < Math.ceil(end); m++) grid[rowId].add(m); }
                 };
 
-                const findSlot = (type, start, end) => {
-                    const prefix = type === 'FOOT' ? 'chair' : 'bed';
+                const findSlot = (prefix, start, end) => {
                     for(let i=1; i<=6; i++) {
                         const id = `${prefix}-${i}`;
                         if (!isColliding(id, start, end)) return { id, conflict: false };
@@ -352,12 +387,16 @@
                     return { id: `${prefix}-6`, conflict: true };
                 };
 
-                // 1. ACTIVE JOBS (USE REAL START TIME IF AVAILABLE)
-                const activeIds = new Set();
-                Object.keys(resourceState).forEach(key => {
+                const allocatedCounts = {};
+
+                // 1. ACTIVE JOBS
+                Object.keys(resourceState || {}).forEach(key => {
                     const res = resourceState[key];
-                    if (res.isRunning && res.booking) {
-                        activeIds.add(res.booking.rowId);
+                    if (res && res.booking) { 
+                        const bRowId = String(res.booking.rowId);
+                        if (!allocatedCounts[bRowId]) allocatedCounts[bRowId] = 0;
+                        allocatedCounts[bRowId]++;
+
                         let startMins;
                         if(res.startTime) {
                             const d = new Date(res.startTime);
@@ -366,89 +405,189 @@
                             startMins = normalizeToTimelineMins(res.booking.startTimeString.split(' ')[1]);
                         }
                         if(startMins < 480) startMins += 1440;
-                        const endMins = startMins + res.booking.duration;
                         
-                        lockGrid(key, startMins, endMins);
-                        
+                        let effectiveDuration = getSafeDuration(res.booking.serviceName, res.booking.duration);
                         const isCombo = res.booking.category === 'COMBO' || (res.booking.serviceName && res.booking.serviceName.includes('套餐'));
+                        
                         if (isCombo) {
-                            const seq = (res.comboMeta && res.comboMeta.sequence) || 'FB';
-                            const split = getComboSplit(res.booking.duration, res.isMaxMode, seq);
+                            let seq = (res.comboMeta && res.comboMeta.sequence) || 'FB';
+                            if (key.includes('bed') && seq === 'FB') seq = 'BF'; 
+                            if (key.includes('chair') && seq === 'BF') seq = 'FB';
+
+                            const split = getComboSplit(effectiveDuration, true, seq); 
+                            const isChair = key.includes('chair');
+                            const phase1IsChair = seq === 'FB';
+                            const isPhase1 = (isChair && phase1IsChair) || (!isChair && !phase1IsChair);
+                            
+                            const phaseDuration = isPhase1 ? split.phase1 : split.phase2;
                             const elapsed = res.startTime ? (Date.now() - new Date(res.startTime).getTime()) / 60000 : 0;
                             
-                            if (elapsed < split.phase1) {
-                                const start2 = startMins + split.phase1;
-                                const dur2 = split.phase2;
-                                const end2 = start2 + dur2;
-                                const targetType = key.includes('chair') ? 'BODY' : 'FOOT';
-                                const slot2 = findSlot(targetType, start2, end2);
-                                items.push({
-                                    id: `ACT_P2_${res.booking.rowId}`, rowId: slot2.id, style: calculateStyle(start2, dur2),
-                                    color: stringToColor(res.booking.customerName), label: res.booking.customerName,
-                                    sub: 'Phase 2 (Reserved)', isPlanned: true, isCombo: true, isConflict: slot2.conflict
-                                });
-                                lockGrid(slot2.id, start2, end2);
-                            }
+                            // Check for FLEX in Meta
+                            const flexMinutes = res.comboMeta && res.comboMeta.flex ? res.comboMeta.flex : 0;
+                            const displayPhase1Dur = isPhase1 ? phaseDuration + flexMinutes : phaseDuration;
+
                             items.push({
-                                id: `ACT_P1_${res.booking.rowId}`, rowId: key, style: calculateStyle(startMins, split.phase1),
+                                id: `ACT_P1_${res.booking.rowId}_${key}`, rowId: key, style: calculateStyle(startMins, displayPhase1Dur),
                                 color: stringToColor(res.booking.customerName), label: res.booking.customerName,
-                                sub: 'Phase 1 (Active)', isPlanned: false, isCombo: true
+                                sub: `${seq === 'FB' ? 'Foot' : 'Body'} (${flexMinutes>0 ? '+'+flexMinutes+'m':''})`, isPlanned: !res.isRunning, isCombo: true
                             });
+
+                            if (isPhase1 && elapsed < displayPhase1Dur) {
+                                const start2Base = startMins + displayPhase1Dur + TRANSITION_BUFFER;
+                                const dur2 = split.phase2;
+                                let slot2 = null;
+                                let finalStart2 = start2Base;
+                                
+                                if (res.comboMeta && res.comboMeta.targetId) {
+                                    if(!isColliding(res.comboMeta.targetId, start2Base, start2Base + dur2)) {
+                                        slot2 = { id: res.comboMeta.targetId, conflict: false };
+                                    }
+                                }
+                                if (!slot2) {
+                                    let targetPrefix = seq === 'FB' ? 'bed' : 'chair';
+                                    slot2 = findSlot(targetPrefix, start2Base, start2Base + dur2);
+                                }
+                                
+                                items.push({
+                                    id: `ACT_P2_${res.booking.rowId}_${key}`, rowId: slot2.id, style: calculateStyle(finalStart2, dur2),
+                                    color: stringToColor(res.booking.customerName), label: res.booking.customerName,
+                                    sub: `➜ ${seq === 'FB' ? 'Body' : 'Foot'}`, isPlanned: true, isCombo: true, isConflict: slot2.conflict, opacity: 0.6
+                                });
+                                if (!slot2.conflict) lockGrid(slot2.id, finalStart2, finalStart2 + dur2);
+                            }
+                            lockGrid(key, startMins, startMins + displayPhase1Dur);
                         } else {
                              items.push({
-                                id: `ACT_${res.booking.rowId}`, rowId: key, style: calculateStyle(startMins, res.booking.duration),
+                                id: `ACT_${res.booking.rowId}_${key}`, rowId: key, style: calculateStyle(startMins, effectiveDuration),
                                 color: stringToColor(res.booking.customerName), label: res.booking.customerName,
-                                sub: res.booking.serviceName, isPlanned: false, isCombo: false
+                                sub: res.booking.serviceName, isPlanned: !res.isRunning, isCombo: false
                             });
+                             lockGrid(key, startMins, startMins + effectiveDuration);
                         }
                     }
                 });
 
                 // 2. PLANNED JOBS
-                const sortedBookings = [...bookings].filter(b => !activeIds.has(b.rowId) && !b.status.includes('取消')).sort((a,b) => normalizeToTimelineMins(a.startTimeString.split(' ')[1]) - normalizeToTimelineMins(b.startTimeString.split(' ')[1]));
+                const safeBookings = Array.isArray(bookings) ? bookings : [];
+                const sortedBookings = [...safeBookings].filter(b => !b.status.includes('取消') && !b.status.includes('完成')).sort((a,b) => normalizeToTimelineMins(a.startTimeString.split(' ')[1]) - normalizeToTimelineMins(b.startTimeString.split(' ')[1]));
 
-                sortedBookings.forEach(b => {
+                const listSingles = sortedBookings.filter(b => b.category !== 'COMBO' && !b.serviceName.includes('套餐'));
+                const listCombos = sortedBookings.filter(b => b.category === 'COMBO' || b.serviceName.includes('套餐'));
+                const finalQueue = [...listSingles, ...listCombos]; 
+
+                finalQueue.forEach(b => {
                     const totalPax = b.pax || 1;
-                    for(let i=0; i<totalPax; i++) {
-                        const isCombo = b.category === 'COMBO' || b.serviceName.includes('套餐');
-                        const startMins = normalizeToTimelineMins(b.startTimeString.split(' ')[1]);
-                        const adjStart1 = startMins; 
+                    const bRowId = String(b.rowId);
+                    const activeCount = allocatedCounts[bRowId] || 0;
+                    const remainingPax = totalPax - activeCount;
+                    const duration = getSafeDuration(b.serviceName, b.duration);
 
-                        if (isCombo) {
-                            const split = getComboSplit(b.duration, false, 'FB');
-                            const dur1 = split.phase1;
-                            const end1 = adjStart1 + dur1;
-                            const slot1 = findSlot('FOOT', adjStart1, end1);
+                    if (remainingPax > 0) {
+                        for(let k=0; k<remainingPax; k++) {
+                            const logicalIndex = activeCount + k; 
+                            const originalStartMins = normalizeToTimelineMins(b.startTimeString.split(' ')[1]);
+                            const isCombo = b.category === 'COMBO' || b.serviceName.includes('套餐');
                             
-                            items.push({
-                                id: `PLN_${b.rowId}_${i}_1`, rowId: slot1.id, style: calculateStyle(adjStart1, dur1),
-                                color: stringToColor(b.customerName), label: b.customerName + (totalPax>1?`(${i+1})`:''),
-                                sub: 'Phase 1', isPlanned: true, isCombo: true, isConflict: slot1.conflict
-                            });
-                            lockGrid(slot1.id, adjStart1, end1);
+                            if (isCombo) {
+                                // V231: Smart Wiggle Search (+/- 5 mins, then forward)
+                                const findDeepPath = () => {
+                                    // 1. Generate Search Offsets: 0, 1, -1, 2, -2 ... 5, -5, 6, 7 ... 120
+                                    let searchOffsets = [0];
+                                    for(let i=1; i<=5; i++) { searchOffsets.push(i); searchOffsets.push(-i); }
+                                    for(let i=6; i<=120; i++) { searchOffsets.push(i); }
 
-                            const start2 = end1;
-                            const dur2 = split.phase2;
-                            const end2 = start2 + dur2;
-                            const slot2 = findSlot('BODY', start2, end2);
+                                    for(let delay of searchOffsets) {
+                                        const tryStart = originalStartMins + delay;
+                                        
+                                        // V231: Inner Flex Loop (0, 5, 10)
+                                        for (let flex=0; flex<=10; flex+=5) {
+                                            
+                                            // Try FB with Flex
+                                            const splitFB = getComboSplit(duration, true, 'FB');
+                                            const p1DurFB = splitFB.phase1 + flex; 
+                                            const s1_FB = findSlot('chair', tryStart, tryStart + p1DurFB);
+                                            
+                                            const t2_FB = tryStart + p1DurFB + TRANSITION_BUFFER;
+                                            const s2_FB = findSlot('bed', t2_FB, t2_FB + splitFB.phase2);
+                                            
+                                            if (!s1_FB.conflict && !s2_FB.conflict) {
+                                                return { seq: 'FB', s1: s1_FB, s2: s2_FB, t1: tryStart, t2: t2_FB, split: splitFB, delay, flex, p1Dur: p1DurFB };
+                                            }
 
-                            items.push({
-                                id: `PLN_${b.rowId}_${i}_2`, rowId: slot2.id, style: calculateStyle(start2, dur2),
-                                color: stringToColor(b.customerName), label: b.customerName + (totalPax>1?`(${i+1})`:''),
-                                sub: 'Phase 2', isPlanned: true, isCombo: true, isConflict: slot2.conflict
-                            });
-                            lockGrid(slot2.id, start2, end2);
-                        } else {
-                            const type = b.type === 'CHAIR' ? 'FOOT' : 'BODY';
-                            const end = adjStart1 + b.duration;
-                            const slot = findSlot(type, adjStart1, end);
-                            
-                            items.push({
-                                id: `PLN_${b.rowId}_${i}`, rowId: slot.id, style: calculateStyle(adjStart1, b.duration),
-                                color: stringToColor(b.customerName), label: b.customerName + (totalPax>1?`(${i+1})`:''),
-                                sub: b.serviceName, isPlanned: true, isCombo: false, isConflict: slot.conflict
-                            });
-                            lockGrid(slot.id, adjStart1, end);
+                                            // Try BF with Flex
+                                            const splitBF = getComboSplit(duration, true, 'BF');
+                                            const p1DurBF = splitBF.phase1 + flex; 
+                                            const s1_BF = findSlot('bed', tryStart, tryStart + p1DurBF);
+                                            
+                                            const t2_BF = tryStart + p1DurBF + TRANSITION_BUFFER;
+                                            const s2_BF = findSlot('chair', t2_BF, t2_BF + splitBF.phase2);
+                                            
+                                            if (!s1_BF.conflict && !s2_BF.conflict) {
+                                                return { seq: 'BF', s1: s1_BF, s2: s2_BF, t1: tryStart, t2: t2_BF, split: splitBF, delay, flex, p1Dur: p1DurBF };
+                                            }
+                                        }
+                                    }
+                                    // Fallback
+                                    const split = getComboSplit(duration, true, 'FB');
+                                    return { 
+                                        seq: 'FB', 
+                                        s1: findSlot('chair', originalStartMins, originalStartMins+split.phase1), 
+                                        s2: findSlot('bed', originalStartMins+split.phase1+TRANSITION_BUFFER, originalStartMins+duration), 
+                                        t1: originalStartMins, 
+                                        t2: originalStartMins+split.phase1+TRANSITION_BUFFER,
+                                        split: split, delay: 999, flex: 0, p1Dur: split.phase1 
+                                    };
+                                };
+
+                                const path = findDeepPath();
+                                const wiggleLabel = path.delay !== 0 && path.delay < 999 ? (path.delay > 0 ? `+${path.delay}m` : `${path.delay}m`) : '';
+
+                                items.push({
+                                    id: `PLN_${b.rowId}_rem_${k}_1`, rowId: path.s1.id, style: calculateStyle(path.t1, path.p1Dur),
+                                    color: stringToColor(b.customerName), label: b.customerName + (totalPax>1?`(${logicalIndex+1})`:''),
+                                    sub: `${path.seq === 'FB' ? 'Foot' : 'Body'} (${path.p1Dur}m${path.flex>0?'+'+path.flex:''} ${wiggleLabel})`, 
+                                    isPlanned: true, isCombo: true, isConflict: path.s1.conflict, isWaiting: path.delay > 5 || path.delay < -5 // Only warn if moved significantly
+                                });
+                                lockGrid(path.s1.id, path.t1, path.t1 + path.p1Dur); 
+
+                                items.push({
+                                    id: `PLN_${b.rowId}_rem_${k}_2`, rowId: path.s2.id, style: calculateStyle(path.t2, path.split.phase2),
+                                    color: stringToColor(b.customerName), label: b.customerName + (totalPax>1?`(${logicalIndex+1})`:''),
+                                    sub: path.delay > 5 ? `Wait ${path.delay}m` : `${path.seq === 'FB' ? 'Body' : 'Foot'} (${path.split.phase2}m)`, 
+                                    isPlanned: true, isCombo: true, isConflict: path.s2.conflict, isWaiting: path.delay > 5
+                                });
+                                lockGrid(path.s2.id, path.t2, path.t2 + path.split.phase2); 
+
+                            } else {
+                                const type = b.type === 'CHAIR' ? 'FOOT' : 'BODY';
+                                const prefix = type === 'FOOT' ? 'chair' : 'bed';
+                                let slot = null;
+                                let actualStart = originalStartMins;
+                                
+                                // V231: Smart Wiggle Search for Singles
+                                let searchOffsets = [0];
+                                for(let i=1; i<=5; i++) { searchOffsets.push(i); searchOffsets.push(-i); }
+                                for(let i=6; i<=120; i++) { searchOffsets.push(i); }
+
+                                for(let delay of searchOffsets) {
+                                    let tryStart = originalStartMins + delay;
+                                    let tryEnd = tryStart + duration;
+                                    let candidate = findSlot(prefix, tryStart, tryEnd);
+                                    if(!candidate.conflict) { slot = candidate; actualStart = tryStart; break; }
+                                }
+                                if(!slot) slot = findSlot(prefix, originalStartMins, originalStartMins + duration);
+                                
+                                const offsetVal = actualStart - originalStartMins;
+                                const wiggleLabel = offsetVal !== 0 ? (offsetVal > 0 ? `+${offsetVal}m` : `${offsetVal}m`) : '';
+
+                                items.push({
+                                    id: `PLN_${b.rowId}_rem_${k}`, rowId: slot.id, style: calculateStyle(actualStart, duration),
+                                    color: stringToColor(b.customerName), label: b.customerName + (totalPax>1?`(${logicalIndex+1})`:''),
+                                    sub: wiggleLabel ? `🕐 ${wiggleLabel}` : b.serviceName, 
+                                    isPlanned: true, isCombo: false, isConflict: slot.conflict, isWaiting: offsetVal > 5
+                                });
+                                lockGrid(slot.id, actualStart, actualStart + duration);
+                            }
                         }
                     }
                 });
@@ -473,10 +612,10 @@
                                     <div className="timeline-label justify-center"><span className={row.type==='FOOT'?'text-emerald-600':'text-purple-600'}>{row.label}</span></div>
                                     <div className="timeline-grid">
                                         {rowItems.map(item => (
-                                            <div key={item.id} className={`timeline-bar ${item.isPlanned ? 'planned' : ''} ${item.isConflict ? 'conflict' : ''}`}
-                                                 style={{ ...item.style, backgroundColor: item.isConflict ? '#fee2e2' : `${item.color}33`, borderColor: item.isConflict ? '#ef4444' : item.color, color: item.isConflict ? '#b91c1c' : '#334155' }}>
-                                                {item.isCombo && item.sub.includes('Phase 1') && (<div className="switch-marker" style={{right:0, left:'auto', borderLeft:'none', borderRight:'1px dashed #ef4444'}}></div>)}
-                                                {item.isCombo && item.sub.includes('Phase 2') && (<div className="switch-marker" style={{left:0}}></div>)}
+                                            <div key={item.id} className={`timeline-bar ${item.isPlanned ? 'planned' : ''} ${item.isConflict ? 'conflict' : ''} ${item.isWaiting ? 'waiting' : ''}`}
+                                                 style={{ ...item.style, backgroundColor: item.isConflict ? '#fee2e2' : item.isWaiting ? '#fff7ed' : `${item.color}${item.opacity?'99':'33'}`, borderColor: item.isConflict ? '#ef4444' : item.isWaiting ? '#f97316' : item.color, color: item.isConflict ? '#b91c1c' : item.isWaiting ? '#c2410c' : '#334155' }}>
+                                                {item.isCombo && item.sub.includes('P1') && (<div className="switch-marker" style={{right:0, left:'auto', borderLeft:'none', borderRight:'1px dashed #ef4444'}}></div>)}
+                                                {item.isCombo && item.sub.includes('P2') && (<div className="switch-marker" style={{left:0}}></div>)}
                                                 {item.isConflict && <div className="absolute top-0 right-0 text-[8px] bg-red-600 text-white px-1">!</div>}
                                                 <div className="font-bold truncate text-[11px] leading-tight">{item.label}</div>
                                                 <div className="truncate opacity-75 text-[9px]">{item.sub}</div>
@@ -526,8 +665,7 @@
             );
         };
 
-        // --- RESOURCE CARD (V170 UPDATE: STAFF DROPDOWN) ---
-        const ResourceCard = ({ id, type, index, data, busyStaffIds, staffList, onAction, onSelect, onSwitch, onToggleMax, onToggleSequence, onServiceChange, onStaffChange }) => {
+        const ResourceCard = ({ id, type, index, data, busyStaffIds, onAction, onSelect, onSwitch, onToggleMax, onToggleSequence, onServiceChange, onStaffChange, staffList }) => {
             const [timeLeft, setTimeLeft] = useState(0); const [percent, setPercent] = useState(0);
             const [phaseLabel, setPhaseLabel] = useState(null);
             const [phaseTimeLeft, setPhaseTimeLeft] = useState(0);
@@ -545,9 +683,14 @@
                         if (isCombo) {
                             const sequence = (data.comboMeta && data.comboMeta.sequence) || 'FB';
                             const split = getComboSplit(data.booking.duration, data.isMaxMode, sequence);
-                            const phase1Ms = split.phase1 * 60000;
-                            const currentSwitchPct = (split.phase1 / data.booking.duration) * 100;
+                            
+                            // V231: Apply Flex to calculation
+                            const flex = data.comboMeta && data.comboMeta.flex ? data.comboMeta.flex : 0;
+                            const phase1Ms = (split.phase1 + flex) * 60000; // Flex extends P1
+
+                            const currentSwitchPct = ((split.phase1 + flex) / data.booking.duration) * 100;
                             setSwitchPercent(currentSwitchPct);
+                            
                             if (elapsed < phase1Ms) {
                                 const left = Math.floor((phase1Ms - elapsed) / 60000);
                                 setPhaseTimeLeft(left);
@@ -568,8 +711,8 @@
             const showStaffName = isOccupied ? (data.booking.staffId === '隨機' ? '隨機' : data.booking.staffId) : '';
             const isOilJob = isOccupied && (data.booking.isOil || (data.booking.serviceName && (data.booking.serviceName.includes('油') || data.booking.serviceName.includes('Oil'))));
             const isCombo = isOccupied && (data.booking.category === 'COMBO' || data.booking.serviceName.includes('套餐'));
-            
-            // Time Info Helpers
+            const flexMinutes = isCombo && data.comboMeta && data.comboMeta.flex ? data.comboMeta.flex : 0;
+
             const formatTimeStr = (iso) => { if(!iso) return '--:--'; const d = new Date(iso); return `${d.getHours().toString().padStart(2,'0')}:${d.getMinutes().toString().padStart(2,'0')}`; }
             let startObj = null, endObj = null, switchObj = null;
             if(isOccupied && data.isRunning && data.startTime) {
@@ -578,14 +721,15 @@
                 if(isCombo) {
                     const seq = (data.comboMeta && data.comboMeta.sequence) || 'FB';
                     const split = getComboSplit(data.booking.duration, data.isMaxMode, seq);
-                    switchObj = new Date(startObj.getTime() + split.phase1 * 60000);
+                    // Flex extends switch time
+                    switchObj = new Date(startObj.getTime() + (split.phase1 + flexMinutes) * 60000);
                 }
             }
 
             let splitText = '';
             if (isCombo) {
                 const sequence = (data.comboMeta && data.comboMeta.sequence) || 'FB';
-                const split = getComboSplit(data.booking.duration, data.isMaxMode, sequence);
+                const split = getComboSplit(data.booking.duration, true, sequence);
                 splitText = sequence === 'FB' ? `(足:${split.phase1} ➜ 身:${split.phase2})` : `(身:${split.phase1} ➜ 足:${split.phase2})`;
             }
             return (
@@ -597,7 +741,6 @@
                                 {data.isRunning && (<><div className="absolute bottom-0 left-0 h-1 bg-green-500 progress-bar z-0" style={{width: `${percent}%`}}></div>{isCombo && switchPercent && (<div className="absolute bottom-0 h-full w-[2px] bg-red-400 z-0 opacity-30 border-r border-white" style={{left: `${switchPercent}%`}}></div>)}</>)}
                                 <div className="z-10 relative flex flex-col gap-2">
                                     <div className="absolute -top-12 right-0 z-40 bg-white border-2 border-slate-200 rounded-lg shadow-sm px-3 py-1">
-                                        {/* --- V170: STAFF DROPDOWN --- */}
                                         <select 
                                             className="text-xl font-black text-slate-800 bg-transparent text-center focus:outline-none cursor-pointer appearance-none" 
                                             value={showStaffName}
@@ -612,7 +755,6 @@
                                     
                                     <div className="font-bold text-slate-800 text-2xl truncate mt-4">{data.booking.customerName.split('(')[0]}</div>
                                     
-                                    {/* SERVICE DROPDOWN */}
                                     <select 
                                         className="text-sm font-bold text-gray-500 text-center bg-transparent border-b border-dashed border-gray-300 focus:outline-none w-full truncate cursor-pointer hover:bg-gray-50"
                                         value={data.booking.serviceName}
@@ -623,7 +765,7 @@
                                     </select>
 
                                     {isCombo && <div className="text-xs text-slate-400 font-mono">{splitText}</div>}
-                                    {isCombo && data.isRunning && phaseLabel && (<div className={`text-sm font-black p-2 rounded border bg-white/80 ${phaseLabel.includes('足') ? 'text-emerald-700 border-emerald-200' : 'text-purple-700 border-purple-200'}`}>{phaseLabel} <div className="text-xl font-mono mt-1">{phaseTimeLeft}分</div></div>)}
+                                    {isCombo && data.isRunning && phaseLabel && (<div className={`text-sm font-black p-2 rounded border bg-white/80 ${phaseLabel.includes('足') ? 'text-emerald-700 border-emerald-200' : 'text-purple-700 border-purple-200'}`}>{phaseLabel} {flexMinutes>0 && <span className="text-xs text-orange-500 bg-orange-100 px-1 rounded ml-1">+{flexMinutes}m</span>} <div className="text-xl font-mono mt-1">{phaseTimeLeft}分</div></div>)}
                                     {isCombo && data.isRunning && data.comboMeta && data.comboMeta.targetId && (<div className="text-[10px] text-gray-400">➜ 轉: {data.comboMeta.targetId.toUpperCase()}</div>)}
                                     {isOilJob && <div className="text-xs text-purple-600 font-bold border border-purple-200 bg-purple-50 rounded px-2 py-1 inline-block">💧 精油 (Oil)</div>}
                                     
@@ -700,87 +842,175 @@
                 try {
                     const res = await axios.get('/api/info');
                     const { bookings: apiBookings, staffList: apiStaff, resourceState: serverRes, staffStatus: serverStaff } = res.data;
-                    setBookings(apiBookings);
+                    
+                    const cleanBookings = apiBookings.map(b => {
+                        return { ...b, duration: getSafeDuration(b.serviceName, b.duration) };
+                    });
+
+                    setBookings(cleanBookings);
                     setStaffList(apiStaff);
                     const currentRes = serverRes || {};
                     const currentStaffStat = serverStaff || {};
                     setStatusData(currentStaffStat);
 
+                    // --- V231: SMART FLEX ALLOCATOR (Step 5m & FCFS & WIGGLE +/- 5m) ---
                     let changed = false;
-                    let newResState = { ...currentRes }; 
+                    let tempState = { ...currentRes }; 
                     const nowObj = getTaipeiDate();
+                    let reservedFutureSlots = {}; 
+                    const TRANSITION_BUFFER = 5;
 
-                    apiBookings.forEach(b => {
-                        const isRelevant = isWithinOperationalDay(b.startTimeString.split(' ')[0], b.startTimeString.split(' ')[1], viewDate);
-                        let currentCount = Object.values(newResState).filter(r => r.booking.rowId === b.rowId).length;
+                    // 1. Clean
+                    Object.keys(tempState).forEach(key => {
+                        const res = tempState[key];
+                        if (res.booking) {
+                            const freshData = cleanBookings.find(b => b.rowId === res.booking.rowId);
+                            const isValid = freshData && isWithinOperationalDay(freshData.startTimeString.split(' ')[0], freshData.startTimeString.split(' ')[1], viewDate);
+                            if (isValid) {
+                                if (JSON.stringify(res.booking) !== JSON.stringify(freshData)) { res.booking = { ...res.booking, ...freshData }; changed = true; }
+                                if (res.comboMeta && res.comboMeta.targetId) { if (!reservedFutureSlots[res.comboMeta.targetId]) reservedFutureSlots[res.comboMeta.targetId] = []; reservedFutureSlots[res.comboMeta.targetId].push({ start: 0, end: 99999 }); }
+                            } else { delete tempState[key]; changed = true; }
+                        }
+                    });
+
+                    // 2. Sort & Separate Lists
+                    const safeBookings = Array.isArray(cleanBookings) ? cleanBookings : [];
+                    const relevantBookings = safeBookings.filter(b => isWithinOperationalDay(b.startTimeString.split(' ')[0], b.startTimeString.split(' ')[1], viewDate) && !b.status.includes('取消') && !b.status.includes('完成'));
+                    
+                    // SPLIT INTO TWO LISTS
+                    const listSingles = relevantBookings.filter(b => b.category !== 'COMBO' && !b.serviceName.includes('套餐'));
+                    const listCombos = relevantBookings.filter(b => b.category === 'COMBO' || b.serviceName.includes('套餐'));
+
+                    const sortFn = (a,b) => {
+                        const timeA = normalizeToTimelineMins(a.startTimeString.split(' ')[1]);
+                        const timeB = normalizeToTimelineMins(b.startTimeString.split(' ')[1]);
+                        if (timeA !== timeB) return timeA - timeB;
+                        // FCFS priority
+                        return a.rowId - b.rowId; 
+                    };
+
+                    listSingles.sort(sortFn);
+                    listCombos.sort(sortFn);
+
+                    // SHARED HELPERS
+                    const isSlotReserved = (id) => tempState[id] || (reservedFutureSlots[id] && reservedFutureSlots[id].length > 0);
+                    
+                    // --- PHASE 1: ALLOCATE SINGLES ---
+                    listSingles.forEach(b => {
+                        let currentCount = Object.values(tempState).filter(r => r.booking && r.booking.rowId === b.rowId).length;
                         const needed = b.pax || 1;
+                        const bookingDateObj = new Date(b.startTimeString.replace(/-/g, '/'));
+                        const diffMins = (bookingDateObj - nowObj) / 60000;
 
-                        if (isRelevant && !b.status.includes('取消') && !b.status.includes('完成') && currentCount < needed) {
-                            const bookingDateObj = new Date(b.startTimeString.replace(/-/g, '/'));
-                            const diffMins = (bookingDateObj - nowObj) / 60000;
-                            if (diffMins >= -120 && diffMins <= 4320) {
-                                while (currentCount < needed) {
-                                    let allocatedId = null;
-                                    let comboMeta = null;
-                                    const findId = (type) => { const prefix = type === 'FOOT' ? 'chair' : 'bed'; for(let i=1; i<=6; i++) { if(!newResState[`${prefix}-${i}`]) return `${prefix}-${i}`; } return null; };
-                                    if (b.category === 'COMBO') {
-                                        const chair = findId('FOOT');
-                                        const bed = findId('BODY');
-                                        if (chair) { allocatedId = chair; comboMeta = { sequence: 'FB', targetId: bed }; }
-                                        else if (bed) { allocatedId = bed; comboMeta = { sequence: 'BF', targetId: chair }; }
-                                    } else {
-                                        const type = b.type === 'CHAIR' ? 'FOOT' : 'BODY';
-                                        allocatedId = findId(type);
-                                    }
-                                    if (allocatedId) {
-                                        const finalStaff = b.staffId === '隨機' ? '隨機' : b.staffId;
-                                        const nameLabel = needed > 1 ? `${b.customerName} (${currentCount+1})` : b.customerName;
-                                        newResState[allocatedId] = { booking: { ...b, customerName: nameLabel, staffId: finalStaff }, startTime: null, isRunning: false, comboMeta: comboMeta };
-                                        changed = true;
-                                        currentCount++;
-                                    } else { break; }
-                                }
+                        if (diffMins >= -120 && diffMins <= 40 && currentCount < needed) {
+                            const friendSlots = Object.keys(tempState).filter(k => { const r = tempState[k]; return r.booking.rowId === b.rowId || (b.sdt.length > 4 && r.booking.sdt === b.sdt); }).map(k => parseInt(k.split('-')[1]));
+                            const scoreDistance = (slotNum) => { if (friendSlots.includes(slotNum)) return 999; if (friendSlots.length === 0) return slotNum; return Math.min(...friendSlots.map(f => Math.abs(f - slotNum))); };
+
+                            while (currentCount < needed) {
+                                const type = b.type === 'CHAIR' ? 'chair' : 'bed';
+                                const cands = [1,2,3,4,5,6].map(n => ({ id: `${type}-${n}`, num: n })).filter(x => !isSlotReserved(x.id)).sort((x, y) => scoreDistance(x.num) - scoreDistance(y.num));
+                                
+                                if (cands.length > 0) {
+                                    const bestId = cands[0].id;
+                                    const finalStaff = b.staffId === '隨機' ? '隨機' : b.staffId;
+                                    const nameLabel = needed > 1 ? `${b.customerName} (${currentCount+1})` : b.customerName;
+                                    
+                                    tempState[bestId] = { booking: { ...b, customerName: nameLabel, staffId: finalStaff }, startTime: null, isRunning: false, comboMeta: null, isMaxMode: true };
+                                    friendSlots.push(parseInt(bestId.split('-')[1]));
+                                    changed = true;
+                                    currentCount++;
+                                } else { break; } 
                             }
                         }
                     });
-                    if(changed) { setResourceState(newResState); await axios.post('/api/sync-resource', newResState); } else { setResourceState(currentRes); }
+
+                    // --- PHASE 2: ALLOCATE COMBOS (SMART FLEX LOGIC) ---
+                    listCombos.forEach(b => {
+                        let currentCount = Object.values(tempState).filter(r => r.booking && r.booking.rowId === b.rowId).length;
+                        const needed = b.pax || 1;
+                        const bookingDateObj = new Date(b.startTimeString.replace(/-/g, '/'));
+                        const diffMins = (bookingDateObj - nowObj) / 60000;
+
+                        if (diffMins >= -120 && diffMins <= 40 && currentCount < needed) {
+                            const friendSlots = Object.keys(tempState).filter(k => { const r = tempState[k]; return r.booking.rowId === b.rowId || (b.sdt.length > 4 && r.booking.sdt === b.sdt); }).map(k => parseInt(k.split('-')[1]));
+                            const scoreDistance = (slotNum) => { if (friendSlots.includes(slotNum)) return 999; if (friendSlots.length === 0) return slotNum; return Math.min(...friendSlots.map(f => Math.abs(f - slotNum))); };
+
+                            while (currentCount < needed) {
+                                let bestAlloc = null;
+                                
+                                // V231 Loop: WIGGLE SEARCH (+/- 5 mins) then DELAY SEARCH (+6...120)
+                                let searchOffsets = [0];
+                                for(let i=1; i<=5; i++) { searchOffsets.push(i); searchOffsets.push(-i); }
+                                for(let i=6; i<=120; i++) { searchOffsets.push(i); }
+                                
+                                for (let delay of searchOffsets) {
+                                    
+                                    // Check FB
+                                    const checkFB = () => {
+                                        const availStart = [1,2,3,4,5,6].map(n=>({id:`chair-${n}`,n})).filter(x=>!isSlotReserved(x.id)).sort((a,b)=>scoreDistance(a.n)-scoreDistance(b.n));
+                                        if(availStart.length > 0) {
+                                            const s1 = availStart[0];
+                                            const availEnd = [1,2,3,4,5,6].map(n=>({id:`bed-${n}`,n})).filter(x=>!isSlotReserved(x.id)).sort((a,b)=>Math.abs(a.n-s1.n)-Math.abs(b.n-s1.n));
+                                            if(availEnd.length > 0) return { startId: s1.id, targetId: availEnd[0].id, sequence: 'FB', flex: 0 };
+                                        }
+                                        return null;
+                                    };
+
+                                    // Check BF
+                                    const checkBF = () => {
+                                        const availStart = [1,2,3,4,5,6].map(n=>({id:`bed-${n}`,n})).filter(x=>!isSlotReserved(x.id)).sort((a,b)=>scoreDistance(a.n)-scoreDistance(b.n));
+                                        if(availStart.length > 0) {
+                                            const s1 = availStart[0];
+                                            const availEnd = [1,2,3,4,5,6].map(n=>({id:`chair-${n}`,n})).filter(x=>!isSlotReserved(x.id)).sort((a,b)=>Math.abs(a.n-s1.n)-Math.abs(b.n-s1.n));
+                                            if(availEnd.length > 0) return { startId: s1.id, targetId: availEnd[0].id, sequence: 'BF', flex: 0 };
+                                        }
+                                        return null;
+                                    };
+
+                                    const resBF = checkBF();
+                                    if (resBF) { bestAlloc = resBF; break; } 
+                                    const resFB = checkFB();
+                                    if (resFB) { bestAlloc = resFB; break; }
+                                    
+                                    // With wiggle search, checking flex (stretch) is complex, so for auto-allocator we stick to non-stretched phase 1 first
+                                }
+
+                                if (bestAlloc) {
+                                    const finalStaff = b.staffId === '隨機' ? '隨機' : b.staffId;
+                                    const nameLabel = needed > 1 ? `${b.customerName} (${currentCount+1})` : b.customerName;
+                                    const comboMeta = { sequence: bestAlloc.sequence, targetId: bestAlloc.targetId, flex: bestAlloc.flex };
+                                    
+                                    tempState[bestAlloc.startId] = { booking: { ...b, customerName: nameLabel, staffId: finalStaff }, startTime: null, isRunning: false, comboMeta, isMaxMode: true };
+                                    if (comboMeta.targetId) { 
+                                        if (!reservedFutureSlots[comboMeta.targetId]) reservedFutureSlots[comboMeta.targetId] = []; 
+                                        reservedFutureSlots[comboMeta.targetId].push({ start: 0, end: 9999 }); 
+                                    }
+                                    
+                                    friendSlots.push(parseInt(bestAlloc.startId.split('-')[1]));
+                                    changed = true;
+                                    currentCount++;
+                                } else { break; }
+                            }
+                        }
+                    });
+
+                    if(changed) { setResourceState(tempState); await axios.post('/api/sync-resource', tempState); } else { setResourceState(currentRes); }
                 } catch(e) { console.error(e); }
             };
             useEffect(() => { fetchData(); const t = setInterval(fetchData, 2000); return () => clearInterval(t); }, [viewDate]);
 
-            // --- V170: STAFF CHANGE HANDLER ---
             const handleStaffChange = async (resId, newStaffId) => {
                 const current = resourceState[resId];
                 if (!current) return;
-                
                 const oldStaffId = current.booking.staffId;
-                
-                // 1. Update Booking Local
                 const newBooking = { ...current.booking, staffId: newStaffId };
                 const newState = { ...resourceState, [resId]: { ...current, booking: newBooking } };
                 setResourceState(newState);
-
-                // 2. Update Statuses
                 const newStatusData = { ...statusData };
-                
-                // Old staff -> READY (Free to take new job)
-                if (oldStaffId !== '隨機' && oldStaffId !== newStaffId) {
-                    newStatusData[oldStaffId] = { status: 'READY', checkInTime: Date.now() };
-                }
-                
-                // New staff -> BUSY (Take over the job)
-                if (newStaffId !== '隨機') {
-                    newStatusData[newStaffId] = { status: 'BUSY' };
-                }
+                if (oldStaffId !== '隨機' && oldStaffId !== newStaffId) { newStatusData[oldStaffId] = { status: 'READY', checkInTime: Date.now() }; }
+                if (newStaffId !== '隨機') { newStatusData[newStaffId] = { status: 'BUSY' }; }
                 updateStaffStatus(newStatusData);
-
-                // 3. Sync Booking
-                await axios.post('/api/update-booking-details', { 
-                    rowId: current.booking.rowId, 
-                    staffId: newStaffId 
-                });
-                
-                // 4. Force sync resource
+                await axios.post('/api/update-booking-details', { rowId: current.booking.rowId, staffId: newStaffId });
                 await updateResource(newState);
             };
 
@@ -843,23 +1073,37 @@
                 let currentId = id;
                 let shouldMove = false;
                 let targetMoveId = null;
+                
                 if (comboSequence) {
                     const currentType = id.split('-')[0];
                     if (comboSequence === 'BF' && currentType === 'chair') { shouldMove = true; for(let i=1; i<=6; i++) { if(!resourceState[`bed-${i}`]) { targetMoveId = `bed-${i}`; break; } } } 
                     else if (comboSequence === 'FB' && currentType === 'bed') { shouldMove = true; for(let i=1; i<=6; i++) { if(!resourceState[`chair-${i}`]) { targetMoveId = `chair-${i}`; break; } } }
                 }
                 if (shouldMove) { if (!targetMoveId) { alert("⚠️ 無法切換區域: 目標區域已滿!"); return; } currentId = targetMoveId; }
+                
                 if (['隨機', '男', '女', 'Oil'].some(k => reqStaff.includes(k))) {
-                    const readyStaff = staffList.filter(s => { const stat = statusData[s.id]; return stat && stat.status === 'READY' && !busyStaffIds.includes(s.id); });
+                    const liveBusyStaffIds = Object.values(resourceState).filter(r => r.isRunning && !r.isPaused && r.booking.staffId !== '隨機').map(r => r.booking.staffId);
+                    
+                    const readyStaff = staffList.filter(s => { 
+                        const stat = statusData[s.id]; 
+                        if (!stat || stat.status !== 'READY') return false;
+                        if (liveBusyStaffIds.includes(s.id)) return false;
+                        return true;
+                    });
+
                     let candidates = readyStaff;
                     if (reqStaff.includes('男') || reqStaff.includes('Male')) candidates = candidates.filter(s => s.gender === 'M' || s.gender === '男');
                     else if (reqStaff.includes('女') || reqStaff.includes('Female') || current.booking.isOil) candidates = candidates.filter(s => s.gender === 'F' || s.gender === '女');
+                    
                     candidates.sort((a,b) => (statusData[a.id]?.checkInTime||0) - (statusData[b.id]?.checkInTime||0));
+                    
                     if (candidates.length === 0) { alert("⚠️ No suitable staff available!"); return; }
                     finalStaffId = candidates[0].id;
                 }
+
                 const newStatusData = { ...statusData, [finalStaffId]: { ...statusData[finalStaffId], status: 'BUSY' } };
                 updateStaffStatus(newStatusData); 
+                
                 const newBooking = { ...current.booking, staffId: finalStaffId };
                 let comboMeta = current.comboMeta || null;
                 if (comboSequence) {
@@ -867,10 +1111,18 @@
                     const index = currentId.split('-')[1];
                     let ghostTargetId = null;
                     const targetTypePrefix = currentType === 'chair' ? 'bed' : 'chair';
-                    if (!resourceState[`${targetTypePrefix}-${index}`] && `${targetTypePrefix}-${index}` !== id) { ghostTargetId = `${targetTypePrefix}-${index}`; } 
-                    else { for(let i=1; i<=6; i++) { const tid = `${targetTypePrefix}-${i}`; if(!resourceState[tid] && tid !== id) { ghostTargetId = tid; break; } } }
-                    comboMeta = { sequence: comboSequence, targetId: ghostTargetId };
+                    if (!resourceState[`${targetTypePrefix}-${index}`] && `${targetTypePrefix}-${index}` !== id) { 
+                        ghostTargetId = `${targetTypePrefix}-${index}`; 
+                    } else { 
+                        for(let i=1; i<=6; i++) { 
+                            const tid = `${targetTypePrefix}-${i}`; 
+                            if(!resourceState[tid] && tid !== id) { ghostTargetId = tid; break; } 
+                        } 
+                    }
+                    // Keep existing flex or default to 0
+                    comboMeta = { sequence: comboSequence, targetId: ghostTargetId, flex: (current.comboMeta && current.comboMeta.flex) || 0 };
                 }
+                
                 const newState = { ...resourceState };
                 if (shouldMove) delete newState[id];
                 newState[currentId] = { ...current, booking: newBooking, startTime: new Date().toISOString(), isRunning: true, comboMeta };
@@ -899,7 +1151,9 @@
                         const resId = item.resourceId; 
                         if (newState[resId]) {
                              const staffId = newState[resId].booking.staffId;
-                             if(staffId !== '隨機' && newStatusData[staffId]) { newStatusData[staffId] = { status: 'READY', checkInTime: now + (index * 100) }; }
+                             if(staffId !== '隨機' && newStatusData[staffId]) { 
+                                 newStatusData[staffId] = { status: 'READY', checkInTime: now + (index * 100) }; 
+                             }
                              delete newState[resId]; 
                         }
                     });
@@ -922,14 +1176,19 @@
             const busyStaff = staffList.filter(s => getStatus(s.id) === 'BUSY').sort((a,b) => { const resA = Object.values(resourceState).find(r => r.booking.staffId === a.id); const resB = Object.values(resourceState).find(r => r.booking.staffId === b.id); const timeA = resA?.startTime ? new Date(resA.startTime).getTime() : 0; const timeB = resB?.startTime ? new Date(resB.startTime).getTime() : 0; return timeA !== timeB ? timeA - timeB : sortIdAsc(a, b); });
             const readyStaff = staffList.filter(s => { const st = getStatus(s.id); return st === 'READY' || st === 'EAT' || st === 'OUT_SHORT'; }).sort((a,b) => { const timeA = statusData[a.id]?.checkInTime || 0; const timeB = statusData[b.id]?.checkInTime || 0; return timeA !== timeB ? timeA - timeB : sortIdAsc(a, b); });
             const readyQueue = readyStaff.filter(s => getStatus(s.id) === 'READY').map(s => s.id);
-            const todaysBookings = useMemo(() => bookings.filter(b => isWithinOperationalDay(b.startTimeString.split(' ')[0], b.startTimeString.split(' ')[1], viewDate)), [bookings, viewDate]);
+            
+            const todaysBookings = useMemo(() => {
+                const safe = Array.isArray(bookings) ? bookings : [];
+                return safe.filter(b => isWithinOperationalDay(b.startTimeString.split(' ')[0], b.startTimeString.split(' ')[1], viewDate));
+            }, [bookings, viewDate]);
+
             const goPrevDay = () => { const d = new Date(viewDate); d.setDate(d.getDate()-1); setViewDate(d.toISOString().split('T')[0]); };
             const goNextDay = () => { const d = new Date(viewDate); d.setDate(d.getDate()+1); setViewDate(d.toISOString().split('T')[0]); };
 
             return (
                 <div className="min-h-screen flex flex-col bg-slate-50">
                     <header className="bg-[#1e1b4b] text-white p-3 shadow-md flex justify-between items-center sticky top-0 z-50">
-                        <div className="flex items-center gap-3"><span className="bg-amber-500 text-black px-2 py-1 rounded font-black text-sm">V170 (Staff Swap)</span><span className="font-bold hidden md:inline">XinWuChan</span><div className="flex items-center gap-2 bg-white/10 rounded px-2 py-1 border border-white/20"><button onClick={goPrevDay} className="text-white hover:text-amber-400 font-bold px-2">❮</button><input type="date" value={viewDate} onChange={(e) => setViewDate(e.target.value)} className="bg-transparent text-white font-bold outline-none cursor-pointer text-center" style={{colorScheme: 'dark'}} /><button onClick={goNextDay} className="text-white hover:text-amber-400 font-bold px-2">❯</button></div></div>
+                        <div className="flex items-center gap-3"><span className="bg-amber-500 text-black px-2 py-1 rounded font-black text-sm">V231 (Smart Wiggle +/- 5m)</span><span className="font-bold hidden md:inline">XinWuChan</span><div className="flex items-center gap-2 bg-white/10 rounded px-2 py-1 border border-white/20"><button onClick={goPrevDay} className="text-white hover:text-amber-400 font-bold px-2">❮</button><input type="date" value={viewDate} onChange={(e) => setViewDate(e.target.value)} className="bg-transparent text-white font-bold outline-none cursor-pointer text-center" style={{colorScheme: 'dark'}} /><button onClick={goNextDay} className="text-white hover:text-amber-400 font-bold px-2">❯</button></div></div>
                         <div className="flex gap-2"><button onClick={()=>setShowWalkIn(true)} className="bg-amber-500 hover:bg-amber-400 text-black px-4 py-1.5 rounded font-bold text-sm flex gap-1 items-center"><i className="fas fa-bolt"></i> 快速接單</button><button onClick={()=>setShowCheckIn(true)} className="bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-1.5 rounded font-bold text-sm flex gap-1 items-center"><i className="fas fa-user-clock"></i> 技師打卡</button></div>
                     </header>
                     <div className="bg-white border-b shadow-sm p-3 overflow-x-auto whitespace-nowrap staff-scroll"><div className="flex w-full justify-between items-center min-w-max"><div className="flex gap-2 opacity-30 scale-90 border-r-2 pr-4 mr-2 border-dashed border-slate-300">{awayStaff.map(s => <StaffCard3D key={s.id} s={s} statusData={statusData} resourceState={resourceState} />)}</div><div className="flex items-center flex-1 justify-end pl-4"><div className="flex flex-row-reverse gap-2 px-4 border-r border-red-100">{busyStaff.map(s => <StaffCard3D key={s.id} s={s} statusData={statusData} resourceState={resourceState} />)}</div><div className="flex flex-row-reverse gap-2 pl-4">{readyStaff.map((s, idx) => { const qIdx = readyQueue.indexOf(s.id); return <StaffCard3D key={s.id} s={s} statusData={statusData} resourceState={resourceState} queueIndex={qIdx !== -1 ? qIdx : undefined} />; })}</div></div></div></div>
