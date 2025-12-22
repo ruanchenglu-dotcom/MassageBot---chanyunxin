@@ -1,6 +1,9 @@
 // ==============================================================================
-// XINWUCHAN BOT V121 - FINAL STABLE
-// FIX: LOGIC CA ĐÊM (0H-2H) TỰ ĐỘNG CỘNG NGÀY & FULL TÍNH NĂNG
+// XINWUCHAN BOT V124 - FULL UNABRIDGED (BẢN ĐẦY ĐỦ KHÔNG VIẾT TẮT)
+// TÍNH NĂNG:
+// 1. ĐỌC CA LÀM VIỆC CHÍNH XÁC TỪ SHEET (KHÔNG DÙNG GIỜ MẶC ĐỊNH)
+// 2. CHECK NGÀY OFF CỤ THỂ THEO CỘT NGÀY THÁNG
+// 3. FIX LỖI 0H ĐÊM VÀ HIỂN THỊ ĐÚNG TRẠNG THÁI
 // ==============================================================================
 
 require('dotenv').config(); 
@@ -20,12 +23,10 @@ const config = {
 const ID_BA_CHU = process.env.ID_BA_CHU;
 const SHEET_ID = process.env.SHEET_ID;
 
-// Tên các Sheet trong Google Spreadsheet
 const BOOKING_SHEET = 'Sheet1'; 
 const STAFF_SHEET = 'StaffLog';
-const SCHEDULE_SHEET = 'StaffSchedule';
+const SCHEDULE_SHEET = 'StaffSchedule'; // Sheet chứa lịch làm việc
 
-// Cấu hình tài nguyên (Ghế/Giường)
 const MAX_CHAIRS = 6; 
 const MAX_BEDS = 6;   
 
@@ -41,7 +42,8 @@ let SERVER_RESOURCE_STATE = {}; // Trạng thái ghế từ Admin Web
 let SERVER_STAFF_STATUS = {};   // Trạng thái thợ từ Admin Web
 let STAFF_LIST = []; 
 let cachedBookings = []; 
-let cachedSchedule = []; 
+// scheduleMap: Lưu trạng thái OFF theo ngày. Key: "YYYY/MM/DD", Value: ["StaffA", "StaffB"]
+let scheduleMap = {}; 
 let userState = {}; 
 
 // --- 2. BẢNG GIÁ DỊCH VỤ ---
@@ -79,7 +81,6 @@ function normalizePhoneNumber(phone) {
     return phone.replace(/[^0-9]/g, '');
 }
 
-// Tạo danh sách 15 ngày tới để chọn
 function getNext15Days() { 
     let days = []; 
     const t = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Taipei' })); 
@@ -102,14 +103,15 @@ function getNext15Days() {
     return days; 
 }
 
-// Kiểm tra nhân viên có trong ca làm việc không
+// Kiểm tra giờ khách đặt có nằm trong ca làm việc không
 function isWithinShift(staff, requestTimeStr) {
+    // Nếu không có dữ liệu ca, mặc định là làm việc (tránh lỗi chặn oan)
     if (!staff.shiftStart || !staff.shiftEnd) return true;
     
     const getMins = (t) => {
         if(!t) return 0;
         const [h, m] = t.split(':').map(Number);
-        // Quan trọng: 0h-7h được tính là 24h-31h để so sánh ca đêm
+        // Chuyển 0h-7h thành 24h-31h để so sánh ca đêm
         return (h < 8 ? h + 24 : h) * 60 + (m || 0);
     };
     
@@ -117,23 +119,24 @@ function isWithinShift(staff, requestTimeStr) {
     const endMins = getMins(staff.shiftEnd);
     const requestMins = getMins(requestTimeStr);
     
-    // Nếu ca làm việc qua đêm (VD: 10:00 sáng -> 02:00 sáng hôm sau)
+    // Xử lý ca qua đêm (VD: 14:00 - 02:00)
     if (endMins < startMins) {
-        const adjustedEnd = endMins + (24 * 60); // Cộng thêm 24h cho giờ kết thúc
+        const adjustedEnd = endMins + (24 * 60); // 02:00 -> 26:00
         return requestMins >= startMins && requestMins < adjustedEnd;
     } else {
+        // Ca ngày thường (VD: 08:00 - 20:00)
         return requestMins >= startMins && requestMins < endMins;
     }
 }
 
-// Format ngày hiển thị chuẩn
 function formatDateDisplay(dateInput) {
     if (!dateInput) return "";
     try {
         let str = dateInput.toString().trim();
-        if (str.includes('/')) return str.split(' ')[0]; 
-        if (str.includes('-')) str = str.replace(/-/g, '/');
-        
+        // Xử lý định dạng YYYY/MM/DD từ sheet
+        if (str.match(/^\d{4}[\/\-]\d{2}[\/\-]\d{2}/)) {
+            return str.replace(/-/g, '/').split(' ')[0];
+        }
         let d = new Date(str);
         if (isNaN(d.getTime())) return str;
         
@@ -158,7 +161,6 @@ function getCurrentDateTimeStr() {
     return `${year}/${month}/${day} ${hh}:${mm}`;
 }
 
-// Chuyển chuỗi "YYYY/MM/DD HH:MM" thành đối tượng Date
 function parseStringToDate(dateStr) {
     if (!dateStr || typeof dateStr !== 'string') return null;
     try {
@@ -175,18 +177,17 @@ function parseStringToDate(dateStr) {
         const day = parseInt(dateNums[2]);
         const hour = parseInt(timeNums[0]) || 0;
         const min = parseInt(timeNums[1]) || 0;
-        
         return new Date(year, month, day, hour, min);
     } catch (e) { return null; }
 }
 
 // ==============================================================================
-// 4. ĐỒNG BỘ DỮ LIỆU (SYNC) - ĐỌC SHEET
+// 4. SYNC DATA (CẢI TIẾN LOGIC ĐỌC SHEET CHUẨN XÁC)
 // ==============================================================================
 
 async function syncData() {
     try {
-        // --- 1. Đọc danh sách đặt chỗ (Bookings) ---
+        // --- 1. ĐỌC BOOKING ---
         const resBooking = await sheets.spreadsheets.values.get({ 
             spreadsheetId: SHEET_ID, 
             range: `${BOOKING_SHEET}!A:K` 
@@ -207,7 +208,6 @@ async function syncData() {
                 let type = 'BED'; 
                 let category = 'BODY';
                 
-                // Map lại thông tin dịch vụ
                 for (const key in SERVICES) {
                     if (serviceStr.includes(SERVICES[key].name.split('(')[0])) { 
                         duration = SERVICES[key].duration; 
@@ -216,13 +216,12 @@ async function syncData() {
                         break;
                     }
                 }
-                
                 let pax = 1;
                 if (row[5]) pax = parseInt(row[5]); 
 
                 cachedBookings.push({
                     rowId: i + 1,
-                    startTimeString: `${row[0]} ${row[1]}`, // Format: YYYY/MM/DD HH:MM
+                    startTimeString: `${row[0]} ${row[1]}`, 
                     duration: duration,
                     type: type,
                     category: category,
@@ -231,65 +230,71 @@ async function syncData() {
                     customerName: `${row[2]} (${row[6]})`,
                     serviceName: serviceStr,
                     status: status,
-                    lineId: row[9] 
+                    lineId: row[9]
                 });
             }
         }
 
-        // --- 2. Đọc Lịch làm việc & Danh sách Thợ (Staff & Schedule) ---
+        // --- 2. ĐỌC SCHEDULE & OFF DAYS ---
         const resSchedule = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: `${SCHEDULE_SHEET}!A1:AG100` });
         const rows = resSchedule.data.values;
-        cachedSchedule = [];
-        const tempStaffList = [];
+        
+        STAFF_LIST = [];
+        scheduleMap = {}; // Reset map OFF
 
         if (rows && rows.length > 1) {
-            const headerDates = rows[0]; 
+            const headerRow = rows[0]; // Dòng 1 chứa ngày: 2025/12/01, 2025/12/02...
+            
+            // Duyệt từng nhân viên (từ dòng 2 trở đi)
             for (let i = 1; i < rows.length; i++) {
-                const staffName = rows[i][0];
-                if (staffName && staffName.trim() !== '') {
-                    const cleanName = staffName.trim();
-                    const staffGenderRaw = rows[i][1];
-                    let gender = 'M';
-                    if (staffGenderRaw && (staffGenderRaw.trim() === '女' || staffGenderRaw.trim().toUpperCase() === 'F')) {
-                        gender = 'F';
-                    }
+                const row = rows[i];
+                const staffName = row[0]; // Cột A: Tên
+                if (!staffName) continue;
+                
+                const cleanName = staffName.trim();
+                const genderRaw = row[1]; // Cột B: Giới tính
+                const gender = (genderRaw && (genderRaw === '女' || genderRaw === 'F')) ? 'F' : 'M';
+                
+                // Cột C: Giờ vào, Cột D: Giờ ra
+                const shiftStart = row[2] || '08:00'; 
+                const shiftEnd = row[3] || '03:00';
+
+                STAFF_LIST.push({
+                    id: cleanName,
+                    name: cleanName,
+                    gender: gender,
+                    shiftStart: shiftStart,
+                    shiftEnd: shiftEnd
+                });
+
+                // Duyệt các cột ngày tháng (Từ cột E - index 4 trở đi)
+                for (let j = 4; j < row.length; j++) {
+                    const dateHeader = headerRow[j]; // VD: 2025/12/01
+                    const cellValue = row[j];        // VD: "OFF"
                     
-                    const shiftStart = rows[i][2] || '10:00';
-                    const shiftEnd = rows[i][3] || '02:00'; // Mặc định đến 2h sáng
-                    
-                    tempStaffList.push({ id: cleanName, name: cleanName, gender: gender, shiftStart: shiftStart, shiftEnd: shiftEnd });
-                    
-                    // Đọc ngày nghỉ từ bảng
-                    if (headerDates.length > 4) {
-                        for (let j = 4; j < rows[i].length; j++) {
-                            const status = rows[i][j];
-                            const rawDateStr = headerDates[j]; 
-                            if (status && rawDateStr && status.trim() !== '') {
-                                const formattedDate = formatDateDisplay(rawDateStr);
-                                if (formattedDate) cachedSchedule.push({ date: formattedDate, staffId: cleanName });
-                            }
+                    if (dateHeader && cellValue && cellValue.toUpperCase().includes('OFF')) {
+                        const formattedDate = formatDateDisplay(dateHeader);
+                        if (!scheduleMap[formattedDate]) {
+                            scheduleMap[formattedDate] = [];
                         }
+                        scheduleMap[formattedDate].push(cleanName);
                     }
                 }
             }
-        } 
-        
-        if (tempStaffList.length > 0) {
-            STAFF_LIST = tempStaffList;
-        } else {
-            // Fallback nếu chưa cấu hình sheet thợ
-            STAFF_LIST = [];
-            for(let i=1; i<=20; i++) STAFF_LIST.push({id:`${i}號`, name:`${i}號`, gender:'F', shiftStart:'09:00', shiftEnd:'03:00'});
         }
         
-        console.log(`Synced: ${cachedBookings.length} bookings. Staff: ${STAFF_LIST.length}`);
+        // Fallback nếu không đọc được nhân viên
+        if (STAFF_LIST.length === 0) {
+            for(let i=1; i<=20; i++) STAFF_LIST.push({id:`${i}號`, name:`${i}號`, gender:'F', shiftStart:'08:00', shiftEnd:'03:00'});
+        }
+        
+        console.log(`Synced: ${cachedBookings.length} bookings. Staff count: ${STAFF_LIST.length}. OFF Days Map loaded.`);
     } catch (e) { console.error('Sync Error:', e); }
 }
 
 async function ghiVaoSheet(data) {
     try {
         const timeCreate = getCurrentDateTimeStr(); 
-        // Đảm bảo ngày ghi vào sheet là chuẩn
         let colA_Date = formatDateDisplay(data.ngayDen);     
         
         let colB_Time = data.gioDen || "";
@@ -318,7 +323,9 @@ async function ghiVaoSheet(data) {
             valueInputOption: 'USER_ENTERED',
             requestBody: { values: valuesToWrite }
         });
+        
         await syncData(); 
+        
     } catch (e) { console.error('[ERROR] Lỗi ghi Sheet:', e); }
 }
 
@@ -360,48 +367,45 @@ async function layLichDatGanNhat(userId) {
 }
 
 // ==============================================================================
-// 5. CORE LOGIC: KIỂM TRA TRỐNG (CHECK AVAILABILITY) - QUAN TRỌNG
+// 5. CORE LOGIC (ĐÃ FIX CHECK LỊCH CA & OFF)
 // ==============================================================================
 
 function checkAvailability(dateStr, timeStr, serviceDuration, serviceType, specificStaffIds = null, pax = 1, requireFemale = false, requireMale = false) {
     const displayDate = formatDateDisplay(dateStr); 
-    
-    // Tạo object Date cho thời gian khách muốn đặt
     const startRequest = parseStringToDate(`${displayDate} ${timeStr}`);
     
-    // --- [FIX QUAN TRỌNG: LOGIC 0H-7H] ---
-    // Nếu giờ đặt < 8 (ví dụ 00:00, 01:00), nghĩa là thuộc rạng sáng ngày hôm sau
+    // Fix logic 0h: Nếu giờ < 8 thì hiểu là sáng hôm sau của ngày đó
     const hourVal = parseInt(timeStr.split(':')[0]);
     if (hourVal < 8) {
-        startRequest.setDate(startRequest.getDate() + 1); // Tự động cộng 1 ngày
+        startRequest.setDate(startRequest.getDate() + 1);
     }
 
     if (!startRequest) return false;
     
-    // Kiểm tra không cho đặt quá khứ
+    // Không cho đặt quá khứ
     const nowTaipeiStr = new Date().toLocaleString('en-US', { timeZone: 'Asia/Taipei', hour12: false });
     const now = parseStringToDate(nowTaipeiStr); 
     if (startRequest.getTime() <= now.getTime()) return false;
 
-    // Thời gian kết thúc dự kiến
     const endRequest = new Date(startRequest.getTime() + serviceDuration * 60000);
-    
-    // Nếu đặt lịch sát giờ hiện tại (< 30 phút), kiểm tra kỹ hơn trạng thái Admin Dashboard
     const isBookingForNow = (startRequest.getTime() - now.getTime()) < 30 * 60000;
 
-    // Lọc nhân viên đi làm (trừ người nghỉ)
-    const staffOffToday = cachedSchedule.filter(s => s.date === displayDate).map(s => s.staffId);
-    
-    const workingStaffs = STAFF_LIST.filter(staff => {
-        if (staffOffToday.includes(staff.id)) return false; 
-        
-        if (requireFemale && staff.gender !== 'F' && staff.gender !== '女') return false;
-        if (requireMale && staff.gender !== 'M' && staff.gender !== '男') return false;
+    // Lấy danh sách thợ OFF trong ngày này từ Map đã sync
+    const offList = scheduleMap[displayDate] || [];
 
-        // Kiểm tra ca làm việc (Shift)
+    // --- BƯỚC 1: LỌC NHÂN VIÊN ĐI LÀM ---
+    const workingStaffs = STAFF_LIST.filter(staff => {
+        // 1. Check OFF
+        if (offList.includes(staff.name)) return false; 
+        
+        // 2. Check Giới tính
+        if (requireFemale && staff.gender !== 'F') return false;
+        if (requireMale && staff.gender !== 'M') return false;
+
+        // 3. Check Ca làm việc (Đã fix)
         if (!isWithinShift(staff, timeStr)) return false; 
         
-        // Nếu đặt ngay bây giờ, kiểm tra xem nhân viên có đang bận trên Dashboard không
+        // 4. Check trạng thái Online (nếu đặt ngay)
         if (isBookingForNow) {
             const status = SERVER_STAFF_STATUS[staff.id];
             if (status && (status.status === 'BUSY' || status.status === 'AWAY')) return false;
@@ -411,7 +415,7 @@ function checkAvailability(dateStr, timeStr, serviceDuration, serviceType, speci
 
     if (workingStaffs.length === 0) return false;
 
-    // Nếu khách chọn đích danh thợ
+    // Check nếu khách chọn đích danh
     if (specificStaffIds) {
         const idsToCheck = Array.isArray(specificStaffIds) ? specificStaffIds : [specificStaffIds];
         for (const id of idsToCheck) {
@@ -419,16 +423,14 @@ function checkAvailability(dateStr, timeStr, serviceDuration, serviceType, speci
         }
     }
 
-    // Biến đếm tài nguyên đã dùng
+    // --- BƯỚC 2: TÍNH TOÁN TÀI NGUYÊN ĐANG BẬN ---
     let usedChairs = 0; 
     let usedBeds = 0; 
     let workingStaffBusy = 0; 
     let isSpecificStaffBusy = false;
     let isShopClosed = false;
 
-    // Duyệt qua tất cả booking đã có để tính toán trùng lặp
     for (const booking of cachedBookings) {
-        // Kiểm tra xem có lệnh đóng cửa quán không
         if (booking.staffId === 'ALL_STAFF') {
             const bookingDate = booking.startTimeString.split(' ')[0];
             if (bookingDate === displayDate) { isShopClosed = true; break; }
@@ -437,18 +439,16 @@ function checkAvailability(dateStr, timeStr, serviceDuration, serviceType, speci
         let startExisting = parseStringToDate(booking.startTimeString);
         if (!startExisting) continue;
 
-        // [FIX BOOKING CŨ CŨNG CẦN XỬ LÝ 0H]
         const bHour = parseInt(booking.startTimeString.split(' ')[1].split(':')[0]);
-        if (bHour < 8) {
-             startExisting.setDate(startExisting.getDate() + 1);
-        }
+        if (bHour < 8) startExisting.setDate(startExisting.getDate() + 1);
 
         const endExisting = new Date(startExisting.getTime() + booking.duration * 60000);
 
-        // Logic va chạm thời gian (Overlap)
+        // Check trùng giờ
         if (startRequest < endExisting && endRequest > startExisting) {
             const bookingPax = booking.pax || 1;
-            workingStaffBusy += bookingPax;
+            workingStaffBusy += bookingPax; 
+            
             if (booking.type === 'CHAIR') usedChairs += bookingPax;
             if (booking.type === 'BED') usedBeds += bookingPax;
             
@@ -462,7 +462,6 @@ function checkAvailability(dateStr, timeStr, serviceDuration, serviceType, speci
         }
     }
 
-    // Nếu đặt ngay bây giờ, cộng thêm trạng thái từ Admin Dashboard
     if (isBookingForNow) {
         Object.values(SERVER_RESOURCE_STATE).forEach(res => {
             if (res.isRunning && !res.isPaused) {
@@ -475,18 +474,16 @@ function checkAvailability(dateStr, timeStr, serviceDuration, serviceType, speci
     if (isShopClosed) return false;
     if (isSpecificStaffBusy) return false;
 
-    // Kiểm tra đủ thợ không
+    // --- BƯỚC 3: ĐỐI CHIẾU ---
     const availableStaffCount = workingStaffs.length - workingStaffBusy;
     if (!specificStaffIds && availableStaffCount < pax) return false;
 
-    // Kiểm tra đủ ghế/giường không
     if (serviceType === 'CHAIR' && (usedChairs + pax) > MAX_CHAIRS) return false;
     if (serviceType === 'BED' && (usedBeds + pax) > MAX_BEDS) return false;
 
-    return true; // OK, có chỗ
+    return true; 
 }
 
-// Hàm tạo các nút giờ (Bubbles)
 function generateTimeBubbles(selectedDate, serviceCode, specificStaffIds = null, pax = 1, requireFemale = false, requireMale = false) {
     const nowTaipeiStr = new Date().toLocaleString('en-US', { timeZone: 'Asia/Taipei', hour12: false });
     const nowTaipei = new Date(nowTaipeiStr);
@@ -501,12 +498,11 @@ function generateTimeBubbles(selectedDate, serviceCode, specificStaffIds = null,
     const service = SERVICES[serviceCode]; 
     if (!service) return null;
     
-    // Tạo khung giờ từ 08:00 đến 24:30 (0h30 sáng hôm sau)
-    // 8, 8.5, 9, ... 24, 24.5
     let allSlots = []; 
+    // Tạo slot từ 8h sáng tới 24h30
     for (let h = 8; h <= 24; h++) {
         allSlots.push(h);       
-        if(h < 24.5) allSlots.push(h + 0.5); // Thêm mốc 30 phút
+        if(h < 24.5) allSlots.push(h + 0.5); 
     }
     if (allSlots[allSlots.length-1] !== 24.5) allSlots.push(24.5);
     
@@ -515,8 +511,8 @@ function generateTimeBubbles(selectedDate, serviceCode, specificStaffIds = null,
         availableSlots = allSlots.filter(h => {
             let slotVal = h;
             let curVal = currentHourFloat;
-            if (curVal < 8) curVal += 24; // Nếu hiện tại là 1h sáng -> thành 25h
-            return slotVal > curVal; // Chỉ lấy giờ tương lai
+            if (curVal < 8) curVal += 24; 
+            return slotVal > curVal; 
         });
     } else {
         availableSlots = allSlots;
@@ -526,12 +522,9 @@ function generateTimeBubbles(selectedDate, serviceCode, specificStaffIds = null,
     for (const h of availableSlots) {
         const hourInt = Math.floor(h);
         const minuteStr = (h % 1) > 0 ? '30' : '00';
-        
-        // Chuyển 24h -> 0h, 25h -> 1h để hiển thị
         const displayH = hourInt < 24 ? hourInt : hourInt - 24; 
         const timeStr = `${displayH.toString().padStart(2, '0')}:${minuteStr}`;
         
-        // Gọi hàm kiểm tra (đã có logic tự +1 ngày bên trong)
         if (checkAvailability(selectedDate, timeStr, service.duration, service.type, specificStaffIds, pax, requireFemale, requireMale)) { 
             validSlots.push(h); 
         }
@@ -539,7 +532,6 @@ function generateTimeBubbles(selectedDate, serviceCode, specificStaffIds = null,
     
     if (validSlots.length === 0) return null;
     
-    // Format hiển thị trên nút
     const formatTime = (h) => {
         const hourInt = Math.floor(h);
         const minuteStr = (h % 1) > 0 ? '30' : '00';
@@ -547,7 +539,6 @@ function generateTimeBubbles(selectedDate, serviceCode, specificStaffIds = null,
         return `${(hourInt - 24).toString().padStart(2, '0')}:${minuteStr} (凌晨)`;
     };
     
-    // Giá trị gửi về server (chỉ cần HH:MM, logic server sẽ tự xử lý ngày)
     const formatValue = (h) => {
         const hourInt = Math.floor(h);
         const minuteStr = (h % 1) > 0 ? '30' : '00';
@@ -599,7 +590,6 @@ function createStaffBubbles(filterFemale = false, excludedIds = []) {
     return bubbles;
 }
 
-// Menu Flex Message
 function createMenuFlexMessage() {
     const createRow = (serviceName, time, price) => ({
         "type": "box", "layout": "horizontal", "contents": [
@@ -640,7 +630,7 @@ function createMenuFlexMessage() {
 }
 
 // ==============================================================================
-// 6. SERVER ROUTES
+// 6. SERVER ROUTES (ĐẦY ĐỦ API CHO ADMIN/KIOSK)
 // ==============================================================================
 const client = new line.Client(config);
 const app = express();
@@ -659,7 +649,7 @@ app.get('/api/info', async (req, res) => {
     res.json({ 
         staffList: STAFF_LIST, 
         bookings: cachedBookings, 
-        schedule: cachedSchedule, 
+        schedule: scheduleMap, 
         resources: { chairs: MAX_CHAIRS, beds: MAX_BEDS },
         resourceState: SERVER_RESOURCE_STATE,
         staffStatus: SERVER_STAFF_STATUS 
@@ -720,7 +710,7 @@ app.post('/api/update-booking-details', async (req, res) => {
 });
 
 // ==============================================================================
-// 7. XỬ LÝ SỰ KIỆN LINE BOT (HANDLE EVENT)
+// 7. BOT HANDLE EVENT (XỬ LÝ SỰ KIỆN LINE BOT)
 // ==============================================================================
 async function handleEvent(event) {
   if (event.type !== 'message' || event.message.type !== 'text' && event.type !== 'postback') return Promise.resolve(null);
@@ -772,7 +762,7 @@ async function handleEvent(event) {
       return client.replyMessage(event.replyToken, { type: 'text', text: `✅ 已登記: ${staffId} - ${logType}\n(${logNote})` }); 
   }
 
-  // --- QUY TRÌNH ĐẶT LỊCH (BOOKING FLOW) ---
+  // --- BOOKING FLOW ---
   if (text.startsWith('Cat:')) { 
       const category = text.split(':')[1]; 
       const buttons = Object.keys(SERVICES).filter(k => SERVICES[k].category === category).map(key => ({ 
@@ -926,8 +916,7 @@ async function handleEvent(event) {
       const sdt = normalizePhoneNumber(text); 
       const s = userState[userId];
       
-      // [FIX: TỰ ĐỘNG CẬP NHẬT NGÀY NẾU LÀ CA ĐÊM (00:00 - 08:00)]
-      // Nếu khách chọn 25/12 lúc 0h, hệ thống tự hiểu là sáng 26/12
+      // AUTO FIX DATE IF NIGHT SHIFT (00:00 - 08:00)
       let finalDate = s.date;
       const hour = parseInt(s.time.split(':')[0]);
       if (hour < 8) {
@@ -979,5 +968,5 @@ async function handleEvent(event) {
 syncData();
 const port = process.env.PORT || 3000;
 app.listen(port, () => {
-    console.log(`Bot V121 (Full Standard & 0H Fixed) running on ${port}`);
+    console.log(`Bot V124 (Full Unabridged) running on ${port}`);
 });
