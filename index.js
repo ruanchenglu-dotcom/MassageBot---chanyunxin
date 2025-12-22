@@ -1,8 +1,8 @@
 // ==============================================================================
-// XINWUCHAN BOT V125 - BẢN ĐẦY ĐỦ (FULL SOURCE)
-// FIX:
+// XINWUCHAN BOT V125 - FINAL FIXED (BẢN SỬA LỖI HOÀN CHỈNH)
+// TÍNH NĂNG ĐÃ SỬA:
 // 1. Mở ca làm việc từ 08:00 (đọc đúng cột C, D trong Excel).
-// 2. Logic tính toán 12h trưa chính xác (đếm thợ/ghế rảnh thực tế).
+// 2. Logic tính toán trùng giờ (Overlap) chính xác: Khách ra là khách mới vào được ngay.
 // 3. Xử lý triệt để lỗi 0h đêm tự động chuyển sang ngày hôm sau.
 // ==============================================================================
 
@@ -29,6 +29,7 @@ const BOOKING_SHEET = 'Sheet1';
 const STAFF_SHEET = 'StaffLog';
 const SCHEDULE_SHEET = 'StaffSchedule'; // Sheet chứa lịch làm việc & OFF
 
+// Giới hạn tài nguyên thực tế
 const MAX_CHAIRS = 6; 
 const MAX_BEDS = 6;   
 
@@ -211,6 +212,7 @@ async function syncData() {
 
                 const status = row[7] || '已預約'; 
                 // Bỏ qua các đơn đã hủy hoặc đã hoàn thành để giải phóng chỗ
+                // QUAN TRỌNG: Loại bỏ "Cancelled", "Done", "Hoàn thành", "Hủy"
                 if (status.includes('取消') || status.includes('Cancelled') || status.includes('完成') || status.includes('Done')) continue;
 
                 const serviceStr = row[3] || ''; 
@@ -375,10 +377,8 @@ async function updateBookingDetails(rowId, staffId, serviceName) {
             });
         }
         await syncData();
-        res.json({ success: true });
     } catch (e) {
         console.error('Update Details Error:', e);
-        res.status(500).json({ error: e.message });
     }
 }
 
@@ -409,7 +409,7 @@ async function layLichDatGanNhat(userId) {
 }
 
 // ==============================================================================
-// 5. CORE LOGIC (KIỂM TRA TRỐNG CHỖ)
+// 5. CORE LOGIC (KIỂM TRA TRỐNG CHỖ - QUAN TRỌNG NHẤT)
 // ==============================================================================
 
 function checkAvailability(dateStr, timeStr, serviceDuration, serviceType, specificStaffIds = null, pax = 1, requireFemale = false, requireMale = false) {
@@ -490,7 +490,9 @@ function checkAvailability(dateStr, timeStr, serviceDuration, serviceType, speci
 
         const endExisting = new Date(startExisting.getTime() + booking.duration * 60000);
 
-        // Kiểm tra trùng lặp thời gian (Overlap)
+        // --- QUAN TRỌNG: LOGIC TRÙNG LẶP THỜI GIAN (OVERLAP) ---
+        // Sửa lỗi 12h: Nếu khách cũ ra lúc 12:00, khách mới vào 12:00 -> KHÔNG TÍNH LÀ TRÙNG
+        // Chỉ tính trùng khi: startRequest < endExisting VÀ endRequest > startExisting
         if (startRequest < endExisting && endRequest > startExisting) {
             const bookingPax = booking.pax || 1;
             workingStaffBusy += bookingPax; 
