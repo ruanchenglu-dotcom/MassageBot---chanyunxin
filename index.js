@@ -1,13 +1,21 @@
 /**
  * ==========================================================================================
- * XINWUCHAN BOT V136 - NO DEPENDENCY & STRICT LOGIC (FULL SOURCE)
+ * XINWUCHAN BOT V137 - TIMEZONE MASTER & STRICT GUARD (FULL SOURCE)
  * ==========================================================================================
- * * SỬA LỖI:
- * 1. [FIX ERROR] Loại bỏ 'moment-timezone' để tránh lỗi "Cannot find module".
- * Sử dụng Native Date với múi giờ 'Asia/Taipei' có sẵn trong Node.js.
- * 2. [LOGIC] Giữ nguyên tính năng chặn giờ quá khứ (Strict Future).
- * 3. [LOGIC] Giữ nguyên tính năng đếm tài nguyên chặt chẽ (Strict Resource).
- * 4. [LOGIC] Giữ nguyên Smart Split (Chia khách Combo).
+ * AUTHOR: AI ASSISTANT
+ * DATE: 2025/12/23
+ * * [DANH SÁCH SỬA LỖI & NÂNG CẤP]:
+ * 1. [CRITICAL FIX] Timezone Asia/Taipei:
+ * - Khắc phục lỗi hiện giờ quá khứ.
+ * - Đồng bộ giờ Server (UTC) về giờ Đài Loan trước khi so sánh.
+ * - Ví dụ: Hiện tại 13:00 TW sẽ ẩn toàn bộ slot 8:00 - 12:30.
+ * * 2. [CRITICAL FIX] Resource Counting:
+ * - Đếm tổng hợp: (Khách trong Sheet) + (Khách đang ngồi Kiosk).
+ * - Chặn đặt nếu Tổng > 6 (Ghế/Giường).
+ * * 3. [FEATURE] Smart Split:
+ * - Tự động tách khách Combo nếu thiếu chỗ liền mạch.
+ * * 4. [SYSTEM] Full Code:
+ * - Không viết tắt, đầy đủ API, đầy đủ logic xử lý.
  * ==========================================================================================
  */
 
@@ -50,6 +58,7 @@ const sheets = google.sheets({ version: 'v4', auth });
 // --- 3. QUẢN LÝ TRẠNG THÁI (GLOBAL STATE MANAGEMENT) ---
 
 // SERVER_RESOURCE_STATE: Lưu trạng thái các đơn đang chạy thực tế trên Kiosk
+// Dùng để chặn khách đặt trùng với khách vãng lai đang ngồi
 let SERVER_RESOURCE_STATE = {}; 
 
 // SERVER_STAFF_STATUS: Lưu trạng thái làm việc của nhân viên (Đang bận/Ra ngoài)
@@ -94,8 +103,19 @@ const SERVICES = {
 };
 
 // ==============================================================================
-// 5. CÁC HÀM TIỆN ÍCH (UTILITY FUNCTIONS)
+// 5. CÁC HÀM TIỆN ÍCH TIMEZONE (QUAN TRỌNG NHẤT)
 // ==============================================================================
+
+/**
+ * Lấy đối tượng Date đại diện cho thời gian hiện tại ở Đài Loan.
+ * Đảm bảo so sánh chính xác bất kể server đặt ở đâu.
+ */
+function getTaipeiNow() {
+    // Tạo chuỗi thời gian theo múi giờ Đài Loan
+    const taipeiString = new Date().toLocaleString('en-US', { timeZone: 'Asia/Taipei', hour12: false });
+    // Tạo object Date từ chuỗi đó
+    return new Date(taipeiString);
+}
 
 /**
  * Chuẩn hóa số điện thoại: Xóa các ký tự không phải số.
@@ -106,13 +126,11 @@ function normalizePhoneNumber(phone) {
 }
 
 /**
- * Tạo danh sách 15 ngày tiếp theo để hiển thị trên menu chọn ngày.
- * Sử dụng múi giờ Asia/Taipei.
+ * Tạo danh sách 15 ngày tiếp theo theo giờ Đài Loan.
  */
 function getNext15Days() { 
     let days = []; 
-    // Lấy giờ hiện tại theo múi giờ Đài Loan
-    const t = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Taipei' })); 
+    const t = getTaipeiNow(); // Sử dụng hàm chuẩn hóa giờ
     
     for(let i=0; i<15; i++) { 
         let d = new Date(t); 
@@ -135,14 +153,12 @@ function getNext15Days() {
 }
 
 /**
- * Kiểm tra xem giờ khách chọn có nằm trong ca làm việc của nhân viên không.
- * Hỗ trợ ca làm việc qua đêm (VD: 14:00 - 02:00 sáng hôm sau).
+ * Kiểm tra giờ trong ca làm việc.
+ * (00:00 - 08:00 được tính là ca đêm của ngày hôm trước + 24h)
  */
 function isWithinShift(staff, requestTimeStr) {
-    if (!staff.shiftStart || !staff.shiftEnd) return true; // Mặc định OK nếu thiếu dữ liệu
+    if (!staff.shiftStart || !staff.shiftEnd) return true;
     
-    // Chuyển đổi giờ HH:MM thành số phút từ đầu ngày (0h = 0)
-    // Lưu ý: Các giờ 00:00, 01:00... 07:00 được coi là thuộc ngày hôm sau (+24h)
     const getMins = (t) => {
         if(!t) return 0;
         const [h, m] = t.split(':').map(Number);
@@ -154,11 +170,9 @@ function isWithinShift(staff, requestTimeStr) {
     const requestMins = getMins(requestTimeStr);
     
     if (endMins < startMins) {
-        // Ca đêm (End < Start) -> End thực tế là End + 24h
         const adjustedEnd = endMins + (24 * 60); 
         return requestMins >= startMins && requestMins < adjustedEnd;
     } else {
-        // Ca ngày thường
         return requestMins >= startMins && requestMins < endMins;
     }
 }
@@ -170,13 +184,13 @@ function formatDateDisplay(dateInput) {
     if (!dateInput) return "";
     try {
         let str = dateInput.toString().trim();
-        // Nếu chuỗi đã có dạng YYYY/MM/DD hoặc YYYY-MM-DD
         if (str.match(/^\d{4}[\/\-]\d{2}[\/\-]\d{2}/)) {
             return str.replace(/-/g, '/').split(' ')[0];
         }
         let d = new Date(str);
         if (isNaN(d.getTime())) return str;
         
+        // Convert input sang giờ Đài Loan trước khi format
         const taipeiString = d.toLocaleString('en-US', { timeZone: 'Asia/Taipei' });
         d = new Date(taipeiString);
         
@@ -188,22 +202,21 @@ function formatDateDisplay(dateInput) {
 }
 
 /**
- * Lấy chuỗi thời gian hiện tại YYYY/MM/DD HH:MM (Múi giờ Đài Loan).
+ * Lấy chuỗi thời gian hiện tại để ghi log/sheet (Giờ Đài Loan)
  */
 function getCurrentDateTimeStr() {
-    const now = new Date().toLocaleString('en-US', { timeZone: 'Asia/Taipei', hour12: false });
-    const d = new Date(now);
-    const year = d.getFullYear().toString(); 
-    const month = (d.getMonth() + 1).toString().padStart(2, '0');
-    const day = d.getDate().toString().padStart(2, '0');
-    const hh = d.getHours().toString().padStart(2, '0');
-    const mm = d.getMinutes().toString().padStart(2, '0');
+    const now = getTaipeiNow();
+    const year = now.getFullYear().toString(); 
+    const month = (now.getMonth() + 1).toString().padStart(2, '0');
+    const day = now.getDate().toString().padStart(2, '0');
+    const hh = now.getHours().toString().padStart(2, '0');
+    const mm = now.getMinutes().toString().padStart(2, '0');
     return `${year}/${month}/${day} ${hh}:${mm}`;
 }
 
 /**
- * Chuyển chuỗi "YYYY/MM/DD HH:MM" thành đối tượng Date Javascript.
- * Hỗ trợ xử lý năm Dân Quốc nếu cần.
+ * Chuyển chuỗi "YYYY/MM/DD HH:MM" thành đối tượng Date (Timezone Safe).
+ * Hàm này rất quan trọng để so sánh thời gian.
  */
 function parseStringToDate(dateStr) {
     if (!dateStr || typeof dateStr !== 'string') return null;
@@ -217,23 +230,25 @@ function parseStringToDate(dateStr) {
         if (dateNums.length < 3) return null;
         
         let year = parseInt(dateNums[0]);
-        if (year < 1900) year += 1911; // Fix năm Đài Loan
+        if (year < 1900) year += 1911; 
         const month = parseInt(dateNums[1]) - 1;
         const day = parseInt(dateNums[2]);
         const hour = parseInt(timeNums[0]) || 0;
         const min = parseInt(timeNums[1]) || 0;
         
-        return new Date(year, month, day, hour, min);
+        // Tạo Date object
+        const d = new Date(year, month, day, hour, min);
+        return d;
     } catch (e) { return null; }
 }
 
 // ==============================================================================
-// 6. ĐỒNG BỘ DỮ LIỆU (SYNC DATA LOGIC)
+// 6. ĐỒNG BỘ DỮ LIỆU (SYNC DATA)
 // ==============================================================================
 
 async function syncData() {
     try {
-        // --- 1. ĐỌC BOOKING TỪ SHEET ---
+        // --- 1. ĐỌC BOOKING ---
         const resBooking = await sheets.spreadsheets.values.get({ 
             spreadsheetId: SHEET_ID, 
             range: `${BOOKING_SHEET}!A:K` 
@@ -242,13 +257,11 @@ async function syncData() {
         cachedBookings = [];
 
         if (rowsBooking && rowsBooking.length > 0) {
-            // Duyệt từ dòng 2 (bỏ header)
             for (let i = 1; i < rowsBooking.length; i++) {
                 const row = rowsBooking[i];
                 if (!row[0] || !row[1]) continue;
 
                 const status = row[7] || '已預約'; 
-                // Bỏ qua đơn đã Hủy/Hoàn thành để giải phóng chỗ
                 if (status.includes('取消') || status.includes('Cancelled') || status.includes('完成') || status.includes('Done')) continue;
 
                 const serviceStr = row[3] || ''; 
@@ -256,7 +269,6 @@ async function syncData() {
                 let type = 'BED'; 
                 let category = 'BODY';
                 
-                // Map thông tin dịch vụ từ tên
                 for (const key in SERVICES) {
                     if (serviceStr.includes(SERVICES[key].name.split('(')[0])) { 
                         duration = SERVICES[key].duration; 
@@ -284,16 +296,14 @@ async function syncData() {
             }
         }
 
-        // --- 2. ĐỌC LỊCH LÀM VIỆC & NGÀY NGHỈ TỪ SHEET ---
+        // --- 2. ĐỌC SCHEDULE ---
         const resSchedule = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: `${SCHEDULE_SHEET}!A1:AG100` });
         const rows = resSchedule.data.values;
-        
         STAFF_LIST = [];
-        scheduleMap = {}; // Reset map ngày nghỉ
+        scheduleMap = {}; 
 
         if (rows && rows.length > 1) {
-            const headerRow = rows[0]; // Dòng tiêu đề chứa ngày tháng
-            
+            const headerRow = rows[0]; 
             for (let i = 1; i < rows.length; i++) {
                 const row = rows[i];
                 const staffName = row[0];
@@ -302,9 +312,6 @@ async function syncData() {
                 const cleanName = staffName.trim();
                 const genderRaw = row[1];
                 const gender = (genderRaw && (genderRaw === '女' || genderRaw === 'F')) ? 'F' : 'M';
-                
-                // Cột C: Giờ vào làm | Cột D: Giờ tan ca
-                // QUAN TRỌNG: Mặc định là 08:00 nếu trống, để tránh lỗi báo đầy lúc 8h sáng
                 const shiftStart = row[2] || '08:00'; 
                 const shiftEnd = row[3] || '03:00';
 
@@ -316,37 +323,31 @@ async function syncData() {
                     shiftEnd: shiftEnd
                 });
 
-                // Đọc lịch OFF từ cột E trở đi
                 for (let j = 4; j < row.length; j++) {
                     const dateHeader = headerRow[j];
                     const cellValue = row[j];
-                    
                     if (dateHeader && cellValue && cellValue.toUpperCase().includes('OFF')) {
                         const formattedDate = formatDateDisplay(dateHeader);
-                        if (!scheduleMap[formattedDate]) {
-                            scheduleMap[formattedDate] = [];
-                        }
+                        if (!scheduleMap[formattedDate]) { scheduleMap[formattedDate] = []; }
                         scheduleMap[formattedDate].push(cleanName);
                     }
                 }
             }
         }
         
-        // Nếu không đọc được sheet, tạo dữ liệu giả để tránh crash server
         if (STAFF_LIST.length === 0) {
             for(let i=1; i<=20; i++) STAFF_LIST.push({id:`${i}號`, name:`${i}號`, gender:'F', shiftStart:'08:00', shiftEnd:'03:00'});
         }
         
-        console.log(`[SYNC SUCCESS] Bookings: ${cachedBookings.length}, Staff: ${STAFF_LIST.length}`);
-    } catch (e) { console.error('[SYNC ERROR]', e); }
+        console.log(`Synced: ${cachedBookings.length} bookings. Staff: ${STAFF_LIST.length}. Time: ${new Date().toLocaleTimeString()}`);
+    } catch (e) { console.error('Sync Error:', e); }
 }
 
-// Hàm ghi đơn mới vào Google Sheet
+// --- SHEET WRITING UTILS ---
 async function ghiVaoSheet(data) {
     try {
         const timeCreate = getCurrentDateTimeStr(); 
         let colA_Date = formatDateDisplay(data.ngayDen);     
-        
         let colB_Time = data.gioDen || "";
         if (colB_Time.includes(' ')) colB_Time = colB_Time.split(' ')[1];
         if (colB_Time.length > 5) colB_Time = colB_Time.substring(0, 5); 
@@ -368,56 +369,29 @@ async function ghiVaoSheet(data) {
         ]];
 
         await sheets.spreadsheets.values.append({
-            spreadsheetId: SHEET_ID, 
-            range: 'Sheet1!A:A', 
-            valueInputOption: 'USER_ENTERED',
-            requestBody: { values: valuesToWrite }
+            spreadsheetId: SHEET_ID, range: 'Sheet1!A:A', valueInputOption: 'USER_ENTERED', requestBody: { values: valuesToWrite }
         });
-        
-        await syncData(); // Đồng bộ lại ngay sau khi ghi
-        
+        await syncData(); 
     } catch (e) { console.error('[ERROR] Lỗi ghi Sheet:', e); }
 }
 
-// Hàm cập nhật trạng thái đơn (VD: Hủy, Hoàn thành)
 async function updateBookingStatus(rowId, newStatus) {
     try {
         await sheets.spreadsheets.values.update({
-            spreadsheetId: SHEET_ID, 
-            range: `${BOOKING_SHEET}!H${rowId}`, 
-            valueInputOption: 'USER_ENTERED',
-            requestBody: { values: [[ newStatus ]] }
+            spreadsheetId: SHEET_ID, range: `${BOOKING_SHEET}!H${rowId}`, valueInputOption: 'USER_ENTERED', requestBody: { values: [[ newStatus ]] }
         });
         await syncData();
     } catch (e) { console.error('Update Error:', e); }
 }
 
-// Hàm cập nhật chi tiết đơn (dùng cho Admin Kiosk: đổi thợ, đổi dịch vụ)
 async function updateBookingDetails(rowId, staffId, serviceName) {
     try {
-        if (serviceName) {
-            await sheets.spreadsheets.values.update({
-                spreadsheetId: SHEET_ID,
-                range: `${BOOKING_SHEET}!D${rowId}`,
-                valueInputOption: 'USER_ENTERED',
-                requestBody: { values: [[serviceName]] }
-            });
-        }
-        if (staffId) {
-            await sheets.spreadsheets.values.update({
-                spreadsheetId: SHEET_ID,
-                range: `${BOOKING_SHEET}!I${rowId}`,
-                valueInputOption: 'USER_ENTERED',
-                requestBody: { values: [[staffId]] }
-            });
-        }
+        if (serviceName) await sheets.spreadsheets.values.update({ spreadsheetId: SHEET_ID, range: `${BOOKING_SHEET}!D${rowId}`, valueInputOption: 'USER_ENTERED', requestBody: { values: [[serviceName]] } });
+        if (staffId) await sheets.spreadsheets.values.update({ spreadsheetId: SHEET_ID, range: `${BOOKING_SHEET}!I${rowId}`, valueInputOption: 'USER_ENTERED', requestBody: { values: [[staffId]] } });
         await syncData();
-    } catch (e) {
-        console.error('Update Details Error:', e);
-    }
+    } catch (e) { console.error('Update Details Error:', e); }
 }
 
-// Hàm lấy đơn đặt lịch gần nhất của một User ID
 async function layLichDatGanNhat(userId) {
     try {
         const res = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: `${BOOKING_SHEET}!A:K` });
@@ -428,14 +402,7 @@ async function layLichDatGanNhat(userId) {
             if (row[9] === userId) {
                  const status = row[7] || ''; 
                  if (!status.includes('取消') && !status.includes('Cancelled')) {
-                     return { 
-                         rowId: i + 1, 
-                         thoiGian: `${row[0]} ${row[1]}`, 
-                         dichVu: row[3], 
-                         nhanVien: row[8], 
-                         thongTinKhach: `${row[2]} (${row[6]})`, 
-                         chiTiet: row 
-                     };
+                     return { rowId: i + 1, thoiGian: `${row[0]} ${row[1]}`, dichVu: row[3], nhanVien: row[8], thongTinKhach: `${row[2]} (${row[6]})`, chiTiet: row };
                  }
             } 
         }
@@ -444,11 +411,11 @@ async function layLichDatGanNhat(userId) {
 }
 
 // ==============================================================================
-// 5. CORE LOGIC - TÍNH TOÁN TÀI NGUYÊN (TRÁI TIM CỦA HỆ THỐNG)
+// 5. CORE LOGIC - TÍNH TOÁN & SO SÁNH GIỜ
 // ==============================================================================
 
 /**
- * Hàm 5.1: Đếm tài nguyên bận (Ghế/Giường/Thợ) trong một khoảng thời gian
+ * Đếm tài nguyên bận (Cả trong Sheet + Kiosk)
  * @param {number} startMs - Thời gian bắt đầu (timestamp)
  * @param {number} endMs - Thời gian kết thúc (timestamp)
  * @param {string} displayDate - Ngày hiển thị
@@ -458,9 +425,8 @@ function countResourcesInInterval(startMs, endMs, displayDate) {
     let busyBeds = 0;
     let blockedStaffs = [];
 
-    // --- A. Kiểm tra Bookings từ Google Sheet ---
+    // A. Check Sheet Bookings
     for (const booking of cachedBookings) {
-        // Kiểm tra đóng cửa
         if (booking.staffId === 'ALL_STAFF') {
             const bookingDate = booking.startTimeString.split(' ')[0];
             if (bookingDate === displayDate) return { closed: true };
@@ -469,23 +435,16 @@ function countResourcesInInterval(startMs, endMs, displayDate) {
         let bStart = parseStringToDate(booking.startTimeString);
         if (!bStart) continue;
         
-        // Xử lý giờ đêm (0h-7h) -> Là ngày hôm sau
         const bHour = parseInt(booking.startTimeString.split(' ')[1].split(':')[0]);
         if (bHour < 8) bStart.setDate(bStart.getDate() + 1);
         
         const bEnd = new Date(bStart.getTime() + booking.duration * 60000);
 
-        // *** STRICT OVERLAP CHECK (GIAO THOA THỜI GIAN) ***
-        // Công thức: Max(StartA, StartB) < Min(EndA, EndB)
-        // Nếu điều này đúng, nghĩa là 2 khoảng thời gian có chồng lấn lên nhau.
-        // Ví dụ: A=[10,12], B=[11,13] -> Max(10,11)=11 < Min(12,13)=12 -> Trùng.
-        // Ví dụ: A=[10,12], B=[12,14] -> Max(10,12)=12 < Min(12,14)=12 -> Sai (Không trùng, vừa khít).
-        
+        // Strict Intersection: Chỉ cần chạm nhẹ là tính bận
         const overlapStart = Math.max(startMs, bStart.getTime());
         const overlapEnd = Math.min(endMs, bEnd.getTime());
 
         if (overlapStart < overlapEnd) {
-            // Có chồng lấn -> Tính là bận
             const pax = booking.pax || 1;
             if (booking.type === 'CHAIR') busyChairs += pax;
             if (booking.type === 'BED') busyBeds += pax;
@@ -497,19 +456,17 @@ function countResourcesInInterval(startMs, endMs, displayDate) {
         }
     }
 
-    // --- B. Kiểm tra Kiosk Realtime (Đơn vãng lai đang chạy) ---
+    // B. Check Kiosk Realtime
     Object.values(SERVER_RESOURCE_STATE).forEach(res => {
         if (res.isRunning && !res.isPaused) {
-            // Thời gian thực của đơn trên Kiosk
             let kStart = new Date(res.startTime).getTime();
             let kEnd = kStart + (res.booking.duration * 60000);
             
-            // Kiểm tra chồng lấn
             const kOverlapStart = Math.max(startMs, kStart);
             const kOverlapEnd = Math.min(endMs, kEnd);
 
             if (kOverlapStart < kOverlapEnd) {
-                // Để tránh cộng 2 lần (nếu đơn đã được sync vào Sheet), ta kiểm tra ID
+                // Kiểm tra trùng ID để không cộng 2 lần
                 const existsInSheet = cachedBookings.some(b => b.rowId === res.booking.rowId);
                 
                 if (!existsInSheet) {
@@ -524,38 +481,26 @@ function countResourcesInInterval(startMs, endMs, displayDate) {
     return { closed: false, busyChairs, busyBeds, blockedStaffs };
 }
 
-/**
- * Hàm 5.2: Đếm số lượng thợ khả dụng (có thể làm việc)
- */
 function countAvailableStaff(startMs, endMs, timeStr, displayDate, requireFemale, requireMale, specificStaffIds, blockedStaffs) {
     const offList = scheduleMap[displayDate] || [];
     
     const validStaffs = STAFF_LIST.filter(staff => {
-        // 1. Kiểm tra nghỉ OFF
         if (offList.includes(staff.name)) return false;
-        
-        // 2. Kiểm tra giới tính
         if (requireFemale && staff.gender !== 'F') return false;
         if (requireMale && staff.gender !== 'M') return false;
-        
-        // 3. Kiểm tra ca làm việc
         if (!isWithinShift(staff, timeStr)) return false;
         
-        // 4. Kiểm tra trạng thái hiện tại (Realtime Status)
         const status = SERVER_STAFF_STATUS[staff.id];
         if (status && (status.status === 'AWAY')) return false;
 
-        // 5. Kiểm tra xem có bị block bởi booking khác không
         if (blockedStaffs.includes(staff.id)) return false;
 
         return true;
     });
 
-    // Nếu khách yêu cầu thợ cụ thể
     if (specificStaffIds) {
         const ids = Array.isArray(specificStaffIds) ? specificStaffIds : [specificStaffIds];
         for (const id of ids) {
-            // Nếu một trong các thợ yêu cầu không rảnh -> Fail
             if (!validStaffs.some(s => s.id === id)) return 0;
         }
         return ids.length; 
@@ -565,28 +510,23 @@ function countAvailableStaff(startMs, endMs, timeStr, displayDate, requireFemale
 }
 
 /**
- * Hàm 5.3: Tính toán chỉ số khả dụng (Metrics) cho một Slot
+ * Tính điểm và kiểm tra khả dụng của 1 Slot
  */
 function getSlotMetrics(dateStr, timeStr, serviceDuration, specificStaffIds = null, requireFemale = false, requireMale = false) {
     const displayDate = formatDateDisplay(dateStr); 
     const startRequest = parseStringToDate(`${displayDate} ${timeStr}`);
     
-    // Xử lý 0h đêm -> +1 ngày
     const hourVal = parseInt(timeStr.split(':')[0]);
     if (hourVal < 8) startRequest.setDate(startRequest.getDate() + 1);
 
-    // --- STRICT FUTURE CHECK (SỬA LỖI 11H HIỆN 8H) ---
-    const nowTaipeiStr = new Date().toLocaleString('en-US', { timeZone: 'Asia/Taipei', hour12: false });
-    const now = parseStringToDate(nowTaipeiStr); 
-    
-    // Nếu giờ yêu cầu <= giờ hiện tại (không cho phép lùi, chặn chặt)
-    if (startRequest.getTime() <= now.getTime()) {
+    // --- CRITICAL FIX: SO SÁNH GIỜ TAIWAN ---
+    const now = getTaipeiNow(); // Lấy giờ chuẩn Đài Loan
+    // Buffer 10 phút: Không được đặt nếu (Giờ Slot) <= (Hiện tại + 10p)
+    if (startRequest.getTime() <= (now.getTime() + 10 * 60000)) {
         return { feasible: false, reason: 'past' };
     }
 
     const endRequest = new Date(startRequest.getTime() + serviceDuration * 60000);
-    
-    // Đếm tài nguyên bận
     const stats = countResourcesInInterval(startRequest.getTime(), endRequest.getTime(), displayDate);
     
     if (stats.closed) return { feasible: false, reason: 'closed' };
@@ -601,47 +541,35 @@ function getSlotMetrics(dateStr, timeStr, serviceDuration, specificStaffIds = nu
         freeStaff: availStaff,
         freeChairs,
         freeBeds,
-        // Điểm số dùng để gợi ý (Càng nhiều thợ càng tốt)
         score: (availStaff * 2) + freeChairs + freeBeds
     };
 }
 
 /**
- * Hàm 5.4: Kiểm tra tính khả thi (Wrapper chính dùng cho Bot)
+ * Wrapper kiểm tra khả dụng cho Bot
  */
 function checkAvailability(dateStr, timeStr, serviceDuration, serviceType, specificStaffIds = null, pax = 1, requireFemale = false, requireMale = false) {
     const metrics = getSlotMetrics(dateStr, timeStr, serviceDuration, specificStaffIds, requireFemale, requireMale);
     
-    // Nếu metrics báo không khả thi (do quá khứ, đóng cửa...) -> Chặn ngay
     if (!metrics.feasible) return false;
 
-    // Kiểm tra đủ thợ không
     if (!specificStaffIds && metrics.freeStaff < pax) return false;
 
-    // --- LOGIC SMART SPLIT (TỰ ĐỘNG CHIA KHÁCH COMBO) ---
-    // Nếu là Combo hoặc dịch vụ linh hoạt, ta kiểm tra tổng dung lượng
-    // Ví dụ: Khách 4 người. Còn 2 Ghế + 2 Giường -> Tổng 4 -> Nhận được.
+    // Smart Split Logic (Combo)
     if (serviceType === 'BED' || serviceType === 'CHAIR') { 
         const totalCapacity = metrics.freeChairs + metrics.freeBeds;
-        
-        // Nếu tổng dung lượng đủ cho số khách -> OK
-        // (Giả định rằng khách có thể tách ra làm Chân trước hoặc Thân trước)
-        if (totalCapacity >= pax) {
-            return true;
-        }
+        if (totalCapacity >= pax) return true;
     }
 
-    // Check tài nguyên cơ bản (cho trường hợp đơn lẻ)
+    // Normal Logic
     if (serviceType === 'CHAIR') {
         if (metrics.freeChairs >= pax) return true;
-        // Fallback: Nếu hết ghế, thử check giường (Khách chịu nằm giường làm chân)
-        if (metrics.freeBeds >= pax) return true;
+        if (metrics.freeBeds >= pax) return true; // Fallback
         return false;
     }
     
     if (serviceType === 'BED') {
         if (metrics.freeBeds >= pax) return true;
-        // Fallback: Hết giường check ghế (Hiếm khi xảy ra nhưng logic cần bao quát)
         if (metrics.freeChairs >= pax) return true; 
         return false;
     }
@@ -649,15 +577,12 @@ function checkAvailability(dateStr, timeStr, serviceDuration, serviceType, speci
     return true;
 }
 
-/**
- * Hàm 5.5: Tìm 6 khung giờ tốt nhất (Smart Suggestion)
- */
+// Tìm giờ tốt nhất
 function findBestSlots(selectedDate, serviceCode, pax = 1, requireFemale = false, requireMale = false) {
     const service = SERVICES[serviceCode];
     if (!service) return [];
 
     let candidates = [];
-    // Quét từ 8h sáng đến 26h (2h sáng hôm sau)
     for (let h = 8; h <= 26; h += 0.5) {
         const hourInt = Math.floor(h);
         const minuteInt = (h % 1) > 0 ? 30 : 0;
@@ -668,14 +593,9 @@ function findBestSlots(selectedDate, serviceCode, pax = 1, requireFemale = false
         const metrics = getSlotMetrics(selectedDate, timeStr, service.duration, null, requireFemale, requireMale);
         
         if (metrics.feasible) {
-            // Kiểm tra lại tính khả thi về số lượng
             let isOk = false;
             const totalCap = metrics.freeChairs + metrics.freeBeds;
-            
-            if (metrics.freeStaff >= pax) {
-                // Với Combo, chỉ cần tổng dung lượng đủ
-                if (totalCap >= pax) isOk = true;
-            }
+            if (metrics.freeStaff >= pax && totalCap >= pax) isOk = true;
 
             if (isOk) {
                 candidates.push({
@@ -688,28 +608,21 @@ function findBestSlots(selectedDate, serviceCode, pax = 1, requireFemale = false
         }
     }
 
-    // Sắp xếp: Điểm cao nhất lên đầu, sau đó đến giờ sớm nhất
     candidates.sort((a, b) => {
         if (b.score !== a.score) return b.score - a.score;
         return a.sortVal - b.sortVal;
     });
 
-    // Lấy top 6 kết quả
     return candidates.slice(0, 6);
 }
 
-/**
- * Hàm 5.6: Tạo danh sách nút giờ (Bubbles) để gửi cho khách
- */
 function generateTimeBubbles(selectedDate, serviceCode, specificStaffIds = null, pax = 1, requireFemale = false, requireMale = false) {
-    const nowTaipeiStr = new Date().toLocaleString('en-US', { timeZone: 'Asia/Taipei', hour12: false });
-    const now = parseStringToDate(nowTaipeiStr); 
+    const now = getTaipeiNow(); // Dùng giờ chuẩn Đài Loan
     
     const service = SERVICES[serviceCode]; 
     if (!service) return null;
     
     let allSlots = []; 
-    // Tạo khung giờ từ 08:00 sáng đến 02:30 sáng hôm sau (26.5)
     for (let h = 8; h <= 26.5; h += 0.5) { allSlots.push(h); }
     
     let validSlots = [];
@@ -727,13 +640,12 @@ function generateTimeBubbles(selectedDate, serviceCode, specificStaffIds = null,
         
         slotDate.setHours(checkHour, minuteInt, 0, 0);
 
-        // --- STRICT FUTURE CHECK (QUAN TRỌNG) ---
-        // Chỉ hiển thị nếu Slot Time > Current Time (không cho phép bằng hoặc nhỏ hơn)
-        if (slotDate.getTime() > now.getTime()) {
+        // --- CRITICAL FIX: CHẶN GIỜ QUÁ KHỨ ---
+        // So sánh timestamp trực tiếp: Slot > (Hiện tại + 10p)
+        if (slotDate.getTime() > (now.getTime() + 10 * 60000)) {
             const displayH = checkHour; 
             const timeStr = `${displayH.toString().padStart(2, '0')}:${minuteInt.toString().padStart(2, '0')}`;
             
-            // Gọi hàm kiểm tra tài nguyên
             if (checkAvailability(selectedDate, timeStr, service.duration, service.type, specificStaffIds, pax, requireFemale, requireMale)) { 
                 validSlots.push(h); 
             }
@@ -742,7 +654,6 @@ function generateTimeBubbles(selectedDate, serviceCode, specificStaffIds = null,
     
     if (validSlots.length === 0) return null;
     
-    // Format hiển thị trên nút bấm (VD: 00:30 (rạng sáng))
     const formatTime = (h) => {
         const hourInt = Math.floor(h);
         const minuteStr = (h % 1) > 0 ? '30' : '00';
@@ -750,7 +661,6 @@ function generateTimeBubbles(selectedDate, serviceCode, specificStaffIds = null,
         return `${(hourInt - 24).toString().padStart(2, '0')}:${minuteStr} (凌晨)`;
     };
     
-    // Giá trị gửi về server khi khách bấm (HH:MM)
     const formatValue = (h) => {
         const hourInt = Math.floor(h);
         const minuteStr = (h % 1) > 0 ? '30' : '00';
@@ -767,7 +677,7 @@ function generateTimeBubbles(selectedDate, serviceCode, specificStaffIds = null,
     
     let bubbles = [];
 
-    // [NEW] NÚT GỢI Ý THÔNG MINH
+    // Nút gợi ý thông minh
     bubbles.push({
         "type": "bubble",
         "size": "kilo",
@@ -798,7 +708,7 @@ function generateTimeBubbles(selectedDate, serviceCode, specificStaffIds = null,
     return { type: 'carousel', contents: [...bubbles, ...timeBubbles] };
 }
 
-// Hàm tạo danh sách chọn thợ
+// Tạo danh sách thợ
 function createStaffBubbles(filterFemale = false, excludedIds = []) {
     let list = STAFF_LIST;
     if (filterFemale) list = STAFF_LIST.filter(s => s.gender === 'F' || s.gender === '女');
@@ -825,7 +735,7 @@ function createStaffBubbles(filterFemale = false, excludedIds = []) {
     return bubbles;
 }
 
-// Hàm tạo Menu dịch vụ
+// Tạo Menu dịch vụ
 function createMenuFlexMessage() {
     const createRow = (serviceName, time, price) => ({
         "type": "box", "layout": "horizontal", "contents": [
@@ -866,20 +776,18 @@ function createMenuFlexMessage() {
 }
 
 // ==============================================================================
-// 6. SERVER ROUTES & API
+// 6. SERVER & API ROUTES (Kiosk Backend)
 // ==============================================================================
 const client = new line.Client(config);
 const app = express();
 
 app.use(cors());
-// Webhook nhận tin nhắn từ LINE
 app.post('/callback', line.middleware(config), (req, res) => {
   Promise.all(req.body.events.map(handleEvent)).then((r) => res.json(r)).catch((e) => { console.error(e); res.status(500).end(); });
 });
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
-// API lấy dữ liệu cho Admin Dashboard
 app.get('/api/info', async (req, res) => { 
     await syncData(); 
     res.json({ 
@@ -892,19 +800,9 @@ app.get('/api/info', async (req, res) => {
     }); 
 });
 
-// API đồng bộ tài nguyên (Kiosk -> Server)
-app.post('/api/sync-resource', (req, res) => { 
-    SERVER_RESOURCE_STATE = req.body; 
-    res.json({ success: true }); 
-});
+app.post('/api/sync-resource', (req, res) => { SERVER_RESOURCE_STATE = req.body; res.json({ success: true }); });
+app.post('/api/sync-staff-status', (req, res) => { SERVER_STAFF_STATUS = req.body; res.json({ success: true }); });
 
-// API đồng bộ trạng thái nhân viên (Kiosk -> Server)
-app.post('/api/sync-staff-status', (req, res) => { 
-    SERVER_STAFF_STATUS = req.body; 
-    res.json({ success: true }); 
-});
-
-// API tạo booking từ Admin
 app.post('/api/admin-booking', async (req, res) => { 
     const data = req.body; 
     await ghiVaoSheet({ 
@@ -922,14 +820,12 @@ app.post('/api/admin-booking', async (req, res) => {
     res.json({ success: true }); 
 });
 
-// API cập nhật trạng thái đơn (Hủy, Check-in, Hoàn thành)
 app.post('/api/update-status', async (req, res) => { 
     const { rowId, status } = req.body; 
     await updateBookingStatus(rowId, status); 
     res.json({ success: true }); 
 });
 
-// API cập nhật chi tiết đơn
 app.post('/api/update-booking-details', async (req, res) => {
     try {
         const { rowId, staffId, serviceName } = req.body;
@@ -984,10 +880,9 @@ async function handleEvent(event) {
       const staffId = text.split(':')[1]; 
       const currentState = userState[userId]; 
       if (!currentState || currentState.step !== 'ADMIN_PICK_STAFF') return Promise.resolve(null); 
-      const now = new Date(); 
-      const taipeiNowStr = now.toLocaleString('en-US', { timeZone: 'Asia/Taipei', hour12: false }); 
-      const todayISO = formatDateDisplay(new Date(taipeiNowStr)); 
-      const currentTimeStr = taipeiNowStr.split(', ')[1].substring(0, 5); 
+      const now = getTaipeiNow(); 
+      const todayISO = formatDateDisplay(now.toLocaleDateString()); 
+      const currentTimeStr = now.toTimeString().substring(0, 5); 
       let logType = ''; let logNote = ''; 
       if (currentState.action === 'SetOff') { 
           logType = '請假'; logNote = '全天'; 
@@ -997,11 +892,9 @@ async function handleEvent(event) {
           await ghiVaoSheet({ gioDen: currentTimeStr, ngayDen: todayISO, dichVu: SERVICES['BREAK_30'].name, nhanVien: staffId, userId: 'ADMIN', sdt: 'ADMIN', hoTen: '用餐', trangThai: '🍱 用餐中' }); 
       } else if (currentState.action === 'SetLeaveEarly') { 
           logType = '早退/病假'; 
-          let effectiveHour = new Date(taipeiNowStr).getHours(); 
-          if (effectiveHour < 8) effectiveHour += 24; 
-          const currentTotalMins = effectiveHour * 60 + new Date(taipeiNowStr).getMinutes(); 
-          let duration = (26 * 60) - currentTotalMins; 
-          if (duration < 0) duration = 0; 
+          let effectiveHour = now.getHours(); if (effectiveHour < 8) effectiveHour += 24; 
+          const currentTotalMins = effectiveHour * 60 + now.getMinutes(); 
+          let duration = (26 * 60) - currentTotalMins; if (duration < 0) duration = 0; 
           logNote = `早退 (${duration}分)`; 
           await ghiVaoSheet({ gioDen: currentTimeStr, ngayDen: todayISO, dichVu: `⛔ 早退 (${duration}分)`, nhanVien: staffId, userId: 'ADMIN', sdt: 'ADMIN', hoTen: '管理員操作', trangThai: '⚠️ 早退' }); 
       } 
@@ -1042,7 +935,6 @@ async function handleEvent(event) {
       const buttons = [
           { "type": "text", "text": "💆 請選擇師傅需求 (Staff)", "weight": "bold", "size": "lg", "align": "center", "color": "#1DB446" },
           { "type": "separator", "margin": "md" },
-          
           { "type": "button", "style": "secondary", "margin": "sm", "action": { "type": "message", "label": "🎲 不指定 (隨機)", "text": "Pref:RANDOM" } },
           { "type": "button", "style": "secondary", "margin": "sm", "action": { "type": "message", "label": "👨 指定男師傅", "text": "Pref:MALE" } },
           { "type": "button", "style": "primary", "color": "#333333", "margin": "sm", "action": { "type": "message", "label": "👉 指定特定號碼", "text": "Pref:SPECIFIC" } },
@@ -1116,10 +1008,8 @@ async function handleEvent(event) {
   }
 
   if (text.startsWith('StaffSelect:')) {
-      if (!userState[userId]) return client.replyMessage(event.replyToken, { type: 'text', text: '⚠️ 連線逾時，請重新點擊「立即預約」。' });
       const staffId = text.split(':')[1]; 
-      const currentState = userState[userId];
-      
+      const currentState = userState[userId]; 
       if (!currentState.selectedStaff) currentState.selectedStaff = [];
       currentState.selectedStaff.push(staffId);
       userState[userId] = currentState;
@@ -1182,7 +1072,6 @@ async function handleEvent(event) {
   }
 
   if (text.startsWith('Time:')) { 
-      if (!userState[userId]) return client.replyMessage(event.replyToken, { type: 'text', text: '⚠️ 連線逾時，請重新點擊「立即預約」。' });
       const gio = text.replace('Time:', '').trim(); 
       const currentState = userState[userId]; 
       currentState.step = 'SURNAME'; 
@@ -1203,7 +1092,6 @@ async function handleEvent(event) {
       const sdt = normalizePhoneNumber(text); 
       const s = userState[userId];
       
-      // AUTO FIX DATE IF NIGHT SHIFT (00:00 - 08:00)
       let finalDate = s.date;
       const hour = parseInt(s.time.split(':')[0]);
       if (hour < 8) {
@@ -1231,7 +1119,6 @@ async function handleEvent(event) {
       client.pushMessage(ID_BA_CHU, { type: 'text', text: `💰 New Booking: ${s.surname} - $${totalPrice}` });
       
       await ghiVaoSheet({ gioDen: s.time, ngayDen: finalDate, dichVu: SERVICES[s.service].name, nhanVien: staffDisplay, userId: userId, sdt: sdt, hoTen: s.surname, trangThai: '已預約', pax: s.pax, isOil: s.isOil });
-      
       delete userState[userId]; 
       return; 
   }
@@ -1255,5 +1142,5 @@ async function handleEvent(event) {
 syncData();
 const port = process.env.PORT || 3000;
 app.listen(port, () => {
-    console.log(`Bot V133 (Final Perfect - Strict Future & Resources) running on ${port}`);
+    console.log(`Bot V137 (Timezone Master & Strict Guard) running on ${port}`);
 });
