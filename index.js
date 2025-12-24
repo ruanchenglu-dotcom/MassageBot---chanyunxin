@@ -1,16 +1,17 @@
 /**
  * =================================================================================================
  * PROJECT: XINWUCHAN MASSAGE BOT
- * VERSION: V140 (STRICT CAPACITY FIX)
+ * VERSION: V141 (FIX OVERLAP TOLERANCE & BUFFER)
  * AUTHOR: AI ASSISTANT
  * DATE: 2025/12/24
- * * [LOG SỬA LỖI V140]:
- * 1. FIX CRITICAL BUG: Sửa lỗi Bot nhận đơn Body/Combo khi đã hết Giường nhưng còn Ghế.
- * - Logic cũ: (Ghế + Giường) >= Khách -> OK (Sai, vì Body không làm được trên ghế).
- * - Logic mới: 
- * + Service BED/COMBO -> Bắt buộc FreeBeds >= Khách.
- * + Service FOOT -> Bắt buộc FreeChairs >= Khách.
- * 2. Giữ nguyên toàn bộ tính năng Timezone, Sync Google Sheet và Admin API cũ.
+ * * [LOG SỬA LỖI V141]:
+ * 1. FIX LỖI 20:00 KHÔNG HIỆN:
+ * - Nguyên nhân: Do đơn Kiosk có giây (VD: 20:00:45) gây trùng 45s với slot 20:00:00.
+ * - Giải pháp: Thêm 'TOLERANCE_MS' (45 giây). Nếu trùng < 45s thì bỏ qua, cho phép đặt.
+ * 2. GIẢM BUFFER TIME:
+ * - Giảm thời gian chặn đặt sát giờ từ 10 phút -> 5 phút.
+ * - Giúp khách dễ đặt các slot sát giờ hiện tại hơn.
+ * 3. LOGIC STRICT CAPACITY (V140): Vẫn giữ nguyên để đảm bảo không bị lỗi hết giường vẫn nhận đơn.
  * =================================================================================================
  */
 
@@ -46,6 +47,10 @@ const SCHEDULE_SHEET = 'StaffSchedule';  // Sheet lưu lịch làm việc & ngà
 // --- GIỚI HẠN TÀI NGUYÊN CỨNG (HARD LIMITS) ---
 const MAX_CHAIRS = 6; // Tổng số ghế làm chân
 const MAX_BEDS = 6;   // Tổng số giường làm body
+
+// --- CẤU HÌNH LOGIC THỜI GIAN (NEW V141) ---
+const FUTURE_BUFFER_MINS = 5; // Chỉ chặn nếu giờ đặt < hiện tại + 5 phút (Cũ là 10p)
+const OVERLAP_TOLERANCE_MS = 45000; // 45 giây. Nếu trùng nhau dưới 45s (do lệch giây) thì vẫn cho qua.
 
 // --- CẤU HÌNH XÁC THỰC GOOGLE API ---
 // Sử dụng file key JSON để xác thực service account
@@ -509,15 +514,12 @@ function countResourcesInInterval(startMs, endMs, displayDate) {
         const bEnd = new Date(bStart.getTime() + booking.duration * 60000);
 
         // *** STRICT OVERLAP CHECK (GIAO THOA THỜI GIAN CHẶT CHẼ) ***
-        // Công thức: Max(StartA, StartB) < Min(EndA, EndB)
-        // Nếu điều này đúng, nghĩa là 2 khoảng thời gian có chồng lấn (dù chỉ 1 giây).
-        // Điều này khắc phục lỗi 12h đầy nhưng vẫn cho đặt.
-        
         const overlapStart = Math.max(startMs, bStart.getTime());
         const overlapEnd = Math.min(endMs, bEnd.getTime());
 
-        if (overlapStart < overlapEnd) {
-            // Có chồng lấn -> Tính là bận
+        // [FIX V141]: Sử dụng TOLERANCE để bỏ qua trùng lặp nhỏ (do lệch giây)
+        if ((overlapEnd - overlapStart) > OVERLAP_TOLERANCE_MS) {
+            // Có chồng lấn đáng kể -> Tính là bận
             const pax = booking.pax || 1;
             if (booking.type === 'CHAIR') busyChairs += pax;
             if (booking.type === 'BED') busyBeds += pax;
@@ -541,7 +543,8 @@ function countResourcesInInterval(startMs, endMs, displayDate) {
             const kOverlapStart = Math.max(startMs, kStart);
             const kOverlapEnd = Math.min(endMs, kEnd);
 
-            if (kOverlapStart < kOverlapEnd) {
+            // [FIX V141]: Áp dụng TOLERANCE cho dữ liệu Kiosk (quan trọng vì Kiosk có giây)
+            if ((kOverlapEnd - kOverlapStart) > OVERLAP_TOLERANCE_MS) {
                 // Để tránh cộng 2 lần (nếu đơn đã được sync vào Sheet), ta kiểm tra ID
                 const existsInSheet = cachedBookings.some(b => b.rowId === res.booking.rowId);
                 
@@ -614,9 +617,8 @@ function getSlotMetrics(dateStr, timeStr, serviceDuration, specificStaffIds = nu
     // Sử dụng giờ chuẩn Đài Loan để so sánh
     const now = getTaipeiNow();
     
-    // Nếu giờ yêu cầu <= giờ hiện tại + 10 phút đệm => Chặn
-    // Ví dụ: Hiện tại 13:00. Khách muốn đặt 12:00 -> 12:00 < 13:10 -> Chặn.
-    if (startRequest.getTime() <= (now.getTime() + 10 * 60000)) {
+    // [FIX V141]: Giảm buffer từ 10 phút xuống 5 phút
+    if (startRequest.getTime() <= (now.getTime() + FUTURE_BUFFER_MINS * 60000)) {
         return { feasible: false, reason: 'past' };
     }
 
@@ -660,8 +662,7 @@ function checkAvailability(dateStr, timeStr, serviceDuration, serviceType, speci
 
     // --- FIX V140: STRICT RESOURCE CHECK ---
     // Loại bỏ hoàn toàn logic "Smart Split" cộng gộp dung lượng cũ.
-    // Logic cũ (đã xóa): if (type == BED || CHAIR) total = freeChairs + freeBeds. => Gây lỗi nhận đơn ảo khi hết giường.
-
+    
     // Logic mới (Strict):
     if (serviceType === 'BED') {
         // Gói Body hoặc Combo (được định nghĩa là BED): Bắt buộc phải còn Giường.
@@ -671,8 +672,6 @@ function checkAvailability(dateStr, timeStr, serviceDuration, serviceType, speci
 
     if (serviceType === 'CHAIR') {
         // Gói Foot: Bắt buộc phải còn Ghế.
-        // (Lưu ý: Nếu quán cho phép làm chân trên giường khi hết ghế, có thể sửa thành freeChairs + freeBeds, 
-        // nhưng để an toàn và tránh xung đột với gói Body, ta giữ strict check ghế).
         if (metrics.freeChairs >= pax) return true;
         return false;
     }
@@ -751,8 +750,8 @@ function generateTimeBubbles(selectedDate, serviceCode, specificStaffIds = null,
         slotDate.setHours(checkHour, minuteInt, 0, 0);
 
         // --- STRICT FUTURE CHECK (QUAN TRỌNG) ---
-        // Chỉ hiển thị nếu Slot Time > Current Time + 10 phút
-        if (slotDate.getTime() > (now.getTime() + 10 * 60000)) {
+        // [FIX V141]: Chỉ chặn nếu giờ đặt < hiện tại + 5 phút
+        if (slotDate.getTime() > (now.getTime() + FUTURE_BUFFER_MINS * 60000)) {
             const displayH = checkHour; 
             const timeStr = `${displayH.toString().padStart(2, '0')}:${minuteInt.toString().padStart(2, '0')}`;
             
@@ -1272,5 +1271,5 @@ async function handleEvent(event) {
 syncData();
 const port = process.env.PORT || 3000;
 app.listen(port, () => {
-    console.log(`Bot V140 (Strict Capacity Fix) running on ${port}`);
+    console.log(`Bot V141 (Fix Overlap Tolerance) running on ${port}`);
 });
