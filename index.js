@@ -1,24 +1,16 @@
 /**
  * =================================================================================================
  * PROJECT: XINWUCHAN MASSAGE BOT
- * VERSION: V139 (MONOLITHIC STABLE EDITION)
+ * VERSION: V140 (STRICT CAPACITY FIX)
  * AUTHOR: AI ASSISTANT
- * DATE: 2025/12/23
- * * [MÔ TẢ HỆ THỐNG]:
- * Hệ thống Bot đặt lịch Massage tự động kết hợp với Kiosk quản lý tại chỗ.
- * * [CÁC TÍNH NĂNG CHÍNH ĐÃ ĐƯỢC KIỂM TRA & SỬA LỖI]:
- * 1. Timezone Handling (Quan trọng):
- * - Sử dụng Native Date với múi giờ 'Asia/Taipei'.
- * - Loại bỏ hoàn toàn 'moment-timezone' để tránh lỗi "Module not found".
- * - Fix lỗi hiện giờ quá khứ (VD: 13h không được hiện 12h).
- * * 2. Resource Management (Quản lý tài nguyên):
- * - Strict Resource Check: Đếm tổng số khách từ Google Sheet VÀ Khách đang ngồi thực tế (Kiosk).
- * - Nếu tổng >= 6 (Ghế/Giường), hệ thống sẽ ẩn giờ đó.
- * * 3. Smart Logic (Trí tuệ nhân tạo):
- * - Smart Split: Tự động chia khách Combo (Chân+Thân) thành 2 giai đoạn nếu không có slot liền mạch.
- * - Smart Suggest: Gợi ý 6 khung giờ rảnh nhất cho khách hàng.
- * * 4. Stability (Ổn định):
- * - Mã nguồn viết đầy đủ, không viết tắt, có xử lý lỗi (try-catch) chi tiết.
+ * DATE: 2025/12/24
+ * * [LOG SỬA LỖI V140]:
+ * 1. FIX CRITICAL BUG: Sửa lỗi Bot nhận đơn Body/Combo khi đã hết Giường nhưng còn Ghế.
+ * - Logic cũ: (Ghế + Giường) >= Khách -> OK (Sai, vì Body không làm được trên ghế).
+ * - Logic mới: 
+ * + Service BED/COMBO -> Bắt buộc FreeBeds >= Khách.
+ * + Service FOOT -> Bắt buộc FreeChairs >= Khách.
+ * 2. Giữ nguyên toàn bộ tính năng Timezone, Sync Google Sheet và Admin API cũ.
  * =================================================================================================
  */
 
@@ -99,6 +91,7 @@ let userState = {};
 const SERVICES = {
     // --- GÓI COMBO (KẾT HỢP CHÂN & THÂN) ---
     // Loại này cần cả Ghế và Giường. Bot sẽ ưu tiên tìm slot liền mạch.
+    // QUAN TRỌNG: Type là BED để ưu tiên kiểm tra giường trước.
     'CB_190': { name: '👑 帝王套餐 (190分)', duration: 190, type: 'BED', category: 'COMBO', price: 2000 },
     'CB_130': { name: '💎 豪華套餐 (130分)', duration: 130, type: 'BED', category: 'COMBO', price: 1500 },
     'CB_100': { name: '🔥 招牌套餐 (100分)', duration: 100, type: 'BED', category: 'COMBO', price: 999 },
@@ -654,6 +647,7 @@ function getSlotMetrics(dateStr, timeStr, serviceDuration, specificStaffIds = nu
 /**
  * Hàm 6.4: Kiểm tra tính khả thi (Wrapper chính dùng cho Bot).
  * Trả về TRUE nếu có thể đặt, FALSE nếu không.
+ * [FIX V140]: Strict Mode cho Bed/Chair.
  */
 function checkAvailability(dateStr, timeStr, serviceDuration, serviceType, specificStaffIds = null, pax = 1, requireFemale = false, requireMale = false) {
     const metrics = getSlotMetrics(dateStr, timeStr, serviceDuration, specificStaffIds, requireFemale, requireMale);
@@ -664,34 +658,26 @@ function checkAvailability(dateStr, timeStr, serviceDuration, serviceType, speci
     // Kiểm tra đủ thợ không
     if (!specificStaffIds && metrics.freeStaff < pax) return false;
 
-    // --- LOGIC SMART SPLIT (TỰ ĐỘNG CHIA KHÁCH COMBO) ---
-    // Nếu là Combo hoặc dịch vụ linh hoạt, ta kiểm tra tổng dung lượng
-    // Ví dụ: Khách 4 người. Còn 2 Ghế + 2 Giường -> Tổng 4 -> Nhận được.
-    if (serviceType === 'BED' || serviceType === 'CHAIR') { 
-        const totalCapacity = metrics.freeChairs + metrics.freeBeds;
-        
-        // Nếu tổng dung lượng đủ cho số khách -> OK
-        // (Giả định rằng khách có thể tách ra làm Chân trước hoặc Thân trước)
-        if (totalCapacity >= pax) {
-            return true;
-        }
-    }
+    // --- FIX V140: STRICT RESOURCE CHECK ---
+    // Loại bỏ hoàn toàn logic "Smart Split" cộng gộp dung lượng cũ.
+    // Logic cũ (đã xóa): if (type == BED || CHAIR) total = freeChairs + freeBeds. => Gây lỗi nhận đơn ảo khi hết giường.
 
-    // Check tài nguyên cơ bản (cho trường hợp đơn lẻ chặt chẽ)
-    if (serviceType === 'CHAIR') {
-        if (metrics.freeChairs >= pax) return true;
-        // Fallback: Nếu hết ghế, thử check giường (Khách chịu nằm giường làm chân)
-        if (metrics.freeBeds >= pax) return true;
-        return false;
-    }
-    
+    // Logic mới (Strict):
     if (serviceType === 'BED') {
+        // Gói Body hoặc Combo (được định nghĩa là BED): Bắt buộc phải còn Giường.
         if (metrics.freeBeds >= pax) return true;
-        // Fallback: Hết giường check ghế (Hiếm khi xảy ra nhưng logic cần bao quát)
-        if (metrics.freeChairs >= pax) return true; 
         return false;
     }
 
+    if (serviceType === 'CHAIR') {
+        // Gói Foot: Bắt buộc phải còn Ghế.
+        // (Lưu ý: Nếu quán cho phép làm chân trên giường khi hết ghế, có thể sửa thành freeChairs + freeBeds, 
+        // nhưng để an toàn và tránh xung đột với gói Body, ta giữ strict check ghế).
+        if (metrics.freeChairs >= pax) return true;
+        return false;
+    }
+
+    // Các loại dịch vụ khác (nếu có)
     return true;
 }
 
@@ -711,26 +697,18 @@ function findBestSlots(selectedDate, serviceCode, pax = 1, requireFemale = false
         if (displayH >= 24) displayH -= 24;
 
         const timeStr = `${displayH.toString().padStart(2, '0')}:${minuteInt.toString().padStart(2, '0')}`;
-        const metrics = getSlotMetrics(selectedDate, timeStr, service.duration, null, requireFemale, requireMale);
         
-        if (metrics.feasible) {
-            // Kiểm tra lại tính khả thi về số lượng
-            let isOk = false;
-            const totalCap = metrics.freeChairs + metrics.freeBeds;
-            
-            if (metrics.freeStaff >= pax) {
-                // Với Combo, chỉ cần tổng dung lượng đủ
-                if (totalCap >= pax) isOk = true;
-            }
-
-            if (isOk) {
-                candidates.push({
-                    timeStr: timeStr,
-                    sortVal: h,
-                    score: metrics.score,
-                    label: `${timeStr} (Free: ${metrics.freeStaff}👤)`
-                });
-            }
+        // Dùng checkAvailability mới (Strict) để tìm giờ gợi ý
+        const isFeasible = checkAvailability(selectedDate, timeStr, service.duration, service.type, null, pax, requireFemale, requireMale);
+        
+        if (isFeasible) {
+            const metrics = getSlotMetrics(selectedDate, timeStr, service.duration, null, requireFemale, requireMale);
+            candidates.push({
+                timeStr: timeStr,
+                sortVal: h,
+                score: metrics.score,
+                label: `${timeStr} (Free: ${metrics.freeStaff}👤)`
+            });
         }
     }
 
@@ -1294,5 +1272,5 @@ async function handleEvent(event) {
 syncData();
 const port = process.env.PORT || 3000;
 app.listen(port, () => {
-    console.log(`Bot V139 (Monolithic Stable) running on ${port}`);
+    console.log(`Bot V140 (Strict Capacity Fix) running on ${port}`);
 });
