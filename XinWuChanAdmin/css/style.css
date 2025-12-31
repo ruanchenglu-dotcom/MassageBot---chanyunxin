@@ -1,0 +1,257 @@
+/* css/style.css */
+body { 
+    font-family: 'Microsoft JhengHei', 'Segoe UI', 'Roboto', sans-serif; 
+    background-color: #f8fafc; /* Slate 50 */
+    user-select: none; /* Chống bôi đen */
+    overflow: hidden; /* Ẩn thanh cuộn body */
+    margin: 0; padding: 0;
+}
+
+/* Hiệu ứng Modal hiện ra */
+.modal-animate { 
+    animation: fadeInScale 0.2s ease-out forwards; 
+}
+
+@keyframes fadeInScale { 
+    from { opacity: 0; transform: scale(0.95); } 
+    to { opacity: 1; transform: scale(1); } 
+}
+
+/* --- STYLE THẺ NHÂN VIÊN (COMPACT V265/V266) --- */
+.card-3d { 
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); 
+    position: relative; 
+    top: 0; 
+    width: 64px; /* Rộng 64px */
+    height: 70px; /* Cao 70px */
+    border-radius: 8px; 
+    display: flex; 
+    flex-direction: column; 
+    cursor: pointer; 
+    user-select: none; 
+    background: white; 
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1); 
+    margin: 0 3px; 
+    flex-shrink: 0;
+    border: 1px solid rgba(0,0,0,0.05);
+    overflow: hidden;
+}
+
+.card-3d:active { 
+    transform: translateY(2px); 
+    border-bottom-width: 0px; 
+    margin-bottom: 2px; 
+}
+
+.card-3d:hover { 
+    transform: translateY(-2px); 
+    box-shadow: 0 6px 10px -2px rgba(0, 0, 0, 0.15); 
+}
+
+/* Viền màu theo giới tính */
+.style-male { 
+    border: 2px solid #3B82F6; 
+    border-bottom: 4px solid #2563EB; 
+    color: #1E3A8A; 
+}
+
+.style-female { 
+    border: 2px solid #F472B6; 
+    border-bottom: 4px solid #DB2777; 
+    color: #BE185D; 
+}
+
+/* Trạng thái nhân viên */
+.st-busy { 
+    background-color: #fee2e2 !important; 
+    border-color: #ef4444 !important; 
+    border-bottom-color: #b91c1c !important; 
+    color: #b91c1c !important; 
+}
+
+.st-away { 
+    background-color: #f3f4f6 !important; 
+    border-color: #d1d5db !important; 
+    border-bottom-color: #9ca3af !important; 
+    color: #9ca3af !important; 
+    opacity: 0.6; 
+    transform: scale(0.95);
+}
+
+.st-eat { 
+    background-color: #ffedd5 !important; 
+    border-color: #f97316 !important; 
+    border-bottom-color: #c2410c !important; 
+    color: #c2410c !important; 
+}
+
+.st-out { 
+    background-color: #fef9c3 !important; 
+    border-color: #eab308 !important; 
+    border-bottom-color: #ca8a04 !important; 
+    color: #854d0e !important; 
+}
+
+/* --- STYLE THẺ BẢN ĐỒ (RESOURCE CARDS) --- */
+.res-card { 
+    position: relative; 
+    overflow: visible; 
+    transition: all 0.2s; 
+    border-radius: 12px; 
+    box-shadow: 0 2px 4px rgba(0,0,0,0.05); 
+}
+
+.res-card:hover { 
+    transform: translateY(-2px); 
+    box-shadow: 0 8px 16px rgba(0,0,0,0.1); 
+}
+
+.progress-bar { 
+    transition: width 1s linear; 
+}
+
+/* Trạng thái Preview/Ghost */
+.preview-now { border: 2px dashed #ef4444; background: #fef2f2; }
+.preview-soon { border: 2px dashed #3b82f6; background: #eff6ff; }
+.preview-phase2 { border: 2px dashed #f59e0b; background: #fffbeb; }
+
+/* Thanh cuộn ngang danh sách nhân viên */
+.staff-scroll::-webkit-scrollbar { height: 6px; }
+.staff-scroll::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+
+/* --- TIMELINE STYLES --- */
+.timeline-row { 
+    height: 50px; 
+    border-bottom: 1px solid #e2e8f0; 
+    position: relative; 
+    display: flex; 
+    align-items: center; 
+}
+
+.timeline-row.odd { background-color: #ffffff; }
+.timeline-row.even { background-color: #f8fafc; }
+
+.timeline-divider { 
+    height: 4px; 
+    background-color: #475569; 
+    margin: 0; 
+    z-index: 50; 
+}
+
+.timeline-label { 
+    width: 100px; 
+    flex-shrink: 0; 
+    font-weight: 900; 
+    font-size: 1.1rem; 
+    padding-left: 10px; 
+    color: #334155; 
+    border-right: 2px solid #e2e8f0; 
+    height: 100%; 
+    display: flex; 
+    align-items: center; 
+    background: #f1f5f9; 
+    z-index: 20; 
+    position: sticky; 
+    left: 0; 
+}
+
+.timeline-grid { 
+    flex: 1; 
+    position: relative; 
+    height: 100%; 
+    overflow: hidden; 
+}
+
+.grid-line { 
+    position: absolute; 
+    top: 0; 
+    bottom: 0; 
+    border-left: 1px solid #e2e8f0; 
+    z-index: 0; 
+    pointer-events: none; 
+}
+
+.grid-line.hour-mark { 
+    border-left: 2px solid #cbd5e1; 
+    opacity: 0.6; 
+}
+
+/* Thanh công việc trên Timeline */
+.timeline-bar {
+    position: absolute; 
+    top: 6px; 
+    height: 38px; 
+    border-radius: 6px; 
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1); 
+    z-index: 10;
+    display: flex; 
+    flex-direction: column; 
+    justify-content: center; 
+    padding: 0 6px; 
+    overflow: hidden; 
+    white-space: nowrap; 
+    border: 1px solid rgba(0,0,0,0.1);
+    transition: all 0.3s ease; 
+    font-size: 13px; 
+    font-weight: 800; 
+    letter-spacing: 0.5px;
+}
+
+.timeline-bar:hover { 
+    z-index: 60 !important; 
+    transform: scale(1.05); 
+    box-shadow: 0 8px 12px rgba(0,0,0,0.2); 
+}
+
+.timeline-bar.planned { 
+    opacity: 0.8; 
+    border: 2px dashed rgba(0,0,0,0.2); 
+    background-image: linear-gradient(45deg,rgba(255,255,255,.15) 25%,transparent 25%,transparent 50%,rgba(255,255,255,.15) 50%,rgba(255,255,255,.15) 75%,transparent 75%,transparent); 
+    background-size: 1rem 1rem; 
+} 
+
+.timeline-bar.conflict { 
+    background-color: #fee2e2 !important; 
+    border-color: #ef4444 !important; 
+    color: #b91c1c !important; 
+    z-index: 50; 
+    box-shadow: 0 0 0 2px #ef4444, 0 4px 6px rgba(0,0,0,0.3);
+    opacity: 0.9 !important;
+}
+
+.timeline-bar.waiting {
+    background-color: #fff7ed !important; 
+    border-color: #f97316 !important; 
+    color: #c2410c !important;
+    border-style: dotted !important; 
+    z-index: 45;
+}
+
+.switch-marker { 
+    position: absolute; 
+    top: 0; 
+    bottom: 0; 
+    width: 2px; 
+    background-color: rgba(255,255,255,0.7); 
+    border-left: 1px dashed #ef4444; 
+    z-index: 20; 
+}
+
+/* Huy hiệu số thứ tự (Queue Badge) */
+.queue-badge {
+    position: absolute;
+    top: 2px;
+    right: 2px;
+    width: 16px;
+    height: 16px;
+    background-color: #ef4444;
+    color: white;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 9px;
+    font-weight: bold;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.2);
+    z-index: 10;
+}
