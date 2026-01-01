@@ -1,12 +1,13 @@
 /**
  * =================================================================================================
  * PROJECT: XINWUCHAN MASSAGE BOT (BACKEND SERVER)
- * VERSION: V151 (FIXED: STATUS COLUMN MAPPING & CHINESE KEYS SUPPORT)
+ * VERSION: V152 (FIXED: BATCH UPDATE STATUS TO PREVENT DATA LOSS)
  * AUTHOR: AI ASSISTANT & OWNER
  * DATE: 2026/01/01
  * * [FIXED]:
- * 1. Cập nhật API update-booking-details để nhận diện key tiếng Trung (狀態1...6).
- * 2. Đảm bảo đồng bộ trạng thái "✅ 已完成" chính xác ngay lập tức.
+ * 1. Sửa lỗi "trống trơn" khi thanh toán nhóm: Chuyển từ cập nhật từng ô sang cập nhật hàng loạt (Batch Update).
+ * 2. Tối ưu hóa API Call để tránh bị Google chặn khi thao tác nhanh.
+ * 3. Giữ nguyên khả năng nhận diện key tiếng Trung/Tiếng Anh.
  * =================================================================================================
  */
 
@@ -411,14 +412,14 @@ app.post('/api/update-status', async (req, res) => {
     res.json({ success: true }); 
 });
 
-// --- API UPDATE DETAILS (FIXED: MAP TO CHINESE KEYS) ---
+// --- API UPDATE DETAILS (MAJOR FIX: BATCH UPDATE STATUS) ---
 app.post('/api/update-booking-details', async (req, res) => {
     try {
         const body = req.body;
         const rowId = body.rowId;
         if (!rowId) return res.status(400).json({ error: 'Missing rowId' });
 
-        // Cập nhật dịch vụ
+        // Cập nhật dịch vụ (nếu có)
         if (body.serviceName) {
             await sheets.spreadsheets.values.update({
                 spreadsheetId: SHEET_ID, range: `${BOOKING_SHEET}!D${rowId}`, valueInputOption: 'USER_ENTERED',
@@ -434,7 +435,7 @@ app.post('/api/update-booking-details', async (req, res) => {
             });
         }
 
-        // Cập nhật các cột Nhân viên phụ vụ (L -> Q)
+        // Cập nhật các cột Nhân viên phụ (L -> Q)
         const staffFields = [
             { key: ['服務師傅1','ServiceStaff1','serviceStaff','staff1'], col: 'L' },
             { key: ['服務師傅2','ServiceStaff2','staffId2','staff2'], col: 'M' },
@@ -454,77 +455,92 @@ app.post('/api/update-booking-details', async (req, res) => {
             }
         }
 
-        // Cập nhật các cột Status riêng lẻ (R -> W)
-        // [QUAN TRỌNG]: Thêm key tiếng Trung (狀態X) vào danh sách kiểm tra
-        const statusFields = [
-            { key: ['Status1', 'status1', '狀態1'], col: 'R' },
-            { key: ['Status2', 'status2', '狀態2'], col: 'S' },
-            { key: ['Status3', 'status3', '狀態3'], col: 'T' },
-            { key: ['Status4', 'status4', '狀態4'], col: 'U' },
-            { key: ['Status5', 'status5', '狀態5'], col: 'V' },
-            { key: ['Status6', 'status6', '狀態6'], col: 'W' }
+        // ----------------------------------------------------------------------
+        // [QUAN TRỌNG] FIX LOGIC CẬP NHẬT TRẠNG THÁI (Status 1-6)
+        // Thay vì cập nhật từng ô (gây xung đột/mất dữ liệu), ta sẽ:
+        // 1. Đọc cả dòng trạng thái hiện tại (R-W).
+        // 2. Chèn dữ liệu mới vào.
+        // 3. Ghi lại 1 lần duy nhất.
+        // ----------------------------------------------------------------------
+        
+        // Map từ StatusX sang index (0-5)
+        const statusMap = [
+            { keys: ['Status1', 'status1', '狀態1'], index: 0 },
+            { keys: ['Status2', 'status2', '狀態2'], index: 1 },
+            { keys: ['Status3', 'status3', '狀態3'], index: 2 },
+            { keys: ['Status4', 'status4', '狀態4'], index: 3 },
+            { keys: ['Status5', 'status5', '狀態5'], index: 4 },
+            { keys: ['Status6', 'status6', '狀態6'], index: 5 }
         ];
 
+        // Kiểm tra xem có yêu cầu cập nhật Status nào không
         let hasStatusUpdate = false;
-        let incomingUpdates = {}; // Lưu lại update mới để check ngay lập tức
+        statusMap.forEach(item => {
+            if (item.keys.some(k => body[k])) hasStatusUpdate = true;
+        });
 
-        for (const field of statusFields) {
-            // Tìm xem trong body có key nào khớp (bao gồm key tiếng Trung)
-            const val = field.key.reduce((found, k) => found || body[k], undefined);
-            if (val) {
-                hasStatusUpdate = true;
-                // Lưu vào map tạm thời để overlay
-                const colKeyName = field.key[0]; // Lấy StatusX làm chuẩn
-                incomingUpdates[colKeyName] = val;
-
-                await sheets.spreadsheets.values.update({
-                    spreadsheetId: SHEET_ID, 
-                    range: `${BOOKING_SHEET}!${field.col}${rowId}`, 
-                    valueInputOption: 'USER_ENTERED',
-                    requestBody: { values: [[val]] }
-                });
-            }
-        }
-
-        // Đồng bộ để có dữ liệu mới nhất trong cache
-        await syncData();
-
-        // --- [LOGIC MỚI]: Kiểm tra xem toàn bộ nhóm đã xong chưa ---
-        // Kết hợp dữ liệu cache + dữ liệu vừa nhận được để check chính xác
         if (hasStatusUpdate) {
+            // Bước 1: Đọc dữ liệu hiện tại của các cột trạng thái (R -> W)
+            const rangeRW = `${BOOKING_SHEET}!R${rowId}:W${rowId}`;
+            const currentData = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: rangeRW });
+            
+            // Lấy mảng giá trị cũ, nếu chưa có thì tạo mảng rỗng
+            let statusValues = (currentData.data.values && currentData.data.values[0]) ? currentData.data.values[0] : [];
+            
+            // Đảm bảo mảng luôn có độ dài 6 để tránh lỗi undefined
+            while (statusValues.length < 6) statusValues.push("");
+
+            // Bước 2: Ghi đè các giá trị mới từ Frontend
+            statusMap.forEach(item => {
+                const newVal = item.keys.reduce((found, k) => found || body[k], undefined);
+                if (newVal) {
+                    statusValues[item.index] = newVal;
+                }
+            });
+
+            // Bước 3: Ghi lại vào Sheet (Chỉ 1 API Call duy nhất cho tất cả Status)
+            await sheets.spreadsheets.values.update({
+                spreadsheetId: SHEET_ID, 
+                range: rangeRW, 
+                valueInputOption: 'USER_ENTERED',
+                requestBody: { values: [statusValues] }
+            });
+
+            // Bước 4: Kiểm tra xem đã xong hết chưa để đánh dấu "Hoàn thành" tổng
+            const isAllFinished = statusValues.every((val, idx) => {
+                // Nếu khách thứ idx không tồn tại trong nhóm này (dựa vào booking cache) thì bỏ qua
+                // Nhưng ở đây đơn giản là: Nếu ô đó có dữ liệu, nó phải là "Hoàn thành".
+                // Tuy nhiên, logic chuẩn xác nhất là check booking Pax từ cache.
+                return true; 
+            });
+            
+            // Logic "Auto-Complete" dựa trên Pax
             const booking = cachedBookings.find(b => String(b.rowId) === String(rowId));
             if (booking) {
                 const pax = booking.pax || 1;
-                let allFinished = true;
-                
-                // Duyệt qua tất cả khách trong nhóm
-                for (let i = 1; i <= pax; i++) {
-                    const statusKey = `Status${i}`;
-                    
-                    // Ưu tiên lấy giá trị vừa update (nếu có), nếu không thì lấy từ cache
-                    let sVal = incomingUpdates[statusKey] || booking[statusKey] || '';
-                    
-                    if (!sVal.includes('完成')) {
-                        allFinished = false;
+                let allDone = true;
+                for (let i = 0; i < pax; i++) {
+                    if (!statusValues[i] || !statusValues[i].includes('完成')) {
+                        allDone = false;
                         break;
                     }
                 }
-
-                // Nếu tất cả đã xong -> Cập nhật cột H thành '✅ 已完成'
-                if (allFinished) {
-                    console.log(`[AUTO-COMPLETE] Row ${rowId} (Pax: ${pax}) is fully completed.`);
+                
+                if (allDone) {
                     await sheets.spreadsheets.values.update({
                         spreadsheetId: SHEET_ID, 
                         range: `${BOOKING_SHEET}!H${rowId}`, 
                         valueInputOption: 'USER_ENTERED',
                         requestBody: { values: [['✅ 已完成']] }
                     });
-                    await syncData(); // Đồng bộ lại để UI cập nhật
                 }
             }
         }
 
+        // Đồng bộ lại dữ liệu về Server
+        await syncData();
         res.json({ success: true });
+
     } catch (e) {
         console.error('Update Details Error:', e);
         res.status(500).json({ error: e.message });
@@ -772,5 +788,5 @@ function createMenuFlexMessage() {
 syncData();
 const port = process.env.PORT || 3000;
 app.listen(port, () => {
-    console.log(`Bot V151 (Full Fix: Status Mapping) running on ${port}`);
+    console.log(`Bot V152 (Batch Update Fix) running on ${port}`);
 });
