@@ -1,14 +1,13 @@
 /**
  * =================================================================================================
  * PROJECT: XINWUCHAN MASSAGE BOT (BACKEND SERVER)
- * VERSION: V147 (FIXED LINE BOT SIGNATURE & STATUS SYNC R->W)
+ * VERSION: V148 (FIXED DUPLICATE STAFF & KEEP STABLE FEATURES)
  * AUTHOR: AI ASSISTANT & OWNER
  * DATE: 2026/01/01
- * * [CHI TIẾT SỬA LỖI & CẬP NHẬT]:
- * 1. FIX LỖI LINE BOT: Đảo thứ tự `line.middleware` lên trước `express.json()` để tránh lỗi SignatureValidationFailed.
- * 2. SYNC DATA: Mở rộng đọc Sheet từ cột A đến W (Lấy thêm Status1...Status6).
- * 3. UPDATE API: Hỗ trợ ghi trạng thái vào cột R->W cho từng thợ riêng biệt.
- * 4. BẢO TOÀN: Giữ nguyên toàn bộ logic đặt lịch, admin, check giờ của V144.
+ * * [CHI TIẾT CẬP NHẬT]:
+ * 1. FIX TRÙNG NHÂN VIÊN: Thêm logic (Set) trong syncData để loại bỏ staff trùng tên từ Google Sheet.
+ * 2. SYNC STATUS: Đảm bảo đọc/ghi các cột R->W (Status1...6).
+ * 3. LINE BOT: Giữ nguyên 100% logic đặt lịch và Admin từ bản V147 ổn định.
  * =================================================================================================
  */
 
@@ -164,12 +163,12 @@ function parseStringToDate(dateStr) {
     } catch (e) { return null; }
 }
 
-// --- SYNC DATA (CẬP NHẬT: ĐỌC ĐẾN CỘT W) ---
+// --- SYNC DATA (CẬP NHẬT: LỌC TRÙNG NHÂN VIÊN & ĐỌC CỘT TRẠNG THÁI) ---
 async function syncData() {
     try {
         const resBooking = await sheets.spreadsheets.values.get({ 
             spreadsheetId: SHEET_ID, 
-            range: `${BOOKING_SHEET}!A:W` // Mở rộng range từ A:Q sang A:W để lấy Status1-6
+            range: `${BOOKING_SHEET}!A:W` // Đọc đến cột W
         });
         const rowsBooking = resBooking.data.values;
         cachedBookings = [];
@@ -180,8 +179,6 @@ async function syncData() {
                 if (!row[0] || !row[1]) continue;
 
                 const status = row[7] || '已預約'; 
-                
-                // Vẫn giữ logic lọc bỏ đơn đã huỷ
                 if (status.includes('取消') || status.includes('Cancelled')) continue;
 
                 const serviceStr = row[3] || ''; 
@@ -214,15 +211,12 @@ async function syncData() {
                     staffId4: row[14],
                     staffId5: row[15],
                     staffId6: row[16],
-                    
-                    // --- MỚI: LẤY DỮ LIỆU CÁC CỘT TRẠNG THÁI RIÊNG ---
                     Status1: row[17] || '', // Cột R
                     Status2: row[18] || '', // Cột S
                     Status3: row[19] || '', // Cột T
                     Status4: row[20] || '', // Cột U
                     Status5: row[21] || '', // Cột V
                     Status6: row[22] || '', // Cột W
-                    
                     pax: pax,
                     customerName: `${row[2]} (${row[6]})`,
                     serviceName: serviceStr,
@@ -237,6 +231,9 @@ async function syncData() {
         
         STAFF_LIST = [];
         scheduleMap = {}; 
+        
+        // [CẬP NHẬT QUAN TRỌNG]: Set để lọc trùng Staff ID
+        const processedStaffIds = new Set();
 
         if (rows && rows.length > 1) {
             const headerRow = rows[0]; 
@@ -246,6 +243,11 @@ async function syncData() {
                 if (!staffName) continue;
                 
                 const cleanName = staffName.trim();
+                
+                // [FIX]: Bỏ qua nếu nhân viên này đã được thêm rồi
+                if (processedStaffIds.has(cleanName)) continue;
+                processedStaffIds.add(cleanName);
+
                 const genderRaw = row[1];
                 const gender = (genderRaw && (genderRaw === '女' || genderRaw === 'F')) ? 'F' : 'M';
                 const shiftStart = row[2] || '08:00'; 
@@ -632,6 +634,7 @@ async function handleEvent(event) {
       currentState.step = 'TIME';
       userState[userId] = currentState;
       return client.replyMessage(event.replyToken, { type: 'flex', altText: 'Time', contents: bubbles });
+      
   }
 
   if (text.startsWith('StaffSelect:')) {
@@ -954,5 +957,5 @@ function createMenuFlexMessage() {
 syncData();
 const port = process.env.PORT || 3000;
 app.listen(port, () => {
-    console.log(`Bot V147 (Full Fix & Status Sync R->W) running on ${port}`);
+    console.log(`Bot V148 (Fixed Duplicate Staff) running on ${port}`);
 });
