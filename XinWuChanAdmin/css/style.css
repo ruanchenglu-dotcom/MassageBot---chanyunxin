@@ -17,13 +17,13 @@ body {
     to { opacity: 1; transform: scale(1); } 
 }
 
-/* --- STYLE THẺ NHÂN VIÊN (COMPACT V265/V266) --- */
+/* --- STYLE THẺ NHÂN VIÊN (UPDATED SIZE: 45x75) --- */
 .card-3d { 
     transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); 
     position: relative; 
     top: 0; 
-    width: 64px; /* Rộng 64px */
-    height: 70px; /* Cao 70px */
+    width: 45px;  /* Chiều ngang mới */
+    height: 75px; /* Chiều cao mới */
     border-radius: 8px; 
     display: flex; 
     flex-direction: column; 
@@ -39,7 +39,7 @@ body {
 
 .card-3d:active { 
     transform: translateY(2px); 
-    border-bottom-width: 0px; 
+    box-shadow: 0 1px 2px rgba(0,0,0,0.1); 
     margin-bottom: 2px; 
 }
 
@@ -48,20 +48,20 @@ body {
     box-shadow: 0 6px 10px -2px rgba(0, 0, 0, 0.15); 
 }
 
-/* Viền màu theo giới tính */
+/* Viền màu theo giới tính (Bây giờ bao quanh cả thẻ) */
 .style-male { 
     border: 2px solid #3B82F6; 
-    border-bottom: 4px solid #2563EB; 
+    border-bottom-width: 4px;
     color: #1E3A8A; 
 }
 
 .style-female { 
     border: 2px solid #F472B6; 
-    border-bottom: 4px solid #DB2777; 
+    border-bottom-width: 4px;
     color: #BE185D; 
 }
 
-/* Trạng thái nhân viên */
+/* Trạng thái nhân viên (Background Color thay đổi toàn thẻ) */
 .st-busy { 
     background-color: #fee2e2 !important; 
     border-color: #ef4444 !important; 

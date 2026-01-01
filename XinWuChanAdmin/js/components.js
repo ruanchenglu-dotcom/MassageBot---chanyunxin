@@ -37,7 +37,7 @@ class ErrorBoundary extends React.Component {
 }
 window.ErrorBoundary = ErrorBoundary;
 
-// --- STAFF CARD 3D ---
+// --- STAFF CARD 3D (UPDATED: Big Name Font) ---
 const StaffCard3D = ({ s, statusData, resourceState, queueIndex, isForcedBusy }) => {
     if (!s) return null;
     const isFemale = s.gender === 'F' || s.gender === '女'; 
@@ -53,23 +53,17 @@ const StaffCard3D = ({ s, statusData, resourceState, queueIndex, isForcedBusy })
     else if (displayStatus === 'EAT') cardStyle = 'st-eat';
     else if (displayStatus === 'OUT_SHORT') cardStyle = 'st-out';
 
-    let label = '---';
-    if(displayStatus === 'EAT') label='🍱 用餐'; 
-    else if(displayStatus === 'OUT_SHORT') label='⏳ 外出'; 
-    else if(displayStatus === 'AWAY' || displayStatus === 'OFF') label = '⛔ 未到'; 
-    else if(displayStatus === 'READY') label = `🟢 待命`; 
-    else if(displayStatus === 'BUSY') label = '🔴 上鐘'; 
-
     return (
-        <div className={`card-3d ${cardStyle}`}>
-            <div className="flex-1 flex flex-col items-center justify-center p-1 relative">
-                    {queueIndex !== undefined && displayStatus === 'READY' && (
-                    <div className="queue-badge">{queueIndex + 1}</div>
-                )}
-                <div className="absolute top-0 left-1 text-[9px] font-mono opacity-50">{s.id ? s.id.replace('號','') : ''}</div>
-                <div className="text-xl font-black text-slate-800 mt-1 truncate w-full text-center">{s.name}</div>
+        <div className={`card-3d ${cardStyle} flex flex-col items-center justify-center relative p-0 overflow-hidden`}>
+            {/* Queue Badge */}
+            {queueIndex !== undefined && displayStatus === 'READY' && (
+                <div className="queue-badge">{queueIndex + 1}</div>
+            )}
+            
+            {/* Tên Nhân Viên: Cực lớn (text-2xl), Đậm (font-black) */}
+            <div className="font-black text-2xl text-slate-800 text-center leading-none w-full select-none flex-1 flex items-center justify-center break-words px-0.5">
+                {s.name}
             </div>
-            <div className="text-center text-[10px] font-bold py-0.5 w-full bg-black/5 rounded-b truncate px-1">{label}</div>
         </div>
     )
 };

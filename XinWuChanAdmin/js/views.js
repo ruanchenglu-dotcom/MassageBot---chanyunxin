@@ -1,6 +1,6 @@
 const { useState, useEffect, useMemo, useRef } = React;
 
-// --- TIMELINE VIEW ---
+// --- TIMELINE VIEW (GIỮ NGUYÊN) ---
 const TimelineView = ({ bookings, resourceState }) => {
     const rows = useMemo(() => [
         ...[1,2,3,4,5,6].map(i => ({ id: `chair-${i}`, label: `💺 足 ${i}`, type: 'FOOT' })),
@@ -28,14 +28,14 @@ const TimelineView = ({ bookings, resourceState }) => {
         const grid = {}; 
         rows.forEach(r => { if(r.id) grid[r.id] = new Set(); });
 
+        const lockGrid = (rowId, start, end) => {
+            if (grid[rowId]) { for (let m = Math.floor(start); m < Math.ceil(end); m++) grid[rowId].add(m); }
+        };
+
         const isColliding = (rowId, start, end) => {
             if (!grid[rowId]) return true;
             for (let m = Math.floor(start); m < Math.ceil(end); m++) { if (grid[rowId].has(m)) return true; }
             return false;
-        };
-
-        const lockGrid = (rowId, start, end) => {
-            if (grid[rowId]) { for (let m = Math.floor(start); m < Math.ceil(end); m++) grid[rowId].add(m); }
         };
 
         const findSlot = (prefix, start, end) => {
@@ -73,35 +73,56 @@ const TimelineView = ({ bookings, resourceState }) => {
 
                 if (isCombo) {
                     let seq = (res.comboMeta && res.comboMeta.sequence) || 'FB';
-                    if (key.includes('bed') && seq === 'FB') seq = 'BF'; 
-                    if (key.includes('chair') && seq === 'BF') seq = 'FB';
-
-                    const split = window.getComboSplit(effectiveDuration, true, seq); 
                     const isChair = key.includes('chair');
                     const phase1IsChair = seq === 'FB';
                     const isPhase1 = (isChair && phase1IsChair) || (!isChair && !phase1IsChair);
-                    
+
+                    const split = window.getComboSplit(effectiveDuration, res.isMaxMode, seq);
                     const phaseDuration = isPhase1 ? split.phase1 : split.phase2;
                     const flexMinutes = res.comboMeta && res.comboMeta.flex ? res.comboMeta.flex : 0;
                     const displayPhase1Dur = isPhase1 ? phaseDuration + flexMinutes : phaseDuration;
                     
                     items.push({
-                        id: `ACT_P1_${res.booking.rowId}_${key}`, rowId: key, style: calculateStyle(startMins, displayPhase1Dur),
+                        id: `ACT_${isPhase1?'P1':'P2'}_${res.booking.rowId}_${key}`, 
+                        rowId: key, 
+                        style: calculateStyle(startMins, displayPhase1Dur),
                         color: window.stringToColor(res.booking.customerName), 
                         label: simpleLabel,
-                        sub: '', 
-                        isPlanned: !res.isRunning, isCombo: true
+                        sub: isPhase1 ? 'Phase 1' : 'Phase 2', 
+                        isPlanned: !res.isRunning, 
+                        isCombo: true
                     });
-                        lockGrid(key, startMins, startMins + displayPhase1Dur);
+                    lockGrid(key, startMins, startMins + displayPhase1Dur);
+
+                    if (isPhase1 && res.comboMeta && res.comboMeta.targetId) {
+                        const nextStart = startMins + displayPhase1Dur + TRANSITION_BUFFER;
+                        const nextDuration = split.phase2;
+                        const targetRow = res.comboMeta.targetId;
+
+                        if (rows.some(r => r.id === targetRow)) {
+                            items.push({
+                                id: `ACT_P2_LOCKED_${res.booking.rowId}_${targetRow}`,
+                                rowId: targetRow,
+                                style: calculateStyle(nextStart, nextDuration),
+                                color: window.stringToColor(res.booking.customerName),
+                                label: simpleLabel,
+                                sub: 'Phase 2',
+                                isPlanned: true, 
+                                isCombo: true,
+                                opacity: 1.0
+                            });
+                            lockGrid(targetRow, nextStart, nextStart + nextDuration);
+                        }
+                    }
+
                 } else {
-                        items.push({
-                        id: `ACT_${res.booking.rowId}_${key}`, rowId: key, style: calculateStyle(startMins, effectiveDuration),
+                    items.push({
+                        id: `ACT_${res.booking.rowId}_${key}`, rowId: key, 
+                        style: calculateStyle(startMins, effectiveDuration),
                         color: window.stringToColor(res.booking.customerName), 
-                        label: simpleLabel,
-                        sub: '',
-                        isPlanned: !res.isRunning, isCombo: false
+                        label: simpleLabel, sub: '', isPlanned: !res.isRunning, isCombo: false
                     });
-                        lockGrid(key, startMins, startMins + effectiveDuration);
+                    lockGrid(key, startMins, startMins + effectiveDuration);
                 }
             }
         });
@@ -119,13 +140,11 @@ const TimelineView = ({ bookings, resourceState }) => {
             const activeCount = allocatedCounts[bRowId] || 0;
             const remainingPax = totalPax - activeCount;
             const duration = window.getSafeDuration(b.serviceName, b.duration);
-            
             const phoneSuffix = b.sdt && b.sdt.length >= 2 ? b.sdt.slice(-2) : '..';
             const simpleLabel = `${b.customerName} (${phoneSuffix})`;
 
             if (remainingPax > 0) {
                 for(let k=0; k<remainingPax; k++) {
-                    const logicalIndex = activeCount + k; 
                     const originalStartMins = window.normalizeToTimelineMins(b.startTimeString.split(' ')[1]);
                     const isCombo = b.category === 'COMBO' || b.serviceName.includes('套餐');
                     
@@ -231,7 +250,7 @@ const TimelineView = ({ bookings, resourceState }) => {
 };
 window.TimelineView = TimelineView;
 
-// --- RESOURCE CARD ---
+// --- RESOURCE CARD (GRID VIEW) (GIỮ NGUYÊN) ---
 const ResourceCard = ({ id, type, index, data, busyStaffIds, onAction, onSelect, onSwitch, onToggleMax, onToggleSequence, onServiceChange, onStaffChange, onSplit, staffList, getGroupMemberIndex }) => {
     const [timeLeft, setTimeLeft] = useState(0); const [percent, setPercent] = useState(0);
     const [phaseLabel, setPhaseLabel] = useState(null);
@@ -416,18 +435,103 @@ const ResourceCard = ({ id, type, index, data, busyStaffIds, onAction, onSelect,
 };
 window.ResourceCard = ResourceCard;
 
-// --- REPORT VIEW ---
+// --- REPORT VIEW (UPDATED: SCAN INDIVIDUAL COLUMNS) ---
 const ReportView = ({ bookings }) => {
     const safeBookings = Array.isArray(bookings) ? bookings : [];
-    const finishedBookings = safeBookings.filter(b => b.status.includes('完成') || b.status.includes('Done'));
-    const totalRevenue = finishedBookings.reduce((sum, b) => sum + window.getPrice(b.serviceName) + window.getOilPrice(b.isOil || (b.serviceName && (b.serviceName.includes('油')))), 0);
+    
+    // Tính toán các hàng sẽ hiển thị (đã hoàn thành riêng lẻ)
+    const completedItems = safeBookings.flatMap((b) => {
+        const pax = parseInt(b.pax, 10) || 1;
+        const items = [];
+        
+        // Danh sách thợ
+        const staffForGroup = [
+            b.serviceStaff || b.staffId || b.ServiceStaff || b.StaffId || b.technician || b.Technician,
+            b.staffId2 || b.StaffId2 || b.staff2 || b.Staff2,
+            b.staffId3 || b.StaffId3 || b.staff3 || b.Staff3,
+            b.staffId4 || b.StaffId4 || b.staff4 || b.Staff4,
+            b.staffId5 || b.StaffId5 || b.staff5 || b.Staff5,
+            b.staffId6 || b.StaffId6 || b.staff6 || b.Staff6
+        ];
+
+        for (let k = 0; k < pax; k++) {
+            // QUÉT TRẠNG THÁI RIÊNG: Status1, Status2,...
+            const colKey = `Status${k+1}`;
+            const colKeyLower = `status${k+1}`;
+            
+            // Nếu cột riêng lẻ báo '完成' HOẶC cả đơn đã '完成' thì cho hiện
+            const isSingleDone = (b[colKey] && b[colKey].includes('完成')) || (b[colKeyLower] && b[colKeyLower].includes('完成'));
+            const isAllDone = b.status.includes('完成') || b.status.includes('Done') || b.status.includes('✅');
+
+            if (isSingleDone || isAllDone) {
+                const unitPrice = window.getPrice(b.serviceName);
+                const oilPrice = window.getOilPrice(b.isOil || (b.serviceName && b.serviceName.includes('油')));
+                
+                let staffName = staffForGroup[k];
+                if (!staffName || staffName === 'undefined' || staffName === 'null' || staffName === 'N/A') {
+                    staffName = '隨機';
+                }
+
+                items.push({
+                    key: `${b.rowId}-${k}`,
+                    time: b.startTimeString.split(' ')[1],
+                    name: b.customerName,
+                    paxIndex: pax > 1 ? k + 1 : null,
+                    service: b.serviceName,
+                    staff: staffName,
+                    amount: unitPrice + oilPrice
+                });
+            }
+        }
+        return items;
+    });
+
+    const totalRevenue = completedItems.reduce((sum, item) => sum + item.amount, 0);
+    const totalGuests = completedItems.length;
+
     return (
         <div className="p-4 space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="bg-white p-6 rounded-xl shadow-sm border border-emerald-100"><h3 className="text-gray-500 font-bold mb-2">本日營收</h3><div className="text-4xl font-black text-emerald-600">${totalRevenue.toLocaleString()}</div></div>
-                <div className="bg-white p-6 rounded-xl shadow-sm border border-blue-100"><h3 className="text-gray-500 font-bold mb-2">已完成單數</h3><div className="text-4xl font-black text-blue-600">{finishedBookings.length}</div></div>
+                <div className="bg-white p-6 rounded-xl shadow-sm border border-emerald-100">
+                    <h3 className="text-gray-500 font-bold mb-2">本日營收 (Total Revenue)</h3>
+                    <div className="text-4xl font-black text-emerald-600">${totalRevenue.toLocaleString()}</div>
+                </div>
+                <div className="bg-white p-6 rounded-xl shadow-sm border border-blue-100">
+                    <h3 className="text-gray-500 font-bold mb-2">已服務人數 (Total Guests)</h3>
+                    <div className="text-4xl font-black text-blue-600">{totalGuests}</div>
+                </div>
             </div>
-            <div className="bg-white rounded-xl shadow border overflow-hidden"><div className="p-3 bg-slate-50 border-b font-bold text-slate-700">交易明細</div><table className="w-full text-sm text-left"><thead className="bg-white text-slate-500"><tr><th className="p-3">時間</th><th className="p-3">姓名</th><th className="p-3">服務</th><th className="p-3">師傅 (Service)</th><th className="p-3 text-right">金額</th></tr></thead><tbody className="divide-y">{finishedBookings.map((b,i) => (<tr key={i}><td className="p-3 font-mono">{b.startTimeString.split(' ')[1]}</td><td className="p-3 font-bold">{b.customerName}</td><td className="p-3">{b.serviceName}</td><td className="p-3">{b.serviceStaff || b.staffId}</td><td className="p-3 text-right font-bold">${window.getPrice(b.serviceName) + window.getOilPrice(b.isOil)}</td></tr>))}</tbody></table></div>
+            {/* CONTAINER BẢNG CÓ THANH CUỘN */}
+            <div className="bg-white rounded-xl shadow border overflow-hidden flex flex-col h-[600px]">
+                <div className="p-3 bg-slate-50 border-b font-bold text-slate-700 shrink-0">交易明細 (Details)</div>
+                <div className="overflow-y-auto flex-1">
+                    <table className="w-full text-sm text-left">
+                        <thead className="bg-white text-slate-500 sticky top-0 shadow-sm z-10">
+                            <tr>
+                                <th className="p-3 bg-white">時間</th>
+                                <th className="p-3 bg-white">姓名 (Name)</th>
+                                <th className="p-3 bg-white">服務 (Service)</th>
+                                <th className="p-3 bg-white">師傅 (Technician)</th>
+                                <th className="p-3 text-right bg-white">金額 (Amount)</th>
+                            </tr>
+                        </thead>
+                        <tbody className="divide-y">
+                            {completedItems.map(item => (
+                                <tr key={item.key}>
+                                    <td className="p-3 font-mono">{item.time}</td>
+                                    <td className="p-3 font-bold">
+                                        {item.name}
+                                        {item.paxIndex && <span className="ml-2 text-xs text-gray-400 font-normal">#{item.paxIndex}</span>}
+                                    </td>
+                                    <td className="p-3">{item.service}</td>
+                                    <td className="p-3 font-mono font-bold text-indigo-700">{item.staff}</td>
+                                    <td className="p-3 text-right font-bold text-emerald-700">${item.amount.toLocaleString()}</td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
         </div>
     );
 };
