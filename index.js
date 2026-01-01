@@ -1,12 +1,12 @@
 /**
  * =================================================================================================
  * PROJECT: XINWUCHAN MASSAGE BOT (BACKEND SERVER)
- * VERSION: V150 (FULL FEATURES + AUTO COMPLETE GROUP)
+ * VERSION: V151 (FIXED: STATUS COLUMN MAPPING & CHINESE KEYS SUPPORT)
  * AUTHOR: AI ASSISTANT & OWNER
  * DATE: 2026/01/01
- * * [TÍNH NĂNG MỚI]:
- * 1. Tự động cập nhật cột H thành "✅ 已完成" khi tất cả các cột trạng thái con (Status1..6) đều hoàn thành.
- * 2. Giữ nguyên 100% logic đặt lịch LINE Bot, Admin, Check-in, Time Suggest.
+ * * [FIXED]:
+ * 1. Cập nhật API update-booking-details để nhận diện key tiếng Trung (狀態1...6).
+ * 2. Đảm bảo đồng bộ trạng thái "✅ 已完成" chính xác ngay lập tức.
  * =================================================================================================
  */
 
@@ -213,6 +213,7 @@ async function syncData() {
                     staffId6: row[16],
                     
                     // [CẬP NHẬT]: Lấy dữ liệu các cột trạng thái riêng (R->W)
+                    // Lưu ý: Row index 17 = Column R
                     Status1: row[17] || '', 
                     Status2: row[18] || '', 
                     Status3: row[19] || '', 
@@ -410,7 +411,7 @@ app.post('/api/update-status', async (req, res) => {
     res.json({ success: true }); 
 });
 
-// --- API UPDATE DETAILS (CÓ LOGIC CHECK ALL COMPLETED) ---
+// --- API UPDATE DETAILS (FIXED: MAP TO CHINESE KEYS) ---
 app.post('/api/update-booking-details', async (req, res) => {
     try {
         const body = req.body;
@@ -454,20 +455,28 @@ app.post('/api/update-booking-details', async (req, res) => {
         }
 
         // Cập nhật các cột Status riêng lẻ (R -> W)
+        // [QUAN TRỌNG]: Thêm key tiếng Trung (狀態X) vào danh sách kiểm tra
         const statusFields = [
-            { key: ['Status1', 'status1'], col: 'R' },
-            { key: ['Status2', 'status2'], col: 'S' },
-            { key: ['Status3', 'status3'], col: 'T' },
-            { key: ['Status4', 'status4'], col: 'U' },
-            { key: ['Status5', 'status5'], col: 'V' },
-            { key: ['Status6', 'status6'], col: 'W' }
+            { key: ['Status1', 'status1', '狀態1'], col: 'R' },
+            { key: ['Status2', 'status2', '狀態2'], col: 'S' },
+            { key: ['Status3', 'status3', '狀態3'], col: 'T' },
+            { key: ['Status4', 'status4', '狀態4'], col: 'U' },
+            { key: ['Status5', 'status5', '狀態5'], col: 'V' },
+            { key: ['Status6', 'status6', '狀態6'], col: 'W' }
         ];
 
         let hasStatusUpdate = false;
+        let incomingUpdates = {}; // Lưu lại update mới để check ngay lập tức
+
         for (const field of statusFields) {
+            // Tìm xem trong body có key nào khớp (bao gồm key tiếng Trung)
             const val = field.key.reduce((found, k) => found || body[k], undefined);
             if (val) {
                 hasStatusUpdate = true;
+                // Lưu vào map tạm thời để overlay
+                const colKeyName = field.key[0]; // Lấy StatusX làm chuẩn
+                incomingUpdates[colKeyName] = val;
+
                 await sheets.spreadsheets.values.update({
                     spreadsheetId: SHEET_ID, 
                     range: `${BOOKING_SHEET}!${field.col}${rowId}`, 
@@ -481,6 +490,7 @@ app.post('/api/update-booking-details', async (req, res) => {
         await syncData();
 
         // --- [LOGIC MỚI]: Kiểm tra xem toàn bộ nhóm đã xong chưa ---
+        // Kết hợp dữ liệu cache + dữ liệu vừa nhận được để check chính xác
         if (hasStatusUpdate) {
             const booking = cachedBookings.find(b => String(b.rowId) === String(rowId));
             if (booking) {
@@ -490,7 +500,10 @@ app.post('/api/update-booking-details', async (req, res) => {
                 // Duyệt qua tất cả khách trong nhóm
                 for (let i = 1; i <= pax; i++) {
                     const statusKey = `Status${i}`;
-                    const sVal = booking[statusKey] || '';
+                    
+                    // Ưu tiên lấy giá trị vừa update (nếu có), nếu không thì lấy từ cache
+                    let sVal = incomingUpdates[statusKey] || booking[statusKey] || '';
+                    
                     if (!sVal.includes('完成')) {
                         allFinished = false;
                         break;
@@ -759,5 +772,5 @@ function createMenuFlexMessage() {
 syncData();
 const port = process.env.PORT || 3000;
 app.listen(port, () => {
-    console.log(`Bot V150 (Auto-Complete Group) running on ${port}`);
+    console.log(`Bot V151 (Full Fix: Status Mapping) running on ${port}`);
 });

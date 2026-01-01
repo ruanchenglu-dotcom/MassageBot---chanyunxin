@@ -1,6 +1,6 @@
 const { useState, useEffect, useMemo, useRef } = React;
 
-// --- APP COMPONENT (FIXED: UPDATE INDIVIDUAL STATUS COLUMNS) ---
+// --- APP COMPONENT (FIXED: PAYMENT STATUS & COLUMN MAPPING) ---
 const App = () => {
     // 1. STATE MANAGEMENT
     const [activeTab, setActiveTab] = useState('map');
@@ -126,13 +126,14 @@ const App = () => {
                             const mergedBooking = { ...serverBooking };
                             
                             // Bảo lưu trạng thái chi tiết từ local nếu server chưa cập nhật
-                            // (Ví dụ: Status2 đã 'Completed' ở local nhưng server vẫn trống)
                             for(let i=1; i<=6; i++) {
+                                // Kiểm tra cả tiếng Anh và tiếng Trung/Việt nếu có
                                 const key = `Status${i}`;
-                                const keyLower = `status${i}`; // Đề phòng trường hợp API trả về chữ thường
+                                const keyLower = `status${i}`;
+                                const keyCN = `狀態${i}`;
                                 
-                                const localVal = localBooking[key] || localBooking[keyLower];
-                                const serverVal = serverBooking[key] || serverBooking[keyLower];
+                                const localVal = localBooking[key] || localBooking[keyLower] || localBooking[keyCN];
+                                const serverVal = serverBooking[key] || serverBooking[keyLower] || serverBooking[keyCN];
 
                                 if (localVal && localVal.includes('完成') && (!serverVal || !serverVal.includes('完成'))) {
                                     mergedBooking[key] = localVal; 
@@ -152,7 +153,7 @@ const App = () => {
             const nowObj = window.getTaipeiDate();
             const nowMins = nowObj.getHours() * 60 + nowObj.getMinutes() + (nowObj.getHours() < 8 ? 1440 : 0);
             
-            // --- BƯỚC 1: LẤY DỮ LIỆU ĐANG CHẠY & TÍNH THỜI GIAN KẾT THÚC ---
+            // --- MAP SCANNER & TIMELINE LOGIC ---
             let tempState = {}; 
             const activePaxCounts = {}; 
             const activeEndTimes = {}; 
@@ -176,14 +177,11 @@ const App = () => {
                         if (isPhase1) durationUsed = split.phase1 + (currentRes[key].comboMeta.flex || 0);
                         else durationUsed = split.phase2; 
                     }
-                    
                     activeEndTimes[key] = startMins + durationUsed;
                 }
             });
             
-            // --- BƯỚC 2: TÍNH TOÁN TIMELINE ---
             const timelineGrid = {}; 
-            
             const isReservedAt = (resId, start, end) => {
                 if (activeEndTimes[resId] !== undefined) {
                     if (start < activeEndTimes[resId]) return true; 
@@ -208,7 +206,6 @@ const App = () => {
                 return null; 
             };
 
-            // 2.1: Dự đoán Phase 2 cho khách ĐANG CHẠY (Active)
             Object.keys(tempState).forEach(key => {
                 const item = tempState[key];
                 if (item.comboMeta) {
@@ -238,7 +235,6 @@ const App = () => {
                 }
             });
 
-            // 2.2: Xếp lịch cho khách ĐANG CHỜ (Waiting)
             const safeBookingsArray = Array.isArray(cleanBookings) ? cleanBookings : [];
             const relevantBookings = safeBookingsArray.filter(b => 
                 window.isWithinOperationalDay(b.startTimeString.split(' ')[0], b.startTimeString.split(' ')[1], viewDate) && 
@@ -258,21 +254,18 @@ const App = () => {
             };
             listSingles.sort(sortFn); listCombos.sort(sortFn);
 
-            // Xếp Single
             listSingles.forEach(b => {
                 const originalStart = window.normalizeToTimelineMins(b.startTimeString.split(' ')[1]);
                 const totalNeeded = b.pax || 1;
                 const alreadyRunning = activePaxCounts[String(b.rowId)] || 0;
-                // Kiểm tra xem khách nào trong nhóm đã xong rồi (để trừ ra khỏi waiting list)
                 let completedCount = 0;
                 for(let i=1; i<=totalNeeded; i++) {
                     const statusKey = `Status${i}`;
-                    const statusKeyLower = `status${i}`;
-                    if((b[statusKey] && b[statusKey].includes('完成')) || (b[statusKeyLower] && b[statusKeyLower].includes('完成'))) {
+                    const statusKeyCN = `狀態${i}`;
+                    if((b[statusKey] && b[statusKey].includes('完成')) || (b[statusKeyCN] && b[statusKeyCN].includes('完成'))) {
                         completedCount++;
                     }
                 }
-                
                 const remainingNeeded = totalNeeded - alreadyRunning - completedCount;
 
                 if (remainingNeeded <= 0) return;
@@ -280,7 +273,6 @@ const App = () => {
                 for(let k=0; k<remainingNeeded; k++) {
                     const type = b.type === 'CHAIR' ? 'chair' : 'bed';
                     let searchOffsets = [0]; for(let i=1; i<=120; i++) searchOffsets.push(i);
-                    
                     for(let delay of searchOffsets) {
                         let tryStart = originalStart + delay;
                         let tryEnd = tryStart + b.duration;
@@ -293,7 +285,6 @@ const App = () => {
                 }
             });
 
-            // Xếp Combo
             listCombos.forEach(b => {
                 const originalStart = window.normalizeToTimelineMins(b.startTimeString.split(' ')[1]);
                 const totalNeeded = b.pax || 1;
@@ -301,8 +292,8 @@ const App = () => {
                 let completedCount = 0;
                 for(let i=1; i<=totalNeeded; i++) {
                     const statusKey = `Status${i}`;
-                    const statusKeyLower = `status${i}`;
-                    if((b[statusKey] && b[statusKey].includes('完成')) || (b[statusKeyLower] && b[statusKeyLower].includes('完成'))) {
+                    const statusKeyCN = `狀態${i}`;
+                    if((b[statusKey] && b[statusKey].includes('完成')) || (b[statusKeyCN] && b[statusKeyCN].includes('完成'))) {
                         completedCount++;
                     }
                 }
@@ -314,7 +305,6 @@ const App = () => {
                     let searchOffsets = [0]; for(let i=1; i<=120; i++) searchOffsets.push(i);
                     for(let delay of searchOffsets) {
                         let tryStart = originalStart + delay;
-
                         const splitFB = window.getComboSplit(b.duration, true, 'FB');
                         const p1EndFB = tryStart + splitFB.phase1;
                         const p2StartFB = p1EndFB + 5;
@@ -327,14 +317,12 @@ const App = () => {
                             addToGrid(s2FB, p2StartFB, p2EndFB, b, { isCombo: true, phase: 2, sequence: 'FB' });
                             break;
                         }
-
                         const splitBF = window.getComboSplit(b.duration, true, 'BF');
                         const p1EndBF = tryStart + splitBF.phase1;
                         const p2StartBF = p1EndBF + 5;
                         const p2EndBF = p2StartBF + splitBF.phase2;
                         const s1BF_bed = findFirstFreeSlot('bed', tryStart, p1EndBF);
                         const s2BF_chair = findFirstFreeSlot('chair', p2StartBF, p2EndBF);
-
                         if (s1BF_bed && s2BF_chair) {
                             addToGrid(s1BF_bed, tryStart, p1EndBF, b, { isCombo: true, phase: 1, sequence: 'BF', targetId: s2BF_chair });
                             addToGrid(s2BF_chair, p2StartBF, p2EndBF, b, { isCombo: true, phase: 2, sequence: 'BF' });
@@ -344,17 +332,14 @@ const App = () => {
                 }
             });
 
-            // --- BƯỚC 3: MÁY QUÉT MAP ---
             const allSlots = [];
             for(let i=1; i<=6; i++) allSlots.push(`chair-${i}`);
             for(let i=1; i<=6; i++) allSlots.push(`bed-${i}`);
 
             allSlots.forEach(resId => {
                 if (tempState[resId]) return; 
-
                 const slots = timelineGrid[resId] || [];
                 const currentSlot = slots.find(s => (nowMins >= s.start && nowMins < s.end));
-
                 if (currentSlot) {
                     const nameLabel = currentSlot.booking.pax > 1 ? `${currentSlot.booking.customerName} (Grp)` : currentSlot.booking.customerName;
                     tempState[resId] = { 
@@ -364,8 +349,7 @@ const App = () => {
                         comboMeta: currentSlot.meta.isCombo ? { sequence: currentSlot.meta.sequence, phase: currentSlot.meta.phase, targetId: currentSlot.meta.targetId } : null, 
                         isMaxMode: true 
                     };
-                } 
-                else {
+                } else {
                     const upcomingSlot = slots.find(s => s.start > nowMins && s.start - nowMins <= 30);
                     if (upcomingSlot) {
                          tempState[resId] = {
@@ -555,7 +539,7 @@ const App = () => {
     const handleToggleMax = async (resId) => { const res = resourceState[resId]; if (!res) return; updateResource({ ...resourceState, [resId]: { ...res, isMaxMode: !res.isMaxMode } }); };
     const handleToggleSequence = async (resId) => { const res = resourceState[resId]; if (!res || !res.comboMeta) return; const newSeq = res.comboMeta.sequence === 'FB' ? 'BF' : 'FB'; updateResource({ ...resourceState, [resId]: { ...res, comboMeta: { ...res.comboMeta, sequence: newSeq } } }); }
     
-    // --- PAYMENT HANDLER (UPDATED: SEND UPDATE TO SPECIFIC STATUS COLUMN) ---
+    // --- PAYMENT HANDLER (FIXED: MAP TO CHINESE COLUMNS '狀態X') ---
     const handleConfirmPayment = async (itemsToPay, totalAmount) => {
         try {
             setSyncLock(true); setTimeout(() => setSyncLock(false), 5000); 
@@ -572,22 +556,25 @@ const App = () => {
 
                 // Tính toán vị trí khách trong nhóm (0 -> 5)
                 const grpIdx = getGroupMemberIndex(resId, b.rowId); 
-                // Map sang cột Status1, Status2...
-                const statusColName = `Status${grpIdx + 1}`; 
+                
+                // MAPPING QUAN TRỌNG: Gửi cả key tiếng Anh và tiếng Trung
+                const statusColEnglish = `Status${grpIdx + 1}`; 
+                const statusColChinese = `狀態${grpIdx + 1}`; // Dựa trên tên cột trong Google Sheets của bạn
 
-                // Gửi API update cụ thể cột này
-                // API cần hỗ trợ nhận { rowId, StatusX: '...' }
-                // Nếu API của bạn chỉ nhận 'status', bạn cần sửa API code. 
-                // Ở đây tôi giả định bạn có endpoint chung update-booking-details
-                await axios.post('/api/update-booking-details', { 
-                    rowId: rid, 
-                    [statusColName]: '✅ 完成', 
-                    forceSync: true 
-                });
+                // Payload gửi đi
+                const payload = {
+                    rowId: rid,
+                    [statusColEnglish]: '✅ 完成',
+                    [statusColChinese]: '✅ 完成',
+                    forceSync: true
+                };
 
-                // Lưu thay đổi để update local booking state
+                await axios.post('/api/update-booking-details', payload);
+
+                // Lưu thay đổi để update local booking state ngay lập tức
                 if(!updatesToBookings[rid]) updatesToBookings[rid] = {};
-                updatesToBookings[rid][statusColName] = '✅ 完成';
+                updatesToBookings[rid][statusColEnglish] = '✅ 完成';
+                updatesToBookings[rid][statusColChinese] = '✅ 完成';
 
                 // Tìm Staff ID để release
                 let staffId = null;
@@ -659,7 +646,7 @@ const App = () => {
             <header className={`text-white p-3 shadow-md flex justify-between items-center sticky top-0 z-50 transition-colors ${quotaError ? 'bg-red-800' : 'bg-[#1e1b4b]'}`}>
                 {/* LEFT SIDE: LOGO & DATE */}
                 <div className="flex items-center gap-3">
-                    <span className="bg-amber-500 text-black px-2 py-1 rounded font-black text-sm">V271</span>
+                    <span className="bg-amber-500 text-black px-2 py-1 rounded font-black text-sm">V272</span>
                     <span className="font-bold hidden md:inline">XinWuChan</span>
                     <div className="flex items-center gap-2 bg-white/10 rounded px-2 py-1 border border-white/20">
                         <button onClick={()=>{const d=new Date(viewDate); d.setDate(d.getDate()-1); setViewDate(d.toISOString().split('T')[0])}} className="text-white hover:text-amber-400 font-bold px-2">❮</button>

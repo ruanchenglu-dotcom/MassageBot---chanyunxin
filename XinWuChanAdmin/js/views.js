@@ -250,7 +250,7 @@ const TimelineView = ({ bookings, resourceState }) => {
 };
 window.TimelineView = TimelineView;
 
-// --- RESOURCE CARD (UPDATED: STAFF NAME FIX FOR GROUPS) ---
+// --- RESOURCE CARD (GIỮ NGUYÊN) ---
 const ResourceCard = ({ id, type, index, data, busyStaffIds, onAction, onSelect, onSwitch, onToggleMax, onToggleSequence, onServiceChange, onStaffChange, onSplit, staffList, getGroupMemberIndex }) => {
     const [timeLeft, setTimeLeft] = useState(0); const [percent, setPercent] = useState(0);
     const [phaseLabel, setPhaseLabel] = useState(null);
@@ -306,15 +306,11 @@ const ResourceCard = ({ id, type, index, data, busyStaffIds, onAction, onSelect,
         }
     }
     
-    // [FIX] Cập nhật logic hiển thị tên nhân viên cho nhóm
     let staffDisplay = '';
     if (isOccupied) {
-        // Tìm vị trí của khách này trong nhóm (0-5)
         const grpIdx = getGroupMemberIndex(id, data.booking.rowId);
         let myStaff = '';
         
-        // Mapping thủ công dựa trên index
-        // Chú ý: Các trường này phải khớp với những gì API trả về (xem syncData ở index.js)
         if (grpIdx === 0) myStaff = data.booking.serviceStaff || data.booking.staffId;
         else if (grpIdx === 1) myStaff = data.booking.staffId2;
         else if (grpIdx === 2) myStaff = data.booking.staffId3;
@@ -323,8 +319,6 @@ const ResourceCard = ({ id, type, index, data, busyStaffIds, onAction, onSelect,
         else if (grpIdx === 5) myStaff = data.booking.staffId6;
 
         if (!myStaff || myStaff === 'undefined' || myStaff === 'null') {
-             // Nếu là khách lẻ (grpIdx=0) mà chưa có tên -> hiển thị '隨機' hoặc yêu cầu chọn
-             // Nếu là khách nhóm (grpIdx > 0) mà chưa có tên -> hiển thị '隨機'
              myStaff = '隨機';
         }
         staffDisplay = myStaff; 
@@ -441,32 +435,52 @@ const ResourceCard = ({ id, type, index, data, busyStaffIds, onAction, onSelect,
 };
 window.ResourceCard = ResourceCard;
 
-// --- REPORT VIEW (UPDATED: ROBUST STAFF NAME CHECK) ---
+// --- REPORT VIEW (FIXED: LOGIC TÍNH TIỀN KHÁCH LẺ TRONG NHÓM) ---
 const ReportView = ({ bookings }) => {
     const safeBookings = Array.isArray(bookings) ? bookings : [];
-    const finishedBookings = safeBookings.filter(b => b.status.includes('完成') || b.status.includes('Done') || b.status.includes('✅'));
-    
-    // Tính tổng doanh thu
-    const totalRevenue = finishedBookings.reduce((sum, b) => {
-        const unitPrice = window.getPrice(b.serviceName);
-        const oilPrice = window.getOilPrice(b.isOil || (b.serviceName && (b.serviceName.includes('油'))));
-        const pax = parseInt(b.pax, 10) || 1;
-        return sum + ((unitPrice + oilPrice) * pax);
-    }, 0);
 
-    // Tính tổng khách
-    const totalGuests = finishedBookings.reduce((sum, b) => sum + (parseInt(b.pax, 10) || 1), 0);
+    // Tính toán doanh thu và số khách dựa trên TỪNG CÁ NHÂN (đã check StatusX)
+    // chứ không dựa trên status tổng của đơn hàng
+    const processedStats = useMemo(() => {
+        let revenue = 0;
+        let guests = 0;
+        
+        safeBookings.forEach(b => {
+            const pax = parseInt(b.pax, 10) || 1;
+            
+            // Duyệt qua từng người trong nhóm
+            for(let i=0; i<pax; i++) {
+                const statusKey = `Status${i+1}`;
+                const statusKeyCN = `狀態${i+1}`;
+                const statusKeyLower = `status${i+1}`;
+                
+                const isItemDone = (b[statusKey] && b[statusKey].includes('完成')) || 
+                                   (b[statusKeyCN] && b[statusKeyCN].includes('完成')) || 
+                                   (b[statusKeyLower] && b[statusKeyLower].includes('完成'));
+                
+                const isAllDone = b.status.includes('完成') || b.status.includes('Done') || b.status.includes('✅');
+
+                if (isItemDone || isAllDone) {
+                    guests++;
+                    const unitPrice = window.getPrice(b.serviceName);
+                    const oilPrice = window.getOilPrice(b.isOil || (b.serviceName && b.serviceName.includes('油')));
+                    revenue += (unitPrice + oilPrice);
+                }
+            }
+        });
+        return { revenue, guests };
+    }, [safeBookings]);
 
     return (
         <div className="p-4 space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="bg-white p-6 rounded-xl shadow-sm border border-emerald-100">
                     <h3 className="text-gray-500 font-bold mb-2">本日營收 (Total Revenue)</h3>
-                    <div className="text-4xl font-black text-emerald-600">${totalRevenue.toLocaleString()}</div>
+                    <div className="text-4xl font-black text-emerald-600">${processedStats.revenue.toLocaleString()}</div>
                 </div>
                 <div className="bg-white p-6 rounded-xl shadow-sm border border-blue-100">
                     <h3 className="text-gray-500 font-bold mb-2">已服務人數 (Total Guests)</h3>
-                    <div className="text-4xl font-black text-blue-600">{totalGuests}</div>
+                    <div className="text-4xl font-black text-blue-600">{processedStats.guests}</div>
                 </div>
             </div>
             {/* CONTAINER BẢNG CÓ THANH CUỘN (SCROLLABLE CONTAINER) */}
@@ -484,14 +498,12 @@ const ReportView = ({ bookings }) => {
                             </tr>
                         </thead>
                         <tbody className="divide-y">
-                            {finishedBookings.flatMap((b, index) => {
+                            {safeBookings.flatMap((b, index) => {
                                 const pax = parseInt(b.pax, 10) || 1;
                                 const rows = [];
                                 
-                                // Danh sách thợ: Kiểm tra kỹ lưỡng mọi biến thể tên
-                                // Người 1
+                                // Danh sách thợ
                                 const staff1 = b.serviceStaff || b.staffId || b.ServiceStaff || b.StaffId || b.technician || b.Technician;
-                                // Người 2-6 (Kiểm tra chữ hoa chữ thường)
                                 const staff2 = b.staffId2 || b.StaffId2 || b.staff2 || b.Staff2;
                                 const staff3 = b.staffId3 || b.StaffId3 || b.staff3 || b.Staff3;
                                 const staff4 = b.staffId4 || b.StaffId4 || b.staff4 || b.Staff4;
@@ -500,25 +512,25 @@ const ReportView = ({ bookings }) => {
 
                                 const staffForGroup = [staff1, staff2, staff3, staff4, staff5, staff6];
 
-                                // Tạo từng dòng cho mỗi khách
                                 for (let k = 0; k < pax; k++) {
-                                    // QUÉT TRẠNG THÁI RIÊNG: Status1, Status2,...
-                                    const colKey = `Status${k+1}`;
-                                    const colKeyLower = `status${k+1}`;
+                                    const statusKey = `Status${k+1}`;
+                                    const statusKeyCN = `狀態${k+1}`;
+                                    const statusKeyLower = `status${k+1}`;
                                     
-                                    // Nếu cột riêng lẻ báo '完成' HOẶC cả đơn đã '完成' thì cho hiện
-                                    const isSingleDone = (b[colKey] && b[colKey].includes('完成')) || (b[colKeyLower] && b[colKeyLower].includes('完成'));
+                                    const isSingleDone = (b[statusKey] && b[statusKey].includes('完成')) || 
+                                                         (b[statusKeyCN] && b[statusKeyCN].includes('完成')) || 
+                                                         (b[statusKeyLower] && b[statusKeyLower].includes('完成'));
                                     const isAllDone = b.status.includes('完成') || b.status.includes('Done') || b.status.includes('✅');
 
+                                    // Chỉ hiện những dòng ĐÃ THANH TOÁN
                                     if (isSingleDone || isAllDone) {
                                         const unitPrice = window.getPrice(b.serviceName);
                                         const oilPrice = window.getOilPrice(b.isOil || (b.serviceName && b.serviceName.includes('油')));
                                         const singlePrice = unitPrice + oilPrice;
                                         
-                                        // Xử lý tên thợ: Nếu không có tên cụ thể -> hiện "隨機" (Ngẫu nhiên) thay vì "N/A"
                                         let staffName = staffForGroup[k];
                                         if (!staffName || staffName === 'undefined' || staffName === 'null' || staffName === 'N/A') {
-                                            staffName = '隨機'; // Random / Unspecified
+                                            staffName = '隨機'; 
                                         }
 
                                         rows.push(
