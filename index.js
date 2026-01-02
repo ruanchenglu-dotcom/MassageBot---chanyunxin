@@ -1,7 +1,7 @@
 /**
  * =================================================================================================
  * PROJECT: XINWUCHAN MASSAGE BOT (BACKEND SERVER)
- * VERSION: V144 (FIXED: MIDDLEWARE ORDER)
+ * VERSION: V144 (FIXED: WEB APP ADMIN2 ROUTE)
  * AUTHOR: AI ASSISTANT & OWNER
  * DATE: 2025/12/27
  * * [CHI TIẾT CẬP NHẬT V144]:
@@ -936,6 +936,10 @@ app.post('/callback', line.middleware(config), (req, res) => {
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(express.static(path.join(__dirname, 'public')));
+
+// [THÊM MỚI - FIX LỖI ADMIN2] 
+// Ánh xạ đường dẫn /admin2 tới thư mục XinWuChanAdmin nằm ở root
+app.use('/admin2', express.static(path.join(__dirname, 'XinWuChanAdmin')));
 
 // --- 8.2 CÁC API KHÁC (ADMIN / KIOSK) ---
 
