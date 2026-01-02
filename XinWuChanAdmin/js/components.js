@@ -21,7 +21,7 @@ class ErrorBoundary extends React.Component {
                 <div className="min-h-screen flex items-center justify-center bg-red-50 p-6">
                     <div className="bg-white p-8 rounded-xl shadow-xl max-w-lg w-full border-l-8 border-red-600">
                         <h1 className="text-3xl font-black text-red-600 mb-4">⚠️ LỖI HỆ THỐNG</h1>
-                        <p className="text-gray-600 mb-4 font-bold">Đã xảy ra lỗi không mong muốn (White Screen prevented).</p>
+                        <p className="text-gray-600 mb-4 font-bold">Đã xảy ra lỗi không mong muốn.</p>
                         <div className="bg-slate-100 p-3 rounded text-xs font-mono mb-6 overflow-auto max-h-32 border">
                             {this.state.error && this.state.error.toString()}
                         </div>
@@ -37,7 +37,7 @@ class ErrorBoundary extends React.Component {
 }
 window.ErrorBoundary = ErrorBoundary;
 
-// --- STAFF CARD 3D (UPDATED: Big Name Font) ---
+// --- STAFF CARD 3D ---
 const StaffCard3D = ({ s, statusData, resourceState, queueIndex, isForcedBusy }) => {
     if (!s) return null;
     const isFemale = s.gender === 'F' || s.gender === '女'; 
@@ -55,12 +55,9 @@ const StaffCard3D = ({ s, statusData, resourceState, queueIndex, isForcedBusy })
 
     return (
         <div className={`card-3d ${cardStyle} flex flex-col items-center justify-center relative p-0 overflow-hidden`}>
-            {/* Queue Badge */}
             {queueIndex !== undefined && displayStatus === 'READY' && (
                 <div className="queue-badge">{queueIndex + 1}</div>
             )}
-            
-            {/* Tên Nhân Viên: Cực lớn (text-2xl), Đậm (font-black) */}
             <div className="font-black text-2xl text-slate-800 text-center leading-none w-full select-none flex-1 flex items-center justify-center break-words px-0.5">
                 {s.name}
             </div>
@@ -247,7 +244,7 @@ const AvailabilityCheckModal = ({ onClose, onSave, staffList, bookings, initialD
 };
 window.AvailabilityCheckModal = AvailabilityCheckModal;
 
-// --- BILLING MODAL ---
+// --- BILLING MODAL (SỬA LỖI CRASH VÌ THIẾU DATA) ---
 const BillingModal = ({ activeItem, relatedItems, onConfirm, onCancel }) => {
     const hasGroup = relatedItems.length > 0;
     const [step, setStep] = useState(hasGroup ? 'CHOICE' : 'CONFIRM');
@@ -282,7 +279,22 @@ const BillingModal = ({ activeItem, relatedItems, onConfirm, onCancel }) => {
             <div className="bg-white w-full max-w-md rounded-2xl shadow-2xl modal-animate overflow-hidden flex flex-col max-h-[90vh]">
                 <div className="bg-emerald-600 p-4 text-white text-center shrink-0"><h3 className="text-xl font-bold flex justify-center items-center gap-2"><i className="fas fa-file-invoice-dollar"></i> 結帳清單</h3></div>
                 <div className="p-6 flex-1 overflow-y-auto">
-                    <div className="space-y-3">{targetItems.map(item => { const b = item.booking; const price = window.getPrice(b.serviceName) + window.getOilPrice(b.isOil || (b.serviceName && b.serviceName.includes('油'))); return (<div key={item.resourceId} className="flex items-center p-3 rounded-lg border border-slate-200 bg-slate-50"><div className="flex-1"><div className="font-bold text-slate-800 flex items-center gap-2">{b.customerName} <span className="text-xs text-white bg-indigo-500 px-1.5 py-0.5 rounded shadow-sm">{b.serviceStaff || b.staffId}</span></div><div className="text-xs text-gray-500 mt-1">{b.serviceName}</div></div><div className="font-mono font-bold text-xl text-slate-700">${price}</div></div>); })}</div>
+                    <div className="space-y-3">{targetItems.map(item => { 
+                        const b = item.booking || {}; 
+                        const price = window.getPrice(b.serviceName) + window.getOilPrice(b.isOil || (b.serviceName && b.serviceName.includes('油'))); 
+                        
+                        const staffDisplay = b.serviceStaff || b.staffId || b.ServiceStaff || b.StaffId || b.technician || '隨機';
+                        
+                        return (
+                            <div key={item.resourceId} className="flex items-center p-3 rounded-lg border border-slate-200 bg-slate-50">
+                                <div className="flex-1">
+                                    <div className="font-bold text-slate-800 flex items-center gap-2">{b.customerName} <span className="text-xs text-white bg-indigo-500 px-1.5 py-0.5 rounded shadow-sm">{staffDisplay}</span></div>
+                                    <div className="text-xs text-gray-500 mt-1">{b.serviceName}</div>
+                                </div>
+                                <div className="font-mono font-bold text-xl text-slate-700">${price}</div>
+                            </div>
+                        ); 
+                    })}</div>
                 </div>
                 <div className="p-5 border-t bg-white shadow-[0_-5px_15px_rgba(0,0,0,0.05)]">
                     <div className="flex justify-between items-end mb-4"><span className="text-gray-500 font-bold text-lg">總金額:</span><span className="text-5xl font-black text-emerald-600 tracking-tight">${calculateTotal(targetItems)}</span></div>

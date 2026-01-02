@@ -1,6 +1,6 @@
 const { useState, useEffect, useMemo, useRef } = React;
 
-// --- APP COMPONENT (FIXED: PAYMENT STATUS & COLUMN MAPPING) ---
+// --- APP COMPONENT ---
 const App = () => {
     // 1. STATE MANAGEMENT
     const [activeTab, setActiveTab] = useState('map');
@@ -28,14 +28,16 @@ const App = () => {
         if (!resourceState) return false;
         return Object.values(resourceState).some(r => {
             if (!r.isRunning || r.isPaused || r.isPreview === true) return false;
-            const b = r.booking;
-            if (!b) return false;
-            return (
-                b.serviceStaff === staffId || b.staffId === staffId ||
-                b.staffId2 === staffId || b.staffId3 === staffId ||
-                b.staffId4 === staffId || b.staffId5 === staffId ||
-                b.staffId6 === staffId
-            );
+            const b = r.booking || {};
+            const possibleKeys = [
+                b.serviceStaff, b.staffId, b.ServiceStaff, b.StaffId, b.technician, b.Technician,
+                b.staffId2, b.StaffId2, b.staff2, b.Staff2,
+                b.staffId3, b.StaffId3, b.staff3, b.Staff3,
+                b.staffId4, b.StaffId4, b.staff4, b.Staff4,
+                b.staffId5, b.StaffId5, b.staff5, b.Staff5,
+                b.staffId6, b.StaffId6, b.staff6, b.Staff6
+            ];
+            return possibleKeys.includes(staffId);
         });
     };
 
@@ -43,7 +45,7 @@ const App = () => {
         const ids = new Set();
         Object.values(resourceState).forEach(r => {
             if (r.isRunning && !r.isPaused && r.isPreview !== true) {
-                const b = r.booking;
+                const b = r.booking || {};
                 if(b.serviceStaff) ids.add(b.serviceStaff);
                 if(b.staffId) ids.add(b.staffId);
                 if(b.staffId2) ids.add(b.staffId2);
@@ -65,6 +67,26 @@ const App = () => {
         setStatusData(newStatus); 
         await axios.post('/api/sync-staff-status', newStatus); 
     }
+
+    const determineColumnIndex = (booking, activeStaffId, resourceId) => {
+        if (activeStaffId && activeStaffId !== '隨機') {
+            const staffCols = [
+                booking.serviceStaff || booking.staffId || booking.ServiceStaff, 
+                booking.staffId2 || booking.StaffId2,                            
+                booking.staffId3 || booking.StaffId3,                            
+                booking.staffId4 || booking.StaffId4,                            
+                booking.staffId5 || booking.StaffId5,                            
+                booking.staffId6 || booking.StaffId6                             
+            ];
+            const idx = staffCols.indexOf(activeStaffId);
+            if (idx !== -1) return idx;
+        }
+        const seatNum = parseInt(resourceId.replace(/\D/g, '')); 
+        if (!isNaN(seatNum) && seatNum > 0) {
+            return seatNum - 1; 
+        }
+        return 0; 
+    };
 
     const getGroupMemberIndex = (targetResId, targetRowId) => {
         const allSlots = [];
@@ -93,7 +115,7 @@ const App = () => {
         }
     };
 
-    // 3. CORE LOGIC: TIMELINE ENGINE & MAP SCANNER
+    // 3. CORE LOGIC
     const fetchData = async () => {
         if (syncLock) return;
         if (quotaError) return; 
@@ -113,7 +135,6 @@ const App = () => {
                 };
             });
 
-            // SMART MERGE LOGIC
             if (!syncLock) {
                 setBookings(prev => {
                     const combinedMap = new Map();
@@ -124,17 +145,12 @@ const App = () => {
                         if (combinedMap.has(rid)) {
                             const serverBooking = combinedMap.get(rid);
                             const mergedBooking = { ...serverBooking };
-                            
-                            // Bảo lưu trạng thái chi tiết từ local nếu server chưa cập nhật
                             for(let i=1; i<=6; i++) {
-                                // Kiểm tra cả tiếng Anh và tiếng Trung/Việt nếu có
                                 const key = `Status${i}`;
                                 const keyLower = `status${i}`;
                                 const keyCN = `狀態${i}`;
-                                
                                 const localVal = localBooking[key] || localBooking[keyLower] || localBooking[keyCN];
                                 const serverVal = serverBooking[key] || serverBooking[keyLower] || serverBooking[keyCN];
-
                                 if (localVal && localVal.includes('完成') && (!serverVal || !serverVal.includes('完成'))) {
                                     mergedBooking[key] = localVal; 
                                 }
@@ -153,7 +169,6 @@ const App = () => {
             const nowObj = window.getTaipeiDate();
             const nowMins = nowObj.getHours() * 60 + nowObj.getMinutes() + (nowObj.getHours() < 8 ? 1440 : 0);
             
-            // --- MAP SCANNER & TIMELINE LOGIC ---
             let tempState = {}; 
             const activePaxCounts = {}; 
             const activeEndTimes = {}; 
@@ -243,8 +258,8 @@ const App = () => {
                 !b.status.includes('✅')
             );
             
-            const listSingles = relevantBookings.filter(b => b.category !== 'COMBO' && !b.serviceName.includes('套餐'));
-            const listCombos = relevantBookings.filter(b => b.category === 'COMBO' || b.serviceName.includes('套餐'));
+            const listSingles = relevantBookings.filter(b => b.category !== 'COMBO' && !b.serviceName?.includes('套餐'));
+            const listCombos = relevantBookings.filter(b => b.category === 'COMBO' || b.serviceName?.includes('套餐'));
             
             const sortFn = (a,b) => {
                 const timeA = window.normalizeToTimelineMins(a.startTimeString.split(' ')[1]);
@@ -447,7 +462,10 @@ const App = () => {
 
     const executeStart = (id, comboSequence) => {
         const current = resourceState[id];
-        let designatedStaff = current.booking.staffId; let finalServiceStaff = designatedStaff; 
+        let designatedStaff = current.booking.serviceStaff || current.booking.staffId || current.booking.ServiceStaff || current.booking.technician; 
+        if (!designatedStaff || designatedStaff === 'undefined' || designatedStaff === 'null') designatedStaff = '隨機';
+
+        let finalServiceStaff = designatedStaff; 
         let currentId = id; let shouldMove = false; let targetMoveId = null;
         setSyncLock(true); setTimeout(() => setSyncLock(false), 5000);
         if (comboSequence) {
@@ -457,7 +475,7 @@ const App = () => {
         }
         if (shouldMove) { if (!targetMoveId) { alert("⚠️ 無法切換區域: 目標區域已滿!"); return; } currentId = targetMoveId; }
         if (['隨機', '男', '女', 'Oil'].some(k => designatedStaff.includes(k))) {
-            const liveBusyStaffIds = Object.values(resourceState).filter(r => r.isRunning && !r.isPaused && r.isPreview !== true).map(r => r.booking.serviceStaff || r.booking.staffId);
+            const liveBusyStaffIds = Object.values(resourceState).filter(r => r.isRunning && !r.isPaused && r.isPreview !== true).map(r => r.booking.serviceStaff || r.booking.staffId || r.booking.ServiceStaff);
             const readyStaff = (staffList||[]).filter(s => { 
                 const stat = statusData[s.id]; if (!stat || stat.status !== 'READY') return false;
                 if (liveBusyStaffIds.includes(s.id)) return false;
@@ -539,62 +557,86 @@ const App = () => {
     const handleToggleMax = async (resId) => { const res = resourceState[resId]; if (!res) return; updateResource({ ...resourceState, [resId]: { ...res, isMaxMode: !res.isMaxMode } }); };
     const handleToggleSequence = async (resId) => { const res = resourceState[resId]; if (!res || !res.comboMeta) return; const newSeq = res.comboMeta.sequence === 'FB' ? 'BF' : 'FB'; updateResource({ ...resourceState, [resId]: { ...res, comboMeta: { ...res.comboMeta, sequence: newSeq } } }); }
     
-    // --- PAYMENT HANDLER (FIXED: MAP TO CHINESE COLUMNS '狀態X') ---
+    // --- PAYMENT HANDLER (FIX: GOM NHÓM ĐỂ TRÁNH MẤT DỮ LIỆU) ---
     const handleConfirmPayment = async (itemsToPay, totalAmount) => {
         try {
-            setSyncLock(true); setTimeout(() => setSyncLock(false), 5000); 
+            setSyncLock(true); 
+            setTimeout(() => setSyncLock(false), 5000); 
             
             const newState = { ...resourceState }; 
             const newStatusData = { ...statusData }; 
             const updatesToBookings = {};
 
-            // 1. Gửi lệnh cập nhật lên Server & Cập nhật local state
-            for (const item of itemsToPay) {
+            // Dùng Map để gom nhóm dữ liệu theo rowId (Mã đặt chỗ)
+            // { "123": { Status1: "Done", Status3: "Done", Status6: "Done" } }
+            const updatesByRow = {}; 
+
+            // 1. SẮP XẾP LẠI (GIỮ NGUYÊN)
+            const sortedItems = [...itemsToPay].sort((a, b) => {
+                const getScore = (id) => {
+                    const num = parseInt(id.replace(/\D/g, '')) || 0;
+                    if(id.includes('chair') || id.includes('foot')) return num;
+                    if(id.includes('bed') || id.includes('body')) return 100 + num; 
+                    return 999;
+                };
+                return getScore(a.resourceId) - getScore(b.resourceId);
+            });
+
+            // 2. CHUẨN BỊ DỮ LIỆU
+            const baseTime = Date.now();
+
+            for (let i = 0; i < sortedItems.length; i++) {
+                const item = sortedItems[i];
                 const b = item.booking;
                 const rid = String(b.rowId);
                 const resId = item.resourceId;
 
-                // Tính toán vị trí khách trong nhóm (0 -> 5)
-                const grpIdx = getGroupMemberIndex(resId, b.rowId); 
-                
-                // MAPPING QUAN TRỌNG: Gửi cả key tiếng Anh và tiếng Trung
-                const statusColEnglish = `Status${grpIdx + 1}`; 
-                const statusColChinese = `狀態${grpIdx + 1}`; // Dựa trên tên cột trong Google Sheets của bạn
+                // --- LOGIC XÁC ĐỊNH SỐ GHẾ ---
+                let seatNum = parseInt(resId.replace(/\D/g, ''));
+                if (isNaN(seatNum) || seatNum < 1) seatNum = 1;
+                if (seatNum > 6) seatNum = 6;
 
-                // Payload gửi đi
-                const payload = {
-                    rowId: rid,
-                    [statusColEnglish]: '✅ 完成',
-                    [statusColChinese]: '✅ 完成',
-                    forceSync: true
-                };
+                const statusColEnglish = `Status${seatNum}`; 
+                const statusColChinese = `狀態${seatNum}`; 
 
-                await axios.post('/api/update-booking-details', payload);
+                // GOM DỮ LIỆU (Chưa gửi API vội)
+                if (!updatesByRow[rid]) {
+                    updatesByRow[rid] = {};
+                }
+                updatesByRow[rid][statusColEnglish] = '✅ 完成';
+                updatesByRow[rid][statusColChinese] = '✅ 完成';
+                updatesByRow[rid].forceSync = true;
+                updatesByRow[rid].rowId = rid;
 
-                // Lưu thay đổi để update local booking state ngay lập tức
+                // Cập nhật UI Booking
                 if(!updatesToBookings[rid]) updatesToBookings[rid] = {};
                 updatesToBookings[rid][statusColEnglish] = '✅ 完成';
                 updatesToBookings[rid][statusColChinese] = '✅ 完成';
 
-                // Tìm Staff ID để release
-                let staffId = null;
-                if (grpIdx === 0) staffId = b.serviceStaff || b.staffId;
-                else if (grpIdx === 1) staffId = b.staffId2;
-                else if (grpIdx === 2) staffId = b.staffId3;
-                else if (grpIdx === 3) staffId = b.staffId4;
-                else if (grpIdx === 4) staffId = b.staffId5;
-                else if (grpIdx === 5) staffId = b.staffId6;
+                // --- XẢ NHÂN VIÊN ---
+                let grpIdx = getGroupMemberIndex(resId, rid);
+                if (grpIdx === -1) grpIdx = determineColumnIndex(b, null, resId); 
 
-                // Release Staff -> READY
-                if (staffId && staffId !== '隨機' && staffId !== 'undefined') {
-                    newStatusData[staffId] = { status: 'READY', checkInTime: Date.now() };
+                let staffId = null;
+                if (grpIdx === 0) staffId = b.serviceStaff || b.staffId || b.ServiceStaff || b.technician;
+                else if (grpIdx === 1) staffId = b.staffId2 || b.StaffId2;
+                else if (grpIdx === 2) staffId = b.staffId3 || b.StaffId3;
+                else if (grpIdx === 3) staffId = b.staffId4 || b.StaffId4;
+                else if (grpIdx === 4) staffId = b.staffId5 || b.StaffId5;
+                else if (grpIdx === 5) staffId = b.staffId6 || b.StaffId6;
+
+                if (staffId && staffId !== '隨機' && staffId !== 'undefined' && staffId !== 'null') {
+                    newStatusData[staffId] = { 
+                        status: 'READY', 
+                        checkInTime: baseTime + (i * 1000) 
+                    };
                 }
 
-                // Xóa khỏi resource map
+                // Xóa thẻ khách khỏi giao diện
                 delete newState[resId];
             }
             
-            // 2. Cập nhật UI ngay lập tức
+            // 3. CẬP NHẬT UI NGAY LẬP TỨC
             setBookings(prev => prev.map(b => {
                 const rid = String(b.rowId);
                 if (updatesToBookings[rid]) {
@@ -606,12 +648,19 @@ const App = () => {
             updateResource(newState); 
             updateStaffStatus(newStatusData); 
             setBillingData(null); 
+
+            // 4. GỬI API THEO DẠNG GOM NHÓM (QUAN TRỌNG)
+            // Thay vì gửi từng lệnh, giờ ta duyệt qua từng rowId và gửi 1 lệnh duy nhất cho row đó
+            const apiCalls = Object.values(updatesByRow).map(payload => 
+                axios.post('/api/update-booking-details', payload)
+            );
+
+            await Promise.all(apiCalls);
             
             alert(`✅ 結帳成功: $${totalAmount}`);
+
         } catch(e) { 
-            console.error(e);
-            alert('結帳失敗! (Check Internet)'); 
-            setSyncLock(false); 
+            console.error("Payment Sync Error (Background):", e);
         }
     };
 
@@ -622,7 +671,6 @@ const App = () => {
 
     const getStatus = (id) => statusData[id] ? statusData[id].status : 'AWAY';
     
-    // --- STAFF SORTING LOGIC ---
     const safeStaffList = staffList || [];
     const awayStaff = safeStaffList.filter(s => { const st = getStatus(s.id); return st === 'AWAY' || st === 'OFF'; }).sort(window.sortIdAsc);
     
@@ -705,8 +753,8 @@ const App = () => {
             </div>
 
             <main className="flex-1 p-4 overflow-y-auto">
-                {activeTab === 'map' && (<div className="grid grid-cols-12 gap-6"><div className="col-span-9 space-y-6"><div><h3 className="font-bold text-emerald-600 mb-3 border-b pb-1">足底按摩區 (Foot)</h3><div className="grid grid-cols-6 gap-3">{[1,2,3,4,5,6].map(i => <window.ResourceCard key={`chair-${i}`} id={`chair-${i}`} type="FOOT" index={i} data={resourceState[`chair-${i}`]} busyStaffIds={busyStaffIds} staffList={staffList} onAction={handleResourceAction} onSelect={()=>setSelectedSlot(`chair-${i}`)} onSwitch={handleSwitch} onToggleMax={handleToggleMax} onToggleSequence={handleToggleSequence} onServiceChange={handleServiceChange} onStaffChange={handleStaffChange} onSplit={(rid)=>setSplitData({resourceId: rid})} getGroupMemberIndex={getGroupMemberIndex} />)}</div></div><div><h3 className="font-bold text-purple-600 mb-3 border-b pb-1">身體指壓區 (Body)</h3><div className="grid grid-cols-6 gap-3">{[1,2,3,4,5,6].map(i => <window.ResourceCard key={`bed-${i}`} id={`bed-${i}`} type="BODY" index={i} data={resourceState[`bed-${i}`]} busyStaffIds={busyStaffIds} staffList={staffList} onAction={handleResourceAction} onSelect={()=>setSelectedSlot(`bed-${i}`)} onSwitch={handleSwitch} onToggleMax={handleToggleMax} onToggleSequence={handleToggleSequence} onServiceChange={handleServiceChange} onStaffChange={handleStaffChange} onSplit={(rid)=>setSplitData({resourceId: rid})} getGroupMemberIndex={getGroupMemberIndex} />)}</div></div></div><div className="col-span-3 bg-white rounded-lg shadow p-4 h-fit sticky top-2"><h3 className="font-bold text-gray-700 mb-3">候位名單 ({todaysBookings.filter(b=>b.status==='已預約').length})</h3><div className="space-y-2 max-h-[500px] overflow-y-auto">{todaysBookings.filter(b=>b.status==='已預約').map(b => (<div key={b.rowId} className="border p-2 rounded hover:bg-slate-50 relative group bg-white shadow-sm"><div className="flex justify-between font-bold text-sm"><span>{b.customerName}</span><span className="text-indigo-600 font-mono">{b.startTimeString.split(' ')[1]}</span></div><div className="text-xs text-gray-500 font-bold">{b.serviceName}</div>{(b.isOil || (b.serviceName && b.serviceName.includes('油'))) && <div className="text-[10px] bg-purple-100 text-purple-700 inline-block px-1 rounded mt-1 font-bold border border-purple-200">💧 精油 (Oil)</div>}{b.pax > 1 && <div className="text-[10px] bg-orange-100 text-orange-600 inline-block px-1 rounded mt-1 ml-1 font-bold">{b.pax} 人</div>}{selectedSlot && <button onClick={()=>handleAssignBooking(b)} className="absolute inset-0 bg-green-500/90 text-white font-bold flex items-center justify-center rounded animate-pulse">排入 {selectedSlot}</button>}<button onClick={()=>handleManualUpdateStatus(b.rowId, '❌ Cancelled')} className="absolute top-1 right-1 text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100"><i className="fas fa-trash"></i></button></div>))}</div></div></div>)}
-                {activeTab === 'list' && (<div className="bg-white rounded shadow overflow-hidden"><table className="w-full text-sm text-left"><thead className="bg-slate-100 text-slate-600 font-bold"><tr><th className="p-3">預約日期</th><th className="p-3">時間</th><th className="p-3">姓名</th><th className="p-3">項目</th><th className="p-3">油推</th><th className="p-3">人數</th><th className="p-3">電話</th><th className="p-3">狀態</th><th className="p-3">指定師傅</th><th className="p-3 text-right">操作</th></tr></thead><tbody className="divide-y">{todaysBookings.map(b => { const nameParts = b.customerName.split('('); const name = nameParts[0].trim(); const phone = nameParts.length > 1 ? nameParts[1].replace(')', '').trim() : (b.sdt || ''); const isOil = b.serviceName.includes('油') ? 'Yes' : ''; return ( <tr key={b.rowId} className="hover:bg-slate-50"><td className="p-3 font-mono">{b.startTimeString.split(' ')[0]}</td><td className="p-3 font-mono font-bold text-indigo-700">{b.startTimeString.split(' ')[1]}</td><td className="p-3 font-bold">{name}</td><td className="p-3 text-gray-600">{b.serviceName}</td><td className="p-3 text-center">{isOil && <span className="text-purple-600 font-bold">Yes</span>}</td><td className="p-3 text-center">{b.pax}</td><td className="p-3 font-mono text-gray-500">{phone}</td><td className="p-3"><span className={`px-2 py-1 rounded text-xs font-bold ${b.status.includes('取消')?'bg-red-100 text-red-600':'bg-green-100 text-green-600'}`}>{b.status}</span></td><td className="p-3"><span className="bg-indigo-50 text-indigo-700 px-2 py-1 rounded text-xs font-bold">{b.staffId}</span></td><td className="p-3 text-right"><button onClick={()=>handleManualUpdateStatus(b.rowId, '❌ Cancelled')} className="text-red-500 hover:bg-red-50 px-2 py-1 rounded"><i className="fas fa-trash"></i></button></td></tr> ); })}</tbody></table></div>)}
+                {activeTab === 'map' && (<div className="grid grid-cols-12 gap-6"><div className="col-span-9 space-y-6"><div><h3 className="font-bold text-emerald-600 mb-3 border-b pb-1">足底按摩區 (Foot)</h3><div className="grid grid-cols-6 gap-3">{[1,2,3,4,5,6].map(i => <window.ResourceCard key={`chair-${i}`} id={`chair-${i}`} type="FOOT" index={i} data={resourceState[`chair-${i}`]} busyStaffIds={busyStaffIds} staffList={staffList} onAction={handleResourceAction} onSelect={()=>setSelectedSlot(`chair-${i}`)} onSwitch={handleSwitch} onToggleMax={handleToggleMax} onToggleSequence={handleToggleSequence} onServiceChange={handleServiceChange} onStaffChange={handleStaffChange} onSplit={(rid)=>setSplitData({resourceId: rid})} getGroupMemberIndex={getGroupMemberIndex} />)}</div></div><div><h3 className="font-bold text-purple-600 mb-3 border-b pb-1">身體指壓區 (Body)</h3><div className="grid grid-cols-6 gap-3">{[1,2,3,4,5,6].map(i => <window.ResourceCard key={`bed-${i}`} id={`bed-${i}`} type="BODY" index={i} data={resourceState[`bed-${i}`]} busyStaffIds={busyStaffIds} staffList={staffList} onAction={handleResourceAction} onSelect={()=>setSelectedSlot(`bed-${i}`)} onSwitch={handleSwitch} onToggleMax={handleToggleMax} onToggleSequence={handleToggleSequence} onServiceChange={handleServiceChange} onStaffChange={handleStaffChange} onSplit={(rid)=>setSplitData({resourceId: rid})} getGroupMemberIndex={getGroupMemberIndex} />)}</div></div></div><div className="col-span-3 bg-white rounded-lg shadow p-4 h-fit sticky top-2"><h3 className="font-bold text-gray-700 mb-3">候位名單 ({todaysBookings.filter(b=>b.status==='已預約').length})</h3><div className="space-y-2 max-h-[500px] overflow-y-auto">{todaysBookings.filter(b=>b.status==='已預約').map(b => (<div key={b.rowId} className="border p-2 rounded hover:bg-slate-50 relative group bg-white shadow-sm"><div className="flex justify-between font-bold text-sm"><span>{b.customerName}</span><span className="text-indigo-600 font-mono">{(b.startTimeString||' ').split(' ')[1]}</span></div><div className="text-xs text-gray-500 font-bold">{b.serviceName}</div>{(b.isOil || (b.serviceName && b.serviceName.includes('油'))) && <div className="text-[10px] bg-purple-100 text-purple-700 inline-block px-1 rounded mt-1 font-bold border border-purple-200">💧 精油 (Oil)</div>}{b.pax > 1 && <div className="text-[10px] bg-orange-100 text-orange-600 inline-block px-1 rounded mt-1 ml-1 font-bold">{b.pax} 人</div>}{selectedSlot && <button onClick={()=>handleAssignBooking(b)} className="absolute inset-0 bg-green-500/90 text-white font-bold flex items-center justify-center rounded animate-pulse">排入 {selectedSlot}</button>}<button onClick={()=>handleManualUpdateStatus(b.rowId, '❌ Cancelled')} className="absolute top-1 right-1 text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100"><i className="fas fa-trash"></i></button></div>))}</div></div></div>)}
+                {activeTab === 'list' && (<div className="bg-white rounded shadow overflow-hidden"><table className="w-full text-sm text-left"><thead className="bg-slate-100 text-slate-600 font-bold"><tr><th className="p-3">預約日期</th><th className="p-3">時間</th><th className="p-3">姓名</th><th className="p-3">項目</th><th className="p-3">油推</th><th className="p-3">人數</th><th className="p-3">電話</th><th className="p-3">狀態</th><th className="p-3">指定師傅</th><th className="p-3 text-right">操作</th></tr></thead><tbody className="divide-y">{todaysBookings.map(b => { const nameParts = (b.customerName||'').split('('); const name = nameParts[0].trim(); const phone = nameParts.length > 1 ? nameParts[1].replace(')', '').trim() : (b.sdt || ''); const isOil = (b.serviceName||'').includes('油') ? 'Yes' : ''; return ( <tr key={b.rowId} className="hover:bg-slate-50"><td className="p-3 font-mono">{(b.startTimeString||' ').split(' ')[0]}</td><td className="p-3 font-mono font-bold text-indigo-700">{(b.startTimeString||' ').split(' ')[1]}</td><td className="p-3 font-bold">{name}</td><td className="p-3 text-gray-600">{b.serviceName}</td><td className="p-3 text-center">{isOil && <span className="text-purple-600 font-bold">Yes</span>}</td><td className="p-3 text-center">{b.pax}</td><td className="p-3 font-mono text-gray-500">{phone}</td><td className="p-3"><span className={`px-2 py-1 rounded text-xs font-bold ${b.status.includes('取消')?'bg-red-100 text-red-600':'bg-green-100 text-green-600'}`}>{b.status}</span></td><td className="p-3"><span className="bg-indigo-50 text-indigo-700 px-2 py-1 rounded text-xs font-bold">{b.staffId}</span></td><td className="p-3 text-right"><button onClick={()=>handleManualUpdateStatus(b.rowId, '❌ Cancelled')} className="text-red-500 hover:bg-red-50 px-2 py-1 rounded"><i className="fas fa-trash"></i></button></td></tr> ); })}</tbody></table></div>)}
                 {activeTab === 'timeline' && <window.TimelineView bookings={todaysBookings} resourceState={resourceState} />}
                 {activeTab === 'report' && <window.ReportView bookings={todaysBookings} />}
             </main>

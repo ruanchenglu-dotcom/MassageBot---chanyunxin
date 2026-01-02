@@ -1,6 +1,6 @@
 const { useState, useEffect, useMemo, useRef } = React;
 
-// --- TIMELINE VIEW (GIỮ NGUYÊN) ---
+// --- TIMELINE VIEW ---
 const TimelineView = ({ bookings, resourceState }) => {
     const rows = useMemo(() => [
         ...[1,2,3,4,5,6].map(i => ({ id: `chair-${i}`, label: `💺 足 ${i}`, type: 'FOOT' })),
@@ -14,9 +14,8 @@ const TimelineView = ({ bookings, resourceState }) => {
     const calculateStyle = (startMins, duration) => {
         const timelineStartMins = 8 * 60; 
         const totalTimelineMins = 1440; 
-        let effectiveStart = startMins;
+        let effectiveStart = startMins || 0;
         if (effectiveStart < timelineStartMins) effectiveStart += 1440;
-
         const offset = effectiveStart - timelineStartMins;
         const left = (offset / totalTimelineMins) * 100;
         const width = (duration / totalTimelineMins) * 100;
@@ -61,7 +60,7 @@ const TimelineView = ({ bookings, resourceState }) => {
                     const d = new Date(res.startTime);
                     startMins = d.getHours()*60 + d.getMinutes();
                 } else {
-                    startMins = window.normalizeToTimelineMins(res.booking.startTimeString.split(' ')[1]);
+                    startMins = window.normalizeToTimelineMins((res.booking.startTimeString || '').split(' ')[1]);
                 }
                 if(startMins < 480) startMins += 1440;
                 
@@ -104,7 +103,7 @@ const TimelineView = ({ bookings, resourceState }) => {
                                 id: `ACT_P2_LOCKED_${res.booking.rowId}_${targetRow}`,
                                 rowId: targetRow,
                                 style: calculateStyle(nextStart, nextDuration),
-                                color: window.stringToColor(res.booking.customerName),
+                                color: window.stringToColor(res.booking.customerName), 
                                 label: simpleLabel,
                                 sub: 'Phase 2',
                                 isPlanned: true, 
@@ -128,10 +127,10 @@ const TimelineView = ({ bookings, resourceState }) => {
         });
 
         const safeBookings = Array.isArray(bookings) ? bookings : [];
-        const sortedBookings = [...safeBookings].filter(b => !b.status.includes('取消') && !b.status.includes('完成')).sort((a,b) => window.normalizeToTimelineMins(a.startTimeString.split(' ')[1]) - window.normalizeToTimelineMins(b.startTimeString.split(' ')[1]));
+        const sortedBookings = [...safeBookings].filter(b => b.status && !b.status.includes('取消') && !b.status.includes('完成')).sort((a,b) => window.normalizeToTimelineMins((a.startTimeString||'').split(' ')[1]) - window.normalizeToTimelineMins((b.startTimeString||'').split(' ')[1]));
 
-        const listSingles = sortedBookings.filter(b => b.category !== 'COMBO' && !b.serviceName.includes('套餐'));
-        const listCombos = sortedBookings.filter(b => b.category === 'COMBO' || b.serviceName.includes('套餐'));
+        const listSingles = sortedBookings.filter(b => b.category !== 'COMBO' && !b.serviceName?.includes('套餐'));
+        const listCombos = sortedBookings.filter(b => b.category === 'COMBO' || b.serviceName?.includes('套餐'));
         const finalQueue = [...listSingles, ...listCombos]; 
 
         finalQueue.forEach(b => {
@@ -145,8 +144,8 @@ const TimelineView = ({ bookings, resourceState }) => {
 
             if (remainingPax > 0) {
                 for(let k=0; k<remainingPax; k++) {
-                    const originalStartMins = window.normalizeToTimelineMins(b.startTimeString.split(' ')[1]);
-                    const isCombo = b.category === 'COMBO' || b.serviceName.includes('套餐');
+                    const originalStartMins = window.normalizeToTimelineMins((b.startTimeString || '').split(' ')[1]);
+                    const isCombo = b.category === 'COMBO' || (b.serviceName && b.serviceName.includes('套餐'));
                     
                     if (isCombo) {
                         let searchOffsets = [0];
@@ -250,21 +249,29 @@ const TimelineView = ({ bookings, resourceState }) => {
 };
 window.TimelineView = TimelineView;
 
-// --- RESOURCE CARD (GIỮ NGUYÊN) ---
+// --- RESOURCE CARD ---
 const ResourceCard = ({ id, type, index, data, busyStaffIds, onAction, onSelect, onSwitch, onToggleMax, onToggleSequence, onServiceChange, onStaffChange, onSplit, staffList, getGroupMemberIndex }) => {
-    const [timeLeft, setTimeLeft] = useState(0); const [percent, setPercent] = useState(0);
+    const [timeLeft, setTimeLeft] = useState(0); 
+    const [percent, setPercent] = useState(0);
     const [phaseLabel, setPhaseLabel] = useState(null);
     const [phaseTimeLeft, setPhaseTimeLeft] = useState(0);
     const [switchPercent, setSwitchPercent] = useState(null);
 
+    // Defensive check: Nếu data tồn tại nhưng booking không có thì không chạy
+    const isOccupied = data && data.booking;
+    const isPreview = data && data.isPreview;
+
     useEffect(() => {
-        if (data && data.isRunning && !data.isPaused && data.startTime) {
+        if (isOccupied && data.isRunning && !data.isPaused && data.startTime) {
             const timer = setInterval(() => {
-                const start = new Date(data.startTime).getTime(); const now = new Date().getTime();
-                const totalMs = data.booking.duration * 60000; const elapsed = now - start;
+                const start = new Date(data.startTime).getTime(); 
+                const now = new Date().getTime();
+                const totalMs = (data.booking.duration || 60) * 60000; 
+                const elapsed = now - start;
                 const totalLeft = Math.floor((totalMs - elapsed) / 60000);
                 setTimeLeft(totalLeft); 
                 setPercent(Math.min(100, Math.max(0, (elapsed / totalMs) * 100)));
+                
                 const isCombo = data.booking.category === 'COMBO' || (data.booking.serviceName && data.booking.serviceName.includes('套餐'));
                 if (isCombo) {
                     const sequence = (data.comboMeta && data.comboMeta.sequence) || 'FB';
@@ -273,7 +280,7 @@ const ResourceCard = ({ id, type, index, data, busyStaffIds, onAction, onSelect,
                     const flex = data.comboMeta && data.comboMeta.flex ? data.comboMeta.flex : 0;
                     const phase1Ms = (split.phase1 + flex) * 60000; 
 
-                    const currentSwitchPct = ((split.phase1 + flex) / data.booking.duration) * 100;
+                    const currentSwitchPct = ((split.phase1 + flex) / (data.booking.duration || 1)) * 100;
                     setSwitchPercent(currentSwitchPct);
                     
                     if (elapsed < phase1Ms) {
@@ -288,13 +295,13 @@ const ResourceCard = ({ id, type, index, data, busyStaffIds, onAction, onSelect,
                     setPhaseLabel(null);
                     setSwitchPercent(null);
                 }
-            }, 1000); return () => clearInterval(timer);
-        } else { setPercent(0); setTimeLeft(0); setPhaseLabel(null); }
-    }, [data]);
+            }, 1000); 
+            return () => clearInterval(timer);
+        } else { 
+            setPercent(0); setTimeLeft(0); setPhaseLabel(null); 
+        }
+    }, [data, isOccupied]);
     
-    const isOccupied = !!data;
-    const isPreview = data && data.isPreview;
-
     let statusColor = 'bg-slate-50 border-slate-200 border-dashed';
     if (isOccupied) {
         if (isPreview) {
@@ -308,31 +315,40 @@ const ResourceCard = ({ id, type, index, data, busyStaffIds, onAction, onSelect,
     
     let staffDisplay = '';
     if (isOccupied) {
-        const grpIdx = getGroupMemberIndex(id, data.booking.rowId);
+        // Safe check for getGroupMemberIndex
+        const grpIdx = typeof getGroupMemberIndex === 'function' ? getGroupMemberIndex(id, data.booking.rowId) : 0;
         let myStaff = '';
         
-        if (grpIdx === 0) myStaff = data.booking.serviceStaff || data.booking.staffId;
-        else if (grpIdx === 1) myStaff = data.booking.staffId2;
-        else if (grpIdx === 2) myStaff = data.booking.staffId3;
-        else if (grpIdx === 3) myStaff = data.booking.staffId4;
-        else if (grpIdx === 4) myStaff = data.booking.staffId5;
-        else if (grpIdx === 5) myStaff = data.booking.staffId6;
+        const b = data.booking || {};
+        if (grpIdx === 0) {
+            myStaff = b.serviceStaff || b.staffId || b.ServiceStaff || b.StaffId || b.technician || b.Technician;
+        } else if (grpIdx === 1) {
+            myStaff = b.staffId2 || b.StaffId2 || b.staff2 || b.Staff2;
+        } else if (grpIdx === 2) {
+            myStaff = b.staffId3 || b.StaffId3 || b.staff3 || b.Staff3;
+        } else if (grpIdx === 3) {
+            myStaff = b.staffId4 || b.StaffId4 || b.staff4 || b.Staff4;
+        } else if (grpIdx === 4) {
+            myStaff = b.staffId5 || b.StaffId5 || b.staff5 || b.Staff5;
+        } else if (grpIdx === 5) {
+            myStaff = b.staffId6 || b.StaffId6 || b.staff6 || b.Staff6;
+        }
 
         if (!myStaff || myStaff === 'undefined' || myStaff === 'null') {
              myStaff = '隨機';
         }
-        staffDisplay = myStaff; 
+        staffDisplay = String(myStaff); 
     }
 
     const isOilJob = isOccupied && (data.booking.isOil || (data.booking.serviceName && (data.booking.serviceName.includes('油') || data.booking.serviceName.includes('Oil'))));
-    const isCombo = isOccupied && (data.booking.category === 'COMBO' || data.booking.serviceName.includes('套餐'));
+    const isCombo = isOccupied && (data.booking.category === 'COMBO' || (data.booking.serviceName && data.booking.serviceName.includes('套餐')));
     const flexMinutes = isCombo && data.comboMeta && data.comboMeta.flex ? data.comboMeta.flex : 0;
 
     const formatTimeStr = (iso) => { if(!iso) return '--:--'; const d = new Date(iso); return `${d.getHours().toString().padStart(2,'0')}:${d.getMinutes().toString().padStart(2,'0')}`; }
     let startObj = null, endObj = null, switchObj = null;
     if(isOccupied && data.isRunning && data.startTime) {
         startObj = new Date(data.startTime);
-        endObj = new Date(startObj.getTime() + data.booking.duration * 60000);
+        endObj = new Date(startObj.getTime() + (data.booking.duration || 60) * 60000);
         if(isCombo) {
             const seq = (data.comboMeta && data.comboMeta.sequence) || 'FB';
             const split = window.getComboSplit(data.booking.duration, data.isMaxMode, seq);
@@ -347,67 +363,81 @@ const ResourceCard = ({ id, type, index, data, busyStaffIds, onAction, onSelect,
         splitText = sequence === 'FB' ? `(足:${split.phase1} ➜ 身:${split.phase2})` : `(身:${split.phase1} ➜ 足:${split.phase2})`;
     }
 
+    // NẾU KHÔNG CÓ DATA THÌ RETURN "ASSIGN"
+    if (!isOccupied) {
+        return (
+            <div className={`res-card h-72 flex flex-col border-2 ${statusColor} relative`}>
+                <div className="flex justify-between items-center p-2 border-b border-black/5 bg-black/5">
+                    <span className="font-black text-xs text-gray-500 uppercase">{type} {index}</span>
+                </div>
+                <div className="flex-1 p-2 relative flex flex-col justify-center text-center">
+                    <button onClick={onSelect} className="w-full h-full flex flex-col items-center justify-center text-gray-300 hover:text-green-600 transition-colors group">
+                        <i className="fas fa-plus text-5xl"></i>
+                        <span className="text-sm font-bold mt-2">排入 (Assign)</span>
+                    </button>
+                </div>
+            </div>
+        );
+    }
+
+    // RENDER CARD KHI CÓ KHÁCH
     return (
         <div className={`res-card h-72 flex flex-col border-2 ${statusColor} relative`}>
             <div className="flex justify-between items-center p-2 border-b border-black/5 bg-black/5">
                 <span className="font-black text-xs text-gray-500 uppercase">{type} {index}</span>
-                {isOccupied && !isPreview && data.isRunning && (<div className={`text-xs font-mono font-bold ${timeLeft < 0 ? 'text-red-600 animate-pulse' : 'text-green-700'}`}>{timeLeft}m</div>)}
-                {isOccupied && isPreview && data.timeToStart !== undefined && (<div className="text-xs font-bold text-blue-600 bg-blue-100 px-1 rounded">
+                {data.isRunning && !isPreview && (<div className={`text-xs font-mono font-bold ${timeLeft < 0 ? 'text-red-600 animate-pulse' : 'text-green-700'}`}>{timeLeft}m</div>)}
+                {isPreview && data.timeToStart !== undefined && (<div className="text-xs font-bold text-blue-600 bg-blue-100 px-1 rounded">
                     {data.previewType === 'NOW' ? 'NOW' : `${data.timeToStart}m`}
                 </div>)}
             </div>
             <div className="flex-1 p-2 relative flex flex-col justify-center text-center pb-12">
-                {isOccupied ? (
-                    <>
-                        {data.isRunning && !isPreview && (<><div className="absolute bottom-0 left-0 h-1 bg-green-500 progress-bar z-0" style={{width: `${percent}%`}}></div>{isCombo && switchPercent && (<div className="absolute bottom-0 h-full w-[2px] bg-red-400 z-0 opacity-30 border-r border-white" style={{left: `${switchPercent}%`}}></div>)}</>)}
-                        <div className="z-10 relative flex flex-col gap-2">
-                            <div className="absolute -top-12 right-0 z-40 bg-white border-2 border-slate-200 rounded-lg shadow-sm px-3 py-1 flex items-center gap-2">
-                                <div className="text-xl font-black text-slate-800 text-center">{staffDisplay || <span className="text-gray-300 text-xs">Waiting</span>}</div>
-                                <button onClick={(e) => { e.stopPropagation(); onSplit(id); }} className="w-6 h-6 flex items-center justify-center bg-blue-100 text-blue-600 rounded-full hover:bg-blue-200 text-xs shadow-sm transition-transform hover:scale-110" title="Split / Add Staff">
-                                    <i className="fas fa-user-plus"></i>
-                                </button>
-                            </div>
-                            {isCombo && (<div className="absolute -top-12 left-0 flex gap-1"><button onClick={(e) => { e.stopPropagation(); onToggleSequence(id); }} className="text-xs font-bold px-2 py-1 rounded shadow z-50 bg-blue-100 text-blue-700 hover:bg-blue-200"><i className="fas fa-sync-alt"></i></button><button onClick={(e) => { e.stopPropagation(); onToggleMax(id); }} className={`text-xs font-bold px-2 py-1 rounded shadow z-50 transition-colors ${data.isMaxMode ? 'bg-yellow-400 text-black' : 'bg-gray-200 text-gray-500'}`}><i className="fas fa-bolt"></i> Max</button></div>)}
-                            
-                            <div className="font-bold text-slate-800 text-2xl truncate mt-4">
-                                {data.booking.customerName.split('(')[0]}
-                                {data.booking.pax > 1 && <span className="text-sm text-gray-400 ml-1">(Grp)</span>}
-                            </div>
-                            
-                            <select 
-                                className="text-sm font-bold text-gray-500 text-center bg-transparent border-b border-dashed border-gray-300 focus:outline-none w-full truncate cursor-pointer hover:bg-gray-50"
-                                value={data.booking.serviceName}
-                                onChange={(e) => onServiceChange(id, e.target.value)}
-                                onClick={(e) => e.stopPropagation()}
-                            >
-                                {window.SERVICES_LIST.map(svc => <option key={svc} value={svc}>{svc}</option>)}
-                            </select>
+                {data.isRunning && !isPreview && (<><div className="absolute bottom-0 left-0 h-1 bg-green-500 progress-bar z-0" style={{width: `${percent}%`}}></div>{isCombo && switchPercent && (<div className="absolute bottom-0 h-full w-[2px] bg-red-400 z-0 opacity-30 border-r border-white" style={{left: `${switchPercent}%`}}></div>)}</>)}
+                <div className="z-10 relative flex flex-col gap-2">
+                    <div className="absolute -top-12 right-0 z-40 bg-white border-2 border-slate-200 rounded-lg shadow-sm px-3 py-1 flex items-center gap-2">
+                        <div className="text-xl font-black text-slate-800 text-center">{staffDisplay || <span className="text-gray-300 text-xs">Waiting</span>}</div>
+                        <button onClick={(e) => { e.stopPropagation(); onSplit(id); }} className="w-6 h-6 flex items-center justify-center bg-blue-100 text-blue-600 rounded-full hover:bg-blue-200 text-xs shadow-sm transition-transform hover:scale-110" title="Split / Add Staff">
+                            <i className="fas fa-user-plus"></i>
+                        </button>
+                    </div>
+                    {isCombo && (<div className="absolute -top-12 left-0 flex gap-1"><button onClick={(e) => { e.stopPropagation(); onToggleSequence(id); }} className="text-xs font-bold px-2 py-1 rounded shadow z-50 bg-blue-100 text-blue-700 hover:bg-blue-200"><i className="fas fa-sync-alt"></i></button><button onClick={(e) => { e.stopPropagation(); onToggleMax(id); }} className={`text-xs font-bold px-2 py-1 rounded shadow z-50 transition-colors ${data.isMaxMode ? 'bg-yellow-400 text-black' : 'bg-gray-200 text-gray-500'}`}><i className="fas fa-bolt"></i> Max</button></div>)}
+                    
+                    <div className="font-bold text-slate-800 text-2xl truncate mt-4">
+                        {(data.booking.customerName || 'Unknown').split('(')[0]}
+                        {(data.booking.pax > 1) && <span className="text-sm text-gray-400 ml-1">(Grp)</span>}
+                    </div>
+                    
+                    <select 
+                        className="text-sm font-bold text-gray-500 text-center bg-transparent border-b border-dashed border-gray-300 focus:outline-none w-full truncate cursor-pointer hover:bg-gray-50"
+                        value={data.booking.serviceName || ''}
+                        onChange={(e) => onServiceChange(id, e.target.value)}
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        {window.SERVICES_LIST.map(svc => <option key={svc} value={svc}>{svc}</option>)}
+                    </select>
 
-                            {isCombo && <div className="text-xs text-slate-400 font-mono">{splitText}</div>}
-                            {isCombo && data.isRunning && phaseLabel && (<div className={`text-sm font-black p-2 rounded border bg-white/80 ${phaseLabel.includes('足') ? 'text-emerald-700 border-emerald-200' : 'text-purple-700 border-purple-200'}`}>{phaseLabel} {flexMinutes>0 && <span className="text-xs text-orange-500 bg-orange-100 px-1 rounded ml-1">+{flexMinutes}m</span>} <div className="text-xl font-mono mt-1">{phaseTimeLeft}分</div></div>)}
-                            {isCombo && data.isRunning && data.comboMeta && data.comboMeta.targetId && (<div className="text-[10px] text-gray-400">➜ 轉: {data.comboMeta.targetId.toUpperCase()}</div>)}
-                            {isOilJob && <div className="text-xs text-purple-600 font-bold border border-purple-200 bg-purple-50 rounded px-2 py-1 inline-block">💧 精油 (Oil)</div>}
-                            
-                            {data.isRunning && !isPreview && startObj && (
-                                <div className="bg-slate-50 rounded p-2 text-xs text-left space-y-1 mt-2 border border-slate-200 shadow-inner opacity-90">
-                                    <div className="text-slate-600 font-bold flex justify-between"><span>🕒 開始:</span> <span className="font-mono text-blue-600">{formatTimeStr(startObj)}</span></div>
-                                    {isCombo && switchObj && <div className="text-slate-500 flex justify-between"><span>⇄ 轉場:</span> <span className="font-mono text-orange-500">{formatTimeStr(switchObj)}</span></div>}
-                                    <div className="text-slate-600 font-bold flex justify-between"><span>🏁 結束:</span> <span className="font-mono text-green-600">{formatTimeStr(endObj)}</span></div>
-                                </div>
-                            )}
-
-                            {isPreview && (
-                                <div className="mt-2 text-xs font-bold text-center">
-                                    {data.previewType === 'NOW' && <span className="text-red-500 animate-pulse">🔴 該上鐘了 (Start Now)</span>}
-                                    {data.previewType === 'SOON' && <span className="text-blue-500">🔵 預約即將到來</span>}
-                                    {data.previewType === 'PHASE2' && <span className="text-orange-500">🟠 轉場準備</span>}
-                                </div>
-                            )}
+                    {isCombo && <div className="text-xs text-slate-400 font-mono">{splitText}</div>}
+                    {isCombo && data.isRunning && phaseLabel && (<div className={`text-sm font-black p-2 rounded border bg-white/80 ${phaseLabel.includes('足') ? 'text-emerald-700 border-emerald-200' : 'text-purple-700 border-purple-200'}`}>{phaseLabel} {flexMinutes>0 && <span className="text-xs text-orange-500 bg-orange-100 px-1 rounded ml-1">+{flexMinutes}m</span>} <div className="text-xl font-mono mt-1">{phaseTimeLeft}分</div></div>)}
+                    {isCombo && data.isRunning && data.comboMeta && data.comboMeta.targetId && (<div className="text-[10px] text-gray-400">➜ 轉: {data.comboMeta.targetId.toUpperCase()}</div>)}
+                    {isOilJob && <div className="text-xs text-purple-600 font-bold border border-purple-200 bg-purple-50 rounded px-2 py-1 inline-block">💧 精油 (Oil)</div>}
+                    
+                    {data.isRunning && !isPreview && startObj && (
+                        <div className="bg-slate-50 rounded p-2 text-xs text-left space-y-1 mt-2 border border-slate-200 shadow-inner opacity-90">
+                            <div className="text-slate-600 font-bold flex justify-between"><span>🕒 開始:</span> <span className="font-mono text-blue-600">{formatTimeStr(startObj)}</span></div>
+                            {isCombo && switchObj && <div className="text-slate-500 flex justify-between"><span>⇄ 轉場:</span> <span className="font-mono text-orange-500">{formatTimeStr(switchObj)}</span></div>}
+                            <div className="text-slate-600 font-bold flex justify-between"><span>🏁 結束:</span> <span className="font-mono text-green-600">{formatTimeStr(endObj)}</span></div>
                         </div>
-                    </>
-                ) : (<button onClick={onSelect} className="w-full h-full flex flex-col items-center justify-center text-gray-300 hover:text-green-600 transition-colors group"><i className="fas fa-plus text-5xl"></i><span className="text-sm font-bold mt-2">排入 (Assign)</span></button>)}
+                    )}
+
+                    {isPreview && (
+                        <div className="mt-2 text-xs font-bold text-center">
+                            {data.previewType === 'NOW' && <span className="text-red-500 animate-pulse">🔴 該上鐘了 (Start Now)</span>}
+                            {data.previewType === 'SOON' && <span className="text-blue-500">🔵 預約即將到來</span>}
+                            {data.previewType === 'PHASE2' && <span className="text-orange-500">🟠 轉場準備</span>}
+                        </div>
+                    )}
+                </div>
             </div>
-            {isOccupied && (<div className="absolute bottom-0 left-0 w-full p-2 bg-white z-50 border-t">
+            <div className="absolute bottom-0 left-0 w-full p-2 bg-white z-50 border-t">
                 {!data.isRunning || isPreview ? (
                     <div className="grid grid-cols-2 gap-2">
                         <button onClick={()=>onAction(id, 'start')} className={`py-2 rounded font-bold text-white text-sm shadow-md ${isPreview && data.previewType==='NOW' ? 'bg-red-600 hover:bg-red-700 animate-pulse' : 'bg-green-600 hover:bg-green-700'}`}>開始 (Start)</button>
@@ -429,18 +459,17 @@ const ResourceCard = ({ id, type, index, data, busyStaffIds, onAction, onSelect,
                         <button onClick={()=>onAction(id, 'cancel_midway')} className="py-1.5 rounded font-bold text-white bg-red-500 hover:bg-red-600 text-xs shadow flex items-center justify-center"><i className="fas fa-times-circle mr-1"></i> 棄單</button>
                     </div>
                 )}
-            </div>)}
+            </div>
         </div>
     );
 };
 window.ResourceCard = ResourceCard;
 
-// --- REPORT VIEW (FIXED: LOGIC TÍNH TIỀN KHÁCH LẺ TRONG NHÓM) ---
+// --- REPORT VIEW (FIXED: STRICT PAYMENT CHECK) ---
 const ReportView = ({ bookings }) => {
     const safeBookings = Array.isArray(bookings) ? bookings : [];
 
-    // Tính toán doanh thu và số khách dựa trên TỪNG CÁ NHÂN (đã check StatusX)
-    // chứ không dựa trên status tổng của đơn hàng
+    // Tính toán doanh thu và số khách
     const processedStats = useMemo(() => {
         let revenue = 0;
         let guests = 0;
@@ -448,19 +477,25 @@ const ReportView = ({ bookings }) => {
         safeBookings.forEach(b => {
             const pax = parseInt(b.pax, 10) || 1;
             
-            // Duyệt qua từng người trong nhóm
-            for(let i=0; i<pax; i++) {
+            // Quét qua các cột Status để xem ai đã trả tiền
+            for(let i=0; i<6; i++) {
                 const statusKey = `Status${i+1}`;
                 const statusKeyCN = `狀態${i+1}`;
                 const statusKeyLower = `status${i+1}`;
                 
-                const isItemDone = (b[statusKey] && b[statusKey].includes('完成')) || 
-                                   (b[statusKeyCN] && b[statusKeyCN].includes('完成')) || 
-                                   (b[statusKeyLower] && b[statusKeyLower].includes('完成'));
+                // CẬP NHẬT QUAN TRỌNG: Chỉ chấp nhận '完成' hoặc 'Done', không chấp nhận '✅' đứng một mình
+                // Điều này tránh việc nhầm lẫn với trạng thái '✅ Đã đến' (Check-in)
+                const isItemDone = (b[statusKey] && (b[statusKey].includes('完成') || b[statusKey].includes('Done'))) || 
+                                   (b[statusKeyCN] && (b[statusKeyCN].includes('完成') || b[statusKeyCN].includes('Done'))) || 
+                                   (b[statusKeyLower] && (b[statusKeyLower].includes('完成') || b[statusKeyLower].includes('Done')));
                 
-                const isAllDone = b.status.includes('完成') || b.status.includes('Done') || b.status.includes('✅');
+                // Tương tự với trạng thái tổng của booking
+                const isAllDone = (b.status && (b.status.includes('完成') || b.status.includes('Done') || b.status.includes('✅ 完成')));
 
-                if (isItemDone || isAllDone) {
+                // Logic:
+                // 1. Nếu cột cụ thể Done -> Tính
+                // 2. Nếu cả booking Done -> Chỉ tính các cột trong range pax (để tránh tính thừa)
+                if (isItemDone || (isAllDone && i < pax)) {
                     guests++;
                     const unitPrice = window.getPrice(b.serviceName);
                     const oilPrice = window.getOilPrice(b.isOil || (b.serviceName && b.serviceName.includes('油')));
@@ -483,7 +518,7 @@ const ReportView = ({ bookings }) => {
                     <div className="text-4xl font-black text-blue-600">{processedStats.guests}</div>
                 </div>
             </div>
-            {/* CONTAINER BẢNG CÓ THANH CUỘN (SCROLLABLE CONTAINER) */}
+            {/* CONTAINER BẢNG CÓ THANH CUỘN */}
             <div className="bg-white rounded-xl shadow border overflow-hidden flex flex-col h-[600px]">
                 <div className="p-3 bg-slate-50 border-b font-bold text-slate-700 shrink-0">交易明細 (Details)</div>
                 <div className="overflow-y-auto flex-1">
@@ -502,43 +537,43 @@ const ReportView = ({ bookings }) => {
                                 const pax = parseInt(b.pax, 10) || 1;
                                 const rows = [];
                                 
-                                // Danh sách thợ
-                                const staff1 = b.serviceStaff || b.staffId || b.ServiceStaff || b.StaffId || b.technician || b.Technician;
-                                const staff2 = b.staffId2 || b.StaffId2 || b.staff2 || b.Staff2;
-                                const staff3 = b.staffId3 || b.StaffId3 || b.staff3 || b.Staff3;
-                                const staff4 = b.staffId4 || b.StaffId4 || b.staff4 || b.Staff4;
-                                const staff5 = b.staffId5 || b.StaffId5 || b.staff5 || b.Staff5;
-                                const staff6 = b.staffId6 || b.StaffId6 || b.staff6 || b.Staff6;
+                                const staffList = [
+                                    b.serviceStaff || b.staffId || b.ServiceStaff || b.StaffId || b.technician || b.Technician,
+                                    b.staffId2 || b.StaffId2 || b.staff2 || b.Staff2,
+                                    b.staffId3 || b.StaffId3 || b.staff3 || b.Staff3,
+                                    b.staffId4 || b.StaffId4 || b.staff4 || b.Staff4,
+                                    b.staffId5 || b.StaffId5 || b.staff5 || b.Staff5,
+                                    b.staffId6 || b.StaffId6 || b.staff6 || b.Staff6
+                                ];
 
-                                const staffForGroup = [staff1, staff2, staff3, staff4, staff5, staff6];
-
-                                for (let k = 0; k < pax; k++) {
+                                for (let k = 0; k < 6; k++) {
                                     const statusKey = `Status${k+1}`;
                                     const statusKeyCN = `狀態${k+1}`;
                                     const statusKeyLower = `status${k+1}`;
                                     
-                                    const isSingleDone = (b[statusKey] && b[statusKey].includes('完成')) || 
-                                                         (b[statusKeyCN] && b[statusKeyCN].includes('完成')) || 
-                                                         (b[statusKeyLower] && b[statusKeyLower].includes('完成'));
-                                    const isAllDone = b.status.includes('完成') || b.status.includes('Done') || b.status.includes('✅');
+                                    // CHECK CỰC KỲ CHẶT CHẼ
+                                    const isSingleDone = (b[statusKey] && (b[statusKey].includes('完成') || b[statusKey].includes('Done'))) || 
+                                                         (b[statusKeyCN] && (b[statusKeyCN].includes('完成') || b[statusKeyCN].includes('Done'))) || 
+                                                         (b[statusKeyLower] && (b[statusKeyLower].includes('完成') || b[statusKeyLower].includes('Done')));
+                                    
+                                    const isAllDone = (b.status && (b.status.includes('完成') || b.status.includes('Done') || b.status.includes('✅ 完成')));
 
-                                    // Chỉ hiện những dòng ĐÃ THANH TOÁN
-                                    if (isSingleDone || isAllDone) {
+                                    if (isSingleDone || (isAllDone && k < pax)) {
                                         const unitPrice = window.getPrice(b.serviceName);
                                         const oilPrice = window.getOilPrice(b.isOil || (b.serviceName && b.serviceName.includes('油')));
                                         const singlePrice = unitPrice + oilPrice;
                                         
-                                        let staffName = staffForGroup[k];
+                                        let staffName = staffList[k];
                                         if (!staffName || staffName === 'undefined' || staffName === 'null' || staffName === 'N/A') {
                                             staffName = '隨機'; 
                                         }
 
                                         rows.push(
                                             <tr key={`${b.rowId}-${k}`}>
-                                                <td className="p-3 font-mono">{b.startTimeString.split(' ')[1]}</td>
+                                                <td className="p-3 font-mono">{(b.startTimeString||' ').split(' ')[1]}</td>
                                                 <td className="p-3 font-bold">
                                                     {b.customerName}
-                                                    {pax > 1 && <span className="ml-2 text-xs text-gray-400 font-normal">#{k + 1}</span>}
+                                                    {(pax > 1 || k > 0) && <span className="ml-2 text-xs text-gray-400 font-normal">#{k + 1}</span>}
                                                 </td>
                                                 <td className="p-3">{b.serviceName}</td>
                                                 <td className="p-3 font-mono font-bold text-indigo-700">{staffName}</td>
