@@ -1,21 +1,16 @@
 const { useState, useEffect, useMemo, useRef } = React;
 
-// --- 1. COMPONENT: COMMISSION VIEW (GIAO DIỆN MỚI: CHỮ TO, 1 TÊN, TIẾNG TRUNG) ---
+// --- 1. COMPONENT: COMMISSION VIEW (ĐÃ SỬA: CHỈ HIỆN 1 TÊN, FIX CHIỀU CAO, TIẾNG TRUNG) ---
 const CommissionView = ({ bookings, staffList }) => {
-    // Cấu hình giá
     const RATES = {
         JIE_PRICE: 250,
         OIL_BONUS: 80
     };
 
-    // Hàm chuẩn hóa chuỗi
     const normalize = (str) => String(str || '').trim().replace(/\s+/g, '');
 
-    // Hàm tính tiết
     const getJieCount = (serviceName, duration) => {
         const name = (serviceName || "").toUpperCase();
-        
-        // Check tên
         if (name.includes('190') || name.includes('帝王')) return 6;
         if (name.includes('180')) return 6;
         if (name.includes('130') || name.includes('豪華')) return 4;
@@ -30,18 +25,15 @@ const CommissionView = ({ bookings, staffList }) => {
         if (name.includes('35')) return 1;
         if (name.includes('30')) return 1;
         
-        // Check phút
         const mins = parseInt(duration || 0);
         if (mins >= 175) return 6;
         if (mins >= 115) return 4;
         if (mins >= 85) return 3;
         if (mins >= 55) return 2;
         if (mins >= 15) return 1; 
-        
         return 0; 
     };
 
-    // Hàm kiểm tra dầu
     const isOilService = (b) => {
         if (b.isOil === true || b.isOil === 'true') return true;
         const name = (b.serviceName || "").toLowerCase();
@@ -54,24 +46,13 @@ const CommissionView = ({ bookings, staffList }) => {
         const stats = {};
         const lookupMap = {}; 
 
-        // 1. Khởi tạo danh sách nhân viên
         (staffList || []).forEach(staff => {
-            const entry = {
-                id: staff.id,
-                name: staff.name || staff.id, 
-                jie: 0,
-                oil: 0,
-                income: 0,
-                orderCount: 0
-            };
+            const entry = { id: staff.id, name: staff.name || staff.id, jie: 0, oil: 0, income: 0, orderCount: 0 };
             stats[staff.id] = entry;
             lookupMap[normalize(staff.id)] = entry;
-            if (staff.name) {
-                lookupMap[normalize(staff.name)] = entry;
-            }
+            if (staff.name) lookupMap[normalize(staff.name)] = entry;
         });
 
-        // 2. Xử lý đơn hàng
         bookings.forEach(b => {
             if (b.status && (b.status.includes('取消') || b.status.includes('Cancel') || b.status.includes('❌'))) return;
 
@@ -80,42 +61,25 @@ const CommissionView = ({ bookings, staffList }) => {
                 b.staffId2, b.staffId3, b.staffId4, b.staffId5, b.staffId6,
                 b.ServiceStaff, b.Technician
             ];
-
             const combinedString = potentialRawStrings.join(',');
-            
-            const distinctNames = combinedString.split(/[,，\s/]+/)
-                .map(s => s.trim())
-                .filter(s => s && s !== 'null' && s !== 'undefined' && s.length > 0);
-
-            // Lọc tên rác
+            const distinctNames = combinedString.split(/[,，\s/]+/).map(s => s.trim()).filter(s => s && s !== 'null' && s !== 'undefined' && s.length > 0);
             const validNames = [...new Set(distinctNames)].filter(name => {
                 const n = name.toLowerCase();
-                if (['隨機', '男', '女', '男師傅', '女師傅', '不指定', '指定', 'male', 'female', 'random'].some(bad => n.includes(bad))) {
-                    return false; 
-                }
+                if (['隨機', '男', '女', '男師傅', '女師傅', '不指定', '指定', 'male', 'female', 'random'].some(bad => n.includes(bad))) return false; 
                 return true;
             });
 
             validNames.forEach(key => {
                 const normKey = normalize(key);
                 let staffStat = lookupMap[normKey];
-
-                // Tạo hồ sơ ảo nếu không tìm thấy
                 if (!staffStat) {
-                    staffStat = {
-                        id: key,
-                        name: key, 
-                        jie: 0, oil: 0, income: 0, orderCount: 0,
-                        isGhost: true 
-                    };
+                    staffStat = { id: key, name: key, jie: 0, oil: 0, income: 0, orderCount: 0, isGhost: true };
                     stats[key] = staffStat; 
                     lookupMap[normKey] = staffStat; 
                 }
-
                 if (staffStat) {
                     const q = getJieCount(b.serviceName, b.duration);
                     const hasOil = isOilService(b);
-                    
                     staffStat.jie += q;
                     staffStat.orderCount += 1;
                     if (hasOil) staffStat.oil += 1;
@@ -123,11 +87,7 @@ const CommissionView = ({ bookings, staffList }) => {
             });
         });
 
-        Object.values(stats).forEach(s => {
-            s.income = (s.jie * RATES.JIE_PRICE) + (s.oil * RATES.OIL_BONUS);
-        });
-
-        // Sắp xếp: Ai làm nhiều lên đầu
+        Object.values(stats).forEach(s => { s.income = (s.jie * RATES.JIE_PRICE) + (s.oil * RATES.OIL_BONUS); });
         return Object.values(stats).sort((a, b) => {
              if (b.income !== a.income) return b.income - a.income;
              return String(a.id).localeCompare(String(b.id));
@@ -140,9 +100,8 @@ const CommissionView = ({ bookings, staffList }) => {
     const validOrders = bookings.filter(b => !b.status?.includes('取消')).length;
 
     return (
-        // Chỉnh height: calc(100vh - 220px) để trừ hao phần Header App và thanh cuộn nhân viên, đảm bảo không bị che
-        <div className="bg-white rounded shadow-lg flex flex-col h-[calc(100vh-220px)] animate-in fade-in zoom-in duration-300 font-sans border border-slate-200">
-            {/* Header - Font Nhỏ */}
+        // [FIX] Tăng khoảng trừ hao height lên 280px để chừa chỗ cho footer
+        <div className="bg-white rounded shadow-lg flex flex-col h-[calc(100vh-280px)] animate-in fade-in zoom-in duration-300 font-sans border border-slate-200">
             <div className="bg-[#2e1065] text-white p-2 flex justify-between items-center shrink-0 rounded-t-lg shadow-md z-10">
                 <div className="flex items-center gap-4">
                     <h2 className="text-sm font-bold flex items-center gap-2">
@@ -159,7 +118,6 @@ const CommissionView = ({ bookings, staffList }) => {
                 </div>
             </div>
             
-            {/* Body - Font To */}
             <div className="flex-1 overflow-y-auto overflow-x-hidden custom-scrollbar bg-slate-50">
                 <table className="w-full text-left border-collapse relative">
                     <thead className="sticky top-0 z-10 shadow-sm">
@@ -174,33 +132,21 @@ const CommissionView = ({ bookings, staffList }) => {
                     <tbody className="text-gray-800 divide-y divide-gray-200 bg-white">
                         {commissionData.map((row) => (
                             <tr key={row.id} className="hover:bg-indigo-50/50 transition-colors duration-150">
-                                {/* Tên nhân viên - Đã sửa: Chỉ hiện 1 tên to */}
+                                {/* [FIX] Chỉ hiện 1 tên to, bỏ hình tròn */}
                                 <td className="py-3 px-4 text-left">
                                     <span className={`font-bold text-2xl ${row.isGhost ? 'text-orange-700' : 'text-indigo-900'}`}>
                                         {row.name}
                                     </span>
                                 </td>
-                                
-                                {/* Số liệu - Font To */}
                                 <td className="py-3 px-4 text-center">
-                                    {row.jie > 0 ? (
-                                        <span className="inline-block min-w-[40px] bg-blue-100 text-blue-800 py-1 px-3 rounded font-bold text-xl shadow-sm">
-                                            {row.jie}
-                                        </span>
-                                    ) : <span className="text-gray-300">-</span>}
+                                    {row.jie > 0 ? <span className="inline-block min-w-[40px] bg-blue-100 text-blue-800 py-1 px-3 rounded font-bold text-xl shadow-sm">{row.jie}</span> : <span className="text-gray-300">-</span>}
                                 </td>
                                 <td className="py-3 px-4 text-center">
-                                    {row.oil > 0 ? (
-                                        <span className="inline-block min-w-[40px] bg-purple-100 text-purple-800 py-1 px-3 rounded font-bold text-xl shadow-sm">
-                                            {row.oil}
-                                        </span>
-                                    ) : <span className="text-gray-300">-</span>}
+                                    {row.oil > 0 ? <span className="inline-block min-w-[40px] bg-purple-100 text-purple-800 py-1 px-3 rounded font-bold text-xl shadow-sm">{row.oil}</span> : <span className="text-gray-300">-</span>}
                                 </td>
                                 <td className="py-3 px-4 text-center font-bold text-lg text-gray-500">
                                     {row.orderCount > 0 ? row.orderCount : ''}
                                 </td>
-                                
-                                {/* Tổng tiền - Font Rất To */}
                                 <td className="py-3 px-4 text-right">
                                     <span className={`text-3xl font-black ${row.income > 0 ? 'text-emerald-700' : 'text-gray-300'}`}>
                                         {row.income.toLocaleString()}
@@ -211,13 +157,9 @@ const CommissionView = ({ bookings, staffList }) => {
                         ))}
                     </tbody>
                 </table>
-                
-                {commissionData.length === 0 && (
-                     <div className="p-10 text-center text-gray-400 text-lg">無數據</div>
-                )}
+                {commissionData.length === 0 && <div className="p-10 text-center text-gray-400 text-lg">無數據</div>}
             </div>
 
-            {/* Footer - Font To - Cố định ở dưới */}
             <div className="bg-slate-100 border-t border-slate-300 p-3 shrink-0 rounded-b-lg">
                 <div className="flex justify-between items-center text-base font-bold text-gray-600">
                     <div className="w-1/4 pl-4 text-gray-800 text-lg">總計:</div>
@@ -233,6 +175,93 @@ const CommissionView = ({ bookings, staffList }) => {
     );
 };
 
+// --- 2. NEW COMPONENT: TIMELINE VIEW (GIỚI HẠN ĐẾN 3H SÁNG) ---
+const TimelineView = ({ timelineData }) => {
+    // Tạo mảng giờ từ 8:00 đến 27:00 (3h sáng hôm sau)
+    const hours = Array.from({length: 20}, (_, i) => i + 8); // 8, 9, ..., 27
+    const PIXELS_PER_MIN = 2; 
+    const HOUR_WIDTH = 60 * PIXELS_PER_MIN; // 120px per hour
+
+    const formatHour = (h) => {
+        const displayH = h >= 24 ? h - 24 : h;
+        return `${displayH}:00`;
+    };
+
+    // Rows: Chair 1-6, Bed 1-6
+    const rows = [
+        ...Array.from({length:6}, (_,i) => ({id: `chair-${i+1}`, label: `足 ${i+1}`, type: 'chair'})),
+        ...Array.from({length:6}, (_,i) => ({id: `bed-${i+1}`, label: `身 ${i+1}`, type: 'bed'}))
+    ];
+
+    return (
+        <div className="bg-white rounded shadow border border-slate-200 overflow-hidden flex flex-col h-[calc(100vh-220px)]">
+            {/* Header */}
+            <div className="flex border-b border-slate-300 bg-slate-100 text-sm font-bold text-slate-600 shrink-0">
+                <div className="w-20 shrink-0 p-2 border-r border-slate-300 flex items-center justify-center bg-slate-200 z-20 sticky left-0">區域</div>
+                <div className="flex overflow-hidden">
+                    {hours.map(h => (
+                        <div key={h} className="shrink-0 border-r border-slate-300 flex items-center justify-center bg-slate-100 text-slate-500" style={{width: `${HOUR_WIDTH}px`}}>
+                            {formatHour(h)}
+                        </div>
+                    ))}
+                </div>
+            </div>
+
+            {/* Body */}
+            <div className="flex-1 overflow-auto custom-scrollbar relative">
+                <div className="relative" style={{width: `${hours.length * HOUR_WIDTH + 80}px`}}>
+                    {rows.map(row => (
+                        <div key={row.id} className="flex border-b border-slate-100 h-16 relative hover:bg-slate-50 transition-colors">
+                            {/* Row Label */}
+                            <div className={`w-20 shrink-0 border-r border-slate-300 flex items-center justify-center font-bold sticky left-0 z-10 ${row.type === 'chair' ? 'bg-teal-50 text-teal-700' : 'bg-purple-50 text-purple-700'}`}>
+                                {row.label}
+                            </div>
+                            
+                            {/* Grid Lines */}
+                            <div className="absolute left-20 top-0 bottom-0 right-0 flex pointer-events-none">
+                                {hours.map(h => (
+                                    <div key={h} className="shrink-0 border-r border-slate-200 h-full border-dashed" style={{width: `${HOUR_WIDTH}px`}}></div>
+                                ))}
+                            </div>
+
+                            {/* Bookings */}
+                            <div className="relative flex-1 h-full">
+                                {timelineData[row.id] && timelineData[row.id].map((slot, idx) => {
+                                    // Calculate position
+                                    // Start time is in minutes from 00:00. We need minutes from 08:00.
+                                    // If start < 8*60 (480), it means next day (e.g., 01:00 = 25:00 = 1500)
+                                    let startMins = slot.start; 
+                                    let duration = slot.end - slot.start;
+                                    
+                                    // Offset from 8:00 AM (480 mins)
+                                    const startOffset = startMins - 480; 
+                                    const leftPos = startOffset * PIXELS_PER_MIN;
+                                    const width = duration * PIXELS_PER_MIN;
+
+                                    // Color based on status/type
+                                    let bgClass = "bg-indigo-100 text-indigo-700 border-indigo-300";
+                                    if (slot.booking.category === 'COMBO') bgClass = "bg-orange-100 text-orange-700 border-orange-300";
+                                    if (slot.booking.isOil) bgClass = "bg-pink-100 text-pink-700 border-pink-300";
+
+                                    return (
+                                        <div key={idx} 
+                                             className={`absolute top-2 bottom-2 rounded border px-2 flex flex-col justify-center text-xs overflow-hidden shadow-sm ${bgClass}`}
+                                             style={{left: `${leftPos}px`, width: `${width}px`}}
+                                             title={`${slot.booking.serviceName} - ${slot.booking.customerName}`}
+                                        >
+                                            <div className="font-bold truncate">{slot.booking.customerName}</div>
+                                            <div className="truncate opacity-75">{slot.booking.serviceName}</div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            </div>
+        </div>
+    );
+};
 
 // --- APP COMPONENT ---
 const App = () => {
@@ -242,6 +271,7 @@ const App = () => {
     const [bookings, setBookings] = useState([]);
     const [resourceState, setResourceState] = useState({}); 
     const [statusData, setStatusData] = useState({});
+    const [timelineData, setTimelineData] = useState({}); // New State for Timeline
     
     // Modal States
     const [showWalkIn, setShowWalkIn] = useState(false);
@@ -580,6 +610,9 @@ const App = () => {
                     }
                 }
             });
+
+            // [NEW] Lưu timelineGrid vào State để TimelineView dùng
+            setTimelineData(timelineGrid);
 
             const allSlots = [];
             for(let i=1; i<=6; i++) allSlots.push(`chair-${i}`);
@@ -994,7 +1027,8 @@ const App = () => {
             <main className="flex-1 p-4 overflow-y-auto">
                 {activeTab === 'map' && (<div className="grid grid-cols-12 gap-6"><div className="col-span-9 space-y-6"><div><h3 className="font-bold text-emerald-600 mb-3 border-b pb-1">足底按摩區 (Foot)</h3><div className="grid grid-cols-6 gap-3">{[1,2,3,4,5,6].map(i => <window.ResourceCard key={`chair-${i}`} id={`chair-${i}`} type="FOOT" index={i} data={resourceState[`chair-${i}`]} busyStaffIds={busyStaffIds} staffList={staffList} onAction={handleResourceAction} onSelect={()=>setSelectedSlot(`chair-${i}`)} onSwitch={handleSwitch} onToggleMax={handleToggleMax} onToggleSequence={handleToggleSequence} onServiceChange={handleServiceChange} onStaffChange={handleStaffChange} onSplit={(rid)=>setSplitData({resourceId: rid})} getGroupMemberIndex={getGroupMemberIndex} />)}</div></div><div><h3 className="font-bold text-purple-600 mb-3 border-b pb-1">身體指壓區 (Body)</h3><div className="grid grid-cols-6 gap-3">{[1,2,3,4,5,6].map(i => <window.ResourceCard key={`bed-${i}`} id={`bed-${i}`} type="BODY" index={i} data={resourceState[`bed-${i}`]} busyStaffIds={busyStaffIds} staffList={staffList} onAction={handleResourceAction} onSelect={()=>setSelectedSlot(`bed-${i}`)} onSwitch={handleSwitch} onToggleMax={handleToggleMax} onToggleSequence={handleToggleSequence} onServiceChange={handleServiceChange} onStaffChange={handleStaffChange} onSplit={(rid)=>setSplitData({resourceId: rid})} getGroupMemberIndex={getGroupMemberIndex} />)}</div></div></div><div className="col-span-3 bg-white rounded-lg shadow p-4 h-fit sticky top-2"><h3 className="font-bold text-gray-700 mb-3">候位名單 ({todaysBookings.filter(b=>b.status==='已預約').length})</h3><div className="space-y-2 max-h-[500px] overflow-y-auto">{todaysBookings.filter(b=>b.status==='已預約').map(b => (<div key={b.rowId} className="border p-2 rounded hover:bg-slate-50 relative group bg-white shadow-sm"><div className="flex justify-between font-bold text-sm"><span>{b.customerName}</span><span className="text-indigo-600 font-mono">{(b.startTimeString||' ').split(' ')[1]}</span></div><div className="text-xs text-gray-500 font-bold">{b.serviceName}</div>{(b.isOil || (b.serviceName && b.serviceName.includes('油'))) && <div className="text-[10px] bg-purple-100 text-purple-700 inline-block px-1 rounded mt-1 font-bold border border-purple-200">💧 精油</div>}{b.pax > 1 && <div className="text-[10px] bg-orange-100 text-orange-600 inline-block px-1 rounded mt-1 ml-1 font-bold">{b.pax} 人</div>}{selectedSlot && <button onClick={()=>handleAssignBooking(b)} className="absolute inset-0 bg-green-500/90 text-white font-bold flex items-center justify-center rounded animate-pulse">排入 {selectedSlot}</button>}<button onClick={()=>handleManualUpdateStatus(b.rowId, '❌ Cancelled')} className="absolute top-1 right-1 text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100"><i className="fas fa-trash"></i></button></div>))}</div></div></div>)}
                 {activeTab === 'list' && (<div className="bg-white rounded shadow overflow-hidden"><table className="w-full text-sm text-left"><thead className="bg-slate-100 text-slate-600 font-bold"><tr><th className="p-3">預約日期</th><th className="p-3">時間</th><th className="p-3">姓名</th><th className="p-3">項目</th><th className="p-3">油推</th><th className="p-3">人數</th><th className="p-3">電話</th><th className="p-3">狀態</th><th className="p-3">指定師傅</th><th className="p-3 text-right">操作</th></tr></thead><tbody className="divide-y">{todaysBookings.map(b => { const nameParts = (b.customerName||'').split('('); const name = nameParts[0].trim(); const phone = nameParts.length > 1 ? nameParts[1].replace(')', '').trim() : (b.sdt || ''); const isOil = (b.serviceName||'').includes('油') ? 'Yes' : ''; return ( <tr key={b.rowId} className="hover:bg-slate-50"><td className="p-3 font-mono">{(b.startTimeString||' ').split(' ')[0]}</td><td className="p-3 font-mono font-bold text-indigo-700">{(b.startTimeString||' ').split(' ')[1]}</td><td className="p-3 font-bold">{name}</td><td className="p-3 text-gray-600">{b.serviceName}</td><td className="p-3 text-center">{isOil && <span className="text-purple-600 font-bold">Yes</span>}</td><td className="p-3 text-center">{b.pax}</td><td className="p-3 font-mono text-gray-500">{phone}</td><td className="p-3"><span className={`px-2 py-1 rounded text-xs font-bold ${b.status.includes('取消')?'bg-red-100 text-red-600':'bg-green-100 text-green-600'}`}>{b.status}</span></td><td className="p-3"><span className="bg-indigo-50 text-indigo-700 px-2 py-1 rounded text-xs font-bold">{b.staffId}</span></td><td className="p-3 text-right"><button onClick={()=>handleManualUpdateStatus(b.rowId, '❌ Cancelled')} className="text-red-500 hover:bg-red-50 px-2 py-1 rounded"><i className="fas fa-trash"></i></button></td></tr> ); })}</tbody></table></div>)}
-                {activeTab === 'timeline' && <window.TimelineView bookings={todaysBookings} resourceState={resourceState} />}
+                {/* [FIX] Sử dụng TimelineView nội bộ thay vì window.TimelineView */}
+                {activeTab === 'timeline' && <TimelineView timelineData={timelineData} />}
                 {activeTab === 'report' && <window.ReportView bookings={todaysBookings} />}
                 
                 {/* --- RENDER TAB MỚI: COMMISSION --- */}
