@@ -77,18 +77,20 @@ const App = () => {
     }
 
     const determineColumnIndex = (booking, activeStaffId, resourceId) => {
-        if (activeStaffId && activeStaffId !== '隨機') {
+        // [FIXED] Ưu tiên tìm theo tên thợ trong danh sách để trả về đúng index
+        if (activeStaffId && activeStaffId !== '隨機' && activeStaffId !== 'undefined') {
             const staffCols = [
-                booking.serviceStaff || booking.staffId || booking.ServiceStaff, 
-                booking.staffId2 || booking.StaffId2,                            
-                booking.staffId3 || booking.StaffId3,                            
-                booking.staffId4 || booking.StaffId4,                            
-                booking.staffId5 || booking.StaffId5,                            
-                booking.staffId6 || booking.StaffId6                             
+                booking.serviceStaff || booking.staffId, 
+                booking.staffId2,                            
+                booking.staffId3,                            
+                booking.staffId4,                            
+                booking.staffId5,                            
+                booking.staffId6                             
             ];
-            const idx = staffCols.indexOf(activeStaffId);
+            const idx = staffCols.findIndex(s => s && s.trim() === activeStaffId.trim());
             if (idx !== -1) return idx;
         }
+        // Fallback: Tìm theo số ghế
         const seatNum = parseInt(resourceId.replace(/\D/g, '')); 
         if (!isNaN(seatNum) && seatNum > 0) {
             return Math.min(seatNum - 1, 5); 
@@ -106,6 +108,7 @@ const App = () => {
             return res && res.booking && String(res.booking.rowId) === String(targetRowId);
         });
         
+        // Sắp xếp theo thứ tự ghế/giường để đoán vị trí
         groupSlots.sort((a, b) => window.getWeight(a) - window.getWeight(b));
         
         const idx = groupSlots.indexOf(targetResId);
@@ -161,6 +164,7 @@ const App = () => {
                                 const key = `Status${i}`;
                                 const localVal = localBooking[key];
                                 const serverVal = serverBooking[key];
+                                // Ưu tiên trạng thái local nếu nó là "Hoàn thành" mà server chưa kịp cập nhật
                                 if (localVal && localVal.includes('完成') && (!serverVal || !serverVal.includes('完成'))) {
                                     mergedBooking[key] = localVal; 
                                 }
@@ -182,14 +186,14 @@ const App = () => {
             let tempState = {}; 
             const activePaxCounts = {}; 
             const activeEndTimes = {}; 
-            const timelineGrid = {}; // Khởi tạo Grid
+            const timelineGrid = {}; 
 
             const addToGrid = (resId, start, end, booking, meta) => {
                 if (!timelineGrid[resId]) timelineGrid[resId] = [];
                 timelineGrid[resId].push({ start, end, booking, meta });
             };
 
-            // --- XỬ LÝ CÁC ĐƠN ĐANG CHẠY (RUNNING) ---
+            // --- XỬ LÝ CÁC ĐƠN ĐANG CHẠY ---
             Object.keys(currentRes).forEach(key => {
                 if(currentRes[key].isRunning) {
                     tempState[key] = currentRes[key];
@@ -215,12 +219,11 @@ const App = () => {
                     const endMins = startMins + durationUsed;
                     activeEndTimes[key] = endMins;
 
-                    // --- [FIX] VẼ KHỐI ĐANG CHẠY LÊN TIMELINE ---
                     addToGrid(key, startMins, endMins, currentRes[key].booking, {
                         isCombo: !!currentRes[key].comboMeta,
                         phase: isPhase1 ? 1 : 2,
                         sequence: currentRes[key].comboMeta?.sequence,
-                        isRunning: true // Flag đánh dấu đang chạy
+                        isRunning: true 
                     });
                 }
             });
@@ -244,7 +247,7 @@ const App = () => {
                 return null; 
             };
 
-            // --- DỰ ĐOÁN PHASE 2 CHO COMBO ĐANG CHẠY ---
+            // --- DỰ ĐOÁN PHASE 2 CHO COMBO ---
             Object.keys(tempState).forEach(key => {
                 const item = tempState[key];
                 if (item.comboMeta) {
@@ -274,7 +277,8 @@ const App = () => {
                 }
             });
 
-            // --- XẾP LỊCH CHO CÁC ĐƠN CHỜ (PENDING) ---
+            // --- XẾP LỊCH CHO CÁC ĐƠN CHỜ ---
+            // Chỉ xếp các đơn chưa hoàn thành và chưa bắt đầu
             const pendingBookings = relevantBookings.filter(b => 
                 !b.status.includes('完成') && 
                 !b.status.includes('✅') &&
@@ -299,10 +303,7 @@ const App = () => {
                 const alreadyRunning = activePaxCounts[String(b.rowId)] || 0;
                 let completedCount = 0;
                 for(let i=1; i<=totalNeeded; i++) {
-                    const statusKey = `Status${i}`;
-                    if(b[statusKey] && b[statusKey].includes('完成')) {
-                        completedCount++;
-                    }
+                    if(b[`Status${i}`] && b[`Status${i}`].includes('完成')) completedCount++;
                 }
                 const remainingNeeded = totalNeeded - alreadyRunning - completedCount;
 
@@ -330,10 +331,7 @@ const App = () => {
                 const alreadyRunning = activePaxCounts[String(b.rowId)] || 0;
                 let completedCount = 0;
                 for(let i=1; i<=totalNeeded; i++) {
-                    const statusKey = `Status${i}`;
-                    if(b[statusKey] && b[statusKey].includes('完成')) {
-                        completedCount++;
-                    }
+                    if(b[`Status${i}`] && b[`Status${i}`].includes('完成')) completedCount++;
                 }
                 const remainingNeeded = totalNeeded - alreadyRunning - completedCount;
 
@@ -598,7 +596,7 @@ const App = () => {
     const handleToggleMax = async (resId) => { const res = resourceState[resId]; if (!res) return; updateResource({ ...resourceState, [resId]: { ...res, isMaxMode: !res.isMaxMode } }); };
     const handleToggleSequence = async (resId) => { const res = resourceState[resId]; if (!res || !res.comboMeta) return; const newSeq = res.comboMeta.sequence === 'FB' ? 'BF' : 'FB'; updateResource({ ...resourceState, [resId]: { ...res, comboMeta: { ...res.comboMeta, sequence: newSeq } } }); }
     
-    // --- PAYMENT HANDLER ---
+    // --- PAYMENT HANDLER (UPDATED: INTELLIGENT MATCHING) ---
     const handleConfirmPayment = async (itemsToPay, totalAmount) => {
         try {
             setSyncLock(true); 
@@ -616,11 +614,32 @@ const App = () => {
                 const rid = String(b.rowId);
                 const resId = item.resourceId;
 
-                let grpIdx = getGroupMemberIndex(resId, rid);
-                if (grpIdx === -1) grpIdx = determineColumnIndex(b, null, resId);
-                grpIdx = Math.max(0, Math.min(5, grpIdx));
+                // [FIXED LOGIC]: Tìm index chính xác dựa trên tên thợ
+                let targetIndex = -1;
+                const currentStaff = b.serviceStaff || b.staffId; 
+                
+                if (currentStaff && currentStaff !== '隨機' && currentStaff !== 'undefined') {
+                    const staffCols = [
+                        b.serviceStaff || b.staffId,
+                        b.staffId2,
+                        b.staffId3,
+                        b.staffId4,
+                        b.staffId5,
+                        b.staffId6
+                    ];
+                    // Tìm vị trí của thợ trong danh sách thợ của đơn
+                    targetIndex = staffCols.findIndex(s => s && s.trim() === currentStaff.trim());
+                }
 
-                const statusNum = grpIdx + 1;
+                // Fallback nếu không tìm thấy (dùng số ghế)
+                if (targetIndex === -1) {
+                    targetIndex = getGroupMemberIndex(resId, rid);
+                }
+                
+                // Fallback cuối cùng
+                if (targetIndex === -1) targetIndex = 0;
+
+                const statusNum = targetIndex + 1;
                 const statusColEnglish = `Status${statusNum}`; 
 
                 if (!updatesByRow[rid]) {
@@ -630,18 +649,17 @@ const App = () => {
                 updatesByRow[rid][statusColEnglish] = '✅ 完成';
                 
                 let staffId = null;
-                if (grpIdx === 0) staffId = b.serviceStaff || b.staffId;
-                else if (grpIdx === 1) staffId = b.staffId2;
-                else if (grpIdx === 2) staffId = b.staffId3;
-                else if (grpIdx === 3) staffId = b.staffId4;
-                else if (grpIdx === 4) staffId = b.staffId5;
-                else if (grpIdx === 5) staffId = b.staffId6;
+                if (targetIndex === 0) staffId = b.serviceStaff || b.staffId;
+                else if (targetIndex === 1) staffId = b.staffId2;
+                else if (targetIndex === 2) staffId = b.staffId3;
+                else if (targetIndex === 3) staffId = b.staffId4;
+                else if (targetIndex === 4) staffId = b.staffId5;
+                else if (targetIndex === 5) staffId = b.staffId6;
 
                 if (staffId && staffId !== '隨機' && staffId !== 'undefined') {
                     newStatusData[staffId] = { status: 'READY', checkInTime: baseTime + (i * 1000) };
                 }
 
-                // Xóa khỏi trạng thái local ngay lập tức (để UI phản hồi nhanh)
                 delete newState[resId];
             }
 
@@ -650,14 +668,11 @@ const App = () => {
                 const totalPax = parseInt(booking.pax || 1, 10);
                 
                 let completedCount = 0;
-                
-                // Đếm người đã xong TRƯỚC ĐÓ
                 for(let k=1; k<=6; k++) {
                     const key = `Status${k}`;
                     if (booking[key] && (booking[key].includes('完成') || booking[key].includes('Done'))) completedCount++;
                 }
                 
-                // Đếm người VỪA MỚI xong
                 for(let k=1; k<=6; k++) {
                     const key = `Status${k}`;
                     const isNewCompletion = updatePayload[key] && updatePayload[key].includes('完成');
@@ -668,7 +683,6 @@ const App = () => {
                     }
                 }
 
-                // Nếu số lượng hoàn thành >= tổng số khách => Cập nhật cột H
                 if (completedCount >= totalPax) {
                     updatePayload.mainStatus = '✅ 完成'; 
                 }
@@ -728,8 +742,9 @@ const App = () => {
     return (
         <div className="min-h-screen flex flex-col bg-slate-50">
             <header className={`text-white p-3 shadow-md flex justify-between items-center sticky top-0 z-50 transition-colors ${quotaError ? 'bg-red-800' : 'bg-[#1e1b4b]'}`}>
+                {/* Header Content */}
                 <div className="flex items-center gap-3">
-                    <span className="bg-amber-500 text-black px-2 py-1 rounded font-black text-sm">V274</span>
+                    <span className="bg-amber-500 text-black px-2 py-1 rounded font-black text-sm">V276</span>
                     <span className="font-bold hidden md:inline">XinWuChan</span>
                     <div className="flex items-center gap-2 bg-white/10 rounded px-2 py-1 border border-white/20">
                         <button onClick={()=>{const d=new Date(viewDate); d.setDate(d.getDate()-1); setViewDate(d.toISOString().split('T')[0])}} className="text-white hover:text-amber-400 font-bold px-2">❮</button>
@@ -737,6 +752,7 @@ const App = () => {
                         <button onClick={()=>{const d=new Date(viewDate); d.setDate(d.getDate()+1); setViewDate(d.toISOString().split('T')[0])}} className="text-white hover:text-amber-400 font-bold px-2">❯</button>
                     </div>
                 </div>
+
                 <div className="flex gap-3">
                     <button onClick={()=>setActiveTab('map')} className={`px-3 py-1.5 rounded-lg font-bold text-sm flex gap-2 items-center transition-all shadow-lg ${activeTab==='map' ? 'bg-blue-600 text-white ring-2 ring-white scale-105 opacity-100' : 'bg-blue-600 text-white/90 opacity-60 hover:opacity-100 hover:scale-105'}`}><i className="fas fa-th"></i> <span className="hidden md:inline">平面圖</span></button>
                     <button onClick={()=>setActiveTab('timeline')} className={`px-3 py-1.5 rounded-lg font-bold text-sm flex gap-2 items-center transition-all shadow-lg ${activeTab==='timeline' ? 'bg-purple-600 text-white ring-2 ring-white scale-105 opacity-100' : 'bg-purple-600 text-white/90 opacity-60 hover:opacity-100 hover:scale-105'}`}><i className="fas fa-stream"></i> <span className="hidden md:inline">時間軸</span></button>
@@ -744,6 +760,7 @@ const App = () => {
                     <button onClick={()=>setActiveTab('report')} className={`px-3 py-1.5 rounded-lg font-bold text-sm flex gap-2 items-center transition-all shadow-lg ${activeTab==='report' ? 'bg-rose-600 text-white ring-2 ring-white scale-105 opacity-100' : 'bg-rose-600 text-white/90 opacity-60 hover:opacity-100 hover:scale-105'}`}><i className="fas fa-chart-line"></i> <span className="hidden md:inline">報告</span></button>
                     <button onClick={()=>setActiveTab('commission')} className={`px-3 py-1.5 rounded-lg font-bold text-sm flex gap-2 items-center transition-all shadow-lg ml-2 border-l border-white/30 pl-4 ${activeTab==='commission' ? 'bg-indigo-600 text-white ring-2 ring-white scale-105 opacity-100' : 'bg-indigo-800 text-white/90 opacity-70 hover:opacity-100 hover:scale-105'}`}><i className="fas fa-calculator"></i> <span className="hidden md:inline">節數/薪資</span></button>
                 </div>
+
                 <div className="flex gap-2 items-center">
                     {quotaError && <button onClick={handleRetryConnection} className="bg-white text-red-600 px-4 py-1.5 rounded font-bold text-sm animate-pulse mr-4"><i className="fas fa-exclamation-triangle"></i> 重連</button>}
                     <button onClick={()=>setShowAvailability(true)} className="bg-emerald-500 hover:bg-emerald-400 text-white px-3 py-1.5 rounded font-bold text-sm flex gap-1 items-center shadow-md animate-pulse"><i className="fas fa-phone-volume"></i> <span className="hidden lg:inline">電話預約</span></button>
@@ -752,6 +769,7 @@ const App = () => {
                 </div>
             </header>
             
+            {/* Staff Scroll Bar */}
             <div className="bg-white border-b shadow-sm p-2 overflow-x-auto whitespace-nowrap staff-scroll">
                 <div className="flex w-full justify-between items-center min-w-max">
                     <div className="flex gap-1 opacity-30 scale-95 border-r-2 pr-2 mr-1 border-dashed border-slate-300">
