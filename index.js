@@ -1,21 +1,13 @@
 /**
  * =================================================================================================
  * PROJECT: XINWUCHAN MASSAGE BOT (BACKEND SERVER)
- * VERSION: V145 (UPDATED: SUPPORT STATUS COLUMNS R-W)
+ * VERSION: V146 (UPDATED: AUTO COMPLETE GROUP LOGIC)
  * AUTHOR: AI ASSISTANT & OWNER
  * DATE: 2026/01/04
- * * [CHI TIẾT CẬP NHẬT V145]:
- * 1. MỞ RỘNG PHẠM VI ĐỒNG BỘ (SYNC DATA):
- * - Range đọc: 'Sheet1!A:W' (Mở rộng từ Q lên W để lấy các cột Status).
- * * 2. MAPPING DỮ LIỆU MỚI:
- * - Status1 (Cột R - Index 17)
- * - Status2 (Cột S - Index 18)
- * - Status3 (Cột T - Index 19)
- * - Status4 (Cột U - Index 20)
- * - Status5 (Cột V - Index 21)
- * - Status6 (Cột W - Index 22)
- * * 3. NÂNG CẤP API CẬP NHẬT (/api/update-booking-details):
- * - Hỗ trợ ghi dữ liệu vào 6 cột trạng thái chi tiết (Status1 -> Status6).
+ * * [CHI TIẾT CẬP NHẬT V146]:
+ * 1. API update-booking-details:
+ * - Thêm logic cập nhật cột H (Status) nếu nhận được tham số 'mainStatus'.
+ * - Giữ nguyên logic cập nhật Status1-6 (R-W).
  * =================================================================================================
  */
 
@@ -23,7 +15,6 @@
 // PHẦN 1: KHAI BÁO THƯ VIỆN VÀ CẤU HÌNH (LIBRARIES & CONFIG)
 // ==============================================================================
 
-// Nạp biến môi trường từ file .env
 require('dotenv').config(); 
 
 const express = require('express');       
@@ -196,10 +187,9 @@ function parseStringToDate(dateStr) {
 async function syncData() {
     try {
         // --- 5.1. ĐỌC DỮ LIỆU ĐẶT CHỖ TỪ SHEET ---
-        // [CẬP NHẬT V145]: Đọc mở rộng từ A đến W để lấy Status1 -> Status6
         const resBooking = await sheets.spreadsheets.values.get({ 
             spreadsheetId: SHEET_ID, 
-            range: `${BOOKING_SHEET}!A:W` // Đã sửa từ A:Q thành A:W
+            range: `${BOOKING_SHEET}!A:W` 
         });
         const rowsBooking = resBooking.data.values;
         cachedBookings = [];
@@ -210,8 +200,10 @@ async function syncData() {
                 if (!row[0] || !row[1]) continue;
 
                 const status = row[7] || '已預約'; 
-                // Bỏ qua các đơn đã Hủy hoặc Hoàn thành để giải phóng tài nguyên
-                // Lưu ý: Status1...6 hoàn thành không có nghĩa là cả đơn hoàn thành, nên vẫn load
+                
+                // QUAN TRỌNG: Logic ẩn đơn khỏi map
+                // Nếu cột H chứa '完成' (Completed), backend sẽ KHÔNG gửi đơn này xuống Frontend
+                // -> Frontend sẽ tự động xóa ResourceCard tương ứng sau lần fetch tiếp theo.
                 if (status.includes('取消') || status.includes('Cancelled') || status.includes('完成') || status.includes('Done')) continue;
 
                 const serviceStr = row[3] || ''; 
@@ -231,16 +223,10 @@ async function syncData() {
                 let pax = 1;
                 if (row[5]) pax = parseInt(row[5]); 
 
-                // MAPPING CỘT (V145):
-                // Col I (Index 8)  : Designated Staff
-                // Col L (Index 11) : Service Staff 1
+                // MAPPING CỘT:
+                // Col R (Index 17) : Status1
                 // ...
-                // Col R (Index 17) : Status1 (NEW)
-                // Col S (Index 18) : Status2 (NEW)
-                // Col T (Index 19) : Status3 (NEW)
-                // Col U (Index 20) : Status4 (NEW)
-                // Col V (Index 21) : Status5 (NEW)
-                // Col W (Index 22) : Status6 (NEW)
+                // Col W (Index 22) : Status6
                 
                 cachedBookings.push({
                     rowId: i + 1,
@@ -255,7 +241,6 @@ async function syncData() {
                     staffId4: row[14],
                     staffId5: row[15],
                     staffId6: row[16],
-                    // [NEW] Mapping trạng thái từng phần
                     Status1: row[17],
                     Status2: row[18],
                     Status3: row[19],
@@ -762,7 +747,7 @@ app.post('/api/update-status', async (req, res) => {
     res.json({ success: true }); 
 });
 
-// API CẬP NHẬT CHI TIẾT ĐƠN (UPDATED V145: ADD STATUS COLS)
+// API CẬP NHẬT CHI TIẾT ĐƠN (UPDATED V146: AUTO COMPLETE GROUP)
 // ======================================================
 app.post('/api/update-booking-details', async (req, res) => {
     try {
@@ -788,6 +773,17 @@ app.post('/api/update-booking-details', async (req, res) => {
                 range: `${BOOKING_SHEET}!I${rowId}`,
                 valueInputOption: 'USER_ENTERED',
                 requestBody: { values: [[body.staffId]] }
+            });
+        }
+        
+        // [NEW] 2.1 Cập nhật Trạng Thái Tổng (Cột H) - NẾU CÓ
+        // Logic: Nếu tất cả khách xong, Frontend sẽ gửi mainStatus = '✅ 完成'
+        if (body.mainStatus) {
+            await sheets.spreadsheets.values.update({
+                spreadsheetId: SHEET_ID,
+                range: `${BOOKING_SHEET}!H${rowId}`, 
+                valueInputOption: 'USER_ENTERED',
+                requestBody: { values: [[body.mainStatus]] }
             });
         }
 
@@ -817,7 +813,7 @@ app.post('/api/update-booking-details', async (req, res) => {
             await sheets.spreadsheets.values.update({ spreadsheetId: SHEET_ID, range: `${BOOKING_SHEET}!Q${rowId}`, valueInputOption: 'USER_ENTERED', requestBody: { values: [[staff6]] } });
         }
 
-        // --- CẬP NHẬT STATUS 1-6 (R -> W) [NEW] ---
+        // --- CẬP NHẬT STATUS 1-6 (R -> W) ---
         if (body.Status1) {
             await sheets.spreadsheets.values.update({ spreadsheetId: SHEET_ID, range: `${BOOKING_SHEET}!R${rowId}`, valueInputOption: 'USER_ENTERED', requestBody: { values: [[body.Status1]] } });
         }
@@ -1127,5 +1123,5 @@ async function handleEvent(event) {
 syncData();
 const port = process.env.PORT || 3000;
 app.listen(port, () => {
-    console.log(`Bot V145 (Status Cols R-W Support) running on ${port}`);
+    console.log(`Bot V146 (Auto Complete Group Support) running on ${port}`);
 });

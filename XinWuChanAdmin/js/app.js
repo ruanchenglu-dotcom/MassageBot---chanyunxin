@@ -598,7 +598,7 @@ const App = () => {
     const handleToggleMax = async (resId) => { const res = resourceState[resId]; if (!res) return; updateResource({ ...resourceState, [resId]: { ...res, isMaxMode: !res.isMaxMode } }); };
     const handleToggleSequence = async (resId) => { const res = resourceState[resId]; if (!res || !res.comboMeta) return; const newSeq = res.comboMeta.sequence === 'FB' ? 'BF' : 'FB'; updateResource({ ...resourceState, [resId]: { ...res, comboMeta: { ...res.comboMeta, sequence: newSeq } } }); }
     
-    // --- PAYMENT HANDLER (FIXED FOR SHEET STATUS) ---
+    // --- PAYMENT HANDLER (UPDATED: AUTO COMPLETE GROUP) ---
     const handleConfirmPayment = async (itemsToPay, totalAmount) => {
         try {
             setSyncLock(true); 
@@ -606,78 +606,102 @@ const App = () => {
             
             const newState = { ...resourceState }; 
             const newStatusData = { ...statusData }; 
-            const updatesToBookings = {};
-            const updatesByRow = {}; 
-
-            const sortedItems = [...itemsToPay].sort((a, b) => {
-                const getScore = (id) => {
-                    const num = parseInt(id.replace(/\D/g, '')) || 0;
-                    if(id.includes('chair') || id.includes('foot')) return num;
-                    if(id.includes('bed') || id.includes('body')) return 100 + num; 
-                    return 999;
-                };
-                return getScore(a.resourceId) - getScore(b.resourceId);
-            });
+            const updatesByRow = {}; // Gom các update theo RowID để gửi 1 lần
 
             const baseTime = Date.now();
 
-            for (let i = 0; i < sortedItems.length; i++) {
-                const item = sortedItems[i];
+            // 1. Duyệt qua danh sách các item đang thanh toán
+            for (let i = 0; i < itemsToPay.length; i++) {
+                const item = itemsToPay[i];
                 const b = item.booking;
                 const rid = String(b.rowId);
                 const resId = item.resourceId;
 
+                // Xác định vị trí khách thứ mấy trong nhóm (0-5)
                 let grpIdx = getGroupMemberIndex(resId, rid);
                 if (grpIdx === -1) {
                     grpIdx = determineColumnIndex(b, null, resId);
                 }
-                
                 grpIdx = Math.max(0, Math.min(5, grpIdx));
 
                 const statusNum = grpIdx + 1;
                 const statusColEnglish = `Status${statusNum}`; 
 
+                // Chuẩn bị object update cho Row này
                 if (!updatesByRow[rid]) {
-                    updatesByRow[rid] = {};
-                }
-                
-                updatesByRow[rid][statusColEnglish] = '✅ 完成';
-                updatesByRow[rid].forceSync = true;
-                updatesByRow[rid].rowId = rid;
-
-                if(!updatesToBookings[rid]) updatesToBookings[rid] = {};
-                updatesToBookings[rid][statusColEnglish] = '✅ 完成';
-
-                let staffId = null;
-                if (grpIdx === 0) staffId = b.serviceStaff || b.staffId || b.ServiceStaff || b.technician;
-                else if (grpIdx === 1) staffId = b.staffId2 || b.StaffId2;
-                else if (grpIdx === 2) staffId = b.staffId3 || b.StaffId3;
-                else if (grpIdx === 3) staffId = b.staffId4 || b.StaffId4;
-                else if (grpIdx === 4) staffId = b.staffId5 || b.StaffId5;
-                else if (grpIdx === 5) staffId = b.staffId6 || b.StaffId6;
-
-                if (staffId && staffId !== '隨機' && staffId !== 'undefined' && staffId !== 'null') {
-                    newStatusData[staffId] = { 
-                        status: 'READY', 
-                        checkInTime: baseTime + (i * 1000) 
+                    updatesByRow[rid] = { 
+                        rowId: rid, 
+                        forceSync: true,
+                        // Copy lại booking gốc để tham chiếu tính toán
+                        originalBooking: b 
                     };
                 }
+                
+                // Đánh dấu khách này là "Xong"
+                updatesByRow[rid][statusColEnglish] = '✅ 完成';
+                
+                // Giải phóng nhân viên
+                let staffId = null;
+                if (grpIdx === 0) staffId = b.serviceStaff || b.staffId;
+                else if (grpIdx === 1) staffId = b.staffId2;
+                else if (grpIdx === 2) staffId = b.staffId3;
+                else if (grpIdx === 3) staffId = b.staffId4;
+                else if (grpIdx === 4) staffId = b.staffId5;
+                else if (grpIdx === 5) staffId = b.staffId6;
 
+                if (staffId && staffId !== '隨機' && staffId !== 'undefined') {
+                    newStatusData[staffId] = { status: 'READY', checkInTime: baseTime + (i * 1000) };
+                }
+
+                // Xóa khỏi trạng thái local ngay lập tức (để UI phản hồi nhanh)
                 delete newState[resId];
             }
-            
-            setBookings(prev => prev.map(b => {
-                const rid = String(b.rowId);
-                if (updatesToBookings[rid]) {
-                    return { ...b, ...updatesToBookings[rid] };
-                }
-                return b;
-            }));
 
+            // 2. Logic kiểm tra xem cả nhóm đã xong chưa (CHECK ALL DONE)
+            Object.values(updatesByRow).forEach(updatePayload => {
+                const booking = updatePayload.originalBooking;
+                const totalPax = parseInt(booking.pax || 1, 10);
+                
+                let completedCount = 0;
+                
+                // Đếm số người đã xong TRƯỚC ĐÓ (từ dữ liệu cũ)
+                for(let k=1; k<=6; k++) {
+                    const key = `Status${k}`;
+                    // Nếu trong booking cũ đã có chữ "完成"
+                    if (booking[key] && (booking[key].includes('完成') || booking[key].includes('Done'))) {
+                        completedCount++;
+                    }
+                }
+
+                // Đếm thêm số người VỪA MỚI xong trong đợt thanh toán này
+                // Lưu ý: Cần tránh đếm trùng nếu updatePayload ghi đè lên cái cũ
+                for(let k=1; k<=6; k++) {
+                    const key = `Status${k}`;
+                    // Nếu payload đợt này có update trạng thái này thành "完成"
+                    // VÀ trạng thái cũ chưa phải là hoàn thành (để tránh cộng dồn sai)
+                    const isNewCompletion = updatePayload[key] && updatePayload[key].includes('完成');
+                    const wasAlreadyDone = booking[key] && (booking[key].includes('完成') || booking[key].includes('Done'));
+                    
+                    if (isNewCompletion && !wasAlreadyDone) {
+                        completedCount++;
+                    }
+                }
+
+                // Nếu số lượng hoàn thành >= tổng số khách => Cập nhật cột H
+                if (completedCount >= totalPax) {
+                    updatePayload.mainStatus = '✅ 完成'; // [IMPORTANT] Gửi thêm trường này cho Backend
+                }
+                
+                // Xóa biến tạm originalBooking trước khi gửi API
+                delete updatePayload.originalBooking;
+            });
+            
+            // 3. Cập nhật UI ngay lập tức
             updateResource(newState); 
             updateStaffStatus(newStatusData); 
             setBillingData(null); 
 
+            // 4. Gửi API
             const apiCalls = Object.values(updatesByRow).map(payload => 
                 axios.post('/api/update-booking-details', payload)
             );
@@ -685,10 +709,12 @@ const App = () => {
             await Promise.all(apiCalls);
             
             alert(`✅ 結帳成功: $${totalAmount}`);
+            // Sau khi API chạy xong và backend sync lại, nếu cột H là "✅ 完成", 
+            // hàm syncData ở backend sẽ loại bỏ đơn này => Đơn tự động biến mất khỏi Map.
 
         } catch(e) { 
-            console.error("Payment Sync Error (Background):", e);
-            alert("⚠️ Lỗi kết nối khi lưu trạng thái hoàn thành. Vui lòng kiểm tra mạng!");
+            console.error("Payment Sync Error:", e);
+            alert("⚠️ Lỗi kết nối. Vui lòng kiểm tra mạng!");
         }
     };
 
