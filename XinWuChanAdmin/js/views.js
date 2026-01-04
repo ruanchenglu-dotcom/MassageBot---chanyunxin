@@ -1,6 +1,7 @@
+// TYPE: views.js
 const { useState, useEffect, useMemo, useRef } = React;
 
-// --- 1. TIMELINE VIEW (ĐÃ FIX: Hiển thị thanh cuộn ngang rõ ràng phía dưới) ---
+// --- 1. TIMELINE VIEW ---
 const TimelineView = ({ timelineData }) => {
     // Cấu hình thời gian hiển thị
     const startHour = 8;
@@ -43,28 +44,18 @@ const TimelineView = ({ timelineData }) => {
     const safeData = timelineData || {};
 
     return (
-        <div className="bg-white rounded shadow border border-slate-200 h-[calc(100vh-140px)] overflow-x-scroll overflow-y-auto relative custom-scrollbar">
-            {/* Style riêng cho thanh cuộn để đảm bảo nó hiển thị rõ ràng */}
+        <div className="bg-white rounded shadow border border-slate-200 h-[calc(100vh-170px)] overflow-x-scroll overflow-y-auto relative custom-scrollbar pb-2">
+            
+            {/* Style riêng cho thanh cuộn */}
             <style>{`
-                .custom-scrollbar::-webkit-scrollbar {
-                    height: 14px; /* Tăng độ cao thanh cuộn ngang */
-                    width: 14px;  /* Tăng độ rộng thanh cuộn dọc */
-                }
-                .custom-scrollbar::-webkit-scrollbar-track {
-                    background: #f1f5f9;
-                    border-radius: 4px;
-                }
-                .custom-scrollbar::-webkit-scrollbar-thumb {
-                    background-color: #94a3b8; /* Màu xám đậm hơn để dễ nhìn */
-                    border-radius: 7px;
-                    border: 3px solid #f1f5f9; /* Tạo viền trắng xung quanh */
-                }
-                .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-                    background-color: #64748b; /* Đổi màu khi di chuột vào */
-                }
+                .custom-scrollbar::-webkit-scrollbar:horizontal { height: 25px !important; }
+                .custom-scrollbar::-webkit-scrollbar:vertical { width: 14px !important; }
+                .custom-scrollbar::-webkit-scrollbar-track { background: #f1f5f9; border-radius: 4px; border: 1px solid #e2e8f0; }
+                .custom-scrollbar::-webkit-scrollbar-thumb { background-color: #94a3b8; border-radius: 20px; border: 4px solid #f1f5f9; background-clip: content-box; }
+                .custom-scrollbar::-webkit-scrollbar-thumb:hover { background-color: #64748b; }
+                .custom-scrollbar::-webkit-scrollbar-corner { background: #f1f5f9; }
             `}</style>
 
-            {/* Container tổng chiều rộng */}
             <div style={{ width: `${TOTAL_WIDTH}px`, minWidth: '100%' }}>
                 
                 {/* HEADER (Sticky) */}
@@ -85,53 +76,61 @@ const TimelineView = ({ timelineData }) => {
 
                 {/* BODY ROWS */}
                 <div className="relative bg-white pb-4">
-                    {rows.map(row => (
-                        <div key={row.id} className="flex border-b border-slate-100 relative transition-colors hover:bg-slate-50" style={{ height: `${ROW_HEIGHT}px` }}>
-                            {/* Cột tên (Sticky Left) */}
-                            <div className={`sticky left-0 z-20 shrink-0 border-r border-slate-300 flex items-center justify-center font-bold text-sm shadow-[2px_0_5px_rgba(0,0,0,0.05)] ${row.type === 'chair' ? 'bg-teal-50 text-teal-800' : 'bg-purple-50 text-purple-800'}`}
-                                 style={{ width: `${LEFT_COL_WIDTH}px` }}>
-                                {row.label}
-                            </div>
-                            
-                            {/* Vùng Timeline */}
-                            <div className="relative flex-1 h-full">
-                                {/* Kẻ dọc */}
-                                <div className="absolute inset-0 flex pointer-events-none z-0">
-                                    {hours.map(h => (
-                                        <div key={h} className="shrink-0 border-r border-slate-200 h-full border-dashed" style={{width: `${HOUR_WIDTH}px`}}></div>
-                                    ))}
+                    {rows.map((row, index) => {
+                        // Logic thêm đường kẻ đỏ phân cách khu vực
+                        const isLastChairRow = index === 5;
+                        const rowStyleClass = isLastChairRow 
+                            ? "border-b-4 border-red-500" // Đường kẻ đỏ đậm
+                            : "border-b border-slate-100"; 
+
+                        return (
+                            <div key={row.id} className={`flex relative transition-colors hover:bg-slate-50 ${rowStyleClass}`} style={{ height: `${ROW_HEIGHT}px` }}>
+                                {/* Cột tên (Sticky Left) */}
+                                <div className={`sticky left-0 z-20 shrink-0 border-r border-slate-300 flex items-center justify-center font-bold text-sm shadow-[2px_0_5px_rgba(0,0,0,0.05)] ${row.type === 'chair' ? 'bg-teal-50 text-teal-800' : 'bg-purple-50 text-purple-800'}`}
+                                     style={{ width: `${LEFT_COL_WIDTH}px` }}>
+                                    {row.label}
                                 </div>
+                                
+                                {/* Vùng Timeline */}
+                                <div className="relative flex-1 h-full">
+                                    {/* Kẻ dọc */}
+                                    <div className="absolute inset-0 flex pointer-events-none z-0">
+                                        {hours.map(h => (
+                                            <div key={h} className="shrink-0 border-r border-slate-200 h-full border-dashed" style={{width: `${HOUR_WIDTH}px`}}></div>
+                                        ))}
+                                    </div>
 
-                                {/* Booking Blocks */}
-                                {safeData[row.id] && safeData[row.id].map((slot, idx) => {
-                                    let startMins = slot.start; 
-                                    let duration = slot.end - slot.start;
-                                    const startOffset = startMins - (startHour * 60); 
-                                    const leftPos = startOffset * PIXELS_PER_MIN;
-                                    const width = duration * PIXELS_PER_MIN;
+                                    {/* Booking Blocks */}
+                                    {safeData[row.id] && safeData[row.id].map((slot, idx) => {
+                                        let startMins = slot.start; 
+                                        let duration = slot.end - slot.start;
+                                        const startOffset = startMins - (startHour * 60); 
+                                        const leftPos = startOffset * PIXELS_PER_MIN;
+                                        const width = duration * PIXELS_PER_MIN;
 
-                                    let bgClass = "bg-indigo-100 text-indigo-800 border-indigo-300 hover:bg-indigo-200";
-                                    if (slot.booking.category === 'COMBO') bgClass = "bg-orange-100 text-orange-800 border-orange-300 hover:bg-orange-200";
-                                    if (slot.booking.isOil) bgClass = "bg-pink-100 text-pink-800 border-pink-300 hover:bg-pink-200";
-                                    
-                                    const label = getDisplayLabel(slot.booking);
+                                        let bgClass = "bg-indigo-100 text-indigo-800 border-indigo-300 hover:bg-indigo-200";
+                                        if (slot.booking.category === 'COMBO') bgClass = "bg-orange-100 text-orange-800 border-orange-300 hover:bg-orange-200";
+                                        if (slot.booking.isOil) bgClass = "bg-pink-100 text-pink-800 border-pink-300 hover:bg-pink-200";
+                                        
+                                        const label = getDisplayLabel(slot.booking);
 
-                                    return (
-                                        <div key={idx} 
-                                             className={`absolute top-1 bottom-1 rounded border px-2 flex flex-col justify-center text-xs overflow-hidden shadow-sm z-10 cursor-pointer transition-all ${bgClass}`}
-                                             style={{left: `${leftPos}px`, width: `${width}px`}}
-                                             title={`${slot.booking.serviceName} - ${slot.booking.customerName}`}
-                                        >
-                                            <div className="font-bold truncate text-[12px] leading-tight">{label}</div>
-                                            <div className="truncate opacity-75 text-[10px] flex items-center gap-1 mt-0.5">
-                                                <i className="fas fa-clock text-[9px]"></i> {slot.booking.serviceName}
+                                        return (
+                                            <div key={idx} 
+                                                 className={`absolute top-1 bottom-1 rounded border px-2 flex flex-col justify-center text-xs overflow-hidden shadow-sm z-10 cursor-pointer transition-all ${bgClass}`}
+                                                 style={{left: `${leftPos}px`, width: `${width}px`}}
+                                                 title={`${slot.booking.serviceName} - ${slot.booking.customerName}`}
+                                            >
+                                                <div className="font-bold truncate text-[12px] leading-tight">{label}</div>
+                                                <div className="truncate opacity-75 text-[10px] flex items-center gap-1 mt-0.5">
+                                                    <i className="fas fa-clock text-[9px]"></i> {slot.booking.serviceName}
+                                                </div>
                                             </div>
-                                        </div>
-                                    );
-                                })}
+                                        );
+                                    })}
+                                </div>
                             </div>
-                        </div>
-                    ))}
+                        );
+                    })}
                 </div>
             </div>
         </div>
@@ -139,7 +138,7 @@ const TimelineView = ({ timelineData }) => {
 };
 window.TimelineView = TimelineView;
 
-// --- 2. COMMISSION VIEW (Tính lương) ---
+// --- 2. COMMISSION VIEW ---
 const CommissionView = ({ bookings, staffList }) => {
     const RATES = { JIE_PRICE: 250, OIL_BONUS: 80 };
     const normalize = (str) => String(str || '').trim().replace(/\s+/g, '');
@@ -189,6 +188,7 @@ const CommissionView = ({ bookings, staffList }) => {
 
         bookings.forEach(b => {
             if (b.status && (b.status.includes('取消') || b.status.includes('Cancel') || b.status.includes('❌'))) return;
+            
             let potentialRawStrings = [
                 b.staffId, b.serviceStaff, b.technician, b.StaffId, 
                 b.staffId2, b.staffId3, b.staffId4, b.staffId5, b.staffId6,
@@ -269,14 +269,17 @@ window.CommissionView = CommissionView;
 // --- 3. REPORT VIEW ---
 const ReportView = ({ bookings }) => {
     const safeBookings = Array.isArray(bookings) ? bookings : [];
+    
+    // Tính toán doanh thu bao gồm cả đơn hoàn thành
     const processedStats = useMemo(() => {
         let revenue = 0; let guests = 0;
         safeBookings.forEach(b => {
+            if (b.status && b.status.includes('取消')) return;
             const pax = parseInt(b.pax, 10) || 1;
             for(let i=0; i<6; i++) {
                 const statusKey = `Status${i+1}`;
                 const isItemDone = (b[statusKey] && (b[statusKey].includes('完成') || b[statusKey].includes('Done')));
-                const isAllDone = (b.status && (b.status.includes('完成') || b.status.includes('Done') || b.status.includes('✅ 完成')));
+                const isAllDone = (b.status && (b.status.includes('完成') || b.status.includes('Done') || b.status.includes('✅')));
                 if (isItemDone || (isAllDone && i < pax)) {
                     guests++;
                     const unitPrice = window.getPrice(b.serviceName);
@@ -301,13 +304,15 @@ const ReportView = ({ bookings }) => {
                         <thead className="bg-white text-slate-500 sticky top-0 shadow-sm z-10"><tr><th className="p-3 bg-white">時間</th><th className="p-3 bg-white">姓名</th><th className="p-3 bg-white">服務</th><th className="p-3 bg-white">師傅</th><th className="p-3 text-right bg-white">金額</th></tr></thead>
                         <tbody className="divide-y">
                             {safeBookings.flatMap((b, index) => {
+                                if (b.status && b.status.includes('取消')) return [];
                                 const pax = parseInt(b.pax, 10) || 1;
                                 const rows = [];
                                 const staffList = [ b.serviceStaff, b.staffId2, b.staffId3, b.staffId4, b.staffId5, b.staffId6 ];
                                 for (let k = 0; k < 6; k++) {
                                     const statusKey = `Status${k+1}`;
                                     const isSingleDone = (b[statusKey] && (b[statusKey].includes('完成') || b[statusKey].includes('Done')));
-                                    const isAllDone = (b.status && (b.status.includes('完成') || b.status.includes('Done') || b.status.includes('✅ 完成')));
+                                    const isAllDone = (b.status && (b.status.includes('完成') || b.status.includes('Done') || b.status.includes('✅')));
+                                    
                                     if (isSingleDone || (isAllDone && k < pax)) {
                                         const unitPrice = window.getPrice(b.serviceName); const oilPrice = window.getOilPrice(b.isOil || (b.serviceName && b.serviceName.includes('油'))); const singlePrice = unitPrice + oilPrice;
                                         let staffName = staffList[k] || b.serviceStaff || b.staffId || '隨機';
@@ -325,7 +330,7 @@ const ReportView = ({ bookings }) => {
 };
 window.ReportView = ReportView;
 
-// --- 4. RESOURCE CARD (Đảm bảo thẻ phòng hoạt động tốt) ---
+// --- 4. RESOURCE CARD ---
 const ResourceCard = ({ id, type, index, data, busyStaffIds, onAction, onSelect, onSwitch, onToggleMax, onToggleSequence, onServiceChange, onStaffChange, onSplit, staffList, getGroupMemberIndex }) => {
     const [timeLeft, setTimeLeft] = useState(0); 
     const [percent, setPercent] = useState(0);
@@ -346,7 +351,10 @@ const ResourceCard = ({ id, type, index, data, busyStaffIds, onAction, onSelect,
                 setTimeLeft(totalLeft); 
                 setPercent(Math.min(100, Math.max(0, (elapsed / totalMs) * 100)));
                 
-                const isCombo = data.booking.category === 'COMBO' || (data.booking.serviceName && data.booking.serviceName.includes('套餐'));
+                // Logic nhận diện Combo (kể cả khi Category chưa kịp update, dựa vào tên)
+                const isComboName = data.booking.serviceName && (data.booking.serviceName.includes('套餐') || data.booking.serviceName.includes('Combo'));
+                const isCombo = data.booking.category === 'COMBO' || isComboName;
+
                 if (isCombo) {
                     const sequence = (data.comboMeta && data.comboMeta.sequence) || 'FB';
                     const split = window.getComboSplit(data.booking.duration, data.isMaxMode, sequence);

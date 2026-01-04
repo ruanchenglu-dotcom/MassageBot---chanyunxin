@@ -1,9 +1,10 @@
+// TYPE: app.js
 const { useState, useEffect, useMemo, useRef } = React;
 
-// --- 1. COMPONENT: COMMISSION VIEW (GIỮ NGUYÊN CODE CŨ) ---
+// --- 1. COMPONENT: COMMISSION VIEW ---
 const CommissionView = window.CommissionView;
 
-// --- 2. TIMELINE VIEW (Sử dụng TimelineView từ views.js đã sửa) ---
+// --- 2. TIMELINE VIEW ---
 const TimelineView = window.TimelineView;
 
 // --- APP COMPONENT ---
@@ -11,7 +12,7 @@ const App = () => {
     // 1. STATE MANAGEMENT
     const [activeTab, setActiveTab] = useState('map');
     const [staffList, setStaffList] = useState([]);
-    const [bookings, setBookings] = useState([]);
+    const [bookings, setBookings] = useState([]); 
     const [resourceState, setResourceState] = useState({}); 
     const [statusData, setStatusData] = useState({});
     const [timelineData, setTimelineData] = useState({}); 
@@ -30,7 +31,7 @@ const App = () => {
     const [syncLock, setSyncLock] = useState(false);
     const [quotaError, setQuotaError] = useState(false); 
 
-    // 2. HELPER FUNCTIONS & LOGIC (GIỮ NGUYÊN)
+    // 2. HELPER FUNCTIONS & LOGIC
     const isActuallyBusy = (staffId) => {
         if (!resourceState) return false;
         return Object.values(resourceState).some(r => {
@@ -90,7 +91,7 @@ const App = () => {
         }
         const seatNum = parseInt(resourceId.replace(/\D/g, '')); 
         if (!isNaN(seatNum) && seatNum > 0) {
-            return seatNum - 1; 
+            return Math.min(seatNum - 1, 5); 
         }
         return 0; 
     };
@@ -104,19 +105,16 @@ const App = () => {
             const res = resourceState[slotId];
             return res && res.booking && String(res.booking.rowId) === String(targetRowId);
         });
-        return groupSlots.indexOf(targetResId);
+        
+        groupSlots.sort((a, b) => window.getWeight(a) - window.getWeight(b));
+        
+        const idx = groupSlots.indexOf(targetResId);
+        return idx; 
     };
 
     const universalSend = async (endpoint, payload) => {
         try {
             await axios.post(endpoint, payload);
-            const params = new URLSearchParams();
-            Object.keys(payload).forEach(key => params.append(key, payload[key]));
-            await fetch(endpoint, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                body: params
-            });
         } catch(e) {
             console.log("Universal send check (ignore):", e);
         }
@@ -142,10 +140,17 @@ const App = () => {
                 };
             });
 
+            const safeBookingsArray = Array.isArray(cleanBookings) ? cleanBookings : [];
+            const relevantBookings = safeBookingsArray.filter(b => 
+                window.isWithinOperationalDay(b.startTimeString.split(' ')[0], b.startTimeString.split(' ')[1], viewDate) && 
+                !b.status.includes('取消') && 
+                !b.status.includes('Cancelled')
+            );
+            
             if (!syncLock) {
                 setBookings(prev => {
                     const combinedMap = new Map();
-                    cleanBookings.forEach(b => combinedMap.set(String(b.rowId), b));
+                    relevantBookings.forEach(b => combinedMap.set(String(b.rowId), b));
 
                     prev.forEach(localBooking => {
                         const rid = String(localBooking.rowId);
@@ -154,10 +159,8 @@ const App = () => {
                             const mergedBooking = { ...serverBooking };
                             for(let i=1; i<=6; i++) {
                                 const key = `Status${i}`;
-                                const keyLower = `status${i}`;
-                                const keyCN = `狀態${i}`;
-                                const localVal = localBooking[key] || localBooking[keyLower] || localBooking[keyCN];
-                                const serverVal = serverBooking[key] || serverBooking[keyLower] || serverBooking[keyCN];
+                                const localVal = localBooking[key];
+                                const serverVal = serverBooking[key];
                                 if (localVal && localVal.includes('完成') && (!serverVal || !serverVal.includes('完成'))) {
                                     mergedBooking[key] = localVal; 
                                 }
@@ -179,7 +182,14 @@ const App = () => {
             let tempState = {}; 
             const activePaxCounts = {}; 
             const activeEndTimes = {}; 
+            const timelineGrid = {}; // Khởi tạo Grid
 
+            const addToGrid = (resId, start, end, booking, meta) => {
+                if (!timelineGrid[resId]) timelineGrid[resId] = [];
+                timelineGrid[resId].push({ start, end, booking, meta });
+            };
+
+            // --- XỬ LÝ CÁC ĐƠN ĐANG CHẠY (RUNNING) ---
             Object.keys(currentRes).forEach(key => {
                 if(currentRes[key].isRunning) {
                     tempState[key] = currentRes[key];
@@ -190,20 +200,31 @@ const App = () => {
                     const startMins = startTime.getHours() * 60 + startTime.getMinutes() + (startTime.getHours() < 8 ? 1440 : 0);
                     
                     let durationUsed = currentRes[key].booking.duration;
+                    let isPhase1 = false;
+
                     if (currentRes[key].comboMeta) {
                         const seq = currentRes[key].comboMeta.sequence || 'FB';
                         const isMax = currentRes[key].isMaxMode;
                         const split = window.getComboSplit(durationUsed, isMax, seq);
-                        const isPhase1 = (seq === 'FB' && key.includes('chair')) || (seq === 'BF' && key.includes('bed'));
+                        isPhase1 = (seq === 'FB' && key.includes('chair')) || (seq === 'BF' && key.includes('bed'));
                         
                         if (isPhase1) durationUsed = split.phase1 + (currentRes[key].comboMeta.flex || 0);
                         else durationUsed = split.phase2; 
                     }
-                    activeEndTimes[key] = startMins + durationUsed;
+
+                    const endMins = startMins + durationUsed;
+                    activeEndTimes[key] = endMins;
+
+                    // --- [FIX] VẼ KHỐI ĐANG CHẠY LÊN TIMELINE ---
+                    addToGrid(key, startMins, endMins, currentRes[key].booking, {
+                        isCombo: !!currentRes[key].comboMeta,
+                        phase: isPhase1 ? 1 : 2,
+                        sequence: currentRes[key].comboMeta?.sequence,
+                        isRunning: true // Flag đánh dấu đang chạy
+                    });
                 }
             });
             
-            const timelineGrid = {}; 
             const isReservedAt = (resId, start, end) => {
                 if (activeEndTimes[resId] !== undefined) {
                     if (start < activeEndTimes[resId]) return true; 
@@ -215,11 +236,6 @@ const App = () => {
                 return false;
             };
 
-            const addToGrid = (resId, start, end, booking, meta) => {
-                if (!timelineGrid[resId]) timelineGrid[resId] = [];
-                timelineGrid[resId].push({ start, end, booking, meta });
-            };
-
             const findFirstFreeSlot = (prefix, start, end) => {
                 for(let i=1; i<=6; i++) {
                     const id = `${prefix}-${i}`;
@@ -228,6 +244,7 @@ const App = () => {
                 return null; 
             };
 
+            // --- DỰ ĐOÁN PHASE 2 CHO COMBO ĐANG CHẠY ---
             Object.keys(tempState).forEach(key => {
                 const item = tempState[key];
                 if (item.comboMeta) {
@@ -250,23 +267,22 @@ const App = () => {
 
                         if (finalTargetId) {
                             addToGrid(finalTargetId, p2Start, p2End, item.booking, { 
-                                isCombo: true, phase: 2, sequence: seq, originId: key 
+                                isCombo: true, phase: 2, sequence: seq, originId: key, isPrediction: true 
                             });
                         }
                     }
                 }
             });
 
-            const safeBookingsArray = Array.isArray(cleanBookings) ? cleanBookings : [];
-            const relevantBookings = safeBookingsArray.filter(b => 
-                window.isWithinOperationalDay(b.startTimeString.split(' ')[0], b.startTimeString.split(' ')[1], viewDate) && 
-                !b.status.includes('取消') && 
-                !b.status.includes('完成') &&
-                !b.status.includes('✅')
+            // --- XẾP LỊCH CHO CÁC ĐƠN CHỜ (PENDING) ---
+            const pendingBookings = relevantBookings.filter(b => 
+                !b.status.includes('完成') && 
+                !b.status.includes('✅') &&
+                !b.status.includes('Done')
             );
             
-            const listSingles = relevantBookings.filter(b => b.category !== 'COMBO' && !b.serviceName?.includes('套餐'));
-            const listCombos = relevantBookings.filter(b => b.category === 'COMBO' || b.serviceName?.includes('套餐'));
+            const listSingles = pendingBookings.filter(b => b.category !== 'COMBO' && !b.serviceName?.includes('套餐'));
+            const listCombos = pendingBookings.filter(b => b.category === 'COMBO' || b.serviceName?.includes('套餐'));
             
             const sortFn = (a,b) => {
                 const timeA = window.normalizeToTimelineMins(a.startTimeString.split(' ')[1]);
@@ -276,6 +292,7 @@ const App = () => {
             };
             listSingles.sort(sortFn); listCombos.sort(sortFn);
 
+            // Xếp Single
             listSingles.forEach(b => {
                 const originalStart = window.normalizeToTimelineMins(b.startTimeString.split(' ')[1]);
                 const totalNeeded = b.pax || 1;
@@ -283,8 +300,7 @@ const App = () => {
                 let completedCount = 0;
                 for(let i=1; i<=totalNeeded; i++) {
                     const statusKey = `Status${i}`;
-                    const statusKeyCN = `狀態${i}`;
-                    if((b[statusKey] && b[statusKey].includes('完成')) || (b[statusKeyCN] && b[statusKeyCN].includes('完成'))) {
+                    if(b[statusKey] && b[statusKey].includes('完成')) {
                         completedCount++;
                     }
                 }
@@ -307,6 +323,7 @@ const App = () => {
                 }
             });
 
+            // Xếp Combo
             listCombos.forEach(b => {
                 const originalStart = window.normalizeToTimelineMins(b.startTimeString.split(' ')[1]);
                 const totalNeeded = b.pax || 1;
@@ -314,8 +331,7 @@ const App = () => {
                 let completedCount = 0;
                 for(let i=1; i<=totalNeeded; i++) {
                     const statusKey = `Status${i}`;
-                    const statusKeyCN = `狀態${i}`;
-                    if((b[statusKey] && b[statusKey].includes('完成')) || (b[statusKeyCN] && b[statusKeyCN].includes('完成'))) {
+                    if(b[statusKey] && b[statusKey].includes('完成')) {
                         completedCount++;
                     }
                 }
@@ -354,9 +370,9 @@ const App = () => {
                 }
             });
 
-            // [NEW] Lưu timelineGrid vào State để TimelineView dùng
             setTimelineData(timelineGrid);
 
+            // --- XỬ LÝ PREVIEW CHO RESOURCE CARD ---
             const allSlots = [];
             for(let i=1; i<=6; i++) allSlots.push(`chair-${i}`);
             for(let i=1; i<=6; i++) allSlots.push(`bed-${i}`);
@@ -478,12 +494,15 @@ const App = () => {
         let finalServiceStaff = designatedStaff; 
         let currentId = id; let shouldMove = false; let targetMoveId = null;
         setSyncLock(true); setTimeout(() => setSyncLock(false), 5000);
+        
         if (comboSequence) {
             const currentType = id.split('-')[0];
             if (comboSequence === 'BF' && currentType === 'chair') { shouldMove = true; for(let i=1; i<=6; i++) { if(!resourceState[`bed-${i}`]) { targetMoveId = `bed-${i}`; break; } } } 
             else if (comboSequence === 'FB' && currentType === 'bed') { shouldMove = true; for(let i=1; i<=6; i++) { if(!resourceState[`chair-${i}`]) { targetMoveId = `chair-${i}`; break; } } }
         }
+        
         if (shouldMove) { if (!targetMoveId) { alert("⚠️ 無法切換區域: 目標區域已滿!"); return; } currentId = targetMoveId; }
+        
         if (['隨機', '男', '女', 'Oil'].some(k => designatedStaff.includes(k))) {
             const liveBusyStaffIds = Object.values(resourceState).filter(r => r.isRunning && !r.isPaused && r.isPreview !== true).map(r => r.booking.serviceStaff || r.booking.staffId || r.booking.ServiceStaff);
             const readyStaff = (staffList||[]).filter(s => { 
@@ -498,16 +517,25 @@ const App = () => {
             if (candidates.length === 0) { alert("⚠️ No suitable staff available!"); return; }
             finalServiceStaff = candidates[0].id;
         }
+
         const newStatusData = { ...statusData, [finalServiceStaff]: { ...statusData[finalServiceStaff], status: 'BUSY' } };
         updateStaffStatus(newStatusData); 
+        
         const grpIdx = getGroupMemberIndex(currentId, current.booking.rowId);
-        const newBooking = { ...current.booking };
+        
+        const isComboService = (current.booking.serviceName && current.booking.serviceName.includes('套餐')) || comboSequence;
+        const newBooking = { 
+            ...current.booking, 
+            category: isComboService ? 'COMBO' : (current.booking.category || 'SINGLE')
+        };
+
         if (grpIdx === 0) newBooking.serviceStaff = finalServiceStaff;
         else if (grpIdx === 1) newBooking.staffId2 = finalServiceStaff;
         else if (grpIdx === 2) newBooking.staffId3 = finalServiceStaff;
         else if (grpIdx === 3) newBooking.staffId4 = finalServiceStaff;
         else if (grpIdx === 4) newBooking.staffId5 = finalServiceStaff;
         else if (grpIdx === 5) newBooking.staffId6 = finalServiceStaff;
+        
         let comboMeta = current.comboMeta || null;
         if (comboSequence) {
             const currentType = currentId.split('-')[0]; const index = currentId.split('-')[1];
@@ -516,17 +544,20 @@ const App = () => {
             if (!resourceState[sameIndex] && sameIndex !== id) { ghostTargetId = sameIndex; } 
             else { for(let i=1; i<=6; i++) { const tid = `${targetTypePrefix}-${i}`; if(!resourceState[tid] && tid !== id) { ghostTargetId = tid; break; } } }
             if (!ghostTargetId) ghostTargetId = `${targetTypePrefix}-${index}`;
-            comboMeta = { sequence: comboSequence, targetId: ghostTargetId, flex: (current.comboMeta && current.comboMeta.flex) || 0 };
+            comboMeta = { sequence: comboSequence, targetId: ghostTargetId, flex: (current.comboMeta && current.comboMeta.flex) || 0, phase: 1 };
         }
+        
         const newState = { ...resourceState }; if (shouldMove) delete newState[id];
         newState[currentId] = { ...current, booking: newBooking, startTime: new Date().toISOString(), isRunning: true, isPreview: false, comboMeta };
         updateResource(newState);
+        
         let primaryKey = "服務師傅1"; let fallbackKey = "ServiceStaff1";
         if (grpIdx === 1) { primaryKey = "服務師傅2"; fallbackKey = "ServiceStaff2"; }
         if (grpIdx === 2) { primaryKey = "服務師傅3"; fallbackKey = "ServiceStaff3"; }
         if (grpIdx === 3) { primaryKey = "服務師傅4"; fallbackKey = "ServiceStaff4"; }
         if (grpIdx === 4) { primaryKey = "服務師傅5"; fallbackKey = "ServiceStaff5"; }
         if (grpIdx === 5) { primaryKey = "服務師傅6"; fallbackKey = "ServiceStaff6"; }
+        
         const payload = { rowId: current.booking.rowId, [primaryKey]: finalServiceStaff, [fallbackKey]: finalServiceStaff, [`staff${grpIdx + 1}`]: finalServiceStaff, staffId: designatedStaff };
         universalSend('/api/update-booking-details', payload);
     };
@@ -567,7 +598,7 @@ const App = () => {
     const handleToggleMax = async (resId) => { const res = resourceState[resId]; if (!res) return; updateResource({ ...resourceState, [resId]: { ...res, isMaxMode: !res.isMaxMode } }); };
     const handleToggleSequence = async (resId) => { const res = resourceState[resId]; if (!res || !res.comboMeta) return; const newSeq = res.comboMeta.sequence === 'FB' ? 'BF' : 'FB'; updateResource({ ...resourceState, [resId]: { ...res, comboMeta: { ...res.comboMeta, sequence: newSeq } } }); }
     
-    // --- PAYMENT HANDLER (FIX: GOM NHÓM ĐỂ TRÁNH MẤT DỮ LIỆU) ---
+    // --- PAYMENT HANDLER (FIXED FOR SHEET STATUS) ---
     const handleConfirmPayment = async (itemsToPay, totalAmount) => {
         try {
             setSyncLock(true); 
@@ -576,7 +607,6 @@ const App = () => {
             const newState = { ...resourceState }; 
             const newStatusData = { ...statusData }; 
             const updatesToBookings = {};
-
             const updatesByRow = {}; 
 
             const sortedItems = [...itemsToPay].sort((a, b) => {
@@ -597,27 +627,26 @@ const App = () => {
                 const rid = String(b.rowId);
                 const resId = item.resourceId;
 
-                let seatNum = parseInt(resId.replace(/\D/g, ''));
-                if (isNaN(seatNum) || seatNum < 1) seatNum = 1;
-                if (seatNum > 6) seatNum = 6;
+                let grpIdx = getGroupMemberIndex(resId, rid);
+                if (grpIdx === -1) {
+                    grpIdx = determineColumnIndex(b, null, resId);
+                }
+                
+                grpIdx = Math.max(0, Math.min(5, grpIdx));
 
-                const statusColEnglish = `Status${seatNum}`; 
-                const statusColChinese = `狀態${seatNum}`; 
+                const statusNum = grpIdx + 1;
+                const statusColEnglish = `Status${statusNum}`; 
 
                 if (!updatesByRow[rid]) {
                     updatesByRow[rid] = {};
                 }
+                
                 updatesByRow[rid][statusColEnglish] = '✅ 完成';
-                updatesByRow[rid][statusColChinese] = '✅ 完成';
                 updatesByRow[rid].forceSync = true;
                 updatesByRow[rid].rowId = rid;
 
                 if(!updatesToBookings[rid]) updatesToBookings[rid] = {};
                 updatesToBookings[rid][statusColEnglish] = '✅ 完成';
-                updatesToBookings[rid][statusColChinese] = '✅ 完成';
-
-                let grpIdx = getGroupMemberIndex(resId, rid);
-                if (grpIdx === -1) grpIdx = determineColumnIndex(b, null, resId); 
 
                 let staffId = null;
                 if (grpIdx === 0) staffId = b.serviceStaff || b.staffId || b.ServiceStaff || b.technician;
@@ -659,6 +688,7 @@ const App = () => {
 
         } catch(e) { 
             console.error("Payment Sync Error (Background):", e);
+            alert("⚠️ Lỗi kết nối khi lưu trạng thái hoàn thành. Vui lòng kiểm tra mạng!");
         }
     };
 
@@ -683,14 +713,21 @@ const App = () => {
     
     const readyQueue = readyStaff.filter(s => getStatus(s.id) === 'READY').map(s => s.id);
     const safeBookings = Array.isArray(bookings) ? bookings : [];
+    
     const todaysBookings = useMemo(() => {
         return safeBookings.filter(b => window.isWithinOperationalDay(b.startTimeString.split(' ')[0], b.startTimeString.split(' ')[1], viewDate));
     }, [bookings, viewDate]);
 
+    const waitingList = todaysBookings.filter(b => 
+        !b.status.includes('完成') && 
+        !b.status.includes('✅') &&
+        b.status === '已預約'
+    );
+
     return (
         <div className="min-h-screen flex flex-col bg-slate-50">
             <header className={`text-white p-3 shadow-md flex justify-between items-center sticky top-0 z-50 transition-colors ${quotaError ? 'bg-red-800' : 'bg-[#1e1b4b]'}`}>
-                {/* Header Content giữ nguyên */}
+                {/* Header Content */}
                 <div className="flex items-center gap-3">
                     <span className="bg-amber-500 text-black px-2 py-1 rounded font-black text-sm">V272</span>
                     <span className="font-bold hidden md:inline">XinWuChan</span>
@@ -735,8 +772,8 @@ const App = () => {
             </div>
 
             <main className="flex-1 p-4 overflow-y-auto">
-                {activeTab === 'map' && (<div className="grid grid-cols-12 gap-6"><div className="col-span-9 space-y-6"><div><h3 className="font-bold text-emerald-600 mb-3 border-b pb-1">足底按摩區 (Foot)</h3><div className="grid grid-cols-6 gap-3">{[1,2,3,4,5,6].map(i => <window.ResourceCard key={`chair-${i}`} id={`chair-${i}`} type="FOOT" index={i} data={resourceState[`chair-${i}`]} busyStaffIds={busyStaffIds} staffList={staffList} onAction={handleResourceAction} onSelect={()=>setSelectedSlot(`chair-${i}`)} onSwitch={handleSwitch} onToggleMax={handleToggleMax} onToggleSequence={handleToggleSequence} onServiceChange={handleServiceChange} onStaffChange={handleStaffChange} onSplit={(rid)=>setSplitData({resourceId: rid})} getGroupMemberIndex={getGroupMemberIndex} />)}</div></div><div><h3 className="font-bold text-purple-600 mb-3 border-b pb-1">身體指壓區 (Body)</h3><div className="grid grid-cols-6 gap-3">{[1,2,3,4,5,6].map(i => <window.ResourceCard key={`bed-${i}`} id={`bed-${i}`} type="BODY" index={i} data={resourceState[`bed-${i}`]} busyStaffIds={busyStaffIds} staffList={staffList} onAction={handleResourceAction} onSelect={()=>setSelectedSlot(`bed-${i}`)} onSwitch={handleSwitch} onToggleMax={handleToggleMax} onToggleSequence={handleToggleSequence} onServiceChange={handleServiceChange} onStaffChange={handleStaffChange} onSplit={(rid)=>setSplitData({resourceId: rid})} getGroupMemberIndex={getGroupMemberIndex} />)}</div></div></div><div className="col-span-3 bg-white rounded-lg shadow p-4 h-fit sticky top-2"><h3 className="font-bold text-gray-700 mb-3">候位名單 ({todaysBookings.filter(b=>b.status==='已預約').length})</h3><div className="space-y-2 max-h-[500px] overflow-y-auto">{todaysBookings.filter(b=>b.status==='已預約').map(b => (<div key={b.rowId} className="border p-2 rounded hover:bg-slate-50 relative group bg-white shadow-sm"><div className="flex justify-between font-bold text-sm"><span>{b.customerName}</span><span className="text-indigo-600 font-mono">{(b.startTimeString||' ').split(' ')[1]}</span></div><div className="text-xs text-gray-500 font-bold">{b.serviceName}</div>{(b.isOil || (b.serviceName && b.serviceName.includes('油'))) && <div className="text-[10px] bg-purple-100 text-purple-700 inline-block px-1 rounded mt-1 font-bold border border-purple-200">💧 精油</div>}{b.pax > 1 && <div className="text-[10px] bg-orange-100 text-orange-600 inline-block px-1 rounded mt-1 ml-1 font-bold">{b.pax} 人</div>}{selectedSlot && <button onClick={()=>handleAssignBooking(b)} className="absolute inset-0 bg-green-500/90 text-white font-bold flex items-center justify-center rounded animate-pulse">排入 {selectedSlot}</button>}<button onClick={()=>handleManualUpdateStatus(b.rowId, '❌ Cancelled')} className="absolute top-1 right-1 text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100"><i className="fas fa-trash"></i></button></div>))}</div></div></div>)}
-                {activeTab === 'list' && (<div className="bg-white rounded shadow overflow-hidden"><table className="w-full text-sm text-left"><thead className="bg-slate-100 text-slate-600 font-bold"><tr><th className="p-3">預約日期</th><th className="p-3">時間</th><th className="p-3">姓名</th><th className="p-3">項目</th><th className="p-3">油推</th><th className="p-3">人數</th><th className="p-3">電話</th><th className="p-3">狀態</th><th className="p-3">指定師傅</th><th className="p-3 text-right">操作</th></tr></thead><tbody className="divide-y">{todaysBookings.map(b => { const nameParts = (b.customerName||'').split('('); const name = nameParts[0].trim(); const phone = nameParts.length > 1 ? nameParts[1].replace(')', '').trim() : (b.sdt || ''); const isOil = (b.serviceName||'').includes('油') ? 'Yes' : ''; return ( <tr key={b.rowId} className="hover:bg-slate-50"><td className="p-3 font-mono">{(b.startTimeString||' ').split(' ')[0]}</td><td className="p-3 font-mono font-bold text-indigo-700">{(b.startTimeString||' ').split(' ')[1]}</td><td className="p-3 font-bold">{name}</td><td className="p-3 text-gray-600">{b.serviceName}</td><td className="p-3 text-center">{isOil && <span className="text-purple-600 font-bold">Yes</span>}</td><td className="p-3 text-center">{b.pax}</td><td className="p-3 font-mono text-gray-500">{phone}</td><td className="p-3"><span className={`px-2 py-1 rounded text-xs font-bold ${b.status.includes('取消')?'bg-red-100 text-red-600':'bg-green-100 text-green-600'}`}>{b.status}</span></td><td className="p-3"><span className="bg-indigo-50 text-indigo-700 px-2 py-1 rounded text-xs font-bold">{b.staffId}</span></td><td className="p-3 text-right"><button onClick={()=>handleManualUpdateStatus(b.rowId, '❌ Cancelled')} className="text-red-500 hover:bg-red-50 px-2 py-1 rounded"><i className="fas fa-trash"></i></button></td></tr> ); })}</tbody></table></div>)}
+                {activeTab === 'map' && (<div className="grid grid-cols-12 gap-6"><div className="col-span-9 space-y-6"><div><h3 className="font-bold text-emerald-600 mb-3 border-b pb-1">足底按摩區 (Foot)</h3><div className="grid grid-cols-6 gap-3">{[1,2,3,4,5,6].map(i => <window.ResourceCard key={`chair-${i}`} id={`chair-${i}`} type="FOOT" index={i} data={resourceState[`chair-${i}`]} busyStaffIds={busyStaffIds} staffList={staffList} onAction={handleResourceAction} onSelect={()=>setSelectedSlot(`chair-${i}`)} onSwitch={handleSwitch} onToggleMax={handleToggleMax} onToggleSequence={handleToggleSequence} onServiceChange={handleServiceChange} onStaffChange={handleStaffChange} onSplit={(rid)=>setSplitData({resourceId: rid})} getGroupMemberIndex={getGroupMemberIndex} />)}</div></div><div><h3 className="font-bold text-purple-600 mb-3 border-b pb-1">身體指壓區 (Body)</h3><div className="grid grid-cols-6 gap-3">{[1,2,3,4,5,6].map(i => <window.ResourceCard key={`bed-${i}`} id={`bed-${i}`} type="BODY" index={i} data={resourceState[`bed-${i}`]} busyStaffIds={busyStaffIds} staffList={staffList} onAction={handleResourceAction} onSelect={()=>setSelectedSlot(`bed-${i}`)} onSwitch={handleSwitch} onToggleMax={handleToggleMax} onToggleSequence={handleToggleSequence} onServiceChange={handleServiceChange} onStaffChange={handleStaffChange} onSplit={(rid)=>setSplitData({resourceId: rid})} getGroupMemberIndex={getGroupMemberIndex} />)}</div></div></div><div className="col-span-3 bg-white rounded-lg shadow p-4 h-fit sticky top-2"><h3 className="font-bold text-gray-700 mb-3">候位名單 ({waitingList.length})</h3><div className="space-y-2 max-h-[500px] overflow-y-auto">{waitingList.map(b => (<div key={b.rowId} className="border p-2 rounded hover:bg-slate-50 relative group bg-white shadow-sm"><div className="flex justify-between font-bold text-sm"><span>{b.customerName}</span><span className="text-indigo-600 font-mono">{(b.startTimeString||' ').split(' ')[1]}</span></div><div className="text-xs text-gray-500 font-bold">{b.serviceName}</div>{(b.isOil || (b.serviceName && b.serviceName.includes('油'))) && <div className="text-[10px] bg-purple-100 text-purple-700 inline-block px-1 rounded mt-1 font-bold border border-purple-200">💧 精油</div>}{b.pax > 1 && <div className="text-[10px] bg-orange-100 text-orange-600 inline-block px-1 rounded mt-1 ml-1 font-bold">{b.pax} 人</div>}{selectedSlot && <button onClick={()=>handleAssignBooking(b)} className="absolute inset-0 bg-green-500/90 text-white font-bold flex items-center justify-center rounded animate-pulse">排入 {selectedSlot}</button>}<button onClick={()=>handleManualUpdateStatus(b.rowId, '❌ Cancelled')} className="absolute top-1 right-1 text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100"><i className="fas fa-trash"></i></button></div>))}</div></div></div>)}
+                {activeTab === 'list' && (<div className="bg-white rounded shadow overflow-hidden"><table className="w-full text-sm text-left"><thead className="bg-slate-100 text-slate-600 font-bold"><tr><th className="p-3">預約日期</th><th className="p-3">時間</th><th className="p-3">姓名</th><th className="p-3">項目</th><th className="p-3">油推</th><th className="p-3">人數</th><th className="p-3">電話</th><th className="p-3">狀態</th><th className="p-3">指定師傅</th><th className="p-3 text-right">操作</th></tr></thead><tbody className="divide-y">{todaysBookings.map(b => { const nameParts = (b.customerName||'').split('('); const name = nameParts[0].trim(); const phone = nameParts.length > 1 ? nameParts[1].replace(')', '').trim() : (b.sdt || ''); const isOil = (b.serviceName||'').includes('油') ? 'Yes' : ''; const isDone = b.status.includes('完成') || b.status.includes('✅'); return ( <tr key={b.rowId} className={`hover:bg-slate-50 ${isDone ? 'bg-gray-50 opacity-75' : ''}`}><td className="p-3 font-mono">{(b.startTimeString||' ').split(' ')[0]}</td><td className="p-3 font-mono font-bold text-indigo-700">{(b.startTimeString||' ').split(' ')[1]}</td><td className="p-3 font-bold">{name}</td><td className="p-3 text-gray-600">{b.serviceName}</td><td className="p-3 text-center">{isOil && <span className="text-purple-600 font-bold">Yes</span>}</td><td className="p-3 text-center">{b.pax}</td><td className="p-3 font-mono text-gray-500">{phone}</td><td className="p-3"><span className={`px-2 py-1 rounded text-xs font-bold ${b.status.includes('取消')?'bg-red-100 text-red-600': isDone ? 'bg-gray-200 text-gray-600' : 'bg-green-100 text-green-600'}`}>{b.status}</span></td><td className="p-3"><span className="bg-indigo-50 text-indigo-700 px-2 py-1 rounded text-xs font-bold">{b.staffId}</span></td><td className="p-3 text-right"><button onClick={()=>handleManualUpdateStatus(b.rowId, '❌ Cancelled')} className="text-red-500 hover:bg-red-50 px-2 py-1 rounded"><i className="fas fa-trash"></i></button></td></tr> ); })}</tbody></table></div>)}
                 
                 {activeTab === 'timeline' && <TimelineView timelineData={timelineData} />}
                 {activeTab === 'report' && <window.ReportView bookings={todaysBookings} />}
@@ -747,7 +784,7 @@ const App = () => {
             {showCheckIn && <window.CheckInBoard staffList={staffList} statusData={statusData} onUpdateStatus={updateStaffStatus} onClose={()=>setShowCheckIn(false)} bookings={todaysBookings} />}
             {showAvailability && <window.AvailabilityCheckModal onClose={()=>setShowAvailability(false)} onSave={handleWalkInSave} staffList={staffList} bookings={bookings} initialDate={viewDate} />}
             {comboStartData && <window.ComboStartModal onConfirm={confirmComboStart} onCancel={()=>setComboStartData(null)} bookingName={comboStartData.booking.serviceName} />}
-            {selectedSlot && !bookings.find(b=>b.status==='已預約') && <div className="fixed inset-0 bg-black/30 z-50 flex items-center justify-center text-white font-bold" onClick={()=>setSelectedSlot(null)}>目前無候位! (No Waiting)</div>}
+            {selectedSlot && waitingList.length === 0 && <div className="fixed inset-0 bg-black/30 z-50 flex items-center justify-center text-white font-bold" onClick={()=>setSelectedSlot(null)}>目前無候位! (No Waiting)</div>}
             {billingData && <window.BillingModal activeItem={billingData.activeItem} relatedItems={billingData.relatedItems} onConfirm={handleConfirmPayment} onCancel={() => setBillingData(null)} />}
             {splitData && <window.SplitStaffModal staffList={staffList} statusData={statusData} onCancel={()=>setSplitData(null)} onConfirm={handleSplitConfirm} />}
         </div>
