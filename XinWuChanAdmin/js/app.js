@@ -275,6 +275,8 @@ const App = () => {
             });
 
             // --- XẾP LỊCH CHO CÁC ĐƠN CHỜ (PENDING) ---
+            // QUAN TRỌNG: Chỉ xếp lịch cho các đơn chưa hoàn thành.
+            // Các đơn đã hoàn thành (Status có chữ "完成") sẽ KHÔNG được xếp vào Timeline/Map.
             const pendingBookings = relevantBookings.filter(b => 
                 !b.status.includes('完成') && 
                 !b.status.includes('✅') &&
@@ -598,7 +600,7 @@ const App = () => {
     const handleToggleMax = async (resId) => { const res = resourceState[resId]; if (!res) return; updateResource({ ...resourceState, [resId]: { ...res, isMaxMode: !res.isMaxMode } }); };
     const handleToggleSequence = async (resId) => { const res = resourceState[resId]; if (!res || !res.comboMeta) return; const newSeq = res.comboMeta.sequence === 'FB' ? 'BF' : 'FB'; updateResource({ ...resourceState, [resId]: { ...res, comboMeta: { ...res.comboMeta, sequence: newSeq } } }); }
     
-    // --- PAYMENT HANDLER (UPDATED: AUTO COMPLETE GROUP) ---
+    // --- PAYMENT HANDLER ---
     const handleConfirmPayment = async (itemsToPay, totalAmount) => {
         try {
             setSyncLock(true); 
@@ -606,41 +608,29 @@ const App = () => {
             
             const newState = { ...resourceState }; 
             const newStatusData = { ...statusData }; 
-            const updatesByRow = {}; // Gom các update theo RowID để gửi 1 lần
+            const updatesByRow = {}; 
 
             const baseTime = Date.now();
 
-            // 1. Duyệt qua danh sách các item đang thanh toán
             for (let i = 0; i < itemsToPay.length; i++) {
                 const item = itemsToPay[i];
                 const b = item.booking;
                 const rid = String(b.rowId);
                 const resId = item.resourceId;
 
-                // Xác định vị trí khách thứ mấy trong nhóm (0-5)
                 let grpIdx = getGroupMemberIndex(resId, rid);
-                if (grpIdx === -1) {
-                    grpIdx = determineColumnIndex(b, null, resId);
-                }
+                if (grpIdx === -1) grpIdx = determineColumnIndex(b, null, resId);
                 grpIdx = Math.max(0, Math.min(5, grpIdx));
 
                 const statusNum = grpIdx + 1;
                 const statusColEnglish = `Status${statusNum}`; 
 
-                // Chuẩn bị object update cho Row này
                 if (!updatesByRow[rid]) {
-                    updatesByRow[rid] = { 
-                        rowId: rid, 
-                        forceSync: true,
-                        // Copy lại booking gốc để tham chiếu tính toán
-                        originalBooking: b 
-                    };
+                    updatesByRow[rid] = { rowId: rid, forceSync: true, originalBooking: b };
                 }
                 
-                // Đánh dấu khách này là "Xong"
                 updatesByRow[rid][statusColEnglish] = '✅ 完成';
                 
-                // Giải phóng nhân viên
                 let staffId = null;
                 if (grpIdx === 0) staffId = b.serviceStaff || b.staffId;
                 else if (grpIdx === 1) staffId = b.staffId2;
@@ -657,28 +647,21 @@ const App = () => {
                 delete newState[resId];
             }
 
-            // 2. Logic kiểm tra xem cả nhóm đã xong chưa (CHECK ALL DONE)
             Object.values(updatesByRow).forEach(updatePayload => {
                 const booking = updatePayload.originalBooking;
                 const totalPax = parseInt(booking.pax || 1, 10);
                 
                 let completedCount = 0;
                 
-                // Đếm số người đã xong TRƯỚC ĐÓ (từ dữ liệu cũ)
+                // Đếm người đã xong TRƯỚC ĐÓ
                 for(let k=1; k<=6; k++) {
                     const key = `Status${k}`;
-                    // Nếu trong booking cũ đã có chữ "完成"
-                    if (booking[key] && (booking[key].includes('完成') || booking[key].includes('Done'))) {
-                        completedCount++;
-                    }
+                    if (booking[key] && (booking[key].includes('完成') || booking[key].includes('Done'))) completedCount++;
                 }
-
-                // Đếm thêm số người VỪA MỚI xong trong đợt thanh toán này
-                // Lưu ý: Cần tránh đếm trùng nếu updatePayload ghi đè lên cái cũ
+                
+                // Đếm người VỪA MỚI xong
                 for(let k=1; k<=6; k++) {
                     const key = `Status${k}`;
-                    // Nếu payload đợt này có update trạng thái này thành "完成"
-                    // VÀ trạng thái cũ chưa phải là hoàn thành (để tránh cộng dồn sai)
                     const isNewCompletion = updatePayload[key] && updatePayload[key].includes('完成');
                     const wasAlreadyDone = booking[key] && (booking[key].includes('完成') || booking[key].includes('Done'));
                     
@@ -689,28 +672,22 @@ const App = () => {
 
                 // Nếu số lượng hoàn thành >= tổng số khách => Cập nhật cột H
                 if (completedCount >= totalPax) {
-                    updatePayload.mainStatus = '✅ 完成'; // [IMPORTANT] Gửi thêm trường này cho Backend
+                    updatePayload.mainStatus = '✅ 完成'; 
                 }
                 
-                // Xóa biến tạm originalBooking trước khi gửi API
                 delete updatePayload.originalBooking;
             });
             
-            // 3. Cập nhật UI ngay lập tức
             updateResource(newState); 
             updateStaffStatus(newStatusData); 
             setBillingData(null); 
 
-            // 4. Gửi API
             const apiCalls = Object.values(updatesByRow).map(payload => 
                 axios.post('/api/update-booking-details', payload)
             );
 
             await Promise.all(apiCalls);
-            
             alert(`✅ 結帳成功: $${totalAmount}`);
-            // Sau khi API chạy xong và backend sync lại, nếu cột H là "✅ 完成", 
-            // hàm syncData ở backend sẽ loại bỏ đơn này => Đơn tự động biến mất khỏi Map.
 
         } catch(e) { 
             console.error("Payment Sync Error:", e);
@@ -724,26 +701,24 @@ const App = () => {
     const handleRetryConnection = () => { setQuotaError(false); fetchData(); };
 
     const getStatus = (id) => statusData[id] ? statusData[id].status : 'AWAY';
-    
     const safeStaffList = staffList || [];
     const awayStaff = safeStaffList.filter(s => { const st = getStatus(s.id); return st === 'AWAY' || st === 'OFF'; }).sort(window.sortIdAsc);
-    
     const busyStaff = safeStaffList.filter(s => isActuallyBusy(s.id)).sort((a,b) => { 
         const findRes = (sid) => Object.values(resourceState).find(r => r.isRunning && !r.isPaused && r.booking && ( r.booking.serviceStaff === sid || r.booking.staffId === sid || r.booking.staffId2 === sid || r.booking.staffId3 === sid || r.booking.staffId4 === sid || r.booking.staffId5 === sid || r.booking.staffId6 === sid ) );
         const resA = findRes(a.id); const resB = findRes(b.id);
         const timeA = resA?.startTime ? new Date(resA.startTime).getTime() : 0; const timeB = resB?.startTime ? new Date(resB.startTime).getTime() : 0;
         return timeA !== timeB ? timeA - timeB : window.sortIdAsc(a, b);
     });
-    
     const readyStaff = safeStaffList.filter(s => { if (isActuallyBusy(s.id)) return false; const st = getStatus(s.id); return st === 'READY' || st === 'EAT' || st === 'OUT_SHORT'; }).sort((a,b) => { const timeA = statusData[a.id]?.checkInTime || 0; const timeB = statusData[b.id]?.checkInTime || 0; return timeA !== timeB ? timeA - timeB : window.sortIdAsc(a, b); });
-    
     const readyQueue = readyStaff.filter(s => getStatus(s.id) === 'READY').map(s => s.id);
     const safeBookings = Array.isArray(bookings) ? bookings : [];
     
+    // TODAYS BOOKINGS (Dùng cho List, Report, Commission) -> Bao gồm cả đơn đã hoàn thành
     const todaysBookings = useMemo(() => {
         return safeBookings.filter(b => window.isWithinOperationalDay(b.startTimeString.split(' ')[0], b.startTimeString.split(' ')[1], viewDate));
     }, [bookings, viewDate]);
 
+    // WAITING LIST (Chỉ hiện đơn chưa xong)
     const waitingList = todaysBookings.filter(b => 
         !b.status.includes('完成') && 
         !b.status.includes('✅') &&
@@ -753,9 +728,8 @@ const App = () => {
     return (
         <div className="min-h-screen flex flex-col bg-slate-50">
             <header className={`text-white p-3 shadow-md flex justify-between items-center sticky top-0 z-50 transition-colors ${quotaError ? 'bg-red-800' : 'bg-[#1e1b4b]'}`}>
-                {/* Header Content */}
                 <div className="flex items-center gap-3">
-                    <span className="bg-amber-500 text-black px-2 py-1 rounded font-black text-sm">V272</span>
+                    <span className="bg-amber-500 text-black px-2 py-1 rounded font-black text-sm">V273</span>
                     <span className="font-bold hidden md:inline">XinWuChan</span>
                     <div className="flex items-center gap-2 bg-white/10 rounded px-2 py-1 border border-white/20">
                         <button onClick={()=>{const d=new Date(viewDate); d.setDate(d.getDate()-1); setViewDate(d.toISOString().split('T')[0])}} className="text-white hover:text-amber-400 font-bold px-2">❮</button>
@@ -763,7 +737,6 @@ const App = () => {
                         <button onClick={()=>{const d=new Date(viewDate); d.setDate(d.getDate()+1); setViewDate(d.toISOString().split('T')[0])}} className="text-white hover:text-amber-400 font-bold px-2">❯</button>
                     </div>
                 </div>
-
                 <div className="flex gap-3">
                     <button onClick={()=>setActiveTab('map')} className={`px-3 py-1.5 rounded-lg font-bold text-sm flex gap-2 items-center transition-all shadow-lg ${activeTab==='map' ? 'bg-blue-600 text-white ring-2 ring-white scale-105 opacity-100' : 'bg-blue-600 text-white/90 opacity-60 hover:opacity-100 hover:scale-105'}`}><i className="fas fa-th"></i> <span className="hidden md:inline">平面圖</span></button>
                     <button onClick={()=>setActiveTab('timeline')} className={`px-3 py-1.5 rounded-lg font-bold text-sm flex gap-2 items-center transition-all shadow-lg ${activeTab==='timeline' ? 'bg-purple-600 text-white ring-2 ring-white scale-105 opacity-100' : 'bg-purple-600 text-white/90 opacity-60 hover:opacity-100 hover:scale-105'}`}><i className="fas fa-stream"></i> <span className="hidden md:inline">時間軸</span></button>
@@ -771,7 +744,6 @@ const App = () => {
                     <button onClick={()=>setActiveTab('report')} className={`px-3 py-1.5 rounded-lg font-bold text-sm flex gap-2 items-center transition-all shadow-lg ${activeTab==='report' ? 'bg-rose-600 text-white ring-2 ring-white scale-105 opacity-100' : 'bg-rose-600 text-white/90 opacity-60 hover:opacity-100 hover:scale-105'}`}><i className="fas fa-chart-line"></i> <span className="hidden md:inline">報告</span></button>
                     <button onClick={()=>setActiveTab('commission')} className={`px-3 py-1.5 rounded-lg font-bold text-sm flex gap-2 items-center transition-all shadow-lg ml-2 border-l border-white/30 pl-4 ${activeTab==='commission' ? 'bg-indigo-600 text-white ring-2 ring-white scale-105 opacity-100' : 'bg-indigo-800 text-white/90 opacity-70 hover:opacity-100 hover:scale-105'}`}><i className="fas fa-calculator"></i> <span className="hidden md:inline">節數/薪資</span></button>
                 </div>
-
                 <div className="flex gap-2 items-center">
                     {quotaError && <button onClick={handleRetryConnection} className="bg-white text-red-600 px-4 py-1.5 rounded font-bold text-sm animate-pulse mr-4"><i className="fas fa-exclamation-triangle"></i> 重連</button>}
                     <button onClick={()=>setShowAvailability(true)} className="bg-emerald-500 hover:bg-emerald-400 text-white px-3 py-1.5 rounded font-bold text-sm flex gap-1 items-center shadow-md animate-pulse"><i className="fas fa-phone-volume"></i> <span className="hidden lg:inline">電話預約</span></button>
@@ -780,7 +752,6 @@ const App = () => {
                 </div>
             </header>
             
-            {/* Staff Scroll Bar */}
             <div className="bg-white border-b shadow-sm p-2 overflow-x-auto whitespace-nowrap staff-scroll">
                 <div className="flex w-full justify-between items-center min-w-max">
                     <div className="flex gap-1 opacity-30 scale-95 border-r-2 pr-2 mr-1 border-dashed border-slate-300">

@@ -1,13 +1,9 @@
 /**
  * =================================================================================================
  * PROJECT: XINWUCHAN MASSAGE BOT (BACKEND SERVER)
- * VERSION: V146 (UPDATED: AUTO COMPLETE GROUP LOGIC)
+ * VERSION: V147 (FULL CODE: FIXED REPORT & AUTO COMPLETE)
  * AUTHOR: AI ASSISTANT & OWNER
  * DATE: 2026/01/04
- * * [CHI TIẾT CẬP NHẬT V146]:
- * 1. API update-booking-details:
- * - Thêm logic cập nhật cột H (Status) nếu nhận được tham số 'mainStatus'.
- * - Giữ nguyên logic cập nhật Status1-6 (R-W).
  * =================================================================================================
  */
 
@@ -187,9 +183,10 @@ function parseStringToDate(dateStr) {
 async function syncData() {
     try {
         // --- 5.1. ĐỌC DỮ LIỆU ĐẶT CHỖ TỪ SHEET ---
+        // Đọc mở rộng từ A đến W để lấy Status1 -> Status6
         const resBooking = await sheets.spreadsheets.values.get({ 
             spreadsheetId: SHEET_ID, 
-            range: `${BOOKING_SHEET}!A:W` 
+            range: `${BOOKING_SHEET}!A:W`
         });
         const rowsBooking = resBooking.data.values;
         cachedBookings = [];
@@ -201,10 +198,9 @@ async function syncData() {
 
                 const status = row[7] || '已預約'; 
                 
-                // QUAN TRỌNG: Logic ẩn đơn khỏi map
-                // Nếu cột H chứa '完成' (Completed), backend sẽ KHÔNG gửi đơn này xuống Frontend
-                // -> Frontend sẽ tự động xóa ResourceCard tương ứng sau lần fetch tiếp theo.
-                if (status.includes('取消') || status.includes('Cancelled') || status.includes('完成') || status.includes('Done')) continue;
+                // [THAY ĐỔI V147]: CHỈ BỎ QUA ĐƠN HỦY. 
+                // GIỮ LẠI ĐƠN "HOÀN THÀNH" ĐỂ FRONTEND TÍNH DOANH THU/LƯƠNG.
+                if (status.includes('取消') || status.includes('Cancelled')) continue;
 
                 const serviceStr = row[3] || ''; 
                 let duration = 60; 
@@ -223,11 +219,6 @@ async function syncData() {
                 let pax = 1;
                 if (row[5]) pax = parseInt(row[5]); 
 
-                // MAPPING CỘT:
-                // Col R (Index 17) : Status1
-                // ...
-                // Col W (Index 22) : Status6
-                
                 cachedBookings.push({
                     rowId: i + 1,
                     startTimeString: `${row[0]} ${row[1]}`, 
@@ -396,6 +387,12 @@ function countResourcesInInterval(startMs, endMs, displayDate) {
         if (booking.staffId === 'ALL_STAFF') {
             const bookingDate = booking.startTimeString.split(' ')[0];
             if (bookingDate === displayDate) return { closed: true };
+        }
+        
+        // [QUAN TRỌNG V147]: BỎ QUA ĐƠN ĐÃ HOÀN THÀNH KHI TÍNH SLOT TRỐNG
+        // Đơn đã hoàn thành không còn chiếm chỗ, nhưng vẫn cần lưu trong cachedBookings để báo cáo
+        if (booking.status.includes('完成') || booking.status.includes('✅') || booking.status.includes('Done')) {
+            continue;
         }
         
         let bStart = parseStringToDate(booking.startTimeString);
@@ -747,8 +744,7 @@ app.post('/api/update-status', async (req, res) => {
     res.json({ success: true }); 
 });
 
-// API CẬP NHẬT CHI TIẾT ĐƠN (UPDATED V146: AUTO COMPLETE GROUP)
-// ======================================================
+// API CẬP NHẬT CHI TIẾT ĐƠN (UPDATED V147: AUTO COMPLETE GROUP)
 app.post('/api/update-booking-details', async (req, res) => {
     try {
         const body = req.body;
@@ -756,7 +752,7 @@ app.post('/api/update-booking-details', async (req, res) => {
 
         if (!rowId) return res.status(400).json({ error: 'Missing rowId' });
 
-        // 1. Cập nhật Dịch Vụ (Cột D)
+        // 1. Cập nhật Dịch Vụ
         if (body.serviceName) {
             await sheets.spreadsheets.values.update({
                 spreadsheetId: SHEET_ID,
@@ -766,7 +762,7 @@ app.post('/api/update-booking-details', async (req, res) => {
             });
         }
 
-        // 2. Cập nhật Thợ Chỉ Định (Cột I)
+        // 2. Cập nhật Thợ Chỉ Định
         if (body.staffId && body.staffId !== '随機') {
             await sheets.spreadsheets.values.update({
                 spreadsheetId: SHEET_ID,
@@ -776,8 +772,7 @@ app.post('/api/update-booking-details', async (req, res) => {
             });
         }
         
-        // [NEW] 2.1 Cập nhật Trạng Thái Tổng (Cột H) - NẾU CÓ
-        // Logic: Nếu tất cả khách xong, Frontend sẽ gửi mainStatus = '✅ 完成'
+        // 3. Cập nhật Trạng Thái Tổng (Cột H) - Tự động cập nhật khi cả nhóm xong
         if (body.mainStatus) {
             await sheets.spreadsheets.values.update({
                 spreadsheetId: SHEET_ID,
@@ -789,49 +784,25 @@ app.post('/api/update-booking-details', async (req, res) => {
 
         // --- CẬP NHẬT STAFF (L -> Q) ---
         const staff1 = body['服務師傅1'] || body['ServiceStaff1'] || body['serviceStaff'] || body['staff1'] || body['technician'];
-        if (staff1) {
-            await sheets.spreadsheets.values.update({ spreadsheetId: SHEET_ID, range: `${BOOKING_SHEET}!L${rowId}`, valueInputOption: 'USER_ENTERED', requestBody: { values: [[staff1]] } });
-        }
+        if (staff1) await sheets.spreadsheets.values.update({ spreadsheetId: SHEET_ID, range: `${BOOKING_SHEET}!L${rowId}`, valueInputOption: 'USER_ENTERED', requestBody: { values: [[staff1]] } });
         const staff2 = body['服務師傅2'] || body['ServiceStaff2'] || body['staffId2'] || body['staff2'];
-        if (staff2) {
-            await sheets.spreadsheets.values.update({ spreadsheetId: SHEET_ID, range: `${BOOKING_SHEET}!M${rowId}`, valueInputOption: 'USER_ENTERED', requestBody: { values: [[staff2]] } });
-        }
+        if (staff2) await sheets.spreadsheets.values.update({ spreadsheetId: SHEET_ID, range: `${BOOKING_SHEET}!M${rowId}`, valueInputOption: 'USER_ENTERED', requestBody: { values: [[staff2]] } });
         const staff3 = body['服務師傅3'] || body['ServiceStaff3'] || body['staff3'];
-        if (staff3) {
-            await sheets.spreadsheets.values.update({ spreadsheetId: SHEET_ID, range: `${BOOKING_SHEET}!N${rowId}`, valueInputOption: 'USER_ENTERED', requestBody: { values: [[staff3]] } });
-        }
+        if (staff3) await sheets.spreadsheets.values.update({ spreadsheetId: SHEET_ID, range: `${BOOKING_SHEET}!N${rowId}`, valueInputOption: 'USER_ENTERED', requestBody: { values: [[staff3]] } });
         const staff4 = body['服務師傅4'] || body['ServiceStaff4'] || body['staff4'];
-        if (staff4) {
-            await sheets.spreadsheets.values.update({ spreadsheetId: SHEET_ID, range: `${BOOKING_SHEET}!O${rowId}`, valueInputOption: 'USER_ENTERED', requestBody: { values: [[staff4]] } });
-        }
+        if (staff4) await sheets.spreadsheets.values.update({ spreadsheetId: SHEET_ID, range: `${BOOKING_SHEET}!O${rowId}`, valueInputOption: 'USER_ENTERED', requestBody: { values: [[staff4]] } });
         const staff5 = body['服務師傅5'] || body['ServiceStaff5'] || body['staff5'];
-        if (staff5) {
-            await sheets.spreadsheets.values.update({ spreadsheetId: SHEET_ID, range: `${BOOKING_SHEET}!P${rowId}`, valueInputOption: 'USER_ENTERED', requestBody: { values: [[staff5]] } });
-        }
+        if (staff5) await sheets.spreadsheets.values.update({ spreadsheetId: SHEET_ID, range: `${BOOKING_SHEET}!P${rowId}`, valueInputOption: 'USER_ENTERED', requestBody: { values: [[staff5]] } });
         const staff6 = body['服務師傅6'] || body['ServiceStaff6'] || body['staff6'];
-        if (staff6) {
-            await sheets.spreadsheets.values.update({ spreadsheetId: SHEET_ID, range: `${BOOKING_SHEET}!Q${rowId}`, valueInputOption: 'USER_ENTERED', requestBody: { values: [[staff6]] } });
-        }
+        if (staff6) await sheets.spreadsheets.values.update({ spreadsheetId: SHEET_ID, range: `${BOOKING_SHEET}!Q${rowId}`, valueInputOption: 'USER_ENTERED', requestBody: { values: [[staff6]] } });
 
         // --- CẬP NHẬT STATUS 1-6 (R -> W) ---
-        if (body.Status1) {
-            await sheets.spreadsheets.values.update({ spreadsheetId: SHEET_ID, range: `${BOOKING_SHEET}!R${rowId}`, valueInputOption: 'USER_ENTERED', requestBody: { values: [[body.Status1]] } });
-        }
-        if (body.Status2) {
-            await sheets.spreadsheets.values.update({ spreadsheetId: SHEET_ID, range: `${BOOKING_SHEET}!S${rowId}`, valueInputOption: 'USER_ENTERED', requestBody: { values: [[body.Status2]] } });
-        }
-        if (body.Status3) {
-            await sheets.spreadsheets.values.update({ spreadsheetId: SHEET_ID, range: `${BOOKING_SHEET}!T${rowId}`, valueInputOption: 'USER_ENTERED', requestBody: { values: [[body.Status3]] } });
-        }
-        if (body.Status4) {
-            await sheets.spreadsheets.values.update({ spreadsheetId: SHEET_ID, range: `${BOOKING_SHEET}!U${rowId}`, valueInputOption: 'USER_ENTERED', requestBody: { values: [[body.Status4]] } });
-        }
-        if (body.Status5) {
-            await sheets.spreadsheets.values.update({ spreadsheetId: SHEET_ID, range: `${BOOKING_SHEET}!V${rowId}`, valueInputOption: 'USER_ENTERED', requestBody: { values: [[body.Status5]] } });
-        }
-        if (body.Status6) {
-            await sheets.spreadsheets.values.update({ spreadsheetId: SHEET_ID, range: `${BOOKING_SHEET}!W${rowId}`, valueInputOption: 'USER_ENTERED', requestBody: { values: [[body.Status6]] } });
-        }
+        if (body.Status1) await sheets.spreadsheets.values.update({ spreadsheetId: SHEET_ID, range: `${BOOKING_SHEET}!R${rowId}`, valueInputOption: 'USER_ENTERED', requestBody: { values: [[body.Status1]] } });
+        if (body.Status2) await sheets.spreadsheets.values.update({ spreadsheetId: SHEET_ID, range: `${BOOKING_SHEET}!S${rowId}`, valueInputOption: 'USER_ENTERED', requestBody: { values: [[body.Status2]] } });
+        if (body.Status3) await sheets.spreadsheets.values.update({ spreadsheetId: SHEET_ID, range: `${BOOKING_SHEET}!T${rowId}`, valueInputOption: 'USER_ENTERED', requestBody: { values: [[body.Status3]] } });
+        if (body.Status4) await sheets.spreadsheets.values.update({ spreadsheetId: SHEET_ID, range: `${BOOKING_SHEET}!U${rowId}`, valueInputOption: 'USER_ENTERED', requestBody: { values: [[body.Status4]] } });
+        if (body.Status5) await sheets.spreadsheets.values.update({ spreadsheetId: SHEET_ID, range: `${BOOKING_SHEET}!V${rowId}`, valueInputOption: 'USER_ENTERED', requestBody: { values: [[body.Status5]] } });
+        if (body.Status6) await sheets.spreadsheets.values.update({ spreadsheetId: SHEET_ID, range: `${BOOKING_SHEET}!W${rowId}`, valueInputOption: 'USER_ENTERED', requestBody: { values: [[body.Status6]] } });
 
         await syncData();
         res.json({ success: true });
@@ -1123,5 +1094,5 @@ async function handleEvent(event) {
 syncData();
 const port = process.env.PORT || 3000;
 app.listen(port, () => {
-    console.log(`Bot V146 (Auto Complete Group Support) running on ${port}`);
+    console.log(`Bot V147 (Full Code) running on ${port}`);
 });
