@@ -1,15 +1,11 @@
 /**
  * =================================================================================================
  * PROJECT: XINWUCHAN MASSAGE BOT (BACKEND SERVER)
- * VERSION: V147 (FULL CODE: FIXED REPORT & AUTO COMPLETE)
+ * VERSION: V148 (STABLE BACKEND FOR COMMISSION FIX)
  * AUTHOR: AI ASSISTANT & OWNER
  * DATE: 2026/01/04
  * =================================================================================================
  */
-
-// ==============================================================================
-// PHẦN 1: KHAI BÁO THƯ VIỆN VÀ CẤU HÌNH (LIBRARIES & CONFIG)
-// ==============================================================================
 
 require('dotenv').config(); 
 
@@ -20,13 +16,11 @@ const cors = require('cors');
 const path = require('path');             
 const bodyParser = require('body-parser'); 
 
-// --- CẤU HÌNH LINE BOT ---
 const config = {
   channelAccessToken: process.env.CHANNEL_ACCESS_TOKEN,
   channelSecret: process.env.CHANNEL_SECRET
 };
 
-// --- CẤU HÌNH GOOGLE SHEETS & ADMIN ---
 const ID_BA_CHU = process.env.ID_BA_CHU; 
 const SHEET_ID = process.env.SHEET_ID;   
 
@@ -46,10 +40,6 @@ const auth = new google.auth.GoogleAuth({
 });
 const sheets = google.sheets({ version: 'v4', auth });
 
-// ==============================================================================
-// PHẦN 2: QUẢN LÝ TRẠNG THÁI TOÀN CỤC (GLOBAL STATE MANAGEMENT)
-// ==============================================================================
-
 let SERVER_RESOURCE_STATE = {}; 
 let SERVER_STAFF_STATUS = {};   
 let STAFF_LIST = []; 
@@ -57,9 +47,6 @@ let cachedBookings = [];
 let scheduleMap = {}; 
 let userState = {}; 
 
-// ==============================================================================
-// PHẦN 3: DANH MỤC DỊCH VỤ (SERVICE CATALOG)
-// ==============================================================================
 const SERVICES = {
     'CB_190': { name: '👑 帝王套餐 (190分)', duration: 190, type: 'BED', category: 'COMBO', price: 2000 },
     'CB_130': { name: '💎 豪華套餐 (130分)', duration: 130, type: 'BED', category: 'COMBO', price: 1500 },
@@ -77,10 +64,6 @@ const SERVICES = {
     'BREAK_30': { name: '🍱 用餐', duration: 30, type: 'NONE' },
     'SHOP_CLOSE': { name: '⛔ 店休', duration: 1440, type: 'NONE' }
 };
-
-// ==============================================================================
-// PHẦN 4: CÁC HÀM TIỆN ÍCH XỬ LÝ THỜI GIAN & DỮ LIỆU (UTILITIES)
-// ==============================================================================
 
 function getTaipeiNow() {
     const taipeiString = new Date().toLocaleString('en-US', { timeZone: 'Asia/Taipei', hour12: false });
@@ -176,14 +159,8 @@ function parseStringToDate(dateStr) {
     } catch (e) { return null; }
 }
 
-// ==============================================================================
-// PHẦN 5: ĐỒNG BỘ DỮ LIỆU (DATA SYNCHRONIZATION)
-// ==============================================================================
-
 async function syncData() {
     try {
-        // --- 5.1. ĐỌC DỮ LIỆU ĐẶT CHỖ TỪ SHEET ---
-        // Đọc mở rộng từ A đến W để lấy Status1 -> Status6
         const resBooking = await sheets.spreadsheets.values.get({ 
             spreadsheetId: SHEET_ID, 
             range: `${BOOKING_SHEET}!A:W`
@@ -197,9 +174,6 @@ async function syncData() {
                 if (!row[0] || !row[1]) continue;
 
                 const status = row[7] || '已預約'; 
-                
-                // [THAY ĐỔI V147]: CHỈ BỎ QUA ĐƠN HỦY. 
-                // GIỮ LẠI ĐƠN "HOÀN THÀNH" ĐỂ FRONTEND TÍNH DOANH THU/LƯƠNG.
                 if (status.includes('取消') || status.includes('Cancelled')) continue;
 
                 const serviceStr = row[3] || ''; 
@@ -247,7 +221,6 @@ async function syncData() {
             }
         }
 
-        // --- 5.2. ĐỌC LỊCH LÀM VIỆC ---
         const resSchedule = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: `${SCHEDULE_SHEET}!A1:AG100` });
         const rows = resSchedule.data.values;
         
@@ -297,8 +270,6 @@ async function syncData() {
         console.log(`[SYNC SUCCESS] Bookings: ${cachedBookings.length}, Staff: ${STAFF_LIST.length}`);
     } catch (e) { console.error('[SYNC ERROR]', e); }
 }
-
-// --- CÁC HÀM GHI DỮ LIỆU (WRITE UTILS) ---
 
 async function ghiVaoSheet(data) {
     try {
@@ -374,10 +345,6 @@ async function layLichDatGanNhat(userId) {
     } catch (e) { console.error('Read Error:', e); return null; }
 }
 
-// ==============================================================================
-// PHẦN 6: LOGIC LÕI - KIỂM TRA TÀI NGUYÊN (CORE BUSINESS LOGIC)
-// ==============================================================================
-
 function countResourcesInInterval(startMs, endMs, displayDate) {
     let busyChairs = 0;
     let busyBeds = 0;
@@ -389,8 +356,6 @@ function countResourcesInInterval(startMs, endMs, displayDate) {
             if (bookingDate === displayDate) return { closed: true };
         }
         
-        // [QUAN TRỌNG V147]: BỎ QUA ĐƠN ĐÃ HOÀN THÀNH KHI TÍNH SLOT TRỐNG
-        // Đơn đã hoàn thành không còn chiếm chỗ, nhưng vẫn cần lưu trong cachedBookings để báo cáo
         if (booking.status.includes('完成') || booking.status.includes('✅') || booking.status.includes('Done')) {
             continue;
         }
@@ -684,9 +649,6 @@ function createMenuFlexMessage() {
     };
 }
 
-// ==============================================================================
-// 8. SERVER & API ROUTES (CHO ADMIN KIOSK & LINE BOT)
-// ==============================================================================
 const client = new line.Client(config);
 const app = express();
 
@@ -744,7 +706,6 @@ app.post('/api/update-status', async (req, res) => {
     res.json({ success: true }); 
 });
 
-// API CẬP NHẬT CHI TIẾT ĐƠN (UPDATED V147: AUTO COMPLETE GROUP)
 app.post('/api/update-booking-details', async (req, res) => {
     try {
         const body = req.body;
@@ -752,7 +713,6 @@ app.post('/api/update-booking-details', async (req, res) => {
 
         if (!rowId) return res.status(400).json({ error: 'Missing rowId' });
 
-        // 1. Cập nhật Dịch Vụ
         if (body.serviceName) {
             await sheets.spreadsheets.values.update({
                 spreadsheetId: SHEET_ID,
@@ -762,7 +722,6 @@ app.post('/api/update-booking-details', async (req, res) => {
             });
         }
 
-        // 2. Cập nhật Thợ Chỉ Định
         if (body.staffId && body.staffId !== '随機') {
             await sheets.spreadsheets.values.update({
                 spreadsheetId: SHEET_ID,
@@ -772,7 +731,6 @@ app.post('/api/update-booking-details', async (req, res) => {
             });
         }
         
-        // 3. Cập nhật Trạng Thái Tổng (Cột H) - Tự động cập nhật khi cả nhóm xong
         if (body.mainStatus) {
             await sheets.spreadsheets.values.update({
                 spreadsheetId: SHEET_ID,
@@ -782,7 +740,6 @@ app.post('/api/update-booking-details', async (req, res) => {
             });
         }
 
-        // --- CẬP NHẬT STAFF (L -> Q) ---
         const staff1 = body['服務師傅1'] || body['ServiceStaff1'] || body['serviceStaff'] || body['staff1'] || body['technician'];
         if (staff1) await sheets.spreadsheets.values.update({ spreadsheetId: SHEET_ID, range: `${BOOKING_SHEET}!L${rowId}`, valueInputOption: 'USER_ENTERED', requestBody: { values: [[staff1]] } });
         const staff2 = body['服務師傅2'] || body['ServiceStaff2'] || body['staffId2'] || body['staff2'];
@@ -796,7 +753,6 @@ app.post('/api/update-booking-details', async (req, res) => {
         const staff6 = body['服務師傅6'] || body['ServiceStaff6'] || body['staff6'];
         if (staff6) await sheets.spreadsheets.values.update({ spreadsheetId: SHEET_ID, range: `${BOOKING_SHEET}!Q${rowId}`, valueInputOption: 'USER_ENTERED', requestBody: { values: [[staff6]] } });
 
-        // --- CẬP NHẬT STATUS 1-6 (R -> W) ---
         if (body.Status1) await sheets.spreadsheets.values.update({ spreadsheetId: SHEET_ID, range: `${BOOKING_SHEET}!R${rowId}`, valueInputOption: 'USER_ENTERED', requestBody: { values: [[body.Status1]] } });
         if (body.Status2) await sheets.spreadsheets.values.update({ spreadsheetId: SHEET_ID, range: `${BOOKING_SHEET}!S${rowId}`, valueInputOption: 'USER_ENTERED', requestBody: { values: [[body.Status2]] } });
         if (body.Status3) await sheets.spreadsheets.values.update({ spreadsheetId: SHEET_ID, range: `${BOOKING_SHEET}!T${rowId}`, valueInputOption: 'USER_ENTERED', requestBody: { values: [[body.Status3]] } });
@@ -813,9 +769,6 @@ app.post('/api/update-booking-details', async (req, res) => {
     }
 });
 
-// ==============================================================================
-// 9. XỬ LÝ SỰ KIỆN LINE BOT (EVENT HANDLER)
-// ==============================================================================
 async function handleEvent(event) {
   if (event.type !== 'message' || event.message.type !== 'text' && event.type !== 'postback') return Promise.resolve(null);
   let text = ''; let userId = event.source.userId;
@@ -1087,12 +1040,8 @@ async function handleEvent(event) {
   return client.replyMessage(event.replyToken, { type: 'flex', altText: '預約服務', contents: { "type": "bubble", "body": { "type": "box", "layout": "vertical", "contents": [ { "type": "text", "text": "您好 👋", "weight": "bold", "size": "lg", "align": "center" }, { "type": "text", "text": "請問您是要預約按摩服務嗎？", "wrap": true, "size": "sm", "color": "#555555", "align": "center", "margin": "md" } ] }, "footer": { "type": "box", "layout": "horizontal", "spacing": "sm", "contents": [ { "type": "button", "style": "primary", "action": { "type": "message", "label": "✅ 立即預約 (Book)", "text": "Action:Booking" } }, { "type": "button", "style": "secondary", "action": { "type": "message", "label": "📄 服務價目 (Menu)", "text": "Menu" } } ] } } });
 }
 
-// ==============================================================================
-// 10. KHỞI ĐỘNG SERVER (SERVER STARTUP)
-// ==============================================================================
-
 syncData();
 const port = process.env.PORT || 3000;
 app.listen(port, () => {
-    console.log(`Bot V147 (Full Code) running on ${port}`);
+    console.log(`Bot V148 (Full Code - Fix Commission) running on ${port}`);
 });

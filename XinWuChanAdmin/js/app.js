@@ -275,8 +275,6 @@ const App = () => {
             });
 
             // --- XẾP LỊCH CHO CÁC ĐƠN CHỜ (PENDING) ---
-            // QUAN TRỌNG: Chỉ xếp lịch cho các đơn chưa hoàn thành.
-            // Các đơn đã hoàn thành (Status có chữ "完成") sẽ KHÔNG được xếp vào Timeline/Map.
             const pendingBookings = relevantBookings.filter(b => 
                 !b.status.includes('完成') && 
                 !b.status.includes('✅') &&
@@ -701,24 +699,26 @@ const App = () => {
     const handleRetryConnection = () => { setQuotaError(false); fetchData(); };
 
     const getStatus = (id) => statusData[id] ? statusData[id].status : 'AWAY';
+    
     const safeStaffList = staffList || [];
     const awayStaff = safeStaffList.filter(s => { const st = getStatus(s.id); return st === 'AWAY' || st === 'OFF'; }).sort(window.sortIdAsc);
+    
     const busyStaff = safeStaffList.filter(s => isActuallyBusy(s.id)).sort((a,b) => { 
         const findRes = (sid) => Object.values(resourceState).find(r => r.isRunning && !r.isPaused && r.booking && ( r.booking.serviceStaff === sid || r.booking.staffId === sid || r.booking.staffId2 === sid || r.booking.staffId3 === sid || r.booking.staffId4 === sid || r.booking.staffId5 === sid || r.booking.staffId6 === sid ) );
         const resA = findRes(a.id); const resB = findRes(b.id);
         const timeA = resA?.startTime ? new Date(resA.startTime).getTime() : 0; const timeB = resB?.startTime ? new Date(resB.startTime).getTime() : 0;
         return timeA !== timeB ? timeA - timeB : window.sortIdAsc(a, b);
     });
+    
     const readyStaff = safeStaffList.filter(s => { if (isActuallyBusy(s.id)) return false; const st = getStatus(s.id); return st === 'READY' || st === 'EAT' || st === 'OUT_SHORT'; }).sort((a,b) => { const timeA = statusData[a.id]?.checkInTime || 0; const timeB = statusData[b.id]?.checkInTime || 0; return timeA !== timeB ? timeA - timeB : window.sortIdAsc(a, b); });
+    
     const readyQueue = readyStaff.filter(s => getStatus(s.id) === 'READY').map(s => s.id);
     const safeBookings = Array.isArray(bookings) ? bookings : [];
     
-    // TODAYS BOOKINGS (Dùng cho List, Report, Commission) -> Bao gồm cả đơn đã hoàn thành
     const todaysBookings = useMemo(() => {
         return safeBookings.filter(b => window.isWithinOperationalDay(b.startTimeString.split(' ')[0], b.startTimeString.split(' ')[1], viewDate));
     }, [bookings, viewDate]);
 
-    // WAITING LIST (Chỉ hiện đơn chưa xong)
     const waitingList = todaysBookings.filter(b => 
         !b.status.includes('完成') && 
         !b.status.includes('✅') &&
@@ -729,7 +729,7 @@ const App = () => {
         <div className="min-h-screen flex flex-col bg-slate-50">
             <header className={`text-white p-3 shadow-md flex justify-between items-center sticky top-0 z-50 transition-colors ${quotaError ? 'bg-red-800' : 'bg-[#1e1b4b]'}`}>
                 <div className="flex items-center gap-3">
-                    <span className="bg-amber-500 text-black px-2 py-1 rounded font-black text-sm">V273</span>
+                    <span className="bg-amber-500 text-black px-2 py-1 rounded font-black text-sm">V274</span>
                     <span className="font-bold hidden md:inline">XinWuChan</span>
                     <div className="flex items-center gap-2 bg-white/10 rounded px-2 py-1 border border-white/20">
                         <button onClick={()=>{const d=new Date(viewDate); d.setDate(d.getDate()-1); setViewDate(d.toISOString().split('T')[0])}} className="text-white hover:text-amber-400 font-bold px-2">❮</button>
