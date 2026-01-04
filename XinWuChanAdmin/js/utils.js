@@ -1,6 +1,5 @@
 // CÁC HÀM HỖ TRỢ (UTILITY FUNCTIONS)
 
-// Lấy thời lượng an toàn
 window.getSafeDuration = (serviceName, fallbackDuration) => {
     if (!serviceName) return fallbackDuration || 60;
     if (window.SERVICES_DATA[serviceName]) return window.SERVICES_DATA[serviceName].duration;
@@ -37,7 +36,7 @@ window.normalizeToTimelineMins = (timeStr) => {
     if (!timeStr) return 0;
     const [h, m] = timeStr.split(':').map(Number);
     let totalMins = h * 60 + m;
-    if (h < 8) totalMins += 24 * 60; 
+    if (h < 8) totalMins += 24 * 60; // 1h sáng = 25h, 2h sáng = 26h
     return totalMins;
 };
 

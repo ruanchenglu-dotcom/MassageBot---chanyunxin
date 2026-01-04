@@ -66,9 +66,93 @@ const StaffCard3D = ({ s, statusData, resourceState, queueIndex, isForcedBusy })
 };
 window.StaffCard3D = StaffCard3D;
 
-// --- CHECKIN BOARD ---
-const CheckInBoard = ({ staffList, statusData, onClose, onUpdateStatus }) => {
+// --- CHECKIN BOARD (ĐÃ SỬA: BỎ ID, THÊM TỔNG LƯƠNG) ---
+const CheckInBoard = ({ staffList, statusData, onClose, onUpdateStatus, bookings }) => {
     const safeStaffList = Array.isArray(staffList) ? staffList : [];
+    
+    // 1. Logic tính lương (Copy chính xác từ CommissionView)
+    const RATES = { JIE_PRICE: 250, OIL_BONUS: 80 };
+    const normalize = (str) => String(str || '').trim().replace(/\s+/g, '');
+
+    const getJieCount = (serviceName, duration) => {
+        const name = (serviceName || "").toUpperCase();
+        if (name.includes('190') || name.includes('帝王')) return 6;
+        if (name.includes('180')) return 6;
+        if (name.includes('130') || name.includes('豪華')) return 4;
+        if (name.includes('120')) return 4;
+        if (name.includes('100') || name.includes('招牌')) return 3;
+        if (name.includes('90')) return 3;
+        if (name.includes('70') || name.includes('精選')) return 2;
+        if (name.includes('60')) return 2;
+        if (name.includes('50')) return 1.5;
+        if (name.includes('45')) return 1;
+        if (name.includes('40')) return 1;
+        if (name.includes('35')) return 1;
+        if (name.includes('30')) return 1;
+        
+        const mins = parseInt(duration || 0);
+        if (mins >= 175) return 6;
+        if (mins >= 115) return 4;
+        if (mins >= 85) return 3;
+        if (mins >= 55) return 2;
+        if (mins >= 15) return 1; 
+        return 0; 
+    };
+
+    const isOilService = (b) => {
+        if (b.isOil === true || b.isOil === 'true') return true;
+        const name = (b.serviceName || "").toLowerCase();
+        if (name.includes('油') || name.includes('oil') || name.includes('精油')) return true;
+        if (name.includes('帝王') || name.includes('a6')) return true;
+        return false;
+    };
+
+    const staffIncomeMap = useMemo(() => {
+        const stats = {};
+        const lookupMap = {}; 
+        
+        (staffList || []).forEach(staff => {
+            const entry = { id: staff.id, jie: 0, oil: 0, income: 0 };
+            stats[staff.id] = entry;
+            lookupMap[normalize(staff.id)] = entry;
+            if (staff.name) lookupMap[normalize(staff.name)] = entry;
+        });
+
+        const safeBookings = Array.isArray(bookings) ? bookings : [];
+
+        safeBookings.forEach(b => {
+            if (b.status && (b.status.includes('取消') || b.status.includes('Cancel') || b.status.includes('❌'))) return;
+            
+            let potentialRawStrings = [
+                b.staffId, b.serviceStaff, b.technician, b.StaffId, 
+                b.staffId2, b.staffId3, b.staffId4, b.staffId5, b.staffId6,
+                b.ServiceStaff, b.Technician
+            ];
+            const distinctNames = potentialRawStrings.join(',').split(/[,，\s/]+/).map(s => s.trim()).filter(s => s && s !== 'null' && s !== 'undefined' && s.length > 0);
+            const validNames = [...new Set(distinctNames)].filter(name => {
+                const n = name.toLowerCase();
+                return !['隨機', '男', '女', '男師傅', '女師傅', '不指定', '指定', 'male', 'female', 'random'].some(bad => n.includes(bad));
+            });
+
+            validNames.forEach(key => {
+                const normKey = normalize(key);
+                let staffStat = lookupMap[normKey];
+                if (staffStat) {
+                    const q = getJieCount(b.serviceName, b.duration);
+                    const hasOil = isOilService(b);
+                    staffStat.jie += q;
+                    if (hasOil) staffStat.oil += 1;
+                }
+            });
+        });
+
+        Object.values(stats).forEach(s => { 
+            s.income = (s.jie * RATES.JIE_PRICE) + (s.oil * RATES.OIL_BONUS); 
+        });
+
+        return stats;
+    }, [bookings, staffList]);
+
     const toggleCheckIn = (id) => { 
         const current = (statusData && statusData[id]) ? statusData[id] : {}; 
         const newState = { 
@@ -80,38 +164,55 @@ const CheckInBoard = ({ staffList, statusData, onClose, onUpdateStatus }) => {
         }; 
         onUpdateStatus(newState); 
     };
-    const displayList = safeStaffList;
     
     return ( 
         <div className="fixed inset-0 bg-slate-900/80 z-[60] flex items-center justify-center p-4 backdrop-blur-sm">
             <div className="bg-white w-full max-w-6xl rounded-t-xl shadow-2xl modal-animate flex flex-col max-h-[90vh] overflow-hidden">
-                <div className="p-4 bg-[#7e22ce] text-white flex justify-between items-center shrink-0"><h2 className="text-xl font-bold flex gap-2 items-center"><i className="fas fa-user-clock"></i> 技師管理 (Sheet Order)</h2><button onClick={onClose}><i className="fas fa-times text-xl"></i></button></div>
+                <div className="p-4 bg-[#7e22ce] text-white flex justify-between items-center shrink-0">
+                    <h2 className="text-xl font-bold flex gap-2 items-center"><i className="fas fa-user-clock"></i> 技師管理 (Sheet Order)</h2>
+                    <button onClick={onClose}><i className="fas fa-times text-xl"></i></button>
+                </div>
+                
+                {/* HEADERS - ĐÃ XOÁ CỘT ID (Biên hiệu), THÊM CỘT LƯƠNG */}
                 <div className="grid grid-cols-12 gap-2 bg-slate-100 p-2 font-bold text-slate-600 text-sm border-b">
-                    <div className="col-span-1 text-center">編號</div>
-                    <div className="col-span-2 text-center">姓名</div>
-                    <div className="col-span-1 text-center">性別</div>
+                    {/* Đã xoá col-span-1 của 編號, tăng cột Tên từ 2 lên 3 */}
+                    <div className="col-span-3 text-center">姓名</div>
+                    <div className="col-span-2 text-center text-emerald-700">💰 今日薪資</div> {/* Cột mới */}
                     <div className="col-span-2 text-center">上班</div>
                     <div className="col-span-2 text-center">下班</div>
                     <div className="col-span-2 text-center">操作</div>
-                    <div className="col-span-2 text-center">狀態</div>
+                    <div className="col-span-1 text-center">狀態</div>
                 </div>
+
                 <div className="overflow-y-auto flex-1 p-2 space-y-2 bg-white">
-                    {displayList.map(s => { 
+                    {safeStaffList.map(s => { 
                         const current = (statusData && statusData[s.id]) ? statusData[s.id] : { status: 'AWAY', checkInTime: 0 }; 
                         const isWorking = current.status !== 'AWAY' && current.status !== 'OFF';
+                        const income = staffIncomeMap[s.id] ? staffIncomeMap[s.id].income : 0;
+
                         return ( 
                             <div key={s.id} className="grid grid-cols-12 gap-2 items-center py-2 px-2 border-b border-gray-100 hover:bg-slate-50 text-sm transition-all">
-                                <div className="col-span-1 text-center font-bold text-slate-400">{s.id.replace('號','')}</div>
-                                <div className="col-span-2 text-center font-black text-lg text-slate-800">{s.name}</div>
-                                <div className="col-span-1 text-center">
-                                    <span className={`px-2 py-0.5 rounded text-xs font-bold ${s.gender === 'M' || s.gender === '男' ? 'bg-blue-100 text-blue-700' : 'bg-pink-100 text-pink-700'}`}>
-                                        {s.gender === 'M' || s.gender === '男' ? '男' : '女'}
+                                {/* Đã xoá div hiển thị ID */}
+                                
+                                {/* NAME - Tăng span lên 3 */}
+                                <div className="col-span-3 text-center font-black text-lg text-slate-800">{s.name}</div>
+                                
+                                {/* SALARY (NEW) */}
+                                <div className="col-span-2 text-center">
+                                    <span className={`px-2 py-1 rounded text-base font-black border ${income > 0 ? 'bg-emerald-100 text-emerald-700 border-emerald-200' : 'bg-gray-50 text-gray-300 border-gray-100'}`}>
+                                        ${income.toLocaleString()}
                                     </span>
                                 </div>
+                                
+                                {/* SHIFTS */}
                                 <div className="col-span-2 text-center font-mono text-slate-600">{s.shiftStart}</div>
                                 <div className="col-span-2 text-center font-mono text-slate-600">{s.shiftEnd}</div>
+                                
+                                {/* ACTIONS */}
                                 <div className="col-span-2 flex justify-center">{isWorking ? <div className="flex items-center justify-between w-full max-w-[100px] border border-gray-300 rounded px-2 py-1 bg-white"><span className="font-mono font-bold text-xs text-slate-500">{new Date(current.checkInTime).toLocaleTimeString('en-US',{hour12:false, hour:'2-digit', minute:'2-digit'})}</span><button onClick={() => toggleCheckIn(s.id)} className="text-red-500 hover:text-red-700 font-bold ml-1 text-xs">✕</button></div> : <button onClick={() => toggleCheckIn(s.id)} className="bg-[#3b82f6] hover:bg-[#2563eb] text-white px-3 py-1 rounded font-bold text-xs w-full max-w-[80px]">打卡</button>}</div>
-                                <div className="col-span-2 text-center"><div className="relative"><select className={`w-full appearance-none border p-1 pl-6 rounded font-bold cursor-pointer outline-none text-xs ${isWorking ? 'border-purple-300 text-purple-700 bg-white' : 'bg-gray-100 text-gray-400'}`} disabled={!isWorking} value={current.status} onChange={(e)=>{ const n={...statusData, [s.id]:{...current, status:e.target.value}}; onUpdateStatus(n); }}><option value="AWAY">⚪ 未到</option><option value="READY">🟣 待命</option><option value="EAT">🟠 用餐</option><option value="OUT_SHORT">🔵 外出</option></select><div className="absolute left-2 top-1/2 -translate-y-1/2"><div className={`w-2 h-2 rounded-full ${current.status==='READY'?'bg-purple-500':current.status==='EAT'?'bg-orange-500':current.status==='OUT_SHORT'?'bg-blue-500':'bg-gray-400'}`}></div></div></div></div>
+                                
+                                {/* STATUS */}
+                                <div className="col-span-1 text-center"><div className="relative"><select className={`w-full appearance-none border p-1 pl-6 rounded font-bold cursor-pointer outline-none text-xs ${isWorking ? 'border-purple-300 text-purple-700 bg-white' : 'bg-gray-100 text-gray-400'}`} disabled={!isWorking} value={current.status} onChange={(e)=>{ const n={...statusData, [s.id]:{...current, status:e.target.value}}; onUpdateStatus(n); }}><option value="AWAY">⚪</option><option value="READY">🟣</option><option value="EAT">🟠</option><option value="OUT_SHORT">🔵</option></select><div className="absolute left-2 top-1/2 -translate-y-1/2"><div className={`w-2 h-2 rounded-full ${current.status==='READY'?'bg-purple-500':current.status==='EAT'?'bg-orange-500':current.status==='OUT_SHORT'?'bg-blue-500':'bg-gray-400'}`}></div></div></div></div>
                             </div> 
                         )
                     })}
@@ -244,7 +345,7 @@ const AvailabilityCheckModal = ({ onClose, onSave, staffList, bookings, initialD
 };
 window.AvailabilityCheckModal = AvailabilityCheckModal;
 
-// --- BILLING MODAL (SỬA LỖI CRASH VÌ THIẾU DATA) ---
+// --- BILLING MODAL ---
 const BillingModal = ({ activeItem, relatedItems, onConfirm, onCancel }) => {
     const hasGroup = relatedItems.length > 0;
     const [step, setStep] = useState(hasGroup ? 'CHOICE' : 'CONFIRM');

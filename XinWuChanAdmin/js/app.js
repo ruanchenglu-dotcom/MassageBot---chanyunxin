@@ -1,267 +1,10 @@
 const { useState, useEffect, useMemo, useRef } = React;
 
-// --- 1. COMPONENT: COMMISSION VIEW (ĐÃ SỬA: CHỈ HIỆN 1 TÊN, FIX CHIỀU CAO, TIẾNG TRUNG) ---
-const CommissionView = ({ bookings, staffList }) => {
-    const RATES = {
-        JIE_PRICE: 250,
-        OIL_BONUS: 80
-    };
+// --- 1. COMPONENT: COMMISSION VIEW (GIỮ NGUYÊN CODE CŨ) ---
+const CommissionView = window.CommissionView;
 
-    const normalize = (str) => String(str || '').trim().replace(/\s+/g, '');
-
-    const getJieCount = (serviceName, duration) => {
-        const name = (serviceName || "").toUpperCase();
-        if (name.includes('190') || name.includes('帝王')) return 6;
-        if (name.includes('180')) return 6;
-        if (name.includes('130') || name.includes('豪華')) return 4;
-        if (name.includes('120')) return 4;
-        if (name.includes('100') || name.includes('招牌')) return 3;
-        if (name.includes('90')) return 3;
-        if (name.includes('70') || name.includes('精選')) return 2;
-        if (name.includes('60')) return 2;
-        if (name.includes('50')) return 1.5;
-        if (name.includes('45')) return 1;
-        if (name.includes('40')) return 1;
-        if (name.includes('35')) return 1;
-        if (name.includes('30')) return 1;
-        
-        const mins = parseInt(duration || 0);
-        if (mins >= 175) return 6;
-        if (mins >= 115) return 4;
-        if (mins >= 85) return 3;
-        if (mins >= 55) return 2;
-        if (mins >= 15) return 1; 
-        return 0; 
-    };
-
-    const isOilService = (b) => {
-        if (b.isOil === true || b.isOil === 'true') return true;
-        const name = (b.serviceName || "").toLowerCase();
-        if (name.includes('油') || name.includes('oil') || name.includes('精油')) return true;
-        if (name.includes('帝王') || name.includes('a6')) return true;
-        return false;
-    };
-
-    const commissionData = useMemo(() => {
-        const stats = {};
-        const lookupMap = {}; 
-
-        (staffList || []).forEach(staff => {
-            const entry = { id: staff.id, name: staff.name || staff.id, jie: 0, oil: 0, income: 0, orderCount: 0 };
-            stats[staff.id] = entry;
-            lookupMap[normalize(staff.id)] = entry;
-            if (staff.name) lookupMap[normalize(staff.name)] = entry;
-        });
-
-        bookings.forEach(b => {
-            if (b.status && (b.status.includes('取消') || b.status.includes('Cancel') || b.status.includes('❌'))) return;
-
-            let potentialRawStrings = [
-                b.staffId, b.serviceStaff, b.technician, b.StaffId, 
-                b.staffId2, b.staffId3, b.staffId4, b.staffId5, b.staffId6,
-                b.ServiceStaff, b.Technician
-            ];
-            const combinedString = potentialRawStrings.join(',');
-            const distinctNames = combinedString.split(/[,，\s/]+/).map(s => s.trim()).filter(s => s && s !== 'null' && s !== 'undefined' && s.length > 0);
-            const validNames = [...new Set(distinctNames)].filter(name => {
-                const n = name.toLowerCase();
-                if (['隨機', '男', '女', '男師傅', '女師傅', '不指定', '指定', 'male', 'female', 'random'].some(bad => n.includes(bad))) return false; 
-                return true;
-            });
-
-            validNames.forEach(key => {
-                const normKey = normalize(key);
-                let staffStat = lookupMap[normKey];
-                if (!staffStat) {
-                    staffStat = { id: key, name: key, jie: 0, oil: 0, income: 0, orderCount: 0, isGhost: true };
-                    stats[key] = staffStat; 
-                    lookupMap[normKey] = staffStat; 
-                }
-                if (staffStat) {
-                    const q = getJieCount(b.serviceName, b.duration);
-                    const hasOil = isOilService(b);
-                    staffStat.jie += q;
-                    staffStat.orderCount += 1;
-                    if (hasOil) staffStat.oil += 1;
-                }
-            });
-        });
-
-        Object.values(stats).forEach(s => { s.income = (s.jie * RATES.JIE_PRICE) + (s.oil * RATES.OIL_BONUS); });
-        return Object.values(stats).sort((a, b) => {
-             if (b.income !== a.income) return b.income - a.income;
-             return String(a.id).localeCompare(String(b.id));
-        });
-    }, [bookings, staffList]);
-
-    const totalJie = commissionData.reduce((sum, item) => sum + item.jie, 0);
-    const totalOil = commissionData.reduce((sum, item) => sum + item.oil, 0);
-    const totalIncome = commissionData.reduce((sum, item) => sum + item.income, 0);
-    const validOrders = bookings.filter(b => !b.status?.includes('取消')).length;
-
-    return (
-        // [FIX] Tăng khoảng trừ hao height lên 280px để chừa chỗ cho footer
-        <div className="bg-white rounded shadow-lg flex flex-col h-[calc(100vh-280px)] animate-in fade-in zoom-in duration-300 font-sans border border-slate-200">
-            <div className="bg-[#2e1065] text-white p-2 flex justify-between items-center shrink-0 rounded-t-lg shadow-md z-10">
-                <div className="flex items-center gap-4">
-                    <h2 className="text-sm font-bold flex items-center gap-2">
-                        <i className="fas fa-calculator"></i> 薪資與節數統計
-                    </h2>
-                    <span className="text-xs text-gray-300 bg-white/10 px-2 py-0.5 rounded">
-                        有效單數: {validOrders}
-                    </span>
-                </div>
-                <div className="text-right">
-                    <div className="text-[10px] text-gray-300 bg-white/10 px-2 py-0.5 rounded inline-block font-mono">
-                        (節數×{RATES.JIE_PRICE}) + (精油×{RATES.OIL_BONUS})
-                    </div>
-                </div>
-            </div>
-            
-            <div className="flex-1 overflow-y-auto overflow-x-hidden custom-scrollbar bg-slate-50">
-                <table className="w-full text-left border-collapse relative">
-                    <thead className="sticky top-0 z-10 shadow-sm">
-                        <tr className="bg-slate-200 text-slate-700 font-bold text-sm border-b border-slate-300">
-                            <th className="py-2 px-4 text-left w-1/4">技師</th>
-                            <th className="py-2 px-4 text-center">總節數</th>
-                            <th className="py-2 px-4 text-center">精油</th>
-                            <th className="py-2 px-4 text-center">客數</th>
-                            <th className="py-2 px-4 text-right w-1/4">總薪資</th>
-                        </tr>
-                    </thead>
-                    <tbody className="text-gray-800 divide-y divide-gray-200 bg-white">
-                        {commissionData.map((row) => (
-                            <tr key={row.id} className="hover:bg-indigo-50/50 transition-colors duration-150">
-                                {/* [FIX] Chỉ hiện 1 tên to, bỏ hình tròn */}
-                                <td className="py-3 px-4 text-left">
-                                    <span className={`font-bold text-2xl ${row.isGhost ? 'text-orange-700' : 'text-indigo-900'}`}>
-                                        {row.name}
-                                    </span>
-                                </td>
-                                <td className="py-3 px-4 text-center">
-                                    {row.jie > 0 ? <span className="inline-block min-w-[40px] bg-blue-100 text-blue-800 py-1 px-3 rounded font-bold text-xl shadow-sm">{row.jie}</span> : <span className="text-gray-300">-</span>}
-                                </td>
-                                <td className="py-3 px-4 text-center">
-                                    {row.oil > 0 ? <span className="inline-block min-w-[40px] bg-purple-100 text-purple-800 py-1 px-3 rounded font-bold text-xl shadow-sm">{row.oil}</span> : <span className="text-gray-300">-</span>}
-                                </td>
-                                <td className="py-3 px-4 text-center font-bold text-lg text-gray-500">
-                                    {row.orderCount > 0 ? row.orderCount : ''}
-                                </td>
-                                <td className="py-3 px-4 text-right">
-                                    <span className={`text-3xl font-black ${row.income > 0 ? 'text-emerald-700' : 'text-gray-300'}`}>
-                                        {row.income.toLocaleString()}
-                                    </span> 
-                                    <span className="text-sm text-gray-400 ml-1 font-bold">元</span>
-                                </td>
-                            </tr>
-                        ))}
-                    </tbody>
-                </table>
-                {commissionData.length === 0 && <div className="p-10 text-center text-gray-400 text-lg">無數據</div>}
-            </div>
-
-            <div className="bg-slate-100 border-t border-slate-300 p-3 shrink-0 rounded-b-lg">
-                <div className="flex justify-between items-center text-base font-bold text-gray-600">
-                    <div className="w-1/4 pl-4 text-gray-800 text-lg">總計:</div>
-                    <div className="text-blue-700 text-2xl">{totalJie}</div>
-                    <div className="text-purple-700 text-2xl">{totalOil}</div>
-                    <div className="text-center w-[100px]"></div>
-                    <div className="w-1/4 text-right pr-4 text-emerald-700 text-3xl font-black">
-                        {totalIncome.toLocaleString()} <span className="text-sm font-bold text-gray-500">元</span>
-                    </div>
-                </div>
-            </div>
-        </div>
-    );
-};
-
-// --- 2. NEW COMPONENT: TIMELINE VIEW (GIỚI HẠN ĐẾN 3H SÁNG) ---
-const TimelineView = ({ timelineData }) => {
-    // Tạo mảng giờ từ 8:00 đến 27:00 (3h sáng hôm sau)
-    const hours = Array.from({length: 20}, (_, i) => i + 8); // 8, 9, ..., 27
-    const PIXELS_PER_MIN = 2; 
-    const HOUR_WIDTH = 60 * PIXELS_PER_MIN; // 120px per hour
-
-    const formatHour = (h) => {
-        const displayH = h >= 24 ? h - 24 : h;
-        return `${displayH}:00`;
-    };
-
-    // Rows: Chair 1-6, Bed 1-6
-    const rows = [
-        ...Array.from({length:6}, (_,i) => ({id: `chair-${i+1}`, label: `足 ${i+1}`, type: 'chair'})),
-        ...Array.from({length:6}, (_,i) => ({id: `bed-${i+1}`, label: `身 ${i+1}`, type: 'bed'}))
-    ];
-
-    return (
-        <div className="bg-white rounded shadow border border-slate-200 overflow-hidden flex flex-col h-[calc(100vh-220px)]">
-            {/* Header */}
-            <div className="flex border-b border-slate-300 bg-slate-100 text-sm font-bold text-slate-600 shrink-0">
-                <div className="w-20 shrink-0 p-2 border-r border-slate-300 flex items-center justify-center bg-slate-200 z-20 sticky left-0">區域</div>
-                <div className="flex overflow-hidden">
-                    {hours.map(h => (
-                        <div key={h} className="shrink-0 border-r border-slate-300 flex items-center justify-center bg-slate-100 text-slate-500" style={{width: `${HOUR_WIDTH}px`}}>
-                            {formatHour(h)}
-                        </div>
-                    ))}
-                </div>
-            </div>
-
-            {/* Body */}
-            <div className="flex-1 overflow-auto custom-scrollbar relative">
-                <div className="relative" style={{width: `${hours.length * HOUR_WIDTH + 80}px`}}>
-                    {rows.map(row => (
-                        <div key={row.id} className="flex border-b border-slate-100 h-16 relative hover:bg-slate-50 transition-colors">
-                            {/* Row Label */}
-                            <div className={`w-20 shrink-0 border-r border-slate-300 flex items-center justify-center font-bold sticky left-0 z-10 ${row.type === 'chair' ? 'bg-teal-50 text-teal-700' : 'bg-purple-50 text-purple-700'}`}>
-                                {row.label}
-                            </div>
-                            
-                            {/* Grid Lines */}
-                            <div className="absolute left-20 top-0 bottom-0 right-0 flex pointer-events-none">
-                                {hours.map(h => (
-                                    <div key={h} className="shrink-0 border-r border-slate-200 h-full border-dashed" style={{width: `${HOUR_WIDTH}px`}}></div>
-                                ))}
-                            </div>
-
-                            {/* Bookings */}
-                            <div className="relative flex-1 h-full">
-                                {timelineData[row.id] && timelineData[row.id].map((slot, idx) => {
-                                    // Calculate position
-                                    // Start time is in minutes from 00:00. We need minutes from 08:00.
-                                    // If start < 8*60 (480), it means next day (e.g., 01:00 = 25:00 = 1500)
-                                    let startMins = slot.start; 
-                                    let duration = slot.end - slot.start;
-                                    
-                                    // Offset from 8:00 AM (480 mins)
-                                    const startOffset = startMins - 480; 
-                                    const leftPos = startOffset * PIXELS_PER_MIN;
-                                    const width = duration * PIXELS_PER_MIN;
-
-                                    // Color based on status/type
-                                    let bgClass = "bg-indigo-100 text-indigo-700 border-indigo-300";
-                                    if (slot.booking.category === 'COMBO') bgClass = "bg-orange-100 text-orange-700 border-orange-300";
-                                    if (slot.booking.isOil) bgClass = "bg-pink-100 text-pink-700 border-pink-300";
-
-                                    return (
-                                        <div key={idx} 
-                                             className={`absolute top-2 bottom-2 rounded border px-2 flex flex-col justify-center text-xs overflow-hidden shadow-sm ${bgClass}`}
-                                             style={{left: `${leftPos}px`, width: `${width}px`}}
-                                             title={`${slot.booking.serviceName} - ${slot.booking.customerName}`}
-                                        >
-                                            <div className="font-bold truncate">{slot.booking.customerName}</div>
-                                            <div className="truncate opacity-75">{slot.booking.serviceName}</div>
-                                        </div>
-                                    );
-                                })}
-                            </div>
-                        </div>
-                    ))}
-                </div>
-            </div>
-        </div>
-    );
-};
+// --- 2. TIMELINE VIEW (Sử dụng TimelineView từ views.js đã sửa) ---
+const TimelineView = window.TimelineView;
 
 // --- APP COMPONENT ---
 const App = () => {
@@ -271,7 +14,7 @@ const App = () => {
     const [bookings, setBookings] = useState([]);
     const [resourceState, setResourceState] = useState({}); 
     const [statusData, setStatusData] = useState({});
-    const [timelineData, setTimelineData] = useState({}); // New State for Timeline
+    const [timelineData, setTimelineData] = useState({}); 
     
     // Modal States
     const [showWalkIn, setShowWalkIn] = useState(false);
@@ -287,7 +30,7 @@ const App = () => {
     const [syncLock, setSyncLock] = useState(false);
     const [quotaError, setQuotaError] = useState(false); 
 
-    // 2. HELPER FUNCTIONS
+    // 2. HELPER FUNCTIONS & LOGIC (GIỮ NGUYÊN)
     const isActuallyBusy = (staffId) => {
         if (!resourceState) return false;
         return Object.values(resourceState).some(r => {
@@ -834,11 +577,8 @@ const App = () => {
             const newStatusData = { ...statusData }; 
             const updatesToBookings = {};
 
-            // Dùng Map để gom nhóm dữ liệu theo rowId (Mã đặt chỗ)
-            // { "123": { Status1: "Done", Status3: "Done", Status6: "Done" } }
             const updatesByRow = {}; 
 
-            // 1. SẮP XẾP LẠI (GIỮ NGUYÊN)
             const sortedItems = [...itemsToPay].sort((a, b) => {
                 const getScore = (id) => {
                     const num = parseInt(id.replace(/\D/g, '')) || 0;
@@ -849,7 +589,6 @@ const App = () => {
                 return getScore(a.resourceId) - getScore(b.resourceId);
             });
 
-            // 2. CHUẨN BỊ DỮ LIỆU
             const baseTime = Date.now();
 
             for (let i = 0; i < sortedItems.length; i++) {
@@ -858,7 +597,6 @@ const App = () => {
                 const rid = String(b.rowId);
                 const resId = item.resourceId;
 
-                // --- LOGIC XÁC ĐỊNH SỐ GHẾ ---
                 let seatNum = parseInt(resId.replace(/\D/g, ''));
                 if (isNaN(seatNum) || seatNum < 1) seatNum = 1;
                 if (seatNum > 6) seatNum = 6;
@@ -866,7 +604,6 @@ const App = () => {
                 const statusColEnglish = `Status${seatNum}`; 
                 const statusColChinese = `狀態${seatNum}`; 
 
-                // GOM DỮ LIỆU (Chưa gửi API vội)
                 if (!updatesByRow[rid]) {
                     updatesByRow[rid] = {};
                 }
@@ -875,12 +612,10 @@ const App = () => {
                 updatesByRow[rid].forceSync = true;
                 updatesByRow[rid].rowId = rid;
 
-                // Cập nhật UI Booking
                 if(!updatesToBookings[rid]) updatesToBookings[rid] = {};
                 updatesToBookings[rid][statusColEnglish] = '✅ 完成';
                 updatesToBookings[rid][statusColChinese] = '✅ 完成';
 
-                // --- XẢ NHÂN VIÊN ---
                 let grpIdx = getGroupMemberIndex(resId, rid);
                 if (grpIdx === -1) grpIdx = determineColumnIndex(b, null, resId); 
 
@@ -899,11 +634,9 @@ const App = () => {
                     };
                 }
 
-                // Xóa thẻ khách khỏi giao diện
                 delete newState[resId];
             }
             
-            // 3. CẬP NHẬT UI NGAY LẬP TỨC
             setBookings(prev => prev.map(b => {
                 const rid = String(b.rowId);
                 if (updatesToBookings[rid]) {
@@ -916,8 +649,6 @@ const App = () => {
             updateStaffStatus(newStatusData); 
             setBillingData(null); 
 
-            // 4. GỬI API THEO DẠNG GOM NHÓM (QUAN TRỌNG)
-            // Thay vì gửi từng lệnh, giờ ta duyệt qua từng rowId và gửi 1 lệnh duy nhất cho row đó
             const apiCalls = Object.values(updatesByRow).map(payload => 
                 axios.post('/api/update-booking-details', payload)
             );
@@ -959,7 +690,7 @@ const App = () => {
     return (
         <div className="min-h-screen flex flex-col bg-slate-50">
             <header className={`text-white p-3 shadow-md flex justify-between items-center sticky top-0 z-50 transition-colors ${quotaError ? 'bg-red-800' : 'bg-[#1e1b4b]'}`}>
-                {/* LEFT SIDE: LOGO & DATE */}
+                {/* Header Content giữ nguyên */}
                 <div className="flex items-center gap-3">
                     <span className="bg-amber-500 text-black px-2 py-1 rounded font-black text-sm">V272</span>
                     <span className="font-bold hidden md:inline">XinWuChan</span>
@@ -970,36 +701,14 @@ const App = () => {
                     </div>
                 </div>
 
-                {/* CENTER: NAVIGATION TABS (CHINESE ONLY) */}
                 <div className="flex gap-3">
-                    <button onClick={()=>setActiveTab('map')} 
-                        className={`px-3 py-1.5 rounded-lg font-bold text-sm flex gap-2 items-center transition-all shadow-lg
-                        ${activeTab==='map' ? 'bg-blue-600 text-white ring-2 ring-white scale-105 opacity-100' : 'bg-blue-600 text-white/90 opacity-60 hover:opacity-100 hover:scale-105'}`}>
-                        <i className="fas fa-th"></i> <span className="hidden md:inline">平面圖</span>
-                    </button>
-                    <button onClick={()=>setActiveTab('timeline')} 
-                        className={`px-3 py-1.5 rounded-lg font-bold text-sm flex gap-2 items-center transition-all shadow-lg
-                        ${activeTab==='timeline' ? 'bg-purple-600 text-white ring-2 ring-white scale-105 opacity-100' : 'bg-purple-600 text-white/90 opacity-60 hover:opacity-100 hover:scale-105'}`}>
-                        <i className="fas fa-stream"></i> <span className="hidden md:inline">時間軸</span>
-                    </button>
-                    <button onClick={()=>setActiveTab('list')} 
-                        className={`px-3 py-1.5 rounded-lg font-bold text-sm flex gap-2 items-center transition-all shadow-lg
-                        ${activeTab==='list' ? 'bg-cyan-600 text-white ring-2 ring-white scale-105 opacity-100' : 'bg-cyan-600 text-white/90 opacity-60 hover:opacity-100 hover:scale-105'}`}>
-                        <i className="fas fa-list"></i> <span className="hidden md:inline">列表</span>
-                    </button>
-                    <button onClick={()=>setActiveTab('report')} 
-                        className={`px-3 py-1.5 rounded-lg font-bold text-sm flex gap-2 items-center transition-all shadow-lg
-                        ${activeTab==='report' ? 'bg-rose-600 text-white ring-2 ring-white scale-105 opacity-100' : 'bg-rose-600 text-white/90 opacity-60 hover:opacity-100 hover:scale-105'}`}>
-                        <i className="fas fa-chart-line"></i> <span className="hidden md:inline">報告</span>
-                    </button>
-                    <button onClick={()=>setActiveTab('commission')} 
-                        className={`px-3 py-1.5 rounded-lg font-bold text-sm flex gap-2 items-center transition-all shadow-lg ml-2 border-l border-white/30 pl-4
-                        ${activeTab==='commission' ? 'bg-indigo-600 text-white ring-2 ring-white scale-105 opacity-100' : 'bg-indigo-800 text-white/90 opacity-70 hover:opacity-100 hover:scale-105'}`}>
-                        <i className="fas fa-calculator"></i> <span className="hidden md:inline">節數/薪資</span>
-                    </button>
+                    <button onClick={()=>setActiveTab('map')} className={`px-3 py-1.5 rounded-lg font-bold text-sm flex gap-2 items-center transition-all shadow-lg ${activeTab==='map' ? 'bg-blue-600 text-white ring-2 ring-white scale-105 opacity-100' : 'bg-blue-600 text-white/90 opacity-60 hover:opacity-100 hover:scale-105'}`}><i className="fas fa-th"></i> <span className="hidden md:inline">平面圖</span></button>
+                    <button onClick={()=>setActiveTab('timeline')} className={`px-3 py-1.5 rounded-lg font-bold text-sm flex gap-2 items-center transition-all shadow-lg ${activeTab==='timeline' ? 'bg-purple-600 text-white ring-2 ring-white scale-105 opacity-100' : 'bg-purple-600 text-white/90 opacity-60 hover:opacity-100 hover:scale-105'}`}><i className="fas fa-stream"></i> <span className="hidden md:inline">時間軸</span></button>
+                    <button onClick={()=>setActiveTab('list')} className={`px-3 py-1.5 rounded-lg font-bold text-sm flex gap-2 items-center transition-all shadow-lg ${activeTab==='list' ? 'bg-cyan-600 text-white ring-2 ring-white scale-105 opacity-100' : 'bg-cyan-600 text-white/90 opacity-60 hover:opacity-100 hover:scale-105'}`}><i className="fas fa-list"></i> <span className="hidden md:inline">列表</span></button>
+                    <button onClick={()=>setActiveTab('report')} className={`px-3 py-1.5 rounded-lg font-bold text-sm flex gap-2 items-center transition-all shadow-lg ${activeTab==='report' ? 'bg-rose-600 text-white ring-2 ring-white scale-105 opacity-100' : 'bg-rose-600 text-white/90 opacity-60 hover:opacity-100 hover:scale-105'}`}><i className="fas fa-chart-line"></i> <span className="hidden md:inline">報告</span></button>
+                    <button onClick={()=>setActiveTab('commission')} className={`px-3 py-1.5 rounded-lg font-bold text-sm flex gap-2 items-center transition-all shadow-lg ml-2 border-l border-white/30 pl-4 ${activeTab==='commission' ? 'bg-indigo-600 text-white ring-2 ring-white scale-105 opacity-100' : 'bg-indigo-800 text-white/90 opacity-70 hover:opacity-100 hover:scale-105'}`}><i className="fas fa-calculator"></i> <span className="hidden md:inline">節數/薪資</span></button>
                 </div>
 
-                {/* RIGHT SIDE: ACTIONS */}
                 <div className="flex gap-2 items-center">
                     {quotaError && <button onClick={handleRetryConnection} className="bg-white text-red-600 px-4 py-1.5 rounded font-bold text-sm animate-pulse mr-4"><i className="fas fa-exclamation-triangle"></i> 重連</button>}
                     <button onClick={()=>setShowAvailability(true)} className="bg-emerald-500 hover:bg-emerald-400 text-white px-3 py-1.5 rounded font-bold text-sm flex gap-1 items-center shadow-md animate-pulse"><i className="fas fa-phone-volume"></i> <span className="hidden lg:inline">電話預約</span></button>
@@ -1008,6 +717,7 @@ const App = () => {
                 </div>
             </header>
             
+            {/* Staff Scroll Bar */}
             <div className="bg-white border-b shadow-sm p-2 overflow-x-auto whitespace-nowrap staff-scroll">
                 <div className="flex w-full justify-between items-center min-w-max">
                     <div className="flex gap-1 opacity-30 scale-95 border-r-2 pr-2 mr-1 border-dashed border-slate-300">
@@ -1027,15 +737,14 @@ const App = () => {
             <main className="flex-1 p-4 overflow-y-auto">
                 {activeTab === 'map' && (<div className="grid grid-cols-12 gap-6"><div className="col-span-9 space-y-6"><div><h3 className="font-bold text-emerald-600 mb-3 border-b pb-1">足底按摩區 (Foot)</h3><div className="grid grid-cols-6 gap-3">{[1,2,3,4,5,6].map(i => <window.ResourceCard key={`chair-${i}`} id={`chair-${i}`} type="FOOT" index={i} data={resourceState[`chair-${i}`]} busyStaffIds={busyStaffIds} staffList={staffList} onAction={handleResourceAction} onSelect={()=>setSelectedSlot(`chair-${i}`)} onSwitch={handleSwitch} onToggleMax={handleToggleMax} onToggleSequence={handleToggleSequence} onServiceChange={handleServiceChange} onStaffChange={handleStaffChange} onSplit={(rid)=>setSplitData({resourceId: rid})} getGroupMemberIndex={getGroupMemberIndex} />)}</div></div><div><h3 className="font-bold text-purple-600 mb-3 border-b pb-1">身體指壓區 (Body)</h3><div className="grid grid-cols-6 gap-3">{[1,2,3,4,5,6].map(i => <window.ResourceCard key={`bed-${i}`} id={`bed-${i}`} type="BODY" index={i} data={resourceState[`bed-${i}`]} busyStaffIds={busyStaffIds} staffList={staffList} onAction={handleResourceAction} onSelect={()=>setSelectedSlot(`bed-${i}`)} onSwitch={handleSwitch} onToggleMax={handleToggleMax} onToggleSequence={handleToggleSequence} onServiceChange={handleServiceChange} onStaffChange={handleStaffChange} onSplit={(rid)=>setSplitData({resourceId: rid})} getGroupMemberIndex={getGroupMemberIndex} />)}</div></div></div><div className="col-span-3 bg-white rounded-lg shadow p-4 h-fit sticky top-2"><h3 className="font-bold text-gray-700 mb-3">候位名單 ({todaysBookings.filter(b=>b.status==='已預約').length})</h3><div className="space-y-2 max-h-[500px] overflow-y-auto">{todaysBookings.filter(b=>b.status==='已預約').map(b => (<div key={b.rowId} className="border p-2 rounded hover:bg-slate-50 relative group bg-white shadow-sm"><div className="flex justify-between font-bold text-sm"><span>{b.customerName}</span><span className="text-indigo-600 font-mono">{(b.startTimeString||' ').split(' ')[1]}</span></div><div className="text-xs text-gray-500 font-bold">{b.serviceName}</div>{(b.isOil || (b.serviceName && b.serviceName.includes('油'))) && <div className="text-[10px] bg-purple-100 text-purple-700 inline-block px-1 rounded mt-1 font-bold border border-purple-200">💧 精油</div>}{b.pax > 1 && <div className="text-[10px] bg-orange-100 text-orange-600 inline-block px-1 rounded mt-1 ml-1 font-bold">{b.pax} 人</div>}{selectedSlot && <button onClick={()=>handleAssignBooking(b)} className="absolute inset-0 bg-green-500/90 text-white font-bold flex items-center justify-center rounded animate-pulse">排入 {selectedSlot}</button>}<button onClick={()=>handleManualUpdateStatus(b.rowId, '❌ Cancelled')} className="absolute top-1 right-1 text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100"><i className="fas fa-trash"></i></button></div>))}</div></div></div>)}
                 {activeTab === 'list' && (<div className="bg-white rounded shadow overflow-hidden"><table className="w-full text-sm text-left"><thead className="bg-slate-100 text-slate-600 font-bold"><tr><th className="p-3">預約日期</th><th className="p-3">時間</th><th className="p-3">姓名</th><th className="p-3">項目</th><th className="p-3">油推</th><th className="p-3">人數</th><th className="p-3">電話</th><th className="p-3">狀態</th><th className="p-3">指定師傅</th><th className="p-3 text-right">操作</th></tr></thead><tbody className="divide-y">{todaysBookings.map(b => { const nameParts = (b.customerName||'').split('('); const name = nameParts[0].trim(); const phone = nameParts.length > 1 ? nameParts[1].replace(')', '').trim() : (b.sdt || ''); const isOil = (b.serviceName||'').includes('油') ? 'Yes' : ''; return ( <tr key={b.rowId} className="hover:bg-slate-50"><td className="p-3 font-mono">{(b.startTimeString||' ').split(' ')[0]}</td><td className="p-3 font-mono font-bold text-indigo-700">{(b.startTimeString||' ').split(' ')[1]}</td><td className="p-3 font-bold">{name}</td><td className="p-3 text-gray-600">{b.serviceName}</td><td className="p-3 text-center">{isOil && <span className="text-purple-600 font-bold">Yes</span>}</td><td className="p-3 text-center">{b.pax}</td><td className="p-3 font-mono text-gray-500">{phone}</td><td className="p-3"><span className={`px-2 py-1 rounded text-xs font-bold ${b.status.includes('取消')?'bg-red-100 text-red-600':'bg-green-100 text-green-600'}`}>{b.status}</span></td><td className="p-3"><span className="bg-indigo-50 text-indigo-700 px-2 py-1 rounded text-xs font-bold">{b.staffId}</span></td><td className="p-3 text-right"><button onClick={()=>handleManualUpdateStatus(b.rowId, '❌ Cancelled')} className="text-red-500 hover:bg-red-50 px-2 py-1 rounded"><i className="fas fa-trash"></i></button></td></tr> ); })}</tbody></table></div>)}
-                {/* [FIX] Sử dụng TimelineView nội bộ thay vì window.TimelineView */}
+                
                 {activeTab === 'timeline' && <TimelineView timelineData={timelineData} />}
                 {activeTab === 'report' && <window.ReportView bookings={todaysBookings} />}
-                
-                {/* --- RENDER TAB MỚI: COMMISSION --- */}
                 {activeTab === 'commission' && <CommissionView bookings={todaysBookings} staffList={staffList} />}
             </main>
+            
             {showWalkIn && <window.WalkInModal onClose={()=>setShowWalkIn(false)} onSave={handleWalkInSave} staffList={staffList} initialDate={viewDate} />}
-            {showCheckIn && <window.CheckInBoard staffList={staffList} statusData={statusData} onUpdateStatus={updateStaffStatus} onClose={()=>setShowCheckIn(false)} />}
+            {showCheckIn && <window.CheckInBoard staffList={staffList} statusData={statusData} onUpdateStatus={updateStaffStatus} onClose={()=>setShowCheckIn(false)} bookings={todaysBookings} />}
             {showAvailability && <window.AvailabilityCheckModal onClose={()=>setShowAvailability(false)} onSave={handleWalkInSave} staffList={staffList} bookings={bookings} initialDate={viewDate} />}
             {comboStartData && <window.ComboStartModal onConfirm={confirmComboStart} onCancel={()=>setComboStartData(null)} bookingName={comboStartData.booking.serviceName} />}
             {selectedSlot && !bookings.find(b=>b.status==='已預約') && <div className="fixed inset-0 bg-black/30 z-50 flex items-center justify-center text-white font-bold" onClick={()=>setSelectedSlot(null)}>目前無候位! (No Waiting)</div>}
@@ -1045,7 +754,6 @@ const App = () => {
     );
 };
 
-// --- ROOT RENDER ---
 const root = ReactDOM.createRoot(document.getElementById('root'));
 root.render(
     <window.ErrorBoundary>
