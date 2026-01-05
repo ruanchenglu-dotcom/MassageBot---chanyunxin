@@ -1,7 +1,7 @@
 /**
  * =================================================================================================
  * PROJECT: XINWUCHAN MASSAGE BOT (BACKEND SERVER)
- * VERSION: V149 (ADDED SALARY SYNC FEATURE)
+ * VERSION: V150 (FIXED SALARY SYNC FOR BLOCK LAYOUT)
  * AUTHOR: AI ASSISTANT & OWNER
  * DATE: 2026/01/05
  * =================================================================================================
@@ -28,7 +28,7 @@ const SHEET_ID = process.env.SHEET_ID;
 const BOOKING_SHEET = 'Sheet1';          
 const STAFF_SHEET = 'StaffLog';          
 const SCHEDULE_SHEET = 'StaffSchedule';
-const SALARY_SHEET = 'SalaryLog'; // Sheet mới để ghi lương
+const SALARY_SHEET = 'SalaryLog'; // Sheet ghi lương
 
 const MAX_CHAIRS = 6; 
 const MAX_BEDS = 6;   
@@ -161,9 +161,7 @@ function parseStringToDate(dateStr) {
     } catch (e) { return null; }
 }
 
-/**
- * --- HELPER: CHUYỂN SỐ THÀNH CHỮ CỘT (0->A, 1->B...) ---
- */
+// Hàm hỗ trợ chuyển số cột sang chữ (0 -> A, 1 -> B)
 function getColumnLetter(colIndex) {
     let temp, letter = '';
     while (colIndex >= 0) {
@@ -175,64 +173,80 @@ function getColumnLetter(colIndex) {
 }
 
 /**
- * --- CHỨC NĂNG MỚI: GHI LƯƠNG VÀO SHEET SalaryLog ---
- * Logic: Tìm dòng Ngày (Cột A) -> Tìm cột Tên NV (Dòng 1) -> Ghi 3 ô (Tua, Dầu, Lương)
+ * --- HÀM SYNC LƯƠNG: LOGIC MỚI CHO BẢNG CỘT BLOCK ---
+ * Logic: Quét toàn bộ sheet. Tìm cột chứa tên NV. Dò ngày trong cột đó. Ghi vào 3 cột kế bên.
  */
 async function syncDailySalary(dateStr, staffDataList) {
     try {
-        console.log(`[SALARY] Bắt đầu ghi lương ngày: ${dateStr}`);
+        console.log(`[SALARY] 📥 Đang xử lý lương ngày: ${dateStr}`);
         
-        // 1. Lấy dòng tiêu đề (Dòng 1) để tìm cột tên nhân viên
-        const headerRes = await sheets.spreadsheets.values.get({
+        // 1. Đọc toàn bộ dữ liệu Sheet (Lấy vùng rộng để quét)
+        const range = `${SALARY_SHEET}!A1:AZ100`; // Giả sử tối đa cột AZ và 100 dòng
+        const res = await sheets.spreadsheets.values.get({
             spreadsheetId: SHEET_ID,
-            range: `${SALARY_SHEET}!1:1`
+            range: range
         });
-        const headers = headerRes.data.values ? headerRes.data.values[0] : [];
-        if (headers.length === 0) { console.error('[SALARY] Không tìm thấy tiêu đề ở dòng 1'); return; }
-
-        // 2. Lấy cột ngày tháng (Cột A) để tìm dòng ngày
-        const dateRes = await sheets.spreadsheets.values.get({
-            spreadsheetId: SHEET_ID,
-            range: `${SALARY_SHEET}!A:A`
-        });
-        const dates = dateRes.data.values ? dateRes.data.values.map(r => r[0]) : [];
-
-        let targetRowIndex = dates.findIndex(d => d === dateStr);
-        let actualRow = -1;
-
-        if (targetRowIndex === -1) {
-            console.log(`[SALARY] Ngày ${dateStr} chưa có, đang tạo dòng mới...`);
-            // Nếu chưa có ngày này, thêm vào cuối
-            await sheets.spreadsheets.values.append({
-                spreadsheetId: SHEET_ID,
-                range: `${SALARY_SHEET}!A:A`,
-                valueInputOption: 'USER_ENTERED',
-                requestBody: { values: [[dateStr]] }
-            });
-            // Tính lại row index (là dòng cuối cùng vừa thêm)
-            actualRow = dates.length + 1; 
-        } else {
-            actualRow = targetRowIndex + 1; // Google Sheet bắt đầu từ 1, mảng từ 0
+        
+        const rows = res.data.values;
+        if (!rows || rows.length === 0) {
+            console.error('[SALARY] ❌ Sheet rỗng hoặc tên sheet sai.');
+            return;
         }
 
-        // 3. Tạo danh sách các ô cần update (Batch Update cho nhanh)
+        const headerRow = rows[0]; // Dòng 1 chứa tên nhân viên (Merged cells thường trả về giá trị ở ô đầu tiên)
         const updates = [];
+        let updatedCount = 0;
 
+        // 2. Duyệt qua từng nhân viên được gửi xuống từ App
         staffDataList.forEach(staff => {
-            const colIndex = headers.indexOf(staff.name);
-            if (colIndex > -1) {
-                // Tìm thấy tên NV. Cột bắt đầu là colIndex
-                // Logic: Cột Tên = Tổng Tua, Cột Tên + 1 = Dầu, Cột Tên + 2 = Lương
-                const colSessions = getColumnLetter(colIndex);
-                const colOil = getColumnLetter(colIndex + 1);
-                const colSalary = getColumnLetter(colIndex + 2);
+            const staffName = staff.name.trim();
+            
+            // Tìm vị trí cột của nhân viên trong dòng Header (Dòng 1)
+            // Lưu ý: Với ô Merged, giá trị chỉ nằm ở cột đầu tiên của khối merge
+            const colIndex = headerRow.findIndex(cell => cell && cell.trim() === staffName);
 
-                updates.push({ range: `${SALARY_SHEET}!${colSessions}${actualRow}`, values: [[staff.sessions]] });
-                updates.push({ range: `${SALARY_SHEET}!${colOil}${actualRow}`, values: [[staff.oil]] });
-                updates.push({ range: `${SALARY_SHEET}!${colSalary}${actualRow}`, values: [[staff.salary]] });
+            if (colIndex !== -1) {
+                // Đã tìm thấy nhân viên ở cột số colIndex
+                // Tìm dòng chứa ngày (dateStr) TRONG CỘT CỦA NHÂN VIÊN ĐÓ (hoặc cột ngay dưới tên)
+                let targetRow = -1;
+
+                // Quét từ dòng 3 (index 2) trở đi để tìm ngày
+                for (let r = 2; r < rows.length; r++) {
+                    const rowData = rows[r];
+                    // Ngày nằm ở chính cột colIndex (theo cấu trúc Block của bạn)
+                    if (rowData[colIndex] && rowData[colIndex].trim() === dateStr) {
+                        targetRow = r + 1; // Google Sheet dùng 1-based index
+                        break;
+                    }
+                }
+
+                if (targetRow !== -1) {
+                    // Tính toán chữ cái cột để ghi
+                    // Cột Ngày = colIndex
+                    // Cột Tua = colIndex + 1
+                    // Cột Dầu = colIndex + 2
+                    // Cột Lương = colIndex + 3
+                    
+                    const colSessions = getColumnLetter(colIndex + 1);
+                    const colOil = getColumnLetter(colIndex + 2);
+                    const colSalary = getColumnLetter(colIndex + 3);
+
+                    // Tạo lệnh ghi
+                    updates.push({ range: `${SALARY_SHEET}!${colSessions}${targetRow}`, values: [[staff.sessions]] });
+                    updates.push({ range: `${SALARY_SHEET}!${colOil}${targetRow}`, values: [[staff.oil]] });
+                    updates.push({ range: `${SALARY_SHEET}!${colSalary}${targetRow}`, values: [[staff.salary]] });
+                    
+                    updatedCount++;
+                    console.log(`   ✅ Tìm thấy ${staffName} ở cột ${getColumnLetter(colIndex)}, dòng ${targetRow}. Đã queue lệnh ghi.`);
+                } else {
+                    console.log(`   ⚠️ Có tên ${staffName} nhưng không tìm thấy ngày ${dateStr} trong cột ${getColumnLetter(colIndex)}.`);
+                }
+            } else {
+                console.log(`   ❌ Không tìm thấy tên nhân viên "${staffName}" trên dòng 1 của Sheet.`);
             }
         });
 
+        // 3. Thực thi ghi dữ liệu (Batch Update)
         if (updates.length > 0) {
             await sheets.spreadsheets.values.batchUpdate({
                 spreadsheetId: SHEET_ID,
@@ -241,13 +255,13 @@ async function syncDailySalary(dateStr, staffDataList) {
                     data: updates
                 }
             });
-            console.log(`[SALARY] ✅ Đã cập nhật xong lương cho ${updates.length / 3} nhân viên.`);
+            console.log(`[SALARY] ✨ Đã cập nhật thành công dữ liệu cho ${updatedCount} nhân viên.`);
         } else {
-            console.log('[SALARY] Không có dữ liệu nào cần cập nhật (hoặc không khớp tên NV).');
+            console.log('[SALARY] Không có dữ liệu nào được ghi (Do không khớp Tên hoặc Ngày).');
         }
 
     } catch (e) {
-        console.error('[SALARY ERROR]', e);
+        console.error('[SALARY ERROR] Lỗi hệ thống:', e);
     }
 }
 
@@ -775,7 +789,6 @@ app.get('/api/info', async (req, res) => {
 // --- API MỚI: NHẬN BÁO CÁO LƯƠNG TỪ WEB APP ---
 app.post('/api/save-salary', async (req, res) => {
     try {
-        // Dữ liệu Web App gửi xuống: { date: "2026/01/05", staffData: [{name, sessions, oil, salary}] }
         const { date, staffData } = req.body;
         
         if (!date || !staffData) {
@@ -1156,5 +1169,5 @@ async function handleEvent(event) {
 syncData();
 const port = process.env.PORT || 3000;
 app.listen(port, () => {
-    console.log(`Bot V149 (Full Code - Added Salary Sync) running on ${port}`);
+    console.log(`Bot V150 (Fixed Salary Block Logic) running on ${port}`);
 });
