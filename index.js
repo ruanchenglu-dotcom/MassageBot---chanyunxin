@@ -1,9 +1,9 @@
 /**
  * =================================================================================================
  * PROJECT: XINWUCHAN MASSAGE BOT (BACKEND SERVER)
- * VERSION: V148 (STABLE BACKEND FOR COMMISSION FIX)
+ * VERSION: V149 (ADDED SALARY SYNC FEATURE)
  * AUTHOR: AI ASSISTANT & OWNER
- * DATE: 2026/01/04
+ * DATE: 2026/01/05
  * =================================================================================================
  */
 
@@ -24,9 +24,11 @@ const config = {
 const ID_BA_CHU = process.env.ID_BA_CHU; 
 const SHEET_ID = process.env.SHEET_ID;   
 
+// --- CẤU HÌNH TÊN SHEET ---
 const BOOKING_SHEET = 'Sheet1';          
 const STAFF_SHEET = 'StaffLog';          
-const SCHEDULE_SHEET = 'StaffSchedule';  
+const SCHEDULE_SHEET = 'StaffSchedule';
+const SALARY_SHEET = 'SalaryLog'; // Sheet mới để ghi lương
 
 const MAX_CHAIRS = 6; 
 const MAX_BEDS = 6;   
@@ -157,6 +159,96 @@ function parseStringToDate(dateStr) {
         const min = parseInt(timeNums[1]) || 0;
         return new Date(year, month, day, hour, min);
     } catch (e) { return null; }
+}
+
+/**
+ * --- HELPER: CHUYỂN SỐ THÀNH CHỮ CỘT (0->A, 1->B...) ---
+ */
+function getColumnLetter(colIndex) {
+    let temp, letter = '';
+    while (colIndex >= 0) {
+        temp = (colIndex) % 26;
+        letter = String.fromCharCode(temp + 65) + letter;
+        colIndex = (colIndex - temp - 1) / 26;
+    }
+    return letter;
+}
+
+/**
+ * --- CHỨC NĂNG MỚI: GHI LƯƠNG VÀO SHEET SalaryLog ---
+ * Logic: Tìm dòng Ngày (Cột A) -> Tìm cột Tên NV (Dòng 1) -> Ghi 3 ô (Tua, Dầu, Lương)
+ */
+async function syncDailySalary(dateStr, staffDataList) {
+    try {
+        console.log(`[SALARY] Bắt đầu ghi lương ngày: ${dateStr}`);
+        
+        // 1. Lấy dòng tiêu đề (Dòng 1) để tìm cột tên nhân viên
+        const headerRes = await sheets.spreadsheets.values.get({
+            spreadsheetId: SHEET_ID,
+            range: `${SALARY_SHEET}!1:1`
+        });
+        const headers = headerRes.data.values ? headerRes.data.values[0] : [];
+        if (headers.length === 0) { console.error('[SALARY] Không tìm thấy tiêu đề ở dòng 1'); return; }
+
+        // 2. Lấy cột ngày tháng (Cột A) để tìm dòng ngày
+        const dateRes = await sheets.spreadsheets.values.get({
+            spreadsheetId: SHEET_ID,
+            range: `${SALARY_SHEET}!A:A`
+        });
+        const dates = dateRes.data.values ? dateRes.data.values.map(r => r[0]) : [];
+
+        let targetRowIndex = dates.findIndex(d => d === dateStr);
+        let actualRow = -1;
+
+        if (targetRowIndex === -1) {
+            console.log(`[SALARY] Ngày ${dateStr} chưa có, đang tạo dòng mới...`);
+            // Nếu chưa có ngày này, thêm vào cuối
+            await sheets.spreadsheets.values.append({
+                spreadsheetId: SHEET_ID,
+                range: `${SALARY_SHEET}!A:A`,
+                valueInputOption: 'USER_ENTERED',
+                requestBody: { values: [[dateStr]] }
+            });
+            // Tính lại row index (là dòng cuối cùng vừa thêm)
+            actualRow = dates.length + 1; 
+        } else {
+            actualRow = targetRowIndex + 1; // Google Sheet bắt đầu từ 1, mảng từ 0
+        }
+
+        // 3. Tạo danh sách các ô cần update (Batch Update cho nhanh)
+        const updates = [];
+
+        staffDataList.forEach(staff => {
+            const colIndex = headers.indexOf(staff.name);
+            if (colIndex > -1) {
+                // Tìm thấy tên NV. Cột bắt đầu là colIndex
+                // Logic: Cột Tên = Tổng Tua, Cột Tên + 1 = Dầu, Cột Tên + 2 = Lương
+                const colSessions = getColumnLetter(colIndex);
+                const colOil = getColumnLetter(colIndex + 1);
+                const colSalary = getColumnLetter(colIndex + 2);
+
+                updates.push({ range: `${SALARY_SHEET}!${colSessions}${actualRow}`, values: [[staff.sessions]] });
+                updates.push({ range: `${SALARY_SHEET}!${colOil}${actualRow}`, values: [[staff.oil]] });
+                updates.push({ range: `${SALARY_SHEET}!${colSalary}${actualRow}`, values: [[staff.salary]] });
+            }
+        });
+
+        if (updates.length > 0) {
+            await sheets.spreadsheets.values.batchUpdate({
+                spreadsheetId: SHEET_ID,
+                requestBody: {
+                    valueInputOption: 'USER_ENTERED',
+                    data: updates
+                }
+            });
+            console.log(`[SALARY] ✅ Đã cập nhật xong lương cho ${updates.length / 3} nhân viên.`);
+        } else {
+            console.log('[SALARY] Không có dữ liệu nào cần cập nhật (hoặc không khớp tên NV).');
+        }
+
+    } catch (e) {
+        console.error('[SALARY ERROR]', e);
+    }
 }
 
 async function syncData() {
@@ -680,6 +772,27 @@ app.get('/api/info', async (req, res) => {
     }); 
 });
 
+// --- API MỚI: NHẬN BÁO CÁO LƯƠNG TỪ WEB APP ---
+app.post('/api/save-salary', async (req, res) => {
+    try {
+        // Dữ liệu Web App gửi xuống: { date: "2026/01/05", staffData: [{name, sessions, oil, salary}] }
+        const { date, staffData } = req.body;
+        
+        if (!date || !staffData) {
+            return res.status(400).json({ success: false, message: "Thiếu dữ liệu" });
+        }
+
+        console.log(`[API] Nhận yêu cầu lưu lương ngày: ${date}`);
+        await syncDailySalary(date, staffData);
+
+        res.json({ success: true, message: "Đã lưu vào Sheet thành công!" });
+    } catch (error) {
+        console.error("Lỗi lưu lương:", error);
+        res.status(500).json({ success: false, message: "Lỗi Server" });
+    }
+});
+// ------------------------------------------------
+
 app.post('/api/sync-resource', (req, res) => { SERVER_RESOURCE_STATE = req.body; res.json({ success: true }); });
 app.post('/api/sync-staff-status', (req, res) => { SERVER_STAFF_STATUS = req.body; res.json({ success: true }); });
 
@@ -1043,5 +1156,5 @@ async function handleEvent(event) {
 syncData();
 const port = process.env.PORT || 3000;
 app.listen(port, () => {
-    console.log(`Bot V148 (Full Code - Fix Commission) running on ${port}`);
+    console.log(`Bot V149 (Full Code - Added Salary Sync) running on ${port}`);
 });

@@ -1,4 +1,3 @@
-// TYPE: views.js
 const { useState, useEffect, useMemo, useRef } = React;
 
 // --- 1. TIMELINE VIEW ---
@@ -17,6 +16,41 @@ const TimelineView = ({ timelineData }) => {
 
     // Tổng độ rộng (Quan trọng để thanh cuộn hoạt động)
     const TOTAL_WIDTH = LEFT_COL_WIDTH + (hours.length * HOUR_WIDTH);
+
+    // --- BẢNG MÀU ĐA DẠNG CHO KHÁCH HÀNG (18 MÀU) ---
+    // [FIX] Thêm bảng màu để phân biệt khách hàng
+    const colorPalette = [
+        "bg-red-100 text-red-800 border-red-300 hover:bg-red-200",
+        "bg-orange-100 text-orange-800 border-orange-300 hover:bg-orange-200",
+        "bg-amber-100 text-amber-800 border-amber-300 hover:bg-amber-200",
+        "bg-yellow-100 text-yellow-800 border-yellow-300 hover:bg-yellow-200",
+        "bg-lime-100 text-lime-800 border-lime-300 hover:bg-lime-200",
+        "bg-green-100 text-green-800 border-green-300 hover:bg-green-200",
+        "bg-emerald-100 text-emerald-800 border-emerald-300 hover:bg-emerald-200",
+        "bg-teal-100 text-teal-800 border-teal-300 hover:bg-teal-200",
+        "bg-cyan-100 text-cyan-800 border-cyan-300 hover:bg-cyan-200",
+        "bg-sky-100 text-sky-800 border-sky-300 hover:bg-sky-200",
+        "bg-blue-100 text-blue-800 border-blue-300 hover:bg-blue-200",
+        "bg-indigo-100 text-indigo-800 border-indigo-300 hover:bg-indigo-200",
+        "bg-violet-100 text-violet-800 border-violet-300 hover:bg-violet-200",
+        "bg-purple-100 text-purple-800 border-purple-300 hover:bg-purple-200",
+        "bg-fuchsia-100 text-fuchsia-800 border-fuchsia-300 hover:bg-fuchsia-200",
+        "bg-pink-100 text-pink-800 border-pink-300 hover:bg-pink-200",
+        "bg-rose-100 text-rose-800 border-rose-300 hover:bg-rose-200",
+        "bg-slate-200 text-slate-800 border-slate-400 hover:bg-slate-300"
+    ];
+
+    // [FIX] Hàm lấy màu dựa trên rowId
+    const getRowIdColor = (rowId) => {
+        if (!rowId) return colorPalette[0];
+        let hash = 0;
+        const str = String(rowId);
+        for (let i = 0; i < str.length; i++) {
+            hash = str.charCodeAt(i) + ((hash << 5) - hash);
+        }
+        const index = Math.abs(hash) % colorPalette.length;
+        return colorPalette[index];
+    };
 
     const formatHour = (h) => {
         const displayH = h >= 24 ? h - 24 : h;
@@ -80,7 +114,7 @@ const TimelineView = ({ timelineData }) => {
                         // Logic thêm đường kẻ đỏ phân cách khu vực
                         const isLastChairRow = index === 5;
                         const rowStyleClass = isLastChairRow 
-                            ? "border-b-4 border-red-500" // Đường kẻ đỏ đậm
+                            ? "border-b-4 border-red-500" // Đường kẻ đỏ đậm ở dòng thứ 6 (Foot 6)
                             : "border-b border-slate-100"; 
 
                         return (
@@ -108,9 +142,8 @@ const TimelineView = ({ timelineData }) => {
                                         const leftPos = startOffset * PIXELS_PER_MIN;
                                         const width = duration * PIXELS_PER_MIN;
 
-                                        let bgClass = "bg-indigo-100 text-indigo-800 border-indigo-300 hover:bg-indigo-200";
-                                        if (slot.booking.category === 'COMBO') bgClass = "bg-orange-100 text-orange-800 border-orange-300 hover:bg-orange-200";
-                                        if (slot.booking.isOil) bgClass = "bg-pink-100 text-pink-800 border-pink-300 hover:bg-pink-200";
+                                        // [FIX] Sử dụng hàm getRowIdColor thay vì màu mặc định
+                                        let bgClass = getRowIdColor(slot.booking.rowId);
                                         
                                         const label = getDisplayLabel(slot.booking);
 
@@ -122,7 +155,10 @@ const TimelineView = ({ timelineData }) => {
                                             >
                                                 <div className="font-bold truncate text-[12px] leading-tight">{label}</div>
                                                 <div className="truncate opacity-75 text-[10px] flex items-center gap-1 mt-0.5">
-                                                    <i className="fas fa-clock text-[9px]"></i> {slot.booking.serviceName}
+                                                    {/* Thêm icon để nhận biết Dầu/Combo vì màu nền đã dùng để phân biệt khách */}
+                                                    {(slot.booking.isOil || (slot.booking.serviceName && slot.booking.serviceName.includes('油'))) && <span title="Oil">💧</span>}
+                                                    {(slot.booking.category === 'COMBO') && <span title="Combo">🔥</span>}
+                                                    <i className="fas fa-clock text-[9px] ml-1"></i> {slot.booking.serviceName}
                                                 </div>
                                             </div>
                                         );
@@ -138,7 +174,7 @@ const TimelineView = ({ timelineData }) => {
 };
 window.TimelineView = TimelineView;
 
-// --- 2. COMMISSION VIEW (FIXED LOGIC) ---
+// --- 2. COMMISSION VIEW ---
 const CommissionView = ({ bookings, staffList }) => {
     const RATES = { JIE_PRICE: 250, OIL_BONUS: 80 };
     const normalize = (str) => String(str || '').trim().replace(/\s+/g, '');
@@ -176,12 +212,10 @@ const CommissionView = ({ bookings, staffList }) => {
         return false;
     };
 
-    // [FIX]: Logic tính lương dựa trên STATUS của từng người
     const commissionData = useMemo(() => {
         const stats = {};
         const lookupMap = {}; 
         
-        // Khởi tạo danh sách nhân viên
         (staffList || []).forEach(staff => {
             const entry = { id: staff.id, name: staff.name || staff.id, jie: 0, oil: 0, income: 0, orderCount: 0 };
             stats[staff.id] = entry;
@@ -192,35 +226,28 @@ const CommissionView = ({ bookings, staffList }) => {
         const safeBookings = Array.isArray(bookings) ? bookings : [];
 
         safeBookings.forEach(b => {
-            // Bỏ qua đơn hủy
             if (b.status && (b.status.includes('取消') || b.status.includes('Cancel') || b.status.includes('❌'))) return;
             
-            // Xác định danh sách thợ và trạng thái tương ứng
-            // Data được map từ backend: serviceStaff -> Status1, staffId2 -> Status2...
             const slots = [
-                { id: b.serviceStaff || b.staffId, status: b.Status1 }, // Slot 1 (Thợ chính)
-                { id: b.staffId2, status: b.Status2 },                  // Slot 2
-                { id: b.staffId3, status: b.Status3 },                  // Slot 3
-                { id: b.staffId4, status: b.Status4 },                  // Slot 4
-                { id: b.staffId5, status: b.Status5 },                  // Slot 5
-                { id: b.staffId6, status: b.Status6 },                  // Slot 6
+                { id: b.serviceStaff || b.staffId, status: b.Status1 }, 
+                { id: b.staffId2, status: b.Status2 },                  
+                { id: b.staffId3, status: b.Status3 },                  
+                { id: b.staffId4, status: b.Status4 },                  
+                { id: b.staffId5, status: b.Status5 },                  
+                { id: b.staffId6, status: b.Status6 },                  
             ];
 
-            // Nếu đơn tổng đã hoàn thành (Cột H), coi như tất cả đều xong
             const mainStatusDone = b.status && (b.status.includes('完成') || b.status.includes('Done') || b.status.includes('✅'));
 
             slots.forEach((slot) => {
-                // Bỏ qua nếu không có thợ hoặc là "Ngẫu nhiên"
                 if (!slot.id || slot.id === '隨機' || slot.id === 'undefined' || slot.id === 'null' || slot.id === '') return;
                 
-                // [QUAN TRỌNG]: Chỉ tính nếu Slot đó đã xong HOẶC Đơn tổng đã xong
                 const isSlotDone = (slot.status && (slot.status.includes('完成') || slot.status.includes('Done'))) || mainStatusDone;
                 
                 if (isSlotDone) {
                     const normKey = normalize(slot.id);
                     let staffStat = lookupMap[normKey];
                     
-                    // Nếu thợ chưa có trong danh sách (thợ mới/thợ xóa), tạo tạm
                     if (!staffStat) {
                         staffStat = { id: slot.id, name: slot.id, jie: 0, oil: 0, income: 0, orderCount: 0, isGhost: true };
                         stats[slot.id] = staffStat; 
@@ -239,12 +266,10 @@ const CommissionView = ({ bookings, staffList }) => {
             });
         });
 
-        // Tính tổng tiền
         Object.values(stats).forEach(s => { 
             s.income = (s.jie * RATES.JIE_PRICE) + (s.oil * RATES.OIL_BONUS); 
         });
 
-        // Sắp xếp theo thu nhập giảm dần
         return Object.values(stats).sort((a, b) => {
              if (b.income !== a.income) return b.income - a.income;
              return String(a.id).localeCompare(String(b.id));
@@ -296,20 +321,17 @@ window.CommissionView = CommissionView;
 const ReportView = ({ bookings }) => {
     const safeBookings = Array.isArray(bookings) ? bookings : [];
     
-    // Tính toán doanh thu bao gồm cả đơn hoàn thành
     const processedStats = useMemo(() => {
         let revenue = 0; let guests = 0;
         safeBookings.forEach(b => {
             if (b.status && b.status.includes('取消')) return;
             const pax = parseInt(b.pax, 10) || 1;
             
-            // Check status of each person in the group
             for(let i=0; i<6; i++) {
                 const statusKey = `Status${i+1}`;
                 const isItemDone = (b[statusKey] && (b[statusKey].includes('完成') || b[statusKey].includes('Done')));
                 const isAllDone = (b.status && (b.status.includes('完成') || b.status.includes('Done') || b.status.includes('✅')));
                 
-                // ONLY count if this specific item is done OR entire order is done
                 if (isItemDone || (isAllDone && i < pax)) {
                     guests++;
                     const unitPrice = window.getPrice(b.serviceName);
@@ -343,7 +365,6 @@ const ReportView = ({ bookings }) => {
                                     const isSingleDone = (b[statusKey] && (b[statusKey].includes('完成') || b[statusKey].includes('Done')));
                                     const isAllDone = (b.status && (b.status.includes('完成') || b.status.includes('Done') || b.status.includes('✅')));
                                     
-                                    // ONLY show row if completed
                                     if (isSingleDone || (isAllDone && k < pax)) {
                                         const unitPrice = window.getPrice(b.serviceName); const oilPrice = window.getOilPrice(b.isOil || (b.serviceName && b.serviceName.includes('油'))); const singlePrice = unitPrice + oilPrice;
                                         let staffName = staffList[k] || b.serviceStaff || b.staffId || '隨機';
@@ -382,7 +403,6 @@ const ResourceCard = ({ id, type, index, data, busyStaffIds, onAction, onSelect,
                 setTimeLeft(totalLeft); 
                 setPercent(Math.min(100, Math.max(0, (elapsed / totalMs) * 100)));
                 
-                // Logic nhận diện Combo (kể cả khi Category chưa kịp update, dựa vào tên)
                 const isComboName = data.booking.serviceName && (data.booking.serviceName.includes('套餐') || data.booking.serviceName.includes('Combo'));
                 const isCombo = data.booking.category === 'COMBO' || isComboName;
 

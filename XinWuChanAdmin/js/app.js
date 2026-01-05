@@ -77,7 +77,7 @@ const App = () => {
     }
 
     const determineColumnIndex = (booking, activeStaffId, resourceId) => {
-        // [FIXED] Ưu tiên tìm theo tên thợ trong danh sách để trả về đúng index
+        // [FIXED] Ưu tiên tìm theo tên thợ
         if (activeStaffId && activeStaffId !== '隨機' && activeStaffId !== 'undefined') {
             const staffCols = [
                 booking.serviceStaff || booking.staffId, 
@@ -90,7 +90,7 @@ const App = () => {
             const idx = staffCols.findIndex(s => s && s.trim() === activeStaffId.trim());
             if (idx !== -1) return idx;
         }
-        // Fallback: Tìm theo số ghế
+        // Fallback: Tìm theo số ghế (Cố định, không phụ thuộc vào số lượng đang active)
         const seatNum = parseInt(resourceId.replace(/\D/g, '')); 
         if (!isNaN(seatNum) && seatNum > 0) {
             return Math.min(seatNum - 1, 5); 
@@ -108,7 +108,7 @@ const App = () => {
             return res && res.booking && String(res.booking.rowId) === String(targetRowId);
         });
         
-        // Sắp xếp theo thứ tự ghế/giường để đoán vị trí
+        // Sắp xếp theo thứ tự ghế/giường
         groupSlots.sort((a, b) => window.getWeight(a) - window.getWeight(b));
         
         const idx = groupSlots.indexOf(targetResId);
@@ -278,7 +278,6 @@ const App = () => {
             });
 
             // --- XẾP LỊCH CHO CÁC ĐƠN CHỜ ---
-            // Chỉ xếp các đơn chưa hoàn thành và chưa bắt đầu
             const pendingBookings = relevantBookings.filter(b => 
                 !b.status.includes('完成') && 
                 !b.status.includes('✅') &&
@@ -596,7 +595,7 @@ const App = () => {
     const handleToggleMax = async (resId) => { const res = resourceState[resId]; if (!res) return; updateResource({ ...resourceState, [resId]: { ...res, isMaxMode: !res.isMaxMode } }); };
     const handleToggleSequence = async (resId) => { const res = resourceState[resId]; if (!res || !res.comboMeta) return; const newSeq = res.comboMeta.sequence === 'FB' ? 'BF' : 'FB'; updateResource({ ...resourceState, [resId]: { ...res, comboMeta: { ...res.comboMeta, sequence: newSeq } } }); }
     
-    // --- PAYMENT HANDLER (UPDATED: INTELLIGENT MATCHING) ---
+    // --- PAYMENT HANDLER (UPDATED: LOGIC COMPLETE CHECK ALL STAFF) ---
     const handleConfirmPayment = async (itemsToPay, totalAmount) => {
         try {
             setSyncLock(true); 
@@ -614,7 +613,6 @@ const App = () => {
                 const rid = String(b.rowId);
                 const resId = item.resourceId;
 
-                // [FIXED LOGIC]: Tìm index chính xác dựa trên tên thợ
                 let targetIndex = -1;
                 const currentStaff = b.serviceStaff || b.staffId; 
                 
@@ -627,17 +625,17 @@ const App = () => {
                         b.staffId5,
                         b.staffId6
                     ];
-                    // Tìm vị trí của thợ trong danh sách thợ của đơn
                     targetIndex = staffCols.findIndex(s => s && s.trim() === currentStaff.trim());
                 }
 
-                // Fallback nếu không tìm thấy (dùng số ghế)
                 if (targetIndex === -1) {
-                    targetIndex = getGroupMemberIndex(resId, rid);
+                    const seatNum = parseInt(resId.replace(/\D/g, ''));
+                    if (!isNaN(seatNum) && seatNum > 0) {
+                        targetIndex = Math.min(seatNum - 1, 5); 
+                    } else {
+                        targetIndex = 0;
+                    }
                 }
-                
-                // Fallback cuối cùng
-                if (targetIndex === -1) targetIndex = 0;
 
                 const statusNum = targetIndex + 1;
                 const statusColEnglish = `Status${statusNum}`; 
@@ -663,27 +661,42 @@ const App = () => {
                 delete newState[resId];
             }
 
+            // Gửi API và tính toán hoàn thành nhóm (LOGIC MỚI: KIỂM TRA TẤT CẢ SLOT CÓ NGƯỜI)
             Object.values(updatesByRow).forEach(updatePayload => {
                 const booking = updatePayload.originalBooking;
-                const totalPax = parseInt(booking.pax || 1, 10);
                 
-                let completedCount = 0;
-                for(let k=1; k<=6; k++) {
-                    const key = `Status${k}`;
-                    if (booking[key] && (booking[key].includes('完成') || booking[key].includes('Done'))) completedCount++;
-                }
-                
-                for(let k=1; k<=6; k++) {
-                    const key = `Status${k}`;
-                    const isNewCompletion = updatePayload[key] && updatePayload[key].includes('完成');
-                    const wasAlreadyDone = booking[key] && (booking[key].includes('完成') || booking[key].includes('Done'));
-                    
-                    if (isNewCompletion && !wasAlreadyDone) {
-                        completedCount++;
-                    }
-                }
+                // Xác định có bao nhiêu thợ/slot tham gia vào đơn này
+                const staffCols = [
+                    booking.serviceStaff || booking.staffId, 
+                    booking.staffId2,                            
+                    booking.staffId3,                            
+                    booking.staffId4,                            
+                    booking.staffId5,                            
+                    booking.staffId6                             
+                ];
 
-                if (completedCount >= totalPax) {
+                let activeSlotsCount = 0;
+                let finishedSlotsCount = 0;
+
+                staffCols.forEach((staffName, idx) => {
+                    // Nếu slot này có thợ (không phải undefined/null/rỗng)
+                    if (staffName && staffName !== 'undefined' && staffName !== 'null' && staffName.trim() !== '') {
+                        activeSlotsCount++;
+                        
+                        const key = `Status${idx + 1}`;
+                        
+                        // Kiểm tra xem slot này đã xong chưa (trong payload mới HOẶC trong booking cũ)
+                        const isNewCompletion = updatePayload[key] && updatePayload[key].includes('完成');
+                        const wasAlreadyDone = booking[key] && (booking[key].includes('完成') || booking[key].includes('Done') || booking[key].includes('✅'));
+                        
+                        if (isNewCompletion || wasAlreadyDone) {
+                            finishedSlotsCount++;
+                        }
+                    }
+                });
+
+                // Chỉ đánh dấu hoàn thành đơn (Cột H) nếu TẤT CẢ các slot có thợ đều đã xong
+                if (activeSlotsCount > 0 && finishedSlotsCount >= activeSlotsCount) {
                     updatePayload.mainStatus = '✅ 完成'; 
                 }
                 
@@ -744,7 +757,7 @@ const App = () => {
             <header className={`text-white p-3 shadow-md flex justify-between items-center sticky top-0 z-50 transition-colors ${quotaError ? 'bg-red-800' : 'bg-[#1e1b4b]'}`}>
                 {/* Header Content */}
                 <div className="flex items-center gap-3">
-                    <span className="bg-amber-500 text-black px-2 py-1 rounded font-black text-sm">V276</span>
+                    <span className="bg-amber-500 text-black px-2 py-1 rounded font-black text-sm">V277</span>
                     <span className="font-bold hidden md:inline">XinWuChan</span>
                     <div className="flex items-center gap-2 bg-white/10 rounded px-2 py-1 border border-white/20">
                         <button onClick={()=>{const d=new Date(viewDate); d.setDate(d.getDate()-1); setViewDate(d.toISOString().split('T')[0])}} className="text-white hover:text-amber-400 font-bold px-2">❮</button>
