@@ -1,8 +1,8 @@
 // File: js/bookingHandler.js
-// Phiên bản: V19 (Final - Female+Oil Option integrated in Dropdown)
+// Phiên bản: V24 (Final - Robust Resource Detection & Combo Phase Logic)
 
 (function() {
-    console.log("🚀 BookingHandler V19 (Smart Dropdown): 啟動中...");
+    console.log("🚀 BookingHandler V24 (Robust Count): 啟動中...");
 
     if (typeof React === 'undefined') return;
     const { useState, useEffect, useMemo } = React;
@@ -30,39 +30,94 @@
         return checkMins >= startMins && checkMins < endMins;
     };
 
-    const countFreeResourcesInInterval = (type, startMins, endMins, todayBookings) => {
-        const MAX_RES = 6;
-        let freeCount = 0;
-        for (let i = 1; i <= MAX_RES; i++) {
-            const isBusy = todayBookings.some(b => {
-                const bStart = window.normalizeToTimelineMins(b.startTimeString.split(' ')[1]);
-                const duration = b.duration || 60;
-                const bEnd = bStart + duration;
-                let usesThisResource = false;
-                if (b.category === 'COMBO') {
-                    if (parseInt(b.rowId) === i) {
-                        const half = duration / 2;
-                        const mid = bStart + half;
-                        if (type === 'CHAIR') { if (Math.max(startMins, bStart) < Math.min(endMins, mid)) usesThisResource = true; }
-                        else { if (Math.max(startMins, mid) < Math.min(endMins, bEnd)) usesThisResource = true; }
-                    }
-                } else {
-                    if (parseInt(b.rowId) === i) {
-                        const isChairBooking = b.serviceName.includes('足') || b.type === 'CHAIR';
-                        if (type === 'CHAIR' && isChairBooking) usesThisResource = true;
-                        if (type === 'BED' && !isChairBooking) usesThisResource = true;
+    // [NEW V24] Hàm xác định loại tài nguyên dựa trên RowID và Tên dịch vụ
+    const detectStartResourceType = (rowId, serviceName, typeFromData) => {
+        const rId = String(rowId || '').toLowerCase();
+        
+        // 1. Check RowID trước
+        if (rId.includes('chair') || rId.includes('足')) return 'CHAIR';
+        if (rId.includes('bed') || rId.includes('身')) return 'BED';
+        
+        // 2. Nếu RowID là số (1-6 thường là ghế nếu là quán massage chân)
+        // Nhưng an toàn hơn là check Service Name
+        if (serviceName.includes('足') || serviceName.includes('Foot')) return 'CHAIR';
+        if (serviceName.includes('身') || serviceName.includes('Body') || serviceName.includes('指壓')) return 'BED';
+        
+        // 3. Check Type gốc từ Data
+        if (typeFromData === 'CHAIR') return 'CHAIR';
+        
+        // Mặc định còn lại là BED (Body/Combo thường dùng giường)
+        return 'BED'; 
+    };
+
+    // [UPDATED V24] HÀM ĐẾM TÀI NGUYÊN
+    const countOccupiedResources = (targetType, intervalStart, intervalEnd, todayBookings) => {
+        let occupiedCount = 0;
+        const CLEANUP_BUFFER = 10; 
+
+        todayBookings.forEach(b => {
+            const bStart = window.normalizeToTimelineMins(b.startTimeString.split(' ')[1]);
+            const duration = b.duration || 60;
+            const bEnd = bStart + duration;
+            const pax = parseInt(b.pax) || 1;
+            
+            // Bỏ qua nếu không giao nhau (tính cả buffer)
+            if (bStart > intervalEnd) return; 
+
+            let isUsingTarget = false;
+            
+            // Xác định Booking này bắt đầu ở đâu (Ghế hay Giường)
+            const startResType = detectStartResourceType(b.rowId, b.serviceName, b.type);
+
+            if (b.category === 'COMBO') {
+                const half = duration / 2;
+                const switchPoint = bStart + half;
+
+                // Phase 1: Start -> Switch + Buffer
+                const p1Start = bStart;
+                const p1End = switchPoint + CLEANUP_BUFFER;
+                
+                // Phase 2: Switch -> End + Buffer
+                const p2Start = switchPoint; 
+                const p2End = bEnd + CLEANUP_BUFFER;
+
+                // Logic: 
+                // Nếu bắt đầu ở Ghế -> Phase 1 là Ghế, Phase 2 là Giường
+                // Nếu bắt đầu ở Giường -> Phase 1 là Giường, Phase 2 là Ghế
+                
+                const p1Type = startResType; 
+                const p2Type = startResType === 'CHAIR' ? 'BED' : 'CHAIR';
+
+                // Check Overlap Phase 1
+                if (targetType === p1Type) {
+                    if (Math.max(intervalStart, p1Start) < Math.min(intervalEnd, p1End)) isUsingTarget = true;
+                }
+
+                // Check Overlap Phase 2
+                if (targetType === p2Type) {
+                    if (Math.max(intervalStart, p2Start) < Math.min(intervalEnd, p2End)) isUsingTarget = true;
+                }
+
+            } else {
+                // Single Service
+                const effectiveEnd = bEnd + CLEANUP_BUFFER;
+                if (targetType === startResType) {
+                    if (Math.max(intervalStart, bStart) < Math.min(intervalEnd, effectiveEnd)) {
+                        isUsingTarget = true;
                     }
                 }
-                if (!usesThisResource) return false;
-                return Math.max(startMins, bStart) < Math.min(endMins, bEnd);
-            });
-            if (!isBusy) freeCount++;
-        }
-        return freeCount;
+            }
+
+            if (isUsingTarget) {
+                occupiedCount += pax;
+            }
+        });
+
+        return occupiedCount;
     };
 
     // ==================================================================================
-    // 1. MODAL ĐẶT LỊCH (NEW AVAILABILITY CHECK MODAL)
+    // 1. MODAL ĐẶT LỊCH
     // ==================================================================================
     const NewAvailabilityCheckModal = ({ onClose, onSave, staffList, bookings, initialDate }) => {
         const [step, setStep] = useState('CHECK');
@@ -111,35 +166,21 @@
             });
         };
 
-        // Hàm xử lý chọn KTV + Dầu thông minh
         const handleGuestStaffChange = (index, value) => {
             setCheckResult(null); setSuggestions([]);
             setGuestDetails(prev => {
                 const copy = [...prev];
                 const current = copy[index];
-                
-                if (value === 'FEMALE_OIL') {
-                    copy[index] = { ...current, staff: '女', isOil: true };
-                } else if (value === '女') {
-                    copy[index] = { ...current, staff: '女', isOil: false }; // Reset oil if just female selected
-                } else if (value === '男' || value === '隨機') {
-                    copy[index] = { ...current, staff: value, isOil: false };
-                } else {
-                    // Specific Staff -> keep existing oil status or reset to false? 
-                    // Usually reset to false to avoid confusion, user must click oil button if needed.
-                    copy[index] = { ...current, staff: value, isOil: false };
-                }
+                if (value === 'FEMALE_OIL') { copy[index] = { ...current, staff: '女', isOil: true }; } 
+                else if (value === '女') { copy[index] = { ...current, staff: '女', isOil: false }; } 
+                else { copy[index] = { ...current, staff: value, isOil: false }; }
                 return copy;
             });
         };
 
         const toggleOil = (index) => {
             setCheckResult(null); setSuggestions([]);
-            setGuestDetails(prev => {
-                const copy = [...prev];
-                copy[index] = { ...copy[index], isOil: !copy[index].isOil };
-                return copy;
-            });
+            setGuestDetails(prev => { const copy = [...prev]; copy[index] = { ...copy[index], isOil: !copy[index].isOil }; return copy; });
         };
 
         const checkSlotAvailability = (targetTimeStr) => {
@@ -153,26 +194,32 @@
                 return bDate === targetDate && !b.status.includes('取消');
             });
 
-            // Staff Check
+            // 1. Staff Check
             const activeStaffCount = staffList.filter(s => isStaffWorkingAt(s, startMins, form.date)).length;
             let busyStaffCount = 0;
             todays.forEach(b => {
                 const bStart = window.normalizeToTimelineMins(b.startTimeString.split(' ')[1]);
                 const bDuration = b.duration || 60;
-                const bEnd = bStart + bDuration;
-                if (Math.max(startMins, bStart) < Math.min(endMins, bEnd)) busyStaffCount += (parseInt(b.pax) || 1);
+                const bEnd = bStart + bDuration + 10;
+                if (Math.max(startMins, bStart) < Math.min(endMins, bEnd)) {
+                    busyStaffCount += 1;
+                }
             });
-            if ((activeStaffCount - busyStaffCount) < form.pax) return { valid: false, reason: `❌ 人手不足 (Not enough staff). 餘:${activeStaffCount - busyStaffCount}` };
+            
+            if ((activeStaffCount - busyStaffCount) < form.pax) {
+                return { valid: false, reason: `❌ 人手不足 (Not enough staff). 現場:${activeStaffCount}, 忙碌:${busyStaffCount}` };
+            }
 
-            // KTV Check
+            // 2. KTV Check
             for (let i = 0; i < guestDetails.length; i++) {
                 const st = guestDetails[i].staff;
                 if (['隨機', '男', '女'].some(k => st.includes(k))) continue;
                 const staffObj = staffList.find(s => s.id === st || s.name === st);
                 if (staffObj && !isStaffWorkingAt(staffObj, startMins, form.date)) return { valid: false, reason: `❌ 技師 ${st} 休假/未上班` };
+                
                 const isBusy = todays.some(b => {
                     const bStart = window.normalizeToTimelineMins(b.startTimeString.split(' ')[1]);
-                    const bEnd = bStart + (b.duration || 60);
+                    const bEnd = bStart + (b.duration || 60) + 10;
                     const overlap = (startMins < bEnd && endMins > bStart);
                     const staffInOrder = [b.serviceStaff, b.staffId, b.technician, b.staffId2, b.staffId3, b.staffId4].map(s=>String(s));
                     return overlap && staffInOrder.includes(String(st));
@@ -180,27 +227,40 @@
                 if (isBusy) return { valid: false, reason: `❌ 技師 ${st} 忙碌` };
             }
 
-            // Resource Check
+            // 3. Resource Check (V24 - Robust)
+            const MAX_RES = 6;
             const svcInfo = window.SERVICES_DATA ? window.SERVICES_DATA[form.service] : {};
             const isCombo = form.service.includes('套餐') || svcInfo.category === 'COMBO';
+
             if (isCombo) {
                 const phaseDuration = duration / 2;
                 const p1S = startMins; const p1E = startMins + phaseDuration;
                 const p2S = p1E; const p2E = startMins + duration;
-                const cP1 = countFreeResourcesInInterval('CHAIR', p1S, p1E, todays);
-                const bP1 = countFreeResourcesInInterval('BED', p1S, p1E, todays);
-                const cP2 = countFreeResourcesInInterval('CHAIR', p2S, p2E, todays);
-                const bP2 = countFreeResourcesInInterval('BED', p2S, p2E, todays);
+
+                const chairsUsedP1 = countOccupiedResources('CHAIR', p1S, p1E, todays);
+                const bedsUsedP1   = countOccupiedResources('BED',   p1S, p1E, todays);
+                
+                const chairsUsedP2 = countOccupiedResources('CHAIR', p2S, p2E, todays);
+                const bedsUsedP2   = countOccupiedResources('BED',   p2S, p2E, todays);
+
                 let canFit = false;
-                for (let k = form.pax; k >= 0; k--) {
+                for (let k = form.pax; k >= 0; k--) { 
                     const j = form.pax - k;
-                    if ((cP1 >= k && bP1 >= j) && (bP2 >= k && cP2 >= j)) { canFit = true; break; }
+                    // Phase 1 Check
+                    const p1Ok = (chairsUsedP1 + k <= MAX_RES) && (bedsUsedP1 + j <= MAX_RES);
+                    // Phase 2 Check
+                    const p2Ok = (bedsUsedP2 + k <= MAX_RES) && (chairsUsedP2 + j <= MAX_RES);
+                    
+                    if (p1Ok && p2Ok) { canFit = true; break; }
                 }
                 if (!canFit) return { valid: false, reason: "❌ 區域客滿 (Area Full)" };
+
             } else {
                 const type = (form.service.includes('足') || svcInfo.type === 'CHAIR') ? 'CHAIR' : 'BED';
-                const freeCount = countFreeResourcesInInterval(type, startMins, endMins, todays);
-                if (freeCount < form.pax) return { valid: false, reason: type === 'CHAIR' ? "❌ 足底區客滿" : "❌ 指壓區客滿" };
+                const used = countOccupiedResources(type, startMins, endMins, todays);
+                if (used + form.pax > MAX_RES) {
+                    return { valid: false, reason: type === 'CHAIR' ? `❌ 足底區客滿 (${used}/6)` : `❌ 指壓區客滿 (${used}/6)` };
+                }
             }
             return { valid: true, reason: "OK" };
         };
@@ -263,7 +323,6 @@
                                 <div className="bg-slate-50 p-3 rounded border space-y-2">
                                     <div className="text-xs font-bold text-gray-400">指定技師 & 精油</div>
                                     {guestDetails.map((g, idx) => {
-                                        // Calculate the value to show in dropdown based on state
                                         const selectValue = (g.staff === '女' && g.isOil) ? 'FEMALE_OIL' : g.staff;
                                         return (
                                             <div key={idx} className="flex gap-2 items-center">
@@ -345,7 +404,6 @@
             });
         };
 
-        // Hàm xử lý chọn KTV + Dầu thông minh (Walk-in)
         const handleGuestStaffChange = (index, value) => {
             setCheckResult(null); setWaitSuggestion(null);
             setGuestDetails(prev => {
@@ -391,8 +449,8 @@
             todays.forEach(b => {
                 const bStart = window.normalizeToTimelineMins(b.startTimeString.split(' ')[1]);
                 const bDuration = b.duration || 60;
-                const bEnd = bStart + bDuration;
-                if (Math.max(startMins, bStart) < Math.min(endMins, bEnd)) busyStaffCount += (parseInt(b.pax) || 1);
+                const bEnd = bStart + bDuration + 10;
+                if (Math.max(startMins, bStart) < Math.min(endMins, bEnd)) busyStaffCount += 1;
             });
             if ((activeStaffCount - busyStaffCount) < form.pax) return { valid: false, reason: `❌ 人手不足 (Not enough staff)` };
 
@@ -402,9 +460,10 @@
                 if (['隨機', '男', '女'].some(k => st.includes(k))) continue;
                 const staffObj = staffList.find(s => s.id === st || s.name === st);
                 if (staffObj && !isStaffWorkingAt(staffObj, startMins, dateToCheck)) return { valid: false, reason: `❌ 技師 ${st} 未上班` };
+                
                 const isBusy = todays.some(b => {
                     const bStart = window.normalizeToTimelineMins(b.startTimeString.split(' ')[1]);
-                    const bEnd = bStart + (b.duration || 60);
+                    const bEnd = bStart + (b.duration || 60) + 10;
                     const overlap = (startMins < bEnd && endMins > bStart);
                     const staffInOrder = [b.serviceStaff, b.staffId, b.technician, b.staffId2, b.staffId3, b.staffId4].map(s=>String(s));
                     return overlap && staffInOrder.includes(String(st));
@@ -412,27 +471,31 @@
                 if (isBusy) return { valid: false, reason: `❌ 技師 ${st} 忙碌` };
             }
 
-            // 3. Resource Check
+            // 3. Resource Check (V24 - Robust)
+            const MAX_RES = 6;
             const svcInfo = window.SERVICES_DATA ? window.SERVICES_DATA[form.service] : {};
             const isCombo = form.service.includes('套餐') || svcInfo.category === 'COMBO';
+
             if (isCombo) {
                 const phaseDuration = duration / 2;
                 const p1S = startMins; const p1E = startMins + phaseDuration;
                 const p2S = p1E; const p2E = startMins + duration;
-                const cP1 = countFreeResourcesInInterval('CHAIR', p1S, p1E, todays);
-                const bP1 = countFreeResourcesInInterval('BED', p1S, p1E, todays);
-                const cP2 = countFreeResourcesInInterval('CHAIR', p2S, p2E, todays);
-                const bP2 = countFreeResourcesInInterval('BED', p2S, p2E, todays);
+
+                const chairsUsedP1 = countOccupiedResources('CHAIR', p1S, p1E, todays);
+                const bedsUsedP1   = countOccupiedResources('BED',   p1S, p1E, todays);
+                const chairsUsedP2 = countOccupiedResources('CHAIR', p2S, p2E, todays);
+                const bedsUsedP2   = countOccupiedResources('BED',   p2S, p2E, todays);
+
                 let canFit = false;
                 for (let k = form.pax; k >= 0; k--) {
                     const j = form.pax - k;
-                    if ((cP1 >= k && bP1 >= j) && (bP2 >= k && cP2 >= j)) { canFit = true; break; }
+                    if ((cP1 + k <= MAX_RES) && (bedsUsedP1 + j <= MAX_RES) && (bedsUsedP2 + k <= MAX_RES) && (chairsUsedP2 + j <= MAX_RES)) { canFit = true; break; }
                 }
                 if (!canFit) return { valid: false, reason: "❌ 區域客滿 (Area Full)" };
             } else {
                 const type = (form.service.includes('足') || svcInfo.type === 'CHAIR') ? 'CHAIR' : 'BED';
-                const freeCount = countFreeResourcesInInterval(type, startMins, endMins, todays);
-                if (freeCount < form.pax) return { valid: false, reason: type === 'CHAIR' ? "❌ 足底區客滿" : "❌ 指壓區客滿" };
+                const freeCount = countOccupiedResources(type, startMins, endMins, todays);
+                if (freeCount + form.pax > MAX_RES) return { valid: false, reason: type === 'CHAIR' ? "❌ 足底區客滿" : "❌ 指壓區客滿" };
             }
             return { valid: true, reason: "OK" };
         };
@@ -570,11 +633,11 @@
     const overrideInterval = setInterval(() => {
         if (window.AvailabilityCheckModal !== NewAvailabilityCheckModal) {
             window.AvailabilityCheckModal = NewAvailabilityCheckModal;
-            console.log("♻️ AvailabilityModal Updated (V19)");
+            console.log("♻️ AvailabilityModal Updated (V24)");
         }
         if (window.WalkInModal !== NewWalkInModal) {
             window.WalkInModal = NewWalkInModal;
-            console.log("♻️ WalkInModal Updated (V19 - Smart Dropdown)");
+            console.log("♻️ WalkInModal Updated (V24 - Robust Resource Check)");
         }
     }, 200);
     setTimeout(() => clearInterval(overrideInterval), 5000);

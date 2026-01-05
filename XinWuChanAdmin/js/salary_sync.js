@@ -1,63 +1,79 @@
-const { GoogleSpreadsheet } = require('google-spreadsheet');
-const creds = require('./path-to-your-json-key.json'); // Thay đường dẫn key của bạn
-const SHEET_ID = 'YOUR_GOOGLE_SHEET_ID'; // Thay ID Sheet của bạn
-
+/**
+ * --- PHIÊN BẢN MỚI: HỖ TRỢ BẢNG LƯƠNG DẠNG BLOCK (CỘT KÉP) ---
+ */
 async function syncDailySalary(dateStr, staffDataList) {
-    // dateStr: "2026/01/05"
-    // staffDataList: [{ name: "王", sessions: 3, oil: 0, salary: 750 }, ...]
-
-    const doc = new GoogleSpreadsheet(SHEET_ID);
-    await doc.useServiceAccountAuth(creds);
-    await doc.loadInfo();
-    const sheet = doc.sheetsByTitle['SalaryLog']; 
-    await sheet.loadCells(); // Load toàn bộ data để xử lý nhanh
-
-    const rowCount = sheet.rowCount;
-    const colCount = sheet.columnCount;
-    let targetRow = -1;
-
-    // 1. Tìm dòng chứa Ngày (Dựa vào cột A làm chuẩn)
-    for (let r = 2; r < rowCount; r++) {
-        const cellDate = sheet.getCell(r, 0).formattedValue; // Cột A
-        if (cellDate === dateStr) {
-            targetRow = r;
-            break;
-        }
-    }
-
-    if (targetRow === -1) {
-        console.log(`❌ Không tìm thấy ngày ${dateStr} trong cột A`);
-        return;
-    }
-
-    // 2. Duyệt qua từng nhân viên để điền số
-    staffDataList.forEach(staff => {
-        let staffCol = -1;
-        // Tìm cột chứa tên nhân viên ở Dòng 1 (Header)
-        for (let c = 0; c < colCount; c++) {
-            const cellVal = sheet.getCell(0, c).value; // Row 0 là dòng tên
-            if (cellVal === staff.name) {
-                staffCol = c; // Tìm thấy cột neo của nhân viên
-                break;
-            }
-        }
-
-        // Logic điền: Dựa vào ảnh, Tên nằm trên 'Tổng tiết', nên:
-        // Cột Tên - 1 = Cột Ngày
-        // Cột Tên = Cột Tổng Tiết (Sessions)
-        // Cột Tên + 1 = Cột Tinh Dầu (Oil)
-        // Cột Tên + 2 = Cột Tổng Lương (Salary)
+    try {
+        console.log(`[SALARY] Bắt đầu xử lý cho ngày: ${dateStr}`);
         
-        if (staffCol !== -1) {
-            sheet.getCell(targetRow, staffCol).value = staff.sessions;     // 總節數
-            sheet.getCell(targetRow, staffCol + 1).value = staff.oil;      // 精油
-            sheet.getCell(targetRow, staffCol + 2).value = staff.salary;   // 總薪資
+        // 1. Lấy dòng tiêu đề TÊN NHÂN VIÊN (Dòng 1)
+        const headerRes = await sheets.spreadsheets.values.get({
+            spreadsheetId: SHEET_ID,
+            range: `${SALARY_SHEET}!1:1` // Đọc toàn bộ dòng 1
+        });
+        const headers = headerRes.data.values ? headerRes.data.values[0] : [];
+        if (headers.length === 0) { console.error('[SALARY] ❌ Lỗi: Không đọc được dòng 1 (Tên NV)'); return; }
+
+        // 2. Tìm dòng chứa NGÀY cần ghi (Dựa vào cột A làm chuẩn)
+        const dateRes = await sheets.spreadsheets.values.get({
+            spreadsheetId: SHEET_ID,
+            range: `${SALARY_SHEET}!A:A` // Đọc cột A
+        });
+        const dates = dateRes.data.values ? dateRes.data.values.map(r => r[0]) : [];
+        
+        // Tìm vị trí dòng của ngày này
+        let rowIndex = dates.findIndex(d => d === dateStr);
+        let actualRow = -1;
+
+        if (rowIndex === -1) {
+            console.log(`[SALARY] ⚠️ Không tìm thấy ngày ${dateStr} trong cột A. Sẽ bỏ qua.`);
+            // Nếu bạn muốn tự tạo dòng mới ở cuối thì mở comment dòng dưới, nhưng với bảng form sẵn thì nên để báo lỗi.
+            return; 
+        } else {
+            actualRow = rowIndex + 1; // Vì mảng bắt đầu từ 0, sheet bắt đầu từ 1
         }
-    });
 
-    await sheet.saveUpdatedCells();
-    console.log(`✅ Đã cập nhật lương ngày ${dateStr} thành công!`);
+        console.log(`[SALARY] Tìm thấy ngày ở dòng số: ${actualRow}`);
+
+        // 3. Chuẩn bị dữ liệu ghi (Batch Update)
+        const updates = [];
+
+        staffDataList.forEach(staff => {
+            // Tìm cột chứa tên nhân viên
+            const colIndex = headers.indexOf(staff.name);
+            
+            if (colIndex > -1) {
+                // Logic theo ảnh bạn gửi:
+                // Tên NV ở cột A -> Sessions ở B (A+1), Oil ở C (A+2), Salary ở D (A+3)
+                
+                const colSessions = getColumnLetter(colIndex + 1); // Cột Tua
+                const colOil = getColumnLetter(colIndex + 2);      // Cột Dầu
+                const colSalary = getColumnLetter(colIndex + 3);   // Cột Lương
+
+                // Ghi dữ liệu
+                updates.push({ range: `${SALARY_SHEET}!${colSessions}${actualRow}`, values: [[staff.sessions]] });
+                updates.push({ range: `${SALARY_SHEET}!${colOil}${actualRow}`, values: [[staff.oil]] });
+                updates.push({ range: `${SALARY_SHEET}!${colSalary}${actualRow}`, values: [[staff.salary]] });
+                
+                console.log(`   -> Ghi cho ${staff.name}: Tua ${staff.sessions}, Dầu ${staff.oil}, Lương ${staff.salary}`);
+            } else {
+                console.log(`   ⚠️ Không tìm thấy tên "${staff.name}" trên dòng 1 của Sheet.`);
+            }
+        });
+
+        if (updates.length > 0) {
+            await sheets.spreadsheets.values.batchUpdate({
+                spreadsheetId: SHEET_ID,
+                requestBody: {
+                    valueInputOption: 'USER_ENTERED',
+                    data: updates
+                }
+            });
+            console.log(`[SALARY] ✅ Cập nhật thành công!`);
+        } else {
+            console.log('[SALARY] Không có dữ liệu nào được ghi.');
+        }
+
+    } catch (e) {
+        console.error('[SALARY ERROR]', e);
+    }
 }
-
-// Xuất hàm để dùng ở file khác
-module.exports = { syncDailySalary };
