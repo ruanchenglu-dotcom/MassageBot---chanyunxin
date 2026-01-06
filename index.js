@@ -1,9 +1,9 @@
 /**
  * =================================================================================================
  * PROJECT: XINWUCHAN MASSAGE BOT (BACKEND SERVER)
- * VERSION: V151 (FIX MULTI-GUEST MIXED SERVICES - SPLIT ROWS LOGIC)
+ * VERSION: V153 (FULL - SPLIT ROWS FOR TIMELINE & PRICE SYNC)
  * AUTHOR: AI ASSISTANT & OWNER
- * DATE: 2026/01/05
+ * DATE: 2026/01/06
  * =================================================================================================
  */
 
@@ -49,6 +49,7 @@ let cachedBookings = [];
 let scheduleMap = {}; 
 let userState = {}; 
 
+// [QUAN TRỌNG] Bảng giá và thông tin dịch vụ
 const SERVICES = {
     'CB_190': { name: '👑 帝王套餐 (190分)', duration: 190, type: 'BED', category: 'COMBO', price: 2000 },
     'CB_130': { name: '💎 豪華套餐 (130分)', duration: 130, type: 'BED', category: 'COMBO', price: 1500 },
@@ -62,9 +63,9 @@ const SERVICES = {
     'BD_90':  { name: '🛏️ 全身指壓 (90分)',  duration: 90,  type: 'BED', category: 'BODY', price: 999 },
     'BD_70':  { name: '🛏️ 全身指壓 (70分)',  duration: 70,  type: 'BED', category: 'BODY', price: 900 }, 
     'BD_35':  { name: '🛏️ 半身指壓 (35分)',  duration: 35,  type: 'BED', category: 'BODY', price: 500 },
-    'OFF_DAY': { name: '⛔ 請假', duration: 1080, type: 'NONE' },
-    'BREAK_30': { name: '🍱 用餐', duration: 30, type: 'NONE' },
-    'SHOP_CLOSE': { name: '⛔ 店休', duration: 1440, type: 'NONE' }
+    'OFF_DAY': { name: '⛔ 請假', duration: 1080, type: 'NONE', price: 0 },
+    'BREAK_30': { name: '🍱 用餐', duration: 30, type: 'NONE', price: 0 },
+    'SHOP_CLOSE': { name: '⛔ 店休', duration: 1440, type: 'NONE', price: 0 }
 };
 
 function getTaipeiNow() {
@@ -332,7 +333,7 @@ async function syncData() {
     } catch (e) { console.error('[SYNC ERROR]', e); }
 }
 
-// --- [V151 FIX] GHI VÀO SHEET: TÁCH DÒNG NẾU CÓ NHIỀU KHÁCH ---
+// --- [V153 FIX] GHI VÀO SHEET: TÁCH DÒNG RIÊNG CHO TỪNG KHÁCH ---
 async function ghiVaoSheet(data) {
     try {
         const timeCreate = getCurrentDateTimeStr(); 
@@ -349,22 +350,21 @@ async function ghiVaoSheet(data) {
         
         const valuesToWrite = [];
 
-        // Kiểm tra xem có dữ liệu chi tiết từng khách không (từ BookingHandler V42+)
+        // Nếu có guestDetails (từ Web Booking), tách từng người thành 1 dòng
         if (data.guestDetails && Array.isArray(data.guestDetails) && data.guestDetails.length > 0) {
-            // [LOGIC MỚI] Tách thành từng dòng riêng biệt
             data.guestDetails.forEach((guest, index) => {
                 const guestNum = index + 1;
                 const total = data.guestDetails.length;
-
-                // Tên khách: Gán thêm số thứ tự để biết nhóm (VD: Nguyen Van A (1/2))
+                
+                // Tên khách: Gán thêm số thứ tự (ví dụ: Nguyen Van A (1/2))
                 const colC_Name = `${data.hoTen || '現場客'} (${guestNum}/${total})`;
                 
-                // Dịch vụ của riêng người này
+                // Dịch vụ và Dầu của riêng khách này
                 let colD_Service = guest.service;
                 if (guest.isOil) colD_Service += " (油推+$200)";
 
                 const colE_Oil = guest.isOil ? "Yes" : "";
-                const colF_Pax = 1; // Mỗi dòng là 1 người -> Pax luôn là 1 để Timeline vẽ đúng
+                const colF_Pax = 1; // Mỗi dòng là 1 khách (để Timeline vẽ đúng độ dài)
                 const colI_Staff = guest.staff || '隨機';
 
                 valuesToWrite.push([ 
@@ -372,7 +372,7 @@ async function ghiVaoSheet(data) {
                 ]);
             });
         } else {
-            // [LOGIC CŨ] Fallback cho Line Bot hoặc dữ liệu cũ không có guestDetails
+            // Fallback (cho LINE Bot cũ)
             const colC_Name = data.hoTen || '現場客';             
             let colD_Service = data.dichVu;
             if (data.isOil) colD_Service += " (油推+$200)";       
@@ -768,7 +768,8 @@ app.get('/api/info', async (req, res) => {
         schedule: scheduleMap, 
         resources: { chairs: MAX_CHAIRS, beds: MAX_BEDS },
         resourceState: SERVER_RESOURCE_STATE,
-        staffStatus: SERVER_STAFF_STATUS 
+        staffStatus: SERVER_STAFF_STATUS,
+        services: SERVICES // [V153] Gửi bảng giá xuống Frontend
     }); 
 });
 
@@ -795,7 +796,7 @@ app.post('/api/save-salary', async (req, res) => {
 app.post('/api/sync-resource', (req, res) => { SERVER_RESOURCE_STATE = req.body; res.json({ success: true }); });
 app.post('/api/sync-staff-status', (req, res) => { SERVER_STAFF_STATUS = req.body; res.json({ success: true }); });
 
-// [V151] API WEB BOOKING: XỬ LÝ TÁCH DÒNG NẾU CÓ GUEST DETAILS
+// [V153] API WEB BOOKING: XỬ LÝ TÁCH DÒNG NẾU CÓ GUEST DETAILS
 app.post('/api/admin-booking', async (req, res) => { 
     const data = req.body; 
     
@@ -1159,5 +1160,5 @@ async function handleEvent(event) {
 syncData();
 const port = process.env.PORT || 3000;
 app.listen(port, () => {
-    console.log(`Bot V151 (Split Rows Logic) running on ${port}`);
+    console.log(`Bot V153 (Split Rows Logic) running on ${port}`);
 });
