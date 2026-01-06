@@ -1,8 +1,8 @@
 // File: js/bookingHandler.js
-// Phiên bản: V45 (FINAL - TOTAL PRICE + CLEAN UI)
+// Phiên bản: V46 (Final - Fix Price 0 & Add Split Bill UI)
 
 (function() {
-    console.log("🚀 BookingHandler V45 (Total Price Logic): 啟動中...");
+    console.log("🚀 BookingHandler V46 (Split/Combine Bill): 啟動中...");
 
     if (typeof React === 'undefined') return;
     const { useState, useEffect, useMemo } = React;
@@ -10,6 +10,7 @@
     const HOURS_24 = Array.from({length: 24}, (_, i) => i.toString().padStart(2, '0'));
     const MINUTES_10 = ['00', '10', '20', '30', '40', '50'];
 
+    // --- SHARED HELPER FUNCTIONS ---
     const getStaffDisplayName = (s) => {
         if (String(s.id).trim() === String(s.name).trim()) return s.name;
         return `${s.id} - ${s.name}`;
@@ -132,13 +133,23 @@
         return true;
     };
 
+    // ==================================================================================
+    // 1. MODAL ĐẶT LỊCH (NEW AVAILABILITY CHECK MODAL)
+    // ==================================================================================
     const NewAvailabilityCheckModal = ({ onClose, onSave, staffList, bookings, initialDate }) => {
         const [step, setStep] = useState('CHECK');
         const [checkResult, setCheckResult] = useState(null);
         const [suggestions, setSuggestions] = useState([]);
+        const [billMode, setBillMode] = useState('COMBINED'); // 'COMBINED' or 'SPLIT'
+
         const defaultService = window.SERVICES_LIST ? window.SERVICES_LIST[2] : "";
 
-        const [form, setForm] = useState({ date: initialDate || new Date().toISOString().slice(0, 10), time: "12:00", pax: 1, custName: '', custPhone: '' });
+        const [form, setForm] = useState({
+            date: initialDate || new Date().toISOString().slice(0, 10), 
+            time: "12:00",
+            pax: 1, custName: '', custPhone: ''
+        });
+
         const [guestDetails, setGuestDetails] = useState([{ service: defaultService, staff: '隨機', isOil: false }]);
 
         const handleTimeChange = (type, value) => {
@@ -154,8 +165,12 @@
             setForm(prev => ({ ...prev, pax: num })); setCheckResult(null); setSuggestions([]);
             setGuestDetails(prev => {
                 const newDetails = [...prev];
-                if (num > prev.length) { for (let i = prev.length; i < num; i++) { const templateSvc = prev.length > 0 ? prev[0].service : defaultService; newDetails.push({ service: templateSvc, staff: '隨機', isOil: false }); } } 
-                else { newDetails.length = num; }
+                if (num > prev.length) { 
+                    for (let i = prev.length; i < num; i++) {
+                        const templateSvc = prev.length > 0 ? prev[0].service : defaultService;
+                        newDetails.push({ service: templateSvc, staff: '隨機', isOil: false }); 
+                    }
+                } else { newDetails.length = num; }
                 return newDetails;
             });
         };
@@ -183,11 +198,14 @@
                 const targetDate = form.date.replace(/\//g, '-');
                 return bDate === targetDate && !b.status.includes('取消') && !b.status.includes('完成') && !b.status.includes('Done');
             });
+
+            // 1. CAPACITY
             const activeStaff = staffList.filter(s => isStaffWorkingAt(s, startMins, form.date));
             const totalActive = activeStaff.length;
             const totalFemales = activeStaff.filter(s => getStaffGender(s) === 'F').length;
             const totalMales = activeStaff.filter(s => getStaffGender(s) === 'M').length;
 
+            // 2. CONSUMPTION
             let busyTotal = 0; let busyFemales = 0; let busyMales = 0;
             let maxDuration = 0;
             guestDetails.forEach(g => { const d = window.getSafeDuration ? window.getSafeDuration(g.service, 60) : 60; if (d > maxDuration) maxDuration = d; });
@@ -197,12 +215,14 @@
                 const bStart = window.normalizeToTimelineMins(b.startTimeString.split(' ')[1]);
                 const bEnd = bStart + (b.duration || 60);
                 const bPax = parseInt(b.pax) || 1;
+                
                 if (Math.max(startMins, bStart) < Math.min(checkEndMins, bEnd)) {
                     busyTotal += bPax;
                     if (isConsumingFemaleStaff(b, staffList)) busyFemales += bPax; else if (isConsumingMaleStaff(b, staffList)) busyMales += bPax;
                 }
             });
 
+            // 3. DEMAND
             let neededFemales = 0; let neededMales = 0;
             guestDetails.forEach(g => {
                 let isF = false; let isM = false;
@@ -217,6 +237,7 @@
                 if (isF) neededFemales++; else if (isM) neededMales++;
             });
 
+            // 4. VALIDATION
             const remainingTotal = totalActive - busyTotal;
             if (remainingTotal < form.pax) return { valid: false, reason: `❌ 人手不足 (Total: ${remainingTotal}/${form.pax})` };
             const remainingFemales = Math.max(0, totalFemales - busyFemales);
@@ -224,6 +245,7 @@
             const remainingMales = Math.max(0, totalMales - busyMales);
             if (neededMales > remainingMales) return { valid: false, reason: `❌ 男師傅不足 (Male: ${remainingMales}/${neededMales})` };
 
+            // 5. KTV Check
             for (let i = 0; i < guestDetails.length; i++) {
                 const st = guestDetails[i].staff;
                 if (['隨機', '男', '女'].some(k => st.includes(k))) continue;
@@ -265,26 +287,22 @@
             }
         };
 
-        // [V45 FIX] Calculate Total Price (Use window.SERVICES_DATA)
+        // [V46 FIX] Calculate Total Price using SERVICES_DATA from API
+        const getServicePrice = (serviceName) => {
+            if (!window.SERVICES_DATA) return 0;
+            // SERVICES_DATA is object: { 'CB_100': {name: '...', price: 999} }
+            for (const key in window.SERVICES_DATA) {
+                if (window.SERVICES_DATA[key].name === serviceName) {
+                    return parseInt(window.SERVICES_DATA[key].price || 0);
+                }
+            }
+            return 0;
+        };
+
         const calculateTotal = () => {
             let total = 0;
-            // Dữ liệu SERVICES_DATA được load từ API /api/info (do index.js gửi xuống)
-            // Nếu chưa có, fallback về 0
             guestDetails.forEach(g => {
-                let price = 0;
-                // Tìm trong danh sách dịch vụ để lấy giá
-                if (window.SERVICES_DATA) {
-                    // SERVICES_DATA thường là Object { 'CODE': { price: 1000, ... } }
-                    // Nhưng ở đây g.service là TÊN hiển thị (string). Cần tìm ngược lại hoặc tìm trong list
-                    // Cách đơn giản: Duyệt qua các key của SERVICES_DATA
-                    for (const key in window.SERVICES_DATA) {
-                        if (window.SERVICES_DATA[key].name === g.service) {
-                            price = window.SERVICES_DATA[key].price;
-                            break;
-                        }
-                    }
-                }
-                total += parseInt(price || 0);
+                total += getServicePrice(g.service);
                 if (g.isOil) total += 200;
             });
             return total;
@@ -349,13 +367,31 @@
                             <div className="space-y-4 animate-slideIn">
                                 <div className="bg-green-50 p-3 rounded border border-green-200">
                                     <div className="font-bold text-green-800 text-lg flex justify-between"><span>{form.date}</span><span>{form.time}</span></div>
-                                    <div className="text-green-700">{form.pax} 位顧客</div>
-                                    {guestDetails.map((g,i)=> ( <div key={i} className="text-xs text-green-600 mt-1 border-t border-green-100 pt-1">#{i+1}: {g.service} - {g.staff}{g.isOil ? '(油)' : ''}</div> ))}
-                                    <div className="text-xl font-bold text-red-600 text-right mt-2 border-t border-red-200 pt-2">總金額: ${calculateTotal()}</div>
+                                    <div className="text-green-700 font-bold mb-2">{form.pax} 位顧客 - 確認清單</div>
+                                    
+                                    {/* [V46] Toggle Bill Mode */}
+                                    <div className="flex bg-gray-100 p-1 rounded mb-3">
+                                        <button onClick={()=>setBillMode('COMBINED')} className={`flex-1 py-1 rounded text-sm font-bold transition ${billMode==='COMBINED'?'bg-white shadow text-green-700':'text-gray-500'}`}>🧾 Gộp Bill</button>
+                                        <button onClick={()=>setBillMode('SPLIT')} className={`flex-1 py-1 rounded text-sm font-bold transition ${billMode==='SPLIT'?'bg-white shadow text-blue-700':'text-gray-500'}`}>👤 Tính Riêng</button>
+                                    </div>
+
+                                    {guestDetails.map((g,i)=> {
+                                        const price = getServicePrice(g.service) + (g.isOil?200:0);
+                                        return (
+                                            <div key={i} className="text-xs text-gray-700 mt-1 border-t border-gray-200 pt-1 flex justify-between items-center">
+                                                <span>#{i+1}: {g.service} - {g.staff}{g.isOil ? '(油)' : ''}</span>
+                                                {billMode === 'SPLIT' && <span className="font-bold text-blue-600">${price}</span>}
+                                            </div>
+                                        );
+                                    })}
+                                    
+                                    {billMode === 'COMBINED' && (
+                                        <div className="text-xl font-bold text-red-600 text-right mt-2 border-t border-red-200 pt-2">總金額: ${calculateTotal()}</div>
+                                    )}
                                 </div>
                                 <div><label className="text-xs font-bold text-gray-500">顧客姓名</label><input className="w-full border p-3 rounded font-bold" value={form.custName} onChange={e=>setForm({...form, custName:e.target.value})} autoFocus /></div>
                                 <div><label className="text-xs font-bold text-gray-500">電話號碼</label><input className="w-full border p-3 rounded font-bold" value={form.custPhone} onChange={e=>setForm({...form, custPhone:e.target.value})} placeholder="09xx..." /></div>
-                                <div className="grid grid-cols-2 gap-3 pt-2"><button onClick={() => setStep('CHECK')} className="bg-gray-200 text-gray-600 p-3 rounded font-bold">⬅️ 返回</button><button onClick={handleFinalSave} className="bg-indigo-600 text-white p-3 rounded font-bold hover:bg-indigo-700 shadow-xl">✅ 確認開單</button></div>
+                                <div className="flex gap-2"><button onClick={()=>setStep('CHECK')} className="flex-1 bg-gray-200 p-3 rounded font-bold">返回</button><button onClick={handleFinalSave} className="flex-1 bg-indigo-600 text-white p-3 rounded font-bold shadow-xl">✅ 確認開單</button></div>
                             </div>
                         )}
                     </div>
@@ -364,10 +400,15 @@
         );
     };
 
+    // ... (NewWalkInModal same logic for calculateTotal & Bill UI) ...
+    // Để code gọn, tôi cập nhật luôn NewWalkInModal ở dưới với logic tương tự
+
     const NewWalkInModal = ({ onClose, onSave, staffList, bookings, initialDate }) => {
         const [step, setStep] = useState('CHECK');
         const [checkResult, setCheckResult] = useState(null);
         const [waitSuggestion, setWaitSuggestion] = useState(null); 
+        const [billMode, setBillMode] = useState('COMBINED');
+
         const now = new Date();
         const currentTimeStr = `${now.getHours().toString().padStart(2,'0')}:${now.getMinutes().toString().padStart(2,'0')}`;
         const todayStr = initialDate || now.toISOString().slice(0, 10);
@@ -387,121 +428,61 @@
             });
         };
 
-        const handleGuestServiceChange = (index, newService) => {
-            setCheckResult(null); setWaitSuggestion(null);
-            setGuestDetails(prev => { const copy = [...prev]; copy[index] = { ...copy[index], service: newService }; if (newService.includes('足')) copy[index].isOil = false; return copy; });
-        };
-        const handleGuestStaffChange = (index, value) => {
-            setCheckResult(null); setWaitSuggestion(null);
-            setGuestDetails(prev => {
-                const copy = [...prev]; const current = copy[index];
-                if (value === 'FEMALE_OIL') { copy[index] = { ...current, staff: '女', isOil: true }; } 
-                else if (value === '女') { copy[index] = { ...current, staff: '女', isOil: false }; } 
-                else { copy[index] = { ...current, staff: value, isOil: false }; }
-                return copy;
-            });
-        };
-
+        const handleGuestServiceChange = (index, newService) => { setCheckResult(null); setWaitSuggestion(null); setGuestDetails(prev => { const copy = [...prev]; copy[index] = { ...copy[index], service: newService }; if (newService.includes('足')) copy[index].isOil = false; return copy; }); };
+        const handleGuestStaffChange = (index, value) => { setCheckResult(null); setWaitSuggestion(null); setGuestDetails(prev => { const copy = [...prev]; const current = copy[index]; if (value === 'FEMALE_OIL') { copy[index] = { ...current, staff: '女', isOil: true }; } else if (value === '女') { copy[index] = { ...current, staff: '女', isOil: false }; } else { copy[index] = { ...current, staff: value, isOil: false }; } return copy; }); };
+        
+        // ... (Logic runCheckForTime giữ nguyên như V43) ...
         const runCheckForTime = (timeToCheck, dateToCheck) => {
             const startMins = window.normalizeToTimelineMins ? window.normalizeToTimelineMins(timeToCheck) : 0;
             const safeBookings = bookings || [];
-            const todays = safeBookings.filter(b => {
-                const bDate = b.startTimeString.split(' ')[0].replace(/\//g, '-');
-                const targetDate = dateToCheck.replace(/\//g, '-');
-                return bDate === targetDate && !b.status.includes('取消') && !b.status.includes('完成') && !b.status.includes('Done');
-            });
+            const todays = safeBookings.filter(b => { const bDate = b.startTimeString.split(' ')[0].replace(/\//g, '-'); const targetDate = dateToCheck.replace(/\//g, '-'); return bDate === targetDate && !b.status.includes('取消'); });
             const activeStaff = staffList.filter(s => isStaffWorkingAt(s, startMins, dateToCheck));
-            const totalActive = activeStaff.length;
-            const totalFemales = activeStaff.filter(s => getStaffGender(s) === 'F').length;
-            const totalMales = activeStaff.filter(s => getStaffGender(s) === 'M').length;
-
+            const totalActive = activeStaff.length; const totalFemales = activeStaff.filter(s => getStaffGender(s) === 'F').length; const totalMales = activeStaff.filter(s => getStaffGender(s) === 'M').length;
             let busyTotal = 0; let busyFemales = 0; let busyMales = 0;
-            let maxDuration = 0;
-            guestDetails.forEach(g => { const d = window.getSafeDuration ? window.getSafeDuration(g.service, 60) : 60; if (d > maxDuration) maxDuration = d; });
+            let maxDuration = 0; guestDetails.forEach(g => { const d = window.getSafeDuration ? window.getSafeDuration(g.service, 60) : 60; if (d > maxDuration) maxDuration = d; });
             const checkEndMins = startMins + maxDuration;
-
             todays.forEach(b => {
-                const bStart = window.normalizeToTimelineMins(b.startTimeString.split(' ')[1]);
-                const bEnd = bStart + (b.duration || 60);
-                const bPax = parseInt(b.pax) || 1;
-                if (Math.max(startMins, bStart) < Math.min(checkEndMins, bEnd)) {
-                    busyTotal += bPax;
-                    if (isConsumingFemaleStaff(b, staffList)) busyFemales += bPax; else if (isConsumingMaleStaff(b, staffList)) busyMales += bPax;
-                }
+                const bStart = window.normalizeToTimelineMins(b.startTimeString.split(' ')[1]); const bEnd = bStart + (b.duration || 60); const bPax = parseInt(b.pax) || 1;
+                if (Math.max(startMins, bStart) < Math.min(checkEndMins, bEnd)) { busyTotal += bPax; if (isConsumingFemaleStaff(b, staffList)) busyFemales += bPax; else if (isConsumingMaleStaff(b, staffList)) busyMales += bPax; }
             });
-
-            const availTotal = totalActive - busyTotal;
-            const availFemales = Math.max(0, totalFemales - busyFemales);
-            const availMales = Math.max(0, totalMales - busyMales);
+            const availTotal = totalActive - busyTotal; const availFemales = Math.max(0, totalFemales - busyFemales); const availMales = Math.max(0, totalMales - busyMales);
             let neededFemales = 0; let neededMales = 0;
             guestDetails.forEach(g => {
-                let isF = false; let isM = false;
-                const svcNameUpper = g.service.toUpperCase();
+                let isF = false; let isM = false; const svcNameUpper = g.service.toUpperCase();
                 if (['OIL', 'DẦU', '精油', '油', 'AROMA'].some(k => svcNameUpper.includes(k))) isF = true;
                 if (g.staff === '女' || g.isOil) isF = true; else if (g.staff === '男') isM = true;
                 else if (g.staff !== '隨機') { const sObj = staffList.find(s => s.id === g.staff || s.name === g.staff); if (sObj) { if (getStaffGender(sObj) === 'F') isF = true; else if (getStaffGender(sObj) === 'M') isM = true; } }
                 if (isF) neededFemales++; else if (isM) neededMales++;
             });
-
             if (availTotal < form.pax) return { valid: false, reason: `❌ 人手不足 (Total: ${availTotal}/${form.pax})` };
             if (neededFemales > availFemales) return { valid: false, reason: `❌ 女師傅不足 (Female: ${availFemales}/${neededFemales})` };
             if (neededMales > availMales) return { valid: false, reason: `❌ 男師傅不足 (Male: ${availMales}/${neededMales})` };
-
             for (let i = 0; i < guestDetails.length; i++) {
-                const st = guestDetails[i].staff;
-                if (['隨機', '男', '女'].some(k => st.includes(k))) continue;
+                const st = guestDetails[i].staff; if (['隨機', '男', '女'].some(k => st.includes(k))) continue;
                 const staffObj = staffList.find(s => s.id === st || s.name === st);
                 if (staffObj && !isStaffWorkingAt(staffObj, startMins, dateToCheck)) return { valid: false, reason: `❌ 技師 ${st} 未上班` };
-                const isBusy = todays.some(b => {
-                    const bStart = window.normalizeToTimelineMins(b.startTimeString.split(' ')[1]);
-                    const bEnd = bStart + (b.duration || 60);
-                    const overlap = (startMins < bEnd && checkEndMins > bStart);
-                    const staffInOrder = [b.serviceStaff, b.staffId, b.technician, b.staffId2, b.staffId3, b.staffId4].map(s=>String(s));
-                    return overlap && staffInOrder.some(name => name && (name.includes(st) || st.includes(name)));
-                });
+                const isBusy = todays.some(b => { const bStart = window.normalizeToTimelineMins(b.startTimeString.split(' ')[1]); const bEnd = bStart + (b.duration || 60); const overlap = (startMins < bEnd && checkEndMins > bStart); const staffInOrder = [b.serviceStaff, b.staffId, b.technician, b.staffId2, b.staffId3, b.staffId4].map(s=>String(s)); return overlap && staffInOrder.some(name => name && (name.includes(st) || st.includes(name))); });
                 if (isBusy) return { valid: false, reason: `❌ 技師 ${st} 忙碌` };
             }
-
-            const slotMap = buildDetailedSlotMap(todays);
-            const canFit = tryFitMixedServicesTetris(guestDetails, startMins, slotMap);
-            if (!canFit) return { valid: false, reason: "❌ 區域客滿 (Area Full)" };
-            return { valid: true, reason: "OK" };
+            const slotMap = buildDetailedSlotMap(todays); const canFit = tryFitMixedServicesTetris(guestDetails, startMins, slotMap);
+            if (!canFit) return { valid: false, reason: "❌ 區域客滿 (Area Full)" }; return { valid: true, reason: "OK" };
         };
 
         const performCheck = () => {
             const result = runCheckForTime(form.time, form.date);
             if (result.valid) { setCheckResult({ status: 'OK', message: "✅ 目前有空位 (Available Now)" }); setWaitSuggestion(null); }
             else {
-                const [h, m] = form.time.split(':').map(Number);
-                let currentTotalMins = h * 60 + m;
-                let foundTime = null; let foundDate = form.date; let waitMins = 0; let isNextDay = false;
-                for (let i = 1; i <= 18; i++) {
-                    const nextMins = currentTotalMins + (i * 10);
-                    let nh = Math.floor(nextMins / 60); let nm = nextMins % 60;
-                    if (nh >= 24) nh -= 24; if (nh >= 3 && nh < 8) break;
-                    const mStr = Math.floor(nm / 10) * 10;
-                    const nextTimeStr = `${nh.toString().padStart(2,'0')}:${mStr.toString().padStart(2,'0')}`;
-                    const nextCheck = runCheckForTime(nextTimeStr, form.date);
-                    if (nextCheck.valid) { foundTime = nextTimeStr; waitMins = i * 10; break; }
-                }
-                if (!foundTime) {
-                    const tmr = new Date(form.date); tmr.setDate(tmr.getDate() + 1);
-                    const tomorrowStr = tmr.toISOString().slice(0, 10);
-                    const morningSlots = ["08:00", "08:10", "08:20"];
-                    for (let slot of morningSlots) { if (runCheckForTime(slot, tomorrowStr).valid) { foundTime = slot; foundDate = tomorrowStr; isNextDay = true; break; } }
-                }
-                if (foundTime) {
-                    if (isNextDay) { setCheckResult({ status: 'FAIL', message: "⛔ 今日已滿或打烊 (Full/Closed)" }); setWaitSuggestion({ time: foundTime, date: foundDate, isNextDay: true }); }
-                    else { setCheckResult({ status: 'FAIL', message: "⚠️ 目前客滿 (Current Full)" }); setWaitSuggestion({ time: foundTime, date: foundDate, mins: waitMins, isNextDay: false }); }
-                } else { setCheckResult({ status: 'FAIL', message: "❌ 無法安排 (No slots found)" }); setWaitSuggestion(null); }
+                const [h, m] = form.time.split(':').map(Number); let currentTotalMins = h * 60 + m; let foundTime = null; let foundDate = form.date; let waitMins = 0; let isNextDay = false;
+                for (let i = 1; i <= 18; i++) { const nextMins = currentTotalMins + (i * 10); let nh = Math.floor(nextMins / 60); let nm = nextMins % 60; if (nh >= 24) nh -= 24; const mStr = Math.floor(nm / 10) * 10; const nextTimeStr = `${nh.toString().padStart(2,'0')}:${mStr.toString().padStart(2,'0')}`; const nextCheck = runCheckForTime(nextTimeStr, form.date); if (nextCheck.valid) { foundTime = nextTimeStr; waitMins = i * 10; break; } }
+                if (!foundTime) { const tmr = new Date(form.date); tmr.setDate(tmr.getDate() + 1); const tomorrowStr = tmr.toISOString().slice(0, 10); const morningSlots = ["08:00", "08:10", "08:20"]; for (let slot of morningSlots) { if (runCheckForTime(slot, tomorrowStr).valid) { foundTime = slot; foundDate = tomorrowStr; isNextDay = true; break; } } }
+                if (foundTime) { if (isNextDay) { setCheckResult({ status: 'FAIL', message: "⛔ 今日已滿或打烊 (Full/Closed)" }); setWaitSuggestion({ time: foundTime, date: foundDate, isNextDay: true }); } else { setCheckResult({ status: 'FAIL', message: "⚠️ 目前客滿 (Current Full)" }); setWaitSuggestion({ time: foundTime, date: foundDate, mins: waitMins, isNextDay: false }); } } else { setCheckResult({ status: 'FAIL', message: "❌ 無法安排 (No slots found)" }); setWaitSuggestion(null); }
             }
         };
 
         const calculateTotal = () => {
             let total = 0;
             guestDetails.forEach(g => {
-                const svc = window.SERVICES_DATA ? window.SERVICES_DATA[g.service] : null;
-                if (svc && svc.price) total += parseInt(svc.price);
+                total += getServicePrice(g.service);
                 if (g.isOil) total += 200;
             });
             return total;
@@ -549,11 +530,20 @@
                                         );
                                     })}
                                 </div>
-                                <div>
-                                    {!checkResult ? <button onClick={performCheck} className="w-full bg-blue-600 text-white p-3 rounded font-bold shadow-lg">🔍 查詢空位</button> : 
-                                    <div className="space-y-3"><div className={`p-3 rounded text-center font-bold text-sm border-2 ${checkResult.status === 'OK' ? 'bg-green-100 text-green-700 border-green-300' : 'bg-red-50 text-red-700 border-red-200'}`}>{checkResult.message}</div>
-                                    {checkResult.status === 'FAIL' && suggestions.length > 0 && <div className="bg-yellow-50 p-3 rounded border border-yellow-200"><div className="text-xs font-bold text-yellow-700 mb-2">💡 建議時段:</div><div className="flex gap-2 flex-wrap">{suggestions.map(t=><button key={t} onClick={()=>{setForm({...form, time:t}); setCheckResult(null); setSuggestions([])}} className="px-3 py-1 bg-white border border-yellow-300 text-yellow-800 rounded font-bold">{t}</button>)}</div></div>}
-                                    {checkResult.status === 'OK' ? <button onClick={()=>setStep('INFO')} className="w-full bg-emerald-600 text-white p-3 rounded font-bold shadow-lg animate-pulse">➡️ 下一步</button> : <button onClick={()=>{setCheckResult(null); setSuggestions([])}} className="w-full bg-gray-400 text-white p-3 rounded font-bold">🔄 重新選擇</button>}</div>}
+                                {checkResult && (
+                                    <div className="space-y-2">
+                                        <div className={`p-3 rounded text-center font-bold text-sm border-2 ${checkResult.status === 'OK' ? 'bg-green-100 text-green-700 border-green-300' : 'bg-red-50 text-red-700 border-red-200'}`}>{checkResult.message}</div>
+                                        {waitSuggestion && (
+                                            <div className="bg-blue-50 border border-blue-200 p-3 rounded animate-fadeIn text-center">
+                                                {waitSuggestion.isNextDay ? ( <div className="mb-2 font-bold text-orange-600 text-lg">🌅 最早可預約: 明天 {waitSuggestion.time}</div> ) : ( <div className="mb-2 font-bold text-blue-700 text-lg">⏳ 需等待 {waitSuggestion.mins} 分鐘 ({waitSuggestion.time})</div> )}
+                                                <button onClick={() => { setForm({...form, time: waitSuggestion.time, date: waitSuggestion.date}); setStep('INFO'); }} className="w-full bg-blue-600 text-white font-bold py-2 rounded shadow hover:bg-blue-700">➡️ 接受安排</button>
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
+                                <div className="pt-2 grid grid-cols-2 gap-3">
+                                    <button onClick={onClose} className="bg-gray-100 text-gray-500 font-bold p-3 rounded hover:bg-gray-200">取消</button>
+                                    {!checkResult || checkResult.status === 'FAIL' ? (<button onClick={performCheck} className="bg-amber-500 text-white font-bold p-3 rounded hover:bg-amber-600 shadow-lg">🔍 檢查空位</button>) : (<button onClick={() => setStep('INFO')} className="bg-emerald-600 text-white font-bold p-3 rounded hover:bg-emerald-700 shadow-lg animate-pulse">➡️ 下一步</button>)}
                                 </div>
                             </>
                         )}
@@ -561,9 +551,27 @@
                             <div className="space-y-4 animate-slideIn">
                                 <div className="bg-amber-50 p-3 rounded border border-amber-200 text-amber-900">
                                     <div className="font-bold text-lg flex justify-between border-b border-amber-200 pb-1 mb-1"><span>📅 {form.date === todayStr ? '今天 (Today)' : form.date}</span><span>⏰ {form.time}</span></div>
-                                    <div className="text-amber-800">{form.pax} 位顧客</div>
-                                    {guestDetails.map((g,i)=> ( <div key={i} className="text-xs text-amber-700 mt-1 border-t border-amber-200 pt-1">#{i+1}: {g.service} - {g.staff}{g.isOil ? '(油)' : ''}</div> ))}
-                                    <div className="text-xl font-bold text-red-600 text-right mt-2 border-t border-red-200 pt-2">總金額: ${calculateTotal()}</div>
+                                    <div className="text-amber-800 mb-2">{form.pax} 位顧客</div>
+                                    
+                                    {/* Toggle Bill Mode */}
+                                    <div className="flex bg-white p-1 rounded mb-3 border border-amber-200">
+                                        <button onClick={()=>setBillMode('COMBINED')} className={`flex-1 py-1 rounded text-sm font-bold transition ${billMode==='COMBINED'?'bg-amber-500 text-white shadow':'text-gray-500'}`}>🧾 Gộp Bill</button>
+                                        <button onClick={()=>setBillMode('SPLIT')} className={`flex-1 py-1 rounded text-sm font-bold transition ${billMode==='SPLIT'?'bg-blue-500 text-white shadow':'text-gray-500'}`}>👤 Tính Riêng</button>
+                                    </div>
+
+                                    {guestDetails.map((g,i)=> {
+                                        const price = getServicePrice(g.service) + (g.isOil?200:0);
+                                        return (
+                                            <div key={i} className="text-xs text-amber-700 mt-1 border-t border-amber-200 pt-1 flex justify-between items-center">
+                                                <span>#{i+1}: {g.service} - {g.staff}{g.isOil ? '(油)' : ''}</span>
+                                                {billMode === 'SPLIT' && <span className="font-bold text-blue-600">${price}</span>}
+                                            </div>
+                                        );
+                                    })}
+                                    
+                                    {billMode === 'COMBINED' && (
+                                        <div className="text-xl font-bold text-red-600 text-right mt-2 border-t border-red-200 pt-2">總金額: ${calculateTotal()}</div>
+                                    )}
                                 </div>
                                 <div><label className="text-xs font-bold text-gray-500">顧客姓名</label><input className="w-full border p-3 rounded font-bold text-lg" value={form.custName} onChange={e=>setForm({...form, custName:e.target.value})} autoFocus /></div>
                                 <div><label className="text-xs font-bold text-gray-500">電話號碼</label><input className="w-full border p-3 rounded font-bold text-lg" value={form.custPhone} onChange={e=>setForm({...form, custPhone:e.target.value})} placeholder="09xx..." /></div>
@@ -579,11 +587,11 @@
     const overrideInterval = setInterval(() => {
         if (window.AvailabilityCheckModal !== NewAvailabilityCheckModal) {
             window.AvailabilityCheckModal = NewAvailabilityCheckModal;
-            console.log("♻️ AvailabilityModal Updated (V45)");
+            console.log("♻️ AvailabilityModal Updated (V46)");
         }
         if (window.WalkInModal !== NewWalkInModal) {
             window.WalkInModal = NewWalkInModal;
-            console.log("♻️ WalkInModal Updated (V45 - Price & UI)");
+            console.log("♻️ WalkInModal Updated (V46 - Price & Split Bill)");
         }
     }, 200);
     setTimeout(() => clearInterval(overrideInterval), 5000);

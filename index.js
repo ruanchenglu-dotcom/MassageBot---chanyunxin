@@ -241,7 +241,7 @@ async function syncData() {
                 let type = 'BED'; 
                 let category = 'BODY';
                 
-                // Tự động detect duration từ string dịch vụ (để hỗ trợ các dòng đã tách lẻ)
+                // Tự động detect duration từ string dịch vụ
                 for (const key in SERVICES) {
                     if (serviceStr.includes(SERVICES[key].name.split('(')[0])) { 
                         duration = SERVICES[key].duration; 
@@ -769,7 +769,7 @@ app.get('/api/info', async (req, res) => {
         resources: { chairs: MAX_CHAIRS, beds: MAX_BEDS },
         resourceState: SERVER_RESOURCE_STATE,
         staffStatus: SERVER_STAFF_STATUS,
-        services: SERVICES // [V153] Gửi bảng giá xuống Frontend
+        services: SERVICES // [V153] Gửi bảng giá & dịch vụ xuống Frontend
     }); 
 });
 
