@@ -1,8 +1,8 @@
 // File: js/bookingHandler.js
-// Phiên bản: V24 (Final - Robust Resource Detection & Combo Phase Logic)
+// Phiên bản: V43 (Final - Mixed Services, No Oil Button, Strict Checks)
 
 (function() {
-    console.log("🚀 BookingHandler V24 (Robust Count): 啟動中...");
+    console.log("🚀 BookingHandler V43 (Mixed Services & Clean UI): 啟動中...");
 
     if (typeof React === 'undefined') return;
     const { useState, useEffect, useMemo } = React;
@@ -17,10 +17,22 @@
         return `${s.id} - ${s.name}`;
     };
 
+    // 1. Check ngày làm việc từ Sheet (Hỗ trợ đa định dạng)
+    const getStaffDayStatus = (staff, dateString) => {
+        const [y, m, d] = dateString.split('-');
+        const keysToTry = [
+            `${y}/${m}/${d}`, `${y}/${parseInt(m)}/${parseInt(d)}`,
+            `${y}/${m}/${parseInt(d)}`, `${y}/${parseInt(m)}/${d}`
+        ];
+        for (const key of keysToTry) {
+            if (staff[key] !== undefined) return String(staff[key]).trim().toUpperCase();
+        }
+        return ''; 
+    };
+
     const isStaffWorkingAt = (staff, checkMins, dateString) => {
-        const sheetDateKey = dateString.replace(/-/g, '/');
-        const dayStatus = staff[sheetDateKey];
-        if (dayStatus && String(dayStatus).trim().toUpperCase() === 'OFF') return false;
+        const dayStatus = getStaffDayStatus(staff, dateString);
+        if (dayStatus === 'OFF') return false;
 
         if (!staff.shiftStart || !staff.shiftEnd) return false;
         if (String(staff.shiftStart).toUpperCase().includes('OFF')) return false;
@@ -30,120 +42,169 @@
         return checkMins >= startMins && checkMins < endMins;
     };
 
-    // [NEW V24] Hàm xác định loại tài nguyên dựa trên RowID và Tên dịch vụ
-    const detectStartResourceType = (rowId, serviceName, typeFromData) => {
-        const rId = String(rowId || '').toLowerCase();
-        
-        // 1. Check RowID trước
-        if (rId.includes('chair') || rId.includes('足')) return 'CHAIR';
-        if (rId.includes('bed') || rId.includes('身')) return 'BED';
-        
-        // 2. Nếu RowID là số (1-6 thường là ghế nếu là quán massage chân)
-        // Nhưng an toàn hơn là check Service Name
-        if (serviceName.includes('足') || serviceName.includes('Foot')) return 'CHAIR';
-        if (serviceName.includes('身') || serviceName.includes('Body') || serviceName.includes('指壓')) return 'BED';
-        
-        // 3. Check Type gốc từ Data
-        if (typeFromData === 'CHAIR') return 'CHAIR';
-        
-        // Mặc định còn lại là BED (Body/Combo thường dùng giường)
-        return 'BED'; 
+    // 2. Lấy giới tính nhân viên
+    const getStaffGender = (staff) => {
+        if (!staff) return 'UNKNOWN';
+        const g = String(staff.gender || '').toUpperCase().trim();
+        if (['F', '女', 'FEMALE', 'NU'].includes(g)) return 'F';
+        if (['M', '男', 'MALE', 'NAM'].includes(g)) return 'M';
+        return 'UNKNOWN';
     };
 
-    // [UPDATED V24] HÀM ĐẾM TÀI NGUYÊN
-    const countOccupiedResources = (targetType, intervalStart, intervalEnd, todayBookings) => {
-        let occupiedCount = 0;
-        const CLEANUP_BUFFER = 10; 
+    // 3. Truy vết Nữ (Oil Strict)
+    const isConsumingFemaleStaff = (booking, staffList) => {
+        if (booking.isOil === true || booking.isOil === 'true' || booking.oil === true) return true;
+
+        const textToCheck = (String(booking.serviceName || '') + " " + String(booking.ghiChu || '')).toUpperCase();
+        const oilKeywords = ['OIL', 'DẦU', 'DAU', '精油', 'AROMA', '油', '油推']; 
+        const femaleKeywords = ['NỮ', 'NU', 'FEMALE', '女', 'LADY'];
+        
+        if (oilKeywords.some(k => textToCheck.includes(k))) return true;
+        if (femaleKeywords.some(k => textToCheck.includes(k))) return true;
+
+        const sId = booking.staffId || booking.technician || booking.serviceStaff;
+        if (sId && sId !== '隨機' && sId !== 'undefined' && !String(sId).includes('Random')) {
+            const staffObj = staffList.find(s => s.id == sId || s.name == sId);
+            if (staffObj && getStaffGender(staffObj) === 'F') return true;
+        }
+        return false;
+    };
+
+    const isConsumingMaleStaff = (booking, staffList) => {
+        const sId = booking.staffId || booking.technician || booking.serviceStaff;
+        if (sId && sId !== '隨機' && sId !== 'undefined' && !String(sId).includes('Random')) {
+            const staffObj = staffList.find(s => s.id == sId || s.name == sId);
+            if (staffObj && getStaffGender(staffObj) === 'M') return true;
+        }
+        return false;
+    };
+
+    // 4. Build Slot Map (Timeline)
+    const buildDetailedSlotMap = (todayBookings) => {
+        const MAX_MINUTES = 3000;
+        const CLEANUP_BUFFER = 10;
+        const slots = { CHAIR: Array.from({length: 7}, () => new Uint8Array(MAX_MINUTES)), BED: Array.from({length: 7}, () => new Uint8Array(MAX_MINUTES)) };
 
         todayBookings.forEach(b => {
             const bStart = window.normalizeToTimelineMins(b.startTimeString.split(' ')[1]);
             const duration = b.duration || 60;
-            const bEnd = bStart + duration;
-            const pax = parseInt(b.pax) || 1;
-            
-            // Bỏ qua nếu không giao nhau (tính cả buffer)
-            if (bStart > intervalEnd) return; 
+            const rId = String(b.rowId || '').toLowerCase();
+            let slotIdx = parseInt(rId.replace(/\D/g, ''));
+            if (isNaN(slotIdx) || slotIdx < 1 || slotIdx > 6) return;
 
-            let isUsingTarget = false;
-            
-            // Xác định Booking này bắt đầu ở đâu (Ghế hay Giường)
-            const startResType = detectStartResourceType(b.rowId, b.serviceName, b.type);
+            let startType = 'BED';
+            if (rId.includes('chair') || rId.includes('足') || (b.serviceName && b.serviceName.includes('足')) || b.type === 'CHAIR') startType = 'CHAIR';
 
             if (b.category === 'COMBO') {
                 const half = duration / 2;
                 const switchPoint = bStart + half;
-
-                // Phase 1: Start -> Switch + Buffer
-                const p1Start = bStart;
                 const p1End = switchPoint + CLEANUP_BUFFER;
-                
-                // Phase 2: Switch -> End + Buffer
-                const p2Start = switchPoint; 
-                const p2End = bEnd + CLEANUP_BUFFER;
+                const p1Arr = slots[startType][slotIdx];
+                for(let t=bStart; t<p1End; t++) if(t<MAX_MINUTES) p1Arr[t] = 1;
 
-                // Logic: 
-                // Nếu bắt đầu ở Ghế -> Phase 1 là Ghế, Phase 2 là Giường
-                // Nếu bắt đầu ở Giường -> Phase 1 là Giường, Phase 2 là Ghế
-                
-                const p1Type = startResType; 
-                const p2Type = startResType === 'CHAIR' ? 'BED' : 'CHAIR';
-
-                // Check Overlap Phase 1
-                if (targetType === p1Type) {
-                    if (Math.max(intervalStart, p1Start) < Math.min(intervalEnd, p1End)) isUsingTarget = true;
-                }
-
-                // Check Overlap Phase 2
-                if (targetType === p2Type) {
-                    if (Math.max(intervalStart, p2Start) < Math.min(intervalEnd, p2End)) isUsingTarget = true;
-                }
-
+                const p2Type = startType === 'CHAIR' ? 'BED' : 'CHAIR';
+                const p2Start = switchPoint;
+                const p2End = bStart + duration + CLEANUP_BUFFER;
+                const p2Arr = slots[p2Type][slotIdx];
+                for(let t=p2Start; t<p2End; t++) if(t<MAX_MINUTES) p2Arr[t] = 1;
             } else {
-                // Single Service
-                const effectiveEnd = bEnd + CLEANUP_BUFFER;
-                if (targetType === startResType) {
-                    if (Math.max(intervalStart, bStart) < Math.min(intervalEnd, effectiveEnd)) {
-                        isUsingTarget = true;
+                const effectiveEnd = bStart + duration + CLEANUP_BUFFER;
+                const arr = slots[startType][slotIdx];
+                for(let t=bStart; t<effectiveEnd; t++) if(t<MAX_MINUTES) arr[t] = 1;
+            }
+        });
+        return slots;
+    };
+
+    // 5. Tetris for Mixed Services
+    const tryFitMixedServicesTetris = (guestDetails, startMins, slotMapOriginal) => {
+        const CLEANUP_BUFFER = 10;
+        const slotMap = { 
+            CHAIR: slotMapOriginal.CHAIR.map(arr => new Uint8Array(arr)), 
+            BED: slotMapOriginal.BED.map(arr => new Uint8Array(arr)) 
+        };
+
+        const isSlotAvailable = (type, idx, s, e) => {
+            const arr = slotMap[type][idx];
+            for (let t = s; t < e; t++) if (arr[t] === 1) return false;
+            return true;
+        };
+        const markSlotBusy = (type, idx, s, e) => {
+            const arr = slotMap[type][idx];
+            for (let t = s; t < e; t++) arr[t] = 1;
+        };
+
+        for (let i = 0; i < guestDetails.length; i++) {
+            const guest = guestDetails[i];
+            const serviceName = guest.service;
+            const svcInfo = window.SERVICES_DATA ? window.SERVICES_DATA[serviceName] : {};
+            const duration = window.getSafeDuration ? window.getSafeDuration(serviceName, 60) : 60;
+            const isCombo = serviceName.includes('套餐') || svcInfo.category === 'COMBO';
+
+            let placed = false;
+
+            if (isCombo) {
+                const half = duration / 2;
+                const p1Start = startMins; const p1End = startMins + half + CLEANUP_BUFFER;
+                const p2Start = startMins + half; const p2End = startMins + duration + CLEANUP_BUFFER;
+                
+                // Strategy 1: FB
+                for (let c = 1; c <= 6; c++) {
+                    if (isSlotAvailable('CHAIR', c, p1Start, p1End)) {
+                        for (let b = 1; b <= 6; b++) {
+                            if (isSlotAvailable('BED', b, p2Start, p2End)) {
+                                markSlotBusy('CHAIR', c, p1Start, p1End); markSlotBusy('BED', b, p2Start, p2End);
+                                placed = true; break;
+                            }
+                        }
+                    }
+                    if (placed) break;
+                }
+                // Strategy 2: BF
+                if (!placed) {
+                    for (let b = 1; b <= 6; b++) {
+                        if (isSlotAvailable('BED', b, p1Start, p1End)) {
+                            for (let c = 1; c <= 6; c++) {
+                                if (isSlotAvailable('CHAIR', c, p2Start, p2End)) {
+                                    markSlotBusy('BED', b, p1Start, p1End); markSlotBusy('CHAIR', c, p2Start, p2End);
+                                    placed = true; break;
+                                }
+                            }
+                        }
+                        if (placed) break;
+                    }
+                }
+            } else {
+                const type = (serviceName.includes('足') || svcInfo.type === 'CHAIR') ? 'CHAIR' : 'BED';
+                const effectiveEnd = startMins + duration + CLEANUP_BUFFER;
+                for (let r = 1; r <= 6; r++) {
+                    if (isSlotAvailable(type, r, startMins, effectiveEnd)) {
+                        markSlotBusy(type, r, startMins, effectiveEnd);
+                        placed = true; break;
                     }
                 }
             }
-
-            if (isUsingTarget) {
-                occupiedCount += pax;
-            }
-        });
-
-        return occupiedCount;
+            if (!placed) return false;
+        }
+        return true;
     };
 
     // ==================================================================================
-    // 1. MODAL ĐẶT LỊCH
+    // 1. MODAL ĐẶT LỊCH (NEW AVAILABILITY CHECK MODAL)
     // ==================================================================================
     const NewAvailabilityCheckModal = ({ onClose, onSave, staffList, bookings, initialDate }) => {
         const [step, setStep] = useState('CHECK');
         const [checkResult, setCheckResult] = useState(null);
         const [suggestions, setSuggestions] = useState([]);
+        const defaultService = window.SERVICES_LIST ? window.SERVICES_LIST[2] : "";
 
         const [form, setForm] = useState({
             date: initialDate || new Date().toISOString().slice(0, 10), 
             time: "12:00",
-            service: window.SERVICES_LIST ? window.SERVICES_LIST[2] : "", 
             pax: 1, custName: '', custPhone: ''
         });
 
-        const [guestDetails, setGuestDetails] = useState([{ staff: '隨機', isOil: false }]);
-
-        const isFootService = useMemo(() => {
-            if (!form.service) return false;
-            return form.service.includes('足') || (window.SERVICES_DATA && window.SERVICES_DATA[form.service]?.category === 'FOOT');
-        }, [form.service]);
-
-        const handleServiceChange = (e) => {
-            const newService = e.target.value;
-            setForm(prev => ({ ...prev, service: newService }));
-            setCheckResult(null); setSuggestions([]);
-            if (newService.includes('足')) { setGuestDetails(prev => prev.map(g => ({ ...g, isOil: false }))); }
-        };
+        const [guestDetails, setGuestDetails] = useState([{ service: defaultService, staff: '隨機', isOil: false }]);
 
         const handleTimeChange = (type, value) => {
             const [h, m] = form.time.split(':');
@@ -160,9 +221,23 @@
             setCheckResult(null); setSuggestions([]);
             setGuestDetails(prev => {
                 const newDetails = [...prev];
-                if (num > prev.length) { for (let i = prev.length; i < num; i++) newDetails.push({ staff: '隨機', isOil: false }); } 
-                else { newDetails.length = num; }
+                if (num > prev.length) { 
+                    for (let i = prev.length; i < num; i++) {
+                        const templateSvc = prev.length > 0 ? prev[0].service : defaultService;
+                        newDetails.push({ service: templateSvc, staff: '隨機', isOil: false }); 
+                    }
+                } else { newDetails.length = num; }
                 return newDetails;
+            });
+        };
+
+        const handleGuestServiceChange = (index, newService) => {
+            setCheckResult(null); setSuggestions([]);
+            setGuestDetails(prev => {
+                const copy = [...prev];
+                copy[index] = { ...copy[index], service: newService };
+                if (newService.includes('足')) copy[index].isOil = false;
+                return copy;
             });
         };
 
@@ -178,39 +253,81 @@
             });
         };
 
-        const toggleOil = (index) => {
-            setCheckResult(null); setSuggestions([]);
-            setGuestDetails(prev => { const copy = [...prev]; copy[index] = { ...copy[index], isOil: !copy[index].isOil }; return copy; });
-        };
-
         const checkSlotAvailability = (targetTimeStr) => {
-            const duration = window.getSafeDuration ? window.getSafeDuration(form.service, 60) : 60;
             const startMins = window.normalizeToTimelineMins ? window.normalizeToTimelineMins(targetTimeStr) : 0;
-            const endMins = startMins + duration;
             const safeBookings = bookings || [];
+            
             const todays = safeBookings.filter(b => {
                 const bDate = b.startTimeString.split(' ')[0].replace(/\//g, '-');
                 const targetDate = form.date.replace(/\//g, '-');
-                return bDate === targetDate && !b.status.includes('取消');
+                return bDate === targetDate && !b.status.includes('取消') && !b.status.includes('完成') && !b.status.includes('Done');
             });
 
-            // 1. Staff Check
-            const activeStaffCount = staffList.filter(s => isStaffWorkingAt(s, startMins, form.date)).length;
-            let busyStaffCount = 0;
+            // 1. CAPACITY
+            const activeStaff = staffList.filter(s => isStaffWorkingAt(s, startMins, form.date));
+            const totalActive = activeStaff.length;
+            const totalFemales = activeStaff.filter(s => getStaffGender(s) === 'F').length;
+            const totalMales = activeStaff.filter(s => getStaffGender(s) === 'M').length;
+
+            // 2. CONSUMPTION
+            let busyTotal = 0;
+            let busyFemales = 0;
+            let busyMales = 0;
+
+            let maxDuration = 0;
+            guestDetails.forEach(g => {
+                const d = window.getSafeDuration ? window.getSafeDuration(g.service, 60) : 60;
+                if (d > maxDuration) maxDuration = d;
+            });
+            const checkEndMins = startMins + maxDuration;
+
             todays.forEach(b => {
                 const bStart = window.normalizeToTimelineMins(b.startTimeString.split(' ')[1]);
                 const bDuration = b.duration || 60;
-                const bEnd = bStart + bDuration + 10;
-                if (Math.max(startMins, bStart) < Math.min(endMins, bEnd)) {
-                    busyStaffCount += 1;
+                const bEnd = bStart + bDuration;
+                const bPax = parseInt(b.pax) || 1;
+                
+                if (Math.max(startMins, bStart) < Math.min(checkEndMins, bEnd)) {
+                    busyTotal += bPax;
+                    if (isConsumingFemaleStaff(b, staffList)) busyFemales += bPax;
+                    else if (isConsumingMaleStaff(b, staffList)) busyMales += bPax;
                 }
             });
-            
-            if ((activeStaffCount - busyStaffCount) < form.pax) {
-                return { valid: false, reason: `❌ 人手不足 (Not enough staff). 現場:${activeStaffCount}, 忙碌:${busyStaffCount}` };
-            }
 
-            // 2. KTV Check
+            // 3. DEMAND
+            let neededFemales = 0;
+            let neededMales = 0;
+            
+            guestDetails.forEach(g => {
+                let isF = false; let isM = false;
+                const svcNameUpper = g.service.toUpperCase();
+                const oilKeys = ['OIL', 'DẦU', '精油', '油', 'AROMA'];
+                if (oilKeys.some(k => svcNameUpper.includes(k))) isF = true;
+
+                if (g.staff === '女' || g.isOil) isF = true;
+                else if (g.staff === '男') isM = true;
+                else if (g.staff !== '隨機') {
+                    const sObj = staffList.find(s => s.id === g.staff || s.name === g.staff);
+                    if (sObj) {
+                        if (getStaffGender(sObj) === 'F') isF = true;
+                        else if (getStaffGender(sObj) === 'M') isM = true;
+                    }
+                }
+                if (isF) neededFemales++;
+                else if (isM) neededMales++;
+            });
+
+            // 4. VALIDATION
+            const remainingTotal = totalActive - busyTotal;
+            if (remainingTotal < form.pax) return { valid: false, reason: `❌ 人手不足 (Total: ${remainingTotal}/${form.pax})` };
+            
+            const remainingFemales = Math.max(0, totalFemales - busyFemales);
+            if (neededFemales > remainingFemales) return { valid: false, reason: `❌ 女師傅不足 (Female: ${remainingFemales}/${neededFemales})` };
+
+            const remainingMales = Math.max(0, totalMales - busyMales);
+            if (neededMales > remainingMales) return { valid: false, reason: `❌ 男師傅不足 (Male: ${remainingMales}/${neededMales})` };
+
+            // 5. KTV Check
             for (let i = 0; i < guestDetails.length; i++) {
                 const st = guestDetails[i].staff;
                 if (['隨機', '男', '女'].some(k => st.includes(k))) continue;
@@ -219,49 +336,19 @@
                 
                 const isBusy = todays.some(b => {
                     const bStart = window.normalizeToTimelineMins(b.startTimeString.split(' ')[1]);
-                    const bEnd = bStart + (b.duration || 60) + 10;
-                    const overlap = (startMins < bEnd && endMins > bStart);
+                    const bEnd = bStart + (b.duration || 60);
+                    const overlap = (startMins < bEnd && checkEndMins > bStart);
                     const staffInOrder = [b.serviceStaff, b.staffId, b.technician, b.staffId2, b.staffId3, b.staffId4].map(s=>String(s));
-                    return overlap && staffInOrder.includes(String(st));
+                    return overlap && staffInOrder.some(name => name && (name.includes(st) || st.includes(name)));
                 });
                 if (isBusy) return { valid: false, reason: `❌ 技師 ${st} 忙碌` };
             }
 
-            // 3. Resource Check (V24 - Robust)
-            const MAX_RES = 6;
-            const svcInfo = window.SERVICES_DATA ? window.SERVICES_DATA[form.service] : {};
-            const isCombo = form.service.includes('套餐') || svcInfo.category === 'COMBO';
+            // 6. Tetris Check
+            const slotMap = buildDetailedSlotMap(todays);
+            const canFit = tryFitMixedServicesTetris(guestDetails, startMins, slotMap);
+            if (!canFit) return { valid: false, reason: "❌ 區域客滿 (Area Full)" };
 
-            if (isCombo) {
-                const phaseDuration = duration / 2;
-                const p1S = startMins; const p1E = startMins + phaseDuration;
-                const p2S = p1E; const p2E = startMins + duration;
-
-                const chairsUsedP1 = countOccupiedResources('CHAIR', p1S, p1E, todays);
-                const bedsUsedP1   = countOccupiedResources('BED',   p1S, p1E, todays);
-                
-                const chairsUsedP2 = countOccupiedResources('CHAIR', p2S, p2E, todays);
-                const bedsUsedP2   = countOccupiedResources('BED',   p2S, p2E, todays);
-
-                let canFit = false;
-                for (let k = form.pax; k >= 0; k--) { 
-                    const j = form.pax - k;
-                    // Phase 1 Check
-                    const p1Ok = (chairsUsedP1 + k <= MAX_RES) && (bedsUsedP1 + j <= MAX_RES);
-                    // Phase 2 Check
-                    const p2Ok = (bedsUsedP2 + k <= MAX_RES) && (chairsUsedP2 + j <= MAX_RES);
-                    
-                    if (p1Ok && p2Ok) { canFit = true; break; }
-                }
-                if (!canFit) return { valid: false, reason: "❌ 區域客滿 (Area Full)" };
-
-            } else {
-                const type = (form.service.includes('足') || svcInfo.type === 'CHAIR') ? 'CHAIR' : 'BED';
-                const used = countOccupiedResources(type, startMins, endMins, todays);
-                if (used + form.pax > MAX_RES) {
-                    return { valid: false, reason: type === 'CHAIR' ? `❌ 足底區客滿 (${used}/6)` : `❌ 指壓區客滿 (${used}/6)` };
-                }
-            }
             return { valid: true, reason: "OK" };
         };
 
@@ -276,12 +363,10 @@
                 for (let i = 1; i <= 24; i++) {
                     const nextMins = currentTotalMins + (i * 10);
                     let h = Math.floor(nextMins / 60); let m = nextMins % 60;
-                    if (h >= 24) h -= 24;
-                    if (h === 0 && m > 40) break; if (h > 0 && h < 8) break;
-                    const mStr = m.toString().padStart(2, '0');
-                    if (!['00','10','20','30','40','50'].includes(mStr)) continue;
-                    const timeStr = `${h.toString().padStart(2,'0')}:${mStr}`;
-                    if (checkSlotAvailability(timeStr).valid) { foundSuggestions.push(timeStr); if (foundSuggestions.length >= 4) break; }
+                    if (h >= 24) h -= 24; 
+                    const mStr = Math.floor(nm / 10) * 10;
+                    const nextTimeStr = `${nh.toString().padStart(2,'0')}:${mStr.toString().padStart(2,'0')}`;
+                    if (checkSlotAvailability(nextTimeStr).valid) { foundSuggestions.push(nextTimeStr); if (foundSuggestions.length >= 4) break; }
                 }
                 setSuggestions(foundSuggestions);
             }
@@ -289,13 +374,27 @@
 
         const handleFinalSave = () => {
             if (!form.custName) { alert("請輸入顧客姓名!"); return; }
+            
+            // Tạo chuỗi tóm tắt để hiển thị (nhưng backend cần xử lý guestDetails)
+            const serviceSummary = guestDetails.map(g => g.service).filter((v, i, a) => a.indexOf(v) === i).join(', ');
             const oilNotes = guestDetails.map((g, i) => g.isOil ? `K${i+1}:油推` : null).filter(Boolean).join(',');
+            
             onSave({
-                hoTen: form.custName, sdt: form.custPhone || "", dichVu: form.service, pax: form.pax,
-                ngayDen: form.date.replace(/-/g, '/'), gioDen: form.time,
-                nhanVien: guestDetails[0].staff, isOil: guestDetails[0].isOil,
-                staffId2: guestDetails[1]?.staff||null, staffId3: guestDetails[2]?.staff||null, staffId4: guestDetails[3]?.staff||null, staffId5: guestDetails[4]?.staff||null, staffId6: guestDetails[5]?.staff||null,
-                ghiChu: oilNotes ? `(${oilNotes})` : ""
+                hoTen: form.custName, 
+                sdt: form.custPhone || "", 
+                dichVu: serviceSummary, 
+                pax: form.pax,
+                ngayDen: form.date.replace(/-/g, '/'), 
+                gioDen: form.time,
+                nhanVien: guestDetails[0].staff, 
+                isOil: guestDetails[0].isOil,
+                staffId2: guestDetails[1]?.staff||null, 
+                staffId3: guestDetails[2]?.staff||null, 
+                staffId4: guestDetails[3]?.staff||null, 
+                staffId5: guestDetails[4]?.staff||null, 
+                staffId6: guestDetails[5]?.staff||null,
+                ghiChu: oilNotes ? `(${oilNotes})` : "",
+                guestDetails: guestDetails // Gửi mảng chi tiết này xuống để index.js xử lý
             });
         };
 
@@ -304,7 +403,7 @@
 
         return (
             <div className="fixed inset-0 bg-slate-900/90 z-[100] flex items-center justify-center p-4">
-                <div className="bg-white w-full max-w-lg rounded-xl shadow-2xl flex flex-col max-h-[95vh] overflow-hidden animate-fadeIn">
+                <div className="bg-white w-full max-w-xl rounded-xl shadow-2xl flex flex-col max-h-[95vh] overflow-hidden animate-fadeIn">
                     <div className="bg-[#10b981] p-4 text-white flex justify-between items-center">
                         <h3 className="font-bold text-lg">📅 新增預約 (Booking Check)</h3>
                         <button onClick={onClose} className="text-2xl hover:text-red-100">&times;</button>
@@ -316,25 +415,27 @@
                                     <div><label className="text-xs font-bold text-gray-500">日期 (Date)</label><input type="date" className="w-full border p-2 rounded font-bold h-[42px]" value={form.date} onChange={e=>{setForm({...form, date:e.target.value}); setCheckResult(null);}}/></div>
                                     <div><label className="text-xs font-bold text-gray-500">時間 (Time)</label><div className="flex items-center gap-1"><div className="relative flex-1"><select className="w-full border p-2 rounded font-bold h-[42px] appearance-none text-center bg-white" value={currentHour} onChange={(e) => handleTimeChange('HOUR', e.target.value)}>{HOURS_24.map(h => <option key={h} value={h}>{h}</option>)}</select></div><span className="font-bold">:</span><div className="relative flex-1"><select className="w-full border p-2 rounded font-bold h-[42px] appearance-none text-center bg-white" value={currentMinute} onChange={(e) => handleTimeChange('MINUTE', e.target.value)}>{MINUTES_10.map(m => <option key={m} value={m}>{m}</option>)}</select></div></div></div>
                                 </div>
-                                <div className="grid grid-cols-3 gap-3">
-                                    <div className="col-span-2"><label className="text-xs font-bold text-gray-500">服務項目</label><select className="w-full border p-2 rounded font-bold text-sm" value={form.service} onChange={handleServiceChange}>{(window.SERVICES_LIST||[]).map(s=><option key={s} value={s}>{s}</option>)}</select></div>
-                                    <div><label className="text-xs font-bold text-gray-500">人數</label><select className="w-full border p-2 rounded font-bold text-center" value={form.pax} onChange={e=>handlePaxChange(e.target.value)}>{[1,2,3,4,5,6].map(n=><option key={n} value={n}>{n} 位</option>)}</select></div>
+                                <div>
+                                    <label className="text-xs font-bold text-gray-500">人數 (Pax)</label>
+                                    <select className="w-full border p-2 rounded font-bold text-center h-[42px]" value={form.pax} onChange={e=>handlePaxChange(e.target.value)}>{[1,2,3,4,5,6].map(n=><option key={n} value={n}>{n} 位</option>)}</select>
                                 </div>
                                 <div className="bg-slate-50 p-3 rounded border space-y-2">
-                                    <div className="text-xs font-bold text-gray-400">指定技師 & 精油</div>
+                                    <div className="text-xs font-bold text-gray-400">詳細資訊 (Details per Guest)</div>
                                     {guestDetails.map((g, idx) => {
                                         const selectValue = (g.staff === '女' && g.isOil) ? 'FEMALE_OIL' : g.staff;
                                         return (
                                             <div key={idx} className="flex gap-2 items-center">
-                                                <div className="w-6 h-6 rounded-full bg-gray-300 flex items-center justify-center font-bold text-xs">{idx+1}</div>
-                                                <select className="flex-1 border p-2 rounded font-bold text-sm" value={selectValue} onChange={e=>handleGuestStaffChange(idx, e.target.value)}>
+                                                <div className="w-6 h-10 rounded bg-gray-200 flex items-center justify-center font-bold text-sm">#{idx+1}</div>
+                                                <select className="flex-1 border p-2 rounded font-bold text-sm h-10" value={g.service} onChange={e=>handleGuestServiceChange(idx, e.target.value)}>
+                                                    {(window.SERVICES_LIST||[]).map(s=><option key={s} value={s}>{s}</option>)}
+                                                </select>
+                                                <select className="flex-1 border p-2 rounded font-bold text-sm h-10" value={selectValue} onChange={e=>handleGuestStaffChange(idx, e.target.value)}>
                                                     <option value="隨機">🎲 隨機 (Random)</option>
                                                     <option value="女">🚺 女師傅 (Female)</option>
                                                     <option value="FEMALE_OIL">🚺 女師傅 + 精油 (Female Oil)</option>
                                                     <option value="男">🚹 男師傅 (Male)</option>
                                                     <optgroup label="技師列表">{safeStaffList.map(s=><option key={s.id} value={s.id}>{getStaffDisplayName(s)}</option>)}</optgroup>
                                                 </select>
-                                                <button onClick={()=> !isFootService && toggleOil(idx)} disabled={isFootService} className={`px-2 py-1 border rounded text-xs font-bold min-w-[70px] ${isFootService ? 'bg-slate-100 text-slate-300' : (g.isOil ? 'bg-purple-600 text-white' : 'bg-white text-gray-500')}`}>{isFootService ? '無精油' : (g.isOil ? '有精油' : '無精油')}</button>
                                             </div>
                                         );
                                     })}
@@ -349,7 +450,15 @@
                         )}
                         {step === 'INFO' && (
                             <div className="space-y-4 animate-slideIn">
-                                <div className="bg-green-50 p-3 rounded border border-green-200"><div className="font-bold text-green-800 text-lg flex justify-between"><span>{form.date}</span><span>{form.time}</span></div><div className="text-green-700">{form.service} ({form.pax} 位)</div><div className="mt-1 text-xs text-green-600">{guestDetails.map((g,i)=>`#${i+1}:${g.staff}${g.isOil ? '(油)' : ''}`).join(', ')}</div></div>
+                                <div className="bg-green-50 p-3 rounded border border-green-200">
+                                    <div className="font-bold text-green-800 text-lg flex justify-between"><span>{form.date}</span><span>{form.time}</span></div>
+                                    <div className="text-green-700">{form.pax} 位顧客</div>
+                                    {guestDetails.map((g,i)=> (
+                                        <div key={i} className="text-xs text-green-600 mt-1 border-t border-green-100 pt-1">
+                                            #{i+1}: {g.service} - {g.staff}{g.isOil ? '(油)' : ''}
+                                        </div>
+                                    ))}
+                                </div>
                                 <div><label className="text-xs font-bold text-gray-500">顧客姓名</label><input className="w-full border p-3 rounded font-bold" value={form.custName} onChange={e=>setForm({...form, custName:e.target.value})} autoFocus/></div>
                                 <div><label className="text-xs font-bold text-gray-500">電話號碼</label><input className="w-full border p-3 rounded font-bold" value={form.custPhone} onChange={e=>setForm({...form, custPhone:e.target.value})}/></div>
                                 <div className="flex gap-2"><button onClick={()=>setStep('CHECK')} className="flex-1 bg-gray-200 p-3 rounded font-bold">返回</button><button onClick={handleFinalSave} className="flex-1 bg-indigo-600 text-white p-3 rounded font-bold shadow-xl">✅ 確認預約</button></div>
@@ -362,7 +471,7 @@
     };
 
     // ==================================================================================
-    // 2. MODAL KHÁCH VÃNG LAI (NEW WALKIN MODAL)
+    // 2. MODAL KHÁCH VÃNG LAI (NEW WALKIN MODAL) - UPDATE V43
     // ==================================================================================
     const NewWalkInModal = ({ onClose, onSave, staffList, bookings, initialDate }) => {
         const [step, setStep] = useState('CHECK');
@@ -372,25 +481,13 @@
         const now = new Date();
         const currentTimeStr = `${now.getHours().toString().padStart(2,'0')}:${now.getMinutes().toString().padStart(2,'0')}`;
         const todayStr = initialDate || now.toISOString().slice(0, 10);
+        const defaultService = window.SERVICES_LIST ? window.SERVICES_LIST[2] : "";
 
         const [form, setForm] = useState({
-            service: window.SERVICES_LIST ? window.SERVICES_LIST[2] : "", 
             pax: 1, custName: '現場客', custPhone: '', time: currentTimeStr, date: todayStr
         });
 
-        const [guestDetails, setGuestDetails] = useState([{ staff: '隨機', isOil: false }]);
-
-        const isFootService = useMemo(() => {
-            if (!form.service) return false;
-            return form.service.includes('足') || (window.SERVICES_DATA && window.SERVICES_DATA[form.service]?.category === 'FOOT');
-        }, [form.service]);
-
-        const handleServiceChange = (e) => {
-            const newService = e.target.value;
-            setForm(prev => ({ ...prev, service: newService }));
-            setCheckResult(null); setWaitSuggestion(null);
-            if (newService.includes('足')) { setGuestDetails(prev => prev.map(g => ({ ...g, isOil: false }))); }
-        };
+        const [guestDetails, setGuestDetails] = useState([{ service: defaultService, staff: '隨機', isOil: false }]);
 
         const handlePaxChange = (val) => {
             const num = parseInt(val);
@@ -398,9 +495,23 @@
             setCheckResult(null); setWaitSuggestion(null);
             setGuestDetails(prev => {
                 const newDetails = [...prev];
-                if (num > prev.length) { for (let i = prev.length; i < num; i++) newDetails.push({ staff: '隨機', isOil: false }); } 
-                else { newDetails.length = num; }
+                if (num > prev.length) { 
+                    for (let i = prev.length; i < num; i++) {
+                        const templateSvc = prev.length > 0 ? prev[0].service : defaultService;
+                        newDetails.push({ service: templateSvc, staff: '隨機', isOil: false }); 
+                    }
+                } else { newDetails.length = num; }
                 return newDetails;
+            });
+        };
+
+        const handleGuestServiceChange = (index, newService) => {
+            setCheckResult(null); setWaitSuggestion(null);
+            setGuestDetails(prev => {
+                const copy = [...prev];
+                copy[index] = { ...copy[index], service: newService };
+                if (newService.includes('足')) copy[index].isOil = false;
+                return copy;
             });
         };
 
@@ -409,50 +520,82 @@
             setGuestDetails(prev => {
                 const copy = [...prev];
                 const current = copy[index];
-                if (value === 'FEMALE_OIL') {
-                    copy[index] = { ...current, staff: '女', isOil: true };
-                } else if (value === '女') {
-                    copy[index] = { ...current, staff: '女', isOil: false };
-                } else if (value === '男' || value === '隨機') {
-                    copy[index] = { ...current, staff: value, isOil: false };
-                } else {
-                    copy[index] = { ...current, staff: value, isOil: false };
-                }
-                return copy;
-            });
-        };
-
-        const toggleOil = (index) => {
-            setCheckResult(null); setWaitSuggestion(null);
-            setGuestDetails(prev => {
-                const copy = [...prev];
-                copy[index] = { ...copy[index], isOil: !copy[index].isOil };
+                if (value === 'FEMALE_OIL') { copy[index] = { ...current, staff: '女', isOil: true }; } 
+                else if (value === '女') { copy[index] = { ...current, staff: '女', isOil: false }; } 
+                else { copy[index] = { ...current, staff: value, isOil: false }; }
                 return copy;
             });
         };
 
         const runCheckForTime = (timeToCheck, dateToCheck) => {
-            const duration = window.getSafeDuration ? window.getSafeDuration(form.service, 60) : 60;
             const startMins = window.normalizeToTimelineMins ? window.normalizeToTimelineMins(timeToCheck) : 0;
-            const endMins = startMins + duration;
             const safeBookings = bookings || [];
             
             const todays = safeBookings.filter(b => {
                 const bDate = b.startTimeString.split(' ')[0].replace(/\//g, '-');
                 const targetDate = dateToCheck.replace(/\//g, '-');
-                return bDate === targetDate && !b.status.includes('取消');
+                return bDate === targetDate && !b.status.includes('取消') && !b.status.includes('完成') && !b.status.includes('Done');
             });
 
             // 1. Staff Check
-            const activeStaffCount = staffList.filter(s => isStaffWorkingAt(s, startMins, dateToCheck)).length;
-            let busyStaffCount = 0;
+            const activeStaff = staffList.filter(s => isStaffWorkingAt(s, startMins, dateToCheck));
+            const totalActive = activeStaff.length;
+            const totalFemales = activeStaff.filter(s => getStaffGender(s) === 'F').length;
+            const totalMales = activeStaff.filter(s => getStaffGender(s) === 'M').length;
+
+            let busyTotal = 0;
+            let busyFemales = 0;
+            let busyMales = 0;
+
+            let maxDuration = 0;
+            guestDetails.forEach(g => {
+                const d = window.getSafeDuration ? window.getSafeDuration(g.service, 60) : 60;
+                if (d > maxDuration) maxDuration = d;
+            });
+            const checkEndMins = startMins + maxDuration;
+
             todays.forEach(b => {
                 const bStart = window.normalizeToTimelineMins(b.startTimeString.split(' ')[1]);
                 const bDuration = b.duration || 60;
-                const bEnd = bStart + bDuration + 10;
-                if (Math.max(startMins, bStart) < Math.min(endMins, bEnd)) busyStaffCount += 1;
+                const bEnd = bStart + bDuration;
+                const bPax = parseInt(b.pax) || 1;
+
+                if (Math.max(startMins, bStart) < Math.min(checkEndMins, bEnd)) {
+                    busyTotal += bPax;
+                    if (isConsumingFemaleStaff(b, staffList)) busyFemales += bPax;
+                    else if (isConsumingMaleStaff(b, staffList)) busyMales += bPax;
+                }
             });
-            if ((activeStaffCount - busyStaffCount) < form.pax) return { valid: false, reason: `❌ 人手不足 (Not enough staff)` };
+
+            const availTotal = totalActive - busyTotal;
+            const availFemales = Math.max(0, totalFemales - busyFemales);
+            const availMales = Math.max(0, totalMales - busyMales);
+
+            let neededFemales = 0;
+            let neededMales = 0;
+
+            guestDetails.forEach(g => {
+                let isF = false; let isM = false;
+                const svcNameUpper = g.service.toUpperCase();
+                const oilKeys = ['OIL', 'DẦU', '精油', '油', 'AROMA'];
+                if (oilKeys.some(k => svcNameUpper.includes(k))) isF = true;
+
+                if (g.staff === '女' || g.isOil) isF = true;
+                else if (g.staff === '男') isM = true;
+                else if (g.staff !== '隨機') {
+                    const sObj = staffList.find(s => s.id === g.staff || s.name === g.staff);
+                    if (sObj) {
+                        if (getStaffGender(sObj) === 'F') isF = true;
+                        else if (getStaffGender(sObj) === 'M') isM = true;
+                    }
+                }
+                if (isF) neededFemales++;
+                else if (isM) neededMales++;
+            });
+
+            if (availTotal < form.pax) return { valid: false, reason: `❌ 人手不足 (Total: ${availTotal}/${form.pax})` };
+            if (neededFemales > availFemales) return { valid: false, reason: `❌ 女師傅不足 (Female: ${availFemales}/${neededFemales})` };
+            if (neededMales > availMales) return { valid: false, reason: `❌ 男師傅不足 (Male: ${availMales}/${neededMales})` };
 
             // 2. KTV Check
             for (let i = 0; i < guestDetails.length; i++) {
@@ -460,43 +603,22 @@
                 if (['隨機', '男', '女'].some(k => st.includes(k))) continue;
                 const staffObj = staffList.find(s => s.id === st || s.name === st);
                 if (staffObj && !isStaffWorkingAt(staffObj, startMins, dateToCheck)) return { valid: false, reason: `❌ 技師 ${st} 未上班` };
-                
                 const isBusy = todays.some(b => {
                     const bStart = window.normalizeToTimelineMins(b.startTimeString.split(' ')[1]);
-                    const bEnd = bStart + (b.duration || 60) + 10;
-                    const overlap = (startMins < bEnd && endMins > bStart);
+                    const bEnd = bStart + (b.duration || 60);
+                    const overlap = (startMins < bEnd && checkEndMins > bStart);
                     const staffInOrder = [b.serviceStaff, b.staffId, b.technician, b.staffId2, b.staffId3, b.staffId4].map(s=>String(s));
-                    return overlap && staffInOrder.includes(String(st));
+                    return overlap && staffInOrder.some(name => name && (name.includes(st) || st.includes(name)));
                 });
                 if (isBusy) return { valid: false, reason: `❌ 技師 ${st} 忙碌` };
             }
 
-            // 3. Resource Check (V24 - Robust)
-            const MAX_RES = 6;
-            const svcInfo = window.SERVICES_DATA ? window.SERVICES_DATA[form.service] : {};
-            const isCombo = form.service.includes('套餐') || svcInfo.category === 'COMBO';
+            // 3. Resource Check
+            const slotMap = buildDetailedSlotMap(todays);
+            const canFit = tryFitMixedServicesTetris(guestDetails, startMins, slotMap);
+            
+            if (!canFit) return { valid: false, reason: "❌ 區域客滿 (Area Full)" };
 
-            if (isCombo) {
-                const phaseDuration = duration / 2;
-                const p1S = startMins; const p1E = startMins + phaseDuration;
-                const p2S = p1E; const p2E = startMins + duration;
-
-                const chairsUsedP1 = countOccupiedResources('CHAIR', p1S, p1E, todays);
-                const bedsUsedP1   = countOccupiedResources('BED',   p1S, p1E, todays);
-                const chairsUsedP2 = countOccupiedResources('CHAIR', p2S, p2E, todays);
-                const bedsUsedP2   = countOccupiedResources('BED',   p2S, p2E, todays);
-
-                let canFit = false;
-                for (let k = form.pax; k >= 0; k--) {
-                    const j = form.pax - k;
-                    if ((cP1 + k <= MAX_RES) && (bedsUsedP1 + j <= MAX_RES) && (bedsUsedP2 + k <= MAX_RES) && (chairsUsedP2 + j <= MAX_RES)) { canFit = true; break; }
-                }
-                if (!canFit) return { valid: false, reason: "❌ 區域客滿 (Area Full)" };
-            } else {
-                const type = (form.service.includes('足') || svcInfo.type === 'CHAIR') ? 'CHAIR' : 'BED';
-                const freeCount = countOccupiedResources(type, startMins, endMins, todays);
-                if (freeCount + form.pax > MAX_RES) return { valid: false, reason: type === 'CHAIR' ? "❌ 足底區客滿" : "❌ 指壓區客滿" };
-            }
             return { valid: true, reason: "OK" };
         };
 
@@ -518,7 +640,6 @@
                     let nh = Math.floor(nextMins / 60);
                     let nm = nextMins % 60;
                     if (nh >= 24) nh -= 24; 
-                    if (nh >= 3 && nh < 8) break; 
                     const mStr = Math.floor(nm / 10) * 10;
                     const nextTimeStr = `${nh.toString().padStart(2,'0')}:${mStr.toString().padStart(2,'0')}`;
                     const nextCheck = runCheckForTime(nextTimeStr, form.date);
@@ -526,7 +647,8 @@
                 }
 
                 if (!foundTime) {
-                    const tmr = new Date(form.date); tmr.setDate(tmr.getDate() + 1);
+                    const tmr = new Date(form.date);
+                    tmr.setDate(tmr.getDate() + 1);
                     const tomorrowStr = tmr.toISOString().slice(0, 10);
                     const morningSlots = ["08:00", "08:10", "08:20"];
                     for (let slot of morningSlots) {
@@ -538,20 +660,36 @@
                     if (isNextDay) { setCheckResult({ status: 'FAIL', message: "⛔ 今日已滿或打烊 (Full/Closed)" }); setWaitSuggestion({ time: foundTime, date: foundDate, isNextDay: true }); }
                     else { setCheckResult({ status: 'FAIL', message: "⚠️ 目前客滿 (Current Full)" }); setWaitSuggestion({ time: foundTime, date: foundDate, mins: waitMins, isNextDay: false }); }
                 } else {
-                    setCheckResult({ status: 'FAIL', message: "❌ 無法安排 (No slots found)" }); setWaitSuggestion(null);
+                    setCheckResult({ status: 'FAIL', message: "❌ 無法安排 (No slots found)" });
+                    setWaitSuggestion(null);
                 }
             }
         };
 
         const handleFinalSave = () => {
             if (!form.custName) { alert("請輸入顧客姓名!"); return; }
+            
+            // Gộp dịch vụ để hiển thị tóm tắt
+            const serviceSummary = guestDetails.map(g => g.service).filter((v, i, a) => a.indexOf(v) === i).join(', ');
             const oilNotes = guestDetails.map((g, i) => g.isOil ? `K${i+1}:油推` : null).filter(Boolean).join(',');
+            
+            // Cấu trúc dữ liệu gửi đi (QUAN TRỌNG: Backend cần đọc guestDetails)
             onSave({
-                hoTen: form.custName, sdt: form.custPhone, dichVu: form.service, pax: form.pax,
-                ngayDen: form.date.replace(/-/g, '/'), gioDen: form.time,
-                nhanVien: guestDetails[0].staff, isOil: guestDetails[0].isOil,
-                staffId2: guestDetails[1]?.staff||null, staffId3: guestDetails[2]?.staff||null, staffId4: guestDetails[3]?.staff||null, staffId5: guestDetails[4]?.staff||null, staffId6: guestDetails[5]?.staff||null,
-                ghiChu: oilNotes ? `(${oilNotes})` : ""
+                hoTen: form.custName, 
+                sdt: form.custPhone || "", 
+                dichVu: serviceSummary, 
+                pax: form.pax,
+                ngayDen: form.date.replace(/-/g, '/'), 
+                gioDen: form.time,
+                nhanVien: guestDetails[0].staff, 
+                isOil: guestDetails[0].isOil,
+                staffId2: guestDetails[1]?.staff||null, 
+                staffId3: guestDetails[2]?.staff||null, 
+                staffId4: guestDetails[3]?.staff||null, 
+                staffId5: guestDetails[4]?.staff||null, 
+                staffId6: guestDetails[5]?.staff||null,
+                ghiChu: oilNotes ? `(${oilNotes})` : "",
+                guestDetails: guestDetails // Dữ liệu quan trọng nhất
             });
         };
 
@@ -559,7 +697,7 @@
 
         return (
             <div className="fixed inset-0 bg-black/70 z-[90] flex items-center justify-center p-4">
-                <div className="bg-white w-full max-w-md rounded-xl shadow-2xl modal-animate flex flex-col max-h-[90vh] overflow-hidden">
+                <div className="bg-white w-full max-w-xl rounded-xl shadow-2xl modal-animate flex flex-col max-h-[90vh] overflow-hidden">
                     <div className="bg-amber-500 p-4 text-black flex justify-between items-center">
                         <h3 className="font-bold text-lg flex items-center gap-2"><i className="fas fa-bolt"></i> 現場客 (Walk-in)</h3>
                         <button onClick={onClose}><i className="fas fa-times text-xl"></i></button>
@@ -567,23 +705,27 @@
                     <div className="p-5 space-y-4 overflow-y-auto flex-1 custom-scrollbar">
                         {step === 'CHECK' && (
                             <>
-                                <div><label className="text-xs font-bold text-gray-500">服務項目</label><select className="w-full border p-2 rounded font-bold text-lg" value={form.service} onChange={handleServiceChange}>{(window.SERVICES_LIST||[]).map(s=><option key={s} value={s}>{s}</option>)}</select></div>
-                                <div><label className="text-xs font-bold text-gray-500">人數</label><select className="w-full border p-2 rounded font-bold text-center" value={form.pax} onChange={e=>handlePaxChange(e.target.value)}>{[1,2,3,4,5,6].map(n=><option key={n} value={n}>{n} 位</option>)}</select></div>
+                                <div>
+                                    <label className="text-xs font-bold text-gray-500">人數 (Pax)</label>
+                                    <select className="w-full border p-2 rounded font-bold text-center h-[42px]" value={form.pax} onChange={e=>handlePaxChange(e.target.value)}>{[1,2,3,4,5,6].map(n=><option key={n} value={n}>{n} 位</option>)}</select>
+                                </div>
                                 <div className="bg-slate-50 p-3 rounded border space-y-2">
-                                    <div className="text-xs font-bold text-gray-400">指定技師 & 精油</div>
+                                    <div className="text-xs font-bold text-gray-400">詳細資訊 (Details per Guest)</div>
                                     {guestDetails.map((g, idx) => {
                                         const selectValue = (g.staff === '女' && g.isOil) ? 'FEMALE_OIL' : g.staff;
                                         return (
                                             <div key={idx} className="flex gap-2 items-center">
-                                                <div className="w-6 h-6 rounded-full bg-gray-300 flex items-center justify-center font-bold text-xs">{idx+1}</div>
-                                                <select className="flex-1 border p-2 rounded font-bold text-sm" value={selectValue} onChange={e=>handleGuestStaffChange(idx, e.target.value)}>
+                                                <div className="w-6 h-10 rounded bg-gray-200 flex items-center justify-center font-bold text-sm">#{idx+1}</div>
+                                                <select className="flex-1 border p-2 rounded font-bold text-sm h-10" value={g.service} onChange={e=>handleGuestServiceChange(idx, e.target.value)}>
+                                                    {(window.SERVICES_LIST||[]).map(s=><option key={s} value={s}>{s}</option>)}
+                                                </select>
+                                                <select className="flex-1 border p-2 rounded font-bold text-sm h-10" value={selectValue} onChange={e=>handleGuestStaffChange(idx, e.target.value)}>
                                                     <option value="隨機">🎲 隨機 (Random)</option>
                                                     <option value="女">🚺 女師傅 (Female)</option>
                                                     <option value="FEMALE_OIL">🚺 女師傅 + 精油 (Female Oil)</option>
                                                     <option value="男">🚹 男師傅 (Male)</option>
                                                     <optgroup label="技師列表">{safeStaffList.map(s=><option key={s.id} value={s.id}>{getStaffDisplayName(s)}</option>)}</optgroup>
                                                 </select>
-                                                <button onClick={()=> !isFootService && toggleOil(idx)} disabled={isFootService} className={`px-2 py-1 border rounded text-xs font-bold min-w-[70px] ${isFootService ? 'bg-slate-100 text-slate-300' : (g.isOil ? 'bg-purple-600 text-white' : 'bg-white text-gray-500')}`}>{isFootService ? '無精油' : (g.isOil ? '有精油' : '無精油')}</button>
                                             </div>
                                         );
                                     })}
@@ -616,8 +758,12 @@
                                         <span>📅 {form.date === todayStr ? '今天 (Today)' : form.date}</span>
                                         <span>⏰ {form.time}</span>
                                     </div>
-                                    <div>🔨 {form.service} ({form.pax} 位)</div>
-                                    <div className="mt-1 text-xs opacity-70">{guestDetails.map((g,i)=>`#${i+1}:${g.staff}${g.isOil ? '(油)' : ''}`).join(', ')}</div>
+                                    <div className="text-amber-800">{form.pax} 位顧客</div>
+                                    {guestDetails.map((g,i)=> (
+                                        <div key={i} className="text-xs text-amber-700 mt-1 border-t border-amber-200 pt-1">
+                                            #{i+1}: {g.service} - {g.staff}{g.isOil ? '(油)' : ''}
+                                        </div>
+                                    ))}
                                 </div>
                                 <div><label className="text-xs font-bold text-gray-500">顧客姓名</label><input className="w-full border p-3 rounded font-bold text-lg" value={form.custName} onChange={e=>setForm({...form, custName:e.target.value})} autoFocus /></div>
                                 <div><label className="text-xs font-bold text-gray-500">電話號碼</label><input className="w-full border p-3 rounded font-bold text-lg" value={form.custPhone} onChange={e=>setForm({...form, custPhone:e.target.value})} placeholder="09xx..." /></div>
@@ -633,11 +779,11 @@
     const overrideInterval = setInterval(() => {
         if (window.AvailabilityCheckModal !== NewAvailabilityCheckModal) {
             window.AvailabilityCheckModal = NewAvailabilityCheckModal;
-            console.log("♻️ AvailabilityModal Updated (V24)");
+            console.log("♻️ AvailabilityModal Updated (V43)");
         }
         if (window.WalkInModal !== NewWalkInModal) {
             window.WalkInModal = NewWalkInModal;
-            console.log("♻️ WalkInModal Updated (V24 - Robust Resource Check)");
+            console.log("♻️ WalkInModal Updated (V43 - Clean & Mixed)");
         }
     }, 200);
     setTimeout(() => clearInterval(overrideInterval), 5000);

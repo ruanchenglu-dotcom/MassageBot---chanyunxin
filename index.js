@@ -1,7 +1,7 @@
 /**
  * =================================================================================================
  * PROJECT: XINWUCHAN MASSAGE BOT (BACKEND SERVER)
- * VERSION: V150 (FIXED SALARY SYNC FOR BLOCK LAYOUT)
+ * VERSION: V151 (FIX MULTI-GUEST MIXED SERVICES - SPLIT ROWS LOGIC)
  * AUTHOR: AI ASSISTANT & OWNER
  * DATE: 2026/01/05
  * =================================================================================================
@@ -161,7 +161,6 @@ function parseStringToDate(dateStr) {
     } catch (e) { return null; }
 }
 
-// Hàm hỗ trợ chuyển số cột sang chữ (0 -> A, 1 -> B)
 function getColumnLetter(colIndex) {
     let temp, letter = '';
     while (colIndex >= 0) {
@@ -172,97 +171,51 @@ function getColumnLetter(colIndex) {
     return letter;
 }
 
-/**
- * --- HÀM SYNC LƯƠNG: LOGIC MỚI CHO BẢNG CỘT BLOCK ---
- * Logic: Quét toàn bộ sheet. Tìm cột chứa tên NV. Dò ngày trong cột đó. Ghi vào 3 cột kế bên.
- */
+// --- SYNC SALARY ---
 async function syncDailySalary(dateStr, staffDataList) {
     try {
         console.log(`[SALARY] 📥 Đang xử lý lương ngày: ${dateStr}`);
-        
-        // 1. Đọc toàn bộ dữ liệu Sheet (Lấy vùng rộng để quét)
-        const range = `${SALARY_SHEET}!A1:AZ100`; // Giả sử tối đa cột AZ và 100 dòng
-        const res = await sheets.spreadsheets.values.get({
-            spreadsheetId: SHEET_ID,
-            range: range
-        });
-        
+        const range = `${SALARY_SHEET}!A1:AZ100`; 
+        const res = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: range });
         const rows = res.data.values;
-        if (!rows || rows.length === 0) {
-            console.error('[SALARY] ❌ Sheet rỗng hoặc tên sheet sai.');
-            return;
-        }
+        if (!rows || rows.length === 0) return;
 
-        const headerRow = rows[0]; // Dòng 1 chứa tên nhân viên (Merged cells thường trả về giá trị ở ô đầu tiên)
+        const headerRow = rows[0]; 
         const updates = [];
         let updatedCount = 0;
 
-        // 2. Duyệt qua từng nhân viên được gửi xuống từ App
         staffDataList.forEach(staff => {
             const staffName = staff.name.trim();
-            
-            // Tìm vị trí cột của nhân viên trong dòng Header (Dòng 1)
-            // Lưu ý: Với ô Merged, giá trị chỉ nằm ở cột đầu tiên của khối merge
             const colIndex = headerRow.findIndex(cell => cell && cell.trim() === staffName);
-
             if (colIndex !== -1) {
-                // Đã tìm thấy nhân viên ở cột số colIndex
-                // Tìm dòng chứa ngày (dateStr) TRONG CỘT CỦA NHÂN VIÊN ĐÓ (hoặc cột ngay dưới tên)
                 let targetRow = -1;
-
-                // Quét từ dòng 3 (index 2) trở đi để tìm ngày
                 for (let r = 2; r < rows.length; r++) {
                     const rowData = rows[r];
-                    // Ngày nằm ở chính cột colIndex (theo cấu trúc Block của bạn)
                     if (rowData[colIndex] && rowData[colIndex].trim() === dateStr) {
-                        targetRow = r + 1; // Google Sheet dùng 1-based index
+                        targetRow = r + 1; 
                         break;
                     }
                 }
-
                 if (targetRow !== -1) {
-                    // Tính toán chữ cái cột để ghi
-                    // Cột Ngày = colIndex
-                    // Cột Tua = colIndex + 1
-                    // Cột Dầu = colIndex + 2
-                    // Cột Lương = colIndex + 3
-                    
                     const colSessions = getColumnLetter(colIndex + 1);
                     const colOil = getColumnLetter(colIndex + 2);
                     const colSalary = getColumnLetter(colIndex + 3);
-
-                    // Tạo lệnh ghi
                     updates.push({ range: `${SALARY_SHEET}!${colSessions}${targetRow}`, values: [[staff.sessions]] });
                     updates.push({ range: `${SALARY_SHEET}!${colOil}${targetRow}`, values: [[staff.oil]] });
                     updates.push({ range: `${SALARY_SHEET}!${colSalary}${targetRow}`, values: [[staff.salary]] });
-                    
                     updatedCount++;
-                    console.log(`   ✅ Tìm thấy ${staffName} ở cột ${getColumnLetter(colIndex)}, dòng ${targetRow}. Đã queue lệnh ghi.`);
-                } else {
-                    console.log(`   ⚠️ Có tên ${staffName} nhưng không tìm thấy ngày ${dateStr} trong cột ${getColumnLetter(colIndex)}.`);
                 }
-            } else {
-                console.log(`   ❌ Không tìm thấy tên nhân viên "${staffName}" trên dòng 1 của Sheet.`);
             }
         });
 
-        // 3. Thực thi ghi dữ liệu (Batch Update)
         if (updates.length > 0) {
             await sheets.spreadsheets.values.batchUpdate({
                 spreadsheetId: SHEET_ID,
-                requestBody: {
-                    valueInputOption: 'USER_ENTERED',
-                    data: updates
-                }
+                requestBody: { valueInputOption: 'USER_ENTERED', data: updates }
             });
             console.log(`[SALARY] ✨ Đã cập nhật thành công dữ liệu cho ${updatedCount} nhân viên.`);
-        } else {
-            console.log('[SALARY] Không có dữ liệu nào được ghi (Do không khớp Tên hoặc Ngày).');
         }
-
-    } catch (e) {
-        console.error('[SALARY ERROR] Lỗi hệ thống:', e);
-    }
+    } catch (e) { console.error('[SALARY ERROR] Lỗi hệ thống:', e); }
 }
 
 async function syncData() {
@@ -287,6 +240,7 @@ async function syncData() {
                 let type = 'BED'; 
                 let category = 'BODY';
                 
+                // Tự động detect duration từ string dịch vụ (để hỗ trợ các dòng đã tách lẻ)
                 for (const key in SERVICES) {
                     if (serviceStr.includes(SERVICES[key].name.split('(')[0])) { 
                         duration = SERVICES[key].duration; 
@@ -322,7 +276,8 @@ async function syncData() {
                     customerName: `${row[2]} (${row[6]})`,
                     serviceName: serviceStr,
                     status: status,
-                    lineId: row[9]
+                    lineId: row[9],
+                    isOil: row[4] === "Yes"
                 });
             }
         }
@@ -377,6 +332,7 @@ async function syncData() {
     } catch (e) { console.error('[SYNC ERROR]', e); }
 }
 
+// --- [V151 FIX] GHI VÀO SHEET: TÁCH DÒNG NẾU CÓ NHIỀU KHÁCH ---
 async function ghiVaoSheet(data) {
     try {
         const timeCreate = getCurrentDateTimeStr(); 
@@ -386,28 +342,58 @@ async function ghiVaoSheet(data) {
         if (colB_Time.includes(' ')) colB_Time = colB_Time.split(' ')[1];
         if (colB_Time.length > 5) colB_Time = colB_Time.substring(0, 5); 
 
-        const colC_Name = data.hoTen || '現場客';             
-        let colD_Service = data.dichVu;
-        if (data.isOil) colD_Service += " (油推+$200)";       
-
-        const colE_Oil = data.isOil ? "Yes" : "";              
-        const colF_Pax = data.pax || 1;                       
         const colG_Phone = data.sdt;                          
         const colH_Status = data.trangThai || '已預約';       
-        const colI_Staff = data.nhanVien || '隨機';           
         const colJ_LineID = data.userId;                      
         const colK_Created = timeCreate; 
         
-        const valuesToWrite = [[ 
-            colA_Date, colB_Time, colC_Name, colD_Service, colE_Oil, colF_Pax, colG_Phone, colH_Status, colI_Staff, colJ_LineID, colK_Created 
-        ]];
+        const valuesToWrite = [];
 
-        await sheets.spreadsheets.values.append({
-            spreadsheetId: SHEET_ID, 
-            range: 'Sheet1!A:A', 
-            valueInputOption: 'USER_ENTERED',
-            requestBody: { values: valuesToWrite }
-        });
+        // Kiểm tra xem có dữ liệu chi tiết từng khách không (từ BookingHandler V42+)
+        if (data.guestDetails && Array.isArray(data.guestDetails) && data.guestDetails.length > 0) {
+            // [LOGIC MỚI] Tách thành từng dòng riêng biệt
+            data.guestDetails.forEach((guest, index) => {
+                const guestNum = index + 1;
+                const total = data.guestDetails.length;
+
+                // Tên khách: Gán thêm số thứ tự để biết nhóm (VD: Nguyen Van A (1/2))
+                const colC_Name = `${data.hoTen || '現場客'} (${guestNum}/${total})`;
+                
+                // Dịch vụ của riêng người này
+                let colD_Service = guest.service;
+                if (guest.isOil) colD_Service += " (油推+$200)";
+
+                const colE_Oil = guest.isOil ? "Yes" : "";
+                const colF_Pax = 1; // Mỗi dòng là 1 người -> Pax luôn là 1 để Timeline vẽ đúng
+                const colI_Staff = guest.staff || '隨機';
+
+                valuesToWrite.push([ 
+                    colA_Date, colB_Time, colC_Name, colD_Service, colE_Oil, colF_Pax, colG_Phone, colH_Status, colI_Staff, colJ_LineID, colK_Created 
+                ]);
+            });
+        } else {
+            // [LOGIC CŨ] Fallback cho Line Bot hoặc dữ liệu cũ không có guestDetails
+            const colC_Name = data.hoTen || '現場客';             
+            let colD_Service = data.dichVu;
+            if (data.isOil) colD_Service += " (油推+$200)";       
+
+            const colE_Oil = data.isOil ? "Yes" : "";              
+            const colF_Pax = data.pax || 1;                       
+            const colI_Staff = data.nhanVien || '隨機'; 
+
+            valuesToWrite.push([ 
+                colA_Date, colB_Time, colC_Name, colD_Service, colE_Oil, colF_Pax, colG_Phone, colH_Status, colI_Staff, colJ_LineID, colK_Created 
+            ]);
+        }
+
+        if (valuesToWrite.length > 0) {
+            await sheets.spreadsheets.values.append({
+                spreadsheetId: SHEET_ID, 
+                range: 'Sheet1!A:A', 
+                valueInputOption: 'USER_ENTERED',
+                requestBody: { values: valuesToWrite }
+            });
+        }
         
         await syncData(); 
         
@@ -809,8 +795,11 @@ app.post('/api/save-salary', async (req, res) => {
 app.post('/api/sync-resource', (req, res) => { SERVER_RESOURCE_STATE = req.body; res.json({ success: true }); });
 app.post('/api/sync-staff-status', (req, res) => { SERVER_STAFF_STATUS = req.body; res.json({ success: true }); });
 
+// [V151] API WEB BOOKING: XỬ LÝ TÁCH DÒNG NẾU CÓ GUEST DETAILS
 app.post('/api/admin-booking', async (req, res) => { 
     const data = req.body; 
+    
+    // Gọi hàm ghi vào sheet và truyền toàn bộ data (bao gồm guestDetails)
     await ghiVaoSheet({ 
         ngayDen: data.ngayDen, 
         gioDen: data.gioDen, 
@@ -821,7 +810,8 @@ app.post('/api/admin-booking', async (req, res) => {
         hoTen: data.hoTen || '現場客', 
         trangThai: '已預約', 
         pax: data.pax || 1,
-        isOil: data.isOil || false 
+        isOil: data.isOil || false,
+        guestDetails: data.guestDetails // QUAN TRỌNG: Truyền mảng chi tiết khách
     }); 
     res.json({ success: true }); 
 });
@@ -1169,5 +1159,5 @@ async function handleEvent(event) {
 syncData();
 const port = process.env.PORT || 3000;
 app.listen(port, () => {
-    console.log(`Bot V150 (Fixed Salary Block Logic) running on ${port}`);
+    console.log(`Bot V151 (Split Rows Logic) running on ${port}`);
 });
