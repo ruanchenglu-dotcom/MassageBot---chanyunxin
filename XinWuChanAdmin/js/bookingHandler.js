@@ -1,90 +1,86 @@
 // File: js/bookingHandler.js
-// Version: V47 (Resource Guard Edition - Frontend Simulation)
-// Author: AI Assistant
-// Date: 2026/01/07
-// Note: Complete rewrite to match Backend V160 logic. Strict timeline simulation to prevent overlapping.
+// Phiên bản: V46 (Sync with Backend V157 - Check OFF via offDays Array)
 
 (function() {
-    console.log("🚀 BookingHandler V47 (Resource Guard): 系統啟動中...");
+    console.log("🚀 BookingHandler V46 (OFF Sync): 啟動中...");
 
     if (typeof React === 'undefined') return;
     const { useState, useEffect, useMemo } = React;
 
-    // --- 常量定義 ---
-    const MAX_CHAIRS = 6;
-    const MAX_BEDS = 6;
-    const MAX_TIMELINE_MINUTES = 3000; // 覆蓋約 50 小時 (足夠處理跨日訂單)
-    const CLEANUP_BUFFER = 10;         // 清潔緩衝時間 (分鐘)
-    const FUTURE_BUFFER_MINS = 5;      // 未來緩衝 (防止預約過去時間)
-
+    // --- HELPER: Tạo danh sách giờ/phút ---
     const HOURS_24 = Array.from({length: 24}, (_, i) => i.toString().padStart(2, '0'));
     const MINUTES_10 = ['00', '10', '20', '30', '40', '50'];
 
-    // --- 輔助函數 (Helper Functions) ---
-
-    // 格式化顯示技師名稱
+    // --- SHARED HELPER FUNCTIONS ---
     const getStaffDisplayName = (s) => {
         if (String(s.id).trim() === String(s.name).trim()) return s.name;
         return `${s.id} - ${s.name}`;
     };
 
-    // 時間字串轉分鐘 (08:00 -> 480)
-    const getMinsFromTimeStr = (timeStr) => {
-        if (!timeStr) return 0;
-        const [h, m] = timeStr.split(':').map(Number);
-        // 如果小於 08:00，視為跨日 (例如 01:00 -> 25:00)
-        const effectiveH = (h < 8) ? h + 24 : h;
-        return effectiveH * 60 + (m || 0);
-    };
-
-    // 檢查技師是否休假 (OFF)
+    /**
+     * [CORE FIX V46] Hàm kiểm tra trạng thái ngày của nhân viên
+     * Sử dụng dữ liệu 'offDays' đã được Backend xử lý chuẩn.
+     */
     const getStaffDayStatus = (staff, dateString) => {
         if (!staff) return '';
-        const standardizedDate = dateString.replace(/-/g, '/'); // 統一格式 YYYY/MM/DD
+        
+        // 1. Chuẩn hóa ngày đầu vào (Input Date Picker luôn là YYYY-MM-DD)
+        // Cần chuyển về YYYY/MM/DD để khớp với Backend
+        const standardizedDate = dateString.replace(/-/g, '/'); // 2026/01/07
 
-        // 1. 優先檢查後端的 offDays 陣列
+        // 2. Kiểm tra ưu tiên: Mảng offDays từ Backend
         if (staff.offDays && Array.isArray(staff.offDays)) {
-            if (staff.offDays.includes(standardizedDate)) return 'OFF';
+            if (staff.offDays.includes(standardizedDate)) {
+                return 'OFF';
+            }
         }
 
-        // 2. 備用檢查 (檢查舊格式)
+        // 3. (Fallback) Kiểm tra các key cổ điển (phòng khi Backend chưa update kịp)
         const [y, m, d] = dateString.split('-');
         const keysToTry = [
-            `${y}-${m}-${d}`,
-            `${y}/${m}/${d}`,
-            `${y}/${parseInt(m)}/${parseInt(d)}`,
-            `${y}-${parseInt(m)}-${parseInt(d)}`
+            `${y}-${m}-${d}`,              // 2026-01-07
+            `${y}/${m}/${d}`,              // 2026/01/07
+            `${y}/${parseInt(m)}/${parseInt(d)}`, // 2026/1/7
+            `${y}-${parseInt(m)}-${parseInt(d)}`  // 2026-1-7
         ];
+
         for (const key of keysToTry) {
             if (staff[key] !== undefined) {
                 const val = String(staff[key]).trim().toUpperCase();
                 if (val === 'OFF' || val === '休') return 'OFF';
             }
         }
+
         return ''; 
     };
 
-    // 檢查技師在特定時間是否上班
     const isStaffWorkingAt = (staff, checkMins, dateString) => {
+        // Kiểm tra trạng thái OFF/Nghỉ
         const dayStatus = getStaffDayStatus(staff, dateString);
-        if (dayStatus === 'OFF' || dayStatus === '休') return false;
+        
+        if (dayStatus === 'OFF' || dayStatus === '休') {
+            // console.log(`⛔ ${staff.name} nghỉ ngày ${dateString}`);
+            return false;
+        }
 
-        if (!staff.shiftStart || !staff.shiftEnd) return true; // 默認上班
+        // Nếu không có thông tin ca làm việc -> Coi như không làm
+        if (!staff.shiftStart || !staff.shiftEnd) return false;
+        
+        // Check thêm lần nữa trong shiftStart phòng khi ghi nhầm
         if (String(staff.shiftStart).toUpperCase().includes('OFF')) return false;
 
-        const startMins = getMinsFromTimeStr(staff.shiftStart);
-        const endMins = getMinsFromTimeStr(staff.shiftEnd);
+        const startMins = window.normalizeToTimelineMins(staff.shiftStart);
+        const endMins = window.normalizeToTimelineMins(staff.shiftEnd);
         
-        // 處理跨日班表 (例如 14:00 - 02:00)
+        // Xử lý ca đêm qua ngày (ví dụ 14:00 - 02:00)
         if (endMins < startMins) {
-            const adjustedEnd = endMins + (24 * 60);
-            return checkMins >= startMins && checkMins < adjustedEnd;
+            return checkMins >= startMins || checkMins < endMins;
         } else {
             return checkMins >= startMins && checkMins < endMins;
         }
     };
 
-    // 獲取性別
+    // 2. Lấy giới tính nhân viên
     const getStaffGender = (staff) => {
         if (!staff) return 'UNKNOWN';
         const g = String(staff.gender || '').toUpperCase().trim();
@@ -93,16 +89,19 @@
         return 'UNKNOWN';
     };
 
-    // 檢查是否佔用女技師資源 (油推/指定女)
+    // 3. Truy vết Nữ (Oil Strict)
     const isConsumingFemaleStaff = (booking, staffList) => {
         if (booking.isOil === true || booking.isOil === 'true' || booking.oil === true) return true;
+
         const textToCheck = (String(booking.serviceName || '') + " " + String(booking.ghiChu || '')).toUpperCase();
         const oilKeywords = ['OIL', 'DẦU', 'DAU', '精油', 'AROMA', '油', '油推']; 
         const femaleKeywords = ['NỮ', 'NU', 'FEMALE', '女', 'LADY'];
+        
         if (oilKeywords.some(k => textToCheck.includes(k))) return true;
         if (femaleKeywords.some(k => textToCheck.includes(k))) return true;
+
         const sId = booking.staffId || booking.technician || booking.serviceStaff;
-        if (sId && sId !== '隨機' && !String(sId).includes('Random')) {
+        if (sId && sId !== '隨機' && sId !== 'undefined' && !String(sId).includes('Random')) {
             const staffObj = staffList.find(s => s.id == sId || s.name == sId);
             if (staffObj && getStaffGender(staffObj) === 'F') return true;
         }
@@ -110,132 +109,132 @@
     };
 
     const isConsumingMaleStaff = (booking, staffList) => {
-        const sId = booking.staffId || booking.serviceStaff;
-        if (sId && sId !== '隨機' && !String(sId).includes('Random')) {
+        const sId = booking.staffId || booking.technician || booking.serviceStaff;
+        if (sId && sId !== '隨機' && sId !== 'undefined' && !String(sId).includes('Random')) {
             const staffObj = staffList.find(s => s.id == sId || s.name == sId);
             if (staffObj && getStaffGender(staffObj) === 'M') return true;
         }
         return false;
     };
 
-    // ==================================================================================
-    // 核心邏輯: TETRIS SIMULATION ENGINE (前端模擬引擎)
-    // ==================================================================================
+    // 4. Build Slot Map (Timeline)
+    const buildDetailedSlotMap = (todayBookings) => {
+        const MAX_MINUTES = 3000;
+        const CLEANUP_BUFFER = 10;
+        const slots = { CHAIR: Array.from({length: 7}, () => new Uint8Array(MAX_MINUTES)), BED: Array.from({length: 7}, () => new Uint8Array(MAX_MINUTES)) };
 
-    // 1. 初始化空地圖
-    const createEmptySlotMap = () => ({
-        CHAIR: Array.from({length: MAX_CHAIRS + 1}, () => new Uint8Array(MAX_TIMELINE_MINUTES)), 
-        BED: Array.from({length: MAX_BEDS + 1}, () => new Uint8Array(MAX_TIMELINE_MINUTES)) 
-    });
+        todayBookings.forEach(b => {
+            const bStart = window.normalizeToTimelineMins(b.startTimeString.split(' ')[1]);
+            const duration = b.duration || 60;
+            const rId = String(b.rowId || '').toLowerCase();
+            let slotIdx = parseInt(rId.replace(/\D/g, ''));
+            if (isNaN(slotIdx) || slotIdx < 1 || slotIdx > 6) return;
 
-    // 2. 檢查區間是否空閒
-    const isRangeFree = (slotArray, rowIdx, start, end) => {
-        if (rowIdx < 1 || rowIdx >= slotArray.length) return false;
-        for (let t = start; t < end; t++) {
-            if (t >= MAX_TIMELINE_MINUTES) break;
-            if (slotArray[rowIdx][t] === 1) return false; // 已被佔用
+            let startType = 'BED';
+            if (rId.includes('chair') || rId.includes('足') || (b.serviceName && b.serviceName.includes('足')) || b.type === 'CHAIR') startType = 'CHAIR';
+
+            if (b.category === 'COMBO') {
+                const half = duration / 2;
+                const switchPoint = bStart + half;
+                const p1End = switchPoint + CLEANUP_BUFFER;
+                const p1Arr = slots[startType][slotIdx];
+                for(let t=bStart; t<p1End; t++) if(t<MAX_MINUTES) p1Arr[t] = 1;
+
+                const p2Type = startType === 'CHAIR' ? 'BED' : 'CHAIR';
+                const p2Start = switchPoint;
+                const p2End = bStart + duration + CLEANUP_BUFFER;
+                const p2Arr = slots[p2Type][slotIdx];
+                for(let t=p2Start; t<p2End; t++) if(t<MAX_MINUTES) p2Arr[t] = 1;
+            } else {
+                const effectiveEnd = bStart + duration + CLEANUP_BUFFER;
+                const arr = slots[startType][slotIdx];
+                for(let t=bStart; t<effectiveEnd; t++) if(t<MAX_MINUTES) arr[t] = 1;
+            }
+        });
+        return slots;
+    };
+
+    // 5. Tetris for Mixed Services
+    const tryFitMixedServicesTetris = (guestDetails, startMins, slotMapOriginal) => {
+        const CLEANUP_BUFFER = 10;
+        const slotMap = { 
+            CHAIR: slotMapOriginal.CHAIR.map(arr => new Uint8Array(arr)), 
+            BED: slotMapOriginal.BED.map(arr => new Uint8Array(arr)) 
+        };
+
+        const isSlotAvailable = (type, idx, s, e) => {
+            const arr = slotMap[type][idx];
+            for (let t = s; t < e; t++) if (arr[t] === 1) return false;
+            return true;
+        };
+        const markSlotBusy = (type, idx, s, e) => {
+            const arr = slotMap[type][idx];
+            for (let t = s; t < e; t++) arr[t] = 1;
+        };
+
+        for (let i = 0; i < guestDetails.length; i++) {
+            const guest = guestDetails[i];
+            const serviceName = guest.service;
+            const svcInfo = window.SERVICES_DATA ? window.SERVICES_DATA[serviceName] : {};
+            const duration = window.getSafeDuration ? window.getSafeDuration(serviceName, 60) : 60;
+            const isCombo = serviceName.includes('套餐') || svcInfo.category === 'COMBO';
+
+            let placed = false;
+
+            if (isCombo) {
+                const half = duration / 2;
+                const p1Start = startMins; const p1End = startMins + half + CLEANUP_BUFFER;
+                const p2Start = startMins + half; const p2End = startMins + duration + CLEANUP_BUFFER;
+                
+                // Strategy 1: FB
+                for (let c = 1; c <= 6; c++) {
+                    if (isSlotAvailable('CHAIR', c, p1Start, p1End)) {
+                        for (let b = 1; b <= 6; b++) {
+                            if (isSlotAvailable('BED', b, p2Start, p2End)) {
+                                markSlotBusy('CHAIR', c, p1Start, p1End); markSlotBusy('BED', b, p2Start, p2End);
+                                placed = true; break;
+                            }
+                        }
+                    }
+                    if (placed) break;
+                }
+                // Strategy 2: BF
+                if (!placed) {
+                    for (let b = 1; b <= 6; b++) {
+                        if (isSlotAvailable('BED', b, p1Start, p1End)) {
+                            for (let c = 1; c <= 6; c++) {
+                                if (isSlotAvailable('CHAIR', c, p2Start, p2End)) {
+                                    markSlotBusy('BED', b, p1Start, p1End); markSlotBusy('CHAIR', c, p2Start, p2End);
+                                    placed = true; break;
+                                }
+                            }
+                        }
+                        if (placed) break;
+                    }
+                }
+            } else {
+                const type = (serviceName.includes('足') || svcInfo.type === 'CHAIR') ? 'CHAIR' : 'BED';
+                const effectiveEnd = startMins + duration + CLEANUP_BUFFER;
+                for (let r = 1; r <= 6; r++) {
+                    if (isSlotAvailable(type, r, startMins, effectiveEnd)) {
+                        markSlotBusy(type, r, startMins, effectiveEnd);
+                        placed = true; break;
+                    }
+                }
+            }
+            if (!placed) return false;
         }
         return true;
     };
 
-    // 3. 標記區間為忙碌
-    const markRangeBusy = (slotArray, rowIdx, start, end) => {
-        if (rowIdx < 1 || rowIdx >= slotArray.length) return;
-        for (let t = start; t < end; t++) {
-            if (t >= MAX_TIMELINE_MINUTES) break;
-            slotArray[rowIdx][t] = 1;
-        }
-    };
-
-    // 4. 嘗試將一個訂單放入地圖 (Tetris Fit)
-    // 返回 true 如果成功放入, false 如果無處可放
-    const placeBookingOnMap = (booking, slotMap) => {
-        const bStart = getMinsFromTimeStr(booking.startTimeString.split(' ')[1]);
-        const duration = booking.duration || 60;
-        
-        // 判斷是否為套餐 (COMBO)
-        const isCombo = (booking.category === 'COMBO') || (booking.serviceName && booking.serviceName.includes('套餐'));
-        
-        if (isCombo) {
-            const half = duration / 2;
-            // 第一階段: 腳底 (Chair)
-            const p1Start = bStart;
-            const p1End = p1Start + half + CLEANUP_BUFFER;
-            // 第二階段: 身體 (Bed)
-            const p2Start = p1Start + half;
-            const p2End = p2Start + half + CLEANUP_BUFFER;
-
-            // 尋找空閒椅子
-            let foundChair = -1;
-            for (let c = 1; c <= MAX_CHAIRS; c++) {
-                if (isRangeFree(slotMap.CHAIR, c, p1Start, p1End)) { foundChair = c; break; }
-            }
-            if (foundChair === -1) return false; // 沒椅子
-
-            // 尋找空閒床位
-            let foundBed = -1;
-            for (let b = 1; b <= MAX_BEDS; b++) {
-                if (isRangeFree(slotMap.BED, b, p2Start, p2End)) { foundBed = b; break; }
-            }
-            if (foundBed === -1) return false; // 沒床位
-
-            // 標記佔用
-            markRangeBusy(slotMap.CHAIR, foundChair, p1Start, p1End);
-            markRangeBusy(slotMap.BED, foundBed, p2Start, p2End);
-            return true;
-        } else {
-            // 單一項目
-            let type = 'BED';
-            if (booking.type === 'CHAIR' || (booking.serviceName && booking.serviceName.includes('足'))) type = 'CHAIR';
-            
-            const effectiveEnd = bStart + duration + CLEANUP_BUFFER;
-            const targetArray = slotMap[type];
-            const maxSlots = type === 'CHAIR' ? MAX_CHAIRS : MAX_BEDS;
-
-            for (let r = 1; r <= maxSlots; r++) {
-                if (isRangeFree(targetArray, r, bStart, effectiveEnd)) {
-                    markRangeBusy(targetArray, r, bStart, effectiveEnd);
-                    return true;
-                }
-            }
-            return false; // 沒位置
-        }
-    };
-
-    // 5. 模擬當天現況 (Simulate Current Reality)
-    const simulateDayState = (existingBookings, targetDateStr) => {
-        const slotMap = createEmptySlotMap();
-        
-        // 過濾當天訂單
-        const todays = existingBookings.filter(b => {
-            const bDate = b.startTimeString.split(' ')[0].replace(/\//g, '-');
-            const tDate = targetDateStr.replace(/\//g, '-');
-            return bDate === tDate && !b.status.includes('取消') && !b.status.includes('Cancelled') && !b.status.includes('完成');
-        });
-
-        // 排序訂單 (從早到晚)，確保模擬順序正確
-        todays.sort((a, b) => {
-            return getMinsFromTimeStr(a.startTimeString.split(' ')[1]) - getMinsFromTimeStr(b.startTimeString.split(' ')[1]);
-        });
-
-        // 將現有訂單填入地圖
-        todays.forEach(b => {
-            placeBookingOnMap(b, slotMap); 
-            // 注意: 即使現有訂單在現實中重疊 (數據錯誤)，這裡也會盡量填入。
-            // 我們的目標是檢查 "新訂單" 是否還塞得進去。
-        });
-
-        return slotMap;
-    };
-
     // ==================================================================================
-    // 1. MODAL 新增預約 (NEW AVAILABILITY CHECK MODAL)
+    // 1. MODAL ĐẶT LỊCH (NEW AVAILABILITY CHECK MODAL)
     // ==================================================================================
     const NewAvailabilityCheckModal = ({ onClose, onSave, staffList, bookings, initialDate }) => {
         const [step, setStep] = useState('CHECK');
         const [checkResult, setCheckResult] = useState(null);
         const [suggestions, setSuggestions] = useState([]);
-        const defaultService = window.SERVICES_LIST ? window.SERVICES_LIST[2] : "🔥 招牌套餐 (100分)";
+        const defaultService = window.SERVICES_LIST ? window.SERVICES_LIST[2] : "";
 
         const [form, setForm] = useState({
             date: initialDate || new Date().toISOString().slice(0, 10), 
@@ -245,7 +244,6 @@
 
         const [guestDetails, setGuestDetails] = useState([{ service: defaultService, staff: '隨機', isOil: false }]);
 
-        // 處理時間變更
         const handleTimeChange = (type, value) => {
             const [h, m] = form.time.split(':');
             let newTime = form.time;
@@ -255,7 +253,6 @@
             setCheckResult(null); setSuggestions([]);
         };
 
-        // 處理人數變更
         const handlePaxChange = (val) => {
             const num = parseInt(val);
             setForm(prev => ({ ...prev, pax: num }));
@@ -294,25 +291,27 @@
             });
         };
 
-        // --- 核心檢查函數 (Core Check Function) ---
         const checkSlotAvailability = (targetTimeStr) => {
-            const startMins = getMinsFromTimeStr(targetTimeStr);
-            const todays = bookings.filter(b => {
+            const startMins = window.normalizeToTimelineMins ? window.normalizeToTimelineMins(targetTimeStr) : 0;
+            const safeBookings = bookings || [];
+            
+            const todays = safeBookings.filter(b => {
                 const bDate = b.startTimeString.split(' ')[0].replace(/\//g, '-');
                 const targetDate = form.date.replace(/\//g, '-');
-                return bDate === targetDate && !b.status.includes('取消') && !b.status.includes('完成');
+                return bDate === targetDate && !b.status.includes('取消') && !b.status.includes('完成') && !b.status.includes('Done');
             });
 
-            // 1. 人力檢查 (Staff Capacity)
+            // 1. CAPACITY - Kiểm tra nhân viên đi làm (Quan trọng)
             const activeStaff = staffList.filter(s => isStaffWorkingAt(s, startMins, form.date));
             const totalActive = activeStaff.length;
             const totalFemales = activeStaff.filter(s => getStaffGender(s) === 'F').length;
             const totalMales = activeStaff.filter(s => getStaffGender(s) === 'M').length;
 
-            // 計算當前忙碌人數 (粗略估計)
+            // 2. CONSUMPTION
             let busyTotal = 0;
             let busyFemales = 0;
             let busyMales = 0;
+
             let maxDuration = 0;
             guestDetails.forEach(g => {
                 const d = window.getSafeDuration ? window.getSafeDuration(g.service, 60) : 60;
@@ -321,22 +320,28 @@
             const checkEndMins = startMins + maxDuration;
 
             todays.forEach(b => {
-                const bStart = getMinsFromTimeStr(b.startTimeString.split(' ')[1]);
+                const bStart = window.normalizeToTimelineMins(b.startTimeString.split(' ')[1]);
                 const bDuration = b.duration || 60;
                 const bEnd = bStart + bDuration;
+                const bPax = parseInt(b.pax) || 1;
+                
                 if (Math.max(startMins, bStart) < Math.min(checkEndMins, bEnd)) {
-                    const bPax = parseInt(b.pax) || 1;
                     busyTotal += bPax;
                     if (isConsumingFemaleStaff(b, staffList)) busyFemales += bPax;
                     else if (isConsumingMaleStaff(b, staffList)) busyMales += bPax;
                 }
             });
 
-            // 需求計算
+            // 3. DEMAND
             let neededFemales = 0;
             let neededMales = 0;
+            
             guestDetails.forEach(g => {
                 let isF = false; let isM = false;
+                const svcNameUpper = g.service.toUpperCase();
+                const oilKeys = ['OIL', 'DẦU', '精油', '油', 'AROMA'];
+                if (oilKeys.some(k => svcNameUpper.includes(k))) isF = true;
+
                 if (g.staff === '女' || g.isOil) isF = true;
                 else if (g.staff === '男') isM = true;
                 else if (g.staff !== '隨機') {
@@ -346,55 +351,45 @@
                         else if (getStaffGender(sObj) === 'M') isM = true;
                     }
                 }
-                if (isF) neededFemales++; else if (isM) neededMales++;
+                if (isF) neededFemales++;
+                else if (isM) neededMales++;
             });
 
-            const remainingTotal = Math.max(0, totalActive - busyTotal);
-            if (remainingTotal < form.pax) return { valid: false, reason: `❌ 人手不足 (剩餘: ${remainingTotal}/${form.pax})` };
+            // 4. VALIDATION
+            const remainingTotal = totalActive - busyTotal;
+            if (remainingTotal < form.pax) return { valid: false, reason: `❌ 人手不足 (Total: ${remainingTotal}/${form.pax})` };
             
             const remainingFemales = Math.max(0, totalFemales - busyFemales);
-            if (neededFemales > remainingFemales) return { valid: false, reason: `❌ 女師傅不足 (剩餘: ${remainingFemales}/${neededFemales})` };
+            if (neededFemales > remainingFemales) return { valid: false, reason: `❌ 女師傅不足 (Female: ${remainingFemales}/${neededFemales})` };
 
             const remainingMales = Math.max(0, totalMales - busyMales);
-            if (neededMales > remainingMales) return { valid: false, reason: `❌ 男師傅不足 (剩餘: ${remainingMales}/${neededMales})` };
+            if (neededMales > remainingMales) return { valid: false, reason: `❌ 男師傅不足 (Male: ${remainingMales}/${neededMales})` };
 
-            // 2. 指定技師檢查 (Specific Staff Check)
+            // 5. KTV Check (Kiểm tra nhân viên chỉ định có OFF không)
             for (let i = 0; i < guestDetails.length; i++) {
                 const st = guestDetails[i].staff;
                 if (['隨機', '男', '女'].some(k => st.includes(k))) continue;
-                
                 const staffObj = staffList.find(s => s.id === st || s.name === st);
-                if (staffObj && !isStaffWorkingAt(staffObj, startMins, form.date)) return { valid: false, reason: `❌ 技師 ${st} 休假/未上班` };
+                
+                // [Fix V46] Kiểm tra kỹ hơn trạng thái làm việc của nhân viên được chỉ định
+                if (staffObj && !isStaffWorkingAt(staffObj, startMins, form.date)) {
+                    return { valid: false, reason: `❌ 技師 ${st} 休假/未上班` };
+                }
                 
                 const isBusy = todays.some(b => {
-                    const bStart = getMinsFromTimeStr(b.startTimeString.split(' ')[1]);
+                    const bStart = window.normalizeToTimelineMins(b.startTimeString.split(' ')[1]);
                     const bEnd = bStart + (b.duration || 60);
                     const overlap = (startMins < bEnd && checkEndMins > bStart);
                     const staffInOrder = [b.serviceStaff, b.staffId, b.technician, b.staffId2, b.staffId3, b.staffId4].map(s=>String(s));
                     return overlap && staffInOrder.some(name => name && (name.includes(st) || st.includes(name)));
                 });
-                if (isBusy) return { valid: false, reason: `❌ 技師 ${st} 忙碌中` };
+                if (isBusy) return { valid: false, reason: `❌ 技師 ${st} 忙碌` };
             }
 
-            // 3. 資源模擬檢查 (Simulation / Tetris Check) - 最重要的一步
-            // 重建當天時間軸地圖
-            const slotMap = simulateDayState(bookings, form.date);
-            
-            // 嘗試將新客人放入地圖
-            for (const guest of guestDetails) {
-                // 構建臨時訂單對象
-                const svcInfo = window.SERVICES_DATA ? window.SERVICES_DATA[guest.service] : {};
-                const tempBooking = {
-                    startTimeString: `2000/01/01 ${targetTimeStr}`, // 日期不重要，只取時間
-                    duration: window.getSafeDuration ? window.getSafeDuration(guest.service, 60) : 60,
-                    category: (guest.service.includes('套餐') || svcInfo?.category === 'COMBO') ? 'COMBO' : 'NORMAL',
-                    type: (guest.service.includes('足') || svcInfo?.type === 'CHAIR') ? 'CHAIR' : 'BED',
-                    serviceName: guest.service
-                };
-
-                const success = placeBookingOnMap(tempBooking, slotMap);
-                if (!success) return { valid: false, reason: "❌ 區域客滿 (沒椅子/沒床位)" };
-            }
+            // 6. Tetris Check
+            const slotMap = buildDetailedSlotMap(todays);
+            const canFit = tryFitMixedServicesTetris(guestDetails, startMins, slotMap);
+            if (!canFit) return { valid: false, reason: "❌ 區域客滿 (Area Full)" };
 
             return { valid: true, reason: "OK" };
         };
@@ -404,11 +399,10 @@
             if (result.valid) { setCheckResult({ status: 'OK', message: "✅ 此時段可以預約 (Available)" }); setSuggestions([]); }
             else {
                 setCheckResult({ status: 'FAIL', message: result.reason });
-                // 尋找鄰近建議時段
                 const foundSuggestions = [];
                 const [startH, startM] = form.time.split(':').map(Number);
                 let currentTotalMins = startH * 60 + startM;
-                for (let i = 1; i <= 24; i++) { // 往後查 4 小時
+                for (let i = 1; i <= 24; i++) {
                     const nextMins = currentTotalMins + (i * 10);
                     let h = Math.floor(nextMins / 60); let m = nextMins % 60;
                     if (h >= 24) h -= 24; 
@@ -518,7 +512,7 @@
     };
 
     // ==================================================================================
-    // 2. MODAL 現場客 (NEW WALKIN MODAL)
+    // 2. MODAL KHÁCH VÃNG LAI (NEW WALKIN MODAL)
     // ==================================================================================
     const NewWalkInModal = ({ onClose, onSave, staffList, bookings, initialDate }) => {
         const [step, setStep] = useState('CHECK');
@@ -528,7 +522,7 @@
         const now = new Date();
         const currentTimeStr = `${now.getHours().toString().padStart(2,'0')}:${now.getMinutes().toString().padStart(2,'0')}`;
         const todayStr = initialDate || now.toISOString().slice(0, 10);
-        const defaultService = window.SERVICES_LIST ? window.SERVICES_LIST[2] : "🔥 招牌套餐 (100分)";
+        const defaultService = window.SERVICES_LIST ? window.SERVICES_LIST[2] : "";
 
         const [form, setForm] = useState({
             pax: 1, custName: '現場客', custPhone: '', time: currentTimeStr, date: todayStr
@@ -575,19 +569,25 @@
         };
 
         const runCheckForTime = (timeToCheck, dateToCheck) => {
-            const startMins = getMinsFromTimeStr(timeToCheck);
-            const todays = bookings.filter(b => {
+            const startMins = window.normalizeToTimelineMins ? window.normalizeToTimelineMins(timeToCheck) : 0;
+            const safeBookings = bookings || [];
+            
+            const todays = safeBookings.filter(b => {
                 const bDate = b.startTimeString.split(' ')[0].replace(/\//g, '-');
                 const targetDate = dateToCheck.replace(/\//g, '-');
-                return bDate === targetDate && !b.status.includes('取消') && !b.status.includes('完成');
+                return bDate === targetDate && !b.status.includes('取消') && !b.status.includes('完成') && !b.status.includes('Done');
             });
 
             // 1. Staff Check
             const activeStaff = staffList.filter(s => isStaffWorkingAt(s, startMins, dateToCheck));
             const totalActive = activeStaff.length;
-            
-            // 快速估算忙碌人數 (Basic Count)
+            const totalFemales = activeStaff.filter(s => getStaffGender(s) === 'F').length;
+            const totalMales = activeStaff.filter(s => getStaffGender(s) === 'M').length;
+
             let busyTotal = 0;
+            let busyFemales = 0;
+            let busyMales = 0;
+
             let maxDuration = 0;
             guestDetails.forEach(g => {
                 const d = window.getSafeDuration ? window.getSafeDuration(g.service, 60) : 60;
@@ -596,30 +596,69 @@
             const checkEndMins = startMins + maxDuration;
 
             todays.forEach(b => {
-                const bStart = getMinsFromTimeStr(b.startTimeString.split(' ')[1]);
-                const bEnd = bStart + (b.duration || 60);
+                const bStart = window.normalizeToTimelineMins(b.startTimeString.split(' ')[1]);
+                const bDuration = b.duration || 60;
+                const bEnd = bStart + bDuration;
+                const bPax = parseInt(b.pax) || 1;
+
                 if (Math.max(startMins, bStart) < Math.min(checkEndMins, bEnd)) {
-                    busyTotal += (parseInt(b.pax) || 1);
+                    busyTotal += bPax;
+                    if (isConsumingFemaleStaff(b, staffList)) busyFemales += bPax;
+                    else if (isConsumingMaleStaff(b, staffList)) busyMales += bPax;
                 }
             });
 
-            if ((totalActive - busyTotal) < form.pax) return { valid: false, reason: `❌ 人手不足 (剩餘: ${totalActive - busyTotal})` };
+            const availTotal = totalActive - busyTotal;
+            const availFemales = Math.max(0, totalFemales - busyFemales);
+            const availMales = Math.max(0, totalMales - busyMales);
 
-            // 2. Resource Simulation (嚴格模擬檢查)
-            const slotMap = simulateDayState(bookings, dateToCheck);
-            for (const guest of guestDetails) {
-                const svcInfo = window.SERVICES_DATA ? window.SERVICES_DATA[guest.service] : {};
-                const tempBooking = {
-                    startTimeString: `2000/01/01 ${timeToCheck}`,
-                    duration: window.getSafeDuration ? window.getSafeDuration(guest.service, 60) : 60,
-                    category: (guest.service.includes('套餐') || svcInfo?.category === 'COMBO') ? 'COMBO' : 'NORMAL',
-                    type: (guest.service.includes('足') || svcInfo?.type === 'CHAIR') ? 'CHAIR' : 'BED',
-                    serviceName: guest.service
-                };
-                if (!placeBookingOnMap(tempBooking, slotMap)) {
-                    return { valid: false, reason: "❌ 區域客滿 (椅子/床位不足)" };
+            let neededFemales = 0;
+            let neededMales = 0;
+
+            guestDetails.forEach(g => {
+                let isF = false; let isM = false;
+                const svcNameUpper = g.service.toUpperCase();
+                const oilKeys = ['OIL', 'DẦU', '精油', '油', 'AROMA'];
+                if (oilKeys.some(k => svcNameUpper.includes(k))) isF = true;
+
+                if (g.staff === '女' || g.isOil) isF = true;
+                else if (g.staff === '男') isM = true;
+                else if (g.staff !== '隨機') {
+                    const sObj = staffList.find(s => s.id === g.staff || s.name === g.staff);
+                    if (sObj) {
+                        if (getStaffGender(sObj) === 'F') isF = true;
+                        else if (getStaffGender(sObj) === 'M') isM = true;
+                    }
                 }
+                if (isF) neededFemales++;
+                else if (isM) neededMales++;
+            });
+
+            if (availTotal < form.pax) return { valid: false, reason: `❌ 人手不足 (Total: ${availTotal}/${form.pax})` };
+            if (neededFemales > availFemales) return { valid: false, reason: `❌ 女師傅不足 (Female: ${availFemales}/${neededFemales})` };
+            if (neededMales > availMales) return { valid: false, reason: `❌ 男師傅不足 (Male: ${availMales}/${neededMales})` };
+
+            // 2. KTV Check
+            for (let i = 0; i < guestDetails.length; i++) {
+                const st = guestDetails[i].staff;
+                if (['隨機', '男', '女'].some(k => st.includes(k))) continue;
+                const staffObj = staffList.find(s => s.id === st || s.name === st);
+                if (staffObj && !isStaffWorkingAt(staffObj, startMins, dateToCheck)) return { valid: false, reason: `❌ 技師 ${st} 未上班` };
+                const isBusy = todays.some(b => {
+                    const bStart = window.normalizeToTimelineMins(b.startTimeString.split(' ')[1]);
+                    const bEnd = bStart + (b.duration || 60);
+                    const overlap = (startMins < bEnd && checkEndMins > bStart);
+                    const staffInOrder = [b.serviceStaff, b.staffId, b.technician, b.staffId2, b.staffId3, b.staffId4].map(s=>String(s));
+                    return overlap && staffInOrder.some(name => name && (name.includes(st) || st.includes(name)));
+                });
+                if (isBusy) return { valid: false, reason: `❌ 技師 ${st} 忙碌` };
             }
+
+            // 3. Resource Check
+            const slotMap = buildDetailedSlotMap(todays);
+            const canFit = tryFitMixedServicesTetris(guestDetails, startMins, slotMap);
+            
+            if (!canFit) return { valid: false, reason: "❌ 區域客滿 (Area Full)" };
 
             return { valid: true, reason: "OK" };
         };
@@ -630,7 +669,6 @@
                 setCheckResult({ status: 'OK', message: "✅ 目前有空位 (Available Now)" });
                 setWaitSuggestion(null);
             } else {
-                // 自動尋找下一時段
                 const [h, m] = form.time.split(':').map(Number);
                 let currentTotalMins = h * 60 + m;
                 let foundTime = null;
@@ -638,7 +676,6 @@
                 let waitMins = 0;
                 let isNextDay = false;
 
-                // 往後找 3 小時 (每10分鐘)
                 for (let i = 1; i <= 18; i++) {
                     const nextMins = currentTotalMins + (i * 10);
                     let nh = Math.floor(nextMins / 60);
@@ -650,7 +687,6 @@
                     if (nextCheck.valid) { foundTime = nextTimeStr; waitMins = i * 10; break; }
                 }
 
-                // 如果今天沒空位，找明天早上
                 if (!foundTime) {
                     const tmr = new Date(form.date);
                     tmr.setDate(tmr.getDate() + 1);
@@ -662,7 +698,7 @@
                 }
 
                 if (foundTime) {
-                    if (isNextDay) { setCheckResult({ status: 'FAIL', message: "⛔ 今日已滿 (Today Full)" }); setWaitSuggestion({ time: foundTime, date: foundDate, isNextDay: true }); }
+                    if (isNextDay) { setCheckResult({ status: 'FAIL', message: "⛔ 今日已滿或打烊 (Full/Closed)" }); setWaitSuggestion({ time: foundTime, date: foundDate, isNextDay: true }); }
                     else { setCheckResult({ status: 'FAIL', message: "⚠️ 目前客滿 (Current Full)" }); setWaitSuggestion({ time: foundTime, date: foundDate, mins: waitMins, isNextDay: false }); }
                 } else {
                     setCheckResult({ status: 'FAIL', message: "❌ 無法安排 (No slots found)" });
@@ -778,15 +814,14 @@
         );
     };
 
-    // 掛載 Modal 到全局 (Mount to Global)
     const overrideInterval = setInterval(() => {
         if (window.AvailabilityCheckModal !== NewAvailabilityCheckModal) {
             window.AvailabilityCheckModal = NewAvailabilityCheckModal;
-            console.log("♻️ AvailabilityModal Updated (V47)");
+            console.log("♻️ AvailabilityModal Updated (V46)");
         }
         if (window.WalkInModal !== NewWalkInModal) {
             window.WalkInModal = NewWalkInModal;
-            console.log("♻️ WalkInModal Updated (V47 - Resource Guard)");
+            console.log("♻️ WalkInModal Updated (V46 - OFF Sync)");
         }
     }, 200);
     setTimeout(() => clearInterval(overrideInterval), 5000);
