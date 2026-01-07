@@ -1,8 +1,8 @@
 // File: js/bookingHandler.js
-// Phiên bản: V45 (Fix OFF Status cho định dạng 2026-01-07)
+// Phiên bản: V46 (Sync with Backend V157 - Check OFF via offDays Array)
 
 (function() {
-    console.log("🚀 BookingHandler V45 (Strict Date Match): 啟動中...");
+    console.log("🚀 BookingHandler V46 (OFF Sync): 啟動中...");
 
     if (typeof React === 'undefined') return;
     const { useState, useEffect, useMemo } = React;
@@ -17,45 +17,39 @@
         return `${s.id} - ${s.name}`;
     };
 
-    // 1. Check ngày làm việc từ Sheet (UPDATED V45)
+    /**
+     * [CORE FIX V46] Hàm kiểm tra trạng thái ngày của nhân viên
+     * Sử dụng dữ liệu 'offDays' đã được Backend xử lý chuẩn.
+     */
     const getStaffDayStatus = (staff, dateString) => {
         if (!staff) return '';
-        // dateString input: 2026-01-07
-        const [y, m, d] = dateString.split('-');
         
-        // Danh sách các key có thể xuất hiện trong JSON từ Google Sheet
+        // 1. Chuẩn hóa ngày đầu vào (Input Date Picker luôn là YYYY-MM-DD)
+        // Cần chuyển về YYYY/MM/DD để khớp với Backend
+        const standardizedDate = dateString.replace(/-/g, '/'); // 2026/01/07
+
+        // 2. Kiểm tra ưu tiên: Mảng offDays từ Backend
+        if (staff.offDays && Array.isArray(staff.offDays)) {
+            if (staff.offDays.includes(standardizedDate)) {
+                return 'OFF';
+            }
+        }
+
+        // 3. (Fallback) Kiểm tra các key cổ điển (phòng khi Backend chưa update kịp)
+        const [y, m, d] = dateString.split('-');
         const keysToTry = [
-            `${y}-${m}-${d}`,              // 2026-01-07 (Ưu tiên số 1 - Theo ảnh bạn gửi)
-            `${y}/${m}/${d}`,              // 2026/01/07 (Dự phòng)
+            `${y}-${m}-${d}`,              // 2026-01-07
+            `${y}/${m}/${d}`,              // 2026/01/07
             `${y}/${parseInt(m)}/${parseInt(d)}`, // 2026/1/7
             `${y}-${parseInt(m)}-${parseInt(d)}`  // 2026-1-7
         ];
 
-        // 1. Tìm chính xác key
         for (const key of keysToTry) {
             if (staff[key] !== undefined) {
-                return String(staff[key]).trim().toUpperCase();
+                const val = String(staff[key]).trim().toUpperCase();
+                if (val === 'OFF' || val === '休') return 'OFF';
             }
         }
-
-        // 2. Tìm kiếm 'mờ' (Fuzzy Search) - Phòng trường hợp Sheet bị lỗi khoảng trắng thừa
-        // Ví dụ: Sheet có cột "2026-01-07 " (thừa dấu cách cuối)
-        try {
-            const cleanDate = `${y}${m}${d}`; // 20260107
-            for (const key in staff) {
-                // Chỉ check những key có độ dài tương đối giống ngày tháng
-                if (key.length < 8) continue;
-                
-                // Xóa hết ký tự đặc biệt để so sánh số
-                const cleanKey = key.replace(/[^0-9]/g, ''); 
-                if (cleanKey === cleanDate) {
-                    // Kiểm tra kỹ lại xem key gốc có phải ngày tháng không (tránh nhầm số điện thoại)
-                    if (key.includes('-') || key.includes('/')) {
-                        return String(staff[key]).trim().toUpperCase();
-                    }
-                }
-            }
-        } catch (e) { console.warn("Fuzzy date check error", e); }
 
         return ''; 
     };
@@ -64,10 +58,10 @@
         // Kiểm tra trạng thái OFF/Nghỉ
         const dayStatus = getStaffDayStatus(staff, dateString);
         
-        // Debug Log: Bật F12 lên để xem nếu cần kiểm tra
-        // console.log(`Check ${staff.id} on ${dateString}: ${dayStatus}`);
-
-        if (dayStatus === 'OFF' || dayStatus === '休') return false;
+        if (dayStatus === 'OFF' || dayStatus === '休') {
+            // console.log(`⛔ ${staff.name} nghỉ ngày ${dateString}`);
+            return false;
+        }
 
         // Nếu không có thông tin ca làm việc -> Coi như không làm
         if (!staff.shiftStart || !staff.shiftEnd) return false;
@@ -376,7 +370,11 @@
                 const st = guestDetails[i].staff;
                 if (['隨機', '男', '女'].some(k => st.includes(k))) continue;
                 const staffObj = staffList.find(s => s.id === st || s.name === st);
-                if (staffObj && !isStaffWorkingAt(staffObj, startMins, form.date)) return { valid: false, reason: `❌ 技師 ${st} 休假/未上班` };
+                
+                // [Fix V46] Kiểm tra kỹ hơn trạng thái làm việc của nhân viên được chỉ định
+                if (staffObj && !isStaffWorkingAt(staffObj, startMins, form.date)) {
+                    return { valid: false, reason: `❌ 技師 ${st} 休假/未上班` };
+                }
                 
                 const isBusy = todays.some(b => {
                     const bStart = window.normalizeToTimelineMins(b.startTimeString.split(' ')[1]);
@@ -819,11 +817,11 @@
     const overrideInterval = setInterval(() => {
         if (window.AvailabilityCheckModal !== NewAvailabilityCheckModal) {
             window.AvailabilityCheckModal = NewAvailabilityCheckModal;
-            console.log("♻️ AvailabilityModal Updated (V45)");
+            console.log("♻️ AvailabilityModal Updated (V46)");
         }
         if (window.WalkInModal !== NewWalkInModal) {
             window.WalkInModal = NewWalkInModal;
-            console.log("♻️ WalkInModal Updated (V45 - Strict Date)");
+            console.log("♻️ WalkInModal Updated (V46 - OFF Sync)");
         }
     }, 200);
     setTimeout(() => clearInterval(overrideInterval), 5000);
