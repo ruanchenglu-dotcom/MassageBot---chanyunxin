@@ -31,18 +31,6 @@ const App = () => {
     const [syncLock, setSyncLock] = useState(false);
     const [quotaError, setQuotaError] = useState(false); 
 
-    // --- TÍCH HỢP STAFF SORTER (LOGIC MỚI) ---
-    const sortedGroups = useMemo(() => {
-        // Nếu có StaffSorter thì dùng, không thì dùng logic mặc định (để tránh lỗi nếu file chưa load)
-        if (window.StaffSorter && window.StaffSorter.organizeStaff) {
-            return window.StaffSorter.organizeStaff(staffList, statusData, resourceState);
-        }
-        return { busy: [], ready: [], away: [], readyQueueIds: [] };
-    }, [staffList, statusData, resourceState]);
-
-    // Giải nén các nhóm để dùng trong render
-    const { busy: busyStaffSorted, ready: readyStaffSorted, away: awayStaffSorted, readyQueueIds: readyQueueSorted } = sortedGroups;
-
     // 2. HELPER FUNCTIONS & LOGIC
     const isActuallyBusy = (staffId) => {
         if (!resourceState) return false;
@@ -89,6 +77,7 @@ const App = () => {
     }
 
     const determineColumnIndex = (booking, activeStaffId, resourceId) => {
+        // [FIXED] Ưu tiên tìm theo tên thợ
         if (activeStaffId && activeStaffId !== '隨機' && activeStaffId !== 'undefined') {
             const staffCols = [
                 booking.serviceStaff || booking.staffId, 
@@ -101,6 +90,7 @@ const App = () => {
             const idx = staffCols.findIndex(s => s && s.trim() === activeStaffId.trim());
             if (idx !== -1) return idx;
         }
+        // Fallback: Tìm theo số ghế (Cố định, không phụ thuộc vào số lượng đang active)
         const seatNum = parseInt(resourceId.replace(/\D/g, '')); 
         if (!isNaN(seatNum) && seatNum > 0) {
             return Math.min(seatNum - 1, 5); 
@@ -118,6 +108,7 @@ const App = () => {
             return res && res.booking && String(res.booking.rowId) === String(targetRowId);
         });
         
+        // Sắp xếp theo thứ tự ghế/giường
         groupSlots.sort((a, b) => window.getWeight(a) - window.getWeight(b));
         
         const idx = groupSlots.indexOf(targetResId);
@@ -132,7 +123,7 @@ const App = () => {
         }
     };
 
-    // 3. CORE LOGIC (FETCH DATA - GIỮ NGUYÊN)
+    // 3. CORE LOGIC
     const fetchData = async () => {
         if (syncLock) return;
         if (quotaError) return; 
@@ -173,6 +164,7 @@ const App = () => {
                                 const key = `Status${i}`;
                                 const localVal = localBooking[key];
                                 const serverVal = serverBooking[key];
+                                // Ưu tiên trạng thái local nếu nó là "Hoàn thành" mà server chưa kịp cập nhật
                                 if (localVal && localVal.includes('完成') && (!serverVal || !serverVal.includes('完成'))) {
                                     mergedBooking[key] = localVal; 
                                 }
@@ -255,6 +247,7 @@ const App = () => {
                 return null; 
             };
 
+            // --- DỰ ĐOÁN PHASE 2 CHO COMBO ---
             Object.keys(tempState).forEach(key => {
                 const item = tempState[key];
                 if (item.comboMeta) {
@@ -284,6 +277,7 @@ const App = () => {
                 }
             });
 
+            // --- XẾP LỊCH CHO CÁC ĐƠN CHỜ ---
             const pendingBookings = relevantBookings.filter(b => 
                 !b.status.includes('完成') && 
                 !b.status.includes('✅') &&
@@ -301,6 +295,7 @@ const App = () => {
             };
             listSingles.sort(sortFn); listCombos.sort(sortFn);
 
+            // Xếp Single
             listSingles.forEach(b => {
                 const originalStart = window.normalizeToTimelineMins(b.startTimeString.split(' ')[1]);
                 const totalNeeded = b.pax || 1;
@@ -328,6 +323,7 @@ const App = () => {
                 }
             });
 
+            // Xếp Combo
             listCombos.forEach(b => {
                 const originalStart = window.normalizeToTimelineMins(b.startTimeString.split(' ')[1]);
                 const totalNeeded = b.pax || 1;
@@ -373,6 +369,7 @@ const App = () => {
 
             setTimelineData(timelineGrid);
 
+            // --- XỬ LÝ PREVIEW CHO RESOURCE CARD ---
             const allSlots = [];
             for(let i=1; i<=6; i++) allSlots.push(`chair-${i}`);
             for(let i=1; i<=6; i++) allSlots.push(`bed-${i}`);
@@ -462,19 +459,10 @@ const App = () => {
         else if (grpIdx === 5) newBooking.staffId6 = newStaffId;
         const newState = { ...resourceState, [resId]: { ...current, booking: newBooking } };
         setResourceState(newState);
-        
         const newStatusData = { ...statusData };
-        if (oldServiceStaff !== '隨機' && oldServiceStaff !== newStaffId) { 
-            // Thợ cũ về trạng thái Ready, lấy giờ hiện tại
-            newStatusData[oldServiceStaff] = { status: 'READY', checkInTime: Date.now() }; 
-        }
-        if (newStaffId !== '隨機') { 
-            // Thợ mới chuyển sang BUSY, nhưng giữ checkInTime cũ nếu có (để tính thâm niên)
-            const oldData = statusData[newStaffId] || {};
-            newStatusData[newStaffId] = { ...oldData, status: 'BUSY' }; 
-        }
+        if (oldServiceStaff !== '隨機' && oldServiceStaff !== newStaffId) { newStatusData[oldServiceStaff] = { status: 'READY', checkInTime: Date.now() }; }
+        if (newStaffId !== '隨機') { newStatusData[newStaffId] = { status: 'BUSY' }; }
         updateStaffStatus(newStatusData);
-        
         let primaryKey = "服務師傅1"; let fallbackKey = "ServiceStaff1";
         if (grpIdx === 1) { primaryKey = "服務師傅2"; fallbackKey = "ServiceStaff2"; }
         if (grpIdx === 2) { primaryKey = "服務師傅3"; fallbackKey = "ServiceStaff3"; }
@@ -607,32 +595,20 @@ const App = () => {
     const handleToggleMax = async (resId) => { const res = resourceState[resId]; if (!res) return; updateResource({ ...resourceState, [resId]: { ...res, isMaxMode: !res.isMaxMode } }); };
     const handleToggleSequence = async (resId) => { const res = resourceState[resId]; if (!res || !res.comboMeta) return; const newSeq = res.comboMeta.sequence === 'FB' ? 'BF' : 'FB'; updateResource({ ...resourceState, [resId]: { ...res, comboMeta: { ...res.comboMeta, sequence: newSeq } } }); }
     
-    // --- PAYMENT HANDLER (UPDATED: STAFF SORTER INTEGRATION) ---
+    // --- PAYMENT HANDLER (UPDATED: LOGIC COMPLETE CHECK ALL STAFF) ---
     const handleConfirmPayment = async (itemsToPay, totalAmount) => {
         try {
             setSyncLock(true); 
             setTimeout(() => setSyncLock(false), 5000); 
             
-            // --- BƯỚC 1: SẮP XẾP DANH SÁCH THANH TOÁN (SORTING) ---
-            // Sử dụng StaffSorter.js để sắp xếp (ưu tiên giữ thứ tự thẻ bài cũ)
-            let sortedItems = itemsToPay;
-            if (window.StaffSorter && window.StaffSorter.sortPaymentItems) {
-                // Truyền statusData vào để hàm sort có thể tra cứu lịch sử Check-in cũ
-                sortedItems = window.StaffSorter.sortPaymentItems(itemsToPay, statusData);
-            } else {
-                // Fallback nếu chưa có StaffSorter
-                sortedItems.sort((a, b) => a.resourceId.localeCompare(b.resourceId));
-            }
-
             const newState = { ...resourceState }; 
             const newStatusData = { ...statusData }; 
             const updatesByRow = {}; 
 
             const baseTime = Date.now();
 
-            // --- BƯỚC 2: GÁN THỜI GIAN CHECK-IN MỚI (DỰA TRÊN THỨ TỰ ĐÃ SẮP XẾP) ---
-            for (let i = 0; i < sortedItems.length; i++) {
-                const item = sortedItems[i];
+            for (let i = 0; i < itemsToPay.length; i++) {
+                const item = itemsToPay[i];
                 const b = item.booking;
                 const rid = String(b.rowId);
                 const resId = item.resourceId;
@@ -679,17 +655,17 @@ const App = () => {
                 else if (targetIndex === 5) staffId = b.staffId6;
 
                 if (staffId && staffId !== '隨機' && staffId !== 'undefined') {
-                    // QUAN TRỌNG: Gán thời gian check-in cách nhau 1 giây theo thứ tự đã sort
                     newStatusData[staffId] = { status: 'READY', checkInTime: baseTime + (i * 1000) };
                 }
 
                 delete newState[resId];
             }
 
-            // Gửi API và tính toán hoàn thành nhóm
+            // Gửi API và tính toán hoàn thành nhóm (LOGIC MỚI: KIỂM TRA TẤT CẢ SLOT CÓ NGƯỜI)
             Object.values(updatesByRow).forEach(updatePayload => {
                 const booking = updatePayload.originalBooking;
                 
+                // Xác định có bao nhiêu thợ/slot tham gia vào đơn này
                 const staffCols = [
                     booking.serviceStaff || booking.staffId, 
                     booking.staffId2,                            
@@ -703,11 +679,13 @@ const App = () => {
                 let finishedSlotsCount = 0;
 
                 staffCols.forEach((staffName, idx) => {
+                    // Nếu slot này có thợ (không phải undefined/null/rỗng)
                     if (staffName && staffName !== 'undefined' && staffName !== 'null' && staffName.trim() !== '') {
                         activeSlotsCount++;
                         
                         const key = `Status${idx + 1}`;
                         
+                        // Kiểm tra xem slot này đã xong chưa (trong payload mới HOẶC trong booking cũ)
                         const isNewCompletion = updatePayload[key] && updatePayload[key].includes('完成');
                         const wasAlreadyDone = booking[key] && (booking[key].includes('完成') || booking[key].includes('Done') || booking[key].includes('✅'));
                         
@@ -717,6 +695,7 @@ const App = () => {
                     }
                 });
 
+                // Chỉ đánh dấu hoàn thành đơn (Cột H) nếu TẤT CẢ các slot có thợ đều đã xong
                 if (activeSlotsCount > 0 && finishedSlotsCount >= activeSlotsCount) {
                     updatePayload.mainStatus = '✅ 完成'; 
                 }
@@ -746,32 +725,21 @@ const App = () => {
     const handleManualUpdateStatus = async (rowId, status) => { if(confirm('確認更新狀態?')) { await axios.post('/api/update-status', { rowId, status }); fetchData(); } };
     const handleRetryConnection = () => { setQuotaError(false); fetchData(); };
 
-    // --- RENDER HELPERS: Dùng danh sách đã sắp xếp từ StaffSorter ---
-    // (Lưu ý: Nếu StaffSorter chưa load, sẽ fallback về logic cũ nếu cần thiết, 
-    // nhưng ở đây ta dùng trực tiếp biến từ sortedGroups đã khai báo ở đầu component)
-    
-    // Fallback logic cũ (chỉ dùng nếu StaffSorter không hoạt động)
     const getStatus = (id) => statusData[id] ? statusData[id].status : 'AWAY';
     
-    // Sử dụng biến đã sort ở đầu component:
-    // busyStaffSorted, readyStaffSorted, awayStaffSorted, readyQueueSorted
-    
-    // Nếu StaffSorter không hoạt động, biến sortedGroups sẽ trả về mảng rỗng, ta cần fallback
     const safeStaffList = staffList || [];
+    const awayStaff = safeStaffList.filter(s => { const st = getStatus(s.id); return st === 'AWAY' || st === 'OFF'; }).sort(window.sortIdAsc);
     
-    const finalAwayStaff = (window.StaffSorter && window.StaffSorter.organizeStaff) ? awayStaffSorted : safeStaffList.filter(s => { const st = getStatus(s.id); return st === 'AWAY' || st === 'OFF'; }).sort(window.sortIdAsc);
-    
-    const finalBusyStaff = (window.StaffSorter && window.StaffSorter.organizeStaff) ? busyStaffSorted : safeStaffList.filter(s => isActuallyBusy(s.id)).sort((a,b) => { 
+    const busyStaff = safeStaffList.filter(s => isActuallyBusy(s.id)).sort((a,b) => { 
         const findRes = (sid) => Object.values(resourceState).find(r => r.isRunning && !r.isPaused && r.booking && ( r.booking.serviceStaff === sid || r.booking.staffId === sid || r.booking.staffId2 === sid || r.booking.staffId3 === sid || r.booking.staffId4 === sid || r.booking.staffId5 === sid || r.booking.staffId6 === sid ) );
         const resA = findRes(a.id); const resB = findRes(b.id);
         const timeA = resA?.startTime ? new Date(resA.startTime).getTime() : 0; const timeB = resB?.startTime ? new Date(resB.startTime).getTime() : 0;
         return timeA !== timeB ? timeA - timeB : window.sortIdAsc(a, b);
     });
     
-    const finalReadyStaff = (window.StaffSorter && window.StaffSorter.organizeStaff) ? readyStaffSorted : safeStaffList.filter(s => { if (isActuallyBusy(s.id)) return false; const st = getStatus(s.id); return st === 'READY' || st === 'EAT' || st === 'OUT_SHORT'; }).sort((a,b) => { const timeA = statusData[a.id]?.checkInTime || 0; const timeB = statusData[b.id]?.checkInTime || 0; return timeA !== timeB ? timeA - timeB : window.sortIdAsc(a, b); });
+    const readyStaff = safeStaffList.filter(s => { if (isActuallyBusy(s.id)) return false; const st = getStatus(s.id); return st === 'READY' || st === 'EAT' || st === 'OUT_SHORT'; }).sort((a,b) => { const timeA = statusData[a.id]?.checkInTime || 0; const timeB = statusData[b.id]?.checkInTime || 0; return timeA !== timeB ? timeA - timeB : window.sortIdAsc(a, b); });
     
-    const finalReadyQueue = (window.StaffSorter && window.StaffSorter.organizeStaff) ? readyQueueSorted : finalReadyStaff.filter(s => getStatus(s.id) === 'READY').map(s => s.id);
-
+    const readyQueue = readyStaff.filter(s => getStatus(s.id) === 'READY').map(s => s.id);
     const safeBookings = Array.isArray(bookings) ? bookings : [];
     
     const todaysBookings = useMemo(() => {
@@ -789,7 +757,7 @@ const App = () => {
             <header className={`text-white p-3 shadow-md flex justify-between items-center sticky top-0 z-50 transition-colors ${quotaError ? 'bg-red-800' : 'bg-[#1e1b4b]'}`}>
                 {/* Header Content */}
                 <div className="flex items-center gap-3">
-                    <span className="bg-amber-500 text-black px-2 py-1 rounded font-black text-sm">V281-FinalSort</span>
+                    <span className="bg-amber-500 text-black px-2 py-1 rounded font-black text-sm">V277</span>
                     <span className="font-bold hidden md:inline">XinWuChan</span>
                     <div className="flex items-center gap-2 bg-white/10 rounded px-2 py-1 border border-white/20">
                         <button onClick={()=>{const d=new Date(viewDate); d.setDate(d.getDate()-1); setViewDate(d.toISOString().split('T')[0])}} className="text-white hover:text-amber-400 font-bold px-2">❮</button>
@@ -818,17 +786,14 @@ const App = () => {
             <div className="bg-white border-b shadow-sm p-2 overflow-x-auto whitespace-nowrap staff-scroll">
                 <div className="flex w-full justify-between items-center min-w-max">
                     <div className="flex gap-1 opacity-30 scale-95 border-r-2 pr-2 mr-1 border-dashed border-slate-300">
-                        {finalAwayStaff.map(s => <window.StaffCard3D key={s.id} s={s} statusData={statusData} resourceState={resourceState} />)}
+                        {awayStaff.map(s => <window.StaffCard3D key={s.id} s={s} statusData={statusData} resourceState={resourceState} />)}
                     </div>
                     <div className="flex items-center flex-1 justify-end pl-2">
                         <div className="flex gap-1 px-2 border-r border-red-100 flex-row-reverse">
-                            {finalBusyStaff.map(s => <window.StaffCard3D key={s.id} s={s} statusData={statusData} resourceState={resourceState} isForcedBusy={true} />)}
+                            {busyStaff.map(s => <window.StaffCard3D key={s.id} s={s} statusData={statusData} resourceState={resourceState} isForcedBusy={true} />)}
                         </div>
                         <div className="flex flex-row-reverse gap-1 pl-2">
-                            {finalReadyStaff.map((s) => { 
-                                const qIdx = finalReadyQueue.indexOf(s.id); 
-                                return <window.StaffCard3D key={s.id} s={s} statusData={statusData} resourceState={resourceState} queueIndex={qIdx !== -1 ? qIdx : undefined} />; 
-                            })}
+                            {readyStaff.map((s, idx) => { const qIdx = readyQueue.indexOf(s.id); return <window.StaffCard3D key={s.id} s={s} statusData={statusData} resourceState={resourceState} queueIndex={qIdx !== -1 ? qIdx : undefined} />; })}
                         </div>
                     </div>
                 </div>
