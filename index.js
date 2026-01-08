@@ -1,12 +1,14 @@
 /**
  * =================================================================================================
  * PROJECT: XINWUCHAN MASSAGE BOT (BACKEND SERVER)
- * VERSION: V191 (FIXED OPENING HOUR 08:00 + LOGIC OPTIMIZATION)
+ * VERSION: V193 (STRICT MODE: NO GHOST STAFF)
  * AUTHOR: AI ASSISTANT
  * DATE: 2026/01/09
  * UPDATE NOTE: 
- * - [CRITICAL FIX] Sửa lỗi vòng lặp giờ bắt đầu từ 09:00 thành 08:00 theo giờ mở cửa.
- * - [MAINTENANCE] Giữ nguyên các fix về Quota và Event Logic của bản V190.
+ * - [STRICT] Loại bỏ hoàn toàn tính năng tạo nhân viên ảo. 
+ * - [SECURITY] Nếu không đọc được Sheet StaffSchedule -> Chặn toàn bộ tính năng đặt lịch.
+ * - [UX] Báo lỗi cụ thể cho khách hàng nếu hệ thống chưa đồng bộ được dữ liệu nhân viên.
+ * - [MAINTENANCE] Giữ nguyên fix giờ mở cửa 08:00 và logic check tài nguyên.
  * =================================================================================================
  */
 
@@ -57,12 +59,13 @@ let cachedBookings = [];
 let scheduleMap = {}; 
 let userState = {};
 let lastSyncTime = new Date(); 
+let isSystemHealthy = false; // Biến cờ kiểm tra trạng thái hệ thống
 
 // Dịch vụ (Sẽ được đồng bộ vào Core)
 let SERVICES = ResourceCore.SERVICES; 
 
 // =============================================================================
-// PHẦN 2: CÁC HÀM HỖ TRỢ (NATIVE JS FIX - KHÔNG DÙNG MOMENT)
+// PHẦN 2: CÁC HÀM HỖ TRỢ (NATIVE JS FIX)
 // =============================================================================
 
 function getTaipeiNow() {
@@ -163,7 +166,6 @@ function getColumnLetter(colIndex) {
 
 async function syncMenuData() {
     try {
-        // [OPTIMIZE] Chỉ gọi khi thật sự cần thiết, không gọi trong vòng lặp syncData
         const res = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: `${MENU_SHEET}!A2:D50` });
         const rows = res.data.values;
         if (!rows || rows.length === 0) return;
@@ -191,7 +193,6 @@ async function syncMenuData() {
         
         ResourceCore.setDynamicServices(newServices);
         SERVICES = ResourceCore.SERVICES; 
-
         console.log(`[MENU] Updated: ${Object.keys(SERVICES).length} items.`);
     } catch (e) { console.error('[MENU ERROR]', e); }
 }
@@ -228,8 +229,7 @@ async function syncDailySalary(dateStr, staffDataList) {
 
 async function syncData() {
     try {
-        // [OPTIMIZE] KHÔNG gọi syncMenuData ở đây để tránh lỗi Quota 429
-        
+        // 1. SYNC BOOKINGS
         const resBooking = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: `${BOOKING_SHEET}!A:W` });
         const rowsBooking = resBooking.data.values;
         cachedBookings = [];
@@ -288,9 +288,14 @@ async function syncData() {
             }
         }
 
+        // 2. SYNC SCHEDULE (BẮT BUỘC ĐỌC TỪ SHEET)
+        console.log("--- [DEBUG] LOADING STAFF SCHEDULE ---");
         const resSchedule = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: `${SCHEDULE_SHEET}!A1:BG100` });
         const rows = resSchedule.data.values;
-        STAFF_LIST = []; scheduleMap = {}; 
+        
+        // Reset list mỗi lần sync để đảm bảo dữ liệu mới nhất
+        let tempStaffList = []; 
+        let tempScheduleMap = {}; 
 
         if (rows && rows.length > 1) {
             const headerRow = rows[0]; 
@@ -300,14 +305,22 @@ async function syncData() {
                 const cleanName = staffName.trim();
                 const gender = (row[1] && (row[1] === '女' || row[1] === 'F')) ? 'F' : 'M';
                 
+                // [FIX] Nếu không có giờ, mặc định là 12:00 cho an toàn, nhưng vẫn phải đọc được dòng đó
+                const startTime = row[2] ? row[2].trim() : '12:00';
+                const endTime = row[3] ? row[3].trim() : '03:00';
+                
+                if (i <= 5 || startTime === '08:00') {
+                    console.log(`Staff: ${cleanName} | Start: ${startTime} | End: ${endTime}`);
+                }
+
                 const staffObj = { 
                     id: cleanName, 
                     name: cleanName, 
                     gender: gender, 
-                    start: row[2] || '08:00', 
-                    end: row[3] || '03:00',   
-                    shiftStart: row[2] || '08:00',
-                    shiftEnd: row[3] || '03:00',
+                    start: startTime, 
+                    end: endTime,   
+                    shiftStart: startTime,
+                    shiftEnd: endTime,
                     off: false, 
                     offDays: [] 
                 };
@@ -318,8 +331,8 @@ async function syncData() {
                     if (headerRow[j] && row[j] && row[j].trim().toUpperCase() === 'OFF') {
                         const normalizedDate = normalizeSheetDate(headerRow[j]);
                         if (normalizedDate) {
-                            if (!scheduleMap[normalizedDate]) scheduleMap[normalizedDate] = [];
-                            scheduleMap[normalizedDate].push(cleanName);
+                            if (!tempScheduleMap[normalizedDate]) tempScheduleMap[normalizedDate] = [];
+                            tempScheduleMap[normalizedDate].push(cleanName);
                             staffObj.offDays.push(normalizedDate);
                             
                             if (normalizedDate === todayStr) {
@@ -328,14 +341,32 @@ async function syncData() {
                         }
                     }
                 }
-                STAFF_LIST.push(staffObj);
+                tempStaffList.push(staffObj);
             }
         }
-        if (STAFF_LIST.length === 0) for(let i=1; i<=20; i++) STAFF_LIST.push({id:`${i}號`, name:`${i}號`, gender:'F', start:'08:00', end:'03:00', shiftStart:'08:00', shiftEnd:'03:00'});
+        
+        // [QUAN TRỌNG - STRICT MODE]
+        // Kiểm tra xem có đọc được nhân viên nào không
+        if (tempStaffList.length === 0) {
+            console.error("⛔ CRITICAL ERROR: Không đọc được dữ liệu từ StaffSchedule! Hệ thống sẽ khóa chức năng đặt lịch.");
+            isSystemHealthy = false;
+            STAFF_LIST = []; // Xóa trắng danh sách để bot biết đường từ chối
+        } else {
+            console.log(`✅ Đã tải thành công ${tempStaffList.length} nhân viên.`);
+            STAFF_LIST = tempStaffList;
+            scheduleMap = tempScheduleMap;
+            isSystemHealthy = true;
+        }
         
         lastSyncTime = new Date();
         console.log(`[SYNC OK] Bookings: ${cachedBookings.length}, Staff: ${STAFF_LIST.length} at ${formatDateTimeString(lastSyncTime)}`);
-    } catch (e) { console.error('[SYNC ERROR]', e); }
+        console.log("--------------------------------------");
+
+    } catch (e) { 
+        console.error('[SYNC ERROR] Fatal Error in SyncData:', e);
+        isSystemHealthy = false; 
+        STAFF_LIST = []; // Đảm bảo clear list khi lỗi
+    }
 }
 
 // =============================================================================
@@ -343,6 +374,9 @@ async function syncData() {
 // =============================================================================
 
 function findBestSlots(selectedDate, serviceCode, pax = 1, requireFemale = false, requireMale = false) {
+    // Nếu hệ thống đang lỗi (không có staff), trả về rỗng ngay
+    if (!isSystemHealthy || STAFF_LIST.length === 0) return [];
+
     const service = SERVICES[serviceCode]; 
     if (!service) return [];
     
@@ -371,7 +405,7 @@ function findBestSlots(selectedDate, serviceCode, pax = 1, requireFemale = false
         guestList.push({ serviceCode: serviceCode, staffName: staffReq });
     }
 
-    // [FIX] Bắt đầu từ 8:00 thay vì 9:00
+    // Quét từ 8:00 (Theo yêu cầu giờ mở cửa)
     for (let h = 8; h <= 24; h += 1) { 
         const hourInt = Math.floor(h); 
         const minuteInt = 0; 
@@ -392,6 +426,8 @@ function findBestSlots(selectedDate, serviceCode, pax = 1, requireFemale = false
 }
 
 function generateTimeBubbles(selectedDate, serviceCode, specificStaffIds = null, pax = 1, requireFemale = false, requireMale = false) {
+    if (!isSystemHealthy || STAFF_LIST.length === 0) return null;
+
     const service = SERVICES[serviceCode]; if (!service) return null;
     let validSlots = [];
     
@@ -411,7 +447,7 @@ function generateTimeBubbles(selectedDate, serviceCode, specificStaffIds = null,
         guestList.push({ serviceCode: serviceCode, staffName: sId });
     }
 
-    // [FIX] Bắt đầu từ 8:00 thay vì 9:00
+    // Quét từ 8:00
     for (let h = 8; h <= 24; h += 1) { 
         const hourInt = Math.floor(h); 
         let displayH = hourInt >= 24 ? hourInt - 24 : hourInt;
@@ -599,7 +635,8 @@ app.get('/api/info', (req, res) => {
         resourceState: SERVER_RESOURCE_STATE, 
         staffStatus: SERVER_STAFF_STATUS, 
         services: SERVICES,
-        lastUpdated: lastSyncTime
+        lastUpdated: lastSyncTime,
+        isSystemHealthy: isSystemHealthy
     }); 
 });
 
@@ -624,21 +661,37 @@ app.post('/api/update-booking-details', async (req, res) => {
 
 // --- LINE EVENT HANDLER ---
 async function handleEvent(event) {
-  // [CRITICAL FIX] Sửa lại logic kiểm tra sự kiện.
-  // Nếu không phải là 'message' kiểu 'text' VÀ không phải 'postback', thì bỏ qua.
   const isText = event.type === 'message' && event.message.type === 'text';
   const isPostback = event.type === 'postback';
-  
-  if (!isText && !isPostback) {
-      return Promise.resolve(null);
-  }
+  if (!isText && !isPostback) return Promise.resolve(null);
 
   let text = ''; let userId = event.source.userId;
   if (isText) text = event.message.text.trim();
   else if (isPostback) {
-      // Xử lý Postback data
       if (event.postback.params && event.postback.params.date) text = `DatePick:${event.postback.params.date}`; 
       else text = event.postback.data;
+  }
+
+  // [STRICT MODE CHECK]
+  // Nếu hệ thống không khỏe (không có staff), chặn các hành động đặt lịch.
+  // Cho phép: Admin, Check lịch cũ, Hủy lịch (để khách còn thao tác được việc khác)
+  const isBookingAction = text === 'Action:Booking' || text.startsWith('Cat:') || text.startsWith('Svc:') || text.startsWith('Date:') || text.startsWith('Pref:') || text.startsWith('Pax:') || text.startsWith('Time:');
+  
+  if (isBookingAction && (!isSystemHealthy || STAFF_LIST.length === 0)) {
+       return client.replyMessage(event.replyToken, { 
+           type: 'flex', 
+           altText: 'Hệ thống bảo trì', 
+           contents: {
+               "type": "bubble",
+               "body": {
+                   "type": "box", "layout": "vertical", "contents": [
+                       { "type": "text", "text": "⛔ TẠM NGƯNG ĐẶT LỊCH", "weight": "bold", "color": "#E63946", "size": "lg", "align": "center" },
+                       { "type": "text", "text": "Hệ thống chưa đồng bộ được dữ liệu nhân viên hoặc đang bảo trì.", "margin": "md", "wrap": true, "size": "sm", "align": "center" },
+                       { "type": "text", "text": "Vui lòng liên hệ trực tiếp quầy hoặc thử lại sau.", "margin": "sm", "wrap": true, "size": "sm", "align": "center", "weight": "bold" }
+                   ]
+               }
+           }
+       });
   }
 
   // --- ENTRY: BOOKING ---
@@ -649,7 +702,6 @@ async function handleEvent(event) {
 
   // --- ENTRY: MENU ---
   if (text.includes('Menu') || text.includes('價目') || text === '服務價目') {
-      // Chỉ sync Menu khi người dùng yêu cầu xem menu, tránh gọi liên tục
       if (Object.keys(SERVICES).length === 0) await syncMenuData();
       return client.replyMessage(event.replyToken, { type: 'flex', altText: '服務價目表', contents: createMenuFlexMessage() });
   }
@@ -796,7 +848,6 @@ syncMenuData().then(() => syncData());
 
 // 2. ⚡ AUTO SYNC: Tự động cập nhật mỗi 60 giây (để Google không chặn)
 setInterval(() => {
-    console.log('[AUTO SYNC] Updating data from Sheet...');
     syncData();
 }, 60000); 
 
