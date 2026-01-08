@@ -55,103 +55,104 @@ window.ErrorBoundary = ErrorBoundary;
  * ============================================================================
  * 2. STAFF CARD 3D (技師卡片)
  * ----------------------------------------------------------------------------
- * 顯示技師狀態 (忙碌, 待命, 休假)。
- * [修正]: 強化「指定客」判定邏輯，支援 ID 與 Name 的混合比對。
+ * 顯示技師狀態。
+ * [關鍵修正]: 
+ * 1. 主動掃描 resourceState，即使狀態是 Ready 也強制判定為 Busy。
+ * 2. 支援 ID 與 Name 混合比對，解決「指定客」不變色的問題。
  * ============================================================================
  */
 const StaffCard3D = ({ s, statusData, resourceState, queueIndex, isForcedBusy }) => {
-    // 如果沒有技師資料，則不渲染
     if (!s) return null;
 
-    // 1. 判斷性別以選擇基礎樣式
+    // 1. 基本屬性
     const genderStr = String(s.gender || '').toUpperCase();
     const isFemale = ['F', '女', 'FEMALE', 'NU'].includes(genderStr);
     
-    // 2. 獲取即時狀態
+    // 2. 獲取當前狀態
     const safeStatusData = statusData || {};
     const local = safeStatusData[s.id] || { status: 'AWAY' }; 
     let displayStatus = local.status; 
+
+    // 3. [強力修正] 主動檢查該技師是否正在任何一張訂單上工作
+    // 這解決了「技師明明在做工，卡片卻是白色/待命」的問題
+    let actualActiveBooking = null;
     
-    // 如果被強制設為忙碌 (由 StaffSorter 計算)
+    // 準備技師的識別資料 (轉為字串並去空白，統一轉大寫以防萬一)
+    const staffId = String(s.id).trim();
+    const staffName = String(s.name).trim();
+
+    // 掃描所有資源 (椅子/床)
+    const activeRes = Object.values(resourceState || {}).find(r => {
+        if (!r.isRunning || r.isPaused || r.isPreview === true) return false;
+        const b = r.booking || {};
+        
+        // 檢查執行者名單 (包含主技師與副手)
+        const workerList = [
+            b.serviceStaff, b.staffId, b.technician, 
+            b.staffId2, b.staffId3, b.staffId4, b.staffId5, b.staffId6
+        ].map(val => String(val || '').trim());
+
+        // 只要 ID 或 Name 出現在執行者名單中
+        return workerList.includes(staffId) || workerList.includes(staffName);
+    });
+
+    if (activeRes) {
+        displayStatus = 'BUSY'; // 強制視為忙碌
+        actualActiveBooking = activeRes.booking;
+    }
+
+    // 如果被外部強制設為忙碌 (Fallback)
     if (isForcedBusy) { 
         displayStatus = 'BUSY'; 
     }
-    
-    // 3. 判斷是否為「指定客」(Designated / Requested)
+
+    // 4. [關鍵修正] 判斷是否為「指定客」(Designated)
     let isDesignated = false;
 
-    if (displayStatus === 'BUSY') {
-        // 準備技師的識別資料 (轉為字串並去空白)
-        const staffId = String(s.id).trim();
-        const staffName = String(s.name).trim();
+    if (displayStatus === 'BUSY' && actualActiveBooking) {
+        const b = actualActiveBooking;
 
-        // 遍歷所有正在運行的訂單，找出該技師正在服務的訂單
-        const activeRes = Object.values(resourceState || {}).find(r => {
-            // 忽略未運行、暫停或預覽的項目
-            if (!r.isRunning || r.isPaused || r.isPreview === true) return false;
+        // 收集所有可能的「要求欄位」(Requested By Guest)
+        // 通常 b.staffId 是顧客原始要求的技師，而 b.serviceStaff 是實際執行的技師
+        // 但為了保險，我們檢查所有相關欄位
+        const requestFields = [
+            b.staffId,       // 主客要求
+            b.staffId2,      // 客2要求
+            b.staffId3,
+            b.staffId4,
+            b.technician     // 備用
+        ];
+
+        // 檢查這些欄位中，是否有「指名」該技師
+        const isRequested = requestFields.some(req => {
+            const reqStr = String(req || '').trim();
             
-            const b = r.booking || {};
+            // 排除無效值與隨機關鍵字 (繁體與英文)
+            const randomKeywords = ['隨機', 'RANDOM', 'MALE', 'FEMALE', '男', '女', 'ANY', 'NULL', 'UNDEFINED', '', '不指定', '安排', '現場'];
+            const isRandom = randomKeywords.some(kw => reqStr.toUpperCase() === kw || reqStr.includes('隨機'));
             
-            // --- A. 確認技師是否正在執行此訂單 (實際執行者) ---
-            // 檢查 serviceStaff, staffId 以及所有副手欄位
-            const workerList = [
-                b.serviceStaff, b.staffId, b.technician, 
-                b.staffId2, b.staffId3, b.staffId4, b.staffId5, b.staffId6
-            ].map(val => String(val || '').trim());
+            if (isRandom) return false;
 
-            // 只要 ID 或 Name 出現在執行者名單中，就代表該技師正在做這單
-            const isWorkerHere = workerList.includes(staffId) || workerList.includes(staffName);
-            
-            if (!isWorkerHere) return false;
-
-            // --- B. 檢查是否為「指定」 (Request Check) ---
-            // 邏輯：檢查 booking.staffId (通常儲存顧客要求的技師)
-            // 對於多人訂單 (Group)，我們需要更仔細地檢查對應的欄位
-            
-            // 收集所有可能的「要求欄位」
-            const requestFields = [
-                b.staffId,       // 主客要求
-                b.staffId2,      // 客2要求 (若有)
-                b.staffId3,
-                b.staffId4,
-                b.staffId5,
-                b.staffId6,
-                b.technician     // 備用欄位
-            ];
-
-            // 檢查這些欄位中，是否有「指名」該技師
-            const isRequested = requestFields.some(req => {
-                const reqStr = String(req || '').trim();
-                
-                // 1. 排除無效值與隨機關鍵字
-                const randomKeywords = ['隨機', 'RANDOM', 'MALE', 'FEMALE', '男', '女', 'ANY', 'NULL', 'UNDEFINED', '', '不指定', '安排'];
-                const isRandom = randomKeywords.some(kw => reqStr.toUpperCase() === kw || reqStr.includes('隨機'));
-                
-                if (isRandom) return false;
-
-                // 2. 比對 ID 或 Name
-                return reqStr === staffId || reqStr === staffName;
-            });
-
-            return isRequested;
+            // 比對 ID 或 Name (精確比對)
+            return reqStr === staffId || reqStr === staffName;
         });
-        
-        if (activeRes) {
+
+        if (isRequested) {
             isDesignated = true;
         }
     }
 
-    // 4. 設定 CSS 樣式類別
+    // 5. 設定 CSS 樣式
     let cardStyle = isFemale ? 'style-female' : 'style-male';
-    let customClass = ""; // 用於覆蓋顏色的 Tailwind class
+    let customClass = ""; 
 
     if (displayStatus === 'BUSY') {
         cardStyle = 'st-busy'; // 預設紅色
         
         if (isDesignated) {
             // 🔥 指定客顯示深黃色 (Amber) 🔥
-            // 使用 !important 確保顏色覆蓋
-            customClass = "!bg-amber-500 !border-amber-600 !text-white shadow-[0_0_15px_rgba(245,158,11,0.8)] border-2 ring-2 ring-amber-300";
+            // 使用 !important 強制覆蓋所有其他顏色
+            customClass = "!bg-amber-500 !border-amber-600 !text-white shadow-[0_0_15px_rgba(245,158,11,0.8)] border-2 ring-2 ring-amber-300 transform scale-105 z-10";
         }
     }
     else if (displayStatus === 'AWAY' || displayStatus === 'OFF') {
@@ -164,7 +165,7 @@ const StaffCard3D = ({ s, statusData, resourceState, queueIndex, isForcedBusy })
         cardStyle = 'st-out';
     }
 
-    // 5. 渲染卡片
+    // 6. 渲染畫面
     return (
         <div className={`card-3d ${cardStyle} ${customClass} flex flex-col items-center justify-center relative p-0 overflow-hidden transition-all duration-300`}>
             {/* 排隊序號 (僅在待命時顯示) */}
@@ -172,10 +173,17 @@ const StaffCard3D = ({ s, statusData, resourceState, queueIndex, isForcedBusy })
                 <div className="queue-badge animate-bounce-slow">{queueIndex + 1}</div>
             )}
             
-            {/* 指定客皇冠圖示 */}
+            {/* 指定客皇冠圖示 (加強視覺提示) */}
             {isDesignated && (
                 <div className="absolute top-0 right-0.5 text-xs text-yellow-100 animate-pulse drop-shadow-md z-10" title="指定 (Designated)">
-                    <i className="fas fa-crown text-lg"></i>
+                    <i className="fas fa-crown text-lg shadow-black drop-shadow-sm"></i>
+                </div>
+            )}
+            
+            {/* 狀態文字 (如吃飯/外出) */}
+            {(displayStatus === 'EAT' || displayStatus === 'OUT_SHORT') && (
+                <div className="absolute top-0 left-0 w-full bg-black/20 text-white text-[10px] font-bold text-center">
+                    {displayStatus === 'EAT' ? '用餐' : '外出'}
                 </div>
             )}
 
@@ -183,9 +191,6 @@ const StaffCard3D = ({ s, statusData, resourceState, queueIndex, isForcedBusy })
             <div className={`font-black text-2xl text-center leading-none w-full select-none flex-1 flex items-center justify-center break-words px-0.5 ${isDesignated ? '!text-white drop-shadow-md' : 'text-slate-800'}`}>
                 {s.name}
             </div>
-            
-            {/* [DEBUG] 用於開發階段確認狀態 (可選) */}
-            {/* {isDesignated && <div className="absolute bottom-0 text-[8px] text-white bg-black/20 px-1">指定</div>} */}
         </div>
     )
 };
@@ -196,6 +201,7 @@ window.StaffCard3D = StaffCard3D;
  * 3. CHECKIN BOARD (技師管理看板)
  * ----------------------------------------------------------------------------
  * 顯示技師列表、薪資計算、上下班打卡功能。
+ * 欄位依照您的截圖優化：姓名 | 薪資 | 上班 | 下班 | 操作 | 狀態
  * ============================================================================
  */
 const CheckInBoard = ({ staffList, statusData, onClose, onUpdateStatus, bookings }) => {
@@ -231,7 +237,6 @@ const CheckInBoard = ({ staffList, statusData, onClose, onUpdateStatus, bookings
         return 0; 
     };
 
-    // 判斷是否有精油
     const isOilService = (b) => {
         if (b.isOil === true || b.isOil === 'true') return true;
         const name = (b.serviceName || "").toLowerCase();
@@ -240,7 +245,7 @@ const CheckInBoard = ({ staffList, statusData, onClose, onUpdateStatus, bookings
         return false;
     };
 
-    // 計算薪資 (使用 useMemo 優化效能)
+    // 計算薪資 (Memoized)
     const staffIncomeMap = useMemo(() => {
         const stats = {};
         const lookupMap = {}; 
@@ -259,8 +264,7 @@ const CheckInBoard = ({ staffList, statusData, onClose, onUpdateStatus, bookings
             
             let potentialRawStrings = [
                 b.staffId, b.serviceStaff, b.technician, b.StaffId, 
-                b.staffId2, b.staffId3, b.staffId4, b.staffId5, b.staffId6,
-                b.ServiceStaff, b.Technician
+                b.staffId2, b.staffId3, b.staffId4, b.staffId5, b.staffId6
             ];
             const distinctNames = potentialRawStrings.join(',').split(/[,，\s/]+/).map(s => s.trim()).filter(s => s && s !== 'null' && s !== 'undefined' && s.length > 0);
             const validNames = [...new Set(distinctNames)].filter(name => {
@@ -287,7 +291,6 @@ const CheckInBoard = ({ staffList, statusData, onClose, onUpdateStatus, bookings
         return stats;
     }, [bookings, staffList]);
 
-    // 切換打卡狀態
     const toggleCheckIn = (id) => { 
         const current = (statusData && statusData[id]) ? statusData[id] : {}; 
         const newState = { 
@@ -303,13 +306,12 @@ const CheckInBoard = ({ staffList, statusData, onClose, onUpdateStatus, bookings
     return ( 
         <div className="fixed inset-0 bg-slate-900/80 z-[60] flex items-center justify-center p-4 backdrop-blur-sm">
             <div className="bg-white w-full max-w-6xl rounded-t-xl shadow-2xl modal-animate flex flex-col max-h-[90vh] overflow-hidden">
-                {/* 標題欄 */}
                 <div className="p-4 bg-[#7e22ce] text-white flex justify-between items-center shrink-0 shadow-md z-10">
                     <h2 className="text-xl font-bold flex gap-2 items-center"><i className="fas fa-user-clock"></i> 技師管理 (Sheet Order)</h2>
                     <button onClick={onClose} className="hover:text-red-300 transition-colors"><i className="fas fa-times text-2xl"></i></button>
                 </div>
                 
-                {/* 表頭 */}
+                {/* HEADERS - 根據您的截圖調整欄位 */}
                 <div className="grid grid-cols-12 gap-2 bg-slate-100 p-3 font-bold text-slate-600 text-sm border-b sticky top-0 z-10 shadow-sm">
                     <div className="col-span-3 text-center border-r border-slate-300">姓名 (Name)</div>
                     <div className="col-span-2 text-center text-emerald-700 border-r border-slate-300">💰 今日薪資 (Salary)</div>
@@ -319,7 +321,6 @@ const CheckInBoard = ({ staffList, statusData, onClose, onUpdateStatus, bookings
                     <div className="col-span-1 text-center">狀態 (Status)</div>
                 </div>
 
-                {/* 技師列表 */}
                 <div className="overflow-y-auto flex-1 p-2 space-y-2 bg-white custom-scrollbar">
                     {safeStaffList.map(s => { 
                         const current = (statusData && statusData[s.id]) ? statusData[s.id] : { status: 'AWAY', checkInTime: 0 }; 
@@ -328,31 +329,31 @@ const CheckInBoard = ({ staffList, statusData, onClose, onUpdateStatus, bookings
 
                         return ( 
                             <div key={s.id} className="grid grid-cols-12 gap-2 items-center py-2 px-2 border-b border-gray-100 hover:bg-slate-50 text-sm transition-all group">
-                                {/* 姓名 */}
+                                {/* Name */}
                                 <div className="col-span-3 text-center font-black text-lg text-slate-800 flex items-center justify-center gap-2">
                                     {s.name}
                                     <span className="text-[10px] text-gray-400 font-normal opacity-50 group-hover:opacity-100">#{s.id}</span>
                                 </div>
                                 
-                                {/* 薪資 */}
+                                {/* Salary */}
                                 <div className="col-span-2 text-center">
                                     <span className={`px-2 py-1 rounded text-base font-black border shadow-sm ${income > 0 ? 'bg-emerald-100 text-emerald-700 border-emerald-200' : 'bg-gray-50 text-gray-300 border-gray-100'}`}>
                                         ${income.toLocaleString()}
                                     </span>
                                 </div>
                                 
-                                {/* 班表時間 */}
+                                {/* Shift */}
                                 <div className="col-span-2 text-center font-mono text-slate-600">{s.shiftStart}</div>
                                 <div className="col-span-2 text-center font-mono text-slate-600">{s.shiftEnd}</div>
                                 
-                                {/* 操作按鈕 */}
+                                {/* Check In/Out */}
                                 <div className="col-span-2 flex justify-center">
                                     {isWorking ? (
                                         <div className="flex items-center justify-between w-full max-w-[110px] border border-gray-300 rounded px-2 py-1 bg-white shadow-sm">
                                             <span className="font-mono font-bold text-xs text-slate-500">
                                                 {new Date(current.checkInTime).toLocaleTimeString('en-US',{hour12:false, hour:'2-digit', minute:'2-digit'})}
                                             </span>
-                                            <button onClick={() => toggleCheckIn(s.id)} className="text-red-500 hover:text-red-700 hover:bg-red-50 rounded px-1 transition-colors" title="下班打卡">
+                                            <button onClick={() => toggleCheckIn(s.id)} className="text-red-500 hover:text-red-700 hover:bg-red-50 rounded px-1 transition-colors" title="下班">
                                                 <i className="fas fa-sign-out-alt"></i>
                                             </button>
                                         </div>
@@ -363,7 +364,7 @@ const CheckInBoard = ({ staffList, statusData, onClose, onUpdateStatus, bookings
                                     )}
                                 </div>
                                 
-                                {/* 狀態選單 */}
+                                {/* Status Select */}
                                 <div className="col-span-1 text-center">
                                     <div className="relative">
                                         <select 
@@ -412,7 +413,7 @@ const AvailabilityCheckModal = ({ onClose, onSave, staffList, bookings, initialD
         custPhone: ''
     });
 
-    // 如果選擇精油，自動切換偏好為女技師
+    // 選擇精油自動選女技師
     useEffect(() => {
         if (form.isOil && form.genderPref !== '女' && !form.genderPref.includes('Female')) {
             setForm(prev => ({ ...prev, genderPref: '女' }));
