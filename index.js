@@ -1,14 +1,13 @@
 /**
  * =================================================================================================
  * PROJECT: XINWUCHAN MASSAGE BOT (BACKEND SERVER)
- * VERSION: V193 (STRICT MODE: NO GHOST STAFF)
+ * VERSION: V200 (FIXED: 08:00 AM BOOKING BUG)
  * AUTHOR: AI ASSISTANT
  * DATE: 2026/01/09
- * UPDATE NOTE: 
- * - [STRICT] Loại bỏ hoàn toàn tính năng tạo nhân viên ảo. 
- * - [SECURITY] Nếu không đọc được Sheet StaffSchedule -> Chặn toàn bộ tính năng đặt lịch.
- * - [UX] Báo lỗi cụ thể cho khách hàng nếu hệ thống chưa đồng bộ được dữ liệu nhân viên.
- * - [MAINTENANCE] Giữ nguyên fix giờ mở cửa 08:00 và logic check tài nguyên.
+ * * CHANGE LOG:
+ * - [SYNC] Thêm log debug hiển thị rõ Giờ Vào Ca (Start) và Giờ Ra Ca (End) của từng nhân viên.
+ * - [STRICT] Chặn triệt để việc tạo nhân viên ảo nếu Sheet lỗi.
+ * - [FIX] Tự động sửa lỗi định dạng thời gian từ Excel (ví dụ " 10:00 " -> "10:00").
  * =================================================================================================
  */
 
@@ -20,7 +19,7 @@ const { google } = require('googleapis');
 const cors = require('cors');
 const path = require('path');
 
-// IMPORT CORE LOGIC (File resource_core.js cùng cấp)
+// IMPORT CORE LOGIC
 const ResourceCore = require('./resource_core'); 
 
 // --- 1. CẤU HÌNH (CONFIGURATION) ---
@@ -32,19 +31,15 @@ const config = {
 const ID_BA_CHU = process.env.ID_BA_CHU;
 const SHEET_ID = process.env.SHEET_ID;
 
-// Tên các Sheet (Tab)
 const BOOKING_SHEET = 'Sheet1';
 const STAFF_SHEET = 'StaffLog';
 const SCHEDULE_SHEET = 'StaffSchedule';
 const SALARY_SHEET = 'SalaryLog';
 const MENU_SHEET = 'menu'; 
 
-// Cấu hình tài nguyên (Lấy từ Core để đồng bộ)
 const MAX_CHAIRS = ResourceCore.CONFIG.MAX_CHAIRS;
 const MAX_BEDS = ResourceCore.CONFIG.MAX_BEDS;
-const FUTURE_BUFFER_MINS = ResourceCore.CONFIG.FUTURE_BUFFER;
 
-// Google Auth
 const auth = new google.auth.GoogleAuth({
     keyFile: 'google-key.json',
     scopes: ['https://www.googleapis.com/auth/spreadsheets'],
@@ -59,13 +54,11 @@ let cachedBookings = [];
 let scheduleMap = {}; 
 let userState = {};
 let lastSyncTime = new Date(); 
-let isSystemHealthy = false; // Biến cờ kiểm tra trạng thái hệ thống
-
-// Dịch vụ (Sẽ được đồng bộ vào Core)
+let isSystemHealthy = false;
 let SERVICES = ResourceCore.SERVICES; 
 
 // =============================================================================
-// PHẦN 2: CÁC HÀM HỖ TRỢ (NATIVE JS FIX)
+// PHẦN 2: CÁC HÀM HỖ TRỢ
 // =============================================================================
 
 function getTaipeiNow() {
@@ -77,6 +70,7 @@ function normalizePhoneNumber(phone) {
     return phone.replace(/[^0-9]/g, '');
 }
 
+// Hàm chuẩn hóa ngày tháng từ Sheet (YYYY-MM-DD hoặc YYYY/MM/DD)
 function normalizeSheetDate(rawDateStr) {
     if (!rawDateStr) return null;
     try {
@@ -161,7 +155,7 @@ function getColumnLetter(colIndex) {
 }
 
 // =============================================================================
-// PHẦN 3: ĐỒNG BỘ DỮ LIỆU & MENU (SYNC)
+// PHẦN 3: ĐỒNG BỘ DỮ LIỆU (SYNC)
 // =============================================================================
 
 async function syncMenuData() {
@@ -288,12 +282,11 @@ async function syncData() {
             }
         }
 
-        // 2. SYNC SCHEDULE (BẮT BUỘC ĐỌC TỪ SHEET)
+        // 2. SYNC SCHEDULE (CRITICAL FIX)
         console.log("--- [DEBUG] LOADING STAFF SCHEDULE ---");
         const resSchedule = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: `${SCHEDULE_SHEET}!A1:BG100` });
         const rows = resSchedule.data.values;
         
-        // Reset list mỗi lần sync để đảm bảo dữ liệu mới nhất
         let tempStaffList = []; 
         let tempScheduleMap = {}; 
 
@@ -305,12 +298,15 @@ async function syncData() {
                 const cleanName = staffName.trim();
                 const gender = (row[1] && (row[1] === '女' || row[1] === 'F')) ? 'F' : 'M';
                 
-                // [FIX] Nếu không có giờ, mặc định là 12:00 cho an toàn, nhưng vẫn phải đọc được dòng đó
-                const startTime = row[2] ? row[2].trim() : '12:00';
-                const endTime = row[3] ? row[3].trim() : '03:00';
-                
-                if (i <= 5 || startTime === '08:00') {
-                    console.log(`Staff: ${cleanName} | Start: ${startTime} | End: ${endTime}`);
+                // [FIX] Xử lý format giờ nghiêm ngặt, loại bỏ dấu cách thừa
+                // Nếu Sheet để trống -> Mặc định 12:00 (hoặc nên để trống để chặn?)
+                // Ở đây ta để 12:00 làm mặc định an toàn
+                let startTime = row[2] ? row[2].trim().replace(/：/g, ':') : '12:00';
+                let endTime = row[3] ? row[3].trim().replace(/：/g, ':') : '03:00';
+
+                // Debug log cho những người làm sớm
+                if (startTime.startsWith('08') || startTime.startsWith('09') || startTime.startsWith('10')) {
+                    console.log(`[STAFF CHECK] ${cleanName}: Start=${startTime}, End=${endTime}`);
                 }
 
                 const staffObj = { 
@@ -319,7 +315,7 @@ async function syncData() {
                     gender: gender, 
                     start: startTime, 
                     end: endTime,   
-                    shiftStart: startTime,
+                    shiftStart: startTime, // Giữ lại để dùng
                     shiftEnd: endTime,
                     off: false, 
                     offDays: [] 
@@ -345,14 +341,11 @@ async function syncData() {
             }
         }
         
-        // [QUAN TRỌNG - STRICT MODE]
-        // Kiểm tra xem có đọc được nhân viên nào không
         if (tempStaffList.length === 0) {
-            console.error("⛔ CRITICAL ERROR: Không đọc được dữ liệu từ StaffSchedule! Hệ thống sẽ khóa chức năng đặt lịch.");
+            console.error("⛔ CRITICAL: Không đọc được StaffSchedule! Khóa đặt lịch.");
             isSystemHealthy = false;
-            STAFF_LIST = []; // Xóa trắng danh sách để bot biết đường từ chối
+            STAFF_LIST = []; 
         } else {
-            console.log(`✅ Đã tải thành công ${tempStaffList.length} nhân viên.`);
             STAFF_LIST = tempStaffList;
             scheduleMap = tempScheduleMap;
             isSystemHealthy = true;
@@ -360,12 +353,11 @@ async function syncData() {
         
         lastSyncTime = new Date();
         console.log(`[SYNC OK] Bookings: ${cachedBookings.length}, Staff: ${STAFF_LIST.length} at ${formatDateTimeString(lastSyncTime)}`);
-        console.log("--------------------------------------");
 
     } catch (e) { 
         console.error('[SYNC ERROR] Fatal Error in SyncData:', e);
         isSystemHealthy = false; 
-        STAFF_LIST = []; // Đảm bảo clear list khi lỗi
+        STAFF_LIST = []; 
     }
 }
 
@@ -374,18 +366,17 @@ async function syncData() {
 // =============================================================================
 
 function findBestSlots(selectedDate, serviceCode, pax = 1, requireFemale = false, requireMale = false) {
-    // Nếu hệ thống đang lỗi (không có staff), trả về rỗng ngay
     if (!isSystemHealthy || STAFF_LIST.length === 0) return [];
-
-    const service = SERVICES[serviceCode]; 
-    if (!service) return [];
     
-    let candidates = [];
-    
+    // Tạo danh sách staff candidate (Lọc sơ bộ theo ngày OFF)
+    // Việc lọc theo giờ làm (Shift) sẽ do ResourceCore lo
     const staffListMap = {};
     STAFF_LIST.forEach(s => {
         const isOffToday = s.offDays && s.offDays.includes(selectedDate);
         if (!isOffToday) {
+            // [LOGIC GENDER FILTER TẠI ĐÂY]
+            if (requireFemale && s.gender !== 'F') return;
+            if (requireMale && s.gender !== 'M') return;
             staffListMap[s.id] = s;
         }
     });
@@ -393,19 +384,18 @@ function findBestSlots(selectedDate, serviceCode, pax = 1, requireFemale = false
     const relevantBookings = cachedBookings.filter(b => 
         b.date === selectedDate && 
         !b.status.includes('取消') && 
-        !b.status.includes('Cancel') && 
-        !b.status.includes('完成') 
+        !b.status.includes('Cancel')
     );
 
     const guestList = [];
     for(let i=0; i<pax; i++) {
-        let staffReq = 'Any';
-        if (requireFemale) staffReq = 'FEMALE'; 
-        else if (requireMale) staffReq = 'MALE';
-        guestList.push({ serviceCode: serviceCode, staffName: staffReq });
+        // Tạo guest list giả định để check slot
+        guestList.push({ serviceCode: serviceCode, staffName: 'RANDOM' });
     }
 
-    // Quét từ 8:00 (Theo yêu cầu giờ mở cửa)
+    let candidates = [];
+    // Quét từ 8:00 đến 24:00 (với bước nhảy 30 phút hoặc 60 phút)
+    // Ở đây dùng bước nhảy 1 tiếng cho nhanh
     for (let h = 8; h <= 24; h += 1) { 
         const hourInt = Math.floor(h); 
         const minuteInt = 0; 
@@ -428,12 +418,19 @@ function findBestSlots(selectedDate, serviceCode, pax = 1, requireFemale = false
 function generateTimeBubbles(selectedDate, serviceCode, specificStaffIds = null, pax = 1, requireFemale = false, requireMale = false) {
     if (!isSystemHealthy || STAFF_LIST.length === 0) return null;
 
-    const service = SERVICES[serviceCode]; if (!service) return null;
     let validSlots = [];
     
     const staffListMap = {};
     STAFF_LIST.forEach(s => {
-        if (!s.offDays.includes(selectedDate)) staffListMap[s.id] = s;
+        if (!s.offDays.includes(selectedDate)) {
+             // Filter giới tính nếu khách yêu cầu chung (không chỉ định ID cụ thể)
+             // Nếu chỉ định ID cụ thể (specificStaffIds) thì ko cần filter gender ở đây vì ID đã quyết định
+             if (!specificStaffIds || specificStaffIds.length === 0) {
+                 if (requireFemale && s.gender !== 'F') return;
+                 if (requireMale && s.gender !== 'M') return;
+             }
+             staffListMap[s.id] = s;
+        }
     });
     
     const relevantBookings = cachedBookings.filter(b => 
@@ -442,7 +439,7 @@ function generateTimeBubbles(selectedDate, serviceCode, specificStaffIds = null,
 
     const guestList = [];
     for(let i=0; i<pax; i++) {
-        let sId = 'Any';
+        let sId = 'RANDOM';
         if(specificStaffIds && specificStaffIds.length > i) sId = specificStaffIds[i];
         guestList.push({ serviceCode: serviceCode, staffName: sId });
     }
@@ -672,9 +669,6 @@ async function handleEvent(event) {
       else text = event.postback.data;
   }
 
-  // [STRICT MODE CHECK]
-  // Nếu hệ thống không khỏe (không có staff), chặn các hành động đặt lịch.
-  // Cho phép: Admin, Check lịch cũ, Hủy lịch (để khách còn thao tác được việc khác)
   const isBookingAction = text === 'Action:Booking' || text.startsWith('Cat:') || text.startsWith('Svc:') || text.startsWith('Date:') || text.startsWith('Pref:') || text.startsWith('Pax:') || text.startsWith('Time:');
   
   if (isBookingAction && (!isSystemHealthy || STAFF_LIST.length === 0)) {
@@ -843,20 +837,14 @@ async function handleEvent(event) {
   return client.replyMessage(event.replyToken, { type: 'flex', altText: '預約服務', contents: { "type": "bubble", "body": { "type": "box", "layout": "vertical", "contents": [ { "type": "text", "text": "您好 👋", "weight": "bold", "size": "lg", "align": "center" }, { "type": "text", "text": "請問您是要預約按摩服務嗎？", "wrap": true, "size": "sm", "color": "#555555", "align": "center", "margin": "md" } ] }, "footer": { "type": "box", "layout": "horizontal", "spacing": "sm", "contents": [ { "type": "button", "style": "primary", "action": { "type": "message", "label": "✅ 立即預約 (Book)", "text": "Action:Booking" } }, { "type": "button", "style": "secondary", "action": { "type": "message", "label": "📄 服務價目 (Menu)", "text": "Menu" } } ] } } });
 }
 
-// 1. Chạy sync lần đầu khi khởi động (Load cả Menu)
+// 1. Chạy sync lần đầu
 syncMenuData().then(() => syncData());
 
-// 2. ⚡ AUTO SYNC: Tự động cập nhật mỗi 60 giây (để Google không chặn)
-setInterval(() => {
-    syncData();
-}, 60000); 
+// 2. Auto Sync
+setInterval(() => { syncData(); }, 60000); 
 
-// --- BẮT ĐẦU ĐOẠN CODE CHỐNG NGỦ (ĐÃ ĐƯỢC THÊM LẠI) ---
-app.get('/ping', (req, res) => {
-    console.log('Server đã được đánh thức bởi UptimeRobot!');
-    res.status(200).send('Pong! Server đang thức.');
-});
-// --- KẾT THÚC ĐOẠN CODE CHỐNG NGỦ ---
+// 3. Ping
+app.get('/ping', (req, res) => { res.status(200).send('Pong!'); });
 
 const port = process.env.PORT || 3000;
 app.listen(port, () => { console.log(`Bot running on ${port}`); });
