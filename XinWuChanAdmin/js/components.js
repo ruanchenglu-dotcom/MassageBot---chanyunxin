@@ -3,8 +3,6 @@ const { useState, useEffect, useMemo, useRef } = React;
 /**
  * ============================================================================
  * 1. ERROR BOUNDARY (系統錯誤攔截)
- * ----------------------------------------------------------------------------
- * 用於攔截組件渲染錯誤，防止整個頁面崩潰。
  * ============================================================================
  */
 class ErrorBoundary extends React.Component {
@@ -54,104 +52,61 @@ window.ErrorBoundary = ErrorBoundary;
 /**
  * ============================================================================
  * 2. STAFF CARD 3D (技師卡片)
- * ----------------------------------------------------------------------------
- * 顯示技師狀態。
- * [關鍵修正]: 
- * 1. 主動掃描 resourceState，即使狀態是 Ready 也強制判定為 Busy。
- * 2. 支援 ID 與 Name 混合比對，解決「指定客」不變色的問題。
  * ============================================================================
  */
 const StaffCard3D = ({ s, statusData, resourceState, queueIndex, isForcedBusy }) => {
     if (!s) return null;
 
-    // 1. 基本屬性
     const genderStr = String(s.gender || '').toUpperCase();
     const isFemale = ['F', '女', 'FEMALE', 'NU'].includes(genderStr);
     
-    // 2. 獲取當前狀態
     const safeStatusData = statusData || {};
     const local = safeStatusData[s.id] || { status: 'AWAY' }; 
     let displayStatus = local.status; 
 
-    // 3. [強力修正] 主動檢查該技師是否正在任何一張訂單上工作
-    // 這解決了「技師明明在做工，卡片卻是白色/待命」的問題
     let actualActiveBooking = null;
-    
-    // 準備技師的識別資料 (轉為字串並去空白，統一轉大寫以防萬一)
     const staffId = String(s.id).trim();
     const staffName = String(s.name).trim();
 
-    // 掃描所有資源 (椅子/床)
     const activeRes = Object.values(resourceState || {}).find(r => {
         if (!r.isRunning || r.isPaused || r.isPreview === true) return false;
         const b = r.booking || {};
-        
-        // 檢查執行者名單 (包含主技師與副手)
         const workerList = [
             b.serviceStaff, b.staffId, b.technician, 
             b.staffId2, b.staffId3, b.staffId4, b.staffId5, b.staffId6
         ].map(val => String(val || '').trim());
-
-        // 只要 ID 或 Name 出現在執行者名單中
         return workerList.includes(staffId) || workerList.includes(staffName);
     });
 
     if (activeRes) {
-        displayStatus = 'BUSY'; // 強制視為忙碌
+        displayStatus = 'BUSY'; 
         actualActiveBooking = activeRes.booking;
     }
 
-    // 如果被外部強制設為忙碌 (Fallback)
     if (isForcedBusy) { 
         displayStatus = 'BUSY'; 
     }
 
-    // 4. [關鍵修正] 判斷是否為「指定客」(Designated)
     let isDesignated = false;
-
     if (displayStatus === 'BUSY' && actualActiveBooking) {
         const b = actualActiveBooking;
-
-        // 收集所有可能的「要求欄位」(Requested By Guest)
-        // 通常 b.staffId 是顧客原始要求的技師，而 b.serviceStaff 是實際執行的技師
-        // 但為了保險，我們檢查所有相關欄位
-        const requestFields = [
-            b.staffId,       // 主客要求
-            b.staffId2,      // 客2要求
-            b.staffId3,
-            b.staffId4,
-            b.technician     // 備用
-        ];
-
-        // 檢查這些欄位中，是否有「指名」該技師
+        const requestFields = [b.staffId, b.staffId2, b.staffId3, b.staffId4, b.technician];
         const isRequested = requestFields.some(req => {
             const reqStr = String(req || '').trim();
-            
-            // 排除無效值與隨機關鍵字 (繁體與英文)
             const randomKeywords = ['隨機', 'RANDOM', 'MALE', 'FEMALE', '男', '女', 'ANY', 'NULL', 'UNDEFINED', '', '不指定', '安排', '現場'];
             const isRandom = randomKeywords.some(kw => reqStr.toUpperCase() === kw || reqStr.includes('隨機'));
-            
             if (isRandom) return false;
-
-            // 比對 ID 或 Name (精確比對)
             return reqStr === staffId || reqStr === staffName;
         });
-
-        if (isRequested) {
-            isDesignated = true;
-        }
+        if (isRequested) isDesignated = true;
     }
 
-    // 5. 設定 CSS 樣式
     let cardStyle = isFemale ? 'style-female' : 'style-male';
     let customClass = ""; 
 
     if (displayStatus === 'BUSY') {
-        cardStyle = 'st-busy'; // 預設紅色
-        
+        cardStyle = 'st-busy'; 
         if (isDesignated) {
-            // 🔥 指定客顯示深黃色 (Amber) 🔥
-            // 使用 !important 強制覆蓋所有其他顏色
             customClass = "!bg-amber-500 !border-amber-600 !text-white shadow-[0_0_15px_rgba(245,158,11,0.8)] border-2 ring-2 ring-amber-300 transform scale-105 z-10";
         }
     }
@@ -162,32 +117,28 @@ const StaffCard3D = ({ s, statusData, resourceState, queueIndex, isForcedBusy })
         cardStyle = 'st-eat';
     }
     else if (displayStatus === 'OUT_SHORT') {
-        cardStyle = 'st-out';
+        // [CẬP NHẬT] Đổi trạng thái 'OUT_SHORT' thành màu Xanh Lá cho khớp với CheckInBoard mới
+        cardStyle = 'bg-green-500 text-white border-green-600'; 
     }
 
-    // 6. 渲染畫面
     return (
         <div className={`card-3d ${cardStyle} ${customClass} flex flex-col items-center justify-center relative p-0 overflow-hidden transition-all duration-300`}>
-            {/* 排隊序號 (僅在待命時顯示) */}
             {queueIndex !== undefined && displayStatus === 'READY' && (
                 <div className="queue-badge animate-bounce-slow">{queueIndex + 1}</div>
             )}
             
-            {/* 指定客皇冠圖示 (加強視覺提示) */}
             {isDesignated && (
                 <div className="absolute top-0 right-0.5 text-xs text-yellow-100 animate-pulse drop-shadow-md z-10" title="指定 (Designated)">
                     <i className="fas fa-crown text-lg shadow-black drop-shadow-sm"></i>
                 </div>
             )}
             
-            {/* 狀態文字 (如吃飯/外出) */}
             {(displayStatus === 'EAT' || displayStatus === 'OUT_SHORT') && (
                 <div className="absolute top-0 left-0 w-full bg-black/20 text-white text-[10px] font-bold text-center">
                     {displayStatus === 'EAT' ? '用餐' : '外出'}
                 </div>
             )}
 
-            {/* 技師名稱 */}
             <div className={`font-black text-2xl text-center leading-none w-full select-none flex-1 flex items-center justify-center break-words px-0.5 ${isDesignated ? '!text-white drop-shadow-md' : 'text-slate-800'}`}>
                 {s.name}
             </div>
@@ -198,10 +149,11 @@ window.StaffCard3D = StaffCard3D;
 
 /**
  * ============================================================================
- * 3. CHECKIN BOARD (技師管理看板)
+ * 3. CHECKIN BOARD (技師管理看板) - [MODIFIED]
  * ----------------------------------------------------------------------------
- * 顯示技師列表、薪資計算、上下班打卡功能。
- * 欄位依照您的截圖優化：姓名 | 薪資 | 上班 | 下班 | 操作 | 狀態
+ * 1. Chữ to hơn, nút to hơn.
+ * 2. Thêm cột "準下" (On-time Leave).
+ * 3. Đổi màu trạng thái Out thành Xanh lá.
  * ============================================================================
  */
 const CheckInBoard = ({ staffList, statusData, onClose, onUpdateStatus, bookings }) => {
@@ -211,7 +163,6 @@ const CheckInBoard = ({ staffList, statusData, onClose, onUpdateStatus, bookings
     const RATES = { JIE_PRICE: 250, OIL_BONUS: 80 }; 
     const normalize = (str) => String(str || '').trim().replace(/\s+/g, '');
 
-    // 計算節數 (Jie)
     const getJieCount = (serviceName, duration) => {
         const name = (serviceName || "").toUpperCase();
         if (name.includes('190') || name.includes('帝王')) return 6;
@@ -245,7 +196,6 @@ const CheckInBoard = ({ staffList, statusData, onClose, onUpdateStatus, bookings
         return false;
     };
 
-    // 計算薪資 (Memoized)
     const staffIncomeMap = useMemo(() => {
         const stats = {};
         const lookupMap = {}; 
@@ -291,84 +241,111 @@ const CheckInBoard = ({ staffList, statusData, onClose, onUpdateStatus, bookings
         return stats;
     }, [bookings, staffList]);
 
+    // Chức năng Đánh thẻ / Tan ca
     const toggleCheckIn = (id) => { 
         const current = (statusData && statusData[id]) ? statusData[id] : {}; 
         const newState = { 
             ...statusData, 
             [id]: { 
+                ...current,
                 status: current.status === 'READY' || current.status === 'EAT' ? 'AWAY' : 'READY', 
                 checkInTime: current.status === 'READY' ? 0 : Date.now() 
             } 
         }; 
         onUpdateStatus(newState); 
     };
+
+    // Chức năng tích chọn "Về đúng giờ"
+    const toggleOntimeLeave = (id) => {
+        const current = (statusData && statusData[id]) ? statusData[id] : {};
+        const newState = {
+            ...statusData,
+            [id]: {
+                ...current,
+                isOntimeLeave: !current.isOntimeLeave // Đảo ngược giá trị
+            }
+        };
+        onUpdateStatus(newState);
+    };
     
     return ( 
         <div className="fixed inset-0 bg-slate-900/80 z-[60] flex items-center justify-center p-4 backdrop-blur-sm">
-            <div className="bg-white w-full max-w-6xl rounded-t-xl shadow-2xl modal-animate flex flex-col max-h-[90vh] overflow-hidden">
+            {/* Tăng chiều rộng modal lên max-w-7xl để chứa cột mới thoải mái */}
+            <div className="bg-white w-full max-w-7xl rounded-t-xl shadow-2xl modal-animate flex flex-col max-h-[90vh] overflow-hidden">
                 <div className="p-4 bg-[#7e22ce] text-white flex justify-between items-center shrink-0 shadow-md z-10">
-                    <h2 className="text-xl font-bold flex gap-2 items-center"><i className="fas fa-user-clock"></i> 技師管理 (Sheet Order)</h2>
-                    <button onClick={onClose} className="hover:text-red-300 transition-colors"><i className="fas fa-times text-2xl"></i></button>
+                    <h2 className="text-2xl font-bold flex gap-2 items-center"><i className="fas fa-user-clock"></i> 技師管理 (Sheet Order)</h2>
+                    <button onClick={onClose} className="hover:text-red-300 transition-colors bg-white/10 rounded-full w-10 h-10 flex items-center justify-center"><i className="fas fa-times text-2xl"></i></button>
                 </div>
                 
-                {/* HEADERS - 根據您的截圖調整欄位 */}
-                <div className="grid grid-cols-12 gap-2 bg-slate-100 p-3 font-bold text-slate-600 text-sm border-b sticky top-0 z-10 shadow-sm">
-                    <div className="col-span-3 text-center border-r border-slate-300">姓名 (Name)</div>
-                    <div className="col-span-2 text-center text-emerald-700 border-r border-slate-300">💰 今日薪資 (Salary)</div>
+                {/* HEADERS - Đã chia lại grid-cols-12 và tăng font chữ */}
+                <div className="grid grid-cols-12 gap-2 bg-slate-100 p-4 font-bold text-slate-700 text-base border-b sticky top-0 z-10 shadow-sm">
+                    <div className="col-span-2 text-center border-r border-slate-300">姓名 (Name)</div>
+                    <div className="col-span-2 text-center text-emerald-700 border-r border-slate-300">💰 薪資 (Salary)</div>
                     <div className="col-span-2 text-center border-r border-slate-300">上班 (Start)</div>
                     <div className="col-span-2 text-center border-r border-slate-300">下班 (End)</div>
                     <div className="col-span-2 text-center border-r border-slate-300">操作 (Action)</div>
-                    <div className="col-span-1 text-center">狀態 (Status)</div>
+                    <div className="col-span-1 text-center border-r border-slate-300">狀態 (Status)</div>
+                    <div className="col-span-1 text-center text-blue-700">準下 (On-time)</div>
                 </div>
 
                 <div className="overflow-y-auto flex-1 p-2 space-y-2 bg-white custom-scrollbar">
                     {safeStaffList.map(s => { 
-                        const current = (statusData && statusData[s.id]) ? statusData[s.id] : { status: 'AWAY', checkInTime: 0 }; 
+                        const current = (statusData && statusData[s.id]) ? statusData[s.id] : { status: 'AWAY', checkInTime: 0, isOntimeLeave: false }; 
                         const isWorking = current.status !== 'AWAY' && current.status !== 'OFF';
                         const income = staffIncomeMap[s.id] ? staffIncomeMap[s.id].income : 0;
+                        const isOnTime = current.isOntimeLeave === true;
 
                         return ( 
-                            <div key={s.id} className="grid grid-cols-12 gap-2 items-center py-2 px-2 border-b border-gray-100 hover:bg-slate-50 text-sm transition-all group">
-                                {/* Name */}
-                                <div className="col-span-3 text-center font-black text-lg text-slate-800 flex items-center justify-center gap-2">
+                            <div key={s.id} className="grid grid-cols-12 gap-2 items-center py-3 px-2 border-b border-gray-100 hover:bg-slate-50 transition-all group">
+                                {/* Name - Cỡ chữ to hơn */}
+                                <div className="col-span-2 text-center font-black text-2xl text-slate-800 flex items-center justify-center gap-2">
                                     {s.name}
-                                    <span className="text-[10px] text-gray-400 font-normal opacity-50 group-hover:opacity-100">#{s.id}</span>
+                                    <span className="text-xs text-gray-400 font-normal opacity-50 group-hover:opacity-100 hidden lg:inline">#{s.id}</span>
                                 </div>
                                 
-                                {/* Salary */}
+                                {/* Salary - Cỡ chữ to hơn */}
                                 <div className="col-span-2 text-center">
-                                    <span className={`px-2 py-1 rounded text-base font-black border shadow-sm ${income > 0 ? 'bg-emerald-100 text-emerald-700 border-emerald-200' : 'bg-gray-50 text-gray-300 border-gray-100'}`}>
+                                    <span className={`px-3 py-1.5 rounded text-lg font-black border shadow-sm ${income > 0 ? 'bg-emerald-100 text-emerald-700 border-emerald-200' : 'bg-gray-50 text-gray-300 border-gray-100'}`}>
                                         ${income.toLocaleString()}
                                     </span>
                                 </div>
                                 
-                                {/* Shift */}
-                                <div className="col-span-2 text-center font-mono text-slate-600">{s.shiftStart}</div>
-                                <div className="col-span-2 text-center font-mono text-slate-600">{s.shiftEnd}</div>
+                                {/* Shift - Cỡ chữ to hơn */}
+                                <div className="col-span-2 text-center font-mono text-xl text-slate-600 font-bold">{s.shiftStart}</div>
+                                <div className="col-span-2 text-center font-mono text-xl text-slate-600 font-bold">{s.shiftEnd}</div>
                                 
-                                {/* Check In/Out */}
+                                {/* Check In/Out - Nút bấm to hơn, rõ ràng hơn */}
                                 <div className="col-span-2 flex justify-center">
                                     {isWorking ? (
-                                        <div className="flex items-center justify-between w-full max-w-[110px] border border-gray-300 rounded px-2 py-1 bg-white shadow-sm">
-                                            <span className="font-mono font-bold text-xs text-slate-500">
+                                        <div className="flex items-center gap-2 w-full justify-center">
+                                            {/* Giờ checkin */}
+                                            <span className="font-mono font-bold text-lg text-slate-500 bg-gray-100 px-2 py-1 rounded border">
                                                 {new Date(current.checkInTime).toLocaleTimeString('en-US',{hour12:false, hour:'2-digit', minute:'2-digit'})}
                                             </span>
-                                            <button onClick={() => toggleCheckIn(s.id)} className="text-red-500 hover:text-red-700 hover:bg-red-50 rounded px-1 transition-colors" title="下班">
-                                                <i className="fas fa-sign-out-alt"></i>
+                                            {/* Nút Tan Ca (Sign Out) - TO, MÀU ĐỎ, DỄ BẤM */}
+                                            <button 
+                                                onClick={() => toggleCheckIn(s.id)} 
+                                                className="text-red-500 hover:text-white hover:bg-red-500 border border-red-200 rounded-lg w-12 h-10 flex items-center justify-center transition-all shadow-sm active:scale-95" 
+                                                title="下班 (Sign Out)"
+                                            >
+                                                <i className="fas fa-sign-out-alt text-2xl"></i>
                                             </button>
                                         </div>
                                     ) : (
-                                        <button onClick={() => toggleCheckIn(s.id)} className="bg-blue-500 hover:bg-blue-600 text-white px-3 py-1.5 rounded font-bold text-xs w-full max-w-[90px] shadow-sm transition-all transform hover:scale-105">
-                                            <i className="fas fa-sign-in-alt mr-1"></i> 打卡
+                                        /* Nút Đánh Thẻ (Check In) - TO, MÀU XANH, DỄ BẤM */
+                                        <button onClick={() => toggleCheckIn(s.id)} className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-black text-lg w-full max-w-[140px] shadow-md transition-all transform hover:scale-105 active:scale-95 flex items-center justify-center gap-2">
+                                            <i className="fas fa-sign-in-alt"></i> 打卡
                                         </button>
                                     )}
                                 </div>
                                 
-                                {/* Status Select */}
+                                {/* Status Select - Cỡ chữ to hơn, màu Out chuyển thành Xanh Lá */}
                                 <div className="col-span-1 text-center">
                                     <div className="relative">
                                         <select 
-                                            className={`w-full appearance-none border p-1 pl-6 rounded font-bold cursor-pointer outline-none text-xs shadow-sm transition-colors ${isWorking ? 'border-purple-300 text-purple-700 bg-white hover:border-purple-500' : 'bg-gray-100 text-gray-400'}`} 
+                                            className={`w-full appearance-none border-2 p-2 pl-8 rounded-lg font-bold cursor-pointer outline-none text-base shadow-sm transition-colors 
+                                                ${isWorking ? 'border-purple-300 text-purple-800 bg-white hover:border-purple-500' : 'bg-gray-100 text-gray-400 border-transparent'}
+                                            `} 
                                             disabled={!isWorking} 
                                             value={current.status} 
                                             onChange={(e)=>{ const n={...statusData, [s.id]:{...current, status:e.target.value}}; onUpdateStatus(n); }}
@@ -376,12 +353,32 @@ const CheckInBoard = ({ staffList, statusData, onClose, onUpdateStatus, bookings
                                             <option value="AWAY">⚪ 未到</option>
                                             <option value="READY">🟣 待命</option>
                                             <option value="EAT">🟠 用餐</option>
-                                            <option value="OUT_SHORT">🔵 外出</option>
+                                            {/* Đổi màu hiển thị text cho trạng thái Out */}
+                                            <option value="OUT_SHORT" className="text-green-700 font-bold">🟢 外出 (Out)</option>
                                         </select>
-                                        <div className="absolute left-2 top-1/2 -translate-y-1/2 pointer-events-none">
-                                            <div className={`w-2.5 h-2.5 rounded-full ring-1 ring-white shadow-sm ${current.status==='READY'?'bg-purple-500':current.status==='EAT'?'bg-orange-500':current.status==='OUT_SHORT'?'bg-blue-500':'bg-gray-400'}`}></div>
+                                        
+                                        {/* Dot Indicator */}
+                                        <div className="absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none">
+                                            <div className={`w-3 h-3 rounded-full ring-2 ring-white shadow-sm 
+                                                ${current.status==='READY' ? 'bg-purple-600' : 
+                                                  current.status==='EAT' ? 'bg-orange-500' : 
+                                                  current.status==='OUT_SHORT' ? 'bg-green-500' : // Đổi thành màu xanh lá
+                                                  'bg-gray-400'}`}>
+                                            </div>
                                         </div>
                                     </div>
+                                </div>
+
+                                {/* [NEW COLUMN] 準下 (On-time Leave) Checkbox */}
+                                <div className="col-span-1 flex justify-center items-center">
+                                    <label className="flex items-center justify-center w-full h-full cursor-pointer p-2 hover:bg-blue-50 rounded-lg transition-colors">
+                                        <input 
+                                            type="checkbox" 
+                                            className="w-6 h-6 text-blue-600 border-2 border-gray-300 rounded focus:ring-blue-500 cursor-pointer accent-blue-600"
+                                            checked={isOnTime}
+                                            onChange={() => toggleOntimeLeave(s.id)}
+                                        />
+                                    </label>
                                 </div>
                             </div> 
                         )
@@ -396,8 +393,6 @@ window.CheckInBoard = CheckInBoard;
 /**
  * ============================================================================
  * 4. AVAILABILITY CHECK MODAL (電話預約檢查)
- * ----------------------------------------------------------------------------
- * 快速檢查特定時段是否有空位。
  * ============================================================================
  */
 const AvailabilityCheckModal = ({ onClose, onSave, staffList, bookings, initialDate }) => {
@@ -413,7 +408,6 @@ const AvailabilityCheckModal = ({ onClose, onSave, staffList, bookings, initialD
         custPhone: ''
     });
 
-    // 選擇精油自動選女技師
     useEffect(() => {
         if (form.isOil && form.genderPref !== '女' && !form.genderPref.includes('Female')) {
             setForm(prev => ({ ...prev, genderPref: '女' }));
@@ -525,8 +519,6 @@ window.AvailabilityCheckModal = AvailabilityCheckModal;
 /**
  * ============================================================================
  * 5. BILLING MODAL (結帳確認)
- * ----------------------------------------------------------------------------
- * 支援合併結帳或分開結帳。
  * ============================================================================
  */
 const BillingModal = ({ activeItem, relatedItems, onConfirm, onCancel }) => {
@@ -593,8 +585,6 @@ window.BillingModal = BillingModal;
 /**
  * ============================================================================
  * 6. SPLIT STAFF MODAL (拆單 / 增加技師)
- * ----------------------------------------------------------------------------
- * 用於四手操作或中途更換技師。
  * ============================================================================
  */
 const SplitStaffModal = ({ staffList, statusData, onConfirm, onCancel }) => {
@@ -635,8 +625,6 @@ window.SplitStaffModal = SplitStaffModal;
 /**
  * ============================================================================
  * 7. WALK-IN MODAL (現場客)
- * ----------------------------------------------------------------------------
- * 快速建立現場客訂單。
  * ============================================================================
  */
 const WalkInModal = ({ onClose, onSave, staffList, initialDate }) => {
@@ -661,8 +649,6 @@ window.WalkInModal = WalkInModal;
 /**
  * ============================================================================
  * 8. COMBO START MODAL (套餐順序)
- * ----------------------------------------------------------------------------
- * 選擇套餐執行順序 (先做腳/先做身體)。
  * ============================================================================
  */
 const ComboStartModal = ({ onConfirm, onCancel, bookingName }) => {
