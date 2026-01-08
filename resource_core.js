@@ -1,7 +1,7 @@
 /**
  * ============================================================================
  * FILE: resource_core.js
- * PHIÊN BẢN: SUPER LOGIC V2.2 (Native JS Edition - No Dependencies)
+ * PHIÊN BẢN: SUPER LOGIC V2.3 (FIXED STAFF CLEANUP)
  * MÔ TẢ: Hệ thống kiểm tra tài nguyên thông minh (Chạy bằng JS thuần).
  * ƯU ĐIỂM: Không cần cài đặt moment-timezone, không lo lỗi deploy.
  * ============================================================================
@@ -115,6 +115,7 @@ function checkResourceCapacity(resourceType, start, end, bookings) {
     if (points.length === 0) return true; // Không có ai tranh chấp
 
     // Sắp xếp timeline: Start tính trước End nếu cùng thời điểm
+    // (Để tính trạng thái "xấu nhất" tại thời điểm giao thoa)
     points.sort((a, b) => {
         if (a.time === b.time) return a.type === 'start' ? -1 : 1; 
         return a.time - b.time;
@@ -125,7 +126,8 @@ function checkResourceCapacity(resourceType, start, end, bookings) {
         if (p.type === 'start') currentLoad++;
         else currentLoad--;
 
-        if (currentLoad >= limit) return false; // Quá tải
+        // [QUAN TRỌNG] Nếu tải hiện tại ĐÃ bằng limit, thì không thể nhét thêm người mới
+        if (currentLoad >= limit) return false; 
     }
 
     return true; // Đủ chỗ
@@ -144,12 +146,13 @@ function findAvailableStaff(staffReq, start, end, staffListRef, busyList) {
         const shiftStart = getMinsFromTimeStr(staffInfo.start);
         const shiftEnd = getMinsFromTimeStr(staffInfo.end);
         
-        // Logic ca đêm (ví dụ 20:00 - 03:00) hoặc ca ngày
+        // Logic ca đêm (ví dụ 20:00 - 03:00)
         if (shiftEnd < shiftStart) {
-            // Ca qua đêm: Start phải nằm trong khoảng làm việc
-            // (Chưa hỗ trợ chi tiết logic ca qua đêm phức tạp ở đây, giả định cơ bản)
+            // Tạm thời chưa xử lý sâu ca đêm, giả định làm việc trong ngày
+            // Nếu cần, có thể mở rộng logic này sau
         } else {
             if (start < shiftStart) return false;
+            // [QUAN TRỌNG] Nhân viên phải rảnh đến hết giờ (bao gồm cả dọn dẹp nếu 'end' đã cộng buffer)
             if (end > shiftEnd) return false; 
         }
 
@@ -176,7 +179,7 @@ function findAvailableStaff(staffReq, start, end, staffListRef, busyList) {
 }
 
 // ============================================================================
-// PHẦN 3: LOGIC KIỂM TRA KHẢ THI (SUPER LOGIC V2)
+// PHẦN 3: LOGIC KIỂM TRA KHẢ THI (SUPER LOGIC V2.3)
 // ============================================================================
 
 function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRaw, staffList) {
@@ -196,7 +199,7 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
         };
     });
 
-    // BƯỚC 0: CHECK TỔNG QUÁT
+    // BƯỚC 0: CHECK TỔNG QUÁT (Không vượt quá 12 khách)
     if (!checkResourceCapacity('TOTAL', requestStartMins, requestStartMins + 1, committedBookings)) {
         return { feasible: false, reason: "Tiệm đang quá tải (Max 12 khách)." };
     }
@@ -232,7 +235,7 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
     // ========================================================================
     for (const guest of singleGuests) {
         const start = requestStartMins;
-        const end = start + guest.duration + CONFIG.CLEANUP_BUFFER; 
+        const end = start + guest.duration + CONFIG.CLEANUP_BUFFER; // Đã bao gồm dọn dẹp
         
         const allCurrent = [...committedBookings, ...tentativeBookings];
         
@@ -280,11 +283,15 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
             const p1Start = requestStartMins;
             const p1End = p1Start + halfDuration; 
             
-            // [QUAN TRỌNG] Thêm Transition Buffer để tránh Deadlock
+            // [QUAN TRỌNG] Thêm Transition Buffer để nhân viên di chuyển & khách đổi chỗ
             const p2Start = p1End + CONFIG.TRANSITION_BUFFER;
             const p2End = p2Start + halfDuration;
             
-            const staffEnd = p2End; 
+            const p1BlockEnd = p1End + CONFIG.CLEANUP_BUFFER;
+            const p2BlockEnd = p2End + CONFIG.CLEANUP_BUFFER;
+
+            // [FIXED HERE] Nhân viên phải rảnh đến tận lúc DỌN DẸP xong của Phase 2
+            const staffEnd = p2BlockEnd; 
 
             let phase1Res, phase2Res;
             if (item.mode === 'FB') { 
@@ -295,19 +302,18 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
                 phase2Res = 'CHAIR';
             }
 
-            // CHECK PHASE 1
-            const p1BlockEnd = p1End + CONFIG.CLEANUP_BUFFER;
+            // CHECK PHASE 1 (Ghế/Giường)
             let allBusy = [...committedBookings, ...scenarioBookings];
             if (!checkResourceCapacity(phase1Res, p1Start, p1BlockEnd, allBusy)) return null;
 
-            // CHECK PHASE 2
-            const p2BlockEnd = p2End + CONFIG.CLEANUP_BUFFER;
+            // CHECK PHASE 2 (Giường/Ghế)
             // Thêm booking ảo của phase 1 vào để check phase 2
             allBusy.push({ start: p1Start, end: p1BlockEnd, resourceType: phase1Res, staffName: 'TEMP' });
 
             if (!checkResourceCapacity(phase2Res, p2Start, p2BlockEnd, allBusy)) return null;
 
             // CHECK STAFF
+            // Nhân viên phải rảnh liên tục từ đầu đến cuối (bao gồm cả dọn dẹp phase 2)
             const staff = findAvailableStaff(guest.staffReq, p1Start, staffEnd, staffList, [...committedBookings, ...scenarioBookings]);
             if (!staff) return null; 
 
@@ -341,9 +347,10 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
     }
 
     // 3. Nếu vẫn kẹt -> Thử Tách Nhóm (Brute-force permutations)
+    // Ví dụ: 1 người làm FB, 1 người làm BF để so le
     if (!successScenario && comboGuests.length >= 2) {
         const count = comboGuests.length;
-        const totalPermutations = Math.min(1 << count, 16); // Giới hạn 16 trường hợp
+        const totalPermutations = Math.min(1 << count, 16); // Giới hạn 16 trường hợp để không lag
 
         for (let i = 1; i < totalPermutations - 1; i++) {
             const splitConfig = [];
@@ -367,7 +374,7 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
     } else {
         return { 
             feasible: false, 
-            reason: "Rất tiếc, đã thử đảo tua và tách nhóm nhưng vẫn kẹt thời gian." 
+            reason: "Rất tiếc, đã thử đảo tua và tách nhóm nhưng vẫn kẹt thời gian (hết giường/ghế hoặc nhân viên)." 
         };
     }
 }
