@@ -845,5 +845,11 @@ async function handleEvent(event) {
 }
 
 syncData();
+// --- BẮT ĐẦU ĐOẠN CODE CHỐNG NGỦ ---
+app.get('/ping', (req, res) => {
+    console.log('Server đã được đánh thức bởi UptimeRobot!');
+    res.status(200).send('Pong! Server đang thức.');
+});
+// --- KẾT THÚC ĐOẠN CODE CHỐNG NGỦ ---
 const port = process.env.PORT || 3000;
 app.listen(port, () => { console.log(`Bot running on ${port}`); });

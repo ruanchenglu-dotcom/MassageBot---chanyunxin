@@ -1,37 +1,51 @@
-// File: js/bookingHandler.js
-// 版本: V52 (Strict Staff OFF Check - Multi-Format Date Fix)
-// 語言: 繁體中文 (Traditional Chinese)
-// 修正說明: 
-// 1. 修復指定技師休假 (OFF) 卻仍可預約的 Bug。
-// 2. 採用「多重日期格式」匹配，確保無論後端傳來的是 2026/01/08 還是 2026/1/8 都能正確識別休假。
-// 3. 完整保留 V51 所有功能 (08:00 開店、打烊管制、硬體防護)。
+/**
+ * ============================================================================
+ * FILE: js/bookingHandler.js
+ * PHIÊN BẢN: V54 (Async Save + Auto Refresh + No Freeze)
+ * NGÀY CẬP NHẬT: 2026-01-08
+ * * TÍNH NĂNG MỚI:
+ * 1. Thêm hiệu ứng "Đang xử lý..." (Loading) khi bấm lưu để tránh đơ giao diện.
+ * 2. Tự động kích hoạt làm mới Timeline sau khi lưu thành công.
+ * 3. Ngăn chặn bấm nút xác nhận nhiều lần (Double-click prevention).
+ * 4. Giữ nguyên danh sách giờ 08:00 -> 00:00.
+ * ============================================================================
+ */
 
 (function() {
-    console.log("🚀 BookingHandler V52 (休假嚴格檢查版): 系統啟動中...");
+    console.log("🚀 BookingHandler V54 (Async Save Fix): Hệ thống đang khởi động...");
 
-    // --- 安全檢查: 確保 React 存在 ---
+    // -------------------------------------------------------------------------
+    // 1. SAFETY CHECKS & CONFIG
+    // -------------------------------------------------------------------------
     if (typeof React === 'undefined') {
-        console.error("❌ 嚴重錯誤: React 未定義，BookingHandler 無法啟動。");
+        console.error("❌ CRITICAL ERROR: React chưa được tải. BookingHandler dừng hoạt động.");
         return;
     }
-    const { useState, useEffect, useMemo } = React;
+    const { useState, useEffect, useMemo, useCallback } = React;
 
-    // =========================================================================
-    // ⚙️ [V52 設定] 店舖營業設定
-    // =========================================================================
+    // Cấu hình cửa hàng
     const SHOP_CONFIG = {
-        LIMIT_CHAIRS: 6,      // 椅子總數
-        LIMIT_BEDS: 6,        // 床位總數
-        OPEN_HOUR: 8,         // 開店時間 08:00
-        CLOSE_HOUR: 3,        // 打烊時間 (凌晨 03:00)
-        ALLOW_LAST_ORDER: 60  // 打烊前多久停止接單
+        LIMIT_CHAIRS: 6,      // Số lượng ghế Foot
+        LIMIT_BEDS: 6,        // Số lượng giường Body
+        OPEN_HOUR: 8,         // Giờ mở cửa (08:00)
+        CLOSE_HOUR: 3,        // Giờ đóng cửa (03:00 sáng hôm sau)
+        ALLOW_LAST_ORDER: 60, // Phút chót nhận khách trước khi đóng
+        DEBUG_MODE: false     // Bật true để xem log chi tiết
     };
 
-    // --- 輔助常數 ---
-    const HOURS_24 = Array.from({length: 24}, (_, i) => i.toString().padStart(2, '0'));
+    // Danh sách giờ hiển thị (08h sáng -> 23h đêm -> 00h sáng hôm sau)
+    const HOURS_LIST = [
+        '08', '09', '10', '11', '12', '13', '14', '15', '16', '17', '18', '19',
+        '20', '21', '22', '23', '00'
+    ];
+    
     const MINUTES_10 = ['00', '10', '20', '30', '40', '50'];
 
-    // --- [防呆] 本地輔助函數 ---
+    // -------------------------------------------------------------------------
+    // 2. HELPER FUNCTIONS (CORE LOGIC)
+    // -------------------------------------------------------------------------
+
+    // [Helper] Chuyển đổi giờ string (HH:mm) thành số phút từ 00:00
     const safeNormalizeMins = (timeStr) => {
         if (window.normalizeToTimelineMins) return window.normalizeToTimelineMins(timeStr);
         if (!timeStr || typeof timeStr !== 'string') return 0;
@@ -39,66 +53,67 @@
         return (h || 0) * 60 + (m || 0);
     };
 
+    // [Helper] Lấy thời lượng dịch vụ an toàn
     const safeGetDuration = (serviceName, defaultDur = 60) => {
         if (window.getSafeDuration) return window.getSafeDuration(serviceName, defaultDur);
         return defaultDur;
     };
 
-    // --- [V52 核心修正] 強化版休假狀態檢查 ---
-    // 無論日期格式如何 (有0無0，斜線或橫線)，都能抓到 OFF
+    // [Helper] Hàm Refresh Timeline Global (Cố gắng tìm hàm reload của trang web)
+    const forceGlobalRefresh = () => {
+        console.log("🔄 Đang yêu cầu làm mới Timeline...");
+        // Thử gọi các hàm phổ biến thường dùng để refresh
+        if (typeof window.fetchDataAndRender === 'function') window.fetchDataAndRender();
+        else if (typeof window.loadBookingData === 'function') window.loadBookingData();
+        else if (typeof window.initTimeline === 'function') window.initTimeline();
+        else if (typeof window.location.reload === 'function') {
+            console.warn("⚠️ Không tìm thấy hàm refresh, sẽ reload trang sau 2s...");
+            // setTimeout(() => window.location.reload(), 2000); // Tạm tắt reload trang để tránh phiền
+        }
+    };
+
+    // [CORE FIX] Kiểm tra trạng thái OFF của nhân viên
     const getStaffDayStatus = (staff, dateString) => {
         if (!staff) return '';
-        
-        // 解析日期，生成所有可能的格式變體
         const [y, m, d] = (dateString || '').split('-');
         if (!y || !m || !d) return '';
-
         const mInt = parseInt(m, 10);
         const dInt = parseInt(d, 10);
 
-        // 產生 4 種常見格式
         const formatsToCheck = [
-            dateString,                                      // 2026-01-08 (標準)
-            dateString.replace(/-/g, '/'),                   // 2026/01/08 (後端常見)
-            `${y}-${mInt}-${dInt}`,                          // 2026-1-8   (無補零橫線)
-            `${y}/${mInt}/${dInt}`                           // 2026/1/8   (無補零斜線)
+            dateString,
+            dateString.replace(/-/g, '/'),
+            `${y}-${mInt}-${dInt}`,
+            `${y}/${mInt}/${dInt}`
         ];
 
-        // 1. 檢查 offDays 陣列 (Backend V157+ 新格式)
         if (staff.offDays && Array.isArray(staff.offDays)) {
-            // 只要 offDays 裡包含上述任一格式，即視為休假
             const isOff = formatsToCheck.some(fmt => staff.offDays.includes(fmt));
             if (isOff) return 'OFF';
         }
 
-        // 2. 檢查舊版 Key (直接屬性)
         for (const fmt of formatsToCheck) {
             if (staff[fmt] !== undefined) {
                 const val = String(staff[fmt]).trim().toUpperCase();
-                // 擴充休假關鍵字
                 if (['OFF', '休', 'NGHI', 'X', 'FALSE'].includes(val)) return 'OFF';
             }
         }
-
         return ''; 
     };
 
-    // 判斷技師是否上班 (依賴 getStaffDayStatus)
+    // [Logic] Kiểm tra nhân viên có đang trong ca làm việc không
     const isStaffWorkingAt = (staff, checkMins, dateString) => {
         if (!staff) return false;
         
-        // A. 先檢查是否休假
         const dayStatus = getStaffDayStatus(staff, dateString);
         if (dayStatus === 'OFF') return false;
         
-        // B. 檢查班表時間
         if (!staff.shiftStart || !staff.shiftEnd) return false;
         if (String(staff.shiftStart).toUpperCase().includes('OFF')) return false;
 
         const startMins = safeNormalizeMins(staff.shiftStart);
         const endMins = safeNormalizeMins(staff.shiftEnd);
         
-        // 跨日班表處理
         if (endMins < startMins) {
             return checkMins >= startMins || checkMins < endMins;
         } else {
@@ -106,9 +121,7 @@
         }
     };
 
-    // --- 其他通用邏輯函數 ---
-    
-    // 營業時間檢查
+    // [Logic] Kiểm tra giờ mở cửa/đóng cửa
     const checkBusinessHoursViolation = (startTimeStr, maxDuration) => {
         const [h, m] = startTimeStr.split(':').map(Number);
         let startMins = h * 60 + m;
@@ -125,38 +138,25 @@
         }
 
         if (startMins >= closeMins && startMins < (openMins + 24*60)) { 
-             if (h < SHOP_CONFIG.OPEN_HOUR && !isCrossDay) return { valid: false, reason: "⛔ 目前是非營業時間 (尚未開店)" };
+             if (h < SHOP_CONFIG.OPEN_HOUR && !isCrossDay) return { valid: false, reason: "⛔ Hiện tại chưa mở cửa" };
         }
 
         const endMins = startMins + maxDuration;
         if (endMins > closeMins) {
-            return { 
-                valid: false, 
-                reason: `⛔ 超過打烊時間 (預計結束 ${Math.floor((endMins%1440)/60).toString().padStart(2,'0')}:${(endMins%60).toString().padStart(2,'0')})` 
-            };
+            const endH = Math.floor((endMins % 1440) / 60).toString().padStart(2,'0');
+            const endM = (endMins % 60).toString().padStart(2,'0');
+            return { valid: false, reason: `⛔ Quá giờ đóng cửa (Kết thúc: ${endH}:${endM})` };
         }
 
         if (startMins < openMins) {
-             return { valid: false, reason: "⛔ 尚未開店" };
+             return { valid: false, reason: `⛔ Chưa mở cửa (Mở lúc ${SHOP_CONFIG.OPEN_HOUR}:00)` };
         }
 
         return { valid: true };
     };
 
-    const getStaffDisplayName = (s) => {
-        if (!s) return 'Unknown';
-        if (String(s.id).trim() === String(s.name).trim()) return s.name;
-        return `${s.id} - ${s.name}`;
-    };
-
-    const getStaffGender = (staff) => {
-        if (!staff) return 'UNKNOWN';
-        const g = String(staff.gender || '').toUpperCase().trim();
-        if (['F', '女', 'FEMALE', 'NU'].includes(g)) return 'F';
-        if (['M', '男', 'MALE', 'NAM'].includes(g)) return 'M';
-        return 'UNKNOWN';
-    };
-
+    const getStaffDisplayName = (s) => (!s) ? 'Unknown' : (String(s.id).trim() === String(s.name).trim() ? s.name : `${s.id} - ${s.name}`);
+    
     const getServiceType = (serviceName, details = {}) => {
         const name = String(serviceName || '').toUpperCase();
         if (details && details.type) return details.type.toUpperCase();
@@ -166,6 +166,7 @@
         return 'BED'; 
     };
 
+    // [CORE] Tính toán tài nguyên
     const calculateResourceUsage = (todaysBookings) => {
         const MAX_MINUTES = 3000;
         const chairUsage = new Uint8Array(MAX_MINUTES);
@@ -190,6 +191,7 @@
                 const half = duration / 2;
                 const p1End = bStart + half + CLEANUP_BUFFER;
                 for (let t = bStart; t < p1End; t++) if (t < MAX_MINUTES) chairUsage[t] += bPax;
+                
                 const p2Start = bStart + half;
                 const p2End = bStart + duration + CLEANUP_BUFFER;
                 for (let t = p2Start; t < p2End; t++) if (t < MAX_MINUTES) bedUsage[t] += bPax;
@@ -205,37 +207,14 @@
         return { chairUsage, bedUsage };
     };
 
-    const isConsumingFemaleStaff = (booking, staffList) => {
-        if (booking.isOil === true || booking.isOil === 'true' || booking.oil === true) return true;
-        const textToCheck = (String(booking.serviceName || '') + " " + String(booking.ghiChu || '')).toUpperCase();
-        const oilKeywords = ['OIL', 'DẦU', 'DAU', '精油', 'AROMA', '油', '油推']; 
-        const femaleKeywords = ['NỮ', 'NU', 'FEMALE', '女', 'LADY'];
-        if (oilKeywords.some(k => textToCheck.includes(k))) return true;
-        if (femaleKeywords.some(k => textToCheck.includes(k))) return true;
-        
-        const sId = booking.staffId || booking.technician || booking.serviceStaff;
-        if (sId && sId !== '隨機' && !String(sId).includes('Random')) {
-            const safeList = staffList || [];
-            const staffObj = safeList.find(s => s.id == sId || s.name == sId);
-            if (staffObj && getStaffGender(staffObj) === 'F') return true;
-        }
-        return false;
-    };
-
-    const isConsumingMaleStaff = (booking, staffList) => {
-        const sId = booking.staffId || booking.technician || booking.serviceStaff;
-        if (sId && sId !== '隨機' && !String(sId).includes('Random')) {
-            const safeList = staffList || [];
-            const staffObj = safeList.find(s => s.id == sId || s.name == sId);
-            if (staffObj && getStaffGender(staffObj) === 'M') return true;
-        }
-        return false;
-    };
-
+    // [CORE] Tetris Logic
     const buildDetailedSlotMap = (todayBookings) => {
         const MAX_MINUTES = 3000;
         const CLEANUP_BUFFER = 10;
-        const slots = { CHAIR: Array.from({length: 7}, () => new Uint8Array(MAX_MINUTES)), BED: Array.from({length: 7}, () => new Uint8Array(MAX_MINUTES)) };
+        const slots = { 
+            CHAIR: Array.from({length: 7}, () => new Uint8Array(MAX_MINUTES)), 
+            BED: Array.from({length: 7}, () => new Uint8Array(MAX_MINUTES)) 
+        };
 
         if (!Array.isArray(todayBookings)) return slots;
 
@@ -244,21 +223,23 @@
             const bStart = safeNormalizeMins(b.startTimeString.split(' ')[1]);
             const duration = b.duration || 60;
             const rId = String(b.rowId || '').toLowerCase();
-            let slotIdx = parseInt(rId.replace(/\D/g, ''));
             
+            let slotIdx = parseInt(rId.replace(/\D/g, ''));
             if (isNaN(slotIdx) || slotIdx < 1 || slotIdx > 6) return;
 
             let startType = 'BED';
-            if (rId.includes('chair') || rId.includes('足') || (b.serviceName && b.serviceName.includes('足')) || b.type === 'CHAIR') startType = 'CHAIR';
+            if (rId.includes('chair') || rId.includes('足') || (b.serviceName && b.serviceName.includes('足')) || b.type === 'CHAIR') {
+                startType = 'CHAIR';
+            }
 
             if (b.category === 'COMBO') {
                 const half = duration / 2;
-                const switchPoint = bStart + half;
-                const p1End = switchPoint + CLEANUP_BUFFER;
+                const p1End = bStart + half + CLEANUP_BUFFER;
                 const p1Arr = slots[startType][slotIdx];
                 for(let t=bStart; t<p1End; t++) if(t<MAX_MINUTES) p1Arr[t] = 1;
+                
                 const p2Type = startType === 'CHAIR' ? 'BED' : 'CHAIR';
-                const p2Start = switchPoint;
+                const p2Start = bStart + half;
                 const p2End = bStart + duration + CLEANUP_BUFFER;
                 const p2Arr = slots[p2Type][slotIdx];
                 for(let t=p2Start; t<p2End; t++) if(t<MAX_MINUTES) p2Arr[t] = 1;
@@ -301,11 +282,13 @@
                 const half = duration / 2;
                 const p1Start = startMins; const p1End = startMins + half + CLEANUP_BUFFER;
                 const p2Start = startMins + half; const p2End = startMins + duration + CLEANUP_BUFFER;
+                
                 for (let c = 1; c <= 6; c++) {
                     if (isSlotAvailable('CHAIR', c, p1Start, p1End)) {
                         for (let b = 1; b <= 6; b++) {
                             if (isSlotAvailable('BED', b, p2Start, p2End)) {
-                                markSlotBusy('CHAIR', c, p1Start, p1End); markSlotBusy('BED', b, p2Start, p2End);
+                                markSlotBusy('CHAIR', c, p1Start, p1End); 
+                                markSlotBusy('BED', b, p2Start, p2End);
                                 placed = true; break;
                             }
                         }
@@ -317,7 +300,8 @@
                         if (isSlotAvailable('BED', b, p1Start, p1End)) {
                             for (let c = 1; c <= 6; c++) {
                                 if (isSlotAvailable('CHAIR', c, p2Start, p2End)) {
-                                    markSlotBusy('BED', b, p1Start, p1End); markSlotBusy('CHAIR', c, p2Start, p2End);
+                                    markSlotBusy('BED', b, p1Start, p1End); 
+                                    markSlotBusy('CHAIR', c, p2Start, p2End);
                                     placed = true; break;
                                 }
                             }
@@ -341,7 +325,7 @@
     };
 
     // ==================================================================================
-    // 1. 電話預約模組
+    // 3. COMPONENT: 電話預約 (PHONE BOOKING MODAL)
     // ==================================================================================
     const NewAvailabilityCheckModal = ({ onClose, onSave, staffList, bookings, initialDate }) => {
         const safeStaffList = useMemo(() => staffList || [], [staffList]);
@@ -350,12 +334,16 @@
         const [step, setStep] = useState('CHECK');
         const [checkResult, setCheckResult] = useState(null);
         const [suggestions, setSuggestions] = useState([]);
+        const [isSubmitting, setIsSubmitting] = useState(false); // [NEW] Loading State
+
         const defaultService = window.SERVICES_LIST ? window.SERVICES_LIST[2] : "Body Massage";
 
         const [form, setForm] = useState({
             date: initialDate || new Date().toISOString().slice(0, 10), 
             time: "12:00",
-            pax: 2, custName: '', custPhone: ''
+            pax: 2, 
+            custName: '', 
+            custPhone: ''
         });
 
         const [guestDetails, setGuestDetails] = useState([
@@ -363,16 +351,15 @@
             { service: defaultService, staff: '隨機', isOil: false }
         ]);
 
-        const handleTimeChange = (type, value) => {
-            const parts = (form.time || "12:00").split(':');
-            const h = parts[0] || "12";
-            const m = parts[1] || "00";
-            let newTime = form.time;
-            if (type === 'HOUR') newTime = `${value}:${m}`;
-            if (type === 'MINUTE') newTime = `${h}:${value}`;
-            setForm(prev => ({ ...prev, time: newTime }));
+        const handleTimeChange = useCallback((type, value) => {
+            setForm(prev => {
+                const parts = (prev.time || "12:00").split(':');
+                const h = type === 'HOUR' ? value : (parts[0] || "12");
+                const m = type === 'MINUTE' ? value : (parts[1] || "00");
+                return { ...prev, time: `${h}:${m}` };
+            });
             setCheckResult(null); setSuggestions([]);
-        };
+        }, []);
 
         const handlePaxChange = (val) => {
             const num = parseInt(val) || 1;
@@ -390,24 +377,22 @@
             });
         };
 
-        const handleGuestServiceChange = (index, newService) => {
+        const handleGuestUpdate = (index, field, value) => {
             setCheckResult(null); setSuggestions([]);
             setGuestDetails(prev => {
                 const copy = [...prev];
-                copy[index] = { ...copy[index], service: newService };
-                if (newService && newService.includes('足')) copy[index].isOil = false;
-                return copy;
-            });
-        };
-
-        const handleGuestStaffChange = (index, value) => {
-            setCheckResult(null); setSuggestions([]);
-            setGuestDetails(prev => {
-                const copy = [...prev];
-                const current = copy[index];
-                if (value === 'FEMALE_OIL') { copy[index] = { ...current, staff: '女', isOil: true }; } 
-                else if (value === '女') { copy[index] = { ...current, staff: '女', isOil: false }; } 
-                else { copy[index] = { ...current, staff: value, isOil: false }; }
+                const current = { ...copy[index] };
+                
+                if (field === 'service') {
+                    current.service = value;
+                    if (value && value.includes('足')) current.isOil = false;
+                } else if (field === 'staff') {
+                    if (value === 'FEMALE_OIL') { current.staff = '女'; current.isOil = true; }
+                    else if (value === '女') { current.staff = '女'; current.isOil = false; }
+                    else { current.staff = value; current.isOil = false; }
+                }
+                
+                copy[index] = current;
                 return copy;
             });
         };
@@ -416,7 +401,6 @@
             const startMins = safeNormalizeMins(targetTimeStr);
             const targetDateStandard = (form.date || "").replace(/-/g, '/');
             
-            // 0. 營業時間檢查
             let maxDuration = 0;
             guestDetails.forEach(g => {
                 const d = safeGetDuration(g.service, 60);
@@ -425,7 +409,6 @@
             const bizCheck = checkBusinessHoursViolation(targetTimeStr, maxDuration);
             if (!bizCheck.valid) return bizCheck;
 
-            // 嚴格過濾
             const todays = safeBookings.filter(b => {
                 if (!b || !b.startTimeString) return false;
                 const bDate = b.startTimeString.split(' ')[0].replace(/-/g, '/');
@@ -433,7 +416,6 @@
                 return bDate === targetDateStandard && isValidStatus;
             });
 
-            // A. 人力
             const activeStaff = safeStaffList.filter(s => isStaffWorkingAt(s, startMins, form.date));
             const totalActive = activeStaff.length;
             
@@ -449,32 +431,24 @@
                 }
             });
 
-            const remainingTotal = totalActive - busyTotal;
-            if (remainingTotal < form.pax) return { valid: false, reason: `❌ 技師人手不足 (剩餘: ${remainingTotal})` };
+            if ((totalActive - busyTotal) < form.pax) {
+                return { valid: false, reason: `❌ 技師人手不足 (剩餘: ${totalActive - busyTotal})` };
+            }
 
-            // B. [V52 修正] 指定技師檢查 (Specific Staff Check) - 優先執行，並使用嚴格休假檢查
             for (let i = 0; i < guestDetails.length; i++) {
                 const st = guestDetails[i].staff;
                 if (['隨機', '男', '女'].some(k => st.includes(k))) continue;
                 
                 const staffObj = safeStaffList.find(s => s.id === st || s.name === st);
                 
-                // 檢查 1: 是否休假 (最重要修正)
                 if (staffObj) {
-                    // 強制檢查休假狀態，不依賴 isStaffWorkingAt 的副作用
                     const dayStatus = getStaffDayStatus(staffObj, form.date);
-                    if (dayStatus === 'OFF') {
-                        return { valid: false, reason: `❌ 技師 ${st} 當天休假 (OFF)` };
-                    }
-                    // 再次檢查是否在班表時間內
-                    if (!isStaffWorkingAt(staffObj, startMins, form.date)) {
-                        return { valid: false, reason: `❌ 技師 ${st} 該時段未上班` };
-                    }
+                    if (dayStatus === 'OFF') return { valid: false, reason: `❌ 技師 ${st} 當天休假` };
+                    if (!isStaffWorkingAt(staffObj, startMins, form.date)) return { valid: false, reason: `❌ 技師 ${st} 該時段未上班` };
                 } else {
                     return { valid: false, reason: `❌ 找不到技師 ${st}` };
                 }
 
-                // 檢查 2: 是否忙碌
                 const isBusy = todays.some(b => {
                     const bStart = safeNormalizeMins(b.startTimeString.split(' ')[1]);
                     const bEnd = bStart + (b.duration || 60);
@@ -485,7 +459,6 @@
                 if (isBusy) return { valid: false, reason: `❌ 技師 ${st} 該時段忙碌` };
             }
 
-            // C. 硬體總量
             const { chairUsage, bedUsage } = calculateResourceUsage(todays);
             const tempChairUsage = new Uint8Array(chairUsage);
             const tempBedUsage = new Uint8Array(bedUsage);
@@ -508,11 +481,10 @@
             }
 
             for (let t = startMins; t < checkEndMins + CLEANUP_BUFFER; t++) {
-                if (tempChairUsage[t] > SHOP_CONFIG.LIMIT_CHAIRS) return { valid: false, reason: `❌ 足底區客滿 (時段 ${Math.floor(t/60)}:${(t%60).toString().padStart(2,'0')} 已滿 ${SHOP_CONFIG.LIMIT_CHAIRS})` };
-                if (tempBedUsage[t] > SHOP_CONFIG.LIMIT_BEDS) return { valid: false, reason: `❌ 身體區客滿 (時段 ${Math.floor(t/60)}:${(t%60).toString().padStart(2,'0')} 已滿 ${SHOP_CONFIG.LIMIT_BEDS})` };
+                if (tempChairUsage[t] > SHOP_CONFIG.LIMIT_CHAIRS) return { valid: false, reason: "❌ 足底區客滿" };
+                if (tempBedUsage[t] > SHOP_CONFIG.LIMIT_BEDS) return { valid: false, reason: "❌ 身體區客滿" };
             }
 
-            // D. Tetris
             const slotMap = buildDetailedSlotMap(todays);
             const canFit = tryFitMixedServicesTetris(guestDetails, startMins, slotMap);
             if (!canFit) return { valid: false, reason: "❌ 座位/床位無法安排 (碎片化)" };
@@ -520,48 +492,92 @@
             return { valid: true, reason: "OK" };
         };
 
-        const performCheck = () => {
+        const performCheck = (e) => {
+            if (e) e.preventDefault(); 
             const result = checkSlotAvailability(form.time);
-            if (result.valid) { setCheckResult({ status: 'OK', message: "✅ 此時段可以預約 (Available)" }); setSuggestions([]); }
-            else {
+            
+            if (result.valid) { 
+                setCheckResult({ status: 'OK', message: "✅ 此時段可以預約 (Available)" }); 
+                setSuggestions([]); 
+            } else {
                 setCheckResult({ status: 'FAIL', message: result.reason });
+                
                 const foundSuggestions = [];
                 const parts = form.time.split(':').map(Number);
                 let currentTotalMins = (parts[0]||0) * 60 + (parts[1]||0);
+                
                 for (let i = 1; i <= 24; i++) { 
                     const nextMins = currentTotalMins + (i * 10);
                     let h = Math.floor(nextMins / 60); let m = nextMins % 60;
                     if (h >= 24) h -= 24; 
                     const mStr = Math.floor(m / 10) * 10;
                     const nextTimeStr = `${h.toString().padStart(2,'0')}:${mStr.toString().padStart(2,'0')}`;
-                    if (checkSlotAvailability(nextTimeStr).valid) { foundSuggestions.push(nextTimeStr); if (foundSuggestions.length >= 4) break; }
+                    if (checkSlotAvailability(nextTimeStr).valid) { 
+                        foundSuggestions.push(nextTimeStr); 
+                        if (foundSuggestions.length >= 4) break; 
+                    }
                 }
                 setSuggestions(foundSuggestions);
             }
         };
 
-        const handleFinalSave = () => {
-            if (!form.custName) { alert("請輸入顧客姓名!"); return; }
-            const serviceSummary = guestDetails.map(g => g.service).filter((v, i, a) => a.indexOf(v) === i).join(', ');
-            const oilNotes = guestDetails.map((g, i) => g.isOil ? `K${i+1}:油推` : null).filter(Boolean).join(',');
+        // [CORE FIX] ASYNC SUBMIT HANDLER
+        const handleFinalSave = async (e) => {
+            if (e) e.preventDefault();
+            if (isSubmitting) return; // Prevent double click
             
-            onSave({
-                hoTen: form.custName, 
-                sdt: form.custPhone || "", 
-                dichVu: serviceSummary, 
-                pax: form.pax,
-                ngayDen: (form.date||"").replace(/-/g, '/'), 
-                gioDen: form.time,
-                nhanVien: guestDetails[0].staff, 
-                isOil: guestDetails[0].isOil,
-                staffId2: guestDetails[1]?.staff||null, 
-                staffId3: guestDetails[2]?.staff||null, 
-                staffId4: guestDetails[3]?.staff||null, 
-                staffId5: guestDetails[4]?.staff||null, 
-                staffId6: guestDetails[5]?.staff||null,
-                ghiChu: oilNotes ? `(${oilNotes})` : "",
-                guestDetails: guestDetails 
-            });
+            if (!form.custName || form.custName.trim() === '') { 
+                alert("⚠️ 請輸入顧客姓名!"); 
+                return; 
+            }
+
+            setIsSubmitting(true); // LOCK UI
+
+            try {
+                const serviceSummary = guestDetails.map(g => g.service).filter((v, i, a) => a.indexOf(v) === i).join(', ');
+                const oilNotes = guestDetails.map((g, i) => g.isOil ? `K${i+1}:油推` : null).filter(Boolean).join(',');
+                
+                const payload = {
+                    hoTen: form.custName, 
+                    sdt: form.custPhone || "", 
+                    dichVu: serviceSummary, 
+                    pax: form.pax,
+                    ngayDen: (form.date||"").replace(/-/g, '/'), 
+                    gioDen: form.time,
+                    nhanVien: guestDetails[0].staff, 
+                    isOil: guestDetails[0].isOil,
+                    staffId2: guestDetails[1]?.staff || null, 
+                    staffId3: guestDetails[2]?.staff || null, 
+                    staffId4: guestDetails[3]?.staff || null, 
+                    staffId5: guestDetails[4]?.staff || null, 
+                    staffId6: guestDetails[5]?.staff || null,
+                    ghiChu: oilNotes ? `(${oilNotes})` : "",
+                    guestDetails: guestDetails 
+                };
+
+                console.log("💾 Saving Booking (Async):", payload);
+
+                if (typeof onSave === 'function') {
+                    // Gọi hàm lưu và chờ đợi (await) để UI không bị đơ
+                    await Promise.resolve(onSave(payload));
+                    
+                    // Sau khi lưu xong, kích hoạt làm mới Timeline
+                    forceGlobalRefresh();
+
+                    // Đóng modal sau một chút delay để user thấy phản hồi
+                    setTimeout(() => {
+                        onClose();
+                        setIsSubmitting(false);
+                    }, 500);
+                } else {
+                    console.error("❌ onSave is not a function!");
+                    setIsSubmitting(false);
+                }
+            } catch (err) {
+                console.error("❌ Error during save:", err);
+                alert("Lỗi khi lưu: " + err.message);
+                setIsSubmitting(false); // Mở khóa UI nếu lỗi
+            }
         };
 
         const [currentHour, currentMinute] = (form.time || "12:00").split(':');
@@ -569,32 +585,57 @@
         return (
             <div className="fixed inset-0 bg-slate-900/90 z-[100] flex items-center justify-center p-4">
                 <div className="bg-white w-full max-w-xl rounded-xl shadow-2xl flex flex-col max-h-[95vh] overflow-hidden animate-fadeIn">
-                    <div className="bg-[#10b981] p-4 text-white flex justify-between items-center">
-                        <h3 className="font-bold text-lg">📅 電話預約 (Booking Check)</h3>
+                    
+                    <div className="bg-[#10b981] p-4 text-white flex justify-between items-center shrink-0">
+                        <h3 className="font-bold text-lg">📅 電話預約 (Booking Check V54)</h3>
                         <button onClick={onClose} className="text-2xl hover:text-red-100">&times;</button>
                     </div>
+
                     <div className="p-5 space-y-4 overflow-y-auto flex-1 custom-scrollbar">
                         {step === 'CHECK' && (
                             <>
                                 <div className="grid grid-cols-2 gap-3">
-                                    <div><label className="text-xs font-bold text-gray-500">日期</label><input type="date" className="w-full border p-2 rounded font-bold h-[42px]" value={form.date} onChange={e=>{setForm({...form, date:e.target.value}); setCheckResult(null);}}/></div>
-                                    <div><label className="text-xs font-bold text-gray-500">時間</label><div className="flex items-center gap-1"><div className="relative flex-1"><select className="w-full border p-2 rounded font-bold h-[42px] appearance-none text-center bg-white" value={currentHour} onChange={(e) => handleTimeChange('HOUR', e.target.value)}>{HOURS_24.map(h => <option key={h} value={h}>{h}</option>)}</select></div><span className="font-bold">:</span><div className="relative flex-1"><select className="w-full border p-2 rounded font-bold h-[42px] appearance-none text-center bg-white" value={currentMinute} onChange={(e) => handleTimeChange('MINUTE', e.target.value)}>{MINUTES_10.map(m => <option key={m} value={m}>{m}</option>)}</select></div></div></div>
+                                    <div>
+                                        <label className="text-xs font-bold text-gray-500">日期</label>
+                                        <input type="date" className="w-full border p-2 rounded font-bold h-[42px]" value={form.date} onChange={e=>{setForm({...form, date:e.target.value}); setCheckResult(null);}}/>
+                                    </div>
+                                    <div>
+                                        <label className="text-xs font-bold text-gray-500">時間</label>
+                                        <div className="flex items-center gap-1">
+                                            <div className="relative flex-1">
+                                                <select className="w-full border p-2 rounded font-bold h-[42px] appearance-none text-center bg-white" value={currentHour} onChange={(e) => handleTimeChange('HOUR', e.target.value)}>
+                                                    {/* SỬ DỤNG LIST GIỜ MỚI */}
+                                                    {HOURS_LIST.map(h => <option key={h} value={h}>{h}</option>)}
+                                                </select>
+                                            </div>
+                                            <span className="font-bold">:</span>
+                                            <div className="relative flex-1">
+                                                <select className="w-full border p-2 rounded font-bold h-[42px] appearance-none text-center bg-white" value={currentMinute} onChange={(e) => handleTimeChange('MINUTE', e.target.value)}>
+                                                    {MINUTES_10.map(m => <option key={m} value={m}>{m}</option>)}
+                                                </select>
+                                            </div>
+                                        </div>
+                                    </div>
                                 </div>
+                                
                                 <div>
                                     <label className="text-xs font-bold text-gray-500">人數</label>
-                                    <select className="w-full border p-2 rounded font-bold text-center h-[42px]" value={form.pax} onChange={e=>handlePaxChange(e.target.value)}>{[1,2,3,4,5,6].map(n=><option key={n} value={n}>{n} 位</option>)}</select>
+                                    <select className="w-full border p-2 rounded font-bold text-center h-[42px]" value={form.pax} onChange={e=>handlePaxChange(e.target.value)}>
+                                        {[1,2,3,4,5,6].map(n=><option key={n} value={n}>{n} 位</option>)}
+                                    </select>
                                 </div>
+
                                 <div className="bg-slate-50 p-3 rounded border space-y-2">
-                                    <div className="text-xs font-bold text-gray-400">詳細資訊</div>
+                                    <div className="text-xs font-bold text-gray-400">詳細需求 (Details)</div>
                                     {guestDetails.map((g, idx) => {
                                         const selectValue = (g.staff === '女' && g.isOil) ? 'FEMALE_OIL' : g.staff;
                                         return (
                                             <div key={idx} className="flex gap-2 items-center">
                                                 <div className="w-6 h-10 rounded bg-gray-200 flex items-center justify-center font-bold text-sm">#{idx+1}</div>
-                                                <select className="flex-1 border p-2 rounded font-bold text-sm h-10" value={g.service} onChange={e=>handleGuestServiceChange(idx, e.target.value)}>
+                                                <select className="flex-1 border p-2 rounded font-bold text-sm h-10" value={g.service} onChange={e=>handleGuestUpdate(idx, 'service', e.target.value)}>
                                                     {(window.SERVICES_LIST||[]).map(s=><option key={s} value={s}>{s}</option>)}
                                                 </select>
-                                                <select className="flex-1 border p-2 rounded font-bold text-sm h-10" value={selectValue} onChange={e=>handleGuestStaffChange(idx, e.target.value)}>
+                                                <select className="flex-1 border p-2 rounded font-bold text-sm h-10" value={selectValue} onChange={e=>handleGuestUpdate(idx, 'staff', e.target.value)}>
                                                     <option value="隨機">🎲 隨機</option>
                                                     <option value="女">🚺 女師傅</option>
                                                     <option value="FEMALE_OIL">🚺 女師傅+油</option>
@@ -605,24 +646,110 @@
                                         );
                                     })}
                                 </div>
+
                                 <div>
-                                    {!checkResult ? <button onClick={performCheck} className="w-full bg-blue-600 text-white p-3 rounded font-bold shadow-lg">🔍 查詢空位</button> : 
-                                    <div className="space-y-3"><div className={`p-3 rounded text-center font-bold text-sm border-2 ${checkResult.status === 'OK' ? 'bg-green-100 text-green-700 border-green-300' : 'bg-red-50 text-red-700 border-red-200'}`}>{checkResult.message}</div>
-                                    {checkResult.status === 'FAIL' && suggestions.length > 0 && <div className="bg-yellow-50 p-3 rounded border border-yellow-200"><div className="text-xs font-bold text-yellow-700 mb-2">💡 建議時段:</div><div className="flex gap-2 flex-wrap">{suggestions.map(t=><button key={t} onClick={()=>{setForm({...form, time:t}); setCheckResult(null); setSuggestions([])}} className="px-3 py-1 bg-white border border-yellow-300 text-yellow-800 rounded font-bold">{t}</button>)}</div></div>}
-                                    {checkResult.status === 'OK' ? <button onClick={()=>setStep('INFO')} className="w-full bg-emerald-600 text-white p-3 rounded font-bold shadow-lg animate-pulse">➡️ 下一步</button> : <button onClick={()=>{setCheckResult(null); setSuggestions([])}} className="w-full bg-gray-400 text-white p-3 rounded font-bold">🔄 重新選擇</button>}</div>}
+                                    {!checkResult ? (
+                                        <button onClick={performCheck} className="w-full bg-blue-600 text-white p-3 rounded font-bold shadow-lg hover:bg-blue-700 transition">
+                                            🔍 查詢空位 (Check)
+                                        </button>
+                                    ) : (
+                                        <div className="space-y-3">
+                                            <div className={`p-3 rounded text-center font-bold text-sm border-2 ${checkResult.status === 'OK' ? 'bg-green-100 text-green-700 border-green-300' : 'bg-red-50 text-red-700 border-red-200'}`}>
+                                                {checkResult.message}
+                                            </div>
+                                            
+                                            {checkResult.status === 'FAIL' && suggestions.length > 0 && (
+                                                <div className="bg-yellow-50 p-3 rounded border border-yellow-200">
+                                                    <div className="text-xs font-bold text-yellow-700 mb-2">💡 建議時段:</div>
+                                                    <div className="flex gap-2 flex-wrap">
+                                                        {suggestions.map(t=>(
+                                                            <button key={t} onClick={()=>{setForm(f=>({...f, time:t})); setCheckResult(null); setSuggestions([]);}} className="px-3 py-1 bg-white border border-yellow-300 text-yellow-800 rounded font-bold hover:bg-yellow-100">
+                                                                {t}
+                                                            </button>
+                                                        ))}
+                                                    </div>
+                                                </div>
+                                            )}
+
+                                            {checkResult.status === 'OK' ? (
+                                                <button onClick={()=>setStep('INFO')} className="w-full bg-emerald-600 text-white p-3 rounded font-bold shadow-lg animate-pulse hover:bg-emerald-700">
+                                                    ➡️ 下一步 (Next)
+                                                </button>
+                                            ) : (
+                                                <button onClick={()=>{setCheckResult(null); setSuggestions([])}} className="w-full bg-gray-400 text-white p-3 rounded font-bold hover:bg-gray-500">
+                                                    🔄 重新選擇 (Retry)
+                                                </button>
+                                            )}
+                                        </div>
+                                    )}
                                 </div>
                             </>
                         )}
+
                         {step === 'INFO' && (
                             <div className="space-y-4 animate-slideIn">
                                 <div className="bg-green-50 p-3 rounded border border-green-200">
-                                    <div className="font-bold text-green-800 text-lg flex justify-between"><span>{form.date}</span><span>{form.time}</span></div>
+                                    <div className="font-bold text-green-800 text-lg flex justify-between">
+                                        <span>{form.date}</span>
+                                        <span>{form.time}</span>
+                                    </div>
                                     <div className="text-green-700">{form.pax} 位顧客</div>
-                                    {guestDetails.map((g,i)=> <div key={i} className="text-xs text-green-600 mt-1 border-t border-green-100 pt-1">#{i+1}: {g.service} - {g.staff}</div>)}
+                                    {guestDetails.map((g,i)=> (
+                                        <div key={i} className="text-xs text-green-600 mt-1 border-t border-green-100 pt-1">
+                                            #{i+1}: {g.service} - {g.staff} {g.isOil ? '(油)' : ''}
+                                        </div>
+                                    ))}
                                 </div>
-                                <div><label className="text-xs font-bold text-gray-500">顧客姓名</label><input className="w-full border p-3 rounded font-bold" value={form.custName} onChange={e=>setForm({...form, custName:e.target.value})} autoFocus/></div>
-                                <div><label className="text-xs font-bold text-gray-500">電話號碼</label><input className="w-full border p-3 rounded font-bold" value={form.custPhone} onChange={e=>setForm({...form, custPhone:e.target.value})}/></div>
-                                <div className="flex gap-2"><button onClick={()=>setStep('CHECK')} className="flex-1 bg-gray-200 p-3 rounded font-bold">返回</button><button onClick={handleFinalSave} className="flex-1 bg-indigo-600 text-white p-3 rounded font-bold shadow-xl">✅ 確認預約</button></div>
+
+                                <div>
+                                    <label className="text-xs font-bold text-gray-500">顧客姓名 (Name)</label>
+                                    <input 
+                                        className="w-full border p-3 rounded font-bold focus:ring-2 focus:ring-green-500 outline-none" 
+                                        value={form.custName} 
+                                        onChange={e => setForm({...form, custName: e.target.value})}
+                                        placeholder="Nhập tên khách..."
+                                        disabled={isSubmitting} // Disable khi đang lưu
+                                    />
+                                </div>
+                                <div>
+                                    <label className="text-xs font-bold text-gray-500">電話號碼 (Phone)</label>
+                                    <input 
+                                        className="w-full border p-3 rounded font-bold focus:ring-2 focus:ring-green-500 outline-none" 
+                                        value={form.custPhone} 
+                                        onChange={e => setForm({...form, custPhone: e.target.value})}
+                                        placeholder="09xx..."
+                                        disabled={isSubmitting} // Disable khi đang lưu
+                                    />
+                                </div>
+
+                                <div className="flex gap-2 pt-2">
+                                    <button 
+                                        onClick={(e)=>{ e.preventDefault(); if(!isSubmitting) setStep('CHECK'); }} 
+                                        className={`flex-1 bg-gray-200 p-3 rounded font-bold text-gray-700 ${isSubmitting ? 'opacity-50 cursor-not-allowed' : 'hover:bg-gray-300'}`}
+                                        disabled={isSubmitting}
+                                    >
+                                        ⬅️ 返回 (Back)
+                                    </button>
+                                    
+                                    <button 
+                                        onClick={handleFinalSave} 
+                                        className={`flex-1 p-3 rounded font-bold shadow-xl flex items-center justify-center gap-2 text-white transition-all
+                                            ${isSubmitting ? 'bg-indigo-400 cursor-wait' : 'bg-indigo-600 hover:bg-indigo-700'}`}
+                                        disabled={isSubmitting}
+                                    >
+                                        {isSubmitting ? (
+                                            <>
+                                                <svg className="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                                </svg>
+                                                正在處理...
+                                            </>
+                                        ) : (
+                                            "✅ 確認預約 (Confirm)"
+                                        )}
+                                    </button>
+                                </div>
                             </div>
                         )}
                     </div>
@@ -632,7 +759,7 @@
     };
 
     // ==================================================================================
-    // 2. 現場客模組 (NewWalkInModal)
+    // 4. COMPONENT: 現場客 (WALK-IN MODAL)
     // ==================================================================================
     const NewWalkInModal = ({ onClose, onSave, staffList, bookings, initialDate }) => {
         const safeStaffList = useMemo(() => staffList || [], [staffList]);
@@ -641,8 +768,9 @@
         const [step, setStep] = useState('CHECK');
         const [checkResult, setCheckResult] = useState(null);
         const [waitSuggestion, setWaitSuggestion] = useState(null); 
+        const [isSubmitting, setIsSubmitting] = useState(false); // [NEW] Loading State
 
-        // 初始化時間
+        // Init Time Logic
         const now = new Date();
         const currentHour = now.getHours().toString().padStart(2,'0');
         let currentMin = Math.ceil(now.getMinutes() / 10) * 10;
@@ -671,34 +799,28 @@
             });
         };
 
-        const handleGuestServiceChange = (index, newService) => {
+        const handleGuestUpdate = (index, field, value) => {
             setCheckResult(null); setWaitSuggestion(null);
             setGuestDetails(prev => {
                 const copy = [...prev];
-                copy[index] = { ...copy[index], service: newService };
-                if (newService && newService.includes('足')) copy[index].isOil = false;
+                const current = { ...copy[index] };
+                if (field === 'service') {
+                    current.service = value;
+                    if (value && value.includes('足')) current.isOil = false;
+                } else if (field === 'staff') {
+                    if (value === 'FEMALE_OIL') { current.staff = '女'; current.isOil = true; }
+                    else if (value === '女') { current.staff = '女'; current.isOil = false; }
+                    else { current.staff = value; current.isOil = false; }
+                }
+                copy[index] = current;
                 return copy;
             });
         };
 
-        const handleGuestStaffChange = (index, value) => {
-            setCheckResult(null); setWaitSuggestion(null);
-            setGuestDetails(prev => {
-                const copy = [...prev];
-                const current = copy[index];
-                if (value === 'FEMALE_OIL') { copy[index] = { ...current, staff: '女', isOil: true }; } 
-                else if (value === '女') { copy[index] = { ...current, staff: '女', isOil: false }; } 
-                else { copy[index] = { ...current, staff: value, isOil: false }; }
-                return copy;
-            });
-        };
-
-        // --- 核心檢查 (Walk-in) ---
         const runCheckForTime = (timeToCheck, dateToCheck) => {
             const startMins = safeNormalizeMins(timeToCheck);
             const targetDateStandard = (dateToCheck||"").replace(/-/g, '/');
 
-            // 0. 營業時間檢查
             let maxDuration = 0;
             guestDetails.forEach(g => {
                 const d = safeGetDuration(g.service, 60);
@@ -714,7 +836,6 @@
                 return bDate === targetDateStandard && isValidStatus;
             });
 
-            // 1. 人力
             const activeStaff = safeStaffList.filter(s => isStaffWorkingAt(s, startMins, dateToCheck));
             const totalActive = activeStaff.length;
             
@@ -728,10 +849,8 @@
                 if (Math.max(startMins, bStart) < Math.min(checkEndMins, bEnd)) busyTotal += bPax;
             });
 
-            const availTotal = totalActive - busyTotal;
-            if (availTotal < form.pax) return { valid: false, reason: `❌ 人手不足 (剩餘: ${availTotal})` };
+            if ((totalActive - busyTotal) < form.pax) return { valid: false, reason: `❌ 人手不足 (剩餘: ${totalActive - busyTotal})` };
 
-            // 1.5 [V52] 指定技師休假檢查 (Walk-in)
             for (let i = 0; i < guestDetails.length; i++) {
                 const st = guestDetails[i].staff;
                 if (['隨機', '男', '女'].some(k => st.includes(k))) continue;
@@ -744,7 +863,6 @@
                 }
             }
 
-            // 2. 硬體總量
             const { chairUsage, bedUsage } = calculateResourceUsage(todays);
             const tempChairUsage = new Uint8Array(chairUsage);
             const tempBedUsage = new Uint8Array(bedUsage);
@@ -770,7 +888,6 @@
                 if (tempBedUsage[t] > SHOP_CONFIG.LIMIT_BEDS) return { valid: false, reason: "❌ 現場床位客滿" };
             }
 
-            // 3. Tetris
             const slotMap = buildDetailedSlotMap(todays);
             const canFit = tryFitMixedServicesTetris(guestDetails, startMins, slotMap);
             if (!canFit) return { valid: false, reason: "❌ 現場座位碎片化 (無法安排連續)" };
@@ -778,7 +895,8 @@
             return { valid: true, reason: "OK" };
         };
 
-        const performCheck = () => {
+        const performCheck = (e) => {
+            if (e) e.preventDefault();
             const result = runCheckForTime(form.time, form.date);
             if (result.valid) {
                 setCheckResult({ status: 'OK', message: "✅ 目前有空位，可直接入座" });
@@ -810,8 +928,13 @@
                 }
 
                 if (foundTime) {
-                    if (isNextDay) { setCheckResult({ status: 'FAIL', message: "⛔ 今日已滿" }); setWaitSuggestion({ time: foundTime, date: foundDate, isNextDay: true }); }
-                    else { setCheckResult({ status: 'FAIL', message: `⚠️ 客滿 (${result.reason})` }); setWaitSuggestion({ time: foundTime, date: foundDate, mins: waitMins, isNextDay: false }); }
+                    if (isNextDay) { 
+                        setCheckResult({ status: 'FAIL', message: "⛔ 今日已滿" }); 
+                        setWaitSuggestion({ time: foundTime, date: foundDate, isNextDay: true }); 
+                    } else { 
+                        setCheckResult({ status: 'FAIL', message: `⚠️ 客滿 (${result.reason})` }); 
+                        setWaitSuggestion({ time: foundTime, date: foundDate, mins: waitMins, isNextDay: false }); 
+                    }
                 } else {
                     setCheckResult({ status: 'FAIL', message: "❌ 無法安排 (或已打烊)" });
                     setWaitSuggestion(null);
@@ -819,37 +942,66 @@
             }
         };
 
-        const handleFinalSave = () => {
-            if (!form.custName) { alert("請輸入顧客姓名!"); return; }
-            const serviceSummary = guestDetails.map(g => g.service).filter((v, i, a) => a.indexOf(v) === i).join(', ');
-            const oilNotes = guestDetails.map((g, i) => g.isOil ? `K${i+1}:油推` : null).filter(Boolean).join(',');
+        // [CORE FIX] ASYNC SUBMIT HANDLER FOR WALK-IN
+        const handleFinalSave = async (e) => {
+            if (e) e.preventDefault();
+            if (isSubmitting) return;
+
+            if (!form.custName || form.custName.trim() === '') { alert("⚠️ 請輸入顧客姓名!"); return; }
             
-            onSave({
-                hoTen: form.custName, 
-                sdt: form.custPhone || "", 
-                dichVu: serviceSummary, 
-                pax: form.pax,
-                ngayDen: (form.date||"").replace(/-/g, '/'), 
-                gioDen: form.time,
-                nhanVien: guestDetails[0].staff, 
-                isOil: guestDetails[0].isOil,
-                staffId2: guestDetails[1]?.staff||null, 
-                staffId3: guestDetails[2]?.staff||null, 
-                staffId4: guestDetails[3]?.staff||null, 
-                staffId5: guestDetails[4]?.staff||null, 
-                staffId6: guestDetails[5]?.staff||null,
-                ghiChu: oilNotes ? `(${oilNotes})` : "",
-                guestDetails: guestDetails 
-            });
+            setIsSubmitting(true);
+
+            try {
+                const serviceSummary = guestDetails.map(g => g.service).filter((v, i, a) => a.indexOf(v) === i).join(', ');
+                const oilNotes = guestDetails.map((g, i) => g.isOil ? `K${i+1}:油推` : null).filter(Boolean).join(',');
+                
+                const payload = {
+                    hoTen: form.custName, 
+                    sdt: form.custPhone || "", 
+                    dichVu: serviceSummary, 
+                    pax: form.pax,
+                    ngayDen: (form.date||"").replace(/-/g, '/'), 
+                    gioDen: form.time,
+                    nhanVien: guestDetails[0].staff, 
+                    isOil: guestDetails[0].isOil,
+                    staffId2: guestDetails[1]?.staff||null, 
+                    staffId3: guestDetails[2]?.staff||null, 
+                    staffId4: guestDetails[3]?.staff||null, 
+                    staffId5: guestDetails[4]?.staff||null, 
+                    staffId6: guestDetails[5]?.staff||null,
+                    ghiChu: oilNotes ? `(${oilNotes})` : "",
+                    guestDetails: guestDetails 
+                };
+
+                console.log("💾 Saving Walk-in (Async):", payload);
+
+                if (typeof onSave === 'function') {
+                    await Promise.resolve(onSave(payload));
+                    forceGlobalRefresh();
+                    
+                    setTimeout(() => {
+                        onClose();
+                        setIsSubmitting(false);
+                    }, 500);
+                } else {
+                     console.error("❌ onSave is not a function!");
+                     setIsSubmitting(false);
+                }
+            } catch(err) {
+                console.error("Save error:", err);
+                alert("Lỗi lưu đơn: " + err.message);
+                setIsSubmitting(false);
+            }
         };
 
         return (
             <div className="fixed inset-0 bg-black/70 z-[90] flex items-center justify-center p-4">
                 <div className="bg-white w-full max-w-xl rounded-xl shadow-2xl modal-animate flex flex-col max-h-[90vh] overflow-hidden">
-                    <div className="bg-amber-500 p-4 text-black flex justify-between items-center">
+                    <div className="bg-amber-500 p-4 text-black flex justify-between items-center shrink-0">
                         <h3 className="font-bold text-lg flex items-center gap-2"><i className="fas fa-bolt"></i> 現場客 (Walk-in)</h3>
                         <button onClick={onClose}><i className="fas fa-times text-xl"></i></button>
                     </div>
+                    
                     <div className="p-5 space-y-4 overflow-y-auto flex-1 custom-scrollbar">
                         {step === 'CHECK' && (
                             <>
@@ -864,10 +1016,10 @@
                                         return (
                                             <div key={idx} className="flex gap-2 items-center">
                                                 <div className="w-6 h-10 rounded bg-gray-200 flex items-center justify-center font-bold text-sm">#{idx+1}</div>
-                                                <select className="flex-1 border p-2 rounded font-bold text-sm h-10" value={g.service} onChange={e=>handleGuestServiceChange(idx, e.target.value)}>
+                                                <select className="flex-1 border p-2 rounded font-bold text-sm h-10" value={g.service} onChange={e=>handleGuestUpdate(idx, 'service', e.target.value)}>
                                                     {(window.SERVICES_LIST||[]).map(s=><option key={s} value={s}>{s}</option>)}
                                                 </select>
-                                                <select className="flex-1 border p-2 rounded font-bold text-sm h-10" value={selectValue} onChange={e=>handleGuestStaffChange(idx, e.target.value)}>
+                                                <select className="flex-1 border p-2 rounded font-bold text-sm h-10" value={selectValue} onChange={e=>handleGuestUpdate(idx, 'staff', e.target.value)}>
                                                     <option value="隨機">🎲 隨機</option>
                                                     <option value="女">🚺 女師傅</option>
                                                     <option value="FEMALE_OIL">🚺 女師傅+油</option>
@@ -878,6 +1030,7 @@
                                         );
                                     })}
                                 </div>
+
                                 {checkResult && (
                                     <div className="space-y-2">
                                         <div className={`p-3 rounded text-center font-bold text-sm border-2 ${checkResult.status === 'OK' ? 'bg-green-100 text-green-700 border-green-300' : 'bg-red-50 text-red-700 border-red-200'}`}>{checkResult.message}</div>
@@ -888,17 +1041,25 @@
                                                 ) : (
                                                     <div className="mb-2 font-bold text-blue-700 text-lg">⏳ 需等待 {waitSuggestion.mins} 分鐘 ({waitSuggestion.time})</div>
                                                 )}
-                                                <button onClick={() => { setForm({...form, time: waitSuggestion.time, date: waitSuggestion.date}); setStep('INFO'); }} className="w-full bg-blue-600 text-white font-bold py-2 rounded shadow hover:bg-blue-700">➡️ 接受安排</button>
+                                                <button onClick={(e) => { e.preventDefault(); setForm({...form, time: waitSuggestion.time, date: waitSuggestion.date}); setStep('INFO'); }} className="w-full bg-blue-600 text-white font-bold py-2 rounded shadow hover:bg-blue-700">
+                                                    ➡️ 接受安排
+                                                </button>
                                             </div>
                                         )}
                                     </div>
                                 )}
+                                
                                 <div className="pt-2 grid grid-cols-2 gap-3">
                                     <button onClick={onClose} className="bg-gray-100 text-gray-500 font-bold p-3 rounded hover:bg-gray-200">取消</button>
-                                    {!checkResult || checkResult.status === 'FAIL' ? (<button onClick={performCheck} className="bg-amber-500 text-white font-bold p-3 rounded hover:bg-amber-600 shadow-lg">🔍 檢查空位</button>) : (<button onClick={() => setStep('INFO')} className="bg-emerald-600 text-white font-bold p-3 rounded hover:bg-emerald-700 shadow-lg animate-pulse">➡️ 下一步</button>)}
+                                    {!checkResult || checkResult.status === 'FAIL' ? (
+                                        <button onClick={performCheck} className="bg-amber-500 text-white font-bold p-3 rounded hover:bg-amber-600 shadow-lg">🔍 檢查</button>
+                                    ) : (
+                                        <button onClick={() => setStep('INFO')} className="bg-emerald-600 text-white font-bold p-3 rounded hover:bg-emerald-700 shadow-lg animate-pulse">➡️ 下一步</button>
+                                    )}
                                 </div>
                             </>
                         )}
+
                         {step === 'INFO' && (
                             <div className="space-y-4 animate-slideIn">
                                 <div className="bg-amber-50 p-3 rounded border border-amber-200 text-amber-900">
@@ -909,9 +1070,28 @@
                                     <div className="text-amber-800">{form.pax} 位顧客</div>
                                     {guestDetails.map((g,i)=> <div key={i} className="text-xs text-amber-700 mt-1 border-t border-amber-200 pt-1">#{i+1}: {g.service} - {g.staff}</div>)}
                                 </div>
-                                <div><label className="text-xs font-bold text-gray-500">顧客姓名</label><input className="w-full border p-3 rounded font-bold text-lg" value={form.custName} onChange={e=>setForm({...form, custName:e.target.value})} autoFocus /></div>
-                                <div><label className="text-xs font-bold text-gray-500">電話號碼</label><input className="w-full border p-3 rounded font-bold text-lg" value={form.custPhone} onChange={e=>setForm({...form, custPhone:e.target.value})} placeholder="09xx..." /></div>
-                                <div className="grid grid-cols-2 gap-3 pt-2"><button onClick={() => setStep('CHECK')} className="bg-gray-200 text-gray-600 p-3 rounded font-bold">⬅️ 返回</button><button onClick={handleFinalSave} className="bg-indigo-600 text-white p-3 rounded font-bold hover:bg-indigo-700 shadow-xl">✅ 確認開單</button></div>
+                                
+                                <div>
+                                    <label className="text-xs font-bold text-gray-500">顧客姓名</label>
+                                    <input className="w-full border p-3 rounded font-bold text-lg focus:ring-2 focus:ring-amber-500 outline-none" value={form.custName} onChange={e=>setForm({...form, custName:e.target.value})} placeholder="Nhập tên khách..." disabled={isSubmitting} />
+                                </div>
+                                <div>
+                                    <label className="text-xs font-bold text-gray-500">電話號碼</label>
+                                    <input className="w-full border p-3 rounded font-bold text-lg focus:ring-2 focus:ring-amber-500 outline-none" value={form.custPhone} onChange={e=>setForm({...form, custPhone:e.target.value})} placeholder="09xx..." disabled={isSubmitting} />
+                                </div>
+                                
+                                <div className="grid grid-cols-2 gap-3 pt-2">
+                                    <button onClick={(e) => {e.preventDefault(); if(!isSubmitting) setStep('CHECK');}} className={`bg-gray-200 text-gray-600 p-3 rounded font-bold ${isSubmitting?'opacity-50':''}`} disabled={isSubmitting}>⬅️ 返回</button>
+                                    
+                                    <button onClick={handleFinalSave} className={`flex items-center justify-center gap-2 text-white p-3 rounded font-bold shadow-xl transition-all ${isSubmitting ? 'bg-indigo-400 cursor-wait' : 'bg-indigo-600 hover:bg-indigo-700'}`} disabled={isSubmitting}>
+                                        {isSubmitting ? (
+                                            <>
+                                                <svg className="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                                                正在處理...
+                                            </>
+                                        ) : "✅ 確認開單"}
+                                    </button>
+                                </div>
                             </div>
                         )}
                     </div>
@@ -920,16 +1100,24 @@
         );
     };
 
+    // ==================================================================================
+    // 5. SYSTEM INJECTION
+    // ==================================================================================
     const overrideInterval = setInterval(() => {
         if (window.AvailabilityCheckModal !== NewAvailabilityCheckModal) {
             window.AvailabilityCheckModal = NewAvailabilityCheckModal;
-            console.log("♻️ AvailabilityModal Updated (V52)");
+            console.log("♻️ AvailabilityModal Injected (V54)");
         }
         if (window.WalkInModal !== NewWalkInModal) {
             window.WalkInModal = NewWalkInModal;
-            console.log("♻️ WalkInModal Updated (V52 - Aggressive OFF Check)");
+            console.log("♻️ WalkInModal Injected (V54)");
         }
     }, 200);
-    setTimeout(() => clearInterval(overrideInterval), 5000);
+
+    // Dừng inject sau 5 giây để tiết kiệm tài nguyên
+    setTimeout(() => {
+        clearInterval(overrideInterval);
+        console.log("✅ BookingHandler V54: Injection Completed.");
+    }, 5000);
 
 })();
