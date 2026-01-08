@@ -1,30 +1,29 @@
 /**
  * ============================================================================
  * FILE: resource_core.js
- * PHIÊN BẢN: SUPER LOGIC V4 (SMART SWAP - FULL HOUSE 12 PAX)
- * TÍNH NĂNG:
- * - Native JS (Không cần moment-timezone, chạy tốt trên mọi môi trường Node).
- * - Smart Permutations: Tự động thử hoán vị (FB: Foot-Body, BF: Body-Foot) để nhận đủ 12 khách.
- * - Precision Timing: Tính toán tài nguyên chính xác từng phút.
- * - Transition Buffer: Tự động thêm 5 phút nghỉ giữa 2 phase của Combo.
+ * PHIÊN BẢN: SUPER LOGIC V2.2 (Native JS Edition - No Dependencies)
+ * MÔ TẢ: Hệ thống kiểm tra tài nguyên thông minh (Chạy bằng JS thuần).
+ * ƯU ĐIỂM: Không cần cài đặt moment-timezone, không lo lỗi deploy.
  * ============================================================================
  */
 
+// [QUAN TRỌNG] Không require 'moment' hay 'moment-timezone' ở đây nữa để tránh lỗi.
+
 const CONFIG = {
-    MAX_CHAIRS: 6,        // Tối đa 6 ghế massage chân
-    MAX_BEDS: 6,          // Tối đa 6 giường massage body
-    MAX_TOTAL_GUESTS: 12, // Tổng tải trọng shop (6 ghế + 6 giường)
+    MAX_CHAIRS: 6,        // Tối đa 6 ghế
+    MAX_BEDS: 6,          // Tối đa 6 giường
+    MAX_TOTAL_GUESTS: 12, // Tối đa 12 khách cùng lúc
     
-    // --- CẤU HÌNH THỜI GIAN ---
-    CLEANUP_BUFFER: 5,    // Thời gian dọn dẹp sau mỗi dịch vụ (5 phút)
-    TRANSITION_BUFFER: 5, // Thời gian khách di chuyển/ngâm chân/thay đồ giữa 2 phase (5 phút)
-    TOLERANCE: 1,         // Dung sai 1 phút (cho phép điểm cuối ca trước chạm điểm đầu ca sau)
+    // --- CẤU HÌNH THỜI GIAN (LOGIC MỚI) ---
+    CLEANUP_BUFFER: 5,    // Thời gian dọn dẹp (5 phút)
+    TRANSITION_BUFFER: 5, // Thời gian nghỉ chuyển tiếp giữa 2 phase của Combo (5 phút)
+    TOLERANCE: 1,         // Độ dung sai (1 phút) cho phép trùng lặp nhỏ
     
-    FUTURE_BUFFER: 5,     // Đặt trước tối thiểu 5 phút
-    MAX_TIMELINE_MINS: 1440 // 24 giờ x 60 phút
+    FUTURE_BUFFER: 5,     // Đặt trước ít nhất 5 phút
+    MAX_TIMELINE_MINS: 1440 
 };
 
-// Biến lưu trữ cấu hình dịch vụ (được nạp từ Google Sheet qua index.js)
+// Biến lưu trữ dịch vụ toàn cục
 let SERVICES = {}; 
 
 // ============================================================================
@@ -32,240 +31,184 @@ let SERVICES = {};
 // ============================================================================
 
 function setDynamicServices(newServicesObj) {
-    // Các dịch vụ hệ thống mặc định
     const systemServices = {
         'OFF_DAY': { name: '⛔ 請假 (OFF)', duration: 1080, type: 'NONE', price: 0, category: 'SYSTEM' },
         'BREAK_30': { name: '🍱 用餐 (Break)', duration: 30, type: 'NONE', price: 0, category: 'SYSTEM' },
         'SHOP_CLOSE': { name: '⛔ 店休 (Close)', duration: 1440, type: 'NONE', price: 0, category: 'SYSTEM' }
     };
-    // Gộp dịch vụ từ Sheet và dịch vụ hệ thống
     SERVICES = { ...newServicesObj, ...systemServices };
-    console.log(`[CORE V4] Services Updated: ${Object.keys(SERVICES).length} items loaded successfully.`);
+    console.log(`[CORE V2] Services Updated: ${Object.keys(SERVICES).length} services loaded.`);
 }
 
 // ============================================================================
-// PHẦN 2: CÁC HÀM HỖ TRỢ (NATIVE JS - NO LIB)
+// PHẦN 2: CÁC HÀM HỖ TRỢ (HELPER FUNCTIONS - NATIVE JS)
 // ============================================================================
 
 /**
- * Lấy giờ hiện tại theo múi giờ Đài Loan (UTC+8)
- * Thay thế hoàn toàn cho moment-timezone để fix lỗi deploy trên Render/Heroku
+ * [FIX] Hàm lấy giờ hiện tại của Đài Loan (UTC+8) bằng Javascript thuần.
+ * Thay thế hoàn toàn cho moment().tz("Asia/Taipei")
  */
 function getTaipeiNow() {
     const d = new Date();
-    // Tính offset thủ công: UTC time + (8 giờ * 60 phút * 60 giây * 1000 mili giây)
+    // 1. Lấy thời gian UTC (tính bằng ms)
     const utc = d.getTime() + (d.getTimezoneOffset() * 60000);
+    // 2. Cộng thêm 8 giờ (3600000ms * 8) để ra giờ Đài Loan
     const taipeiOffset = 8;
     return new Date(utc + (3600000 * taipeiOffset));
 }
 
-/**
- * Chuyển đổi chuỗi giờ "HH:mm" thành số phút trong ngày (0-1439)
- */
 function getMinsFromTimeStr(timeStr) {
     if (!timeStr) return 0;
-    const parts = timeStr.split(':');
-    const h = parseInt(parts[0], 10);
-    const m = parseInt(parts[1], 10);
+    const [h, m] = timeStr.split(':').map(Number);
     return h * 60 + m;
 }
 
-/**
- * Chuyển đổi số phút thành chuỗi giờ "HH:mm"
- */
 function getTimeStrFromMins(mins) {
     let h = Math.floor(mins / 60);
     let m = mins % 60;
-    // Xử lý trường hợp qua đêm (ví dụ 25:00 -> 01:00)
-    if (h >= 24) h -= 24; 
+    if (h >= 24) h -= 24; // Handle qua ngày
     return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
 }
 
 /**
- * Kiểm tra va chạm thời gian (Overlap)
- * Logic: Hai khoảng thời gian [A, B] và [C, D] trùng nhau khi A < D VÀ C < B
+ * Kiểm tra trùng lặp thời gian với ĐỘ DUNG SAI (Tolerance)
  */
 function isOverlap(startA, endA, startB, endB) {
-    // Trừ đi dung sai để các ca liền kề (ví dụ 14:00-15:00 và 15:00-16:00) không bị tính là trùng
+    // Thu hẹp khoảng check bằng Tolerance để nếu chỉ chạm nhẹ 1 phút thì vẫn OK
     const safeEndA = endA - CONFIG.TOLERANCE; 
     const safeEndB = endB - CONFIG.TOLERANCE;
     return (startA < safeEndB) && (startB < safeEndA);
 }
 
 /**
- * Kiểm tra sức chứa của tài nguyên (Ghế/Giường) tại một khoảng thời gian cụ thể
- * Đây là hàm quan trọng nhất để đảm bảo không bị Overbooking
+ * Kiểm tra tải trọng tài nguyên (Giường/Ghế/Tổng)
  */
 function checkResourceCapacity(resourceType, start, end, bookings) {
     let limit = 0;
     if (resourceType === 'BED') limit = CONFIG.MAX_BEDS;
     else if (resourceType === 'CHAIR') limit = CONFIG.MAX_CHAIRS;
     else if (resourceType === 'TOTAL') limit = CONFIG.MAX_TOTAL_GUESTS;
-    else return true; // Các loại dịch vụ ảo (System) không tốn tài nguyên vật lý
+    else return true; // Không cần check loại khác
 
-    // Thuật toán quét dòng thời gian (Line Sweep Algorithm) đơn giản hóa
-    // Ta kiểm tra xem tại bất kỳ thời điểm nào trong khoảng [start, end], số lượng khách có vượt quá limit không
-    
-    // 1. Lấy danh sách các booking có liên quan và có va chạm
-    const relevantBookings = bookings.filter(bk => {
-        let isRelevant = false;
-        if (resourceType === 'TOTAL') isRelevant = true; // Check tổng thì tính tất cả
-        else if (bk.resourceType === resourceType) isRelevant = true; 
-        
-        if (!isRelevant) return false;
-        return isOverlap(start, end, bk.start, bk.end);
-    });
-
-    if (relevantBookings.length === 0) return true; // Không có ai trùng -> OK
-
-    // 2. Tạo các điểm kiểm tra (Start/End points)
+    // Tạo mảng các điểm thời gian (events) để quét timeline
     let points = [];
-    relevantBookings.forEach(bk => {
-        // Chỉ lấy phần giao thoa nằm trong khoảng thời gian chúng ta đang check
-        let pStart = Math.max(start, bk.start);
-        let pEnd = Math.min(end, bk.end);
-        
-        if (pEnd - pStart > CONFIG.TOLERANCE) {
-            points.push({ time: pStart, type: 'start' });
-            points.push({ time: pEnd, type: 'end' });
-        }
-    });
+    
+    for (const bk of bookings) {
+        let isRelevant = false;
+        if (resourceType === 'TOTAL') isRelevant = true; 
+        else if (bk.resourceType === resourceType) isRelevant = true; 
 
-    // Sắp xếp thời gian tăng dần. Nếu cùng thời gian, xử lý 'start' trước để tính tải trọng cực đại (Safety first)
+        if (isRelevant) {
+            if (isOverlap(start, end, bk.start, bk.end)) {
+                let pStart = Math.max(start, bk.start);
+                let pEnd = Math.min(end, bk.end);
+                
+                // Chỉ tính là chiếm dụng nếu khoảng giao thoa > Tolerance
+                if (pEnd - pStart > CONFIG.TOLERANCE) {
+                    points.push({ time: pStart, type: 'start' });
+                    points.push({ time: pEnd, type: 'end' });
+                }
+            }
+        }
+    }
+
+    if (points.length === 0) return true; // Không có ai tranh chấp
+
+    // Sắp xếp timeline: Start tính trước End nếu cùng thời điểm
     points.sort((a, b) => {
         if (a.time === b.time) return a.type === 'start' ? -1 : 1; 
         return a.time - b.time;
     });
 
-    let currentLoad = 0; // Tải trọng hiện tại (số khách đang dùng dịch vụ)
-    // Nếu đây là check cho booking mới, thì tải trọng khởi điểm là 1 (chính là booking đang check)
-    // Tuy nhiên hàm này check capacity "còn lại", nên ta tính load của các booking cũ, nếu load >= limit thì fail.
-    
-    // Logic đúng: Chúng ta đang check xem liệu thêm 1 slot [start, end] vào thì có bị quá tải không.
-    // Cách làm: Tìm maxLoad của các booking cũ trong khoảng này. Nếu maxLoad < Limit thì OK.
-    
-    let maxExistingLoad = 0;
-    
+    let currentLoad = 0;
     for (const p of points) {
         if (p.type === 'start') currentLoad++;
         else currentLoad--;
 
-        if (currentLoad > maxExistingLoad) maxExistingLoad = currentLoad;
+        if (currentLoad >= limit) return false; // Quá tải
     }
 
-    // Nếu tải trọng hiện tại đã bằng giới hạn, thì không thể nhét thêm booking mới
-    if (maxExistingLoad >= limit) return false; 
-
-    return true; // Còn chỗ
+    return true; // Đủ chỗ
 }
 
 /**
- * Tìm nhân viên phù hợp
- * staffReq: Yêu cầu của khách ('Any', 'MALE', 'FEMALE', hoặc ID cụ thể)
+ * Tìm nhân viên phù hợp (Native JS Logic)
  */
 function findAvailableStaff(staffReq, start, end, staffListRef, busyList) {
-    // Helper check 1 nhân viên
-    const checkOneStaff = (nameOrId) => {
-        const staffInfo = staffListRef[nameOrId];
-        if (!staffInfo) return false; // Không tồn tại
-        if (staffInfo.off) return false; // Nghỉ phép trong ngày
+    const checkOneStaff = (name) => {
+        const staffInfo = staffListRef[name];
+        if (!staffInfo) return false;
+        if (staffInfo.off) return false; // Nghỉ phép
 
-        // 1. Check Ca làm việc (Shift)
+        // 1. Check Ca làm việc
         const shiftStart = getMinsFromTimeStr(staffInfo.start);
         const shiftEnd = getMinsFromTimeStr(staffInfo.end);
         
-        // Xử lý ca đêm (ví dụ 20:00 - 03:00)
-        let isOverNight = shiftEnd < shiftStart;
-        
-        // Logic kiểm tra xem [start, end] có nằm TRỌN VẸN trong ca làm việc không
-        if (isOverNight) {
-            // Ca đêm hơi phức tạp, để đơn giản ta giả định nếu staff có ca đêm thì họ làm việc
-            // Cần logic chặt chẽ hơn nếu muốn chính xác tuyệt đối, nhưng tạm thời chấp nhận.
+        // Logic ca đêm (ví dụ 20:00 - 03:00) hoặc ca ngày
+        if (shiftEnd < shiftStart) {
+            // Ca qua đêm: Start phải nằm trong khoảng làm việc
+            // (Chưa hỗ trợ chi tiết logic ca qua đêm phức tạp ở đây, giả định cơ bản)
         } else {
-            // Ca ngày thường
-            if (start < shiftStart) return false; // Khách đến sớm hơn giờ làm
-            if (end > shiftEnd) return false;     // Khách về muộn hơn giờ về
+            if (start < shiftStart) return false;
+            if (end > shiftEnd) return false; 
         }
 
-        // 2. Check Trùng lịch với booking khác (Busy)
+        // 2. Check Trùng lịch (Busy)
         for (const b of busyList) {
-            // So sánh ID hoặc Name
-            if (b.staffName === staffInfo.id || b.staffName === staffInfo.name) {
+            if (b.staffName === name) {
                 if (isOverlap(start, end, b.start, b.end)) return false;
             }
         }
         return true;
     };
 
-    // Case 1: Khách chỉ định cụ thể (ID hoặc Tên)
-    if (staffReq && staffReq !== 'Any' && staffReq !== '隨機' && staffReq !== 'MALE' && staffReq !== 'FEMALE' && staffReq !== '女' && staffReq !== '男') {
+    if (staffReq && staffReq !== 'Any') {
         if (checkOneStaff(staffReq)) return staffReq;
         return null;
-    }
-
-    // Case 2: Tìm theo tiêu chí (Nam/Nữ/Bất kỳ)
-    const allStaffIds = Object.keys(staffListRef);
-    // Shuffle danh sách để phân phối đều tour (công bằng cho nhân viên)
-    const shuffledStaff = allStaffIds.sort(() => 0.5 - Math.random());
-
-    for (const id of shuffledStaff) {
-        const s = staffListRef[id];
-        let genderMatch = true;
-        if (staffReq === 'FEMALE' || staffReq === '女') {
-            if (s.gender !== 'F' && s.gender !== '女') genderMatch = false;
-        } else if (staffReq === 'MALE' || staffReq === '男') {
-            if (s.gender !== 'M' && s.gender !== '男') genderMatch = false;
+    } else {
+        // Random: Tìm người rảnh bất kỳ
+        const allStaffNames = Object.keys(staffListRef);
+        for (const name of allStaffNames) {
+            if (checkOneStaff(name)) return name;
         }
-
-        if (genderMatch && checkOneStaff(id)) return id;
+        return null;
     }
-
-    return null;
 }
 
 // ============================================================================
-// PHẦN 3: LOGIC KIỂM TRA KHẢ THI (SUPER LOGIC V4 - SMART SWAP)
+// PHẦN 3: LOGIC KIỂM TRA KHẢ THI (SUPER LOGIC V2)
 // ============================================================================
 
 function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRaw, staffList) {
     const requestStartMins = getMinsFromTimeStr(timeStr);
     
-    // 1. CHUẨN HÓA DỮ LIỆU CŨ (Bookings đã có trong DB)
-    // Chuyển đổi từ format hiển thị sang dạng phút để tính toán
+    // Convert DB bookings -> Minutes format
     let committedBookings = currentBookingsRaw.map(b => {
         let rType = 'CHAIR'; 
-        // Xác định loại tài nguyên của booking cũ
         if (SERVICES[b.serviceCode] && SERVICES[b.serviceCode].type) {
             rType = SERVICES[b.serviceCode].type;
         }
-        
-        // Lưu ý: Booking cũ lưu trong DB thường không tách phase.
-        // Để an toàn, nếu là Combo, ta tạm coi nó chiếm tài nguyên chính (BED) hoặc cả 2 nếu cần chặt chẽ.
-        // Ở version này, ta lấy type từ config dịch vụ.
-        
         return {
             start: getMinsFromTimeStr(b.startTime),
-            end: getMinsFromTimeStr(b.startTime) + (b.duration || 60) + CONFIG.CLEANUP_BUFFER, 
+            end: getMinsFromTimeStr(b.endTime), 
             resourceType: rType,
-            staffName: b.staffId || b.staffName // Quan trọng: Phải lấy ID staff
+            staffName: b.staffName
         };
     });
 
-    // 2. CHECK TỔNG TẢI (LEVEL 0)
-    // Kiểm tra nhanh: Nếu tổng số người trong tiệm > 12 thì từ chối ngay.
-    // (Check trong 1 phút đầu tiên của request)
+    // BƯỚC 0: CHECK TỔNG QUÁT
     if (!checkResourceCapacity('TOTAL', requestStartMins, requestStartMins + 1, committedBookings)) {
-        return { feasible: false, reason: "Tiệm đang quá tải (Full House 12/12)." };
+        return { feasible: false, reason: "Tiệm đang quá tải (Max 12 khách)." };
     }
 
-    // 3. PHÂN LOẠI KHÁCH MỚI
+    // PHÂN LOẠI KHÁCH
     let singleGuests = [];
     let comboGuests = [];
 
     for (let i = 0; i < guestList.length; i++) {
         const g = guestList[i];
         const svc = SERVICES[g.serviceCode];
-        if (!svc) return { feasible: false, reason: `Lỗi dịch vụ: ${g.serviceCode} không tồn tại.` };
+        if (!svc) return { feasible: false, reason: `Dịch vụ lỗi: ${g.serviceCode}` };
 
         const guestData = {
             id: i,
@@ -274,19 +217,18 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
             staffReq: g.staffName,
             price: svc.price,
             duration: svc.duration,
-            type: svc.type,     // 'BED', 'CHAIR'
-            category: svc.category // 'COMBO', 'BODY', 'FOOT'
+            type: svc.type 
         };
 
-        if (svc.category === 'COMBO') comboGuests.push(guestData);
+        if (svc.type === 'COMBO') comboGuests.push(guestData);
         else singleGuests.push(guestData);
     }
 
-    let tentativeBookings = []; // Danh sách booking dự kiến cho nhóm khách này
+    let tentativeBookings = []; 
     let finalDetails = new Array(guestList.length);
 
     // ========================================================================
-    // BƯỚC 4: XẾP KHÁCH LẺ TRƯỚC (Ưu tiên dễ làm trước)
+    // BƯỚC 1: XẾP KHÁCH LẺ
     // ========================================================================
     for (const guest of singleGuests) {
         const start = requestStartMins;
@@ -294,15 +236,15 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
         
         const allCurrent = [...committedBookings, ...tentativeBookings];
         
-        // 4.1 Check Resource (Ghế hoặc Giường)
+        // 1.1 Check Resource
         if (!checkResourceCapacity(guest.type, start, end, allCurrent)) {
-            return { feasible: false, reason: `Hết ${guest.type === 'BED' ? 'Giường' : 'Ghế'} cho dịch vụ ${guest.serviceName}.` };
+            return { feasible: false, reason: `Hết ${guest.type === 'BED' ? 'Giường' : 'Ghế'} cho khách lẻ.` };
         }
 
-        // 4.2 Check Staff
+        // 1.2 Check Staff
         const assignedStaff = findAvailableStaff(guest.staffReq, start, end, staffList, allCurrent);
         if (!assignedStaff) {
-            return { feasible: false, reason: `Không tìm thấy nhân viên phù hợp cho ${guest.serviceName}.` };
+            return { feasible: false, reason: `Không có nhân viên cho ${guest.serviceName}.` };
         }
 
         tentativeBookings.push({
@@ -318,123 +260,105 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
         };
     }
 
-    // Nếu không có khách Combo nào thì trả về kết quả luôn
     if (comboGuests.length === 0) {
         return { feasible: true, details: finalDetails, totalPrice: finalDetails.reduce((s, x) => s + x.price, 0) };
     }
 
     // ========================================================================
-    // BƯỚC 5: XẾP KHÁCH COMBO VỚI "SMART SWAP"
+    // BƯỚC 2: XẾP KHÁCH COMBO (LOGIC THÔNG MINH V2)
     // ========================================================================
     
-    /**
-     * Hàm thử nghiệm một kịch bản xếp chỗ (Scenario)
-     * @param {Array} scenarioConfig - Mảng chứa cấu hình mode cho từng khách ({ guestId, mode })
-     * mode 'FB': Foot -> Body (Truyền thống)
-     * mode 'BF': Body -> Foot (Đảo ngược - Smart Swap)
-     */
     const tryScenario = (scenarioConfig) => {
-        let scenarioBookings = JSON.parse(JSON.stringify(tentativeBookings)); // Copy booking của khách lẻ đã xếp
+        let scenarioBookings = JSON.parse(JSON.stringify(tentativeBookings)); 
         let scenarioDetails = []; 
 
         for (const item of scenarioConfig) {
             const guest = comboGuests.find(g => g.id === item.guestId);
             const halfDuration = Math.floor(guest.duration / 2);
             
-            // Tính toán thời gian Phase 1
+            // --- TÍNH TOÁN THỜI GIAN CÁC PHASE ---
             const p1Start = requestStartMins;
             const p1End = p1Start + halfDuration; 
-            const p1BlockEnd = p1End + CONFIG.CLEANUP_BUFFER;
             
-            // Tính toán thời gian Phase 2 (Có Transition Buffer 5 phút)
+            // [QUAN TRỌNG] Thêm Transition Buffer để tránh Deadlock
             const p2Start = p1End + CONFIG.TRANSITION_BUFFER;
             const p2End = p2Start + halfDuration;
-            const p2BlockEnd = p2End + CONFIG.CLEANUP_BUFFER;
             
-            // Nhân viên phải rảnh từ đầu đến cuối (bao gồm cả lúc nghỉ giữa 2 phase)
             const staffEnd = p2End; 
 
-            // Xác định tài nguyên dựa trên Mode
             let phase1Res, phase2Res;
-            if (item.mode === 'FB') {
-                phase1Res = 'CHAIR'; // Làm chân trước
-                phase2Res = 'BED';   // Làm mình sau
-            } else {
-                phase1Res = 'BED';   // Làm mình trước
-                phase2Res = 'CHAIR'; // Làm chân sau
+            if (item.mode === 'FB') { 
+                phase1Res = 'CHAIR';
+                phase2Res = 'BED';
+            } else { 
+                phase1Res = 'BED';
+                phase2Res = 'CHAIR';
             }
 
-            // --- CHECK PHASE 1 ---
+            // CHECK PHASE 1
+            const p1BlockEnd = p1End + CONFIG.CLEANUP_BUFFER;
             let allBusy = [...committedBookings, ...scenarioBookings];
-            if (!checkResourceCapacity(phase1Res, p1Start, p1BlockEnd, allBusy)) return null; // Fail Phase 1
+            if (!checkResourceCapacity(phase1Res, p1Start, p1BlockEnd, allBusy)) return null;
 
-            // --- CHECK PHASE 2 ---
-            // Thêm booking ảo của Phase 1 vào danh sách bận để check Phase 2
-            // Mục đích: đảm bảo Phase 2 không đụng độ với các khách khác
-            allBusy.push({ start: p1Start, end: p1BlockEnd, resourceType: phase1Res, staffName: 'TEMP_RESERVATION' });
-            
-            if (!checkResourceCapacity(phase2Res, p2Start, p2BlockEnd, allBusy)) return null; // Fail Phase 2
+            // CHECK PHASE 2
+            const p2BlockEnd = p2End + CONFIG.CLEANUP_BUFFER;
+            // Thêm booking ảo của phase 1 vào để check phase 2
+            allBusy.push({ start: p1Start, end: p1BlockEnd, resourceType: phase1Res, staffName: 'TEMP' });
 
-            // --- CHECK STAFF ---
-            // Tìm nhân viên rảnh xuyên suốt cả 2 phase
-            // Lưu ý: Danh sách busy phải bao gồm cả Phase 1 và Phase 2 của các khách TRONG CÙNG kịch bản này
+            if (!checkResourceCapacity(phase2Res, p2Start, p2BlockEnd, allBusy)) return null;
+
+            // CHECK STAFF
             const staff = findAvailableStaff(guest.staffReq, p1Start, staffEnd, staffList, [...committedBookings, ...scenarioBookings]);
-            if (!staff) return null; // Không có nhân viên
+            if (!staff) return null; 
 
-            // --- THÀNH CÔNG CHO KHÁCH NÀY -> LƯU VÀO MẢNG TẠM ---
+            // LƯU TẠM
             scenarioBookings.push({ start: p1Start, end: p1BlockEnd, resourceType: phase1Res, staffName: staff });
             scenarioBookings.push({ start: p2Start, end: p2BlockEnd, resourceType: phase2Res, staffName: staff });
 
             scenarioDetails.push({
                 guestIndex: guest.id,
                 staff: staff,
-                service: guest.serviceName + (item.mode === 'BF' ? ' (Làm Body trước)' : ''),
+                service: guest.serviceName,
                 price: guest.price,
                 mode: item.mode, 
                 timeStr: `${timeStr} - ${getTimeStrFromMins(p2End)}`
             });
         }
-        return scenarioDetails; // Trả về chi tiết nếu thành công xếp hết cả nhóm
+        return scenarioDetails;
     };
 
-    // --- CHIẾN LƯỢC 1: THỬ 'FB' CHO TẤT CẢ (TRUYỀN THỐNG) ---
-    // Ưu tiên cách này vì quy trình chuẩn thường là ngâm chân trước.
-    const configFB = comboGuests.map(g => ({ guestId: g.id, mode: 'FB' }));
-    let successScenario = tryScenario(configFB);
+    // --- CHIẾN LƯỢC THỬ NGHIỆM ---
+    let successScenario = null;
 
-    // --- CHIẾN LƯỢC 2: THỬ 'BF' CHO TẤT CẢ (ĐẢO NGƯỢC) ---
-    // Nếu cách 1 fail (do hết ghế), thử đưa tất cả lên giường làm Body trước.
+    // 1. Ưu tiên FB (Chân trước)
+    const scenarioFB = comboGuests.map(g => ({ guestId: g.id, mode: 'FB' }));
+    successScenario = tryScenario(scenarioFB);
+
+    // 2. Nếu kẹt, thử BF (Body trước - Đảo ngược)
     if (!successScenario) {
-        const configBF = comboGuests.map(g => ({ guestId: g.id, mode: 'BF' }));
-        successScenario = tryScenario(configBF);
+        const scenarioBF = comboGuests.map(g => ({ guestId: g.id, mode: 'BF' }));
+        successScenario = tryScenario(scenarioBF);
     }
 
-    // --- CHIẾN LƯỢC 3: THỬ TÁCH NHÓM (SPLIT / MIXED) ---
-    // Nếu cả 2 cách trên đều fail (ví dụ còn 1 ghế, 1 giường).
-    // Ta dùng Hoán vị (Permutation) để thử mọi tổ hợp.
+    // 3. Nếu vẫn kẹt -> Thử Tách Nhóm (Brute-force permutations)
     if (!successScenario && comboGuests.length >= 2) {
         const count = comboGuests.length;
-        // Giới hạn thử tối đa 32 trường hợp (2^5) để đảm bảo performance server
-        // Nếu đoàn > 5 người combo thì chấp nhận rủi ro fail nếu quá lẻ tẻ.
-        const totalPermutations = Math.min(1 << count, 32); 
+        const totalPermutations = Math.min(1 << count, 16); // Giới hạn 16 trường hợp
 
         for (let i = 1; i < totalPermutations - 1; i++) {
             const splitConfig = [];
             for (let j = 0; j < count; j++) {
-                // Bit 1 -> Mode BF, Bit 0 -> Mode FB
                 const mode = ((i >> j) & 1) ? 'BF' : 'FB';
                 splitConfig.push({ guestId: comboGuests[j].id, mode: mode });
             }
             successScenario = tryScenario(splitConfig);
-            if (successScenario) break; // Tìm thấy phương án khả thi!
+            if (successScenario) break;
         }
     }
 
-    // --- KẾT QUẢ ---
+    // --- TỔNG KẾT ---
     if (successScenario) {
-        // Gộp kết quả của khách Combo vào mảng tổng
         successScenario.forEach(item => { finalDetails[item.guestIndex] = item; });
-        
         return {
             feasible: true,
             details: finalDetails,
@@ -443,7 +367,7 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
     } else {
         return { 
             feasible: false, 
-            reason: "Rất tiếc, hệ thống đã thử đảo quy trình (Làm Body trước) và tách nhóm nhưng vẫn không đủ Ghế/Giường." 
+            reason: "Rất tiếc, đã thử đảo tua và tách nhóm nhưng vẫn kẹt thời gian." 
         };
     }
 }
@@ -454,6 +378,5 @@ module.exports = {
     get SERVICES() { return SERVICES; },
     CONFIG,
     getMinsFromTimeStr,
-    getTimeStrFromMins,
     getTaipeiNow
 };
