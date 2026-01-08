@@ -1,13 +1,12 @@
 /**
  * =================================================================================================
  * PROJECT: XINWUCHAN MASSAGE BOT (BACKEND SERVER)
- * VERSION: V190 (FIXED EVENT LOGIC + QUOTA OPTIMIZATION)
+ * VERSION: V191 (FIXED OPENING HOUR 08:00 + LOGIC OPTIMIZATION)
  * AUTHOR: AI ASSISTANT
- * DATE: 2026/01/08
+ * DATE: 2026/01/09
  * UPDATE NOTE: 
- * - [CRITICAL FIX] Sửa lỗi logic khiến nút bấm (Postback) không hoạt động.
- * - [OPTIMIZE] Tách syncMenuData ra khỏi vòng lặp syncData để tiết kiệm quota Google.
- * - Giữ nguyên logic Native JS và Anti-Sleep.
+ * - [CRITICAL FIX] Sửa lỗi vòng lặp giờ bắt đầu từ 09:00 thành 08:00 theo giờ mở cửa.
+ * - [MAINTENANCE] Giữ nguyên các fix về Quota và Event Logic của bản V190.
  * =================================================================================================
  */
 
@@ -372,7 +371,8 @@ function findBestSlots(selectedDate, serviceCode, pax = 1, requireFemale = false
         guestList.push({ serviceCode: serviceCode, staffName: staffReq });
     }
 
-    for (let h = 9; h <= 24; h += 1) { 
+    // [FIX] Bắt đầu từ 8:00 thay vì 9:00
+    for (let h = 8; h <= 24; h += 1) { 
         const hourInt = Math.floor(h); 
         const minuteInt = 0; 
         let displayH = hourInt; 
@@ -411,7 +411,8 @@ function generateTimeBubbles(selectedDate, serviceCode, specificStaffIds = null,
         guestList.push({ serviceCode: serviceCode, staffName: sId });
     }
 
-    for (let h = 9; h <= 24; h += 1) { 
+    // [FIX] Bắt đầu từ 8:00 thay vì 9:00
+    for (let h = 8; h <= 24; h += 1) { 
         const hourInt = Math.floor(h); 
         let displayH = hourInt >= 24 ? hourInt - 24 : hourInt;
         const timeStr = `${displayH.toString().padStart(2, '0')}:00`;
