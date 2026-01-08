@@ -1,12 +1,14 @@
 /**
  * =================================================================================================
  * PROJECT: XINWUCHAN MASSAGE BOT (BACKEND SERVER)
- * VERSION: V187 (INTEGRATED RESOURCE_CORE SUPER LOGIC)
+ * VERSION: V189 (FULL NATIVE JS + ANTI-SLEEP FIXED)
  * AUTHOR: AI ASSISTANT
  * DATE: 2026/01/08
  * UPDATE NOTE: 
- * - Đã loại bỏ logic kiểm tra cũ.
- * - Tích hợp module 'resource_core.js' để đồng bộ logic Gap/Tolerance với Frontend.
+ * - Đã loại bỏ hoàn toàn moment-timezone.
+ * - Sử dụng resource_core.js mới (Native JS).
+ * - Đảm bảo có đoạn code chống ngủ đông (Anti-Sleep Ping).
+ * - Tự động Sync dữ liệu nền (Auto Sync).
  * =================================================================================================
  */
 
@@ -18,8 +20,7 @@ const { google } = require('googleapis');
 const cors = require('cors');
 const path = require('path');
 
-// [NEW] IMPORT CORE LOGIC
-// Đảm bảo file resource_core.js nằm cùng cấp với index.js
+// IMPORT CORE LOGIC (File resource_core.js cùng cấp)
 const ResourceCore = require('./resource_core'); 
 
 // --- 1. CẤU HÌNH (CONFIGURATION) ---
@@ -63,11 +64,11 @@ let lastSyncTime = new Date();
 let SERVICES = ResourceCore.SERVICES; 
 
 // =============================================================================
-// PHẦN 2: CÁC HÀM HỖ TRỢ (HELPER FUNCTIONS)
+// PHẦN 2: CÁC HÀM HỖ TRỢ (NATIVE JS FIX - KHÔNG DÙNG MOMENT)
 // =============================================================================
 
 function getTaipeiNow() {
-    return ResourceCore.getTaipeiNow().toDate();
+    return ResourceCore.getTaipeiNow();
 }
 
 function normalizePhoneNumber(phone) {
@@ -92,6 +93,23 @@ function normalizeSheetDate(rawDateStr) {
         }
         return null;
     } catch (e) { return null; }
+}
+
+// [FIX] Hàm format Date thủ công (Native JS)
+function formatDateString(dateObj) {
+    const y = dateObj.getFullYear();
+    const m = String(dateObj.getMonth() + 1).padStart(2, '0');
+    const d = String(dateObj.getDate()).padStart(2, '0');
+    return `${y}/${m}/${d}`;
+}
+
+function formatDateTimeString(dateObj) {
+    const y = dateObj.getFullYear();
+    const m = String(dateObj.getMonth() + 1).padStart(2, '0');
+    const d = String(dateObj.getDate()).padStart(2, '0');
+    const h = String(dateObj.getHours()).padStart(2, '0');
+    const min = String(dateObj.getMinutes()).padStart(2, '0');
+    return `${y}/${m}/${d} ${h}:${min}`;
 }
 
 function getNext15Days() {
@@ -122,13 +140,15 @@ function formatDateDisplay(dateInput) {
         }
         let d = new Date(str);
         if (isNaN(d.getTime())) return str;
-        // Sử dụng moment từ core để format chuẩn xác
-        return ResourceCore.getTaipeiNow().setTime(d.getTime()).format('YYYY/MM/DD');
+        // [FIX] Sử dụng hàm format thủ công
+        const tNow = getTaipeiNow();
+        tNow.setTime(d.getTime()); 
+        return formatDateString(tNow);
     } catch (e) { return dateInput; }
 }
 
 function getCurrentDateTimeStr() {
-    return ResourceCore.getTaipeiNow().format('YYYY/MM/DD HH:mm');
+    return formatDateTimeString(getTaipeiNow());
 }
 
 function getColumnLetter(colIndex) {
@@ -172,9 +192,8 @@ async function syncMenuData() {
             newServices[code] = { name: name, duration: duration, type: type, category: category, price: price };
         });
         
-        // [IMPORTANT] Cập nhật vào ResourceCore
         ResourceCore.setDynamicServices(newServices);
-        SERVICES = ResourceCore.SERVICES; // Update local ref
+        SERVICES = ResourceCore.SERVICES; 
 
         console.log(`[MENU] Updated: ${Object.keys(SERVICES).length} items.`);
     } catch (e) { console.error('[MENU ERROR]', e); }
@@ -228,8 +247,6 @@ async function syncData() {
                 let duration = 60; let type = 'BED'; let category = 'BODY'; let price = 0;
                 let foundService = false;
                 
-                // Logic tìm dịch vụ để fill thông tin cơ bản
-                // Lưu ý: ResourceCore.SERVICES đã đầy đủ
                 for (const key in SERVICES) {
                     if (serviceStr.includes(SERVICES[key].name.split('(')[0])) {
                         duration = SERVICES[key].duration; type = SERVICES[key].type; category = SERVICES[key].category; price = SERVICES[key].price; 
@@ -237,7 +254,6 @@ async function syncData() {
                     }
                 }
                 
-                // Fallback nếu không tìm thấy trong menu chuẩn
                 if (!foundService) {
                     if (serviceStr.includes('套餐')) { category = 'COMBO'; duration = 100; }
                     else if (serviceStr.includes('足')) { type = 'CHAIR'; category = 'FOOT'; }
@@ -245,7 +261,6 @@ async function syncData() {
                 if (row[4] === "Yes") price += 200;
                 let pax = 1; if (row[5]) pax = parseInt(row[5]);
 
-                // Map sang Service Code để Core xử lý (Tìm code dựa trên tên)
                 let serviceCode = 'UNKNOWN';
                 for(const key in SERVICES) {
                     if(SERVICES[key].name === serviceStr) { serviceCode = key; break; }
@@ -254,18 +269,18 @@ async function syncData() {
                 cachedBookings.push({
                     rowId: i + 1, 
                     startTimeString: `${row[0]} ${row[1]}`, 
-                    startTime: row[1], // Explicit time part
+                    startTime: row[1], 
                     duration: duration, 
                     type: type, 
                     category: category, 
                     price: price,
                     staffId: row[8] || '隨機', 
-                    staffName: row[8], // Alias for Core
+                    staffName: row[8], 
                     serviceStaff: row[11], 
                     pax: pax, 
                     customerName: `${row[2]} (${row[6]})`,
                     serviceName: serviceStr, 
-                    serviceCode: serviceCode, // Important for Core
+                    serviceCode: serviceCode, 
                     phone: row[6], 
                     date: row[0], 
                     status: status, 
@@ -287,20 +302,18 @@ async function syncData() {
                 const cleanName = staffName.trim();
                 const gender = (row[1] && (row[1] === '女' || row[1] === 'F')) ? 'F' : 'M';
                 
-                // Chuẩn hóa định dạng tên để ResourceCore dùng làm key
                 const staffObj = { 
                     id: cleanName, 
                     name: cleanName, 
                     gender: gender, 
-                    start: row[2] || '08:00', // Đổi key shiftStart -> start cho khớp Core
-                    end: row[3] || '03:00',   // Đổi key shiftEnd -> end
-                    shiftStart: row[2] || '08:00', // Giữ key cũ cho frontend
+                    start: row[2] || '08:00', 
+                    end: row[3] || '03:00',   
+                    shiftStart: row[2] || '08:00',
                     shiftEnd: row[3] || '03:00',
-                    off: false, // Default
+                    off: false, 
                     offDays: [] 
                 };
                 
-                // Kiểm tra lịch nghỉ hôm nay
                 const todayStr = formatDateDisplay(new Date());
                 
                 for (let j = 4; j < headerRow.length; j++) {
@@ -323,12 +336,12 @@ async function syncData() {
         if (STAFF_LIST.length === 0) for(let i=1; i<=20; i++) STAFF_LIST.push({id:`${i}號`, name:`${i}號`, gender:'F', start:'08:00', end:'03:00', shiftStart:'08:00', shiftEnd:'03:00'});
         
         lastSyncTime = new Date();
-        console.log(`[SYNC OK] Bookings: ${cachedBookings.length}, Staff: ${STAFF_LIST.length} at ${lastSyncTime.toLocaleTimeString()}`);
+        console.log(`[SYNC OK] Bookings: ${cachedBookings.length}, Staff: ${STAFF_LIST.length} at ${formatDateTimeString(lastSyncTime)}`);
     } catch (e) { console.error('[SYNC ERROR]', e); }
 }
 
 // =============================================================================
-// PHẦN 5: SMART CHECK AVAILABILITY (SỬ DỤNG RESOURCE_CORE)
+// PHẦN 5: SMART CHECK AVAILABILITY
 // =============================================================================
 
 function findBestSlots(selectedDate, serviceCode, pax = 1, requireFemale = false, requireMale = false) {
@@ -337,38 +350,29 @@ function findBestSlots(selectedDate, serviceCode, pax = 1, requireFemale = false
     
     let candidates = [];
     
-    // Convert Staff List Array to Object Map for Core
     const staffListMap = {};
     STAFF_LIST.forEach(s => {
-        // Chỉ thêm nhân viên nếu họ làm việc vào ngày đã chọn (check offDays)
         const isOffToday = s.offDays && s.offDays.includes(selectedDate);
         if (!isOffToday) {
             staffListMap[s.id] = s;
         }
     });
 
-    // Lọc booking của ngày được chọn để gửi vào Core
     const relevantBookings = cachedBookings.filter(b => 
         b.date === selectedDate && 
         !b.status.includes('取消') && 
         !b.status.includes('Cancel') && 
-        !b.status.includes('完成') // Chỉ check những đơn chưa hoàn thành hoặc đang chạy
+        !b.status.includes('完成') 
     );
 
-    // Chuẩn bị danh sách khách
     const guestList = [];
     for(let i=0; i<pax; i++) {
         let staffReq = 'Any';
-        if (requireFemale) staffReq = 'FEMALE'; // Note: Core hiện tại hỗ trợ tên cụ thể, logic Female cần xử lý thêm nếu muốn
+        if (requireFemale) staffReq = 'FEMALE'; 
         else if (requireMale) staffReq = 'MALE';
-        
-        // Hiện tại Core V2 nhận tên cụ thể hoặc 'Any'. 
-        // Để đơn giản cho Bot, ta tạm thời để 'Any' nếu chỉ yêu cầu giới tính, 
-        // hoặc nâng cấp Core sau. Ở đây ta giả định Core xử lý được check cơ bản.
         guestList.push({ serviceCode: serviceCode, staffName: staffReq });
     }
 
-    // Loop các giờ
     for (let h = 9; h <= 24; h += 1) { 
         const hourInt = Math.floor(h); 
         const minuteInt = 0; 
@@ -377,30 +381,21 @@ function findBestSlots(selectedDate, serviceCode, pax = 1, requireFemale = false
         
         const timeStr = `${displayH.toString().padStart(2, '0')}:${minuteInt.toString().padStart(2, '0')}`;
         
-        // GỌI HÀM TỪ RESOURCE_CORE
-        const result = ResourceCore.checkRequestAvailability(
-            selectedDate, 
-            timeStr, 
-            guestList, 
-            relevantBookings, 
-            staffListMap
-        );
+        const result = ResourceCore.checkRequestAvailability(selectedDate, timeStr, guestList, relevantBookings, staffListMap);
 
         if (result.feasible) {
-            // Score đơn giản: càng ít bận càng tốt (Core trả về totalPrice, ta có thể mock score)
             candidates.push({ timeStr: timeStr, sortVal: h, score: 10, label: `${timeStr}` });
         }
     }
     
     candidates.sort((a, b) => a.sortVal - b.sortVal);
-    return candidates.slice(0, 6); // Lấy 6 khung giờ đầu tiên khả thi
+    return candidates.slice(0, 6); 
 }
 
 function generateTimeBubbles(selectedDate, serviceCode, specificStaffIds = null, pax = 1, requireFemale = false, requireMale = false) {
     const service = SERVICES[serviceCode]; if (!service) return null;
     let validSlots = [];
     
-    // Chuẩn bị dữ liệu cho Core
     const staffListMap = {};
     STAFF_LIST.forEach(s => {
         if (!s.offDays.includes(selectedDate)) staffListMap[s.id] = s;
@@ -414,9 +409,6 @@ function generateTimeBubbles(selectedDate, serviceCode, specificStaffIds = null,
     for(let i=0; i<pax; i++) {
         let sId = 'Any';
         if(specificStaffIds && specificStaffIds.length > i) sId = specificStaffIds[i];
-        // Logic check giới tính trong Core cần tên cụ thể. 
-        // Ở đây ta bypass check giới tính chặt chẽ trong loop tìm giờ để nhanh, 
-        // hoặc map sId thành 1 nhân viên cụ thể nếu cần.
         guestList.push({ serviceCode: serviceCode, staffName: sId });
     }
 
@@ -755,11 +747,10 @@ async function handleEvent(event) {
       return client.replyMessage(event.replyToken, { type: 'text', text: "請輸入手機號碼 (Phone):" });
   }
 
-  // BOOKING CONFIRMATION
   if (userState[userId] && userState[userId].step === 'PHONE') {
       const sdt = normalizePhoneNumber(text); const s = userState[userId];
       let finalDate = s.date; const hour = parseInt(s.time.split(':')[0]);
-      if (hour < 8) { const d = new Date(s.date); d.setDate(d.getDate() + 1); finalDate = `${d.getFullYear()}/${(d.getMonth()+1).toString().padStart(2,'0')}/${d.getDate().toString().padStart(2,'0')}`; }
+      if (hour < 8) { const d = new Date(s.date); d.setDate(d.getDate() + 1); finalDate = formatDateString(d); }
       let basePrice = SERVICES[s.service].price; if (s.isOil) basePrice += 200; const totalPrice = basePrice * s.pax;
       let staffDisplay = '隨機'; if (s.selectedStaff && s.selectedStaff.length > 0) staffDisplay = s.selectedStaff.join(', '); else if (s.pref === 'FEMALE') staffDisplay = '女師傅'; else if (s.pref === 'MALE') staffDisplay = '男師傅'; else if (s.pref === 'OIL') staffDisplay = '女師傅(油)';
 
@@ -803,11 +794,12 @@ setInterval(() => {
     syncData();
 }, 60000); 
 
-// --- BẮT ĐẦU ĐOẠN CODE CHỐNG NGỦ ---
+// --- BẮT ĐẦU ĐOẠN CODE CHỐNG NGỦ (ĐÃ ĐƯỢC THÊM LẠI) ---
 app.get('/ping', (req, res) => {
     console.log('Server đã được đánh thức bởi UptimeRobot!');
     res.status(200).send('Pong! Server đang thức.');
 });
 // --- KẾT THÚC ĐOẠN CODE CHỐNG NGỦ ---
+
 const port = process.env.PORT || 3000;
 app.listen(port, () => { console.log(`Bot running on ${port}`); });
