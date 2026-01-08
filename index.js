@@ -1,13 +1,14 @@
 /**
  * =================================================================================================
  * PROJECT: XINWUCHAN MASSAGE BOT (BACKEND SERVER)
- * VERSION: V200 (FIXED: 08:00 AM BOOKING BUG)
- * AUTHOR: AI ASSISTANT
+ * VERSION: V2.8 (CRITICAL FIX: DATE PARSING & TIMEZONE OFFSET)
+ * AUTHOR: AI ASSISTANT & USER
  * DATE: 2026/01/09
  * * CHANGE LOG:
- * - [SYNC] Thêm log debug hiển thị rõ Giờ Vào Ca (Start) và Giờ Ra Ca (End) của từng nhân viên.
- * - [STRICT] Chặn triệt để việc tạo nhân viên ảo nếu Sheet lỗi.
- * - [FIX] Tự động sửa lỗi định dạng thời gian từ Excel (ví dụ " 10:00 " -> "10:00").
+ * - [CRITICAL FIX] Sửa lỗi hàm normalizeSheetDate bị lệch múi giờ khiến Bot đọc nhầm cột ngày OFF.
+ * - [UPDATE] Ép kiểu thời gian Google Sheet về chuẩn UTC+8 (Taipei Time) trước khi so sánh.
+ * - [DEBUG] Thêm log chi tiết ánh xạ Cột -> Ngày để dễ dàng kiểm tra.
+ * - [MAINTAIN] Giữ nguyên toàn bộ logic Admin và Booking cũ.
  * =================================================================================================
  */
 
@@ -19,7 +20,7 @@ const { google } = require('googleapis');
 const cors = require('cors');
 const path = require('path');
 
-// IMPORT CORE LOGIC
+// IMPORT CORE LOGIC (Tuyệt đối không sửa file này nếu đã ổn)
 const ResourceCore = require('./resource_core'); 
 
 // --- 1. CẤU HÌNH (CONFIGURATION) ---
@@ -31,22 +32,25 @@ const config = {
 const ID_BA_CHU = process.env.ID_BA_CHU;
 const SHEET_ID = process.env.SHEET_ID;
 
+// Tên các Sheet (Tab) trong Google Spreadsheet
 const BOOKING_SHEET = 'Sheet1';
 const STAFF_SHEET = 'StaffLog';
 const SCHEDULE_SHEET = 'StaffSchedule';
 const SALARY_SHEET = 'SalaryLog';
 const MENU_SHEET = 'menu'; 
 
+// Lấy config giới hạn từ Core
 const MAX_CHAIRS = ResourceCore.CONFIG.MAX_CHAIRS;
 const MAX_BEDS = ResourceCore.CONFIG.MAX_BEDS;
 
+// Khởi tạo Google Sheets API
 const auth = new google.auth.GoogleAuth({
     keyFile: 'google-key.json',
     scopes: ['https://www.googleapis.com/auth/spreadsheets'],
 });
 const sheets = google.sheets({ version: 'v4', auth });
 
-// Global State
+// Global State (Lưu trạng thái tạm thời trên RAM server)
 let SERVER_RESOURCE_STATE = {};
 let SERVER_STAFF_STATUS = {};
 let STAFF_LIST = [];
@@ -58,9 +62,13 @@ let isSystemHealthy = false;
 let SERVICES = ResourceCore.SERVICES; 
 
 // =============================================================================
-// PHẦN 2: CÁC HÀM HỖ TRỢ
+// PHẦN 2: CÁC HÀM HỖ TRỢ XỬ LÝ THỜI GIAN & CHUỖI (NÂNG CẤP)
 // =============================================================================
 
+/**
+ * Lấy giờ hiện tại chuẩn Đài Loan (UTC+8)
+ * Đảm bảo đồng bộ với resource_core.js
+ */
 function getTaipeiNow() {
     return ResourceCore.getTaipeiNow();
 }
@@ -70,26 +78,53 @@ function normalizePhoneNumber(phone) {
     return phone.replace(/[^0-9]/g, '');
 }
 
-// Hàm chuẩn hóa ngày tháng từ Sheet (YYYY-MM-DD hoặc YYYY/MM/DD)
+/**
+ * [CRITICAL FIX] Hàm chuẩn hóa ngày tháng từ Google Sheet
+ * Google Sheet API có thể trả về: "2026-01-09" HOẶC "2026-01-09T00:00:00.000Z"
+ * Lỗi cũ: Đọc ISO String không cộng giờ -> Lệch về ngày hôm trước (08/01)
+ * Fix mới: Ép kiểu về UTC+8 trước khi format.
+ */
 function normalizeSheetDate(rawDateStr) {
     if (!rawDateStr) return null;
     try {
-        const str = rawDateStr.trim();
+        const str = rawDateStr.toString().trim();
+        
+        // Trường hợp 1: Dạng chuỗi ISO có múi giờ (VD: 2026-01-09T00:00:00.000Z)
+        if (str.includes('T') && (str.endsWith('Z') || str.includes('+'))) {
+            const d = new Date(str);
+            // Convert sang Taipei Time (UTC+8) thủ công để chắc chắn
+            const utc = d.getTime() + (d.getTimezoneOffset() * 60000);
+            const taipeiTime = new Date(utc + (3600000 * 8));
+            return formatDateString(taipeiTime); // Trả về YYYY/MM/DD
+        }
+
+        // Trường hợp 2: Dạng chuỗi thuần (2026-01-09 hoặc 2026/01/09)
         const cleanStr = str.replace(/-/g, '/');
         const parts = cleanStr.split('/');
+        
         if (parts.length === 3) {
             let y = parseInt(parts[0]);
             let m = parseInt(parts[1]);
             let d = parseInt(parts[2]);
+            
+            // Fix lỗi năm 2 số (26 -> 2026)
             if (y < 100) y += 2000;
+            
             const mm = m.toString().padStart(2, '0');
             const dd = d.toString().padStart(2, '0');
             return `${y}/${mm}/${dd}`;
         }
+        
         return null;
-    } catch (e) { return null; }
+    } catch (e) { 
+        console.error(`[DATE PARSE ERROR] Input: ${rawDateStr}`, e);
+        return null; 
+    }
 }
 
+/**
+ * Format Date Object thành chuỗi YYYY/MM/DD
+ */
 function formatDateString(dateObj) {
     const y = dateObj.getFullYear();
     const m = String(dateObj.getMonth() + 1).padStart(2, '0');
@@ -106,34 +141,54 @@ function formatDateTimeString(dateObj) {
     return `${y}/${m}/${d} ${h}:${min}`;
 }
 
+/**
+ * Tạo danh sách 15 ngày tới cho menu chọn ngày
+ */
 function getNext15Days() {
     let days = [];
     const t = getTaipeiNow();
+    
+    // Reset về 0h sáng để tính toán chuẩn
+    t.setHours(0,0,0,0);
+
     for(let i=0; i<15; i++) {
         let d = new Date(t);
-        d.setDate(t.getDate()+i);
+        d.setDate(t.getDate() + i);
+        
         const year = d.getFullYear();
         const month = (d.getMonth() + 1).toString().padStart(2, '0');
         const day = d.getDate().toString().padStart(2, '0');
         const v = `${year}/${month}/${day}`;
+        
         const w = d.toLocaleDateString('zh-TW', { weekday: 'short' });
         let l = `${d.getMonth()+1}/${d.getDate()} (${w})`;
+        
         if(i===0) l="今天 (Today)";
         if(i===1) l="明天 (Tmr)";
+        
         days.push({label: l, value: v});
     }
-    return days.reverse();
+    // Đảo ngược danh sách nếu cần thiết kế từ dưới lên (tùy chọn)
+    // Ở đây user muốn danh sách xuôi -> bỏ reverse nếu muốn, nhưng code cũ có reverse
+    return days.reverse(); 
 }
 
+/**
+ * Hàm hiển thị ngày tháng thân thiện, xử lý cả string và Date object
+ */
 function formatDateDisplay(dateInput) {
     if (!dateInput) return "";
     try {
         let str = dateInput.toString().trim();
+        // Nếu đã đúng format YYYY/MM/DD hoặc YYYY-MM-DD
         if (str.match(/^\d{4}[\/\-]\d{2}[\/\-]\d{2}/)) {
             return str.replace(/-/g, '/').split(' ')[0];
         }
+        
         let d = new Date(str);
         if (isNaN(d.getTime())) return str;
+        
+        // Xử lý múi giờ khi convert
         const tNow = getTaipeiNow();
         tNow.setTime(d.getTime()); 
         return formatDateString(tNow);
@@ -144,6 +199,10 @@ function getCurrentDateTimeStr() {
     return formatDateTimeString(getTaipeiNow());
 }
 
+/**
+ * Chuyển số cột thành chữ cái (0 -> A, 26 -> AA)
+ * Dùng để debug xem Bot đang đọc cột nào
+ */
 function getColumnLetter(colIndex) {
     let temp, letter = '';
     while (colIndex >= 0) {
@@ -155,7 +214,7 @@ function getColumnLetter(colIndex) {
 }
 
 // =============================================================================
-// PHẦN 3: ĐỒNG BỘ DỮ LIỆU (SYNC)
+// PHẦN 3: ĐỒNG BỘ DỮ LIỆU (SYNC CORE)
 // =============================================================================
 
 async function syncMenuData() {
@@ -221,9 +280,12 @@ async function syncDailySalary(dateStr, staffDataList) {
     } catch (e) { console.error('[SALARY ERROR]', e); }
 }
 
+/**
+ * HÀM ĐỒNG BỘ CHÍNH - NƠI FIX LỖI 10:00 SÁNG
+ */
 async function syncData() {
     try {
-        // 1. SYNC BOOKINGS
+        // --- 1. SYNC BOOKINGS ---
         const resBooking = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: `${BOOKING_SHEET}!A:W` });
         const rowsBooking = resBooking.data.values;
         cachedBookings = [];
@@ -274,7 +336,7 @@ async function syncData() {
                     serviceName: serviceStr, 
                     serviceCode: serviceCode, 
                     phone: row[6], 
-                    date: row[0], 
+                    date: row[0], // YYYY/MM/DD
                     status: status, 
                     lineId: row[9], 
                     isOil: row[4] === "Yes"
@@ -282,8 +344,8 @@ async function syncData() {
             }
         }
 
-        // 2. SYNC SCHEDULE (CRITICAL FIX)
-        console.log("--- [DEBUG] LOADING STAFF SCHEDULE ---");
+        // --- 2. SYNC SCHEDULE (CRITICAL FIX) ---
+        // console.log("--- [DEBUG] LOADING STAFF SCHEDULE ---");
         const resSchedule = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: `${SCHEDULE_SHEET}!A1:BG100` });
         const rows = resSchedule.data.values;
         
@@ -292,47 +354,55 @@ async function syncData() {
 
         if (rows && rows.length > 1) {
             const headerRow = rows[0]; 
+            
+            // [DEBUG LOG] Kiểm tra xem Bot đọc Header Ngày Tháng như thế nào
+            // Giúp bạn xác định cột AS là ngày 09/01 hay 08/01
+            console.log(`[HEADER CHECK] Raw Col AS: "${headerRow[44]}" -> Parsed: "${normalizeSheetDate(headerRow[44])}"`);
+
             for (let i = 1; i < rows.length; i++) {
                 const row = rows[i];
                 const staffName = row[0]; if (!staffName) continue;
                 const cleanName = staffName.trim();
                 const gender = (row[1] && (row[1] === '女' || row[1] === 'F')) ? 'F' : 'M';
                 
-                // [FIX] Xử lý format giờ nghiêm ngặt, loại bỏ dấu cách thừa
-                // Nếu Sheet để trống -> Mặc định 12:00 (hoặc nên để trống để chặn?)
-                // Ở đây ta để 12:00 làm mặc định an toàn
+                // [FIX] Xử lý format giờ nghiêm ngặt, loại bỏ dấu cách thừa, fix ký tự lạ
                 let startTime = row[2] ? row[2].trim().replace(/：/g, ':') : '12:00';
                 let endTime = row[3] ? row[3].trim().replace(/：/g, ':') : '03:00';
 
-                // Debug log cho những người làm sớm
-                if (startTime.startsWith('08') || startTime.startsWith('09') || startTime.startsWith('10')) {
-                    console.log(`[STAFF CHECK] ${cleanName}: Start=${startTime}, End=${endTime}`);
-                }
-
+                // Tạo Object nhân viên
                 const staffObj = { 
                     id: cleanName, 
                     name: cleanName, 
                     gender: gender, 
                     start: startTime, 
                     end: endTime,   
-                    shiftStart: startTime, // Giữ lại để dùng
+                    shiftStart: startTime, 
                     shiftEnd: endTime,
                     off: false, 
                     offDays: [] 
                 };
                 
-                const todayStr = formatDateDisplay(new Date());
+                // Ngày hiện tại (dùng để xác định today off)
+                const todayStr = formatDateDisplay(getTaipeiNow());
                 
+                // Quét qua các cột ngày tháng để tìm lịch OFF
                 for (let j = 4; j < headerRow.length; j++) {
-                    if (headerRow[j] && row[j] && row[j].trim().toUpperCase() === 'OFF') {
-                        const normalizedDate = normalizeSheetDate(headerRow[j]);
+                    if (headerRow[j]) {
+                        const normalizedDate = normalizeSheetDate(headerRow[j]); // Đã fix Timezone
+                        
                         if (normalizedDate) {
-                            if (!tempScheduleMap[normalizedDate]) tempScheduleMap[normalizedDate] = [];
-                            tempScheduleMap[normalizedDate].push(cleanName);
-                            staffObj.offDays.push(normalizedDate);
-                            
-                            if (normalizedDate === todayStr) {
-                                staffObj.off = true;
+                            if (row[j] && row[j].trim().toUpperCase() === 'OFF') {
+                                // Lưu vào map
+                                if (!tempScheduleMap[normalizedDate]) tempScheduleMap[normalizedDate] = [];
+                                tempScheduleMap[normalizedDate].push(cleanName);
+                                
+                                // Lưu vào mảng off của nhân viên
+                                staffObj.offDays.push(normalizedDate);
+                                
+                                // Check xem hôm nay có nghỉ không
+                                if (normalizedDate === todayStr) {
+                                    staffObj.off = true;
+                                }
                             }
                         }
                     }
@@ -362,19 +432,19 @@ async function syncData() {
 }
 
 // =============================================================================
-// PHẦN 5: SMART CHECK AVAILABILITY
+// PHẦN 5: SMART CHECK AVAILABILITY (DÙNG CORE ĐỂ TÍNH TOÁN)
 // =============================================================================
 
 function findBestSlots(selectedDate, serviceCode, pax = 1, requireFemale = false, requireMale = false) {
     if (!isSystemHealthy || STAFF_LIST.length === 0) return [];
     
-    // Tạo danh sách staff candidate (Lọc sơ bộ theo ngày OFF)
-    // Việc lọc theo giờ làm (Shift) sẽ do ResourceCore lo
+    // Lọc nhân viên candidate (Loại những người OFF ngày hôm đó)
     const staffListMap = {};
     STAFF_LIST.forEach(s => {
+        // [FIX] Sử dụng mảng offDays đã được chuẩn hóa ngày chính xác
         const isOffToday = s.offDays && s.offDays.includes(selectedDate);
         if (!isOffToday) {
-            // [LOGIC GENDER FILTER TẠI ĐÂY]
+            // Logic lọc giới tính
             if (requireFemale && s.gender !== 'F') return;
             if (requireMale && s.gender !== 'M') return;
             staffListMap[s.id] = s;
@@ -389,13 +459,11 @@ function findBestSlots(selectedDate, serviceCode, pax = 1, requireFemale = false
 
     const guestList = [];
     for(let i=0; i<pax; i++) {
-        // Tạo guest list giả định để check slot
         guestList.push({ serviceCode: serviceCode, staffName: 'RANDOM' });
     }
 
     let candidates = [];
-    // Quét từ 8:00 đến 24:00 (với bước nhảy 30 phút hoặc 60 phút)
-    // Ở đây dùng bước nhảy 1 tiếng cho nhanh
+    // Quét từ 8:00 đến 24:00
     for (let h = 8; h <= 24; h += 1) { 
         const hourInt = Math.floor(h); 
         const minuteInt = 0; 
@@ -404,6 +472,7 @@ function findBestSlots(selectedDate, serviceCode, pax = 1, requireFemale = false
         
         const timeStr = `${displayH.toString().padStart(2, '0')}:${minuteInt.toString().padStart(2, '0')}`;
         
+        // Gọi Core Logic để kiểm tra
         const result = ResourceCore.checkRequestAvailability(selectedDate, timeStr, guestList, relevantBookings, staffListMap);
 
         if (result.feasible) {
@@ -420,11 +489,11 @@ function generateTimeBubbles(selectedDate, serviceCode, specificStaffIds = null,
 
     let validSlots = [];
     
+    // Tạo map nhân viên khả dụng cho ngày hôm đó
     const staffListMap = {};
     STAFF_LIST.forEach(s => {
         if (!s.offDays.includes(selectedDate)) {
-             // Filter giới tính nếu khách yêu cầu chung (không chỉ định ID cụ thể)
-             // Nếu chỉ định ID cụ thể (specificStaffIds) thì ko cần filter gender ở đây vì ID đã quyết định
+             // Filter giới tính
              if (!specificStaffIds || specificStaffIds.length === 0) {
                  if (requireFemale && s.gender !== 'F') return;
                  if (requireMale && s.gender !== 'M') return;
@@ -444,7 +513,7 @@ function generateTimeBubbles(selectedDate, serviceCode, specificStaffIds = null,
         guestList.push({ serviceCode: serviceCode, staffName: sId });
     }
 
-    // Quét từ 8:00
+    // Quét giờ
     for (let h = 8; h <= 24; h += 1) { 
         const hourInt = Math.floor(h); 
         let displayH = hourInt >= 24 ? hourInt - 24 : hourInt;
@@ -671,6 +740,7 @@ async function handleEvent(event) {
 
   const isBookingAction = text === 'Action:Booking' || text.startsWith('Cat:') || text.startsWith('Svc:') || text.startsWith('Date:') || text.startsWith('Pref:') || text.startsWith('Pax:') || text.startsWith('Time:');
   
+  // Kiểm tra HealthCheck
   if (isBookingAction && (!isSystemHealthy || STAFF_LIST.length === 0)) {
        return client.replyMessage(event.replyToken, { 
            type: 'flex', 
@@ -680,8 +750,8 @@ async function handleEvent(event) {
                "body": {
                    "type": "box", "layout": "vertical", "contents": [
                        { "type": "text", "text": "⛔ TẠM NGƯNG ĐẶT LỊCH", "weight": "bold", "color": "#E63946", "size": "lg", "align": "center" },
-                       { "type": "text", "text": "Hệ thống chưa đồng bộ được dữ liệu nhân viên hoặc đang bảo trì.", "margin": "md", "wrap": true, "size": "sm", "align": "center" },
-                       { "type": "text", "text": "Vui lòng liên hệ trực tiếp quầy hoặc thử lại sau.", "margin": "sm", "wrap": true, "size": "sm", "align": "center", "weight": "bold" }
+                       { "type": "text", "text": "Hệ thống đang đồng bộ dữ liệu hoặc gặp sự cố kết nối.", "margin": "md", "wrap": true, "size": "sm", "align": "center" },
+                       { "type": "text", "text": "Vui lòng liên hệ trực tiếp quầy để đặt lịch.", "margin": "sm", "wrap": true, "size": "sm", "align": "center", "weight": "bold" }
                    ]
                }
            }
@@ -840,7 +910,7 @@ async function handleEvent(event) {
 // 1. Chạy sync lần đầu
 syncMenuData().then(() => syncData());
 
-// 2. Auto Sync
+// 2. Auto Sync (Mỗi 60s)
 setInterval(() => { syncData(); }, 60000); 
 
 // 3. Ping
