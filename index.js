@@ -1,7 +1,7 @@
 /**
  * =================================================================================================
  * PROJECT: XINWUCHAN MASSAGE BOT (BACKEND SERVER)
- * VERSION: V170 (FIXED: MENU, REVERSED DATE, FULL HOURS, CHINESE ONLY)
+ * VERSION: V175 (ADDED: CANCELLATION NOTICE IN SUCCESS MESSAGE)
  * AUTHOR: AI ASSISTANT
  * DATE: 2026/01/08
  * =================================================================================================
@@ -30,7 +30,7 @@ const BOOKING_SHEET = 'Sheet1';
 const STAFF_SHEET = 'StaffLog';
 const SCHEDULE_SHEET = 'StaffSchedule';
 const SALARY_SHEET = 'SalaryLog';
-const MENU_SHEET = 'menu'; // Sheet Menu mới
+const MENU_SHEET = 'menu'; 
 
 // --- CẤU HÌNH TÀI NGUYÊN ---
 const MAX_CHAIRS = 6;
@@ -96,7 +96,7 @@ function normalizeSheetDate(rawDateStr) {
     }
 }
 
-// [FIXED] Đảo ngược thứ tự ngày (Hôm nay nằm dưới cùng)
+// Đảo ngược thứ tự ngày (Hôm nay nằm dưới cùng)
 function getNext15Days() {
     let days = [];
     const t = getTaipeiNow();
@@ -113,7 +113,6 @@ function getNext15Days() {
         if(i===1) l="明天 (Tmr)";
         days.push({label: l, value: v});
     }
-    // Đảo ngược mảng: Ngày xa nhất lên đầu, Hôm nay xuống cuối
     return days.reverse();
 }
 
@@ -286,15 +285,14 @@ function simulateCurrentState(relevantBookings) {
 }
 
 // =============================================================================
-// PHẦN 3: ĐỒNG BỘ DỮ LIỆU & MENU (QUAN TRỌNG)
+// PHẦN 3: ĐỒNG BỘ DỮ LIỆU & MENU
 // =============================================================================
 
-// [FIXED] Hàm này đọc Menu từ Sheet 'menu' và cập nhật SERVICES
 async function syncMenuData() {
     try {
         const res = await sheets.spreadsheets.values.get({ 
             spreadsheetId: SHEET_ID, 
-            range: `${MENU_SHEET}!A2:D50` // Đọc 50 dòng
+            range: `${MENU_SHEET}!A2:D50` 
         });
         
         const rows = res.data.values;
@@ -307,13 +305,12 @@ async function syncMenuData() {
         };
 
         rows.forEach(row => {
-            const code = row[0] ? row[0].trim() : null; // A6, F4...
+            const code = row[0] ? row[0].trim() : null; 
             const name = row[1] ? row[1].trim() : '';
             const priceStr = row[3] ? row[3].trim() : '0';
 
             if (!code || !name) return;
 
-            // Lấy thời gian từ tên (VD: 190分 -> 190)
             let duration = 60;
             const timeMatch = name.match(/(\d+)分/);
             if (timeMatch) duration = parseInt(timeMatch[1]);
@@ -373,7 +370,7 @@ async function syncDailySalary(dateStr, staffDataList) {
 
 async function syncData() {
     try {
-        await syncMenuData(); // [IMPORTANT] Sync Menu first
+        await syncMenuData(); 
 
         const resBooking = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: `${BOOKING_SHEET}!A:W` });
         const rowsBooking = resBooking.data.values;
@@ -476,7 +473,7 @@ async function syncData() {
 }
 
 // =============================================================================
-// PHẦN 4: LOGIC KIỂM TRA CHỖ (AVAILABILITY)
+// PHẦN 4: LOGIC KIỂM TRA CHỖ
 // =============================================================================
 
 function runSmartAvailabilityCheck(dateStr, timeStr, guestList) {
@@ -486,7 +483,6 @@ function runSmartAvailabilityCheck(dateStr, timeStr, guestList) {
     const reqDate = parseStringToDate(`${displayDate} ${timeStr}`);
     if (startMins >= 24 * 60) reqDate.setDate(reqDate.getDate() + 1);
     
-    // Check nếu thời gian đã qua
     if (reqDate.getTime() <= (now.getTime() + FUTURE_BUFFER_MINS * 60000)) {
         return { feasible: false, reason: '時間已過 (Past)' };
     }
@@ -535,13 +531,12 @@ function runSmartAvailabilityCheck(dateStr, timeStr, guestList) {
     return { feasible: true, freeStaff: totalActive - busyStaffCount, score: totalActive - busyStaffCount };
 }
 
-// [FIXED] Chỉ lấy giờ chẵn (h += 1)
 function findBestSlots(selectedDate, serviceCode, pax = 1, requireFemale = false, requireMale = false) {
     const service = SERVICES[serviceCode];
     if (!service) return [];
     let candidates = [];
     
-    for (let h = 9; h <= 26; h += 1) { // Bắt đầu từ 9h, bước nhảy 1h
+    for (let h = 9; h <= 26; h += 1) { 
         const hourInt = Math.floor(h);
         const minuteInt = 0; 
         let displayH = hourInt;
@@ -562,13 +557,12 @@ function findBestSlots(selectedDate, serviceCode, pax = 1, requireFemale = false
     return candidates.slice(0, 6);
 }
 
-// [FIXED] Chỉ lấy giờ chẵn & Xóa tiếng Việt
 function generateTimeBubbles(selectedDate, serviceCode, specificStaffIds = null, pax = 1, requireFemale = false, requireMale = false) {
     const service = SERVICES[serviceCode];
     if (!service) return null;
     let validSlots = [];
     
-    for (let h = 9; h <= 26; h += 1) { // Bước nhảy 1 giờ
+    for (let h = 9; h <= 26; h += 1) { 
         const hourInt = Math.floor(h);
         const minuteInt = 0; 
         let displayH = hourInt;
@@ -604,7 +598,6 @@ function generateTimeBubbles(selectedDate, serviceCode, specificStaffIds = null,
         return `${displayH.toString().padStart(2, '0')}:${minuteStr}`;
     }
 
-    // [FIXED] Loại bỏ tiếng Việt
     const groups = [
         { name: '🌞 早安 (Morning)', slots: validSlots.filter(h => h >= 8 && h < 12) },
         { name: '☀️ 午後 (Afternoon)', slots: validSlots.filter(h => h >= 12 && h < 18) },
@@ -665,7 +658,6 @@ function createStaffBubbles(filterFemale = false, excludedIds = []) {
     return bubbles;
 }
 
-// [FIXED] Tạo Menu từ dữ liệu SERVICES đã đọc từ Sheet
 function createMenuFlexMessage() {
     const createRow = (serviceName, time, price) => ({
         "type": "box", "layout": "horizontal", "contents": [
@@ -679,7 +671,6 @@ function createMenuFlexMessage() {
     const footRows = [];
     const bodyRows = [];
 
-    // Phân loại dịch vụ từ SERVICES object
     Object.values(SERVICES).forEach(svc => {
         if (svc.category === 'SYSTEM') return;
         const row = createRow(svc.name, svc.duration, svc.price);
@@ -886,9 +877,8 @@ async function handleEvent(event) {
       return client.replyMessage(event.replyToken, { type: 'flex', altText: '選擇服務', contents: { "type": "bubble", "body": { "type": "box", "layout": "vertical", "contents": [ { "type": "text", "text": "請選擇服務類別 (Service)", "weight": "bold", "size": "lg", "align": "center", "color": "#1DB446" }, { "type": "separator", "margin": "md" }, { "type": "button", "style": "primary", "color": "#A17DF5", "margin": "md", "action": { "type": "message", "label": "🔥 套餐 (Combo)", "text": "Cat:COMBO" } }, { "type": "button", "style": "secondary", "margin": "sm", "action": { "type": "message", "label": "👣 足底按摩 (Foot)", "text": "Cat:FOOT" } }, { "type": "button", "style": "secondary", "margin": "sm", "action": { "type": "message", "label": "🛏️ 身體指壓 (Body)", "text": "Cat:BODY" } } ] } } });
   }
 
-  // --- ENTRY: MENU (Fixed) ---
+  // --- ENTRY: MENU ---
   if (text.includes('Menu') || text.includes('價目') || text === '服務價目') {
-      // Đảm bảo dữ liệu mới nhất trước khi hiển thị
       if (Object.keys(SERVICES).length <= 3) await syncMenuData();
       return client.replyMessage(event.replyToken, { type: 'flex', altText: '服務價目表', contents: createMenuFlexMessage() });
   }
@@ -927,7 +917,7 @@ async function handleEvent(event) {
   if (text.startsWith('Svc:')) {
       const svcCode = text.split(':')[1];
       userState[userId] = { step: 'DATE', service: svcCode };
-      const days = getNext15Days(); // [FIXED] Reversed date list
+      const days = getNext15Days(); 
       return client.replyMessage(event.replyToken, { type: 'flex', altText: 'Date', contents: { "type": "bubble", "body": { "type": "box", "layout": "vertical", "contents": [ { "type": "text", "text": "📅 請選擇日期 (Date)", "align": "center", "weight": "bold" }, ...days.map(d=>({ "type": "button", "style": "secondary", "margin": "sm", "action": { "type": "message", "label": d.label, "text": `Date:${d.value}` } })) ] } } });
   }
 
@@ -1052,11 +1042,9 @@ async function handleEvent(event) {
       });
   }
 
-  // [FIXED] Bot Disappearing Fix
   if (text.startsWith('Time:')) {
       const gio = text.replace('Time:', '').trim();
       
-      // Kiểm tra xem User State còn tồn tại không
       if (!userState[userId]) {
           return client.replyMessage(event.replyToken, { type: 'text', text: '⚠️ 連線逾時，請重新點擊「立即預約」。(Session expired)' });
       }
@@ -1064,7 +1052,7 @@ async function handleEvent(event) {
       const currentState = userState[userId];
       currentState.step = 'SURNAME';
       currentState.time = gio;
-      userState[userId] = currentState; // Lưu lại state
+      userState[userId] = currentState; 
 
       return client.replyMessage(event.replyToken, { type: 'text', text: `請問怎麼稱呼您？(姓氏/Surname)` });
   }
@@ -1099,7 +1087,9 @@ async function handleEvent(event) {
       else if (s.pref === 'MALE') staffDisplay = '男師傅';
       else if (s.pref === 'OIL') staffDisplay = '女師傅(油)';
 
-      const confirmMsg = `✅ 預約成功\n\n👤 ${s.surname} (${sdt})\n📅 ${finalDate} ${s.time}\n💆 ${SERVICES[s.service].name}\n👥 ${s.pax} 位\n🛠️ ${staffDisplay}\n💵 總金額: $${totalPrice}`;
+      // [ADDED] Cancellation Notice in Success Message
+      const confirmMsg = `✅ 預約成功 (Confirmed)\n\n👤 ${s.surname} (${sdt})\n📅 ${finalDate} ${s.time}\n💆 ${SERVICES[s.service].name}\n👥 ${s.pax} 位\n🛠️ ${staffDisplay}\n💵 總金額: $${totalPrice}\n\n⚠️ 重要須知 (Notice):\n若需【更改時間】或【取消預約】，請務必點擊下方「我的預約」按鈕操作，或直接致電櫃台告知，謝謝配合！`;
+      
       await client.replyMessage(event.replyToken, { type: 'text', text: confirmMsg });
       client.pushMessage(ID_BA_CHU, { type: 'text', text: `💰 New Booking: ${s.surname} - $${totalPrice}` });
       
