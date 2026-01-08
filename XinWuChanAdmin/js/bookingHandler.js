@@ -1,18 +1,20 @@
 /**
  * ============================================================================
  * FILE: js/bookingHandler.js
- * PHIÊN BẢN: V54 (Async Save + Auto Refresh + No Freeze)
+ * PHIÊN BẢN: V55 (Super Logic Sync - Smart Gap)
  * NGÀY CẬP NHẬT: 2026-01-08
- * * TÍNH NĂNG MỚI:
- * 1. Thêm hiệu ứng "Đang xử lý..." (Loading) khi bấm lưu để tránh đơ giao diện.
- * 2. Tự động kích hoạt làm mới Timeline sau khi lưu thành công.
- * 3. Ngăn chặn bấm nút xác nhận nhiều lần (Double-click prevention).
- * 4. Giữ nguyên danh sách giờ 08:00 -> 00:00.
+ * * * TÍNH NĂNG MỚI & SỬA LỖI (V55):
+ * 1. [CRITICAL] Đồng bộ Logic với Backend:
+ * - Giảm CLEANUP_BUFFER từ 10 -> 5 phút.
+ * - Thêm TRANSITION_BUFFER (5 phút) giữa 2 giai đoạn của Combo.
+ * => Giải quyết lỗi báo "Hết giường/ghế" khi khách chuyển tiếp sát giờ.
+ * 2. Cập nhật thuật toán Tetris để tính toán khoảng nghỉ (Gap) tự động.
+ * 3. Giữ nguyên các tính năng V54: Async Save, Loading UI, Auto Refresh.
  * ============================================================================
  */
 
 (function() {
-    console.log("🚀 BookingHandler V54 (Async Save Fix): Hệ thống đang khởi động...");
+    console.log("🚀 BookingHandler V55 (Super Logic Sync): Hệ thống đang khởi động...");
 
     // -------------------------------------------------------------------------
     // 1. SAFETY CHECKS & CONFIG
@@ -31,6 +33,13 @@
         CLOSE_HOUR: 3,        // Giờ đóng cửa (03:00 sáng hôm sau)
         ALLOW_LAST_ORDER: 60, // Phút chót nhận khách trước khi đóng
         DEBUG_MODE: false     // Bật true để xem log chi tiết
+    };
+
+    // --- [NEW V55] CẤU HÌNH LOGIC THÔNG MINH ---
+    const LOGIC_CONFIG = {
+        CLEANUP_BUFFER: 5,     // Thời gian dọn dẹp (Giảm từ 10 -> 5)
+        TRANSITION_BUFFER: 5,  // Thời gian nghỉ chuyển tiếp giữa Combo (Mới)
+        MAX_MINUTES: 3000      // Giới hạn timeline (đủ cho 48h)
     };
 
     // Danh sách giờ hiển thị (08h sáng -> 23h đêm -> 00h sáng hôm sau)
@@ -59,20 +68,18 @@
         return defaultDur;
     };
 
-    // [Helper] Hàm Refresh Timeline Global (Cố gắng tìm hàm reload của trang web)
+    // [Helper] Hàm Refresh Timeline Global
     const forceGlobalRefresh = () => {
         console.log("🔄 Đang yêu cầu làm mới Timeline...");
-        // Thử gọi các hàm phổ biến thường dùng để refresh
         if (typeof window.fetchDataAndRender === 'function') window.fetchDataAndRender();
         else if (typeof window.loadBookingData === 'function') window.loadBookingData();
         else if (typeof window.initTimeline === 'function') window.initTimeline();
         else if (typeof window.location.reload === 'function') {
             console.warn("⚠️ Không tìm thấy hàm refresh, sẽ reload trang sau 2s...");
-            // setTimeout(() => window.location.reload(), 2000); // Tạm tắt reload trang để tránh phiền
         }
     };
 
-    // [CORE FIX] Kiểm tra trạng thái OFF của nhân viên
+    // [Helper] Kiểm tra trạng thái OFF của nhân viên
     const getStaffDayStatus = (staff, dateString) => {
         if (!staff) return '';
         const [y, m, d] = (dateString || '').split('-');
@@ -166,12 +173,15 @@
         return 'BED'; 
     };
 
-    // [CORE] Tính toán tài nguyên
+    // ========================================================================
+    // [V55 FIX] LOGIC TÍNH TOÁN TÀI NGUYÊN (SYNC VỚI BACKEND)
+    // ========================================================================
+    
+    // 1. Tính toán tổng tải (Total Load)
     const calculateResourceUsage = (todaysBookings) => {
-        const MAX_MINUTES = 3000;
+        const { MAX_MINUTES, CLEANUP_BUFFER, TRANSITION_BUFFER } = LOGIC_CONFIG;
         const chairUsage = new Uint8Array(MAX_MINUTES);
         const bedUsage = new Uint8Array(MAX_MINUTES);
-        const CLEANUP_BUFFER = 10;
 
         if (!Array.isArray(todaysBookings)) return { chairUsage, bedUsage };
 
@@ -189,11 +199,14 @@
 
             if (type === 'COMBO') {
                 const half = duration / 2;
+                // Phase 1: Start -> Start + Half + Cleanup
                 const p1End = bStart + half + CLEANUP_BUFFER;
                 for (let t = bStart; t < p1End; t++) if (t < MAX_MINUTES) chairUsage[t] += bPax;
                 
-                const p2Start = bStart + half;
-                const p2End = bStart + duration + CLEANUP_BUFFER;
+                // Phase 2 [FIX]: Start = Start + Half + Transition (Nghỉ 5p)
+                const p2Start = bStart + half + TRANSITION_BUFFER;
+                const p2End = p2Start + half + CLEANUP_BUFFER; // Duration Phase 2 cũng là half
+                
                 for (let t = p2Start; t < p2End; t++) if (t < MAX_MINUTES) bedUsage[t] += bPax;
             } else if (type === 'CHAIR') {
                 const effectiveEnd = bStart + duration + CLEANUP_BUFFER;
@@ -207,10 +220,9 @@
         return { chairUsage, bedUsage };
     };
 
-    // [CORE] Tetris Logic
+    // 2. Xây dựng bản đồ Slot chi tiết (Tetris Map)
     const buildDetailedSlotMap = (todayBookings) => {
-        const MAX_MINUTES = 3000;
-        const CLEANUP_BUFFER = 10;
+        const { MAX_MINUTES, CLEANUP_BUFFER, TRANSITION_BUFFER } = LOGIC_CONFIG;
         const slots = { 
             CHAIR: Array.from({length: 7}, () => new Uint8Array(MAX_MINUTES)), 
             BED: Array.from({length: 7}, () => new Uint8Array(MAX_MINUTES)) 
@@ -234,13 +246,16 @@
 
             if (b.category === 'COMBO') {
                 const half = duration / 2;
+                // Phase 1
                 const p1End = bStart + half + CLEANUP_BUFFER;
                 const p1Arr = slots[startType][slotIdx];
                 for(let t=bStart; t<p1End; t++) if(t<MAX_MINUTES) p1Arr[t] = 1;
                 
+                // Phase 2 [FIX]: Add Transition Buffer
                 const p2Type = startType === 'CHAIR' ? 'BED' : 'CHAIR';
-                const p2Start = bStart + half;
-                const p2End = bStart + duration + CLEANUP_BUFFER;
+                const p2Start = bStart + half + TRANSITION_BUFFER;
+                const p2End = p2Start + half + CLEANUP_BUFFER;
+                
                 const p2Arr = slots[p2Type][slotIdx];
                 for(let t=p2Start; t<p2End; t++) if(t<MAX_MINUTES) p2Arr[t] = 1;
             } else {
@@ -252,8 +267,11 @@
         return slots;
     };
 
+    // 3. Logic Xếp chỗ Tetris (Thử nhét khách vào chỗ trống)
     const tryFitMixedServicesTetris = (guestDetails, startMins, slotMapOriginal) => {
-        const CLEANUP_BUFFER = 10;
+        const { CLEANUP_BUFFER, TRANSITION_BUFFER } = LOGIC_CONFIG;
+        
+        // Clone map để thử nghiệm
         const slotMap = { 
             CHAIR: slotMapOriginal.CHAIR.map(arr => new Uint8Array(arr)), 
             BED: slotMapOriginal.BED.map(arr => new Uint8Array(arr)) 
@@ -261,9 +279,13 @@
 
         const isSlotAvailable = (type, idx, s, e) => {
             const arr = slotMap[type][idx];
-            for (let t = s; t < e; t++) if (arr[t] === 1) return false;
+            // Lưu ý: Ở backend có Tolerance, ở đây ta dùng logic Gap (Transition) là đủ mạnh
+            for (let t = s; t < e; t++) {
+                if (arr[t] === 1) return false;
+            }
             return true;
         };
+        
         const markSlotBusy = (type, idx, s, e) => {
             const arr = slotMap[type][idx];
             for (let t = s; t < e; t++) arr[t] = 1;
@@ -280,9 +302,17 @@
 
             if (type === 'COMBO') {
                 const half = duration / 2;
-                const p1Start = startMins; const p1End = startMins + half + CLEANUP_BUFFER;
-                const p2Start = startMins + half; const p2End = startMins + duration + CLEANUP_BUFFER;
                 
+                // [FIX] Tính toán thời gian với Transition Buffer
+                // Phase 1: Start -> End + Cleanup
+                const p1Start = startMins; 
+                const p1End = startMins + half + CLEANUP_BUFFER;
+                
+                // Phase 2: Start + Half + Transition -> End + Cleanup
+                const p2Start = startMins + half + TRANSITION_BUFFER; 
+                const p2End = p2Start + half + CLEANUP_BUFFER;
+                
+                // Thử phương án 1: Chân (Chair) -> Body (Bed)
                 for (let c = 1; c <= 6; c++) {
                     if (isSlotAvailable('CHAIR', c, p1Start, p1End)) {
                         for (let b = 1; b <= 6; b++) {
@@ -295,6 +325,8 @@
                     }
                     if (placed) break;
                 }
+                
+                // Thử phương án 2: Body (Bed) -> Chân (Chair) [Đảo ngược]
                 if (!placed) {
                     for (let b = 1; b <= 6; b++) {
                         if (isSlotAvailable('BED', b, p1Start, p1End)) {
@@ -310,6 +342,7 @@
                     }
                 }
             } else {
+                // Khách lẻ
                 const tType = type === 'CHAIR' ? 'CHAIR' : 'BED';
                 const effectiveEnd = startMins + duration + CLEANUP_BUFFER;
                 for (let r = 1; r <= 6; r++) {
@@ -319,7 +352,8 @@
                     }
                 }
             }
-            if (!placed) return false;
+            
+            if (!placed) return false; // Nếu có 1 khách không xếp được -> Fail cả nhóm
         }
         return true;
     };
@@ -334,7 +368,7 @@
         const [step, setStep] = useState('CHECK');
         const [checkResult, setCheckResult] = useState(null);
         const [suggestions, setSuggestions] = useState([]);
-        const [isSubmitting, setIsSubmitting] = useState(false); // [NEW] Loading State
+        const [isSubmitting, setIsSubmitting] = useState(false);
 
         const defaultService = window.SERVICES_LIST ? window.SERVICES_LIST[2] : "Body Massage";
 
@@ -409,6 +443,7 @@
             const bizCheck = checkBusinessHoursViolation(targetTimeStr, maxDuration);
             if (!bizCheck.valid) return bizCheck;
 
+            // Lọc booking của ngày
             const todays = safeBookings.filter(b => {
                 if (!b || !b.startTimeString) return false;
                 const bDate = b.startTimeString.split(' ')[0].replace(/-/g, '/');
@@ -416,16 +451,19 @@
                 return bDate === targetDateStandard && isValidStatus;
             });
 
+            // Check Staff Availability (Số lượng)
             const activeStaff = safeStaffList.filter(s => isStaffWorkingAt(s, startMins, form.date));
             const totalActive = activeStaff.length;
             
             let busyTotal = 0;
+            // Ở bước đếm sơ bộ này, ta vẫn dùng logic đơn giản (tính max end) để ước lượng
             const checkEndMins = startMins + maxDuration;
 
             todays.forEach(b => {
                 const bStart = safeNormalizeMins(b.startTimeString.split(' ')[1]);
                 const bEnd = bStart + (b.duration || 60);
                 const bPax = parseInt(b.pax) || 1;
+                // Nếu khoảng thời gian giao nhau
                 if (Math.max(startMins, bStart) < Math.min(checkEndMins, bEnd)) {
                     busyTotal += bPax;
                 }
@@ -435,6 +473,7 @@
                 return { valid: false, reason: `❌ 技師人手不足 (剩餘: ${totalActive - busyTotal})` };
             }
 
+            // Check Staff đích danh
             for (let i = 0; i < guestDetails.length; i++) {
                 const st = guestDetails[i].staff;
                 if (['隨機', '男', '女'].some(k => st.includes(k))) continue;
@@ -459,10 +498,11 @@
                 if (isBusy) return { valid: false, reason: `❌ 技師 ${st} 該時段忙碌` };
             }
 
+            // [FIX] Sử dụng Logic tính tài nguyên mới (có Transition Buffer)
             const { chairUsage, bedUsage } = calculateResourceUsage(todays);
             const tempChairUsage = new Uint8Array(chairUsage);
             const tempBedUsage = new Uint8Array(bedUsage);
-            const CLEANUP_BUFFER = 10;
+            const { CLEANUP_BUFFER, TRANSITION_BUFFER } = LOGIC_CONFIG;
 
             for (let i = 0; i < guestDetails.length; i++) {
                 const guest = guestDetails[i];
@@ -471,8 +511,12 @@
                 
                 if (type === 'COMBO') {
                     const half = d / 2;
+                    // Phase 1
                     for(let t = startMins; t < startMins + half + CLEANUP_BUFFER; t++) tempChairUsage[t]++;
-                    for(let t = startMins + half; t < startMins + d + CLEANUP_BUFFER; t++) tempBedUsage[t]++;
+                    // Phase 2 (Có gap)
+                    const p2Start = startMins + half + TRANSITION_BUFFER;
+                    const p2End = p2Start + half + CLEANUP_BUFFER;
+                    for(let t = p2Start; t < p2End; t++) tempBedUsage[t]++;
                 } else if (type === 'CHAIR') {
                     for(let t = startMins; t < startMins + d + CLEANUP_BUFFER; t++) tempChairUsage[t]++;
                 } else {
@@ -480,14 +524,18 @@
                 }
             }
 
-            for (let t = startMins; t < checkEndMins + CLEANUP_BUFFER; t++) {
-                if (tempChairUsage[t] > SHOP_CONFIG.LIMIT_CHAIRS) return { valid: false, reason: "❌ 足底區客滿" };
-                if (tempBedUsage[t] > SHOP_CONFIG.LIMIT_BEDS) return { valid: false, reason: "❌ 身體區客滿" };
+            // Kiểm tra quá tải
+            // Quét trong khoảng thời gian diễn ra dịch vụ
+            const scanEnd = startMins + maxDuration + CLEANUP_BUFFER + TRANSITION_BUFFER;
+            for (let t = startMins; t < scanEnd; t++) {
+                if (tempChairUsage[t] > SHOP_CONFIG.LIMIT_CHAIRS) return { valid: false, reason: "❌ 足底區客滿 (Hết ghế)" };
+                if (tempBedUsage[t] > SHOP_CONFIG.LIMIT_BEDS) return { valid: false, reason: "❌ 身體區客滿 (Hết giường)" };
             }
 
+            // [FIX] Tetris Check với Logic mới
             const slotMap = buildDetailedSlotMap(todays);
             const canFit = tryFitMixedServicesTetris(guestDetails, startMins, slotMap);
-            if (!canFit) return { valid: false, reason: "❌ 座位/床位無法安排 (碎片化)" };
+            if (!canFit) return { valid: false, reason: "❌ Không ghép được lịch (Phân mảnh)" };
 
             return { valid: true, reason: "OK" };
         };
@@ -502,10 +550,12 @@
             } else {
                 setCheckResult({ status: 'FAIL', message: result.reason });
                 
+                // Gợi ý giờ
                 const foundSuggestions = [];
                 const parts = form.time.split(':').map(Number);
                 let currentTotalMins = (parts[0]||0) * 60 + (parts[1]||0);
                 
+                // Tìm kiếm trong 4 tiếng tiếp theo
                 for (let i = 1; i <= 24; i++) { 
                     const nextMins = currentTotalMins + (i * 10);
                     let h = Math.floor(nextMins / 60); let m = nextMins % 60;
@@ -521,17 +571,17 @@
             }
         };
 
-        // [CORE FIX] ASYNC SUBMIT HANDLER
+        // Async Submit Handler
         const handleFinalSave = async (e) => {
             if (e) e.preventDefault();
-            if (isSubmitting) return; // Prevent double click
+            if (isSubmitting) return; 
             
             if (!form.custName || form.custName.trim() === '') { 
                 alert("⚠️ 請輸入顧客姓名!"); 
                 return; 
             }
 
-            setIsSubmitting(true); // LOCK UI
+            setIsSubmitting(true);
 
             try {
                 const serviceSummary = guestDetails.map(g => g.service).filter((v, i, a) => a.indexOf(v) === i).join(', ');
@@ -555,16 +605,12 @@
                     guestDetails: guestDetails 
                 };
 
-                console.log("💾 Saving Booking (Async):", payload);
+                console.log("💾 Saving Booking (Async V55):", payload);
 
                 if (typeof onSave === 'function') {
-                    // Gọi hàm lưu và chờ đợi (await) để UI không bị đơ
                     await Promise.resolve(onSave(payload));
-                    
-                    // Sau khi lưu xong, kích hoạt làm mới Timeline
                     forceGlobalRefresh();
 
-                    // Đóng modal sau một chút delay để user thấy phản hồi
                     setTimeout(() => {
                         onClose();
                         setIsSubmitting(false);
@@ -576,7 +622,7 @@
             } catch (err) {
                 console.error("❌ Error during save:", err);
                 alert("Lỗi khi lưu: " + err.message);
-                setIsSubmitting(false); // Mở khóa UI nếu lỗi
+                setIsSubmitting(false);
             }
         };
 
@@ -587,7 +633,7 @@
                 <div className="bg-white w-full max-w-xl rounded-xl shadow-2xl flex flex-col max-h-[95vh] overflow-hidden animate-fadeIn">
                     
                     <div className="bg-[#10b981] p-4 text-white flex justify-between items-center shrink-0">
-                        <h3 className="font-bold text-lg">📅 電話預約 (Booking Check V54)</h3>
+                        <h3 className="font-bold text-lg">📅 電話預約 (Booking V55)</h3>
                         <button onClick={onClose} className="text-2xl hover:text-red-100">&times;</button>
                     </div>
 
@@ -604,7 +650,6 @@
                                         <div className="flex items-center gap-1">
                                             <div className="relative flex-1">
                                                 <select className="w-full border p-2 rounded font-bold h-[42px] appearance-none text-center bg-white" value={currentHour} onChange={(e) => handleTimeChange('HOUR', e.target.value)}>
-                                                    {/* SỬ DỤNG LIST GIỜ MỚI */}
                                                     {HOURS_LIST.map(h => <option key={h} value={h}>{h}</option>)}
                                                 </select>
                                             </div>
@@ -708,7 +753,7 @@
                                         value={form.custName} 
                                         onChange={e => setForm({...form, custName: e.target.value})}
                                         placeholder="Nhập tên khách..."
-                                        disabled={isSubmitting} // Disable khi đang lưu
+                                        disabled={isSubmitting} 
                                     />
                                 </div>
                                 <div>
@@ -718,7 +763,7 @@
                                         value={form.custPhone} 
                                         onChange={e => setForm({...form, custPhone: e.target.value})}
                                         placeholder="09xx..."
-                                        disabled={isSubmitting} // Disable khi đang lưu
+                                        disabled={isSubmitting} 
                                     />
                                 </div>
 
@@ -768,7 +813,7 @@
         const [step, setStep] = useState('CHECK');
         const [checkResult, setCheckResult] = useState(null);
         const [waitSuggestion, setWaitSuggestion] = useState(null); 
-        const [isSubmitting, setIsSubmitting] = useState(false); // [NEW] Loading State
+        const [isSubmitting, setIsSubmitting] = useState(false); 
 
         // Init Time Logic
         const now = new Date();
@@ -863,10 +908,11 @@
                 }
             }
 
+            // [FIX] Walk-in Resource Check with Gap Logic
             const { chairUsage, bedUsage } = calculateResourceUsage(todays);
             const tempChairUsage = new Uint8Array(chairUsage);
             const tempBedUsage = new Uint8Array(bedUsage);
-            const CLEANUP_BUFFER = 10;
+            const { CLEANUP_BUFFER, TRANSITION_BUFFER } = LOGIC_CONFIG;
 
             for (let i = 0; i < guestDetails.length; i++) {
                 const guest = guestDetails[i];
@@ -875,7 +921,9 @@
                 if (type === 'COMBO') {
                     const half = d / 2;
                     for(let t = startMins; t < startMins + half + CLEANUP_BUFFER; t++) tempChairUsage[t]++;
-                    for(let t = startMins + half; t < startMins + d + CLEANUP_BUFFER; t++) tempBedUsage[t]++;
+                    const p2Start = startMins + half + TRANSITION_BUFFER;
+                    const p2End = p2Start + half + CLEANUP_BUFFER;
+                    for(let t = p2Start; t < p2End; t++) tempBedUsage[t]++;
                 } else if (type === 'CHAIR') {
                     for(let t = startMins; t < startMins + d + CLEANUP_BUFFER; t++) tempChairUsage[t]++;
                 } else {
@@ -883,11 +931,13 @@
                 }
             }
 
-            for (let t = startMins; t < checkEndMins + CLEANUP_BUFFER; t++) {
+            const scanEnd = startMins + maxDuration + CLEANUP_BUFFER + TRANSITION_BUFFER;
+            for (let t = startMins; t < scanEnd; t++) {
                 if (tempChairUsage[t] > SHOP_CONFIG.LIMIT_CHAIRS) return { valid: false, reason: "❌ 現場椅位客滿" };
                 if (tempBedUsage[t] > SHOP_CONFIG.LIMIT_BEDS) return { valid: false, reason: "❌ 現場床位客滿" };
             }
 
+            // [FIX] Walk-in Tetris Check
             const slotMap = buildDetailedSlotMap(todays);
             const canFit = tryFitMixedServicesTetris(guestDetails, startMins, slotMap);
             if (!canFit) return { valid: false, reason: "❌ 現場座位碎片化 (無法安排連續)" };
@@ -942,7 +992,6 @@
             }
         };
 
-        // [CORE FIX] ASYNC SUBMIT HANDLER FOR WALK-IN
         const handleFinalSave = async (e) => {
             if (e) e.preventDefault();
             if (isSubmitting) return;
@@ -973,7 +1022,7 @@
                     guestDetails: guestDetails 
                 };
 
-                console.log("💾 Saving Walk-in (Async):", payload);
+                console.log("💾 Saving Walk-in (Async V55):", payload);
 
                 if (typeof onSave === 'function') {
                     await Promise.resolve(onSave(payload));
@@ -998,7 +1047,7 @@
             <div className="fixed inset-0 bg-black/70 z-[90] flex items-center justify-center p-4">
                 <div className="bg-white w-full max-w-xl rounded-xl shadow-2xl modal-animate flex flex-col max-h-[90vh] overflow-hidden">
                     <div className="bg-amber-500 p-4 text-black flex justify-between items-center shrink-0">
-                        <h3 className="font-bold text-lg flex items-center gap-2"><i className="fas fa-bolt"></i> 現場客 (Walk-in)</h3>
+                        <h3 className="font-bold text-lg flex items-center gap-2"><i className="fas fa-bolt"></i> 現場客 (Walk-in V55)</h3>
                         <button onClick={onClose}><i className="fas fa-times text-xl"></i></button>
                     </div>
                     
@@ -1106,18 +1155,18 @@
     const overrideInterval = setInterval(() => {
         if (window.AvailabilityCheckModal !== NewAvailabilityCheckModal) {
             window.AvailabilityCheckModal = NewAvailabilityCheckModal;
-            console.log("♻️ AvailabilityModal Injected (V54)");
+            console.log("♻️ AvailabilityModal Injected (V55)");
         }
         if (window.WalkInModal !== NewWalkInModal) {
             window.WalkInModal = NewWalkInModal;
-            console.log("♻️ WalkInModal Injected (V54)");
+            console.log("♻️ WalkInModal Injected (V55)");
         }
     }, 200);
 
     // Dừng inject sau 5 giây để tiết kiệm tài nguyên
     setTimeout(() => {
         clearInterval(overrideInterval);
-        console.log("✅ BookingHandler V54: Injection Completed.");
+        console.log("✅ BookingHandler V55: Injection Completed.");
     }, 5000);
 
 })();
