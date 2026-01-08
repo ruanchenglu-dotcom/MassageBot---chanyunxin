@@ -1,14 +1,14 @@
 /**
  * =================================================================================================
  * PROJECT: XINWUCHAN MASSAGE BOT (BACKEND SERVER)
- * VERSION: V185 (FIXED: MAX BOOKING TIME 24:00)
+ * VERSION: V186 (FIXED: GOOGLE QUOTA EXCEEDED & CACHING OPTIMIZATION)
  * AUTHOR: AI ASSISTANT
  * DATE: 2026/01/08
- * NOTE: 
- * - Time range capped at 24:00 (00:00). No 01:00 bookings.
+ * UPDATE NOTE: 
+ * - Implemented RAM Caching for /api/info to prevent Google API Quota errors.
+ * - Added Automatic Background Sync (Interval 60s).
+ * - Time range capped at 24:00 (00:00).
  * - Full Traditional Chinese.
- * - Dynamic Menu from Sheet.
- * - Cancellation Warning included.
  * =================================================================================================
  */
 
@@ -41,7 +41,7 @@ const MAX_CHAIRS = 6;
 const MAX_BEDS = 6;
 const FUTURE_BUFFER_MINS = 5;
 const CLEANUP_BUFFER = 10;
-const MAX_TIMELINE_MINUTES = 3000;
+const MAX_TIMELINE_MINUTES = 3000; // Đủ cho hơn 2 ngày tính theo phút
 
 // Google Auth
 const auth = new google.auth.GoogleAuth({
@@ -50,13 +50,15 @@ const auth = new google.auth.GoogleAuth({
 });
 const sheets = google.sheets({ version: 'v4', auth });
 
-// Global State
+// Global State (Bộ nhớ RAM - Cache)
+// Dữ liệu sẽ được lưu ở đây để phục vụ API nhanh chóng
 let SERVER_RESOURCE_STATE = {};
 let SERVER_STAFF_STATUS = {};
 let STAFF_LIST = [];
 let cachedBookings = [];
 let scheduleMap = {}; 
 let userState = {};
+let lastSyncTime = new Date(); // Theo dõi thời gian cập nhật cuối cùng
 
 // Dịch vụ mặc định (Sẽ được ghi đè bởi Sheet 'menu')
 let SERVICES = {
@@ -98,7 +100,7 @@ function normalizeSheetDate(rawDateStr) {
     } catch (e) { return null; }
 }
 
-// [FIXED] Danh sách ngày đảo ngược (Hôm nay ở dưới cùng)
+// Danh sách 15 ngày tới (Đảo ngược để hiển thị trên điện thoại dễ bấm hơn)
 function getNext15Days() {
     let days = [];
     const t = getTaipeiNow();
@@ -346,6 +348,7 @@ async function syncDailySalary(dateStr, staffDataList) {
     } catch (e) { console.error('[SALARY ERROR]', e); }
 }
 
+// Hàm đồng bộ chính (Core Sync Function)
 async function syncData() {
     try {
         await syncMenuData(); 
@@ -409,7 +412,9 @@ async function syncData() {
             }
         }
         if (STAFF_LIST.length === 0) for(let i=1; i<=20; i++) STAFF_LIST.push({id:`${i}號`, name:`${i}號`, gender:'F', shiftStart:'08:00', shiftEnd:'03:00'});
-        console.log(`[SYNC OK] Bookings: ${cachedBookings.length}, Staff: ${STAFF_LIST.length}`);
+        
+        lastSyncTime = new Date();
+        console.log(`[SYNC OK] Bookings: ${cachedBookings.length}, Staff: ${STAFF_LIST.length} at ${lastSyncTime.toLocaleTimeString()}`);
     } catch (e) { console.error('[SYNC ERROR]', e); }
 }
 
@@ -452,17 +457,14 @@ function runSmartAvailabilityCheck(dateStr, timeStr, guestList) {
     return { feasible: true, freeStaff: totalActive - busyStaffCount, score: totalActive - busyStaffCount };
 }
 
-// [FIXED] TIME LIMIT: 24:00 (00:00) IS MAX.
 function findBestSlots(selectedDate, serviceCode, pax = 1, requireFemale = false, requireMale = false) {
     const service = SERVICES[serviceCode]; if (!service) return [];
     let candidates = [];
     
-    // [MODIFIED] Loop stops at 24 (00:00). 
-    // 9, 10, ... 23, 24.
     for (let h = 9; h <= 24; h += 1) { 
         const hourInt = Math.floor(h); const minuteInt = 0; 
         let displayH = hourInt; 
-        if (displayH >= 24) displayH -= 24; // 24 -> 00, 25 -> 01
+        if (displayH >= 24) displayH -= 24; 
         
         const timeStr = `${displayH.toString().padStart(2, '0')}:${minuteInt.toString().padStart(2, '0')}`;
         const guestList = [];
@@ -475,12 +477,10 @@ function findBestSlots(selectedDate, serviceCode, pax = 1, requireFemale = false
     return candidates.slice(0, 6);
 }
 
-// [FIXED] TIME LIMIT: 24:00 (00:00) IS MAX.
 function generateTimeBubbles(selectedDate, serviceCode, specificStaffIds = null, pax = 1, requireFemale = false, requireMale = false) {
     const service = SERVICES[serviceCode]; if (!service) return null;
     let validSlots = [];
     
-    // [MODIFIED] Loop stops at 24 (00:00).
     for (let h = 9; h <= 24; h += 1) { 
         const hourInt = Math.floor(h); const minuteInt = 0; 
         let displayH = hourInt; 
@@ -663,8 +663,22 @@ app.use(express.urlencoded({ extended: true }));
 app.use(express.static(path.join(__dirname, 'public')));
 app.use('/admin2', express.static(path.join(__dirname, 'XinWuChanAdmin')));
 
-// API ENDPOINTS
-app.get('/api/info', async (req, res) => { await syncData(); res.json({ staffList: STAFF_LIST, bookings: cachedBookings, schedule: scheduleMap, resources: { chairs: MAX_CHAIRS, beds: MAX_BEDS }, resourceState: SERVER_RESOURCE_STATE, staffStatus: SERVER_STAFF_STATUS, services: SERVICES }); });
+// --- API ENDPOINTS (ĐÃ TỐI ƯU Caching) ---
+
+// ⚡ CACHING FIX: Trả về dữ liệu từ RAM ngay lập tức, KHÔNG gọi Google Sheet
+app.get('/api/info', (req, res) => { 
+    res.json({ 
+        staffList: STAFF_LIST, 
+        bookings: cachedBookings, 
+        schedule: scheduleMap, 
+        resources: { chairs: MAX_CHAIRS, beds: MAX_BEDS }, 
+        resourceState: SERVER_RESOURCE_STATE, 
+        staffStatus: SERVER_STAFF_STATUS, 
+        services: SERVICES,
+        lastUpdated: lastSyncTime
+    }); 
+});
+
 app.post('/api/sync-resource', (req, res) => { SERVER_RESOURCE_STATE = req.body; res.json({ success: true }); });
 app.post('/api/sync-staff-status', (req, res) => { SERVER_STAFF_STATUS = req.body; res.json({ success: true }); });
 app.post('/api/admin-booking', async (req, res) => { const data = req.body; await ghiVaoSheet({ ngayDen: data.ngayDen, gioDen: data.gioDen, dichVu: data.dichVu, nhanVien: data.nhanVien, userId: 'ADMIN_WEB', sdt: data.sdt || '現場客', hoTen: data.hoTen || '現場客', trangThai: '已預約', pax: data.pax || 1, isOil: data.isOil || false, guestDetails: data.guestDetails }); res.json({ success: true }); });
@@ -844,7 +858,15 @@ async function handleEvent(event) {
   return client.replyMessage(event.replyToken, { type: 'flex', altText: '預約服務', contents: { "type": "bubble", "body": { "type": "box", "layout": "vertical", "contents": [ { "type": "text", "text": "您好 👋", "weight": "bold", "size": "lg", "align": "center" }, { "type": "text", "text": "請問您是要預約按摩服務嗎？", "wrap": true, "size": "sm", "color": "#555555", "align": "center", "margin": "md" } ] }, "footer": { "type": "box", "layout": "horizontal", "spacing": "sm", "contents": [ { "type": "button", "style": "primary", "action": { "type": "message", "label": "✅ 立即預約 (Book)", "text": "Action:Booking" } }, { "type": "button", "style": "secondary", "action": { "type": "message", "label": "📄 服務價目 (Menu)", "text": "Menu" } } ] } } });
 }
 
+// 1. Chạy sync lần đầu khi khởi động
 syncData();
+
+// 2. ⚡ AUTO SYNC: Tự động cập nhật mỗi 60 giây (để Google không chặn)
+setInterval(() => {
+    console.log('[AUTO SYNC] Updating data from Sheet...');
+    syncData();
+}, 60000); // 60000ms = 1 phút
+
 // --- BẮT ĐẦU ĐOẠN CODE CHỐNG NGỦ ---
 app.get('/ping', (req, res) => {
     console.log('Server đã được đánh thức bởi UptimeRobot!');
