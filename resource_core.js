@@ -226,7 +226,7 @@ function findAvailableStaff(staffReq, start, end, staffListRef, busyList) {
             // Nhân viên chấp nhận làm quá giờ (tăng ca).
             // Điều kiện: Chỉ cần Khách VÀO (Bắt đầu) trước khi hết giờ làm việc chính thức.
             // Ví dụ: Ca đến 22:00. Khách vào 21:55 làm 60p -> OK. Khách vào 22:05 -> Fail.
-            if ((start + CONFIG.TOLERANCE) >= shiftEnd) {
+            if ((start + CONFIG.TOLERANCE) > shiftEnd) {
                 // console.log(`[REJECT] ${name} OT Mode. Start ${start} >= ShiftEnd ${shiftEnd}`);
                 return false;
             }

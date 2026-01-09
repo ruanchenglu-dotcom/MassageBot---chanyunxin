@@ -138,7 +138,7 @@
                     if ((end - CONFIG.TOLERANCE) > shiftEnd) return false; 
                 } else {
                     // Flexible Mode: Chỉ cần BẮT ĐẦU trước giờ về
-                    if ((start + CONFIG.TOLERANCE) >= shiftEnd) return false;
+                    if ((start + CONFIG.TOLERANCE) > shiftEnd) return false;
                 }
 
                 // 4. Check trùng lịch
