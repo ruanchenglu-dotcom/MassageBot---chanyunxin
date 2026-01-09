@@ -2,14 +2,13 @@
  * =================================================================================================
  * PROJECT: XINWUCHAN MASSAGE BOT - CORE LOGIC KERNEL
  * FILE: resource_core.js
- * PHIÊN BẢN: V4.0 (GLOBAL OPTIMIZER - REVOLUTIONARY UPDATE)
+ * PHIÊN BẢN: V4.1 (FIX: ANTI-DOPPELGANGER - CHỐNG NHÂN ĐÔI KHÁCH)
  * TÁC GIẢ: AI ASSISTANT & USER
  * NGÀY CẬP NHẬT: 2026/01/10
- * * * * * TÍNH NĂNG ĐỘT PHÁ (V4.0 HIGHLIGHTS):
- * 1. [GLOBAL RESHUFFLING]: Khi có khách mới, hệ thống tự động tính toán lại trật tự (Ghế<->Giường)
- * của cả khách CŨ (nếu là Combo) để tìm khe hở cho khách MỚI.
- * 2. [SMART RESOURCE BALANCE]: Giải quyết triệt để lỗi "Báo hết giường ảo" bằng cách chia tải 50/50.
- * 3. [STRICT TIME & OT]: Vẫn giữ nguyên logic kiểm soát giờ về của nhân viên.
+ * * * * * CẬP NHẬT MỚI (V4.1):
+ * 1. [FIX DOUBLE COUNTING]: Khắc phục lỗi hệ thống hiểu lầm 1 khách Combo (có 2 block Chân/Body)
+ * thành 2 khách riêng biệt, gây báo ảo "Hết chỗ" dù thực tế còn trống.
+ * 2. [SMART DEDUPLICATION]: Tự động nhận diện và gộp các block rời rạc của cùng 1 nhân viên.
  * =================================================================================================
  */
 
@@ -51,7 +50,7 @@ function setDynamicServices(newServicesObj) {
         'LATE': { name: '⚠️ 延遲 (Late)', duration: 0, type: 'NONE', price: 0, category: 'SYSTEM' }
     };
     SERVICES = { ...newServicesObj, ...systemServices };
-    console.log(`[CORE V4] Services Database Updated: ${Object.keys(SERVICES).length} entries.`);
+    console.log(`[CORE V4.1] Services Database Updated: ${Object.keys(SERVICES).length} entries.`);
 }
 
 // ============================================================================
@@ -117,7 +116,6 @@ function checkResourceCapacity(resourceType, start, end, bookings) {
 
     // Tạo các điểm sự kiện (Vào/Ra)
     let points = [];
-    // Thêm điểm bắt đầu và kết thúc của khoảng check để làm mốc
     points.push({ time: start, type: 'check_start' });
     points.push({ time: end, type: 'check_end' });
 
@@ -126,23 +124,18 @@ function checkResourceCapacity(resourceType, start, end, bookings) {
         points.push({ time: bk.end, type: 'end' });
     });
 
-    // Sắp xếp: Thời gian tăng dần. Nếu trùng giờ, ưu tiên 'start' trước để tính tải max
+    // Sắp xếp: Thời gian tăng dần
     points.sort((a, b) => {
         if (a.time !== b.time) return a.time - b.time;
-        // Priority: start > check_start > check_end > end
         const priority = { 'start': 1, 'check_start': 2, 'check_end': 3, 'end': 4 };
         return priority[a.type] - priority[b.type];
     });
 
     let currentLoad = 0;
-    let maxLoadFound = 0;
-
-    // Chạy mô phỏng timeline
     for (const p of points) {
         if (p.type === 'start') currentLoad++;
         else if (p.type === 'end') currentLoad--;
         
-        // Chỉ kiểm tra quá tải trong phạm vi thời gian yêu cầu (start -> end)
         if (p.time >= start && p.time < end) {
              if (currentLoad > limit) return false;
         }
@@ -151,7 +144,7 @@ function checkResourceCapacity(resourceType, start, end, bookings) {
 }
 
 // ============================================================================
-// PHẦN 4: LOGIC TÌM NHÂN VIÊN (STAFF FINDER - STRICT TIME UPDATED)
+// PHẦN 4: LOGIC TÌM NHÂN VIÊN (STAFF FINDER)
 // ============================================================================
 
 function findAvailableStaff(staffReq, start, end, staffListRef, busyList) {
@@ -163,25 +156,21 @@ function findAvailableStaff(staffReq, start, end, staffListRef, busyList) {
         const shiftEnd = getMinsFromTimeStr(staffInfo.end);     
         if (shiftStart === -1 || shiftEnd === -1) return false; 
 
-        // Rule 1: Khách không thể đến trước giờ làm
+        // Rule: Thời gian khách đặt phải nằm trong ca làm việc
         if ((start + CONFIG.TOLERANCE) < shiftStart) return false;
-
-        // Rule 2: Strict Time vs Flexible
+        
         const isStrict = staffInfo.isStrictTime === true;
         if (isStrict) {
-            // Nghiêm ngặt: Phải xong trước giờ về
             if ((end - CONFIG.TOLERANCE) > shiftEnd) return false; 
         } else {
-            // Linh hoạt: Chỉ cần bắt đầu trước giờ về
             if (start > shiftEnd) return false;
         }
 
-        // Rule 3: Trùng lịch
+        // Rule: Không trùng lịch bận
         for (const b of busyList) {
             if (b.staffName === name && isOverlap(start, end, b.start, b.end)) return false; 
         }
 
-        // Rule 4: Giới tính
         if (staffReq === 'MALE' && staffInfo.gender !== 'M') return false;
         if ((staffReq === 'FEMALE' || staffReq === '女') && staffInfo.gender !== 'F') return false;
 
@@ -203,77 +192,90 @@ function findAvailableStaff(staffReq, start, end, staffListRef, busyList) {
 // PHẦN 5: BỘ XỬ LÝ TRUNG TÂM - GLOBAL OPTIMIZER (MAIN LOGIC)
 // ============================================================================
 
-/**
- * Hàm kiểm tra tính khả thi siêu cấp (V4.0)
- * Logic: Gom tất cả (Cũ + Mới) -> Thử sắp xếp lại Combo -> Kết luận
- */
 function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRaw, staffList) {
-    // 1. Validate Input
     const requestStartMins = getMinsFromTimeStr(timeStr);
     if (requestStartMins === -1) return { feasible: false, reason: "Error: Invalid Time Format" };
 
     // ========================================================================
-    // BƯỚC A: PHÂN LOẠI & TIỀN XỬ LÝ DỮ LIỆU
+    // BƯỚC A: PHÂN LOẠI & TIỀN XỬ LÝ DỮ LIỆU (FIXED DOUBLE COUNTING)
     // ========================================================================
     
-    // Nhóm 1: Hard Blocks (Không thể thay đổi)
-    // Bao gồm: Khách lẻ đã đặt, Combo đã qua giờ bắt đầu, hoặc dịch vụ đơn lẻ
     let hardBookings = [];
-    
-    // Nhóm 2: Flexible Combo Intentions (Ý định đặt Combo có thể đảo thứ tự)
-    // Bao gồm: Combo cũ (trong tương lai) và Combo mới đang request
     let flexibleIntentions = [];
+    
+    // Set này dùng để ghi nhớ Staff nào đã được tính là "Flexible" rồi.
+    // Nếu gặp block thứ 2 của cùng Staff đó trong khoảng thời gian liền kề, ta sẽ bỏ qua
+    // để tránh tính nhân đôi tài nguyên.
+    let processedFlexibleStaff = new Set();
 
-    // --- Xử lý Booking cũ từ Google Sheet ---
-    currentBookingsRaw.forEach(b => {
+    // Sắp xếp booking cũ theo giờ để xử lý thứ tự chuẩn
+    let sortedBookings = [...currentBookingsRaw].sort((a,b) => getMinsFromTimeStr(a.startTime) - getMinsFromTimeStr(b.startTime));
+
+    sortedBookings.forEach(b => {
         const bStart = getMinsFromTimeStr(b.startTime);
         if (bStart === -1) return;
 
         let svcInfo = SERVICES[b.serviceCode] || {};
         let isCombo = svcInfo.category === 'COMBO';
-        // Fallback nhận diện Combo qua tên
+        // Fallback nhận diện qua tên
         if (!svcInfo.category && (b.serviceName.includes('Combo') || b.serviceName.includes('套餐'))) isCombo = true;
 
         let duration = b.duration || 60;
         
-        // Nếu là Combo VÀ chưa diễn ra (tính tương đối so với request này để an toàn)
-        // Lưu ý: Chỉ dám đảo lịch những khách có cùng giờ bắt đầu hoặc tương lai
+        // LOGIC THÔNG MINH MỚI:
+        // Chỉ coi là Flexible nếu:
+        // 1. Là Combo
+        // 2. Bắt đầu cùng lúc hoặc sau request (để có thể đảo)
+        // 3. Nhân viên này chưa được xử lý Flexible trước đó (TRÁNH TRÙNG LẶP BLOCK)
         if (isCombo && bStart >= requestStartMins) {
+             if (processedFlexibleStaff.has(b.staffName)) {
+                 // Đã xử lý staff này rồi -> Đây là block "đuôi" của combo (ví dụ phần Body sau phần Chân)
+                 // Bỏ qua block này vì block đầu đã đại diện cho cả quy trình.
+                 return; 
+             }
+             
              flexibleIntentions.push({
                  source: 'OLD',
                  staffName: b.staffName,
                  start: bStart,
-                 duration: duration,
-                 price: 0, // Giá cũ không quan trọng
+                 duration: svcInfo.duration || 90, // Quan trọng: Lấy tổng thời gian gốc của dịch vụ
+                 price: 0,
                  serviceName: b.serviceName
              });
+             
+             // Đánh dấu staff này đã "vào nồi" tính toán
+             processedFlexibleStaff.add(b.staffName);
+
         } else {
-            // Nếu là khách lẻ, hoặc Combo đã lỡ làm rồi -> Coi là Cứng (Fixed)
-            // Cần tái tạo lại blocks cho đúng loại tài nguyên
-            if (isCombo) {
-                // Combo đã cứng (đã qua giờ) -> Mặc định FB (Ghế trước) cho an toàn hoặc giữ nguyên logic cũ
-                const half = Math.floor(duration/2);
-                hardBookings.push({ start: bStart, end: bStart+half, resourceType: 'CHAIR', staffName: b.staffName });
-                hardBookings.push({ start: bStart+half+CONFIG.TRANSITION_BUFFER, end: bStart+duration, resourceType: 'BED', staffName: b.staffName });
-            } else {
-                let rType = svcInfo.type || 'CHAIR'; // Mặc định ghế
-                if (b.serviceName.includes('Body') || b.serviceName.includes('指壓') || b.serviceName.includes('油')) rType = 'BED';
-                hardBookings.push({ start: bStart, end: bStart+duration, resourceType: rType, staffName: b.staffName });
-            }
+            // Đây là Hard Booking (Khách lẻ hoặc Combo đã lỡ làm một nửa)
+            // Với Hard Booking, ta tôn trọng dữ liệu thô: nó chiếm cái gì thì block cái đó.
+            // Không tự ý chia đôi nữa vì dữ liệu đầu vào có thể đã chia sẵn rồi.
+            
+            let rType = svcInfo.type || 'CHAIR'; 
+            // Nếu không có type chuẩn, đoán qua tên
+            if (b.serviceName.includes('Body') || b.serviceName.includes('指壓') || b.serviceName.includes('油')) rType = 'BED';
+            
+            // Nếu dữ liệu gốc là Combo nhưng đã quá giờ, nó sẽ vào đây.
+            // Lúc này block b chỉ là 1 phần (ví dụ 45p), ta add đúng 45p đó.
+            hardBookings.push({ 
+                start: bStart, 
+                end: bStart + duration, 
+                resourceType: rType, 
+                staffName: b.staffName 
+            });
         }
     });
 
     // --- Xử lý Khách Mới (Request) ---
-    // Tách khách mới thành 2 phần: Khách Lẻ (vào Hard) và Khách Combo (vào Flexible)
     let newSingleGuests = [];
     let newComboGuests = [];
 
     guestList.forEach((g, index) => {
         const svc = SERVICES[g.serviceCode];
-        if (!svc) return; // Skip invalid
+        if (!svc) return; 
         
         const guestObj = {
-            id: index, // Để map lại kết quả
+            id: index,
             staffReq: g.staffName,
             serviceName: svc.name,
             duration: svc.duration,
@@ -297,10 +299,8 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
     });
 
     // ========================================================================
-    // BƯỚC B: XẾP KHÁCH MỚI MÀ LÀ GÓI LẺ (SINGLE) TRƯỚC
+    // BƯỚC B: XẾP KHÁCH MỚI LẺ (SINGLE) TRƯỚC
     // ========================================================================
-    // Khách lẻ không thể đổi loại tài nguyên, nên phải xếp cứng vào trước.
-    // Đồng thời kiểm tra nhân viên cho họ.
     
     let tentativeHardBookings = [...hardBookings];
     let finalDetails = new Array(guestList.length);
@@ -309,17 +309,15 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
         const start = requestStartMins;
         const end = start + g.duration + CONFIG.CLEANUP_BUFFER;
         
-        // Check Tài nguyên
         if (!checkResourceCapacity(g.type, start, end, tentativeHardBookings)) {
              return { feasible: false, reason: `資源不足 (Resource Full): ${g.type}` };
         }
 
-        // Check Nhân viên (Lưu ý: Lúc này chưa chốt nhân viên cho các Combo Flexible, nên tạm coi họ rảnh? 
-        // KHÔNG, nhân viên của Combo Flexible đã bị xí chỗ trong khoảng giờ đó rồi, dù làm gì trước thì cũng bận)
-        // -> Cần danh sách busy của cả Flexible
+        // Khi tìm Staff cho khách lẻ, cần né cả lịch dự kiến của khách Combo (Flexible)
         let allBusyStaffRanges = [...tentativeHardBookings];
         flexibleIntentions.forEach(f => {
             if (f.source === 'OLD') {
+                // Với khách OLD Flexible, họ chắc chắn chiếm dụng nhân viên đó trong khoảng thời gian đó
                 allBusyStaffRanges.push({ start: f.start, end: f.start + f.duration, staffName: f.staffName });
             }
         });
@@ -327,17 +325,15 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
         const staff = findAvailableStaff(g.staffReq, start, end, staffList, allBusyStaffRanges);
         if (!staff) return { feasible: false, reason: `無可用技師 (No Staff): ${g.staffReq || 'Random'}` };
 
-        // Thành công -> Đưa vào Hard
         tentativeHardBookings.push({ start: start, end: end, resourceType: g.type, staffName: staff });
         
-        // Ghi kết quả
         finalDetails[g.id] = {
             guestIndex: g.id, staff: staff, service: g.serviceName, price: g.price, 
             timeStr: `${timeStr} - ${getTimeStrFromMins(end - CONFIG.CLEANUP_BUFFER)}`
         };
     }
 
-    // Nếu không còn ai cần xếp Combo -> Xong
+    // Nếu không có Combo nào cần tính -> Return luôn
     if (flexibleIntentions.length === 0) {
          if (!checkResourceCapacity('TOTAL', requestStartMins, requestStartMins+1, tentativeHardBookings))
             return { feasible: false, reason: "Full House (12 Guests)" };
@@ -346,28 +342,19 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
 
     // ========================================================================
     // BƯỚC C: GIẢ LẬP ĐA VŨ TRỤ (MULTIVERSE SIMULATION)
-    // Thử các kịch bản sắp xếp cho nhóm Flexible (Cả cũ và mới)
     // ========================================================================
 
-    // Các kịch bản chiến thuật:
-    // 0: Tất cả Chân -> Giường (Truyền thống)
-    // 1: Tất cả Giường -> Chân (Đảo ngược)
-    // 2: Cân bằng (Xen kẽ 1-1)
-    // 3: Cân bằng (Xen kẽ ngược)
-    
     const scenarios = ['ALL_FB', 'ALL_BF', 'BALANCE_A', 'BALANCE_B'];
     
     for (const scenName of scenarios) {
-        let simulationBookings = JSON.parse(JSON.stringify(tentativeHardBookings)); // Copy nền tảng
+        let simulationBookings = JSON.parse(JSON.stringify(tentativeHardBookings)); 
         let scenarioValid = true;
-        let scenarioDetails = []; // Chỉ lưu chi tiết của khách NEW
+        let scenarioDetails = []; 
 
-        // Duyệt qua từng Combo trong "Bể chứa"
         for (let i = 0; i < flexibleIntentions.length; i++) {
             const item = flexibleIntentions[i];
             const half = Math.floor(item.duration / 2);
             
-            // Quyết định Mode dựa trên kịch bản
             let mode = 'FB';
             if (scenName === 'ALL_FB') mode = 'FB';
             else if (scenName === 'ALL_BF') mode = 'BF';
@@ -377,75 +364,67 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
             const p1Res = (mode === 'FB') ? 'CHAIR' : 'BED';
             const p2Res = (mode === 'FB') ? 'BED' : 'CHAIR';
             
-            // Tính time blocks
             const tStart = item.start;
             const p1End = tStart + half;
             const p2Start = p1End + CONFIG.TRANSITION_BUFFER;
             const p2End = p2Start + half;
             const fullEnd = p2End + CONFIG.CLEANUP_BUFFER;
 
-            // 1. Check Tài nguyên Phase 1
+            // Check P1
             if (!checkResourceCapacity(p1Res, tStart, p1End + CONFIG.CLEANUP_BUFFER, simulationBookings)) {
                 scenarioValid = false; break;
             }
-            // Push ảo để giữ chỗ cho Phase 2 check
-            simulationBookings.push({ start: tStart, end: p1End + CONFIG.CLEANUP_BUFFER, resourceType: p1Res, staffName: 'TEMP_SIM' });
+            // Push Placeholder P1
+            simulationBookings.push({ start: tStart, end: p1End + CONFIG.CLEANUP_BUFFER, resourceType: p1Res, staffName: 'TEMP' });
 
-            // 2. Check Tài nguyên Phase 2
+            // Check P2
             if (!checkResourceCapacity(p2Res, p2Start, fullEnd, simulationBookings)) {
                 scenarioValid = false; break;
             }
 
-            // 3. Xử lý Nhân viên (Chỉ quan trọng với Khách NEW, khách OLD đã có staff rồi)
-            let assignedStaff = item.staffName; // Nếu là OLD
+            let assignedStaff = item.staffName; 
             if (item.source === 'NEW') {
-                // Với khách mới, phải tìm nhân viên rảnh full time
-                // Lưu ý: simulationBookings đã chứa các booking cứng và booking của vòng lặp trước
+                // Với khách mới, cần tìm staff thực sự rảnh
+                // simulationBookings lúc này đã chứa các booking cứng + booking của khách combo trước trong vòng lặp
                 assignedStaff = findAvailableStaff(item.staffReq, tStart, fullEnd, staffList, simulationBookings);
                 if (!assignedStaff) {
                     scenarioValid = false; break;
                 }
-                // Lưu lại kết quả cho khách mới
                 scenarioDetails.push({
                     guestIndex: item.guestRef.id,
                     staff: assignedStaff,
                     service: item.guestRef.serviceName,
                     price: item.guestRef.price,
-                    mode: mode, // Quan trọng: Ghi nhớ Mode để Frontend biết
+                    mode: mode, 
                     timeStr: `${timeStr} - ${getTimeStrFromMins(p2End)}`
                 });
             }
 
-            // Push thật vào simulation để các loop sau tính tiếp
+            // Push Booking thật vào simulation để chiếm chỗ cho vòng lặp tiếp theo
             simulationBookings.push({ start: tStart, end: p1End + CONFIG.CLEANUP_BUFFER, resourceType: p1Res, staffName: assignedStaff });
             simulationBookings.push({ start: p2Start, end: fullEnd, resourceType: p2Res, staffName: assignedStaff });
         }
 
-        // Check tổng Total Guests lần cuối cho kịch bản này
+        // Check tổng Total Guests
         if (scenarioValid) {
              if (!checkResourceCapacity('TOTAL', requestStartMins, requestStartMins+1, simulationBookings)) {
                  scenarioValid = false;
              }
         }
 
-        // Nếu kịch bản này OK -> CHỐT NGAY
         if (scenarioValid) {
-            // Merge kết quả khách lẻ và khách combo mới
             scenarioDetails.forEach(d => { finalDetails[d.guestIndex] = d; });
-            
-            // Lọc bỏ các phần tử undefined (nếu có)
             const cleanDetails = finalDetails.filter(d => d);
             
             return {
                 feasible: true,
-                strategy: scenName, // Debug info
+                strategy: scenName,
                 details: cleanDetails,
                 totalPrice: cleanDetails.reduce((sum, item) => sum + item.price, 0)
             };
         }
     }
 
-    // Nếu chạy hết mọi kịch bản mà vẫn tạch
     return { feasible: false, reason: "Hết giường/ghế dù đã thử đảo lịch (All Configurations Failed)" };
 }
 
@@ -469,5 +448,5 @@ if (typeof window !== 'undefined') {
     window.ResourceCore = CoreAPI;
     window.checkRequestAvailability = CoreAPI.checkRequestAvailability;
     window.setDynamicServices = CoreAPI.setDynamicServices;
-    console.log("✅ Resource Core V4.0 (Global Optimizer): Loaded.");
+    console.log("✅ Resource Core V4.1 (Anti-Doppelganger Fix): Loaded.");
 }

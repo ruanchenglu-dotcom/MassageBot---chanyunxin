@@ -1,21 +1,19 @@
 /**
  * ============================================================================
  * FILE: js/bookingHandler.js
- * PHIÊN BẢN: V83 (UPDATE: CORE KERNEL V4.0 GLOBAL OPTIMIZER)
+ * PHIÊN BẢN: V85 (CORE V4.1 + ZH-TW LOCALIZATION)
  * NGÀY CẬP NHẬT: 2026-01-10
  * TÁC GIẢ: AI ASSISTANT & USER
- * * * * * TÍNH NĂNG ĐỘT PHÁ (V83):
- * 1. [CORE V4.0 INTEGRATION] Nhúng bộ não "Global Optimizer" vào Frontend.
- * - Hệ thống giờ đây có khả năng tự động sắp xếp lại trật tự Combo của khách cũ 
- * để tìm khe hở cho khách mới.
- * - Giải quyết triệt để vấn đề "Báo ảo" khi tài nguyên còn nhưng bị dồn cục.
- * 2. [STRICT TIME] Vẫn giữ nguyên logic kiểm soát giờ về (OT) của nhân viên.
- * 3. [SCENARIO BALANCING] Tự động chia tải 50/50 giữa Ghế và Giường.
+ * * * * * TÍNH NĂNG MỚI (V85):
+ * 1. [CORE V4.1 INTEGRATION]: Tích hợp bộ não mới nhất với khả năng "Smart Deduplication".
+ * - Hệ thống giờ đây hiểu rằng 1 khách Combo (Chân + Body) chỉ là 1 người.
+ * - Khắc phục lỗi "Ảo ảnh song trùng" khiến hệ thống báo hết chỗ oan.
+ * 2. [FULL CHINESE UI]: Toàn bộ giao diện và thông báo đã được chuyển sang Tiếng Trung Phồn Thể.
  * ============================================================================
  */
 
 (function() {
-    console.log("🚀 BookingHandler V83: Initializing with CORE V4.0 (Global Optimizer)...");
+    console.log("🚀 BookingHandler V85: Initializing with CORE V4.1 (Anti-Doppelganger) & ZH-TW UI...");
 
     if (typeof React === 'undefined') {
         console.error("❌ CRITICAL ERROR: React not found. Cannot start BookingHandler.");
@@ -23,8 +21,8 @@
     }
 
     // ========================================================================
-    // PHẦN 1: CORE KERNEL V4.0 (EMBEDDED - GLOBAL OPTIMIZER)
-    // Copy nguyên bản logic từ resource_core.js V4.0 sang đây
+    // PHẦN 1: CORE KERNEL V4.1 (EMBEDDED - GLOBAL OPTIMIZER)
+    // Logic xử lý tài nguyên & thuật toán sắp xếp (Đã fix lỗi đếm trùng)
     // ========================================================================
     const CoreKernel = (function() {
         
@@ -34,9 +32,9 @@
             MAX_BEDS: 6,          
             MAX_TOTAL_GUESTS: 12, 
             
-            OPEN_HOUR: 8,         // 08:00 Sáng mở cửa
+            OPEN_HOUR: 8,         // 08:00 Mở cửa
             CLEANUP_BUFFER: 5,    // Dọn dẹp 5p
-            TRANSITION_BUFFER: 5, // Di chuyển 5p giữa Combo
+            TRANSITION_BUFFER: 5, // Di chuyển 5p
             
             TOLERANCE: 1,         // Dung sai 1p
             MAX_TIMELINE_MINS: 1440 
@@ -53,9 +51,10 @@
                 'LATE': { name: '⚠️ 延遲 (Late)', duration: 0, type: 'NONE', price: 0, category: 'SYSTEM' }
             };
             SERVICES = { ...newServicesObj, ...systemServices };
+            console.log(`[CORE V4.1] Services Database Updated.`);
         }
 
-        // --- 3. BỘ CÔNG CỤ THỜI GIAN ---
+        // --- 3. CÔNG CỤ THỜI GIAN ---
         function getMinsFromTimeStr(timeStr) {
             if (!timeStr) return -1; 
             try {
@@ -83,7 +82,7 @@
             return (startA < safeEndB) && (startB < safeEndA);
         }
 
-        // --- 4. KIỂM TRA TÀI NGUYÊN (LINE SWEEP ALGORITHM) ---
+        // --- 4. KIỂM TRA TÀI NGUYÊN (LINE SWEEP) ---
         function checkResourceCapacity(resourceType, start, end, bookings) {
             let limit = 0;
             if (resourceType === 'BED') limit = CONFIG.MAX_BEDS;
@@ -91,7 +90,6 @@
             else if (resourceType === 'TOTAL') limit = CONFIG.MAX_TOTAL_GUESTS;
             else return true; 
 
-            // Lọc booking liên quan
             let relevantBookings = bookings.filter(bk => {
                 let isTypeMatch = (resourceType === 'TOTAL') ? true : (bk.resourceType === resourceType);
                 return isTypeMatch && isOverlap(start, end, bk.start, bk.end);
@@ -99,7 +97,6 @@
 
             if (relevantBookings.length === 0) return true;
 
-            // Line Sweep Points
             let points = [];
             points.push({ time: start, type: 'check_start' });
             points.push({ time: end, type: 'check_end' });
@@ -109,7 +106,6 @@
                 points.push({ time: bk.end, type: 'end' });
             });
 
-            // Sắp xếp
             points.sort((a, b) => {
                 if (a.time !== b.time) return a.time - b.time;
                 const priority = { 'start': 1, 'check_start': 2, 'check_end': 3, 'end': 4 };
@@ -128,7 +124,7 @@
             return true; 
         }
 
-        // --- 5. KIỂM TRA NHÂN VIÊN (STRICT TIME LOGIC) ---
+        // --- 5. TÌM NHÂN VIÊN (STRICT TIME) ---
         function findAvailableStaff(staffReq, start, end, staffListRef, busyList) {
             const checkOneStaff = (name) => {
                 const staffInfo = staffListRef[name];
@@ -138,11 +134,10 @@
                 const shiftEnd = getMinsFromTimeStr(staffInfo.end);     
                 if (shiftStart === -1 || shiftEnd === -1) return false; 
 
-                // Rule 1: Khách không thể đến trước giờ làm
+                // Rule 1: Không đến sớm hơn giờ làm
                 if ((start + CONFIG.TOLERANCE) < shiftStart) return false;
 
-                // Rule 2: Strict Time vs Flexible
-                // *** QUAN TRỌNG: Đây là logic Về Đúng Giờ ***
+                // Rule 2: Về đúng giờ (Strict Time)
                 const isStrict = staffInfo.isStrictTime === true;
                 if (isStrict) {
                     if ((end - CONFIG.TOLERANCE) > shiftEnd) return false; 
@@ -150,7 +145,7 @@
                     if (start > shiftEnd) return false;
                 }
 
-                // Rule 3: Trùng lịch
+                // Rule 3: Không trùng lịch
                 for (const b of busyList) {
                     if (b.staffName === name && isOverlap(start, end, b.start, b.end)) return false; 
                 }
@@ -173,20 +168,21 @@
             }
         }
 
-        // --- 6. LOGIC XỬ LÝ TRUNG TÂM (GLOBAL OPTIMIZER - V4.0) ---
+        // --- 6. GLOBAL OPTIMIZER V4.1 (FIX DOUBLE COUNTING) ---
         function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRaw, staffList) {
-            // 1. Validate Input
             const requestStartMins = getMinsFromTimeStr(timeStr);
-            if (requestStartMins === -1) return { feasible: false, reason: "Error: Invalid Time Format" };
+            if (requestStartMins === -1) return { feasible: false, reason: "錯誤：無效的時間格式 (Invalid Time Format)" };
 
             // ========================================================================
-            // BƯỚC A: PHÂN LOẠI & TIỀN XỬ LÝ DỮ LIỆU
+            // BƯỚC A: PHÂN LOẠI & TIỀN XỬ LÝ (QUAN TRỌNG: FIX LỖI NHÂN ĐÔI KHÁCH)
             // ========================================================================
             let hardBookings = [];
             let flexibleIntentions = [];
+            let processedFlexibleStaff = new Set(); // Set để tránh đếm trùng nhân viên Combo cũ
 
-            // --- Xử lý Booking cũ từ Google Sheet ---
-            currentBookingsRaw.forEach(b => {
+            let sortedBookings = [...currentBookingsRaw].sort((a,b) => getMinsFromTimeStr(a.startTime) - getMinsFromTimeStr(b.startTime));
+
+            sortedBookings.forEach(b => {
                 const bStart = getMinsFromTimeStr(b.startTime);
                 if (bStart === -1) return;
 
@@ -196,18 +192,26 @@
 
                 let duration = b.duration || 60;
                 
-                // Nếu là Combo VÀ ở tương lai (cùng giờ hoặc sau giờ request) -> Cho vào nhóm Linh Hoạt
+                // LOGIC V4.1: Chỉ coi là Flexible nếu là Combo VÀ ở tương lai
+                // QUAN TRỌNG: Kiểm tra processedFlexibleStaff để tránh lặp
                 if (isCombo && bStart >= requestStartMins) {
+                     if (processedFlexibleStaff.has(b.staffName)) {
+                         // Block "đuôi" của combo -> Bỏ qua
+                         return; 
+                     }
+                     
                      flexibleIntentions.push({
                          source: 'OLD',
                          staffName: b.staffName,
                          start: bStart,
-                         duration: duration,
+                         duration: svcInfo.duration || 90,
                          price: 0, 
                          serviceName: b.serviceName
                      });
+                     processedFlexibleStaff.add(b.staffName);
+
                 } else {
-                    // Nếu là khách lẻ hoặc Combo quá khứ -> Cố định (Hard Block)
+                    // Hard Booking (Khách lẻ hoặc Combo đã lỡ làm / quá khứ)
                     if (isCombo) {
                         const half = Math.floor(duration/2);
                         hardBookings.push({ start: bStart, end: bStart+half, resourceType: 'CHAIR', staffName: b.staffName });
@@ -215,15 +219,20 @@
                     } else {
                         let rType = svcInfo.type || 'CHAIR'; 
                         if (b.serviceName.includes('Body') || b.serviceName.includes('指壓') || b.serviceName.includes('油')) rType = 'BED';
-                        hardBookings.push({ start: bStart, end: bStart+duration, resourceType: rType, staffName: b.staffName });
+                        
+                        hardBookings.push({ 
+                            start: bStart, 
+                            end: bStart+duration, 
+                            resourceType: rType, 
+                            staffName: b.staffName 
+                        });
                     }
                 }
             });
 
             // --- Xử lý Khách Mới (Request) ---
             let newSingleGuests = [];
-            // let newComboGuests = []; // (Đã tích hợp vào flexibleIntentions)
-
+            
             guestList.forEach((g, index) => {
                 const svc = SERVICES[g.serviceCode];
                 if (!svc) return;
@@ -261,7 +270,6 @@
                 const start = requestStartMins;
                 const end = start + g.duration + CONFIG.CLEANUP_BUFFER;
                 
-                // Check Tài nguyên
                 if (!checkResourceCapacity(g.type, start, end, tentativeHardBookings)) {
                      return { feasible: false, reason: `資源不足 (Resource Full): ${g.type}` };
                 }
@@ -277,7 +285,6 @@
                 const staff = findAvailableStaff(g.staffReq, start, end, staffList, allBusyStaffRanges);
                 if (!staff) return { feasible: false, reason: `無可用技師 (No Staff): ${g.staffReq || 'Random'}` };
 
-                // Chốt đơn
                 tentativeHardBookings.push({ start: start, end: end, resourceType: g.type, staffName: staff });
                 
                 finalDetails[g.id] = {
@@ -288,12 +295,12 @@
 
             if (flexibleIntentions.length === 0) {
                  if (!checkResourceCapacity('TOTAL', requestStartMins, requestStartMins+1, tentativeHardBookings))
-                    return { feasible: false, reason: "Full House (12 Guests)" };
+                    return { feasible: false, reason: "客滿 (已達12人上限/Full House)" };
                  return { feasible: true, details: finalDetails, totalPrice: finalDetails.reduce((a,b)=>a+(b?b.price:0),0) };
             }
 
             // ========================================================================
-            // BƯỚC C: GIẢ LẬP ĐA VŨ TRỤ (MULTIVERSE SIMULATION)
+            // BƯỚC C: GIẢ LẬP ĐA VŨ TRỤ (SIMULATION)
             // ========================================================================
             const scenarios = ['ALL_FB', 'ALL_BF', 'BALANCE_A', 'BALANCE_B'];
             
@@ -306,7 +313,6 @@
                     const item = flexibleIntentions[i];
                     const half = Math.floor(item.duration / 2);
                     
-                    // Chọn Mode
                     let mode = 'FB';
                     if (scenName === 'ALL_FB') mode = 'FB';
                     else if (scenName === 'ALL_BF') mode = 'BF';
@@ -361,7 +367,6 @@
                 }
 
                 if (scenarioValid) {
-                    // Success!
                     scenarioDetails.forEach(d => { finalDetails[d.guestIndex] = d; });
                     const cleanDetails = finalDetails.filter(d => d);
                     return {
@@ -373,14 +378,14 @@
                 }
             }
 
-            return { feasible: false, reason: "Hết giường/ghế dù đã thử đảo lịch (All Configurations Failed)" };
+            return { feasible: false, reason: "已嘗試優化排程，但仍無空位 (All Configurations Failed)" };
         }
 
         return { checkRequestAvailability, setDynamicServices };
     })();
 
     // ========================================================================
-    // PHẦN 2: REACT UI LOGIC (GIAO DIỆN V83)
+    // PHẦN 2: REACT UI LOGIC (GIAO DIỆN V85 - TIẾNG TRUNG PHỒN THỂ)
     // ========================================================================
     
     const { useState, useEffect, useMemo, useCallback } = React;
@@ -392,7 +397,7 @@
         MAX_PAX_SELECT: 6 
     };
 
-    // --- DATA ADAPTERS (CẦU NỐI UI -> KERNEL V4.0) ---
+    // --- DATA ADAPTERS ---
     const syncServicesToCore = () => {
         const rawServices = window.SERVICES_DATA || {};
         const formattedServices = {};
@@ -409,7 +414,6 @@
     const callCoreAvailabilityCheck = (date, time, guests, bookings, staffList) => {
         syncServicesToCore();
         
-        // Chuẩn hóa danh sách khách
         const coreGuests = guests.map(g => ({
             serviceCode: g.service,
             staffName: g.staff === '隨機' ? 'RANDOM' : (g.staff === '女' || g.staff === 'FEMALE_OIL') ? 'FEMALE' : (g.staff === '男') ? 'MALE' : g.staff
@@ -424,7 +428,6 @@
             duration: parseInt(b.duration) || 60, staffName: b.technician || b.staffId || "Unassigned"
         }));
 
-        // Chuẩn hóa danh sách nhân viên
         const staffMap = {};
         if (Array.isArray(staffList)) {
             staffList.forEach(s => {
@@ -441,7 +444,6 @@
         }
 
         try {
-            // Gọi Kernel V4.0
             const result = CoreKernel.checkRequestAvailability(date, time, coreGuests, coreBookings, staffMap);
             return result.feasible ? { valid: true, details: result.details } : { valid: false, reason: result.reason };
         } catch (err) {
@@ -453,7 +455,7 @@
     const forceGlobalRefresh = () => { if (typeof window.fetchDataAndRender === 'function') window.fetchDataAndRender(); else window.location.reload(); };
 
     // ==================================================================================
-    // 3. COMPONENT: PHONE BOOKING MODAL (ZH-TW) - V83
+    // 3. COMPONENT: PHONE BOOKING MODAL (ZH-TW) - V85
     // ==================================================================================
     const NewAvailabilityCheckModal = ({ onClose, onSave, staffList, bookings, initialDate }) => {
         const safeStaffList = useMemo(() => staffList || [], [staffList]);
@@ -504,10 +506,9 @@
         const performCheck = (e) => {
             if (e) e.preventDefault();
             const res = callCoreAvailabilityCheck(form.date, form.time, guestDetails, safeBookings, safeStaffList);
-            if (res.valid) { setCheckResult({ status: 'OK', message: "✅ 此時段可以預約 (Available)" }); setSuggestions([]); }
+            if (res.valid) { setCheckResult({ status: 'OK', message: "✅ 此時段可預約 (Available)" }); setSuggestions([]); }
             else {
                 setCheckResult({ status: 'FAIL', message: res.reason });
-                // Scanner
                 const found = [];
                 const parts = form.time.split(':').map(Number);
                 let currMins = (parts[0]||0)*60 + (parts[1]||0);
@@ -524,11 +525,11 @@
 
         const handleFinalSave = async (e) => {
             if (e) e.preventDefault(); if (isSubmitting) return;
-            if (!form.custName.trim()) { alert("⚠️ 請輸入顧客姓名!"); return; }
+            if (!form.custName.trim()) { alert("⚠️ 請輸入顧客姓名！"); return; }
             setIsSubmitting(true);
             try {
                 const svcSum = guestDetails.map(g => g.service).filter((v,i,a)=>a.indexOf(v)===i).join(', ');
-                const oils = guestDetails.map((g,i)=>g.isOil?`K${i+1}:油推`:null).filter(Boolean).join(',');
+                const oils = guestDetails.map((g,i)=>g.isOil?`K${i+1}:精油`:null).filter(Boolean).join(',');
                 const payload = {
                     hoTen: form.custName, sdt: form.custPhone||"", dichVu: svcSum, pax: form.pax,
                     ngayDen: (form.date||"").replace(/-/g, '/'), gioDen: form.time,
@@ -548,15 +549,15 @@
             <div className="fixed inset-0 bg-slate-900/90 z-[100] flex items-center justify-center p-4">
                 <div className="bg-white w-full max-w-xl rounded-xl shadow-2xl flex flex-col max-h-[95vh] overflow-hidden animate-fadeIn">
                     <div className="bg-[#0891b2] p-4 text-white flex justify-between items-center shrink-0">
-                        <h3 className="font-bold text-lg">📅 電話預約 (V83)</h3>
+                        <h3 className="font-bold text-lg">📅 電話預約 (V85)</h3>
                         <button onClick={onClose} className="text-2xl hover:text-red-100">&times;</button>
                     </div>
                     <div className="p-5 space-y-4 overflow-y-auto flex-1 custom-scrollbar">
                         {step==='CHECK' && (
                             <>
                                 <div className="grid grid-cols-2 gap-3">
-                                    <div><label className="text-xs font-bold text-gray-500">日期</label><input type="date" className="w-full border p-2 rounded font-bold h-[42px]" value={form.date} onChange={e=>{setForm({...form,date:e.target.value});setCheckResult(null);}}/></div>
-                                    <div><label className="text-xs font-bold text-gray-500">時間</label>
+                                    <div><label className="text-xs font-bold text-gray-500">日期 (Date)</label><input type="date" className="w-full border p-2 rounded font-bold h-[42px]" value={form.date} onChange={e=>{setForm({...form,date:e.target.value});setCheckResult(null);}}/></div>
+                                    <div><label className="text-xs font-bold text-gray-500">時間 (Time)</label>
                                     <div className="flex items-center gap-1"><div className="relative flex-1"><select className="w-full border p-2 rounded font-bold h-[42px] text-center bg-white" value={cH} onChange={e=>handleTimeChange('HOUR',e.target.value)}>{SHOP_UI_CONFIG.HOURS_LIST.map(h=><option key={h} value={h}>{h}</option>)}</select></div><span className="font-bold">:</span><div className="relative flex-1"><select className="w-full border p-2 rounded font-bold h-[42px] text-center bg-white" value={cM} onChange={e=>handleTimeChange('MINUTE',e.target.value)}>{SHOP_UI_CONFIG.MINUTES_STEP.map(m=><option key={m} value={m}>{m}</option>)}</select></div></div></div>
                                 </div>
                                 <div><label className="text-xs font-bold text-gray-500">人數 (Pax)</label><select className="w-full border p-2 rounded font-bold text-center h-[42px]" value={form.pax} onChange={e=>handlePaxChange(e.target.value)}>{paxOptions.map(n=><option key={n} value={n}>{n} 位</option>)}</select></div>
@@ -564,7 +565,7 @@
                                     {guestDetails.map((g,i)=>(
                                         <div key={i} className="flex gap-2 items-center"><div className="w-6 h-10 rounded bg-gray-200 flex items-center justify-center font-bold text-sm">#{i+1}</div>
                                         <select className="flex-[2] border p-2 rounded font-bold text-sm h-10" value={g.service} onChange={e=>handleGuestUpdate(i,'service',e.target.value)}>{(window.SERVICES_LIST||[]).map(s=><option key={s} value={s}>{s}</option>)}</select>
-                                        <select className="flex-1 border p-2 rounded font-bold text-sm h-10" value={(g.staff==='女'&&g.isOil)?'FEMALE_OIL':g.staff} onChange={e=>handleGuestUpdate(i,'staff',e.target.value)}><option value="隨機">🎲 隨機</option><option value="女">🚺 女師傅</option><option value="FEMALE_OIL">🚺 女+油</option><option value="男">🚹 男師傅</option><optgroup label="技師">{safeStaffList.map(s=><option key={s.id} value={s.id}>{s.id}</option>)}</optgroup></select></div>
+                                        <select className="flex-1 border p-2 rounded font-bold text-sm h-10" value={(g.staff==='女'&&g.isOil)?'FEMALE_OIL':g.staff} onChange={e=>handleGuestUpdate(i,'staff',e.target.value)}><option value="隨機">🎲 隨機</option><option value="女">🚺 女師傅</option><option value="FEMALE_OIL">🚺 女+精油</option><option value="男">🚹 男師傅</option><optgroup label="技師">{safeStaffList.map(s=><option key={s.id} value={s.id}>{s.id}</option>)}</optgroup></select></div>
                                     ))}
                                 </div>
                                 <div>{!checkResult ? <button onClick={performCheck} className="w-full bg-cyan-600 text-white p-3 rounded font-bold shadow-lg hover:bg-cyan-700">🔍 查詢空位</button> : 
@@ -577,8 +578,8 @@
                         {step==='INFO' && (
                             <div className="space-y-4 animate-slideIn">
                                 <div className="bg-green-50 p-3 rounded border border-green-200 text-green-800 font-bold"><div className="flex justify-between"><span>{form.date}</span><span>{form.time}</span></div><div className="text-sm font-normal mt-1">{form.pax} 位 - {guestDetails[0].service}...</div></div>
-                                <div><label className="text-xs font-bold text-gray-500">顧客姓名</label><input className="w-full border p-3 rounded font-bold focus:ring-2 focus:ring-green-500 outline-none" value={form.custName} onChange={e=>setForm({...form,custName:e.target.value})} placeholder="輸入顧客姓名..." disabled={isSubmitting}/></div>
-                                <div><label className="text-xs font-bold text-gray-500">電話號碼</label><input className="w-full border p-3 rounded font-bold focus:ring-2 focus:ring-green-500 outline-none" value={form.custPhone} onChange={e=>setForm({...form,custPhone:e.target.value})} placeholder="09xx..." disabled={isSubmitting}/></div>
+                                <div><label className="text-xs font-bold text-gray-500">顧客姓名 (Name)</label><input className="w-full border p-3 rounded font-bold focus:ring-2 focus:ring-green-500 outline-none" value={form.custName} onChange={e=>setForm({...form,custName:e.target.value})} placeholder="請輸入顧客姓名..." disabled={isSubmitting}/></div>
+                                <div><label className="text-xs font-bold text-gray-500">電話號碼 (Phone)</label><input className="w-full border p-3 rounded font-bold focus:ring-2 focus:ring-green-500 outline-none" value={form.custPhone} onChange={e=>setForm({...form,custPhone:e.target.value})} placeholder="09xx..." disabled={isSubmitting}/></div>
                                 <div className="flex gap-2 pt-2"><button onClick={(e)=>{e.preventDefault();if(!isSubmitting)setStep('CHECK');}} className="flex-1 bg-gray-200 p-3 rounded font-bold text-gray-700 hover:bg-gray-300" disabled={isSubmitting}>⬅️ 返回</button><button onClick={handleFinalSave} className="flex-1 bg-indigo-600 text-white p-3 rounded font-bold shadow-xl hover:bg-indigo-700" disabled={isSubmitting}>{isSubmitting?"處理中...":"✅ 確認預約"}</button></div>
                             </div>
                         )}
@@ -589,7 +590,7 @@
     };
 
     // ==================================================================================
-    // 4. COMPONENT: WALK-IN MODAL (ZH-TW) - V83
+    // 4. COMPONENT: WALK-IN MODAL (ZH-TW) - V85
     // ==================================================================================
     const NewWalkInModal = ({ onClose, onSave, staffList, bookings, initialDate }) => {
         const safeStaffList = useMemo(() => staffList || [], [staffList]);
@@ -642,7 +643,6 @@
             if (res.valid) { setCheckResult({ status: 'OK', message: "✅ 目前有空位 (Available Now)" }); setWaitSuggestion(null); }
             else {
                 if (res.reason.includes("System")) { setCheckResult({ status: 'FAIL', message: res.reason }); return; }
-                // Scanner
                 const parts = form.time.split(':').map(Number);
                 let currMins = (parts[0]||0)*60 + (parts[1]||0);
                 let foundTime = null, foundDate = form.date, waitMins = 0, isNextDay = false;
@@ -671,11 +671,11 @@
 
         const handleFinalSave = async (e) => {
             if (e) e.preventDefault(); if (isSubmitting) return;
-            if (!form.custName.trim()) { alert("⚠️ 請輸入姓名!"); return; }
+            if (!form.custName.trim()) { alert("⚠️ 請輸入姓名！"); return; }
             setIsSubmitting(true);
             try {
                 const svcSum = guestDetails.map(g => g.service).filter((v,i,a)=>a.indexOf(v)===i).join(', ');
-                const oils = guestDetails.map((g,i)=>g.isOil?`K${i+1}:油推`:null).filter(Boolean).join(',');
+                const oils = guestDetails.map((g,i)=>g.isOil?`K${i+1}:精油`:null).filter(Boolean).join(',');
                 const payload = {
                     hoTen: form.custName, sdt: form.custPhone||"", dichVu: svcSum, pax: form.pax,
                     ngayDen: (form.date||"").replace(/-/g, '/'), gioDen: form.time,
@@ -694,7 +694,7 @@
             <div className="fixed inset-0 bg-black/70 z-[90] flex items-center justify-center p-4">
                 <div className="bg-white w-full max-w-xl rounded-xl shadow-2xl modal-animate flex flex-col max-h-[90vh] overflow-hidden">
                     <div className="bg-amber-600 p-4 text-white flex justify-between items-center shrink-0">
-                        <h3 className="font-bold text-lg">⚡ 現場客 (V83)</h3>
+                        <h3 className="font-bold text-lg">⚡ 現場客 (V85)</h3>
                         <button onClick={onClose}><i className="fas fa-times text-xl"></i></button>
                     </div>
                     <div className="p-5 space-y-4 overflow-y-auto flex-1 custom-scrollbar">
@@ -705,7 +705,7 @@
                                     {guestDetails.map((g, i) => (
                                         <div key={i} className="flex gap-2 items-center"><div className="w-6 h-10 rounded bg-gray-200 flex items-center justify-center font-bold text-sm">#{i+1}</div>
                                         <select className="flex-[2] border p-2 rounded font-bold text-sm h-10" value={g.service} onChange={e=>handleGuestUpdate(i,'service',e.target.value)}>{(window.SERVICES_LIST||[]).map(s=><option key={s} value={s}>{s}</option>)}</select>
-                                        <select className="flex-1 border p-2 rounded font-bold text-sm h-10" value={(g.staff==='女'&&g.isOil)?'FEMALE_OIL':g.staff} onChange={e=>handleGuestUpdate(i,'staff',e.target.value)}><option value="隨機">🎲 隨機</option><option value="女">🚺 女師</option><option value="FEMALE_OIL">🚺+油</option><option value="男">🚹 男師</option><optgroup label="技師">{safeStaffList.map(s=><option key={s.id} value={s.id}>{s.id}</option>)}</optgroup></select></div>
+                                        <select className="flex-1 border p-2 rounded font-bold text-sm h-10" value={(g.staff==='女'&&g.isOil)?'FEMALE_OIL':g.staff} onChange={e=>handleGuestUpdate(i,'staff',e.target.value)}><option value="隨機">🎲 隨機</option><option value="女">🚺 女師</option><option value="FEMALE_OIL">🚺+精油</option><option value="男">🚹 男師</option><optgroup label="技師">{safeStaffList.map(s=><option key={s.id} value={s.id}>{s.id}</option>)}</optgroup></select></div>
                                     ))}
                                 </div>
                                 {checkResult && (<div className="space-y-2"><div className={`p-3 rounded text-center font-bold text-sm border-2 ${checkResult.status==='OK'?'bg-green-100 text-green-700 border-green-300':'bg-red-50 text-red-700 border-red-200'}`}>{checkResult.message}</div>{waitSuggestion&&(<div className="bg-blue-50 border border-blue-200 p-3 rounded animate-fadeIn text-center"><div className={`mb-2 font-bold text-lg ${waitSuggestion.isNextDay?'text-orange-600':'text-blue-700'}`}>{waitSuggestion.isNextDay ? `🌅 最快明天: ${waitSuggestion.time}` : `⏳ 需等待 ${waitSuggestion.mins} 分鐘 (${waitSuggestion.time})`}</div><button onClick={(e) => { e.preventDefault(); setForm({...form, time: waitSuggestion.time, date: waitSuggestion.date}); setStep('INFO'); }} className="w-full bg-blue-600 text-white font-bold py-2 rounded shadow hover:bg-blue-700">➡️ 接受安排</button></div>)}</div>)}
@@ -728,8 +728,8 @@
 
     // SYSTEM INJECTION
     const overrideInterval = setInterval(() => {
-        if (window.AvailabilityCheckModal !== NewAvailabilityCheckModal) { window.AvailabilityCheckModal = NewAvailabilityCheckModal; console.log("♻️ AvailabilityModal Injected (V83)"); }
-        if (window.WalkInModal !== NewWalkInModal) { window.WalkInModal = NewWalkInModal; console.log("♻️ WalkInModal Injected (V83)"); }
+        if (window.AvailabilityCheckModal !== NewAvailabilityCheckModal) { window.AvailabilityCheckModal = NewAvailabilityCheckModal; console.log("♻️ AvailabilityModal Injected (V85)"); }
+        if (window.WalkInModal !== NewWalkInModal) { window.WalkInModal = NewWalkInModal; console.log("♻️ WalkInModal Injected (V85)"); }
     }, 200);
     setTimeout(() => { clearInterval(overrideInterval); }, 5000);
 })();

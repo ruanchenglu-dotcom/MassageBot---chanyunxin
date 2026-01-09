@@ -1,6 +1,6 @@
 // File: js/bookingListView.js
 // Component chuyên quản lý giao diện danh sách đặt lịch (Tab Danh sách)
-// Cập nhật: Thêm thanh cuộn Dọc/Ngang, Ghim tiêu đề, Tăng cỡ chữ to rõ.
+// Cập nhật: Giao diện Tiếng Trung Phồn Thể 100%, có thanh cuộn, chữ to rõ.
 
 (function() {
     const BookingListView = ({ bookings, onCancelBooking }) => {
@@ -13,7 +13,7 @@
                 
                 {/* WRAPPER TABLE:
                     - overflow-auto: Tự động hiện thanh cuộn dọc/ngang khi cần
-                    - max-h-[80vh]: Giới hạn chiều cao bảng khoảng 80% màn hình để hiện scroll dọc
+                    - max-h-[75vh]: Giới hạn chiều cao bảng để hiện scroll dọc
                 */}
                 <div className="overflow-auto relative w-full" style={{ maxHeight: '75vh' }}>
                     
@@ -25,23 +25,23 @@
                         */}
                         <thead className="bg-slate-100 text-slate-700 font-bold text-base sticky top-0 z-10 shadow-sm">
                             <tr>
-                                <th className="p-4 border-b border-slate-200 whitespace-nowrap">預約日期 (Ngày)</th>
-                                <th className="p-4 border-b border-slate-200 whitespace-nowrap">時間 (Giờ)</th>
-                                <th className="p-4 border-b border-slate-200 whitespace-nowrap">姓名 (Tên)</th>
-                                <th className="p-4 border-b border-slate-200 whitespace-nowrap">項目 (Dịch vụ)</th>
-                                <th className="p-4 border-b border-slate-200 text-center whitespace-nowrap">油推 (Dầu)</th>
-                                <th className="p-4 border-b border-slate-200 text-center whitespace-nowrap">人數 (Khách)</th>
-                                <th className="p-4 border-b border-slate-200 whitespace-nowrap">電話 (SĐT)</th>
-                                <th className="p-4 border-b border-slate-200 whitespace-nowrap">狀態 (Trạng thái)</th>
-                                <th className="p-4 border-b border-slate-200 whitespace-nowrap">指定師傅 (KTV)</th>
-                                <th className="p-4 border-b border-slate-200 text-right whitespace-nowrap sticky right-0 bg-slate-100 z-20">操作 (Hủy)</th>
+                                <th className="p-4 border-b border-slate-200 whitespace-nowrap">預約日期</th>
+                                <th className="p-4 border-b border-slate-200 whitespace-nowrap">時間</th>
+                                <th className="p-4 border-b border-slate-200 whitespace-nowrap">姓名</th>
+                                <th className="p-4 border-b border-slate-200 whitespace-nowrap">項目</th>
+                                <th className="p-4 border-b border-slate-200 text-center whitespace-nowrap">油推</th>
+                                <th className="p-4 border-b border-slate-200 text-center whitespace-nowrap">人數</th>
+                                <th className="p-4 border-b border-slate-200 whitespace-nowrap">電話</th>
+                                <th className="p-4 border-b border-slate-200 whitespace-nowrap">狀態</th>
+                                <th className="p-4 border-b border-slate-200 whitespace-nowrap">指定師傅</th>
+                                <th className="p-4 border-b border-slate-200 text-right whitespace-nowrap sticky right-0 bg-slate-100 z-20">操作</th>
                             </tr>
                         </thead>
                         
                         {/* TBODY: Tăng cỡ chữ lên text-base (16px) */}
                         <tbody className="divide-y divide-gray-200 text-base">
                             {safeBookings.map((b, index) => {
-                                // --- Logic xử lý hiển thị (GIỮ NGUYÊN TÍNH NĂNG CŨ) ---
+                                // --- Logic xử lý hiển thị ---
                                 const nameParts = (b.customerName || '').split('(');
                                 const name = nameParts[0].trim();
                                 const phone = nameParts.length > 1 ? nameParts[1].replace(')', '').trim() : (b.sdt || '');
@@ -58,7 +58,7 @@
                                 if (isCancelled) statusClass = 'bg-red-100 text-red-700 border border-red-200';
                                 else if (isDone) statusClass = 'bg-gray-200 text-gray-600 border border-gray-300';
 
-                                // Tạo hiệu ứng màu nền xen kẽ (Zebra striping) cho dễ nhìn dòng
+                                // Tạo hiệu ứng màu nền xen kẽ (Zebra striping)
                                 const rowBg = index % 2 === 0 ? 'bg-white' : 'bg-slate-50';
                                 const opacityClass = isDone ? 'opacity-60' : '';
 
@@ -72,12 +72,12 @@
                                             {(b.startTimeString || ' ').split(' ')[0]}
                                         </td>
                                         
-                                        {/* Giờ - Tăng đậm và to hơn */}
+                                        {/* Giờ - To và Đậm */}
                                         <td className="p-4 whitespace-nowrap font-mono text-lg font-bold text-indigo-700">
                                             {(b.startTimeString || ' ').split(' ')[1]}
                                         </td>
                                         
-                                        {/* Tên khách - Tăng đậm */}
+                                        {/* Tên khách */}
                                         <td className="p-4 whitespace-nowrap font-bold text-gray-800 text-lg">
                                             {name}
                                         </td>
@@ -87,9 +87,9 @@
                                             {b.serviceName}
                                         </td>
                                         
-                                        {/* Dầu - Icon nổi bật */}
+                                        {/* Dầu */}
                                         <td className="p-4 whitespace-nowrap text-center">
-                                            {isOil && <span className="text-purple-600 font-bold text-lg">💧 Yes</span>}
+                                            {isOil && <span className="text-purple-600 font-bold text-lg">💧 是</span>}
                                         </td>
                                         
                                         {/* Số lượng khách */}
@@ -116,28 +116,28 @@
                                             </span>
                                         </td>
                                         
-                                        {/* Nút thao tác - Ghim cột phải nếu cần hoặc để trôi theo bảng */}
+                                        {/* Nút thao tác (Hủy) */}
                                         <td className="p-4 whitespace-nowrap text-right sticky right-0 bg-opacity-90 z-10" style={{ backgroundColor: 'inherit' }}>
                                             <button 
                                                 onClick={() => onCancelBooking(b.rowId, '❌ Cancelled')} 
                                                 className="text-red-500 hover:text-white hover:bg-red-500 border border-red-200 hover:border-red-500 px-3 py-2 rounded transition-all shadow-sm"
-                                                title="Hủy đơn (Cancel)"
+                                                title="取消預約 (Cancel Booking)"
                                             >
-                                                <i className="fas fa-trash mr-1"></i> Hủy
+                                                <i className="fas fa-trash mr-1"></i> 取消
                                             </button>
                                         </td>
                                     </tr>
                                 );
                             })}
                             
-                            {/* Hiển thị khi không có dữ liệu */}
+                            {/* Hiển thị khi không có dữ liệu (Empty State) */}
                             {safeBookings.length === 0 && (
                                 <tr>
                                     <td colSpan="10" className="p-12 text-center text-gray-400">
                                         <div className="flex flex-col items-center justify-center">
                                             <i className="fas fa-calendar-times text-5xl mb-4 text-gray-300"></i>
-                                            <span className="text-xl font-bold">📭 Không có dữ liệu đặt lịch (No Bookings)</span>
-                                            <span className="text-sm mt-2">Vui lòng kiểm tra lại bộ lọc hoặc ngày tháng.</span>
+                                            <span className="text-xl font-bold">📭 暫無預約資料</span>
+                                            <span className="text-sm mt-2">請檢查篩選條件或切換日期。</span>
                                         </div>
                                     </td>
                                 </tr>
@@ -146,9 +146,9 @@
                     </table>
                 </div>
                 
-                {/* Footer nhỏ đếm số lượng */}
+                {/* Footer đếm số lượng */}
                 <div className="bg-gray-50 border-t p-3 text-right text-sm text-gray-500 font-medium">
-                    Tổng cộng: {safeBookings.length} đơn
+                    總計: {safeBookings.length} 筆
                 </div>
             </div>
         );
