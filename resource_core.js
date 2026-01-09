@@ -2,13 +2,16 @@
  * =================================================================================================
  * PROJECT: XINWUCHAN MASSAGE BOT - CORE LOGIC KERNEL
  * FILE: resource_core.js
- * PHIÊN BẢN: V4.1 (FIX: ANTI-DOPPELGANGER - CHỐNG NHÂN ĐÔI KHÁCH)
+ * PHIÊN BẢN: V4.2 (FIX: TIME PARSING & RESOURCE MISMATCH)
  * TÁC GIẢ: AI ASSISTANT & USER
  * NGÀY CẬP NHẬT: 2026/01/10
- * * * * * CẬP NHẬT MỚI (V4.1):
- * 1. [FIX DOUBLE COUNTING]: Khắc phục lỗi hệ thống hiểu lầm 1 khách Combo (có 2 block Chân/Body)
- * thành 2 khách riêng biệt, gây báo ảo "Hết chỗ" dù thực tế còn trống.
- * 2. [SMART DEDUPLICATION]: Tự động nhận diện và gộp các block rời rạc của cùng 1 nhân viên.
+ *
+ * * * * * CẬP NHẬT MỚI (V4.2):
+ * 1. [CRITICAL FIX] TIME PARSER: Nâng cấp bộ đọc giờ để xử lý được cả chuỗi Date-Time 
+ * (ví dụ: "2026-10-01 14:00" vẫn hiểu là 14:00). Khắc phục lỗi đếm thiếu khách cũ.
+ * 2. [RESOURCE INFERENCE]: Cải thiện logic đoán Tài nguyên (Giường/Ghế) cho khách cũ.
+ * Khách Combo cũ sẽ được ưu tiên giữ Giường để tránh Overbooking.
+ * 3. [CAPACITY CHECK]: Tăng độ chính xác khi kiểm tra tổng số khách (Total limit).
  * =================================================================================================
  */
 
@@ -50,11 +53,11 @@ function setDynamicServices(newServicesObj) {
         'LATE': { name: '⚠️ 延遲 (Late)', duration: 0, type: 'NONE', price: 0, category: 'SYSTEM' }
     };
     SERVICES = { ...newServicesObj, ...systemServices };
-    console.log(`[CORE V4.1] Services Database Updated: ${Object.keys(SERVICES).length} entries.`);
+    console.log(`[CORE V4.2] Services Database Updated: ${Object.keys(SERVICES).length} entries.`);
 }
 
 // ============================================================================
-// PHẦN 2: BỘ CÔNG CỤ XỬ LÝ THỜI GIAN (TIME UTILITIES)
+// PHẦN 2: BỘ CÔNG CỤ XỬ LÝ THỜI GIAN (TIME UTILITIES - ENHANCED)
 // ============================================================================
 
 function getTaipeiNow() {
@@ -63,18 +66,43 @@ function getTaipeiNow() {
     return new Date(utc + (3600000 * 8)); // UTC+8
 }
 
+/**
+ * Phân tích chuỗi giờ thành số phút trong ngày (0 - 1440)
+ * Nâng cấp V4.2: Xử lý được các định dạng "YYYY-MM-DD HH:mm", "HH:mm:ss", "T" separator
+ */
 function getMinsFromTimeStr(timeStr) {
     if (!timeStr) return -1; 
     try {
-        let cleanStr = timeStr.toString().trim().replace(/：/g, ':');
+        let str = timeStr.toString();
+        
+        // Bước 1: Nếu chuỗi chứa ngày tháng (có khoảng trắng hoặc chữ T), tách lấy phần giờ
+        // Ví dụ: "2026-10-01 15:00:00" -> lấy "15:00:00"
+        if (str.includes('T') || str.includes(' ')) {
+            // Regex tìm pattern HH:mm hoặc HH:mm:ss
+            const timeMatch = str.match(/(\d{1,2}):(\d{2})/);
+            if (timeMatch) {
+                str = timeMatch[0]; // Lấy "15:00"
+            }
+        }
+
+        // Bước 2: Làm sạch và parse
+        let cleanStr = str.trim().replace(/：/g, ':');
         const parts = cleanStr.split(':');
+        
         if (parts.length < 2) return -1;
+        
         let h = parseInt(parts[0], 10);
         let m = parseInt(parts[1], 10);
+        
         if (isNaN(h) || isNaN(m)) return -1;
+        
+        // Xử lý logic qua ngày (nếu shop mở 24h hoặc làm đêm, nhưng ở đây fix theo OPEN_HOUR)
+        // Nếu input là 01:00 mà Open Hour là 08:00, hệ thống hiểu là 25:00 (1h sáng hôm sau)
         if (h < CONFIG.OPEN_HOUR) h += 24; 
+        
         return (h * 60) + m;
     } catch (e) {
+        console.error("Error parsing time:", timeStr, e);
         return -1;
     }
 }
@@ -87,6 +115,7 @@ function getTimeStrFromMins(mins) {
 }
 
 function isOverlap(startA, endA, startB, endB) {
+    // Logic Overlap chuẩn: (StartA < EndB) và (StartB < EndA)
     const safeEndA = endA - CONFIG.TOLERANCE; 
     const safeEndB = endB - CONFIG.TOLERANCE;
     return (startA < safeEndB) && (startB < safeEndA);
@@ -114,8 +143,11 @@ function checkResourceCapacity(resourceType, start, end, bookings) {
 
     if (relevantBookings.length === 0) return true;
 
-    // Tạo các điểm sự kiện (Vào/Ra)
+    // Tạo các điểm sự kiện (Vào/Ra) để quét
     let points = [];
+    
+    // Thêm điểm bắt đầu và kết thúc của khoảng thời gian cần check (Window)
+    // Để đảm bảo ta check được tải tại mọi thời điểm trong window
     points.push({ time: start, type: 'check_start' });
     points.push({ time: end, type: 'check_end' });
 
@@ -127,17 +159,26 @@ function checkResourceCapacity(resourceType, start, end, bookings) {
     // Sắp xếp: Thời gian tăng dần
     points.sort((a, b) => {
         if (a.time !== b.time) return a.time - b.time;
+        // Nếu cùng thời gian: Xử lý START (cộng tải) trước, sau đó mới đến các sự kiện khác
+        // Thứ tự ưu tiên: start booking > check_start > check_end > end booking
         const priority = { 'start': 1, 'check_start': 2, 'check_end': 3, 'end': 4 };
         return priority[a.type] - priority[b.type];
     });
 
     let currentLoad = 0;
+    // Pre-scan: Nếu có booking bắt đầu từ trước start window, ta cần tính load ban đầu
+    // Tuy nhiên Line Sweep đã xử lý việc này bằng cách quét từ điểm nhỏ nhất.
+    
     for (const p of points) {
         if (p.type === 'start') currentLoad++;
         else if (p.type === 'end') currentLoad--;
         
+        // Chỉ kiểm tra quá tải NẾU điểm thời gian nằm trong khoảng cần check (start -> end)
+        // và không phải là điểm cuối cùng (vì điểm cuối là lúc khách ra về)
         if (p.time >= start && p.time < end) {
-             if (currentLoad > limit) return false;
+             if (currentLoad > limit) {
+                 return false; // QUÁ TẢI
+             }
         }
     }
     return true; 
@@ -197,15 +238,13 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
     if (requestStartMins === -1) return { feasible: false, reason: "Error: Invalid Time Format" };
 
     // ========================================================================
-    // BƯỚC A: PHÂN LOẠI & TIỀN XỬ LÝ DỮ LIỆU (FIXED DOUBLE COUNTING)
+    // BƯỚC A: PHÂN LOẠI & TIỀN XỬ LÝ DỮ LIỆU
     // ========================================================================
     
     let hardBookings = [];
     let flexibleIntentions = [];
     
     // Set này dùng để ghi nhớ Staff nào đã được tính là "Flexible" rồi.
-    // Nếu gặp block thứ 2 của cùng Staff đó trong khoảng thời gian liền kề, ta sẽ bỏ qua
-    // để tránh tính nhân đôi tài nguyên.
     let processedFlexibleStaff = new Set();
 
     // Sắp xếp booking cũ theo giờ để xử lý thứ tự chuẩn
@@ -213,7 +252,13 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
 
     sortedBookings.forEach(b => {
         const bStart = getMinsFromTimeStr(b.startTime);
-        if (bStart === -1) return;
+        
+        // [FIX V4.2] Nếu parse lỗi, log warning nhưng không crash.
+        // Cố gắng cứu vãn bằng cách bỏ qua hoặc gán mặc định (ở đây chọn bỏ qua để an toàn)
+        if (bStart === -1) {
+            console.warn(`[CORE] Skipped booking due to time error: ${b.startTime}`);
+            return;
+        }
 
         let svcInfo = SERVICES[b.serviceCode] || {};
         let isCombo = svcInfo.category === 'COMBO';
@@ -222,41 +267,41 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
 
         let duration = b.duration || 60;
         
-        // LOGIC THÔNG MINH MỚI:
-        // Chỉ coi là Flexible nếu:
-        // 1. Là Combo
-        // 2. Bắt đầu cùng lúc hoặc sau request (để có thể đảo)
-        // 3. Nhân viên này chưa được xử lý Flexible trước đó (TRÁNH TRÙNG LẶP BLOCK)
+        // LOGIC "FLEXIBLE" (Khách cũ có thể đảo chiều):
+        // Chỉ áp dụng nếu booking bắt đầu SAU hoặc CÙNG LÚC request mới.
         if (isCombo && bStart >= requestStartMins) {
-             if (processedFlexibleStaff.has(b.staffName)) {
-                 // Đã xử lý staff này rồi -> Đây là block "đuôi" của combo (ví dụ phần Body sau phần Chân)
-                 // Bỏ qua block này vì block đầu đã đại diện cho cả quy trình.
-                 return; 
-             }
+             if (processedFlexibleStaff.has(b.staffName)) return; 
              
              flexibleIntentions.push({
                  source: 'OLD',
                  staffName: b.staffName,
                  start: bStart,
-                 duration: svcInfo.duration || 90, // Quan trọng: Lấy tổng thời gian gốc của dịch vụ
+                 duration: svcInfo.duration || 90, 
                  price: 0,
                  serviceName: b.serviceName
              });
              
-             // Đánh dấu staff này đã "vào nồi" tính toán
              processedFlexibleStaff.add(b.staffName);
 
         } else {
-            // Đây là Hard Booking (Khách lẻ hoặc Combo đã lỡ làm một nửa)
-            // Với Hard Booking, ta tôn trọng dữ liệu thô: nó chiếm cái gì thì block cái đó.
-            // Không tự ý chia đôi nữa vì dữ liệu đầu vào có thể đã chia sẵn rồi.
+            // LOGIC "HARD" (Khách cũ đã an bài / đang diễn ra):
+            // [FIX V4.2]: Cải thiện logic đoán Resource Type
             
             let rType = svcInfo.type || 'CHAIR'; 
-            // Nếu không có type chuẩn, đoán qua tên
-            if (b.serviceName.includes('Body') || b.serviceName.includes('指壓') || b.serviceName.includes('油')) rType = 'BED';
             
-            // Nếu dữ liệu gốc là Combo nhưng đã quá giờ, nó sẽ vào đây.
-            // Lúc này block b chỉ là 1 phần (ví dụ 45p), ta add đúng 45p đó.
+            const nameUpper = b.serviceName.toUpperCase();
+            
+            // 1. Nếu tên có Body/Oil/Pressure -> Chắc chắn là BED
+            if (nameUpper.includes('BODY') || nameUpper.includes('指壓') || nameUpper.includes('油') || nameUpper.includes('BED')) {
+                rType = 'BED';
+            }
+            // 2. [FIX V4.2] Nếu là Combo hoặc Set (套餐) đang diễn ra:
+            // Để an toàn và tránh báo ảo "Còn chỗ" khi thực tế giường đã full, ta ưu tiên gán là BED.
+            // (Vì Combo thường tốn Giường nhiều hơn hoặc quan trọng hơn Ghế)
+            else if (isCombo || nameUpper.includes('COMBO') || nameUpper.includes('套餐') || nameUpper.includes('SET')) {
+                 rType = 'BED';
+            }
+            
             hardBookings.push({ 
                 start: bStart, 
                 end: bStart + duration, 
@@ -309,15 +354,15 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
         const start = requestStartMins;
         const end = start + g.duration + CONFIG.CLEANUP_BUFFER;
         
+        // Check Tài nguyên riêng (Giường/Ghế)
         if (!checkResourceCapacity(g.type, start, end, tentativeHardBookings)) {
              return { feasible: false, reason: `資源不足 (Resource Full): ${g.type}` };
         }
 
-        // Khi tìm Staff cho khách lẻ, cần né cả lịch dự kiến của khách Combo (Flexible)
+        // Tìm Staff
         let allBusyStaffRanges = [...tentativeHardBookings];
         flexibleIntentions.forEach(f => {
             if (f.source === 'OLD') {
-                // Với khách OLD Flexible, họ chắc chắn chiếm dụng nhân viên đó trong khoảng thời gian đó
                 allBusyStaffRanges.push({ start: f.start, end: f.start + f.duration, staffName: f.staffName });
             }
         });
@@ -333,10 +378,12 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
         };
     }
 
-    // Nếu không có Combo nào cần tính -> Return luôn
+    // Nếu không có Combo nào cần tính -> Check tổng rồi Return
     if (flexibleIntentions.length === 0) {
-         if (!checkResourceCapacity('TOTAL', requestStartMins, requestStartMins+1, tentativeHardBookings))
-            return { feasible: false, reason: "Full House (12 Guests)" };
+         // [FIX V4.2] Check Total Capacity một cách cẩn thận với toàn bộ danh sách
+         if (!checkResourceCapacity('TOTAL', requestStartMins, requestStartMins + 10, tentativeHardBookings))
+            return { feasible: false, reason: "Full House (Max 12 Guests)" };
+            
          return { feasible: true, details: finalDetails, totalPrice: finalDetails.reduce((a,b)=>a+(b?b.price:0),0) };
     }
 
@@ -347,6 +394,7 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
     const scenarios = ['ALL_FB', 'ALL_BF', 'BALANCE_A', 'BALANCE_B'];
     
     for (const scenName of scenarios) {
+        // Deep copy danh sách hard bookings hiện tại để làm nền tảng cho kịch bản này
         let simulationBookings = JSON.parse(JSON.stringify(tentativeHardBookings)); 
         let scenarioValid = true;
         let scenarioDetails = []; 
@@ -355,6 +403,7 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
             const item = flexibleIntentions[i];
             const half = Math.floor(item.duration / 2);
             
+            // Quyết định chiến thuật đảo (Foot-Body hay Body-Foot) dựa trên kịch bản
             let mode = 'FB';
             if (scenName === 'ALL_FB') mode = 'FB';
             else if (scenName === 'ALL_BF') mode = 'BF';
@@ -370,22 +419,21 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
             const p2End = p2Start + half;
             const fullEnd = p2End + CONFIG.CLEANUP_BUFFER;
 
-            // Check P1
+            // 1. Kiểm tra tài nguyên Giai đoạn 1
             if (!checkResourceCapacity(p1Res, tStart, p1End + CONFIG.CLEANUP_BUFFER, simulationBookings)) {
                 scenarioValid = false; break;
             }
-            // Push Placeholder P1
-            simulationBookings.push({ start: tStart, end: p1End + CONFIG.CLEANUP_BUFFER, resourceType: p1Res, staffName: 'TEMP' });
+            // Tạm giữ chỗ Giai đoạn 1
+            simulationBookings.push({ start: tStart, end: p1End + CONFIG.CLEANUP_BUFFER, resourceType: p1Res, staffName: 'TEMP_P1' });
 
-            // Check P2
+            // 2. Kiểm tra tài nguyên Giai đoạn 2
             if (!checkResourceCapacity(p2Res, p2Start, fullEnd, simulationBookings)) {
                 scenarioValid = false; break;
             }
 
+            // 3. Xử lý Staff (Chỉ với khách NEW, khách OLD đã có staff cố định)
             let assignedStaff = item.staffName; 
             if (item.source === 'NEW') {
-                // Với khách mới, cần tìm staff thực sự rảnh
-                // simulationBookings lúc này đã chứa các booking cứng + booking của khách combo trước trong vòng lặp
                 assignedStaff = findAvailableStaff(item.staffReq, tStart, fullEnd, staffList, simulationBookings);
                 if (!assignedStaff) {
                     scenarioValid = false; break;
@@ -400,19 +448,21 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
                 });
             }
 
-            // Push Booking thật vào simulation để chiếm chỗ cho vòng lặp tiếp theo
+            // 4. Chốt Booking vào Simulation cho vòng lặp kế tiếp
             simulationBookings.push({ start: tStart, end: p1End + CONFIG.CLEANUP_BUFFER, resourceType: p1Res, staffName: assignedStaff });
             simulationBookings.push({ start: p2Start, end: fullEnd, resourceType: p2Res, staffName: assignedStaff });
         }
 
-        // Check tổng Total Guests
+        // 5. Kiểm tra TỔNG SỐ KHÁCH (TOTAL LIMIT) lần cuối
         if (scenarioValid) {
-             if (!checkResourceCapacity('TOTAL', requestStartMins, requestStartMins+1, simulationBookings)) {
+             // Kiểm tra tại thời điểm bắt đầu request xem tổng số người (bao gồm Old + New Single + New Combo + Old Combo) có vượt quá 12 không
+             if (!checkResourceCapacity('TOTAL', requestStartMins, requestStartMins + 5, simulationBookings)) {
                  scenarioValid = false;
              }
         }
 
         if (scenarioValid) {
+            // Apply kết quả thành công
             scenarioDetails.forEach(d => { finalDetails[d.guestIndex] = d; });
             const cleanDetails = finalDetails.filter(d => d);
             
@@ -425,7 +475,7 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
         }
     }
 
-    return { feasible: false, reason: "Hết giường/ghế dù đã thử đảo lịch (All Configurations Failed)" };
+    return { feasible: false, reason: "Hết giường/ghế hoặc quá tải (All Plans Failed)" };
 }
 
 // ============================================================================
@@ -448,5 +498,5 @@ if (typeof window !== 'undefined') {
     window.ResourceCore = CoreAPI;
     window.checkRequestAvailability = CoreAPI.checkRequestAvailability;
     window.setDynamicServices = CoreAPI.setDynamicServices;
-    console.log("✅ Resource Core V4.1 (Anti-Doppelganger Fix): Loaded.");
+    console.log("✅ Resource Core V4.2 (Full Fix): Loaded & Ready.");
 }
