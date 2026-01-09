@@ -2,13 +2,13 @@
  * =================================================================================================
  * PROJECT: XINWUCHAN MASSAGE BOT - CORE LOGIC KERNEL
  * FILE: resource_core.js
- * PHIÊN BẢN: V3.1 (TRADITIONAL CHINESE & STABILITY FIX)
+ * PHIÊN BẢN: V3.2 (FIXED: SMART COMBO SPLITTING FOR EXISTING BOOKINGS)
  * TÁC GIẢ: AI ASSISTANT & USER
- * NGÀY CẬP NHẬT: 2026/01/09
- * * MÔ TẢ:
- * - Xử lý logic tính toán tài nguyên (Ghế/Giường).
- * - Ngôn ngữ: 100% Tiếng Trung Phồn Thể (Traditional Chinese).
- * - Tương thích: Browser (Window) & Server (Node.js).
+ * NGÀY CẬP NHẬT: 2026/01/10
+ * * * CẬP NHẬT QUAN TRỌNG V3.2:
+ * - Fix lỗi chiếm dụng tài nguyên sai của đơn hàng cũ.
+ * - Đơn hàng Combo cũ (Existing Bookings) giờ đây được hiểu là 2 giai đoạn (Ghế -> Giường).
+ * - Tối ưu hóa khả năng nhận khách đan xen (Zig-zag scheduling).
  * =================================================================================================
  */
 
@@ -166,21 +166,63 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
     const requestStartMins = getMinsFromTimeStr(timeStr);
     if (requestStartMins === -1) return { feasible: false, reason: "時間格式錯誤 (Invalid Time Format)" };
     
-    // 2. Chuẩn hóa Bookings
-    let committedBookings = currentBookingsRaw.map(b => {
-        let rType = 'CHAIR'; 
-        if (SERVICES[b.serviceCode] && SERVICES[b.serviceCode].type) rType = SERVICES[b.serviceCode].type;
-        if (b.serviceName.includes('Foot') || b.serviceName.includes('足')) rType = 'CHAIR';
-        if (b.serviceName.includes('Body') || b.serviceName.includes('指壓') || b.serviceName.includes('油')) rType = 'BED';
-        if (b.serviceName.includes('Combo') || b.serviceName.includes('套餐')) rType = 'BED'; 
+    // =================================================================
+    // 2. CHUẨN HÓA BOOKINGS (FIXED LOGIC V3.2)
+    // =================================================================
+    let committedBookings = [];
 
-        return {
-            start: getMinsFromTimeStr(b.startTime),
-            end: b.duration ? getMinsFromTimeStr(b.startTime) + b.duration : getMinsFromTimeStr(b.startTime) + 60, 
-            resourceType: rType,
-            staffName: b.staffName
-        };
-    }).filter(b => b.start !== -1); 
+    currentBookingsRaw.forEach(b => {
+        const startMins = getMinsFromTimeStr(b.startTime);
+        if (startMins === -1) return;
+
+        // Xác định loại dịch vụ
+        let rType = 'CHAIR'; // Mặc định
+        let isCombo = false;
+        let duration = b.duration || 60; // Mặc định 60 phút nếu thiếu dữ liệu
+        
+        // Kiểm tra logic loại dịch vụ dựa trên ServiceCode hoặc Tên
+        if (SERVICES[b.serviceCode]) {
+            if (SERVICES[b.serviceCode].type) rType = SERVICES[b.serviceCode].type;
+            if (SERVICES[b.serviceCode].category === 'COMBO') isCombo = true;
+        } else {
+            // Fallback nếu không tìm thấy trong DB (Dựa vào tên)
+            if (b.serviceName.includes('Combo') || b.serviceName.includes('套餐')) isCombo = true;
+            else if (b.serviceName.includes('Body') || b.serviceName.includes('指壓') || b.serviceName.includes('油')) rType = 'BED';
+            else rType = 'CHAIR'; // Foot mặc định là Chair
+        }
+
+        // --- FIX LOGIC TẠI ĐÂY: Xử lý tách Combo ---
+        if (isCombo) {
+            // Nếu là Combo, tách thành 2 khoảng thời gian
+            // Giả định chuẩn: Giai đoạn 1 = CHAIR, Giai đoạn 2 = BED (FB mode)
+            const halfDuration = Math.floor(duration / 2);
+            
+            // Giai đoạn 1: Ngồi Ghế (Từ đầu -> Giữa)
+            committedBookings.push({
+                start: startMins,
+                end: startMins + halfDuration, // Hết giai đoạn 1
+                resourceType: 'CHAIR',
+                staffName: b.staffName
+            });
+
+            // Giai đoạn 2: Nằm Giường (Từ Giữa + Buffer -> Kết thúc)
+            // Lưu ý: Thêm Buffer chuyển đổi vào để an toàn
+            committedBookings.push({
+                start: startMins + halfDuration + CONFIG.TRANSITION_BUFFER,
+                end: startMins + duration, 
+                resourceType: 'BED',
+                staffName: b.staffName
+            });
+        } else {
+            // Nếu là dịch vụ đơn (Single), giữ nguyên logic cũ
+            committedBookings.push({
+                start: startMins,
+                end: startMins + duration,
+                resourceType: rType,
+                staffName: b.staffName
+            });
+        }
+    });
 
     // 3. Safety Gate (Full House Check)
     if (!checkResourceCapacity('TOTAL', requestStartMins, requestStartMins + 1, committedBookings)) {
@@ -327,5 +369,5 @@ if (typeof window !== 'undefined') {
     window.ResourceCore = CoreAPI;
     window.checkRequestAvailability = CoreAPI.checkRequestAvailability;
     window.setDynamicServices = CoreAPI.setDynamicServices;
-    console.log("✅ Resource Core V3.1 (ZH-TW): Loaded successfully.");
+    console.log("✅ Resource Core V3.2 (ZH-TW): Loaded successfully with SMART COMBO SPLITTING.");
 }
