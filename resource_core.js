@@ -2,13 +2,14 @@
  * =================================================================================================
  * PROJECT: XINWUCHAN MASSAGE BOT - CORE LOGIC KERNEL
  * FILE: resource_core.js
- * PHIÊN BẢN: V3.2 (FIXED: SMART COMBO SPLITTING FOR EXISTING BOOKINGS)
+ * PHIÊN BẢN: V3.3 (FEATURE: ON-TIME VS FLEXIBLE OT STAFF)
  * TÁC GIẢ: AI ASSISTANT & USER
  * NGÀY CẬP NHẬT: 2026/01/10
- * * * CẬP NHẬT QUAN TRỌNG V3.2:
- * - Fix lỗi chiếm dụng tài nguyên sai của đơn hàng cũ.
- * - Đơn hàng Combo cũ (Existing Bookings) giờ đây được hiểu là 2 giai đoạn (Ghế -> Giường).
- * - Tối ưu hóa khả năng nhận khách đan xen (Zig-zag scheduling).
+ * * * CẬP NHẬT QUAN TRỌNG V3.3:
+ * - [FEATURE] Xử lý thuộc tính 'isStrictTime' (Về đúng giờ).
+ * - [LOGIC] Nếu Staff tích "Về đúng giờ": Khách xong muộn hơn giờ về -> TỪ CHỐI.
+ * - [LOGIC] Nếu Staff KHÔNG tích (Linh hoạt): Chỉ cần Khách vào trước giờ về -> NHẬN (Tính là OT).
+ * - [MAINTAIN] Giữ nguyên logic tách Combo (Smart Combo Split) của V3.2.
  * =================================================================================================
  */
 
@@ -128,6 +129,10 @@ function checkResourceCapacity(resourceType, start, end, bookings) {
     return true; 
 }
 
+/**
+ * [V3.3 UPDATE] Hàm tìm nhân viên phù hợp
+ * Cập nhật logic: isStrictTime (Về đúng giờ) vs Flexible (Chấp nhận OT)
+ */
 function findAvailableStaff(staffReq, start, end, staffListRef, busyList) {
     const checkOneStaff = (name) => {
         const staffInfo = staffListRef[name];
@@ -137,9 +142,26 @@ function findAvailableStaff(staffReq, start, end, staffListRef, busyList) {
         const shiftEnd = getMinsFromTimeStr(staffInfo.end);     
         if (shiftStart === -1 || shiftEnd === -1) return false; 
 
+        // 1. Kiểm tra Giờ Bắt đầu (Start Time Check)
+        // Dù strict hay không, nhân viên phải bắt đầu ca thì mới nhận khách được
         if ((start + CONFIG.TOLERANCE) < shiftStart) return false;
-        if ((end - CONFIG.TOLERANCE) > shiftEnd) return false; 
 
+        // 2. Kiểm tra Giờ Kết thúc (End Time Logic - V3.3)
+        // Lấy cờ hiệu isStrictTime từ dữ liệu nhân viên (được truyền từ index.js)
+        const isStrict = staffInfo.isStrictTime === true;
+
+        if (isStrict) {
+            // [STRICT MODE] Về đúng giờ tuyệt đối
+            // Nếu giờ khách xong (end) lớn hơn giờ tan ca (shiftEnd) -> LOẠI
+            if ((end - CONFIG.TOLERANCE) > shiftEnd) return false; 
+        } else {
+            // [FLEXIBLE MODE] Chấp nhận tăng ca (OT)
+            // Logic: Chỉ cần khách vào TRƯỚC giờ tan ca là nhận.
+            // Nếu giờ khách vào (start) đã qua giờ tan ca (shiftEnd) -> LOẠI
+            if ((start + CONFIG.TOLERANCE) >= shiftEnd) return false;
+        }
+
+        // 3. Kiểm tra Trùng lịch (Conflict Check)
         for (const b of busyList) {
             if (b.staffName === name && isOverlap(start, end, b.start, b.end)) return false; 
         }
@@ -162,12 +184,12 @@ function findAvailableStaff(staffReq, start, end, staffListRef, busyList) {
 // ============================================================================
 
 function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRaw, staffList) {
-    // 1. Kiểm tra định dạng giờ (Tiếng Trung)
+    // 1. Kiểm tra định dạng giờ
     const requestStartMins = getMinsFromTimeStr(timeStr);
     if (requestStartMins === -1) return { feasible: false, reason: "時間格式錯誤 (Invalid Time Format)" };
     
     // =================================================================
-    // 2. CHUẨN HÓA BOOKINGS (FIXED LOGIC V3.2)
+    // 2. CHUẨN HÓA BOOKINGS (SMART SPLIT V3.2)
     // =================================================================
     let committedBookings = [];
 
@@ -175,38 +197,27 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
         const startMins = getMinsFromTimeStr(b.startTime);
         if (startMins === -1) return;
 
-        // Xác định loại dịch vụ
-        let rType = 'CHAIR'; // Mặc định
+        let rType = 'CHAIR'; 
         let isCombo = false;
-        let duration = b.duration || 60; // Mặc định 60 phút nếu thiếu dữ liệu
+        let duration = b.duration || 60; 
         
-        // Kiểm tra logic loại dịch vụ dựa trên ServiceCode hoặc Tên
         if (SERVICES[b.serviceCode]) {
             if (SERVICES[b.serviceCode].type) rType = SERVICES[b.serviceCode].type;
             if (SERVICES[b.serviceCode].category === 'COMBO') isCombo = true;
         } else {
-            // Fallback nếu không tìm thấy trong DB (Dựa vào tên)
             if (b.serviceName.includes('Combo') || b.serviceName.includes('套餐')) isCombo = true;
             else if (b.serviceName.includes('Body') || b.serviceName.includes('指壓') || b.serviceName.includes('油')) rType = 'BED';
-            else rType = 'CHAIR'; // Foot mặc định là Chair
+            else rType = 'CHAIR';
         }
 
-        // --- FIX LOGIC TẠI ĐÂY: Xử lý tách Combo ---
         if (isCombo) {
-            // Nếu là Combo, tách thành 2 khoảng thời gian
-            // Giả định chuẩn: Giai đoạn 1 = CHAIR, Giai đoạn 2 = BED (FB mode)
             const halfDuration = Math.floor(duration / 2);
-            
-            // Giai đoạn 1: Ngồi Ghế (Từ đầu -> Giữa)
             committedBookings.push({
                 start: startMins,
-                end: startMins + halfDuration, // Hết giai đoạn 1
+                end: startMins + halfDuration, 
                 resourceType: 'CHAIR',
                 staffName: b.staffName
             });
-
-            // Giai đoạn 2: Nằm Giường (Từ Giữa + Buffer -> Kết thúc)
-            // Lưu ý: Thêm Buffer chuyển đổi vào để an toàn
             committedBookings.push({
                 start: startMins + halfDuration + CONFIG.TRANSITION_BUFFER,
                 end: startMins + duration, 
@@ -214,7 +225,6 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
                 staffName: b.staffName
             });
         } else {
-            // Nếu là dịch vụ đơn (Single), giữ nguyên logic cũ
             committedBookings.push({
                 start: startMins,
                 end: startMins + duration,
@@ -260,13 +270,11 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
         const end = start + guest.duration + CONFIG.CLEANUP_BUFFER; 
         const allCurrent = [...committedBookings, ...tentativeBookings];
         
-        // Kiểm tra tài nguyên
         if (!checkResourceCapacity(guest.type, start, end, allCurrent)) {
             const resName = guest.type === 'BED' ? '指壓床 (Bed)' : '按摩椅 (Chair)';
             return { feasible: false, reason: `${resName} 已滿 (Resource Full)` };
         }
 
-        // Kiểm tra nhân viên
         const assignedStaff = findAvailableStaff(guest.staffReq, start, end, staffList, allCurrent);
         if (!assignedStaff) return { feasible: false, reason: `該時段無可用技師 (No Staff Available): ${timeStr}` };
 
@@ -369,5 +377,5 @@ if (typeof window !== 'undefined') {
     window.ResourceCore = CoreAPI;
     window.checkRequestAvailability = CoreAPI.checkRequestAvailability;
     window.setDynamicServices = CoreAPI.setDynamicServices;
-    console.log("✅ Resource Core V3.2 (ZH-TW): Loaded successfully with SMART COMBO SPLITTING.");
+    console.log("✅ Resource Core V3.3 (ZH-TW): Loaded with ON-TIME LEAVE LOGIC.");
 }

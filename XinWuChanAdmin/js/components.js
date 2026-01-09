@@ -149,11 +149,11 @@ window.StaffCard3D = StaffCard3D;
 
 /**
  * ============================================================================
- * 3. CHECKIN BOARD (技師管理看板) - [MODIFIED]
+ * 3. CHECKIN BOARD (技師管理看板) - [MODIFIED FOR STEP 2]
  * ----------------------------------------------------------------------------
- * 1. Chữ to hơn, nút to hơn.
- * 2. Thêm cột "準下" (On-time Leave).
- * 3. Đổi màu trạng thái Out thành Xanh lá.
+ * UPDATE LOG:
+ * - Kết nối Checkbox "準下" với API Backend (/api/update-staff-config).
+ * - Hiển thị trạng thái checked dựa trên dữ liệu thật từ Backend (isStrictTime).
  * ============================================================================
  */
 const CheckInBoard = ({ staffList, statusData, onClose, onUpdateStatus, bookings }) => {
@@ -241,7 +241,7 @@ const CheckInBoard = ({ staffList, statusData, onClose, onUpdateStatus, bookings
         return stats;
     }, [bookings, staffList]);
 
-    // Chức năng Đánh thẻ / Tan ca
+    // Chức năng Đánh thẻ / Tan ca (Local State)
     const toggleCheckIn = (id) => { 
         const current = (statusData && statusData[id]) ? statusData[id] : {}; 
         const newState = { 
@@ -255,29 +255,54 @@ const CheckInBoard = ({ staffList, statusData, onClose, onUpdateStatus, bookings
         onUpdateStatus(newState); 
     };
 
-    // Chức năng tích chọn "Về đúng giờ"
-    const toggleOntimeLeave = (id) => {
+    // [CRITICAL UPDATE] Chức năng tích chọn "Về đúng giờ" -> GỌI API BACKEND
+    const toggleOntimeLeave = async (id, currentValue) => {
+        const newValue = !currentValue; // Đảo ngược giá trị hiện tại
+        
+        // 1. Cập nhật UI ngay lập tức (Optimistic Update) cho mượt
         const current = (statusData && statusData[id]) ? statusData[id] : {};
         const newState = {
             ...statusData,
             [id]: {
                 ...current,
-                isOntimeLeave: !current.isOntimeLeave // Đảo ngược giá trị
+                isOntimeLeave: newValue
             }
         };
         onUpdateStatus(newState);
+
+        // 2. Gửi lệnh về Backend để ghi vào Sheet
+        try {
+            console.log(`Sending Update for Staff ${id}: isStrictTime = ${newValue}`);
+            const response = await fetch('/api/update-staff-config', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ staffId: id, isStrictTime: newValue })
+            });
+
+            const result = await response.json();
+            if (!result.success) {
+                console.error("Failed to update staff config:", result.error);
+                // Nếu lỗi, có thể revert lại UI ở đây (tùy chọn)
+                alert("⚠️ Lưu trạng thái thất bại. Vui lòng thử lại!");
+            } else {
+                console.log("✅ Update Staff Config Success");
+                // Backend sẽ tự động sync lại và trả về data mới sau 60s hoặc lần reload sau
+            }
+        } catch (error) {
+            console.error("API Error:", error);
+            alert("⚠️ Lỗi kết nối Server.");
+        }
     };
     
     return ( 
         <div className="fixed inset-0 bg-slate-900/80 z-[60] flex items-center justify-center p-4 backdrop-blur-sm">
-            {/* Tăng chiều rộng modal lên max-w-7xl để chứa cột mới thoải mái */}
             <div className="bg-white w-full max-w-7xl rounded-t-xl shadow-2xl modal-animate flex flex-col max-h-[90vh] overflow-hidden">
                 <div className="p-4 bg-[#7e22ce] text-white flex justify-between items-center shrink-0 shadow-md z-10">
                     <h2 className="text-2xl font-bold flex gap-2 items-center"><i className="fas fa-user-clock"></i> 技師管理 (Sheet Order)</h2>
                     <button onClick={onClose} className="hover:text-red-300 transition-colors bg-white/10 rounded-full w-10 h-10 flex items-center justify-center"><i className="fas fa-times text-2xl"></i></button>
                 </div>
                 
-                {/* HEADERS - Đã chia lại grid-cols-12 và tăng font chữ */}
+                {/* HEADERS */}
                 <div className="grid grid-cols-12 gap-2 bg-slate-100 p-4 font-bold text-slate-700 text-base border-b sticky top-0 z-10 shadow-sm">
                     <div className="col-span-2 text-center border-r border-slate-300">姓名 (Name)</div>
                     <div className="col-span-2 text-center text-emerald-700 border-r border-slate-300">💰 薪資 (Salary)</div>
@@ -290,39 +315,42 @@ const CheckInBoard = ({ staffList, statusData, onClose, onUpdateStatus, bookings
 
                 <div className="overflow-y-auto flex-1 p-2 space-y-2 bg-white custom-scrollbar">
                     {safeStaffList.map(s => { 
-                        const current = (statusData && statusData[s.id]) ? statusData[s.id] : { status: 'AWAY', checkInTime: 0, isOntimeLeave: false }; 
+                        const current = (statusData && statusData[s.id]) ? statusData[s.id] : { status: 'AWAY', checkInTime: 0 }; 
                         const isWorking = current.status !== 'AWAY' && current.status !== 'OFF';
                         const income = staffIncomeMap[s.id] ? staffIncomeMap[s.id].income : 0;
-                        const isOnTime = current.isOntimeLeave === true;
+                        
+                        // [LOGIC MỚI] Xác định trạng thái checked
+                        // Ưu tiên local state (nếu vừa bấm) -> Nếu không có thì lấy từ DB (s.isStrictTime)
+                        const isOnTime = (current.isOntimeLeave !== undefined) 
+                                         ? current.isOntimeLeave 
+                                         : (s.isStrictTime === true);
 
                         return ( 
                             <div key={s.id} className="grid grid-cols-12 gap-2 items-center py-3 px-2 border-b border-gray-100 hover:bg-slate-50 transition-all group">
-                                {/* Name - Cỡ chữ to hơn */}
+                                {/* Name */}
                                 <div className="col-span-2 text-center font-black text-2xl text-slate-800 flex items-center justify-center gap-2">
                                     {s.name}
                                     <span className="text-xs text-gray-400 font-normal opacity-50 group-hover:opacity-100 hidden lg:inline">#{s.id}</span>
                                 </div>
                                 
-                                {/* Salary - Cỡ chữ to hơn */}
+                                {/* Salary */}
                                 <div className="col-span-2 text-center">
                                     <span className={`px-3 py-1.5 rounded text-lg font-black border shadow-sm ${income > 0 ? 'bg-emerald-100 text-emerald-700 border-emerald-200' : 'bg-gray-50 text-gray-300 border-gray-100'}`}>
                                         ${income.toLocaleString()}
                                     </span>
                                 </div>
                                 
-                                {/* Shift - Cỡ chữ to hơn */}
+                                {/* Shift */}
                                 <div className="col-span-2 text-center font-mono text-xl text-slate-600 font-bold">{s.shiftStart}</div>
                                 <div className="col-span-2 text-center font-mono text-xl text-slate-600 font-bold">{s.shiftEnd}</div>
                                 
-                                {/* Check In/Out - Nút bấm to hơn, rõ ràng hơn */}
+                                {/* Check In/Out */}
                                 <div className="col-span-2 flex justify-center">
                                     {isWorking ? (
                                         <div className="flex items-center gap-2 w-full justify-center">
-                                            {/* Giờ checkin */}
                                             <span className="font-mono font-bold text-lg text-slate-500 bg-gray-100 px-2 py-1 rounded border">
                                                 {new Date(current.checkInTime).toLocaleTimeString('en-US',{hour12:false, hour:'2-digit', minute:'2-digit'})}
                                             </span>
-                                            {/* Nút Tan Ca (Sign Out) - TO, MÀU ĐỎ, DỄ BẤM */}
                                             <button 
                                                 onClick={() => toggleCheckIn(s.id)} 
                                                 className="text-red-500 hover:text-white hover:bg-red-500 border border-red-200 rounded-lg w-12 h-10 flex items-center justify-center transition-all shadow-sm active:scale-95" 
@@ -332,14 +360,13 @@ const CheckInBoard = ({ staffList, statusData, onClose, onUpdateStatus, bookings
                                             </button>
                                         </div>
                                     ) : (
-                                        /* Nút Đánh Thẻ (Check In) - TO, MÀU XANH, DỄ BẤM */
                                         <button onClick={() => toggleCheckIn(s.id)} className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-black text-lg w-full max-w-[140px] shadow-md transition-all transform hover:scale-105 active:scale-95 flex items-center justify-center gap-2">
                                             <i className="fas fa-sign-in-alt"></i> 打卡
                                         </button>
                                     )}
                                 </div>
                                 
-                                {/* Status Select - Cỡ chữ to hơn, màu Out chuyển thành Xanh Lá */}
+                                {/* Status Select */}
                                 <div className="col-span-1 text-center">
                                     <div className="relative">
                                         <select 
@@ -353,30 +380,27 @@ const CheckInBoard = ({ staffList, statusData, onClose, onUpdateStatus, bookings
                                             <option value="AWAY">⚪ 未到</option>
                                             <option value="READY">🟣 待命</option>
                                             <option value="EAT">🟠 用餐</option>
-                                            {/* Đổi màu hiển thị text cho trạng thái Out */}
                                             <option value="OUT_SHORT" className="text-green-700 font-bold">🟢 外出 (Out)</option>
                                         </select>
-                                        
-                                        {/* Dot Indicator */}
                                         <div className="absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none">
                                             <div className={`w-3 h-3 rounded-full ring-2 ring-white shadow-sm 
                                                 ${current.status==='READY' ? 'bg-purple-600' : 
                                                   current.status==='EAT' ? 'bg-orange-500' : 
-                                                  current.status==='OUT_SHORT' ? 'bg-green-500' : // Đổi thành màu xanh lá
+                                                  current.status==='OUT_SHORT' ? 'bg-green-500' : 
                                                   'bg-gray-400'}`}>
                                             </div>
                                         </div>
                                     </div>
                                 </div>
 
-                                {/* [NEW COLUMN] 準下 (On-time Leave) Checkbox */}
+                                {/* [NEW COLUMN] 準下 (On-time Leave) Checkbox -> Call API */}
                                 <div className="col-span-1 flex justify-center items-center">
-                                    <label className="flex items-center justify-center w-full h-full cursor-pointer p-2 hover:bg-blue-50 rounded-lg transition-colors">
+                                    <label className="flex items-center justify-center w-full h-full cursor-pointer p-2 hover:bg-blue-50 rounded-lg transition-colors" title="Check to Enforce Exact End Time">
                                         <input 
                                             type="checkbox" 
-                                            className="w-6 h-6 text-blue-600 border-2 border-gray-300 rounded focus:ring-blue-500 cursor-pointer accent-blue-600"
+                                            className="w-6 h-6 text-blue-600 border-2 border-gray-300 rounded focus:ring-blue-500 cursor-pointer accent-blue-600 transform transition-transform active:scale-90"
                                             checked={isOnTime}
-                                            onChange={() => toggleOntimeLeave(s.id)}
+                                            onChange={() => toggleOntimeLeave(s.id, isOnTime)}
                                         />
                                     </label>
                                 </div>
