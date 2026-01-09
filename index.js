@@ -1,14 +1,14 @@
 /**
  * =================================================================================================
  * PROJECT: XINWUCHAN MASSAGE BOT (BACKEND SERVER)
- * VERSION: V2.9 (FEATURE: ON-TIME STAFF MANAGEMENT)
+ * VERSION: V3.0 (HOTFIX: INSTANT STATE UPDATE)
  * AUTHOR: AI ASSISTANT & USER
  * DATE: 2026/01/10
- * * CHANGE LOG:
- * - [NEW] Đọc cột E (Index 4) trong StaffSchedule để xác định chế độ "Về đúng giờ" (isStrictTime).
- * - [NEW] Thêm API /api/update-staff-config để cập nhật trạng thái checkbox từ Web vào Google Sheet.
- * - [MAINTAIN] Dời vòng lặp quét lịch OFF sang cột F (Index 5) để tránh đè cột "Về đúng giờ".
- * - [KEEP] Giữ nguyên logic Date Parsing và Timezone V2.8.
+ * * * CHANGE LOG V3.0:
+ * - [CRITICAL FIX] API /api/update-staff-config: Cập nhật biến STAFF_LIST trên RAM ngay lập tức
+ * khi có request từ Frontend. Giúp Bot nhận diện việc Bỏ Tick/Tick ngay tức thì mà không cần 
+ * chờ Google Sheet phản hồi.
+ * - [KEEP] Giữ nguyên logic Sync, Booking và Timezone của V2.9.
  * =================================================================================================
  */
 
@@ -320,7 +320,7 @@ async function syncData() {
         if (rows && rows.length > 1) {
             const headerRow = rows[0]; 
             // Debug ngày tháng để chắc chắn
-            console.log(`[HEADER CHECK] Raw Col AS: "${headerRow[44]}" -> Parsed: "${normalizeSheetDate(headerRow[44])}"`);
+            // console.log(`[HEADER CHECK] Raw Col AS: "${headerRow[44]}" -> Parsed: "${normalizeSheetDate(headerRow[44])}"`);
 
             for (let i = 1; i < rows.length; i++) {
                 const row = rows[i];
@@ -588,32 +588,46 @@ app.post('/api/update-booking-details', async (req, res) => {
     } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// --- [MỚI] API UPDATE CẤU HÌNH NHÂN VIÊN (ON-TIME) ---
+// --- [MỚI + FIX] API UPDATE CẤU HÌNH NHÂN VIÊN (ON-TIME) ---
 app.post('/api/update-staff-config', async (req, res) => {
     try {
         const { staffId, isStrictTime } = req.body;
         
-        // Tìm nhân viên trong bộ nhớ Cache để lấy số dòng (rowId)
-        const staff = STAFF_LIST.find(s => s.id === staffId);
-        
-        if (!staff || !staff.sheetRowIndex) {
-            return res.status(404).json({ success: false, error: 'Staff not found or missing Row Index' });
+        console.log(`[API UPDATE REQUEST] Staff: ${staffId}, isStrict: ${isStrictTime}`);
+
+        // --- BƯỚC 1: CẬP NHẬT BỘ NHỚ RAM NGAY LẬP TỨC (QUAN TRỌNG) ---
+        // Giúp Bot nhận diện thay đổi ngay cả khi chưa ghi xong vào Sheet
+        const staffIndex = STAFF_LIST.findIndex(s => s.id === staffId);
+        let sheetRowIndex = -1;
+
+        if (staffIndex !== -1) {
+            // Cập nhật RAM
+            STAFF_LIST[staffIndex].isStrictTime = isStrictTime;
+            sheetRowIndex = STAFF_LIST[staffIndex].sheetRowIndex;
+            console.log(`[RAM UPDATE SUCCESS] ${staffId} -> ${isStrictTime ? 'STRICT' : 'NORMAL'}`);
+        } else {
+            console.warn(`[RAM UPDATE WARNING] Staff ${staffId} not found in memory list.`);
+            return res.status(404).json({ success: false, error: 'Staff not found in memory' });
         }
 
-        // Giá trị cần ghi: "TRUE" nếu tick, "" (Rỗng) nếu bỏ tick
-        const valueToWrite = isStrictTime ? "TRUE" : "";
-        
-        // Ghi vào Cột E (Cột thứ 5) của dòng tương ứng trong StaffSchedule
-        const range = `${SCHEDULE_SHEET}!E${staff.sheetRowIndex}`;
-        
-        await sheets.spreadsheets.values.update({
-            spreadsheetId: SHEET_ID,
-            range: range,
-            valueInputOption: 'USER_ENTERED',
-            requestBody: { values: [[valueToWrite]] }
-        });
-        
-        // Sau khi ghi xong, gọi syncData để Bot cập nhật lại bộ nhớ ngay lập tức
+        // --- BƯỚC 2: GHI VÀO GOOGLE SHEET ĐỂ LƯU TRỮ ---
+        if (sheetRowIndex !== -1) {
+            // Giá trị cần ghi: "TRUE" nếu tick, "" (Rỗng) nếu bỏ tick
+            const valueToWrite = isStrictTime ? "TRUE" : "";
+            const range = `${SCHEDULE_SHEET}!E${sheetRowIndex}`;
+            
+            await sheets.spreadsheets.values.update({
+                spreadsheetId: SHEET_ID,
+                range: range,
+                valueInputOption: 'USER_ENTERED',
+                requestBody: { values: [[valueToWrite]] }
+            });
+            console.log(`[SHEET UPDATE SUCCESS] Wrote "${valueToWrite}" to ${range}`);
+        }
+
+        // --- BƯỚC 3: TRIGGER SYNC (DOUBLE CHECK) ---
+        // Vẫn gọi Sync để đảm bảo mọi thứ đồng nhất, nhưng không cần chờ nó xong mới phản hồi user
+        // vì RAM đã update rồi.
         await syncData();
         
         res.json({ success: true, message: `Updated ${staffId} strict mode to ${isStrictTime}` });
