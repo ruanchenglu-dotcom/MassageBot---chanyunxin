@@ -1,19 +1,21 @@
 /**
  * ============================================================================
  * FILE: js/bookingHandler.js
- * PHIÊN BẢN: V82 (UPDATE: CORE KERNEL V3.4 STABLE)
+ * PHIÊN BẢN: V83 (UPDATE: CORE KERNEL V4.0 GLOBAL OPTIMIZER)
  * NGÀY CẬP NHẬT: 2026-01-10
  * TÁC GIẢ: AI ASSISTANT & USER
- * * * * * TÍNH NĂNG MỚI (V82):
- * 1. [CORE V3.4] Nhúng bộ não mới nhất để đồng bộ với Backend.
- * 2. [STRICT TIME] Frontend giờ đây đã hiểu luật "Về đúng giờ". Nếu khách chọn
- * khung giờ lố giờ về của nhân viên (có tick), Frontend sẽ báo đỏ ngay lập tức.
- * 3. [SMART COMBO] Tự động tách Combo thành 2 giai đoạn (Ghế -> Giường) để tính toán chuẩn xác.
+ * * * * * TÍNH NĂNG ĐỘT PHÁ (V83):
+ * 1. [CORE V4.0 INTEGRATION] Nhúng bộ não "Global Optimizer" vào Frontend.
+ * - Hệ thống giờ đây có khả năng tự động sắp xếp lại trật tự Combo của khách cũ 
+ * để tìm khe hở cho khách mới.
+ * - Giải quyết triệt để vấn đề "Báo ảo" khi tài nguyên còn nhưng bị dồn cục.
+ * 2. [STRICT TIME] Vẫn giữ nguyên logic kiểm soát giờ về (OT) của nhân viên.
+ * 3. [SCENARIO BALANCING] Tự động chia tải 50/50 giữa Ghế và Giường.
  * ============================================================================
  */
 
 (function() {
-    console.log("🚀 BookingHandler V82: Initializing with CORE V3.4 (Strict Time & Smart Combo)...");
+    console.log("🚀 BookingHandler V83: Initializing with CORE V4.0 (Global Optimizer)...");
 
     if (typeof React === 'undefined') {
         console.error("❌ CRITICAL ERROR: React not found. Cannot start BookingHandler.");
@@ -21,10 +23,11 @@
     }
 
     // ========================================================================
-    // PHẦN 1: CORE KERNEL V3.4 (EMBEDDED)
-    // Copy nguyên bản logic từ resource_core.js sang đây để chạy Client-side
+    // PHẦN 1: CORE KERNEL V4.0 (EMBEDDED - GLOBAL OPTIMIZER)
+    // Copy nguyên bản logic từ resource_core.js V4.0 sang đây
     // ========================================================================
     const CoreKernel = (function() {
+        
         // --- 1. CẤU HÌNH HỆ THỐNG ---
         const CONFIG = {
             MAX_CHAIRS: 6,        
@@ -33,7 +36,7 @@
             
             OPEN_HOUR: 8,         // 08:00 Sáng mở cửa
             CLEANUP_BUFFER: 5,    // Dọn dẹp 5p
-            TRANSITION_BUFFER: 5, // Di chuyển 5p
+            TRANSITION_BUFFER: 5, // Di chuyển 5p giữa Combo
             
             TOLERANCE: 1,         // Dung sai 1p
             MAX_TIMELINE_MINS: 1440 
@@ -50,7 +53,6 @@
                 'LATE': { name: '⚠️ 延遲 (Late)', duration: 0, type: 'NONE', price: 0, category: 'SYSTEM' }
             };
             SERVICES = { ...newServicesObj, ...systemServices };
-            // console.log(`[KERNEL V3.4] Services Updated: ${Object.keys(SERVICES).length} entries.`);
         }
 
         // --- 3. BỘ CÔNG CỤ THỜI GIAN ---
@@ -63,7 +65,6 @@
                 let h = parseInt(parts[0], 10);
                 let m = parseInt(parts[1], 10);
                 if (isNaN(h) || isNaN(m)) return -1;
-                // Xử lý qua đêm
                 if (h < CONFIG.OPEN_HOUR) h += 24; 
                 return (h * 60) + m;
             } catch (e) { return -1; }
@@ -82,7 +83,7 @@
             return (startA < safeEndB) && (startB < safeEndA);
         }
 
-        // --- 4. KIỂM TRA TÀI NGUYÊN (RESOURCE CHECK) ---
+        // --- 4. KIỂM TRA TÀI NGUYÊN (LINE SWEEP ALGORITHM) ---
         function checkResourceCapacity(resourceType, start, end, bookings) {
             let limit = 0;
             if (resourceType === 'BED') limit = CONFIG.MAX_BEDS;
@@ -90,240 +91,296 @@
             else if (resourceType === 'TOTAL') limit = CONFIG.MAX_TOTAL_GUESTS;
             else return true; 
 
-            let points = [];
-            for (const bk of bookings) {
-                let isRelevant = (resourceType === 'TOTAL') ? true : (bk.resourceType === resourceType);
-                if (isRelevant && isOverlap(start, end, bk.start, bk.end)) {
-                    let pStart = Math.max(start, bk.start);
-                    let pEnd = Math.min(end, bk.end);
-                    if (pEnd - pStart > CONFIG.TOLERANCE) {
-                        points.push({ time: pStart, type: 'start' });
-                        points.push({ time: pEnd, type: 'end' });
-                    }
-                }
-            }
+            // Lọc booking liên quan
+            let relevantBookings = bookings.filter(bk => {
+                let isTypeMatch = (resourceType === 'TOTAL') ? true : (bk.resourceType === resourceType);
+                return isTypeMatch && isOverlap(start, end, bk.start, bk.end);
+            });
 
-            if (points.length === 0) return true; 
-            points.sort((a, b) => (a.time === b.time) ? (a.type === 'start' ? -1 : 1) : (a.time - b.time));
+            if (relevantBookings.length === 0) return true;
+
+            // Line Sweep Points
+            let points = [];
+            points.push({ time: start, type: 'check_start' });
+            points.push({ time: end, type: 'check_end' });
+
+            relevantBookings.forEach(bk => {
+                points.push({ time: bk.start, type: 'start' });
+                points.push({ time: bk.end, type: 'end' });
+            });
+
+            // Sắp xếp
+            points.sort((a, b) => {
+                if (a.time !== b.time) return a.time - b.time;
+                const priority = { 'start': 1, 'check_start': 2, 'check_end': 3, 'end': 4 };
+                return priority[a.type] - priority[b.type];
+            });
 
             let currentLoad = 0;
             for (const p of points) {
-                if (p.type === 'start') currentLoad++; else currentLoad--;
-                if (currentLoad >= limit) return false; 
+                if (p.type === 'start') currentLoad++;
+                else if (p.type === 'end') currentLoad--;
+                
+                if (p.time >= start && p.time < end) {
+                     if (currentLoad > limit) return false;
+                }
             }
             return true; 
         }
 
-        // --- 5. KIỂM TRA NHÂN VIÊN (STAFF CHECK - UPDATE V3.4 STRICT TIME) ---
+        // --- 5. KIỂM TRA NHÂN VIÊN (STRICT TIME LOGIC) ---
         function findAvailableStaff(staffReq, start, end, staffListRef, busyList) {
-            
             const checkOneStaff = (name) => {
                 const staffInfo = staffListRef[name];
-                
-                // 1. Check tồn tại và OFF
                 if (!staffInfo || staffInfo.off) return false; 
                 
                 const shiftStart = getMinsFromTimeStr(staffInfo.start); 
                 const shiftEnd = getMinsFromTimeStr(staffInfo.end);     
                 if (shiftStart === -1 || shiftEnd === -1) return false; 
 
-                // 2. Check Giờ Bắt Đầu (Luôn phải sau giờ đi làm)
+                // Rule 1: Khách không thể đến trước giờ làm
                 if ((start + CONFIG.TOLERANCE) < shiftStart) return false;
 
-                // 3. CHECK STRICT TIME vs OT (QUAN TRỌNG)
-                const isStrict = staffInfo.isStrictTime === true; 
-
+                // Rule 2: Strict Time vs Flexible
+                // *** QUAN TRỌNG: Đây là logic Về Đúng Giờ ***
+                const isStrict = staffInfo.isStrictTime === true;
                 if (isStrict) {
-                    // Strict Mode: Phải làm XONG trước giờ về
                     if ((end - CONFIG.TOLERANCE) > shiftEnd) return false; 
                 } else {
-                    // Flexible Mode: Chỉ cần BẮT ĐẦU trước giờ về
-                    if (start  > shiftEnd) return false;
+                    if (start > shiftEnd) return false;
                 }
 
-                // 4. Check trùng lịch
+                // Rule 3: Trùng lịch
                 for (const b of busyList) {
                     if (b.staffName === name && isOverlap(start, end, b.start, b.end)) return false; 
                 }
 
-                // 5. Check giới tính (Nếu có yêu cầu trong Random)
+                // Rule 4: Giới tính
                 if (staffReq === 'MALE' && staffInfo.gender !== 'M') return false;
                 if ((staffReq === 'FEMALE' || staffReq === '女') && staffInfo.gender !== 'F') return false;
 
                 return true; 
             };
 
-            // Logic điều phối
             if (staffReq && staffReq !== 'RANDOM' && staffReq !== 'MALE' && staffReq !== 'FEMALE' && staffReq !== '隨機' && staffReq !== 'Any') {
                 return checkOneStaff(staffReq) ? staffReq : null;
             } else {
                 const allStaffNames = Object.keys(staffListRef);
-                for (const name of allStaffNames) { if (checkOneStaff(name)) return name; }
+                for (const name of allStaffNames) {
+                    if (checkOneStaff(name)) return name;
+                }
                 return null;
             }
         }
 
-        // --- 6. LOGIC XỬ LÝ CHÍNH (MAIN LOGIC - UPDATE V3.4 SMART COMBO) ---
+        // --- 6. LOGIC XỬ LÝ TRUNG TÂM (GLOBAL OPTIMIZER - V4.0) ---
         function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRaw, staffList) {
-            // 1. Kiểm tra định dạng giờ
+            // 1. Validate Input
             const requestStartMins = getMinsFromTimeStr(timeStr);
-            if (requestStartMins === -1) return { feasible: false, reason: "時間格式錯誤 (Invalid Time Format)" };
-            
-            // 2. CHUẨN HÓA BOOKINGS (SMART SPLIT)
-            // Biến đổi booking cũ thành các khối tài nguyên
-            let committedBookings = [];
+            if (requestStartMins === -1) return { feasible: false, reason: "Error: Invalid Time Format" };
 
+            // ========================================================================
+            // BƯỚC A: PHÂN LOẠI & TIỀN XỬ LÝ DỮ LIỆU
+            // ========================================================================
+            let hardBookings = [];
+            let flexibleIntentions = [];
+
+            // --- Xử lý Booking cũ từ Google Sheet ---
             currentBookingsRaw.forEach(b => {
-                const startMins = getMinsFromTimeStr(b.startTime);
-                if (startMins === -1) return;
+                const bStart = getMinsFromTimeStr(b.startTime);
+                if (bStart === -1) return;
 
-                let rType = 'CHAIR'; 
-                let isCombo = false;
-                let duration = b.duration || 60; 
+                let svcInfo = SERVICES[b.serviceCode] || {};
+                let isCombo = svcInfo.category === 'COMBO';
+                if (!svcInfo.category && (b.serviceName.includes('Combo') || b.serviceName.includes('套餐'))) isCombo = true;
+
+                let duration = b.duration || 60;
                 
-                // Logic nhận diện loại dịch vụ
-                if (SERVICES[b.serviceCode]) {
-                    if (SERVICES[b.serviceCode].type) rType = SERVICES[b.serviceCode].type;
-                    if (SERVICES[b.serviceCode].category === 'COMBO') isCombo = true;
+                // Nếu là Combo VÀ ở tương lai (cùng giờ hoặc sau giờ request) -> Cho vào nhóm Linh Hoạt
+                if (isCombo && bStart >= requestStartMins) {
+                     flexibleIntentions.push({
+                         source: 'OLD',
+                         staffName: b.staffName,
+                         start: bStart,
+                         duration: duration,
+                         price: 0, 
+                         serviceName: b.serviceName
+                     });
                 } else {
-                    // Fallback
-                    if (b.serviceName.includes('Combo') || b.serviceName.includes('套餐')) isCombo = true;
-                    else if (b.serviceName.includes('Body') || b.serviceName.includes('指壓') || b.serviceName.includes('油')) rType = 'BED';
-                    else rType = 'CHAIR'; 
-                }
-
-                // Tách Combo cũ
-                if (isCombo) {
-                    const halfDuration = Math.floor(duration / 2);
-                    committedBookings.push({ start: startMins, end: startMins + halfDuration, resourceType: 'CHAIR', staffName: b.staffName });
-                    committedBookings.push({ start: startMins + halfDuration + CONFIG.TRANSITION_BUFFER, end: startMins + duration, resourceType: 'BED', staffName: b.staffName });
-                } else {
-                    committedBookings.push({ start: startMins, end: startMins + duration, resourceType: rType, staffName: b.staffName });
+                    // Nếu là khách lẻ hoặc Combo quá khứ -> Cố định (Hard Block)
+                    if (isCombo) {
+                        const half = Math.floor(duration/2);
+                        hardBookings.push({ start: bStart, end: bStart+half, resourceType: 'CHAIR', staffName: b.staffName });
+                        hardBookings.push({ start: bStart+half+CONFIG.TRANSITION_BUFFER, end: bStart+duration, resourceType: 'BED', staffName: b.staffName });
+                    } else {
+                        let rType = svcInfo.type || 'CHAIR'; 
+                        if (b.serviceName.includes('Body') || b.serviceName.includes('指壓') || b.serviceName.includes('油')) rType = 'BED';
+                        hardBookings.push({ start: bStart, end: bStart+duration, resourceType: rType, staffName: b.staffName });
+                    }
                 }
             });
 
-            // 3. Safety Gate (Full House Check)
-            if (!checkResourceCapacity('TOTAL', requestStartMins, requestStartMins + 1, committedBookings)) {
-                return { feasible: false, reason: "目前預約已滿 (Full House - Max 12 Guests)" };
-            }
+            // --- Xử lý Khách Mới (Request) ---
+            let newSingleGuests = [];
+            // let newComboGuests = []; // (Đã tích hợp vào flexibleIntentions)
 
-            // 4. Phân loại khách mới
-            let singleGuests = [];
-            let comboGuests = [];
-
-            for (let i = 0; i < guestList.length; i++) {
-                const g = guestList[i];
+            guestList.forEach((g, index) => {
                 const svc = SERVICES[g.serviceCode];
-                if (!svc) return { feasible: false, reason: `未知服務項目: ${g.serviceCode}` };
-
-                const guestData = {
-                    id: i, serviceCode: g.serviceCode, serviceName: svc.name,
-                    staffReq: g.staffName, price: svc.price, duration: svc.duration, type: svc.type, category: svc.category
+                if (!svc) return;
+                
+                const guestObj = {
+                    id: index,
+                    staffReq: g.staffName,
+                    serviceName: svc.name,
+                    duration: svc.duration,
+                    price: svc.price,
+                    type: svc.type,
+                    category: svc.category
                 };
-                if (svc.category === 'COMBO') comboGuests.push(guestData);
-                else singleGuests.push(guestData);
-            }
 
-            let tentativeBookings = []; 
+                if (svc.category === 'COMBO') {
+                    flexibleIntentions.push({
+                        source: 'NEW',
+                        guestRef: guestObj,
+                        start: requestStartMins,
+                        duration: svc.duration,
+                        staffReq: g.staffName
+                    });
+                } else {
+                    newSingleGuests.push(guestObj);
+                }
+            });
+
+            // ========================================================================
+            // BƯỚC B: XẾP KHÁCH LẺ (SINGLE) TRƯỚC
+            // ========================================================================
+            let tentativeHardBookings = [...hardBookings];
             let finalDetails = new Array(guestList.length);
 
-            // --- BƯỚC 4A: XẾP KHÁCH LẺ ---
-            for (const guest of singleGuests) {
+            for (const g of newSingleGuests) {
                 const start = requestStartMins;
-                const end = start + guest.duration + CONFIG.CLEANUP_BUFFER; 
-                const allCurrent = [...committedBookings, ...tentativeBookings];
+                const end = start + g.duration + CONFIG.CLEANUP_BUFFER;
                 
-                if (!checkResourceCapacity(guest.type, start, end, allCurrent)) {
-                    const resName = guest.type === 'BED' ? '指壓床 (Bed)' : '按摩椅 (Chair)';
-                    return { feasible: false, reason: `${resName} 已滿` };
+                // Check Tài nguyên
+                if (!checkResourceCapacity(g.type, start, end, tentativeHardBookings)) {
+                     return { feasible: false, reason: `資源不足 (Resource Full): ${g.type}` };
                 }
 
-                // Gọi findAvailableStaff mới (Có check Strict Time)
-                const assignedStaff = findAvailableStaff(guest.staffReq, start, end, staffList, allCurrent);
-                if (!assignedStaff) return { feasible: false, reason: `該時段無可用技師 (hoặc hết giờ làm)` };
+                // Check Nhân viên (Phải tránh cả lịch Hard và lịch Flexible dự kiến)
+                let allBusyStaffRanges = [...tentativeHardBookings];
+                flexibleIntentions.forEach(f => {
+                    if (f.source === 'OLD') {
+                        allBusyStaffRanges.push({ start: f.start, end: f.start + f.duration, staffName: f.staffName });
+                    }
+                });
 
-                tentativeBookings.push({ start: start, end: end, resourceType: guest.type, staffName: assignedStaff });
-                finalDetails[guest.id] = {
-                    guestIndex: guest.id, staff: assignedStaff, service: guest.serviceName, price: guest.price,
+                const staff = findAvailableStaff(g.staffReq, start, end, staffList, allBusyStaffRanges);
+                if (!staff) return { feasible: false, reason: `無可用技師 (No Staff): ${g.staffReq || 'Random'}` };
+
+                // Chốt đơn
+                tentativeHardBookings.push({ start: start, end: end, resourceType: g.type, staffName: staff });
+                
+                finalDetails[g.id] = {
+                    guestIndex: g.id, staff: staff, service: g.serviceName, price: g.price, 
                     timeStr: `${timeStr} - ${getTimeStrFromMins(end - CONFIG.CLEANUP_BUFFER)}`
                 };
             }
 
-            if (comboGuests.length === 0) return { feasible: true, details: finalDetails, totalPrice: finalDetails.reduce((s, x) => s + x.price, 0) };
+            if (flexibleIntentions.length === 0) {
+                 if (!checkResourceCapacity('TOTAL', requestStartMins, requestStartMins+1, tentativeHardBookings))
+                    return { feasible: false, reason: "Full House (12 Guests)" };
+                 return { feasible: true, details: finalDetails, totalPrice: finalDetails.reduce((a,b)=>a+(b?b.price:0),0) };
+            }
 
-            // --- BƯỚC 4B: XẾP KHÁCH COMBO (SMART SCENARIOS) ---
-            const tryScenario = (scenarioConfig) => {
-                let scenarioBookings = JSON.parse(JSON.stringify(tentativeBookings)); 
+            // ========================================================================
+            // BƯỚC C: GIẢ LẬP ĐA VŨ TRỤ (MULTIVERSE SIMULATION)
+            // ========================================================================
+            const scenarios = ['ALL_FB', 'ALL_BF', 'BALANCE_A', 'BALANCE_B'];
+            
+            for (const scenName of scenarios) {
+                let simulationBookings = JSON.parse(JSON.stringify(tentativeHardBookings)); 
+                let scenarioValid = true;
                 let scenarioDetails = []; 
 
-                for (const item of scenarioConfig) {
-                    const guest = comboGuests.find(g => g.id === item.guestId);
-                    const halfDuration = Math.floor(guest.duration / 2); 
+                for (let i = 0; i < flexibleIntentions.length; i++) {
+                    const item = flexibleIntentions[i];
+                    const half = Math.floor(item.duration / 2);
                     
-                    const p1Start = requestStartMins;
-                    const p1End = p1Start + halfDuration; 
+                    // Chọn Mode
+                    let mode = 'FB';
+                    if (scenName === 'ALL_FB') mode = 'FB';
+                    else if (scenName === 'ALL_BF') mode = 'BF';
+                    else if (scenName === 'BALANCE_A') mode = (i % 2 === 0) ? 'FB' : 'BF';
+                    else if (scenName === 'BALANCE_B') mode = (i % 2 === 0) ? 'BF' : 'FB';
+
+                    const p1Res = (mode === 'FB') ? 'CHAIR' : 'BED';
+                    const p2Res = (mode === 'FB') ? 'BED' : 'CHAIR';
+                    
+                    const tStart = item.start;
+                    const p1End = tStart + half;
                     const p2Start = p1End + CONFIG.TRANSITION_BUFFER;
-                    const p2End = p2Start + halfDuration;
-                    const p1BlockEnd = p1End + CONFIG.CLEANUP_BUFFER;
-                    const p2BlockEnd = p2End + CONFIG.CLEANUP_BUFFER;
-                    const staffEnd = p2BlockEnd; 
+                    const p2End = p2Start + half;
+                    const fullEnd = p2End + CONFIG.CLEANUP_BUFFER;
 
-                    let phase1Res = (item.mode === 'FB') ? 'CHAIR' : 'BED';
-                    let phase2Res = (item.mode === 'FB') ? 'BED' : 'CHAIR';
+                    // Check Phase 1
+                    if (!checkResourceCapacity(p1Res, tStart, p1End + CONFIG.CLEANUP_BUFFER, simulationBookings)) {
+                        scenarioValid = false; break;
+                    }
+                    simulationBookings.push({ start: tStart, end: p1End + CONFIG.CLEANUP_BUFFER, resourceType: p1Res, staffName: 'TEMP_SIM' });
 
-                    let allBusy = [...committedBookings, ...scenarioBookings];
+                    // Check Phase 2
+                    if (!checkResourceCapacity(p2Res, p2Start, fullEnd, simulationBookings)) {
+                        scenarioValid = false; break;
+                    }
 
-                    if (!checkResourceCapacity(phase1Res, p1Start, p1BlockEnd, allBusy)) return null; 
-                    allBusy.push({ start: p1Start, end: p1BlockEnd, resourceType: phase1Res, staffName: 'TEMP' });
-                    if (!checkResourceCapacity(phase2Res, p2Start, p2BlockEnd, allBusy)) return null; 
+                    // Assign Staff
+                    let assignedStaff = item.staffName; 
+                    if (item.source === 'NEW') {
+                        assignedStaff = findAvailableStaff(item.staffReq, tStart, fullEnd, staffList, simulationBookings);
+                        if (!assignedStaff) { scenarioValid = false; break; }
+                        
+                        scenarioDetails.push({
+                            guestIndex: item.guestRef.id,
+                            staff: assignedStaff,
+                            service: item.guestRef.serviceName,
+                            price: item.guestRef.price,
+                            mode: mode,
+                            timeStr: `${timeStr} - ${getTimeStrFromMins(p2End)}`
+                        });
+                    }
 
-                    // Gọi findAvailableStaff mới (Có check Strict Time)
-                    const staff = findAvailableStaff(guest.staffReq, p1Start, staffEnd, staffList, [...committedBookings, ...scenarioBookings]);
-                    if (!staff) return null; 
-
-                    scenarioBookings.push({ start: p1Start, end: p1BlockEnd, resourceType: phase1Res, staffName: staff });
-                    scenarioBookings.push({ start: p2Start, end: p2BlockEnd, resourceType: phase2Res, staffName: staff });
-
-                    scenarioDetails.push({
-                        guestIndex: guest.id, staff: staff, service: guest.serviceName, price: guest.price, mode: item.mode, 
-                        timeStr: `${timeStr} - ${getTimeStrFromMins(p2End)}`
-                    });
+                    simulationBookings.push({ start: tStart, end: p1End + CONFIG.CLEANUP_BUFFER, resourceType: p1Res, staffName: assignedStaff });
+                    simulationBookings.push({ start: p2Start, end: fullEnd, resourceType: p2Res, staffName: assignedStaff });
                 }
-                return scenarioDetails; 
-            };
 
-            // Thử các kịch bản
-            let successScenario = null;
-            successScenario = tryScenario(comboGuests.map(g => ({ guestId: g.id, mode: 'FB' }))); 
-            if (!successScenario) successScenario = tryScenario(comboGuests.map(g => ({ guestId: g.id, mode: 'BF' }))); 
-            if (!successScenario && comboGuests.length >= 2) {
-                const splitConfig = [];
-                for (let i = 0; i < comboGuests.length; i++) {
-                    splitConfig.push({ guestId: comboGuests[i].id, mode: (i < Math.ceil(comboGuests.length/2)) ? 'FB' : 'BF' });
+                // Check Final House Limit
+                if (scenarioValid) {
+                     if (!checkResourceCapacity('TOTAL', requestStartMins, requestStartMins+1, simulationBookings)) {
+                         scenarioValid = false;
+                     }
                 }
-                successScenario = tryScenario(splitConfig);
-            }
-            if (!successScenario && comboGuests.length >= 2) {
-                const splitConfig = [];
-                for (let i = 0; i < comboGuests.length; i++) {
-                    splitConfig.push({ guestId: comboGuests[i].id, mode: (i < Math.ceil(comboGuests.length/2)) ? 'BF' : 'FB' });
+
+                if (scenarioValid) {
+                    // Success!
+                    scenarioDetails.forEach(d => { finalDetails[d.guestIndex] = d; });
+                    const cleanDetails = finalDetails.filter(d => d);
+                    return {
+                        feasible: true,
+                        strategy: scenName,
+                        details: cleanDetails,
+                        totalPrice: cleanDetails.reduce((sum, item) => sum + item.price, 0)
+                    };
                 }
-                successScenario = tryScenario(splitConfig);
             }
-            
-            if (successScenario) {
-                successScenario.forEach(item => { finalDetails[item.guestIndex] = item; });
-                return { feasible: true, details: finalDetails, totalPrice: finalDetails.reduce((sum, item) => sum + item.price, 0) };
-            } else {
-                return { feasible: false, reason: "Combo: 資源不足或技師忙碌 (Full/Busy)" };
-            }
+
+            return { feasible: false, reason: "Hết giường/ghế dù đã thử đảo lịch (All Configurations Failed)" };
         }
 
         return { checkRequestAvailability, setDynamicServices };
     })();
 
     // ========================================================================
-    // PHẦN 2: REACT UI LOGIC (GIAO DIỆN V80)
+    // PHẦN 2: REACT UI LOGIC (GIAO DIỆN V83)
     // ========================================================================
     
     const { useState, useEffect, useMemo, useCallback } = React;
@@ -335,7 +392,7 @@
         MAX_PAX_SELECT: 6 
     };
 
-    // --- DATA ADAPTERS (CẦU NỐI UI -> KERNEL) ---
+    // --- DATA ADAPTERS (CẦU NỐI UI -> KERNEL V4.0) ---
     const syncServicesToCore = () => {
         const rawServices = window.SERVICES_DATA || {};
         const formattedServices = {};
@@ -367,7 +424,7 @@
             duration: parseInt(b.duration) || 60, staffName: b.technician || b.staffId || "Unassigned"
         }));
 
-        // Chuẩn hóa danh sách nhân viên & MAP isStrictTime
+        // Chuẩn hóa danh sách nhân viên
         const staffMap = {};
         if (Array.isArray(staffList)) {
             staffList.forEach(s => {
@@ -376,7 +433,6 @@
                     id: sId,
                     gender: s.gender,
                     start: s.shiftStart || "00:00", end: s.shiftEnd || "00:00",
-                    // *** CRITICAL MAP: Đọc isStrictTime từ dữ liệu nhân viên ***
                     isStrictTime: (s.isStrictTime === true || s.isStrictTime === 'TRUE'), 
                     off: (String(s.offDays).includes(date) || String(s[date]||"").toUpperCase().includes('OFF'))
                 };
@@ -385,7 +441,7 @@
         }
 
         try {
-            // Gọi Kernel V3.4
+            // Gọi Kernel V4.0
             const result = CoreKernel.checkRequestAvailability(date, time, coreGuests, coreBookings, staffMap);
             return result.feasible ? { valid: true, details: result.details } : { valid: false, reason: result.reason };
         } catch (err) {
@@ -397,7 +453,7 @@
     const forceGlobalRefresh = () => { if (typeof window.fetchDataAndRender === 'function') window.fetchDataAndRender(); else window.location.reload(); };
 
     // ==================================================================================
-    // 3. COMPONENT: PHONE BOOKING MODAL (ZH-TW) - V82
+    // 3. COMPONENT: PHONE BOOKING MODAL (ZH-TW) - V83
     // ==================================================================================
     const NewAvailabilityCheckModal = ({ onClose, onSave, staffList, bookings, initialDate }) => {
         const safeStaffList = useMemo(() => staffList || [], [staffList]);
@@ -492,7 +548,7 @@
             <div className="fixed inset-0 bg-slate-900/90 z-[100] flex items-center justify-center p-4">
                 <div className="bg-white w-full max-w-xl rounded-xl shadow-2xl flex flex-col max-h-[95vh] overflow-hidden animate-fadeIn">
                     <div className="bg-[#0891b2] p-4 text-white flex justify-between items-center shrink-0">
-                        <h3 className="font-bold text-lg">📅 電話預約 (V82)</h3>
+                        <h3 className="font-bold text-lg">📅 電話預約 (V83)</h3>
                         <button onClick={onClose} className="text-2xl hover:text-red-100">&times;</button>
                     </div>
                     <div className="p-5 space-y-4 overflow-y-auto flex-1 custom-scrollbar">
@@ -533,7 +589,7 @@
     };
 
     // ==================================================================================
-    // 4. COMPONENT: WALK-IN MODAL (ZH-TW) - V82
+    // 4. COMPONENT: WALK-IN MODAL (ZH-TW) - V83
     // ==================================================================================
     const NewWalkInModal = ({ onClose, onSave, staffList, bookings, initialDate }) => {
         const safeStaffList = useMemo(() => staffList || [], [staffList]);
@@ -638,7 +694,7 @@
             <div className="fixed inset-0 bg-black/70 z-[90] flex items-center justify-center p-4">
                 <div className="bg-white w-full max-w-xl rounded-xl shadow-2xl modal-animate flex flex-col max-h-[90vh] overflow-hidden">
                     <div className="bg-amber-600 p-4 text-white flex justify-between items-center shrink-0">
-                        <h3 className="font-bold text-lg">⚡ 現場客 (V82)</h3>
+                        <h3 className="font-bold text-lg">⚡ 現場客 (V83)</h3>
                         <button onClick={onClose}><i className="fas fa-times text-xl"></i></button>
                     </div>
                     <div className="p-5 space-y-4 overflow-y-auto flex-1 custom-scrollbar">
@@ -672,8 +728,8 @@
 
     // SYSTEM INJECTION
     const overrideInterval = setInterval(() => {
-        if (window.AvailabilityCheckModal !== NewAvailabilityCheckModal) { window.AvailabilityCheckModal = NewAvailabilityCheckModal; console.log("♻️ AvailabilityModal Injected (V82)"); }
-        if (window.WalkInModal !== NewWalkInModal) { window.WalkInModal = NewWalkInModal; console.log("♻️ WalkInModal Injected (V82)"); }
+        if (window.AvailabilityCheckModal !== NewAvailabilityCheckModal) { window.AvailabilityCheckModal = NewAvailabilityCheckModal; console.log("♻️ AvailabilityModal Injected (V83)"); }
+        if (window.WalkInModal !== NewWalkInModal) { window.WalkInModal = NewWalkInModal; console.log("♻️ WalkInModal Injected (V83)"); }
     }, 200);
     setTimeout(() => { clearInterval(overrideInterval); }, 5000);
 })();
