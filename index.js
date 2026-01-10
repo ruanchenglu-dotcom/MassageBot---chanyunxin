@@ -1,16 +1,14 @@
 /**
  * =================================================================================================
  * PROJECT: XINWUCHAN MASSAGE BOT (BACKEND SERVER)
- * VERSION: V3.1 (HOTFIX: FORCE REFRESH & SYNC LOCK)
+ * VERSION: V4.0 (FEATURE: ELASTIC TIME CONFIGURATION)
  * AUTHOR: AI ASSISTANT & USER
  * DATE: 2026/01/11
- * * * * CHANGE LOG V3.1:
- * 1. [SMART SYNC]: Nâng cấp API /api/info để chấp nhận tham số "?forceRefresh=true".
- * - Khi Frontend (V88) gọi tham số này, Server sẽ kiểm tra thời gian lần cuối đồng bộ.
- * - Nếu dữ liệu đã cũ (> 15 giây), Server sẽ LẬP TỨC đọc lại Google Sheets rồi mới trả kết quả.
- * - Giúp Frontend nhận diện nhân viên OFF ngay tức thì mà không cần chờ chu kỳ 60s.
- * 2. [SYNC LOCK]: Thêm biến cờ `isSyncing` để đảm bảo không bị xung đột khi nhiều người cùng gọi Force Refresh.
- * 3. [AUTO SYNC]: Giảm thời gian tự động đồng bộ từ 60s xuống 30s để tăng độ nhạy mặc định.
+ * * * * * CHANGE LOG V4.0:
+ * 1. [MENU SYNC UPGRADE]: Cập nhật hàm syncMenuData để đọc thêm cột E (Min) và F (Max) từ Sheet Menu.
+ * - Hỗ trợ đọc số nguyên trực tiếp (Ví dụ: 5, 25, 45).
+ * - Tự động gán cấu hình Co giãn (Elastic Config) vào từng dịch vụ.
+ * 2. [MAINTENANCE]: Giữ nguyên toàn bộ logic Smart Sync và Sync Lock từ V3.1.
  * =================================================================================================
  */
 
@@ -61,7 +59,7 @@ let scheduleMap = {};
 let userState = {};
 let lastSyncTime = new Date(0); // Khởi tạo thời gian cũ để lần đầu chạy ngay
 let isSystemHealthy = false;
-let isSyncing = false; // [NEW V3.1] Cờ đánh dấu đang đồng bộ để tránh race condition
+let isSyncing = false; // Cờ đánh dấu đang đồng bộ để tránh race condition
 let SERVICES = ResourceCore.SERVICES; 
 
 // =============================================================================
@@ -189,7 +187,9 @@ function getColumnLetter(colIndex) {
 
 async function syncMenuData() {
     try {
-        const res = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: `${MENU_SHEET}!A2:D50` });
+        // [MODIFIED V4.0] Mở rộng Range để đọc thêm cột E (Min) và F (Max)
+        // Cũ: A2:D50 -> Mới: A2:F50
+        const res = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: `${MENU_SHEET}!A2:F50` });
         const rows = res.data.values;
         if (!rows || rows.length === 0) return;
 
@@ -205,18 +205,45 @@ async function syncMenuData() {
             if (timeMatch) duration = parseInt(timeMatch[1]);
             const price = parseInt(priceStr.replace(/\D/g, '')) || 0;
 
+            // [NEW LOGIC V4.0] Đọc cấu hình Elastic Time
+            // Cột E (index 4): Min step (Bước nhảy)
+            // Cột F (index 5): Max limit (Giới hạn tối đa)
+            let elasticStep = 0;
+            let elasticLimit = 0;
+
+            // Xử lý cột Min (E)
+            if (row[4]) {
+                const parsedStep = parseInt(row[4].toString().replace(/\D/g, '')); // Chỉ lấy số
+                if (!isNaN(parsedStep)) elasticStep = parsedStep;
+            }
+
+            // Xử lý cột Max (F)
+            if (row[5]) {
+                const parsedLimit = parseInt(row[5].toString().replace(/\D/g, '')); // Chỉ lấy số
+                if (!isNaN(parsedLimit)) elasticLimit = parsedLimit;
+            }
+
             let type = 'BED'; let category = 'BODY';
             const prefix = code.charAt(0).toUpperCase();
             if (prefix === 'A') { type = 'BED'; category = 'COMBO'; } 
             else if (prefix === 'F') { type = 'CHAIR'; category = 'FOOT'; } 
             else if (prefix === 'B') { type = 'BED'; category = 'BODY'; }
 
-            newServices[code] = { name: name, duration: duration, type: type, category: category, price: price };
+            newServices[code] = { 
+                name: name, 
+                duration: duration, 
+                type: type, 
+                category: category, 
+                price: price,
+                // Thêm tham số Elastic
+                elasticStep: elasticStep,
+                elasticLimit: elasticLimit
+            };
         });
         
         ResourceCore.setDynamicServices(newServices);
         SERVICES = ResourceCore.SERVICES; 
-        console.log(`[MENU] Updated: ${Object.keys(SERVICES).length} items.`);
+        console.log(`[MENU] Updated: ${Object.keys(SERVICES).length} items (With Elastic Config).`);
     } catch (e) { console.error('[MENU ERROR]', e); }
 }
 
@@ -254,7 +281,7 @@ async function syncDailySalary(dateStr, staffDataList) {
  * HÀM ĐỒNG BỘ CHÍNH - UPDATE ĐỂ ĐỌC CỘT "ON-TIME"
  */
 async function syncData() {
-    // [V3.1] Nếu đang sync thì bỏ qua để tránh conflict
+    // Nếu đang sync thì bỏ qua để tránh conflict
     if (isSyncing) {
         console.log("⚠️ Skip sync: Another sync process is running.");
         return;
@@ -664,7 +691,7 @@ async function handleEvent(event) {
        return client.replyMessage(event.replyToken, { 
            type: 'flex', 
            altText: 'Hệ thống bảo trì', 
-           contents: { "type": "bubble", "body": { "type": "box", "layout": "vertical", "contents": [ { "type": "text", "text": "⛔ TẠM NGƯNG ĐẶT LỊCH", "weight": "bold", "color": "#E63946", "size": "lg", "align": "center" }, { "type": "text", "text": "Hệ thống đang đồng bộ dữ liệu hoặc gặp sự cố kết nối.", "margin": "md", "wrap": true, "size": "sm", "align": "center" }, { "type": "text", "text": "Vui lòng liên hệ trực tiếp quầy để đặt lịch.", "margin": "sm", "wrap": true, "size": "sm", "align": "center", "weight": "bold" } ] } }
+           contents: { "type": "bubble", "body": { "type": "box", "layout": "vertical", "contents": [ { "type": "text", "text": "⛔ TẠM NGƯNG ĐẶT LỊCH", "weight": "bold", "color": "#E63946", "size": "lg", "align": "center" }, { "type": "text", "text": "Hệ thống đang đồng bộ dữ liệu或者 gặp sự cố kết nối.", "margin": "md", "wrap": true, "size": "sm", "align": "center" }, { "type": "text", "text": "Vui lòng liên hệ trực tiếp quầy để đặt lịch.", "margin": "sm", "wrap": true, "size": "sm", "align": "center", "weight": "bold" } ] } }
        });
   }
 

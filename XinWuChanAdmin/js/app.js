@@ -1,4 +1,7 @@
 // TYPE: app.js
+// VERSION: V5.0 (ELASTIC TIME INTEGRATION)
+// UPDATE: Tích hợp hiển thị Co giãn thời gian thực tế từ Backend
+
 const { useState, useEffect, useMemo, useRef } = React;
 
 // --- 1. COMPONENT: COMMISSION VIEW ---
@@ -7,8 +10,7 @@ const CommissionView = window.CommissionView;
 // --- 2. TIMELINE VIEW ---
 const TimelineView = window.TimelineView;
 
-// --- 3. BOOKING LIST VIEW (MỚI THÊM) ---
-// Đảm bảo bạn đã nhúng file bookingListView.js vào index.html trước file app.js
+// --- 3. BOOKING LIST VIEW ---
 const BookingListView = window.BookingListView;
 
 // --- APP COMPONENT ---
@@ -80,28 +82,6 @@ const App = () => {
         await axios.post('/api/sync-staff-status', newStatus); 
     }
 
-    const determineColumnIndex = (booking, activeStaffId, resourceId) => {
-        // [FIXED] Ưu tiên tìm theo tên thợ
-        if (activeStaffId && activeStaffId !== '隨機' && activeStaffId !== 'undefined') {
-            const staffCols = [
-                booking.serviceStaff || booking.staffId, 
-                booking.staffId2,                            
-                booking.staffId3,                            
-                booking.staffId4,                            
-                booking.staffId5,                            
-                booking.staffId6                             
-            ];
-            const idx = staffCols.findIndex(s => s && s.trim() === activeStaffId.trim());
-            if (idx !== -1) return idx;
-        }
-        // Fallback: Tìm theo số ghế (Cố định, không phụ thuộc vào số lượng đang active)
-        const seatNum = parseInt(resourceId.replace(/\D/g, '')); 
-        if (!isNaN(seatNum) && seatNum > 0) {
-            return Math.min(seatNum - 1, 5); 
-        }
-        return 0; 
-    };
-
     const getGroupMemberIndex = (targetResId, targetRowId) => {
         const allSlots = [];
         for(let i=1; i<=6; i++) allSlots.push(`chair-${i}`);
@@ -127,7 +107,7 @@ const App = () => {
         }
     };
 
-    // 3. CORE LOGIC
+    // 3. CORE LOGIC (FETCH & RENDER)
     const fetchData = async () => {
         if (syncLock) return;
         if (quotaError) return; 
@@ -143,7 +123,10 @@ const App = () => {
                     ...b, 
                     duration: window.getSafeDuration(b.serviceName, b.duration),
                     pax: parseInt(b.pax, 10) || 1,
-                    rowId: String(b.rowId)
+                    rowId: String(b.rowId),
+                    // [V5.0] Đảm bảo đọc được phase duration từ API
+                    phase1_duration: b.phase1_duration ? parseInt(b.phase1_duration) : null,
+                    phase2_duration: b.phase2_duration ? parseInt(b.phase2_duration) : null
                 };
             });
 
@@ -197,7 +180,7 @@ const App = () => {
                 timelineGrid[resId].push({ start, end, booking, meta });
             };
 
-            // --- XỬ LÝ CÁC ĐƠN ĐANG CHẠY ---
+            // --- XỬ LÝ CÁC ĐƠN ĐANG CHẠY (RUNNING) ---
             Object.keys(currentRes).forEach(key => {
                 if(currentRes[key].isRunning) {
                     tempState[key] = currentRes[key];
@@ -213,7 +196,13 @@ const App = () => {
                     if (currentRes[key].comboMeta) {
                         const seq = currentRes[key].comboMeta.sequence || 'FB';
                         const isMax = currentRes[key].isMaxMode;
-                        const split = window.getComboSplit(durationUsed, isMax, seq);
+                        
+                        // [V5.0] Lấy phase1_duration từ booking gốc nếu có (Data Driven)
+                        const customPhase1 = currentRes[key].booking.phase1_duration;
+                        
+                        // Gọi hàm tính toán thông minh (sẽ ưu tiên customPhase1 nếu có)
+                        const split = window.getComboSplit(durationUsed, isMax, seq, customPhase1);
+                        
                         isPhase1 = (seq === 'FB' && key.includes('chair')) || (seq === 'BF' && key.includes('bed'));
                         
                         if (isPhase1) durationUsed = split.phase1 + (currentRes[key].comboMeta.flex || 0);
@@ -251,7 +240,7 @@ const App = () => {
                 return null; 
             };
 
-            // --- DỰ ĐOÁN PHASE 2 CHO COMBO ---
+            // --- DỰ ĐOÁN PHASE 2 CHO COMBO (GHOST BLOCKS) ---
             Object.keys(tempState).forEach(key => {
                 const item = tempState[key];
                 if (item.comboMeta) {
@@ -262,7 +251,11 @@ const App = () => {
                     if (isPhase1) {
                         const finishTimeMins = activeEndTimes[key]; 
                         const p2Start = finishTimeMins + 5; 
-                        const split = window.getComboSplit(item.booking.duration, item.isMaxMode, seq);
+                        
+                        // [V5.0] Dùng custom phase cho dự đoán
+                        const customPhase1 = item.booking.phase1_duration;
+                        const split = window.getComboSplit(item.booking.duration, item.isMaxMode, seq, customPhase1);
+                        
                         const p2End = p2Start + split.phase2;
                         
                         let finalTargetId = item.comboMeta.targetId;
@@ -281,7 +274,7 @@ const App = () => {
                 }
             });
 
-            // --- XẾP LỊCH CHO CÁC ĐƠN CHỜ ---
+            // --- XẾP LỊCH CHO CÁC ĐƠN CHỜ (PENDING LIST SIMULATION) ---
             const pendingBookings = relevantBookings.filter(b => 
                 !b.status.includes('完成') && 
                 !b.status.includes('✅') &&
@@ -327,7 +320,7 @@ const App = () => {
                 }
             });
 
-            // Xếp Combo
+            // Xếp Combo (Giả lập hiển thị trên Timeline)
             listCombos.forEach(b => {
                 const originalStart = window.normalizeToTimelineMins(b.startTimeString.split(' ')[1]);
                 const totalNeeded = b.pax || 1;
@@ -344,10 +337,17 @@ const App = () => {
                     let searchOffsets = [0]; for(let i=1; i<=120; i++) searchOffsets.push(i);
                     for(let delay of searchOffsets) {
                         let tryStart = originalStart + delay;
-                        const splitFB = window.getComboSplit(b.duration, true, 'FB');
+                        
+                        // [V5.0] Logic quan trọng: Sử dụng phase1_duration đã lưu trong booking để vẽ timeline giả lập
+                        // Nếu backend đã tính toán là 45p, timeline phải vẽ 45p chứ không phải 50p
+                        const customPhase1 = b.phase1_duration;
+
+                        // Case FB (Foot First)
+                        const splitFB = window.getComboSplit(b.duration, true, 'FB', customPhase1);
                         const p1EndFB = tryStart + splitFB.phase1;
                         const p2StartFB = p1EndFB + 5;
                         const p2EndFB = p2StartFB + splitFB.phase2;
+                        
                         const s1FB = findFirstFreeSlot('chair', tryStart, p1EndFB);
                         const s2FB = findFirstFreeSlot('bed', p2StartFB, p2EndFB);
 
@@ -356,12 +356,16 @@ const App = () => {
                             addToGrid(s2FB, p2StartFB, p2EndFB, b, { isCombo: true, phase: 2, sequence: 'FB' });
                             break;
                         }
-                        const splitBF = window.getComboSplit(b.duration, true, 'BF');
+                        
+                        // Case BF (Body First)
+                        const splitBF = window.getComboSplit(b.duration, true, 'BF', customPhase1);
                         const p1EndBF = tryStart + splitBF.phase1;
                         const p2StartBF = p1EndBF + 5;
                         const p2EndBF = p2StartBF + splitBF.phase2;
+                        
                         const s1BF_bed = findFirstFreeSlot('bed', tryStart, p1EndBF);
                         const s2BF_chair = findFirstFreeSlot('chair', p2StartBF, p2EndBF);
+                        
                         if (s1BF_bed && s2BF_chair) {
                             addToGrid(s1BF_bed, tryStart, p1EndBF, b, { isCombo: true, phase: 1, sequence: 'BF', targetId: s2BF_chair });
                             addToGrid(s2BF_chair, p2StartBF, p2EndBF, b, { isCombo: true, phase: 2, sequence: 'BF' });
@@ -669,7 +673,6 @@ const App = () => {
             Object.values(updatesByRow).forEach(updatePayload => {
                 const booking = updatePayload.originalBooking;
                 
-                // Xác định có bao nhiêu thợ/slot tham gia vào đơn này
                 const staffCols = [
                     booking.serviceStaff || booking.staffId, 
                     booking.staffId2,                            
@@ -683,13 +686,10 @@ const App = () => {
                 let finishedSlotsCount = 0;
 
                 staffCols.forEach((staffName, idx) => {
-                    // Nếu slot này có thợ (không phải undefined/null/rỗng)
                     if (staffName && staffName !== 'undefined' && staffName !== 'null' && staffName.trim() !== '') {
                         activeSlotsCount++;
                         
                         const key = `Status${idx + 1}`;
-                        
-                        // Kiểm tra xem slot này đã xong chưa (trong payload mới HOẶC trong booking cũ)
                         const isNewCompletion = updatePayload[key] && updatePayload[key].includes('完成');
                         const wasAlreadyDone = booking[key] && (booking[key].includes('完成') || booking[key].includes('Done') || booking[key].includes('✅'));
                         
@@ -699,7 +699,6 @@ const App = () => {
                     }
                 });
 
-                // Chỉ đánh dấu hoàn thành đơn (Cột H) nếu TẤT CẢ các slot có thợ đều đã xong
                 if (activeSlotsCount > 0 && finishedSlotsCount >= activeSlotsCount) {
                     updatePayload.mainStatus = '✅ 完成'; 
                 }
@@ -806,7 +805,7 @@ const App = () => {
             <main className="flex-1 p-4 overflow-y-auto">
                 {activeTab === 'map' && (<div className="grid grid-cols-12 gap-6"><div className="col-span-9 space-y-6"><div><h3 className="font-bold text-emerald-600 mb-3 border-b pb-1">足底按摩區 (Foot)</h3><div className="grid grid-cols-6 gap-3">{[1,2,3,4,5,6].map(i => <window.ResourceCard key={`chair-${i}`} id={`chair-${i}`} type="FOOT" index={i} data={resourceState[`chair-${i}`]} busyStaffIds={busyStaffIds} staffList={staffList} onAction={handleResourceAction} onSelect={()=>setSelectedSlot(`chair-${i}`)} onSwitch={handleSwitch} onToggleMax={handleToggleMax} onToggleSequence={handleToggleSequence} onServiceChange={handleServiceChange} onStaffChange={handleStaffChange} onSplit={(rid)=>setSplitData({resourceId: rid})} getGroupMemberIndex={getGroupMemberIndex} />)}</div></div><div><h3 className="font-bold text-purple-600 mb-3 border-b pb-1">身體指壓區 (Body)</h3><div className="grid grid-cols-6 gap-3">{[1,2,3,4,5,6].map(i => <window.ResourceCard key={`bed-${i}`} id={`bed-${i}`} type="BODY" index={i} data={resourceState[`bed-${i}`]} busyStaffIds={busyStaffIds} staffList={staffList} onAction={handleResourceAction} onSelect={()=>setSelectedSlot(`bed-${i}`)} onSwitch={handleSwitch} onToggleMax={handleToggleMax} onToggleSequence={handleToggleSequence} onServiceChange={handleServiceChange} onStaffChange={handleStaffChange} onSplit={(rid)=>setSplitData({resourceId: rid})} getGroupMemberIndex={getGroupMemberIndex} />)}</div></div></div><div className="col-span-3 bg-white rounded-lg shadow p-4 h-fit sticky top-2"><h3 className="font-bold text-gray-700 mb-3">候位名單 ({waitingList.length})</h3><div className="space-y-2 max-h-[500px] overflow-y-auto">{waitingList.map(b => (<div key={b.rowId} className="border p-2 rounded hover:bg-slate-50 relative group bg-white shadow-sm"><div className="flex justify-between font-bold text-sm"><span>{b.customerName}</span><span className="text-indigo-600 font-mono">{(b.startTimeString||' ').split(' ')[1]}</span></div><div className="text-xs text-gray-500 font-bold">{b.serviceName}</div>{(b.isOil || (b.serviceName && b.serviceName.includes('油'))) && <div className="text-[10px] bg-purple-100 text-purple-700 inline-block px-1 rounded mt-1 font-bold border border-purple-200">💧 精油</div>}{b.pax > 1 && <div className="text-[10px] bg-orange-100 text-orange-600 inline-block px-1 rounded mt-1 ml-1 font-bold">{b.pax} 人</div>}{selectedSlot && <button onClick={()=>handleAssignBooking(b)} className="absolute inset-0 bg-green-500/90 text-white font-bold flex items-center justify-center rounded animate-pulse">排入 {selectedSlot}</button>}<button onClick={()=>handleManualUpdateStatus(b.rowId, '❌ Cancelled')} className="absolute top-1 right-1 text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100"><i className="fas fa-trash"></i></button></div>))}</div></div></div>)}
                 
-                {/* [ĐÃ CẬP NHẬT] Sử dụng BookingListView Component thay vì Table trực tiếp */}
+                {/* [ĐÃ CẬP NHẬT] Sử dụng BookingListView Component */}
                 {activeTab === 'list' && (
                     <window.BookingListView 
                         bookings={todaysBookings} 

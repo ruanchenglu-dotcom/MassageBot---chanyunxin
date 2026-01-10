@@ -1,6 +1,17 @@
+/**
+ * ============================================================================
+ * FILE: js/views.js
+ * PHIÊN BẢN: V5.0 (ELASTIC TIME DISPLAY)
+ * MÔ TẢ: CÁC COMPONENT HIỂN THỊ CHÍNH (TIMELINE, REPORT, CARD...)
+ * TÁC GIẢ: AI ASSISTANT & USER
+ * ============================================================================
+ */
+
 const { useState, useEffect, useMemo, useRef } = React;
 
-// --- 1. TIMELINE VIEW ---
+// ============================================================================
+// 1. TIMELINE VIEW (Biểu đồ thời gian Gantt)
+// ============================================================================
 const TimelineView = ({ timelineData }) => {
     // Cấu hình thời gian hiển thị
     const startHour = 8;
@@ -14,11 +25,9 @@ const TimelineView = ({ timelineData }) => {
     const ROW_HEIGHT = 60; 
     const LEFT_COL_WIDTH = 80;
 
-    // Tổng độ rộng (Quan trọng để thanh cuộn hoạt động)
     const TOTAL_WIDTH = LEFT_COL_WIDTH + (hours.length * HOUR_WIDTH);
 
-    // --- BẢNG MÀU ĐA DẠNG CHO KHÁCH HÀNG (18 MÀU) ---
-    // [FIX] Thêm bảng màu để phân biệt khách hàng
+    // Bảng màu phân biệt khách hàng (18 màu)
     const colorPalette = [
         "bg-red-100 text-red-800 border-red-300 hover:bg-red-200",
         "bg-orange-100 text-orange-800 border-orange-300 hover:bg-orange-200",
@@ -40,7 +49,6 @@ const TimelineView = ({ timelineData }) => {
         "bg-slate-200 text-slate-800 border-slate-400 hover:bg-slate-300"
     ];
 
-    // [FIX] Hàm lấy màu dựa trên rowId
     const getRowIdColor = (rowId) => {
         if (!rowId) return colorPalette[0];
         let hash = 0;
@@ -79,8 +87,6 @@ const TimelineView = ({ timelineData }) => {
 
     return (
         <div className="bg-white rounded shadow border border-slate-200 h-[calc(100vh-170px)] overflow-x-scroll overflow-y-auto relative custom-scrollbar pb-2">
-            
-            {/* Style riêng cho thanh cuộn */}
             <style>{`
                 .custom-scrollbar::-webkit-scrollbar:horizontal { height: 25px !important; }
                 .custom-scrollbar::-webkit-scrollbar:vertical { width: 14px !important; }
@@ -91,8 +97,7 @@ const TimelineView = ({ timelineData }) => {
             `}</style>
 
             <div style={{ width: `${TOTAL_WIDTH}px`, minWidth: '100%' }}>
-                
-                {/* HEADER (Sticky) */}
+                {/* HEADER */}
                 <div className="flex sticky top-0 z-30 bg-slate-100 border-b border-slate-300 shadow-md h-[45px]">
                     <div className="sticky left-0 top-0 z-40 bg-[#e2e8f0] border-r border-slate-300 flex items-center justify-center font-extrabold text-slate-700 text-sm shadow-[2px_0_5px_rgba(0,0,0,0.1)]" 
                          style={{ width: `${LEFT_COL_WIDTH}px`, height: `${HEADER_HEIGHT}px` }}>
@@ -111,40 +116,36 @@ const TimelineView = ({ timelineData }) => {
                 {/* BODY ROWS */}
                 <div className="relative bg-white pb-4">
                     {rows.map((row, index) => {
-                        // Logic thêm đường kẻ đỏ phân cách khu vực
                         const isLastChairRow = index === 5;
                         const rowStyleClass = isLastChairRow 
-                            ? "border-b-4 border-red-500" // Đường kẻ đỏ đậm ở dòng thứ 6 (Foot 6)
+                            ? "border-b-4 border-red-500" 
                             : "border-b border-slate-100"; 
 
                         return (
                             <div key={row.id} className={`flex relative transition-colors hover:bg-slate-50 ${rowStyleClass}`} style={{ height: `${ROW_HEIGHT}px` }}>
-                                {/* Cột tên (Sticky Left) */}
+                                {/* Label Column */}
                                 <div className={`sticky left-0 z-20 shrink-0 border-r border-slate-300 flex items-center justify-center font-bold text-sm shadow-[2px_0_5px_rgba(0,0,0,0.05)] ${row.type === 'chair' ? 'bg-teal-50 text-teal-800' : 'bg-purple-50 text-purple-800'}`}
                                      style={{ width: `${LEFT_COL_WIDTH}px` }}>
                                     {row.label}
                                 </div>
                                 
-                                {/* Vùng Timeline */}
+                                {/* Content Area */}
                                 <div className="relative flex-1 h-full">
-                                    {/* Kẻ dọc */}
+                                    {/* Grid Lines */}
                                     <div className="absolute inset-0 flex pointer-events-none z-0">
                                         {hours.map(h => (
                                             <div key={h} className="shrink-0 border-r border-slate-200 h-full border-dashed" style={{width: `${HOUR_WIDTH}px`}}></div>
                                         ))}
                                     </div>
 
-                                    {/* Booking Blocks */}
+                                    {/* Blocks */}
                                     {safeData[row.id] && safeData[row.id].map((slot, idx) => {
                                         let startMins = slot.start; 
                                         let duration = slot.end - slot.start;
                                         const startOffset = startMins - (startHour * 60); 
                                         const leftPos = startOffset * PIXELS_PER_MIN;
                                         const width = duration * PIXELS_PER_MIN;
-
-                                        // [FIX] Sử dụng hàm getRowIdColor thay vì màu mặc định
                                         let bgClass = getRowIdColor(slot.booking.rowId);
-                                        
                                         const label = getDisplayLabel(slot.booking);
 
                                         return (
@@ -155,7 +156,6 @@ const TimelineView = ({ timelineData }) => {
                                             >
                                                 <div className="font-bold truncate text-[12px] leading-tight">{label}</div>
                                                 <div className="truncate opacity-75 text-[10px] flex items-center gap-1 mt-0.5">
-                                                    {/* Thêm icon để nhận biết Dầu/Combo vì màu nền đã dùng để phân biệt khách */}
                                                     {(slot.booking.isOil || (slot.booking.serviceName && slot.booking.serviceName.includes('油'))) && <span title="Oil">💧</span>}
                                                     {(slot.booking.category === 'COMBO') && <span title="Combo">🔥</span>}
                                                     <i className="fas fa-clock text-[9px] ml-1"></i> {slot.booking.serviceName}
@@ -174,7 +174,9 @@ const TimelineView = ({ timelineData }) => {
 };
 window.TimelineView = TimelineView;
 
-// --- 2. COMMISSION VIEW ---
+// ============================================================================
+// 2. COMMISSION VIEW (Bảng Lương/Tua)
+// ============================================================================
 const CommissionView = ({ bookings, staffList }) => {
     const RATES = { JIE_PRICE: 250, OIL_BONUS: 80 };
     const normalize = (str) => String(str || '').trim().replace(/\s+/g, '');
@@ -317,7 +319,9 @@ const CommissionView = ({ bookings, staffList }) => {
 };
 window.CommissionView = CommissionView;
 
-// --- 3. REPORT VIEW ---
+// ============================================================================
+// 3. REPORT VIEW (Báo cáo doanh thu)
+// ============================================================================
 const ReportView = ({ bookings }) => {
     const safeBookings = Array.isArray(bookings) ? bookings : [];
     
@@ -382,7 +386,9 @@ const ReportView = ({ bookings }) => {
 };
 window.ReportView = ReportView;
 
-// --- 4. RESOURCE CARD ---
+// ============================================================================
+// 4. RESOURCE CARD (Thẻ đặt lịch - Trái tim hiển thị)
+// ============================================================================
 const ResourceCard = ({ id, type, index, data, busyStaffIds, onAction, onSelect, onSwitch, onToggleMax, onToggleSequence, onServiceChange, onStaffChange, onSplit, staffList, getGroupMemberIndex }) => {
     const [timeLeft, setTimeLeft] = useState(0); 
     const [percent, setPercent] = useState(0);
@@ -408,9 +414,15 @@ const ResourceCard = ({ id, type, index, data, busyStaffIds, onAction, onSelect,
 
                 if (isCombo) {
                     const sequence = (data.comboMeta && data.comboMeta.sequence) || 'FB';
-                    const split = window.getComboSplit(data.booking.duration, data.isMaxMode, sequence);
+                    
+                    // [NEW V5.0] TRUYỀN THAM SỐ PHASE1 THỰC TẾ
+                    const customPhase1 = data.booking.phase1_duration; // Lấy từ booking gốc (nếu backend trả về)
+                    const split = window.getComboSplit(data.booking.duration, data.isMaxMode, sequence, customPhase1);
+                    
                     const flex = data.comboMeta && data.comboMeta.flex ? data.comboMeta.flex : 0;
                     const phase1Ms = (split.phase1 + flex) * 60000; 
+                    
+                    // Tính lại điểm chuyển giao (switchPercent) dựa trên thời gian thực
                     const currentSwitchPct = ((split.phase1 + flex) / (data.booking.duration || 1)) * 100;
                     setSwitchPercent(currentSwitchPct);
                     
@@ -460,20 +472,29 @@ const ResourceCard = ({ id, type, index, data, busyStaffIds, onAction, onSelect,
     const formatTimeStr = (iso) => { if(!iso) return '--:--'; const d = new Date(iso); return `${d.getHours().toString().padStart(2,'0')}:${d.getMinutes().toString().padStart(2,'0')}`; }
     
     let startObj = null, endObj = null, switchObj = null;
+    let splitText = '';
+
     if(isOccupied && data.isRunning && data.startTime) {
         startObj = new Date(data.startTime);
         endObj = new Date(startObj.getTime() + (data.booking.duration || 60) * 60000);
+        
         if(isCombo) {
             const seq = (data.comboMeta && data.comboMeta.sequence) || 'FB';
-            const split = window.getComboSplit(data.booking.duration, data.isMaxMode, seq);
+            
+            // [NEW V5.0] Dùng customPhase1 để tính giờ chuyển giao
+            const customPhase1 = data.booking.phase1_duration;
+            const split = window.getComboSplit(data.booking.duration, data.isMaxMode, seq, customPhase1);
+            
             switchObj = new Date(startObj.getTime() + (split.phase1 + flexMinutes) * 60000);
+            
+            // [NEW V5.0] Hiển thị Text chia giờ chính xác (Ví dụ: 45->55)
+            splitText = sequence === 'FB' ? `(足:${split.phase1} ➜ 身:${split.phase2})` : `(身:${split.phase1} ➜ 足:${split.phase2})`;
+            
+            // Nếu có co giãn (Elastic), thêm icon cảnh báo
+            if (split.isElastic) {
+                splitText += ' ⚡';
+            }
         }
-    }
-    let splitText = '';
-    if (isCombo) {
-        const sequence = (data.comboMeta && data.comboMeta.sequence) || 'FB';
-        const split = window.getComboSplit(data.booking.duration, true, sequence);
-        splitText = sequence === 'FB' ? `(足:${split.phase1} ➜ 身:${split.phase2})` : `(身:${split.phase1} ➜ 足:${split.phase2})`;
     }
 
     if (!isOccupied) {
@@ -484,6 +505,7 @@ const ResourceCard = ({ id, type, index, data, busyStaffIds, onAction, onSelect,
             </div>
         );
     }
+    
     return (
         <div className={`res-card h-72 flex flex-col border-2 ${statusColor} relative`}>
             <div className="flex justify-between items-center p-2 border-b border-black/5 bg-black/5"><span className="font-black text-xs text-gray-500 uppercase">{type} {index}</span>{data.isRunning && !isPreview && (<div className={`text-xs font-mono font-bold ${timeLeft < 0 ? 'text-red-600 animate-pulse' : 'text-green-700'}`}>{timeLeft}m</div>)}{isPreview && data.timeToStart !== undefined && (<div className="text-xs font-bold text-blue-600 bg-blue-100 px-1 rounded">{data.previewType === 'NOW' ? 'NOW' : `${data.timeToStart}m`}</div>)}</div>
@@ -494,7 +516,7 @@ const ResourceCard = ({ id, type, index, data, busyStaffIds, onAction, onSelect,
                     {isCombo && (<div className="absolute -top-12 left-0 flex gap-1"><button onClick={(e) => { e.stopPropagation(); onToggleSequence(id); }} className="text-xs font-bold px-2 py-1 rounded shadow z-50 bg-blue-100 text-blue-700 hover:bg-blue-200"><i className="fas fa-sync-alt"></i></button><button onClick={(e) => { e.stopPropagation(); onToggleMax(id); }} className={`text-xs font-bold px-2 py-1 rounded shadow z-50 transition-colors ${data.isMaxMode ? 'bg-yellow-400 text-black' : 'bg-gray-200 text-gray-500'}`}><i className="fas fa-bolt"></i> Max</button></div>)}
                     <div className="font-bold text-slate-800 text-2xl truncate mt-4">{(data.booking.customerName || 'Unknown').split('(')[0]}{(data.booking.pax > 1) && <span className="text-sm text-gray-400 ml-1">(Grp)</span>}</div>
                     <select className="text-sm font-bold text-gray-500 text-center bg-transparent border-b border-dashed border-gray-300 focus:outline-none w-full truncate cursor-pointer hover:bg-gray-50" value={data.booking.serviceName || ''} onChange={(e) => onServiceChange(id, e.target.value)} onClick={(e) => e.stopPropagation()}>{window.SERVICES_LIST.map(svc => <option key={svc} value={svc}>{svc}</option>)}</select>
-                    {isCombo && <div className="text-xs text-slate-400 font-mono">{splitText}</div>}
+                    {isCombo && <div className={`text-xs font-mono font-bold ${splitText.includes('⚡') ? 'text-amber-600' : 'text-slate-400'}`}>{splitText}</div>}
                     {isCombo && data.isRunning && phaseLabel && (<div className={`text-sm font-black p-2 rounded border bg-white/80 ${phaseLabel.includes('足') ? 'text-emerald-700 border-emerald-200' : 'text-purple-700 border-purple-200'}`}>{phaseLabel} {flexMinutes>0 && <span className="text-xs text-orange-500 bg-orange-100 px-1 rounded ml-1">+{flexMinutes}m</span>} <div className="text-xl font-mono mt-1">{phaseTimeLeft}分</div></div>)}
                     {isCombo && data.isRunning && data.comboMeta && data.comboMeta.targetId && (<div className="text-[10px] text-gray-400">➜ 轉: {data.comboMeta.targetId.toUpperCase()}</div>)}
                     {isOilJob && <div className="text-xs text-purple-600 font-bold border border-purple-200 bg-purple-50 rounded px-2 py-1 inline-block">💧 精油 (Oil)</div>}
