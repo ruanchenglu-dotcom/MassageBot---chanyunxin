@@ -1,14 +1,16 @@
 /**
  * =================================================================================================
  * PROJECT: XINWUCHAN MASSAGE BOT (BACKEND SERVER)
- * VERSION: V3.0 (HOTFIX: INSTANT STATE UPDATE)
+ * VERSION: V3.1 (HOTFIX: FORCE REFRESH & SYNC LOCK)
  * AUTHOR: AI ASSISTANT & USER
- * DATE: 2026/01/10
- * * * CHANGE LOG V3.0:
- * - [CRITICAL FIX] API /api/update-staff-config: Cập nhật biến STAFF_LIST trên RAM ngay lập tức
- * khi có request từ Frontend. Giúp Bot nhận diện việc Bỏ Tick/Tick ngay tức thì mà không cần 
- * chờ Google Sheet phản hồi.
- * - [KEEP] Giữ nguyên logic Sync, Booking và Timezone của V2.9.
+ * DATE: 2026/01/11
+ * * * * CHANGE LOG V3.1:
+ * 1. [SMART SYNC]: Nâng cấp API /api/info để chấp nhận tham số "?forceRefresh=true".
+ * - Khi Frontend (V88) gọi tham số này, Server sẽ kiểm tra thời gian lần cuối đồng bộ.
+ * - Nếu dữ liệu đã cũ (> 15 giây), Server sẽ LẬP TỨC đọc lại Google Sheets rồi mới trả kết quả.
+ * - Giúp Frontend nhận diện nhân viên OFF ngay tức thì mà không cần chờ chu kỳ 60s.
+ * 2. [SYNC LOCK]: Thêm biến cờ `isSyncing` để đảm bảo không bị xung đột khi nhiều người cùng gọi Force Refresh.
+ * 3. [AUTO SYNC]: Giảm thời gian tự động đồng bộ từ 60s xuống 30s để tăng độ nhạy mặc định.
  * =================================================================================================
  */
 
@@ -57,8 +59,9 @@ let STAFF_LIST = [];
 let cachedBookings = [];
 let scheduleMap = {}; 
 let userState = {};
-let lastSyncTime = new Date(); 
+let lastSyncTime = new Date(0); // Khởi tạo thời gian cũ để lần đầu chạy ngay
 let isSystemHealthy = false;
+let isSyncing = false; // [NEW V3.1] Cờ đánh dấu đang đồng bộ để tránh race condition
 let SERVICES = ResourceCore.SERVICES; 
 
 // =============================================================================
@@ -80,8 +83,6 @@ function normalizePhoneNumber(phone) {
 
 /**
  * [CRITICAL FIX] Hàm chuẩn hóa ngày tháng từ Google Sheet
- * Google Sheet API có thể trả về: "2026-01-09" HOẶC "2026-01-09T00:00:00.000Z"
- * Fix mới: Ép kiểu về UTC+8 trước khi format.
  */
 function normalizeSheetDate(rawDateStr) {
     if (!rawDateStr) return null;
@@ -253,7 +254,16 @@ async function syncDailySalary(dateStr, staffDataList) {
  * HÀM ĐỒNG BỘ CHÍNH - UPDATE ĐỂ ĐỌC CỘT "ON-TIME"
  */
 async function syncData() {
+    // [V3.1] Nếu đang sync thì bỏ qua để tránh conflict
+    if (isSyncing) {
+        console.log("⚠️ Skip sync: Another sync process is running.");
+        return;
+    }
+
     try {
+        isSyncing = true; // Lock
+        // console.log("🔄 Starting Sync Data...");
+
         // --- 1. SYNC BOOKINGS ---
         const resBooking = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: `${BOOKING_SHEET}!A:W` });
         const rowsBooking = resBooking.data.values;
@@ -310,7 +320,7 @@ async function syncData() {
             }
         }
 
-        // --- 2. SYNC SCHEDULE (NÂNG CẤP ĐỌC CỘT E) ---
+        // --- 2. SYNC SCHEDULE ---
         const resSchedule = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: `${SCHEDULE_SHEET}!A1:BG100` });
         const rows = resSchedule.data.values;
         
@@ -319,9 +329,6 @@ async function syncData() {
 
         if (rows && rows.length > 1) {
             const headerRow = rows[0]; 
-            // Debug ngày tháng để chắc chắn
-            // console.log(`[HEADER CHECK] Raw Col AS: "${headerRow[44]}" -> Parsed: "${normalizeSheetDate(headerRow[44])}"`);
-
             for (let i = 1; i < rows.length; i++) {
                 const row = rows[i];
                 const staffName = row[0]; if (!staffName) continue;
@@ -331,8 +338,7 @@ async function syncData() {
                 let startTime = row[2] ? row[2].trim().replace(/：/g, ':') : '12:00';
                 let endTime = row[3] ? row[3].trim().replace(/：/g, ':') : '03:00';
 
-                // --- [MỚI] ĐỌC CỘT E: TRẠNG THÁI ON-TIME (準下) ---
-                // Nếu ô E có chữ "TRUE", "X", "Yes" => Strict Mode
+                // Đọc Cột E: ON-TIME
                 const onTimeVal = row[4] ? row[4].toString().trim().toUpperCase() : '';
                 const isStrictTime = (onTimeVal === 'TRUE' || onTimeVal === 'YES' || onTimeVal === 'X');
 
@@ -345,16 +351,15 @@ async function syncData() {
                     end: endTime,   
                     shiftStart: startTime, 
                     shiftEnd: endTime,
-                    isStrictTime: isStrictTime, // Thuộc tính mới
-                    sheetRowIndex: i + 1,       // Lưu số dòng để Update ngược lại Sheet
+                    isStrictTime: isStrictTime, 
+                    sheetRowIndex: i + 1,       
                     off: false, 
                     offDays: [] 
                 };
                 
                 const todayStr = formatDateDisplay(getTaipeiNow());
                 
-                // --- [QUAN TRỌNG] Vòng lặp quét ngày OFF phải bắt đầu từ 5 (Cột F) ---
-                // Vì Cột E (index 4) bây giờ là "準下"
+                // Vòng lặp quét ngày OFF (Bắt đầu từ Cột F - Index 5)
                 for (let j = 5; j < headerRow.length; j++) {
                     if (headerRow[j]) {
                         const normalizedDate = normalizeSheetDate(headerRow[j]); 
@@ -386,19 +391,21 @@ async function syncData() {
         }
         
         lastSyncTime = new Date();
-        console.log(`[SYNC OK] Bookings: ${cachedBookings.length}, Staff: ${STAFF_LIST.length} at ${formatDateTimeString(lastSyncTime)}`);
+        console.log(`[SYNC DONE] Bookings: ${cachedBookings.length}, Staff: ${STAFF_LIST.length} at ${formatDateTimeString(lastSyncTime)}`);
 
     } catch (e) { 
         console.error('[SYNC ERROR] Fatal Error in SyncData:', e);
         isSystemHealthy = false; 
         STAFF_LIST = []; 
+    } finally {
+        isSyncing = false; // Unlock
     }
 }
 
 // =============================================================================
 // PHẦN 4 & 5 & 6: GIỮ NGUYÊN LOGIC BOOKING VÀ TÍNH TOÁN
 // =============================================================================
-// (Đoạn này gọi resource_core.js nên không cần sửa gì thêm ở đây)
+// (Logic xử lý Bot vẫn giữ nguyên như cũ để đảm bảo tính năng không đổi)
 
 function findBestSlots(selectedDate, serviceCode, pax = 1, requireFemale = false, requireMale = false) {
     if (!isSystemHealthy || STAFF_LIST.length === 0) return [];
@@ -554,8 +561,25 @@ app.use(express.urlencoded({ extended: true }));
 app.use(express.static(path.join(__dirname, 'public')));
 app.use('/admin2', express.static(path.join(__dirname, 'XinWuChanAdmin')));
 
-// --- API ENDPOINTS ---
-app.get('/api/info', (req, res) => { 
+// --- [CRITICAL UPDATE V3.1] API INFO UPGRADE ---
+app.get('/api/info', async (req, res) => { 
+    // Kiểm tra xem Frontend có yêu cầu Force Refresh không
+    const isForceRefresh = req.query.forceRefresh === 'true';
+    const now = new Date();
+    const timeSinceLastSync = now - lastSyncTime;
+    const MIN_SYNC_INTERVAL = 15000; // 15 giây cooldown
+
+    if (isForceRefresh) {
+        if (isSyncing) {
+            console.log("⚠️ API Info: Force refresh skipped (Already syncing).");
+        } else if (timeSinceLastSync > MIN_SYNC_INTERVAL) {
+            console.log(`🚀 API Info: FORCE REFRESH Triggered by Frontend (Last sync: ${timeSinceLastSync}ms ago)`);
+            await syncData();
+        } else {
+            // console.log(`⏳ API Info: Data is fresh enough (${timeSinceLastSync}ms). No sync needed.`);
+        }
+    }
+
     res.json({ 
         staffList: STAFF_LIST, 
         bookings: cachedBookings, 
@@ -588,50 +612,33 @@ app.post('/api/update-booking-details', async (req, res) => {
     } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// --- [MỚI + FIX] API UPDATE CẤU HÌNH NHÂN VIÊN (ON-TIME) ---
+// API UPDATE CẤU HÌNH NHÂN VIÊN
 app.post('/api/update-staff-config', async (req, res) => {
     try {
         const { staffId, isStrictTime } = req.body;
-        
         console.log(`[API UPDATE REQUEST] Staff: ${staffId}, isStrict: ${isStrictTime}`);
-
-        // --- BƯỚC 1: CẬP NHẬT BỘ NHỚ RAM NGAY LẬP TỨC (QUAN TRỌNG) ---
-        // Giúp Bot nhận diện thay đổi ngay cả khi chưa ghi xong vào Sheet
         const staffIndex = STAFF_LIST.findIndex(s => s.id === staffId);
         let sheetRowIndex = -1;
 
         if (staffIndex !== -1) {
-            // Cập nhật RAM
             STAFF_LIST[staffIndex].isStrictTime = isStrictTime;
             sheetRowIndex = STAFF_LIST[staffIndex].sheetRowIndex;
-            console.log(`[RAM UPDATE SUCCESS] ${staffId} -> ${isStrictTime ? 'STRICT' : 'NORMAL'}`);
         } else {
-            console.warn(`[RAM UPDATE WARNING] Staff ${staffId} not found in memory list.`);
             return res.status(404).json({ success: false, error: 'Staff not found in memory' });
         }
 
-        // --- BƯỚC 2: GHI VÀO GOOGLE SHEET ĐỂ LƯU TRỮ ---
         if (sheetRowIndex !== -1) {
-            // Giá trị cần ghi: "TRUE" nếu tick, "" (Rỗng) nếu bỏ tick
             const valueToWrite = isStrictTime ? "TRUE" : "";
             const range = `${SCHEDULE_SHEET}!E${sheetRowIndex}`;
-            
             await sheets.spreadsheets.values.update({
                 spreadsheetId: SHEET_ID,
                 range: range,
                 valueInputOption: 'USER_ENTERED',
                 requestBody: { values: [[valueToWrite]] }
             });
-            console.log(`[SHEET UPDATE SUCCESS] Wrote "${valueToWrite}" to ${range}`);
         }
-
-        // --- BƯỚC 3: TRIGGER SYNC (DOUBLE CHECK) ---
-        // Vẫn gọi Sync để đảm bảo mọi thứ đồng nhất, nhưng không cần chờ nó xong mới phản hồi user
-        // vì RAM đã update rồi.
         await syncData();
-        
         res.json({ success: true, message: `Updated ${staffId} strict mode to ${isStrictTime}` });
-        
     } catch (e) {
         console.error('[UPDATE STAFF ERROR]', e);
         res.status(500).json({ success: false, error: e.message });
@@ -653,7 +660,6 @@ async function handleEvent(event) {
 
   const isBookingAction = text === 'Action:Booking' || text.startsWith('Cat:') || text.startsWith('Svc:') || text.startsWith('Date:') || text.startsWith('Pref:') || text.startsWith('Pax:') || text.startsWith('Time:');
   
-  // Kiểm tra HealthCheck
   if (isBookingAction && (!isSystemHealthy || STAFF_LIST.length === 0)) {
        return client.replyMessage(event.replyToken, { 
            type: 'flex', 
@@ -814,8 +820,8 @@ async function handleEvent(event) {
 // 1. Chạy sync lần đầu
 syncMenuData().then(() => syncData());
 
-// 2. Auto Sync (Mỗi 60s)
-setInterval(() => { syncData(); }, 60000); 
+// 2. Auto Sync (Mỗi 30s) [GIẢM TỪ 60S XUỐNG 30S]
+setInterval(() => { syncData(); }, 30000); 
 
 // 3. Ping
 app.get('/ping', (req, res) => { res.status(200).send('Pong!'); });
