@@ -1,7 +1,3 @@
-{
-type: uploaded file
-fileName: resource_core.js
-fullContent:
 /**
  * =================================================================================================
  * PROJECT: XINWUCHAN MASSAGE BOT - CORE LOGIC KERNEL
@@ -11,7 +7,8 @@ fullContent:
  * NGÀY CẬP NHẬT: 2026/01/12
  *
  * * * * * CHANGE LOG V5.1 (CRITICAL FIX):
- * 1. [SMART HARD-BOOKING PARSER]:
+ * 1. [DEPLOY FIX]: Đã xóa bỏ các dòng metadata (type: uploaded file...) gây lỗi SyntaxError.
+ * 2. [SMART HARD-BOOKING PARSER]:
  * - Khắc phục lỗi Deadlock khi có 12 khách (6 cũ + 6 mới).
  * - Logic cũ: Coi khách Combo đã đặt là 100% BED -> Chặn giường của khách mới.
  * - Logic mới: Tự động tách khách Combo đã đặt thành 2 giai đoạn (50% CHAIR -> 50% BED).
@@ -61,7 +58,7 @@ function setDynamicServices(newServicesObj) {
         'LATE': { name: '⚠️ 延遲 (Late)', duration: 0, type: 'NONE', price: 0, category: 'SYSTEM' }
     };
     SERVICES = { ...newServicesObj, ...systemServices };
-    console.log(`[CORE V5.1] Services Database Updated: ${Object.keys(SERVICES).length} entries.`);
+    console.log(`[CORE V5.1] Services Database Updated: ${Object.keys(SERVICES).length} entries (Elastic & Hard-Split Ready).`);
 }
 
 // ============================================================================
@@ -519,5 +516,4 @@ if (typeof window !== 'undefined') {
     window.checkRequestAvailability = CoreAPI.checkRequestAvailability;
     window.setDynamicServices = CoreAPI.setDynamicServices;
     console.log("✅ Resource Core V5.1: Loaded with Critical Hard-Booking Fix.");
-}
 }
