@@ -1,14 +1,18 @@
 /**
  * =================================================================================================
  * PROJECT: XINWUCHAN MASSAGE BOT (BACKEND SERVER)
- * VERSION: V4.0 (FEATURE: ELASTIC TIME CONFIGURATION)
+ * VERSION: V4.1 (FIX: REAL-TIME FILTER)
  * AUTHOR: AI ASSISTANT & USER
  * DATE: 2026/01/11
- * * * * * CHANGE LOG V4.0:
- * 1. [MENU SYNC UPGRADE]: Cập nhật hàm syncMenuData để đọc thêm cột E (Min) và F (Max) từ Sheet Menu.
- * - Hỗ trợ đọc số nguyên trực tiếp (Ví dụ: 5, 25, 45).
- * - Tự động gán cấu hình Co giãn (Elastic Config) vào từng dịch vụ.
- * 2. [MAINTENANCE]: Giữ nguyên toàn bộ logic Smart Sync và Sync Lock từ V3.1.
+ * * * * * * CHANGE LOG V4.1:
+ * 1. [CRITICAL FIX] Hàm generateTimeBubbles:
+ * - Thêm bộ lọc thời gian thực (Real-time Filter).
+ * - So sánh giờ hiện tại (Current Hour) với giờ trong vòng lặp.
+ * - Ngăn chặn hiển thị các khung giờ đã trôi qua nếu khách chọn ngày "Hôm nay".
+ * * 2. [IMPROVEMENT] Hàm findBestSlots:
+ * - Áp dụng logic tương tự để tính năng "Gợi ý thông minh" không đề xuất giờ quá khứ.
+ * * * * * * CHANGE LOG V4.0:
+ * 1. [MENU SYNC UPGRADE]: Cập nhật hàm syncMenuData đọc cột E (Min), F (Max).
  * =================================================================================================
  */
 
@@ -206,20 +210,16 @@ async function syncMenuData() {
             const price = parseInt(priceStr.replace(/\D/g, '')) || 0;
 
             // [NEW LOGIC V4.0] Đọc cấu hình Elastic Time
-            // Cột E (index 4): Min step (Bước nhảy)
-            // Cột F (index 5): Max limit (Giới hạn tối đa)
             let elasticStep = 0;
             let elasticLimit = 0;
 
-            // Xử lý cột Min (E)
             if (row[4]) {
-                const parsedStep = parseInt(row[4].toString().replace(/\D/g, '')); // Chỉ lấy số
+                const parsedStep = parseInt(row[4].toString().replace(/\D/g, '')); 
                 if (!isNaN(parsedStep)) elasticStep = parsedStep;
             }
 
-            // Xử lý cột Max (F)
             if (row[5]) {
-                const parsedLimit = parseInt(row[5].toString().replace(/\D/g, '')); // Chỉ lấy số
+                const parsedLimit = parseInt(row[5].toString().replace(/\D/g, ''));
                 if (!isNaN(parsedLimit)) elasticLimit = parsedLimit;
             }
 
@@ -235,7 +235,6 @@ async function syncMenuData() {
                 type: type, 
                 category: category, 
                 price: price,
-                // Thêm tham số Elastic
                 elasticStep: elasticStep,
                 elasticLimit: elasticLimit
             };
@@ -281,7 +280,6 @@ async function syncDailySalary(dateStr, staffDataList) {
  * HÀM ĐỒNG BỘ CHÍNH - UPDATE ĐỂ ĐỌC CỘT "ON-TIME"
  */
 async function syncData() {
-    // Nếu đang sync thì bỏ qua để tránh conflict
     if (isSyncing) {
         console.log("⚠️ Skip sync: Another sync process is running.");
         return;
@@ -289,7 +287,6 @@ async function syncData() {
 
     try {
         isSyncing = true; // Lock
-        // console.log("🔄 Starting Sync Data...");
 
         // --- 1. SYNC BOOKINGS ---
         const resBooking = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: `${BOOKING_SHEET}!A:W` });
@@ -432,25 +429,36 @@ async function syncData() {
 // =============================================================================
 // PHẦN 4 & 5 & 6: GIỮ NGUYÊN LOGIC BOOKING VÀ TÍNH TOÁN
 // =============================================================================
-// (Logic xử lý Bot vẫn giữ nguyên như cũ để đảm bảo tính năng không đổi)
 
 function findBestSlots(selectedDate, serviceCode, pax = 1, requireFemale = false, requireMale = false) {
     if (!isSystemHealthy || STAFF_LIST.length === 0) return [];
     
+    // [V4.1 FIX] Chuẩn bị thời gian hiện tại để so sánh
+    const nowTaipei = getTaipeiNow();
+    const todayStr = formatDateString(nowTaipei);
+    const isToday = (selectedDate === todayStr);
+    const currentFloatTime = nowTaipei.getHours() + (nowTaipei.getMinutes() / 60);
+
     const staffListMap = {};
     STAFF_LIST.forEach(s => {
         const isOffToday = s.offDays && s.offDays.includes(selectedDate);
         if (!isOffToday) {
             if (requireFemale && s.gender !== 'F') return;
             if (requireMale && s.gender !== 'M') return;
-            staffListMap[s.id] = s; // s bây giờ đã có isStrictTime
+            staffListMap[s.id] = s;
         }
     });
 
     const relevantBookings = cachedBookings.filter(b => b.date === selectedDate && !b.status.includes('取消') && !b.status.includes('Cancel'));
     const guestList = []; for(let i=0; i<pax; i++) guestList.push({ serviceCode: serviceCode, staffName: 'RANDOM' });
     let candidates = [];
+    
     for (let h = 8; h <= 24; h += 1) { 
+        // [V4.1 FIX] Kiểm tra giờ quá khứ trong findBestSlots
+        if (isToday && h < currentFloatTime) {
+            continue; // Bỏ qua giờ đã qua
+        }
+
         const hourInt = Math.floor(h); const minuteInt = 0; let displayH = hourInt; if (displayH >= 24) displayH -= 24; 
         const timeStr = `${displayH.toString().padStart(2, '0')}:${minuteInt.toString().padStart(2, '0')}`;
         const result = ResourceCore.checkRequestAvailability(selectedDate, timeStr, guestList, relevantBookings, staffListMap);
@@ -462,6 +470,17 @@ function findBestSlots(selectedDate, serviceCode, pax = 1, requireFemale = false
 
 function generateTimeBubbles(selectedDate, serviceCode, specificStaffIds = null, pax = 1, requireFemale = false, requireMale = false) {
     if (!isSystemHealthy || STAFF_LIST.length === 0) return null;
+    
+    // [V4.1 FIX] LOGIC SO SÁNH THỜI GIAN THỰC
+    // Lấy giờ hiện tại (Đài Loan)
+    const nowTaipei = getTaipeiNow();
+    // Chuyển về dạng chuỗi YYYY/MM/DD để so sánh với selectedDate
+    const todayStr = formatDateString(nowTaipei);
+    // Cờ đánh dấu xem ngày khách chọn có phải là hôm nay không
+    const isToday = (selectedDate === todayStr);
+    // Tính giờ hiện tại dưới dạng số thập phân (Ví dụ: 13:30 -> 13.5)
+    const currentFloatTime = nowTaipei.getHours() + (nowTaipei.getMinutes() / 60);
+
     let validSlots = [];
     const staffListMap = {};
     STAFF_LIST.forEach(s => {
@@ -473,20 +492,36 @@ function generateTimeBubbles(selectedDate, serviceCode, specificStaffIds = null,
              staffListMap[s.id] = s;
         }
     });
+    
     const relevantBookings = cachedBookings.filter(b => b.date === selectedDate && !b.status.includes('取消') && !b.status.includes('Cancel'));
     const guestList = []; for(let i=0; i<pax; i++) { let sId = 'RANDOM'; if(specificStaffIds && specificStaffIds.length > i) sId = specificStaffIds[i]; guestList.push({ serviceCode: serviceCode, staffName: sId }); }
+    
+    // Vòng lặp kiểm tra từng giờ
     for (let h = 8; h <= 24; h += 1) { 
+        
+        // [V4.1 FIX] ĐIỀU KIỆN CHẶN GIỜ QUÁ KHỨ
+        // Nếu là hôm nay VÀ giờ 'h' nhỏ hơn giờ hiện tại -> Bỏ qua
+        // Ví dụ: Bây giờ là 13:30 (13.5). Vòng lặp h=13 -> 13 < 13.5 -> Continue (Ẩn 13:00)
+        // Vòng lặp h=14 -> 14 > 13.5 -> OK (Hiện 14:00)
+        if (isToday && h < currentFloatTime) {
+            continue; 
+        }
+
         const hourInt = Math.floor(h); let displayH = hourInt >= 24 ? hourInt - 24 : hourInt;
         const timeStr = `${displayH.toString().padStart(2, '0')}:00`;
         const result = ResourceCore.checkRequestAvailability(selectedDate, timeStr, guestList, relevantBookings, staffListMap);
         if (result.feasible) validSlots.push(h);
     }
+    
     if (validSlots.length === 0) return null;
+    
     const formatTime = (h) => { const hourInt = Math.floor(h); if (hourInt < 24) return `${hourInt.toString().padStart(2, '0')}:00`; return `${(hourInt - 24).toString().padStart(2, '0')}:00 (凌晨)`; };
     const formatValue = (h) => { const hourInt = Math.floor(h); const displayH = hourInt < 24 ? hourInt : hourInt - 24; return `${displayH.toString().padStart(2, '0')}:00`; }
     const groups = [ { name: '🌞 早安 (Morning)', slots: validSlots.filter(h => h >= 8 && h < 12) }, { name: '☀️ 午後 (Afternoon)', slots: validSlots.filter(h => h >= 12 && h < 18) }, { name: '🌙 晚安 (Evening)', slots: validSlots.filter(h => h >= 18 && h < 24) }, { name: '✨ 深夜 (Late Night)', slots: validSlots.filter(h => h >= 24) } ];
+    
     let bubbles = [];
     bubbles.push({ "type": "bubble", "size": "kilo", "body": { "type": "box", "layout": "vertical", "backgroundColor": "#F0F9FF", "cornerRadius": "lg", "contents": [ { "type": "text", "text": "💎 SMART BOOKING", "weight": "bold", "color": "#0284C7", "align": "center", "size": "xs" }, { "type": "text", "text": "精選推薦時段", "weight": "bold", "size": "md", "align": "center", "margin": "xs" }, { "type": "button", "style": "primary", "color": "#0EA5E9", "margin": "md", "height": "sm", "action": { "type": "message", "label": "⭐ 查看 (View)", "text": "Time:Suggest" } } ] } });
+    
     const timeBubbles = groups.filter(g => g.slots.length > 0).map(group => { const buttons = group.slots.map(h => { return { "type": "button", "style": "primary", "margin": "xs", "height": "sm", "action": { "type": "message", "label": formatTime(h), "text": `Time:${formatValue(h)}` } }; }); return { "type": "bubble", "size": "kilo", "body": { "type": "box", "layout": "vertical", "contents": [{ "type": "text", "text": group.name, "weight": "bold", "color": "#1DB446", "align": "center" }, { "type": "separator", "margin": "sm" }, ...buttons] } }; });
     return { type: 'carousel', contents: [...bubbles, ...timeBubbles] };
 }

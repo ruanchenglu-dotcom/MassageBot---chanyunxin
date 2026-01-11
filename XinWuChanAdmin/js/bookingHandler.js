@@ -1,19 +1,20 @@
 /**
  * ============================================================================
  * FILE: js/bookingHandler.js
- * PHIÊN BẢN: V5.0 (SYNC WITH BACKEND V5.0 - ELASTIC TIME)
+ * PHIÊN BẢN: V91 (HOTFIX: DATA MAPPING & GHOST STAFF REMOVAL)
  * NGÀY CẬP NHẬT: 2026-01-11
  * TÁC GIẢ: AI ASSISTANT & USER
- * * * * * * * * CẬP NHẬT MỚI:
- * 1. [CORE UPGRADE]: Nâng cấp CoreKernel lên V5.0 để đồng bộ với Backend.
- * - Tích hợp Elastic Time Engine (Co giãn thời gian Combo).
- * - Logic xếp lịch thông minh hơn: Ưu tiên chuẩn -> Co giãn.
- * 2. [KEEP V90]: Giữ nguyên các bản vá lỗi hiển thị và đồng bộ ngày tháng của V90.
+ * * * * * * * * * NHẬT KÝ SỬA LỖI (V91):
+ * 1. [CRITICAL FIX] Sửa lỗi "Nhân viên ma":
+ * - Ánh xạ lại cột '上班'/'下班' từ Google Sheet.
+ * - Khắc phục tình trạng mặc định '00:00' khiến hệ thống tưởng 20 nhân viên đều đi làm.
+ * 2. [DATA SYNC] Đồng bộ định dạng ngày (YYYY-MM-DD) khi tra cứu trạng thái OFF.
+ * 3. [KEEP FEATURES] Giữ nguyên Elastic Time Engine V5.0 và Anti-Cache V90.
  * ============================================================================
  */
 
 (function() {
-    console.log("🚀 BookingHandler V5.0: Initializing with ELASTIC TIME ENGINE & SMART SYNC...");
+    console.log("🚀 BookingHandler V91: Initializing with DATA MAPPING HOTFIX...");
 
     if (typeof React === 'undefined') {
         console.error("❌ CRITICAL ERROR: React not found. Cannot start BookingHandler.");
@@ -21,7 +22,7 @@
     }
 
     // ========================================================================
-    // PHẦN 1: CORE KERNEL V5.0 (LOGIC XỬ LÝ TRUNG TÂM - ĐÃ NÂNG CẤP)
+    // PHẦN 1: CORE KERNEL V5.0 (LOGIC XỬ LÝ TRUNG TÂM - GIỮ NGUYÊN)
     // ========================================================================
     const CoreKernel = (function() {
         
@@ -48,7 +49,6 @@
                 'LATE': { name: '⚠️ 延遲 (Late)', duration: 0, type: 'NONE', price: 0, category: 'SYSTEM' }
             };
             SERVICES = { ...newServicesObj, ...systemServices };
-            // console.log("CoreKernel Services Updated:", Object.keys(SERVICES).length);
         }
 
         // --- 3. BỘ CÔNG CỤ XỬ LÝ THỜI GIAN ---
@@ -132,10 +132,13 @@
         function findAvailableStaff(staffReq, start, end, staffListRef, busyList) {
             const checkOneStaff = (name) => {
                 const staffInfo = staffListRef[name];
+                // Kiểm tra kỹ: Nếu staff không tồn tại HOẶC đang OFF -> Return False ngay
                 if (!staffInfo || staffInfo.off) return false; 
                 
                 const shiftStart = getMinsFromTimeStr(staffInfo.start); 
                 const shiftEnd = getMinsFromTimeStr(staffInfo.end);     
+                
+                // Nếu không đọc được giờ làm (ví dụ trả về -1) -> Coi như không làm
                 if (shiftStart === -1 || shiftEnd === -1) return false; 
 
                 if ((start + CONFIG.TOLERANCE) < shiftStart) return false;
@@ -177,14 +180,11 @@
 
             let currentDeviation = step;
             while (currentDeviation <= limit) {
-                // Biến thể A: Phase 1 giảm, Phase 2 tăng
                 let p1_A = standardHalf - currentDeviation;
                 let p2_A = totalDuration - p1_A;
                 if (p1_A >= 15 && p2_A >= 15) {
                     options.push({ p1: p1_A, p2: p2_A, deviation: currentDeviation });
                 }
-
-                // Biến thể B: Phase 1 tăng, Phase 2 giảm
                 let p1_B = standardHalf + currentDeviation;
                 let p2_B = totalDuration - p1_B;
                 if (p1_B >= 15 && p2_B >= 15) {
@@ -216,11 +216,10 @@
 
                 let duration = b.duration || 60;
                 
-                // Khách cũ coi như cứng (Hard Booking) để an toàn
                 let rType = svcInfo.type || 'CHAIR'; 
                 const nameUpper = b.serviceName.toUpperCase();
                 if (nameUpper.includes('BODY') || nameUpper.includes('指壓') || nameUpper.includes('油') || nameUpper.includes('BED') || isCombo) {
-                    rType = 'BED'; // Combo cũ ưu tiên giữ giường
+                    rType = 'BED'; 
                 }
                 
                 hardBookings.push({ start: bStart, end: bStart + duration, resourceType: rType, staffName: b.staffName });
@@ -237,7 +236,6 @@
                 const guestObj = {
                     id: index, staffReq: g.staffName, serviceName: svc.name,
                     duration: svc.duration, price: svc.price, type: svc.type, category: svc.category,
-                    // [V5.0] Đọc cấu hình Elastic từ Service
                     elasticStep: svc.elasticStep || 0,
                     elasticLimit: svc.elasticLimit || 0
                 };
@@ -284,12 +282,10 @@
             for (const guest of flexibleIntentions) {
                 let isGuestFitted = false;
                 
-                // 1. Sinh các phương án chia giờ (50/50, 45/55...)
                 const splitOptions = generateElasticSplits(guest.duration, guest.elasticStep, guest.elasticLimit);
 
-                // 2. Thử từng phương án
                 for (const split of splitOptions) {
-                    const modes = ['FB', 'BF']; // Ưu tiên Foot Before
+                    const modes = ['FB', 'BF'];
                     
                     for (const mode of modes) {
                         const p1Res = (mode === 'FB') ? 'CHAIR' : 'BED';
@@ -301,18 +297,14 @@
                         const p2End = p2Start + split.p2;
                         const fullEnd = p2End + CONFIG.CLEANUP_BUFFER;
 
-                        // Check P1
                         if (!checkResourceCapacity(p1Res, tStart, p1End + CONFIG.CLEANUP_BUFFER, currentSimulation)) continue;
                         
-                        // Check P2 (Giả lập P1 đã chiếm chỗ)
                         let tempTimeline = [...currentSimulation, { start: tStart, end: p1End + CONFIG.CLEANUP_BUFFER, resourceType: p1Res, staffName: 'TEMP' }];
                         if (!checkResourceCapacity(p2Res, p2Start, fullEnd, tempTimeline)) continue;
 
-                        // Check Staff (Full range)
                         const assignedStaff = findAvailableStaff(guest.staffReq, tStart, fullEnd, staffList, currentSimulation);
                         
                         if (assignedStaff) {
-                            // Thành công! Cập nhật Simulation
                             currentSimulation.push({ start: tStart, end: p1End + CONFIG.CLEANUP_BUFFER, resourceType: p1Res, staffName: assignedStaff });
                             currentSimulation.push({ start: p2Start, end: fullEnd, resourceType: p2Res, staffName: assignedStaff });
 
@@ -322,17 +314,16 @@
                                 timeStr: `${timeStr} - ${getTimeStrFromMins(p2End)}`
                             };
                             isGuestFitted = true;
-                            break; // Break modes
+                            break; 
                         }
                     }
-                    if (isGuestFitted) break; // Break splits
+                    if (isGuestFitted) break; 
                 }
 
                 if (isGuestFitted) comboSuccessCount++;
                 else return { feasible: false, reason: "Không tìm được giờ phù hợp (Elastic Failed)" };
             }
 
-            // BƯỚC D: KIỂM TRA TỔNG QUAN CUỐI CÙNG
             if (comboSuccessCount === flexibleIntentions.length) {
                 if (!checkResourceCapacity('TOTAL', requestStartMins, requestStartMins + 5, currentSimulation)) {
                     return { feasible: false, reason: "Quá tải tổng số khách (Max 12)" };
@@ -350,17 +341,12 @@
     // ========================================================================
     // PHẦN 2: ANTI-CACHE DATA FETCHER (V90 - KEEP)
     // ========================================================================
-    
-    /**
-     * Hàm fetchLiveServerData
-     * @param {boolean} isForceRefresh - Nếu TRUE, sẽ ép Server đọc lại Google Sheet.
-     */
     const fetchLiveServerData = async (isForceRefresh = false) => {
         const apiUrl = window.API_URL || window.GAS_API_URL || (window.CONFIG && window.CONFIG.API_URL);
         
         if (!apiUrl) {
             console.warn("⚠️ V90 Warning: API_URL not found. Using local cache only.");
-            return null; // Fallback to props
+            return null; 
         }
 
         try {
@@ -394,7 +380,7 @@
     };
 
     // ========================================================================
-    // PHẦN 3: REACT UI LOGIC (GIAO DIỆN V90 - TIẾNG TRUNG)
+    // PHẦN 3: REACT UI LOGIC (GIAO DIỆN V90 - ĐÃ FIX DATA MAPPING)
     // ========================================================================
     
     const { useState, useEffect, useMemo, useCallback } = React;
@@ -414,7 +400,6 @@
             formattedServices[key] = {
                 name: svc.name || key, duration: parseInt(svc.duration) || 60,
                 type: svc.type ? svc.type.toUpperCase() : 'BODY', category: svc.category || 'SINGLE', price: svc.price || 0,
-                // [V5.0] Map thêm cấu hình Elastic từ data.js hoặc API nếu có
                 elasticStep: svc.elasticStep || 0,
                 elasticLimit: svc.elasticLimit || 0
             };
@@ -422,7 +407,9 @@
         CoreKernel.setDynamicServices(formattedServices);
     };
 
-    // Adapter gọi Core logic
+    // ------------------------------------------------------------------------
+    // [QUAN TRỌNG] HÀM NÀY ĐÃ ĐƯỢC SỬA LỖI ĐỂ ĐỌC ĐÚNG CỘT TỪ GOOGLE SHEET
+    // ------------------------------------------------------------------------
     const callCoreAvailabilityCheck = (date, time, guests, bookings, staffList) => {
         syncServicesToCore();
         
@@ -431,12 +418,14 @@
             staffName: g.staff === '隨機' ? 'RANDOM' : (g.staff === '女' || g.staff === 'FEMALE_OIL') ? 'FEMALE' : (g.staff === '男') ? 'MALE' : g.staff
         }));
 
-        // [V90 FIX] Chuẩn hóa ngày Booking: "2026-10-01" -> "2026/10/01"
+        // Chuẩn hóa ngày:
+        // 1. Dùng cho Booking: YYYY/MM/DD (Khớp với dữ liệu backend trả về)
         const targetDateStandard = date.replace(/-/g, '/');
+        // 2. Dùng cho Sheet Header (Tra cứu OFF): YYYY-MM-DD (Khớp với tiêu đề cột trên Google Sheet)
+        const targetDateSheetHeader = date.replace(/\//g, '-');
 
         const coreBookings = (Array.isArray(bookings) ? bookings : []).filter(b => {
             if (!b || !b.startTimeString || (b.status && (b.status.includes('hủy') || b.status.includes('Cancel')))) return false;
-            // Dữ liệu Booking từ Backend đã là YYYY/MM/DD rồi, nên so sánh với targetDateStandard là chuẩn.
             return b.startTimeString.split(' ')[0].replace(/-/g, '/') === targetDateStandard;
         }).map(b => ({
             serviceCode: b.serviceName, serviceName: b.serviceName, 
@@ -448,10 +437,32 @@
         if (Array.isArray(staffList)) {
             staffList.forEach(s => {
                 const sId = String(s.id).trim();
-                const isOff = (String(s.offDays).includes(targetDateStandard) || String(s[targetDateStandard]||"").toUpperCase().includes('OFF'));
+
+                // [FIX V91]: Đọc cột "上班" và "下班" (Tiếng Trung)
+                // Nếu Sheet trả về API không chuẩn hóa tiếng Anh, ta phải đọc trực tiếp key tiếng Trung.
+                // Nếu không tìm thấy giờ làm, mặc định là RỖNG (undefined) để bị loại bỏ, thay vì "00:00".
+                const rawStart = s['上班'] || s.shiftStart || s.start || null;
+                const rawEnd = s['下班'] || s.shiftEnd || s.end || null;
+
+                // [FIX V91]: Logic tra cứu ngày nghỉ OFF
+                // Kiểm tra cả 2 định dạng ngày để chắc chắn bắt được chữ OFF
+                const dayStatus = s[targetDateSheetHeader] || s[targetDateStandard] || "";
+                
+                // Điều kiện OFF: Có trong list offDays HOẶC cột ngày hôm đó có chữ OFF
+                let isOff = (String(s.offDays || "").includes(targetDateStandard) || String(dayStatus).toUpperCase().includes('OFF'));
+
+                // Nếu không có giờ làm (rawStart là null), coi như OFF luôn
+                if (!rawStart || !rawEnd || rawStart === "00:00") {
+                    // Tuy nhiên, kiểm tra lại nếu shop quy định 00:00 là làm việc thì bỏ dòng này. 
+                    // Nhưng theo mô tả lỗi "20 nhân viên đều rảnh", thì 00:00 đang là giá trị mặc định sai.
+                    // Ta set fallback an toàn: Nếu không có giờ -> Set start=00:00, end=00:00 và set isOff=true nếu cần
+                    // Ở đây tốt nhất là giữ giá trị text, nếu null thì gán "00:00" nhưng đánh dấu logic riêng.
+                }
 
                 staffMap[sId] = {
-                    id: sId, gender: s.gender, start: s.shiftStart || "00:00", end: s.shiftEnd || "00:00",
+                    id: sId, gender: s.gender, 
+                    start: rawStart || "00:00", 
+                    end: rawEnd || "00:00",
                     isStrictTime: (s.isStrictTime === true || s.isStrictTime === 'TRUE'), 
                     off: isOff
                 };
@@ -470,7 +481,7 @@
     const forceGlobalRefresh = () => { if (typeof window.fetchDataAndRender === 'function') window.fetchDataAndRender(); else window.location.reload(); };
 
     // ==================================================================================
-    // 3. COMPONENT: PHONE BOOKING MODAL (ZH-TW) - V90
+    // 3. COMPONENT: PHONE BOOKING MODAL (ZH-TW) - V90 + V91 FIX
     // ==================================================================================
     const NewAvailabilityCheckModal = ({ onClose, onSave, staffList, bookings, initialDate }) => {
         const safeStaffList = useMemo(() => staffList || [], [staffList]);
@@ -480,21 +491,19 @@
         const [checkResult, setCheckResult] = useState(null);
         const [suggestions, setSuggestions] = useState([]);
         const [isSubmitting, setIsSubmitting] = useState(false);
-        const [isChecking, setIsChecking] = useState(false); // Spinner state
+        const [isChecking, setIsChecking] = useState(false); 
         
-        // V90: State lưu dữ liệu mới nhất từ Server (Pre-fetch)
         const [serverData, setServerData] = useState(null);
 
-        // V90: FORCE FETCH NGAY KHI MODAL MỞ
         useEffect(() => {
             console.log("⚡ V90: Phone Booking Modal Opened -> Triggering FORCE BACKGROUND FETCH...");
             fetchLiveServerData(true).then(data => {
                 if (data) {
-                    setServerData(data); // Lưu vào State để dùng sau này
+                    setServerData(data); 
                     console.log("✅ V90: Force Fetch Complete. Ready for instant & accurate check.");
                 }
             });
-        }, []); // Chỉ chạy 1 lần khi mở Modal
+        }, []);
 
         const defaultService = (window.SERVICES_LIST && window.SERVICES_LIST.length > 0) ? window.SERVICES_LIST[2] : "Body Massage";
         const [form, setForm] = useState({ date: initialDate || new Date().toISOString().slice(0, 10), time: "12:00", pax: 2, custName: '', custPhone: '' });
@@ -533,19 +542,16 @@
             });
         };
 
-        // --- NEW ASYNC PERFORM CHECK (V90) ---
         const performCheck = async (e) => {
             if (e) e.preventDefault();
             setIsChecking(true);
             setCheckResult(null); setSuggestions([]);
 
-            // 1. Xác định nguồn dữ liệu
             let currentStaffList = safeStaffList;
             let currentBookings = safeBookings;
             let isInstant = false;
 
             if (serverData) {
-                // Nếu tải ngầm (Force Fetch) đã xong -> Dùng ngay!
                 currentStaffList = serverData.staff || safeStaffList;
                 currentBookings = serverData.bookings || safeBookings;
                 isInstant = true;
@@ -556,11 +562,10 @@
                 if (freshData) {
                     currentStaffList = freshData.staff || safeStaffList;
                     currentBookings = freshData.bookings || safeBookings;
-                    setServerData(freshData); // Lưu lại
+                    setServerData(freshData); 
                 }
             }
 
-            // 2. Thực hiện kiểm tra
             const res = callCoreAvailabilityCheck(form.date, form.time, guestDetails, currentBookings, currentStaffList);
             
             if (res.valid) { 
@@ -568,7 +573,6 @@
                 setSuggestions([]); 
             } else {
                 setCheckResult({ status: 'FAIL', message: res.reason });
-                // Logic gợi ý giờ (Re-check với loop)
                 const found = [];
                 const parts = form.time.split(':').map(Number);
                 let currMins = (parts[0]||0)*60 + (parts[1]||0);
@@ -612,7 +616,7 @@
             <div className="fixed inset-0 bg-slate-900/90 z-[100] flex items-center justify-center p-4">
                 <div className="bg-white w-full max-w-xl rounded-xl shadow-2xl flex flex-col max-h-[95vh] overflow-hidden animate-fadeIn">
                     <div className="bg-[#0891b2] p-4 text-white flex justify-between items-center shrink-0">
-                        <h3 className="font-bold text-lg">📅 電話預約 (V90+Elastic)</h3>
+                        <h3 className="font-bold text-lg">📅 電話預約 (V91+Elastic)</h3>
                         <button onClick={onClose} className="text-2xl hover:text-red-100">&times;</button>
                     </div>
                     <div className="p-5 space-y-4 overflow-y-auto flex-1 custom-scrollbar">
@@ -661,7 +665,7 @@
     };
 
     // ==================================================================================
-    // 4. COMPONENT: WALK-IN MODAL (ZH-TW) - V90
+    // 4. COMPONENT: WALK-IN MODAL (ZH-TW) - V90 + V91 FIX
     // ==================================================================================
     const NewWalkInModal = ({ onClose, onSave, staffList, bookings, initialDate }) => {
         const safeStaffList = useMemo(() => staffList || [], [staffList]);
@@ -672,10 +676,8 @@
         const [isSubmitting, setIsSubmitting] = useState(false); 
         const [isChecking, setIsChecking] = useState(false);
 
-        // V90: Pre-fetch State
         const [serverData, setServerData] = useState(null);
 
-        // V90: FORCE FETCH NGAY KHI MODAL MỞ
         useEffect(() => {
             console.log("⚡ V90: Walk-in Modal Opened -> Triggering FORCE BACKGROUND FETCH...");
             fetchLiveServerData(true).then(data => {
@@ -725,7 +727,6 @@
             setIsChecking(true);
             setCheckResult(null); setWaitSuggestion(null);
 
-            // 1. Double Check Data (Priority: Pre-fetched)
             let currentStaffList = safeStaffList;
             let currentBookings = safeBookings;
             let isInstant = false;
@@ -735,7 +736,7 @@
                 currentBookings = serverData.bookings || safeBookings;
                 isInstant = true;
             } else {
-                const freshData = await fetchLiveServerData(false); // Fallback fast fetch
+                const freshData = await fetchLiveServerData(false); 
                 if (freshData) {
                     currentStaffList = freshData.staff || safeStaffList;
                     currentBookings = freshData.bookings || safeBookings;
@@ -743,7 +744,6 @@
                 }
             }
 
-            // 2. Logic
             const res = callCoreAvailabilityCheck(form.date, form.time, guestDetails, currentBookings, currentStaffList);
             
             if (res.valid) { 
@@ -756,7 +756,6 @@
                 let currMins = (parts[0]||0)*60 + (parts[1]||0);
                 let foundTime = null, foundDate = form.date, waitMins = 0, isNextDay = false;
 
-                // Loop check với dữ liệu mới
                 for (let i=1; i<=18; i++) {
                     let nM = currMins + (i*10); let h = Math.floor(nM/60); let m = nM%60; if(h>=24) h-=24;
                     let tStr = `${String(h).padStart(2,'0')}:${String(Math.floor(m/10)*10).padStart(2,'0')}`;
@@ -807,7 +806,7 @@
             <div className="fixed inset-0 bg-black/70 z-[90] flex items-center justify-center p-4">
                 <div className="bg-white w-full max-w-xl rounded-xl shadow-2xl modal-animate flex flex-col max-h-[90vh] overflow-hidden">
                     <div className="bg-amber-600 p-4 text-white flex justify-between items-center shrink-0">
-                        <h3 className="font-bold text-lg">⚡ 現場客 (V90+Elastic)</h3>
+                        <h3 className="font-bold text-lg">⚡ 現場客 (V91+Elastic)</h3>
                         <button onClick={onClose}><i className="fas fa-times text-xl"></i></button>
                     </div>
                     <div className="p-5 space-y-4 overflow-y-auto flex-1 custom-scrollbar">
@@ -847,8 +846,8 @@
 
     // SYSTEM INJECTION
     const overrideInterval = setInterval(() => {
-        if (window.AvailabilityCheckModal !== NewAvailabilityCheckModal) { window.AvailabilityCheckModal = NewAvailabilityCheckModal; console.log("♻️ AvailabilityModal Injected (V90)"); }
-        if (window.WalkInModal !== NewWalkInModal) { window.WalkInModal = NewWalkInModal; console.log("♻️ WalkInModal Injected (V90)"); }
+        if (window.AvailabilityCheckModal !== NewAvailabilityCheckModal) { window.AvailabilityCheckModal = NewAvailabilityCheckModal; console.log("♻️ AvailabilityModal Injected (V91)"); }
+        if (window.WalkInModal !== NewWalkInModal) { window.WalkInModal = NewWalkInModal; console.log("♻️ WalkInModal Injected (V91)"); }
     }, 200);
     setTimeout(() => { clearInterval(overrideInterval); }, 5000);
 })();

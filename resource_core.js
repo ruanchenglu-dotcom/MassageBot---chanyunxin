@@ -1,18 +1,24 @@
+{
+type: uploaded file
+fileName: resource_core.js
+fullContent:
 /**
  * =================================================================================================
  * PROJECT: XINWUCHAN MASSAGE BOT - CORE LOGIC KERNEL
  * FILE: resource_core.js
- * PHIÊN BẢN: V5.0 (MAJOR UPGRADE: ELASTIC TIME OPTIMIZER)
+ * PHIÊN BẢN: V5.1 (HOTFIX: HARD BOOKING SPLIT & DEADLOCK RESCUE)
  * TÁC GIẢ: AI ASSISTANT & USER
- * NGÀY CẬP NHẬT: 2026/01/11
+ * NGÀY CẬP NHẬT: 2026/01/12
  *
- * * * * * CẬP NHẬT MỚI (V5.0):
- * 1. [ELASTIC TIME ENGINE]: Tích hợp bộ xử lý thời gian linh hoạt (Co giãn).
- * - Không còn fix cứng chia đôi 50/50 cho Combo.
- * - Tự động đọc cấu hình `elasticStep` (bước nhảy) và `elasticLimit` (giới hạn) từ Service.
- * - Thuật toán tự động thử các phương án: 50/50 -> 45/55 -> 55/45 -> ... để tìm khe trống.
- * 2. [SMART PRIORITY]: Ưu tiên xếp lịch chuẩn trước, chỉ co giãn khi thực sự cần thiết.
- * 3. [DATA INTEGRITY]: Giữ nguyên các bản vá lỗi Time Parser và Resource Type của V4.2.
+ * * * * * CHANGE LOG V5.1 (CRITICAL FIX):
+ * 1. [SMART HARD-BOOKING PARSER]:
+ * - Khắc phục lỗi Deadlock khi có 12 khách (6 cũ + 6 mới).
+ * - Logic cũ: Coi khách Combo đã đặt là 100% BED -> Chặn giường của khách mới.
+ * - Logic mới: Tự động tách khách Combo đã đặt thành 2 giai đoạn (50% CHAIR -> 50% BED).
+ * - Kết quả: Giải phóng tài nguyên Giường trong lúc khách cũ đang làm Chân.
+ * * * * * * TÍNH NĂNG GIỮ NGUYÊN TỪ V5.0:
+ * 1. [ELASTIC TIME ENGINE]: Bộ co giãn thời gian cho khách mới.
+ * 2. [LINE SWEEP]: Thuật toán quét đường kiểm tra tài nguyên chính xác.
  * =================================================================================================
  */
 
@@ -55,7 +61,7 @@ function setDynamicServices(newServicesObj) {
         'LATE': { name: '⚠️ 延遲 (Late)', duration: 0, type: 'NONE', price: 0, category: 'SYSTEM' }
     };
     SERVICES = { ...newServicesObj, ...systemServices };
-    console.log(`[CORE V5.0] Services Database Updated: ${Object.keys(SERVICES).length} entries (Ready for Elastic Mode).`);
+    console.log(`[CORE V5.1] Services Database Updated: ${Object.keys(SERVICES).length} entries.`);
 }
 
 // ============================================================================
@@ -222,7 +228,7 @@ function findAvailableStaff(staffReq, start, end, staffListRef, busyList) {
 }
 
 // ============================================================================
-// PHẦN 5: BỘ HELPER SINH BIẾN THỂ THỜI GIAN (ELASTIC GENERATOR) [NEW V5.0]
+// PHẦN 5: BỘ HELPER SINH BIẾN THỂ THỜI GIAN (ELASTIC GENERATOR)
 // ============================================================================
 
 /**
@@ -278,12 +284,13 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
     if (requestStartMins === -1) return { feasible: false, reason: "Error: Invalid Time Format" };
 
     // ========================================================================
-    // BƯỚC A: PHÂN LOẠI & TIỀN XỬ LÝ DỮ LIỆU (PRE-PROCESSING)
+    // BƯỚC A: PHÂN LOẠI & TIỀN XỬ LÝ DỮ LIỆU (PRE-PROCESSING) [CRITICAL FIXED V5.1]
     // ========================================================================
+    // Sửa lỗi: Khách Combo cũ bị gộp thành "BED" toàn thời gian -> Chặn khách mới.
+    // Giải pháp: Tách khách Combo cũ thành 2 Phase (Chair -> Bed) để giải phóng tài nguyên.
     
     let hardBookings = [];
-    let flexibleIntentions = []; // Chứa cả Old Combo và New Combo
-    let processedFlexibleStaff = new Set();
+    let flexibleIntentions = []; 
     let sortedBookings = [...currentBookingsRaw].sort((a,b) => getMinsFromTimeStr(a.startTime) - getMinsFromTimeStr(b.startTime));
 
     sortedBookings.forEach(b => {
@@ -292,34 +299,55 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
 
         let svcInfo = SERVICES[b.serviceCode] || {};
         let isCombo = svcInfo.category === 'COMBO';
-        // Fallback nhận diện combo qua tên
-        if (!svcInfo.category && (b.serviceName.includes('Combo') || b.serviceName.includes('套餐'))) isCombo = true;
+        // Fallback nhận diện combo qua tên (nếu Service Code không khớp)
+        if (!svcInfo.category && (b.serviceName.includes('Combo') || b.serviceName.includes('套餐'))) {
+            isCombo = true;
+        }
 
         let duration = b.duration || 60;
-        
-        // [LOGIC KHÁCH CŨ]
-        // Nếu là Combo và bắt đầu SAU thời điểm đang check -> Có thể điều chỉnh (Flexible)
-        // Nhưng để đơn giản và an toàn, V5.0 sẽ coi khách cũ là "bán cố định"
-        // Chỉ khách MỚI mới áp dụng Co Giãn mạnh mẽ. Khách cũ giữ nguyên 50/50 để tránh làm phiền.
-        // Tuy nhiên, logic dưới đây vẫn cho phép gom nhóm nếu cần.
-        
-        // Phân loại tài nguyên cho khách cũ (Hard Booking)
-        let rType = svcInfo.type || 'CHAIR'; 
         const nameUpper = b.serviceName.toUpperCase();
-        
-        if (nameUpper.includes('BODY') || nameUpper.includes('指壓') || nameUpper.includes('油') || nameUpper.includes('BED')) {
-            rType = 'BED';
-        } else if (isCombo || nameUpper.includes('COMBO') || nameUpper.includes('套餐')) {
-             // Combo cũ đang diễn ra -> Ưu tiên giữ Bed để an toàn
-             rType = 'BED';
+
+        // --- [LOGIC MỚI V5.1: THÔNG MINH HÓA KHÁCH CŨ] ---
+        if (isCombo) {
+            // Nếu là Combo -> Tách đôi (Giả định 50/50)
+            // Phase 1: Chân (Chair) -> Phase 2: Body (Bed)
+            // Điều này cực kỳ quan trọng để giải phóng Giường trong 50p đầu tiên
+            
+            const halfDuration = Math.floor(duration / 2);
+            const p1End = bStart + halfDuration;
+            const p2Start = p1End + CONFIG.TRANSITION_BUFFER; // Đừng quên Buffer chuyển tiếp 5p
+            
+            // Phase 1: Chair (Foot)
+            hardBookings.push({ 
+                start: bStart, 
+                end: p1End, 
+                resourceType: 'CHAIR', 
+                staffName: b.staffName 
+            });
+
+            // Phase 2: Bed (Body)
+            hardBookings.push({ 
+                start: p2Start, 
+                end: bStart + duration, // Kết thúc đúng giờ
+                resourceType: 'BED', 
+                staffName: b.staffName 
+            });
+
+        } else {
+            // Nếu không phải Combo -> Xử lý như bình thường
+            let rType = svcInfo.type || 'CHAIR'; 
+            
+            if (nameUpper.includes('BODY') || nameUpper.includes('指壓') || nameUpper.includes('油') || nameUpper.includes('BED')) {
+                rType = 'BED';
+            }
+            
+            hardBookings.push({ 
+                start: bStart, 
+                end: bStart + duration, 
+                resourceType: rType, 
+                staffName: b.staffName 
+            });
         }
-        
-        hardBookings.push({ 
-            start: bStart, 
-            end: bStart + duration, 
-            resourceType: rType, 
-            staffName: b.staffName 
-        });
     });
 
     // --- Xử lý Khách Mới (Request Guests) ---
@@ -338,7 +366,6 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
             price: svc.price,
             type: svc.type,
             category: svc.category,
-            // [NEW V5.0] Lấy thông tin Elastic
             elasticStep: svc.elasticStep || 0,
             elasticLimit: svc.elasticLimit || 0
         };
@@ -354,21 +381,18 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
     // ========================================================================
     // BƯỚC B: XẾP KHÁCH MỚI LẺ (SINGLE) TRƯỚC (STANDARD FIT)
     // ========================================================================
-    // Khách lẻ (Chân/Body) dễ xếp nhất nên ưu tiên xếp trước để chiếm chỗ cứng.
     
-    let baseTimeline = [...hardBookings]; // Timeline cơ sở
+    let baseTimeline = [...hardBookings]; 
     let finalDetails = new Array(guestList.length);
 
     for (const g of newSingleGuests) {
         const start = requestStartMins;
         const end = start + g.duration + CONFIG.CLEANUP_BUFFER;
         
-        // Check Tài nguyên
         if (!checkResourceCapacity(g.type, start, end, baseTimeline)) {
              return { feasible: false, reason: `資源不足 (Resource Full): ${g.type}` };
         }
 
-        // Tìm Staff (Tránh trùng với hardBookings)
         const staff = findAvailableStaff(g.staffReq, start, end, staffList, baseTimeline);
         if (!staff) return { feasible: false, reason: `無可用技師 (No Staff): ${g.staffReq || 'Random'}` };
 
@@ -383,7 +407,6 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
         };
     }
 
-    // Nếu không có khách Combo nào -> Check Tổng và Return
     if (flexibleIntentions.length === 0) {
          if (!checkResourceCapacity('TOTAL', requestStartMins, requestStartMins + 10, baseTimeline))
             return { feasible: false, reason: "Full House (Max Guests)" };
@@ -392,26 +415,17 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
     }
 
     // ========================================================================
-    // BƯỚC C: THUẬT TOÁN CO GIÃN THỜI GIAN (ELASTIC TIME SIMULATION) [CORE V5.0]
+    // BƯỚC C: THUẬT TOÁN CO GIÃN THỜI GIAN (ELASTIC TIME SIMULATION)
     // ========================================================================
-    // Thay vì thử theo kịch bản (Scenario), ta sẽ thử từng khách Combo một.
-    // Với mỗi khách, ta thử các biến thể thời gian từ Chuẩn -> Lệch nhiều nhất.
     
-    // Copy timeline hiện tại để bắt đầu giả lập
     let currentSimulation = JSON.parse(JSON.stringify(baseTimeline));
     let comboSuccessCount = 0;
 
     for (const guest of flexibleIntentions) {
         let isGuestFitted = false;
-
-        // 1. Sinh ra các phương án chia giờ (Splits)
-        // Kết quả trả về dạng: [{p1:50, p2:50}, {p1:45, p2:55}, {p1:55, p2:45}...]
         const splitOptions = generateElasticSplits(guest.duration, guest.elasticStep, guest.elasticLimit);
 
-        // 2. Thử từng phương án chia giờ
         for (const split of splitOptions) {
-            // Với mỗi cách chia giờ, thử 2 chế độ: FB (Foot-Body) và BF (Body-Foot)
-            // Ưu tiên FB (Foot trước) vì quy trình chuẩn thường là vậy.
             const modes = ['FB', 'BF'];
             
             for (const mode of modes) {
@@ -424,73 +438,55 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
                 const p2End = p2Start + split.p2;
                 const fullEnd = p2End + CONFIG.CLEANUP_BUFFER;
 
-                // Check Tài nguyên Phase 1
                 if (!checkResourceCapacity(p1Res, tStart, p1End + CONFIG.CLEANUP_BUFFER, currentSimulation)) continue;
                 
-                // Check Tài nguyên Phase 2
-                // Lưu ý: Phải giả định Phase 1 đã chiếm chỗ khi check Phase 2
-                // Tạo timeline tạm cho bước này
                 let tempTimelineForCheck = [...currentSimulation, { start: tStart, end: p1End + CONFIG.CLEANUP_BUFFER, resourceType: p1Res, staffName: 'TEMP' }];
                 
                 if (!checkResourceCapacity(p2Res, p2Start, fullEnd, tempTimelineForCheck)) continue;
 
-                // Check Staff (Phải rảnh toàn bộ thời gian)
-                // Staff phải rảnh: Phase 1 + Buffer + Phase 2
-                const staffParams = [...currentSimulation]; // Staff bận theo lịch hiện tại
+                const staffParams = [...currentSimulation]; 
                 const assignedStaff = findAvailableStaff(guest.staffReq, tStart, fullEnd, staffList, staffParams);
                 
                 if (assignedStaff) {
-                    // ==> TÌM THẤY KHE TRỐNG PHÙ HỢP! <==
-                    
-                    // Cập nhật Simulation Timeline (để khách sau né ra)
                     currentSimulation.push({ start: tStart, end: p1End + CONFIG.CLEANUP_BUFFER, resourceType: p1Res, staffName: assignedStaff });
                     currentSimulation.push({ start: p2Start, end: fullEnd, resourceType: p2Res, staffName: assignedStaff });
 
-                    // Lưu kết quả
                     finalDetails[guest.id] = {
                         guestIndex: guest.id,
                         staff: assignedStaff,
                         service: guest.serviceName,
                         price: guest.price,
-                        // [IMPORTANT] Trả về chi tiết chia giờ để Frontend vẽ
                         phase1_duration: split.p1,
                         phase2_duration: split.p2,
-                        breakdown: `(足:${split.p1} → 身:${split.p2})`, // Text hiển thị
-                        is_elastic: split.deviation !== 0, // Cờ báo hiệu có co giãn
+                        breakdown: `(足:${split.p1} → 身:${split.p2})`,
+                        is_elastic: split.deviation !== 0,
                         mode: mode,
                         timeStr: `${timeStr} - ${getTimeStrFromMins(p2End)}`
                     };
 
                     isGuestFitted = true;
-                    break; // Thoát vòng lặp Mode
+                    break; 
                 }
-            } // End Loop Modes
-
-            if (isGuestFitted) break; // Thoát vòng lặp Split Options (đã tìm được phương án tối ưu nhất)
-        } // End Loop Splits
+            } 
+            if (isGuestFitted) break; 
+        } 
 
         if (isGuestFitted) {
             comboSuccessCount++;
         } else {
-            // Nếu thử hết mọi cách (Splits + Modes) mà khách này vẫn không nhét vào được
-            // => Thất bại toàn tập. (Backtracking có thể tốt hơn nhưng phức tạp hơn, Greedy này đủ dùng)
             return { feasible: false, reason: "Không tìm được giờ phù hợp (Elastic Failed)" };
         }
-    } // End Loop Flexible Guests
+    } 
 
     // ========================================================================
     // BƯỚC D: KIỂM TRA TỔNG THỂ CUỐI CÙNG (FINAL SAFETY CHECK)
     // ========================================================================
 
     if (comboSuccessCount === flexibleIntentions.length) {
-        // Kiểm tra Total Capacity (Max 12 khách cùng lúc tại thời điểm bắt đầu)
         if (!checkResourceCapacity('TOTAL', requestStartMins, requestStartMins + 5, currentSimulation)) {
             return { feasible: false, reason: "Quá tải tổng số khách (Max 12)" };
         }
-
-        // Lọc bỏ các slot trống (null) trong finalDetails
         const cleanDetails = finalDetails.filter(d => d);
-        
         return {
             feasible: true,
             strategy: 'ELASTIC_OPTIMIZED',
@@ -522,5 +518,6 @@ if (typeof window !== 'undefined') {
     window.ResourceCore = CoreAPI;
     window.checkRequestAvailability = CoreAPI.checkRequestAvailability;
     window.setDynamicServices = CoreAPI.setDynamicServices;
-    console.log("✅ Resource Core V5.0: Loaded with Elastic Time Engine.");
+    console.log("✅ Resource Core V5.1: Loaded with Critical Hard-Booking Fix.");
+}
 }
