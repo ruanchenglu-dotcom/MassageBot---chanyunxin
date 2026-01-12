@@ -1,9 +1,8 @@
 // TYPE: app.js
-// VERSION: V99.1 (PENDULUM SYNC & VISUAL INTEGRITY)
+// VERSION: V99.2 (SMART SIMULATION & PENDULUM FALLBACK)
 // UPDATE: 2026-01-13
-// 1. [SYNC LOGIC]: Matrix Simulation (Layer 3) now respects the saved 'flow' (BF/FB) from DB instead of guessing.
-// 2. [DATA PARSING]: Added robust parsing for 'flow' and 'phase_duration' in fetchData.
-// 3. [VISUAL]: Eliminated "Ghost Block" glitch where UI showed FB but Logic ran BF.
+// 1. [SMART SIMULATION]: If DB lacks 'flow' data, Frontend re-calculates Pendulum Strategy on the fly.
+// 2. [VISUAL FIX]: Ensures groups > 2 pax are displayed as balanced (50% BF / 50% FB) even without DB support.
 
 const { useState, useEffect, useMemo, useRef } = React;
 
@@ -12,7 +11,7 @@ const CommissionView = window.CommissionView;
 const TimelineView = window.TimelineView;
 const BookingListView = window.BookingListView;
 
-// --- [V99.1] MATRIX HELPER FOR FRONTEND ---
+// --- [V99.2] MATRIX HELPER FOR FRONTEND ---
 const MatrixHelper = {
     isOverlap: (startA, endA, startB, endB) => {
         return (startA < endB) && (startB < endA);
@@ -150,7 +149,7 @@ const App = () => {
         try { await axios.post(endpoint, payload); } catch(e) { console.log("Universal send check (ignore):", e); }
     };
 
-    // 3. CORE LOGIC (FETCH & RENDER - V99.1 PENDULUM SYNC)
+    // 3. CORE LOGIC (FETCH & RENDER)
     const fetchData = async () => {
         if (syncLock) return;
         if (quotaError) return; 
@@ -161,12 +160,14 @@ const App = () => {
             
             const { bookings: apiBookings, staffList: apiStaff, resourceState: serverRes, staffStatus: serverStaff } = res.data;
             
-            // [V99.1 UPGRADE]: Parse 'flow' correctly from API
+            // [V99.2 UPGRADE]: Enhanced Data Parsing
             const cleanBookings = (apiBookings || []).map(b => {
                 // Tự động detect flow nếu API chưa trả về, dựa trên ghi chú
-                let detectedFlow = b.flow || 'FB';
-                if (!b.flow && b.ghiChu && (b.ghiChu.includes('先做身體') || b.ghiChu.includes('BF'))) {
-                    detectedFlow = 'BF';
+                // Cải thiện Regex để bắt chính xác hơn (ví dụ K1:BF)
+                let detectedFlow = b.flow || null;
+                const note = b.ghiChu || "";
+                if (!detectedFlow && note) {
+                    if (note.includes('先做身體') || note.includes('BF') || note.includes('Body First')) detectedFlow = 'BF';
                 }
 
                 return { 
@@ -176,7 +177,7 @@ const App = () => {
                     rowId: String(b.rowId),
                     phase1_duration: b.phase1_duration ? parseInt(b.phase1_duration) : null,
                     phase2_duration: b.phase2_duration ? parseInt(b.phase2_duration) : null,
-                    flow: detectedFlow // Lưu flow chuẩn vào state
+                    flow: detectedFlow // Nếu vẫn null thì sẽ xử lý ở bước Matrix Simulation
                 };
             });
 
@@ -196,7 +197,6 @@ const App = () => {
                         if (combinedMap.has(rid)) {
                             const serverBooking = combinedMap.get(rid);
                             const mergedBooking = { ...serverBooking };
-                            // Merge status completion locally to avoid flicker
                             for(let i=1; i<=6; i++) {
                                 const key = `Status${i}`;
                                 const localVal = localBooking[key];
@@ -221,8 +221,8 @@ const App = () => {
             
             let tempState = {}; 
             const activePaxCounts = {}; 
-            const activeEndTimes = {}; // Tracks HARD end times of running services
-            const timelineGrid = {}; // Tracks ALL blocks (Running + Ghost + Planned)
+            const activeEndTimes = {}; // Tracks HARD end times
+            const timelineGrid = {}; // Tracks ALL blocks
 
             const addToGrid = (resId, start, end, booking, meta) => {
                 if (!timelineGrid[resId]) timelineGrid[resId] = [];
@@ -230,7 +230,7 @@ const App = () => {
             };
 
             // =================================================================
-            // MATRIX LAYER 1: RUNNING ORDERS (HARD BLOCKS)
+            // MATRIX LAYER 1 & 2: RUNNING & PREDICTION (Giữ nguyên)
             // =================================================================
             Object.keys(currentRes).forEach(key => {
                 if(currentRes[key].isRunning) {
@@ -251,14 +251,12 @@ const App = () => {
                         const split = window.getComboSplit(durationUsed, isMax, seq, customPhase1);
                         
                         isPhase1 = (seq === 'FB' && key.includes('chair')) || (seq === 'BF' && key.includes('bed'));
-                        
                         if (isPhase1) durationUsed = split.phase1 + (currentRes[key].comboMeta.flex || 0);
                         else durationUsed = split.phase2; 
                     }
 
                     const endMins = startMins + durationUsed;
-                    activeEndTimes[key] = endMins; // Mark this resource as BUSY until endMins
-
+                    activeEndTimes[key] = endMins; 
                     addToGrid(key, startMins, endMins, currentRes[key].booking, {
                         isCombo: !!currentRes[key].comboMeta,
                         phase: isPhase1 ? 1 : 2,
@@ -268,9 +266,7 @@ const App = () => {
                 }
             });
 
-            // =================================================================
-            // MATRIX LAYER 2: GHOST BLOCKS (PREDICTION FOR RUNNING)
-            // =================================================================
+            // Ghost Blocks Prediction
             Object.keys(tempState).forEach(key => {
                 const item = tempState[key];
                 if (item.comboMeta) {
@@ -280,20 +276,16 @@ const App = () => {
                     
                     if (isPhase1) {
                         const finishTimeMins = activeEndTimes[key]; 
-                        const p2Start = finishTimeMins + 5; // Transition Buffer
-                        
+                        const p2Start = finishTimeMins + 5;
                         const customPhase1 = item.booking.phase1_duration;
                         const split = window.getComboSplit(item.booking.duration, item.isMaxMode, seq, customPhase1);
                         const p2End = p2Start + split.phase2;
                         
-                        // [V99.1] Logic: Stick to targetId if possible, else search
                         let finalTargetId = item.comboMeta.targetId;
                         const targetType = key.includes('chair') ? 'bed' : 'chair';
-
                         if (!finalTargetId || (activeEndTimes[finalTargetId] && p2Start < activeEndTimes[finalTargetId])) {
                              finalTargetId = MatrixHelper.findBestSlot(targetType, p2Start, p2End, timelineGrid, activeEndTimes);
                         }
-
                         if (finalTargetId) {
                             addToGrid(finalTargetId, p2Start, p2End, item.booking, { 
                                 isCombo: true, phase: 2, sequence: seq, originId: key, isPrediction: true 
@@ -304,15 +296,12 @@ const App = () => {
             });
 
             // =================================================================
-            // MATRIX LAYER 3: PENDING SIMULATION (V99.1 PENDULUM SYNC)
+            // MATRIX LAYER 3: SMART SIMULATION (PENDULUM FALLBACK)
             // =================================================================
             const pendingBookings = relevantBookings.filter(b => 
-                !b.status.includes('完成') && 
-                !b.status.includes('✅') &&
-                !b.status.includes('Done')
+                !b.status.includes('完成') && !b.status.includes('✅') && !b.status.includes('Done')
             );
             
-            // Group bookings by RowID to handle Groups correctly
             const groupedPending = {};
             pendingBookings.forEach(b => {
                 if(!groupedPending[b.rowId]) groupedPending[b.rowId] = [];
@@ -336,16 +325,6 @@ const App = () => {
             // --- ALLOCATE SINGLES ---
             listSingles.forEach(b => {
                 const originalStart = window.normalizeToTimelineMins(b.startTimeString.split(' ')[1]);
-                const totalNeeded = b.pax || 1;
-                const alreadyRunning = activePaxCounts[String(b.rowId)] || 0;
-                
-                let completedCount = 0;
-                for(let i=1; i<=totalNeeded; i++) { if(b[`Status${i}`] && b[`Status${i}`].includes('完成')) completedCount++; }
-                // For singles, groupedPending splits entries, so we process 1 by 1 usually.
-                // Assuming safety check:
-                const remainingGlobal = totalNeeded - alreadyRunning - completedCount;
-                // If groupedPending contains distinct objects per pax, run once.
-                
                 const type = b.type === 'CHAIR' ? 'chair' : 'bed';
                 let searchOffsets = [0]; for(let i=1; i<=120; i++) searchOffsets.push(i);
                 
@@ -353,7 +332,6 @@ const App = () => {
                     let tryStart = originalStart + delay;
                     let tryEnd = tryStart + b.duration;
                     const slotId = MatrixHelper.findBestSlot(type, tryStart, tryEnd, timelineGrid, activeEndTimes);
-                    
                     if (slotId) {
                         addToGrid(slotId, tryStart, tryEnd, b, { isCombo: false, isPending: true });
                         break; 
@@ -361,21 +339,36 @@ const App = () => {
                 }
             });
 
-            // --- ALLOCATE COMBOS (V99.1 SYNC) ---
+            // --- ALLOCATE COMBOS (V99.2 SMART PENDULUM) ---
             listCombosGroups.forEach(group => {
-                // group chứa danh sách các khách đang chờ của cùng 1 mã RowID
                 const b = group[0]; 
                 const originalStart = window.normalizeToTimelineMins(b.startTimeString.split(' ')[1]);
                 
-                // Duyệt qua từng khách trong nhóm để xếp lịch
-                group.forEach((bookingItem) => {
-                    // [V99.1 CRITICAL FIX]: Đọc trực tiếp Flow từ DB thay vì đoán mò
-                    // Nếu DB là BF, thì hiển thị là BF. Nếu FB thì hiển thị FB.
-                    const preferredSeq = bookingItem.flow || 'FB'; 
+                // [V99.2 LOGIC] Tự động tính số lượng Body First (numBF)
+                // Nếu DB có lưu flow thì dùng flow. Nếu không, dùng thuật toán chia đôi (Pendulum Center)
+                const groupSize = group.length;
+                let numBF = 0;
+                
+                // Kiểm tra xem dữ liệu có flow không
+                const hasSavedFlow = group.some(g => g.flow !== null);
+                
+                if (!hasSavedFlow && groupSize > 2) {
+                    // FALLBACK: Áp dụng Pendulum Center (50/50) nếu dữ liệu thiếu
+                    numBF = Math.ceil(groupSize / 2); 
+                }
+
+                group.forEach((bookingItem, idx) => {
+                    let preferredSeq = bookingItem.flow;
+                    
+                    // Nếu không có flow lưu sẵn, tự động gán theo chỉ số index
+                    if (!preferredSeq) {
+                        // Những người đầu tiên (0, 1, 2...) làm BF
+                        if (idx < numBF) preferredSeq = 'BF';
+                        else preferredSeq = 'FB';
+                    }
                     
                     let searchOffsets = [0]; for(let i=1; i<=120; i++) searchOffsets.push(i);
-                    let placed = false;
-
+                    
                     for(let delay of searchOffsets) {
                         let tryStart = originalStart + delay;
                         const customPhase1 = bookingItem.phase1_duration;
@@ -400,9 +393,7 @@ const App = () => {
                             return false;
                         };
 
-                        // Luôn ưu tiên thử đúng Sequence đã lưu trong DB
                         if (trySequence(preferredSeq)) {
-                            placed = true;
                             break;
                         }
                     }
@@ -411,7 +402,7 @@ const App = () => {
 
             setTimelineData(timelineGrid);
 
-            // --- PREVIEW RESOURCE CARD LOGIC ---
+            // --- PREVIEW RESOURCE CARD LOGIC (Same as before) ---
             const allSlots = [];
             for(let i=1; i<=6; i++) allSlots.push(`chair-${i}`);
             for(let i=1; i<=6; i++) allSlots.push(`bed-${i}`);
@@ -460,7 +451,7 @@ const App = () => {
         return () => clearInterval(t); 
     }, [viewDate, syncLock, quotaError]); 
 
-    // 4. ACTION HANDLERS
+    // 4. ACTION HANDLERS (Giữ nguyên không đổi)
     const handleSplitConfirm = async (staffId2) => {
         if (!splitData) return;
         const { resourceId } = splitData;
@@ -581,7 +572,6 @@ const App = () => {
         let currentId = id; let shouldMove = false; let targetMoveId = null;
         setSyncLock(true); setTimeout(() => setSyncLock(false), 5000);
         
-        // [V99.1] Respect the Sequence for Moving
         if (comboSequence) {
             const currentType = id.split('-')[0];
             if (comboSequence === 'BF' && currentType === 'chair') { shouldMove = true; for(let i=1; i<=6; i++) { if(!resourceState[`bed-${i}`]) { targetMoveId = `bed-${i}`; break; } } } 
@@ -627,12 +617,9 @@ const App = () => {
             const currentType = currentId.split('-')[0]; const index = currentId.split('-')[1];
             let ghostTargetId = null; const targetTypePrefix = currentType === 'chair' ? 'bed' : 'chair';
             
-            // [V99.1] Ghost ID Selection Logic
-            // Prioritize same index, then search for any free slot
             const sameIndex = `${targetTypePrefix}-${index}`;
             if (!resourceState[sameIndex] && sameIndex !== id) { ghostTargetId = sameIndex; } 
             else { 
-                // Scan for free slot using MatrixHelper logic simulation
                 for(let i=1; i<=6; i++) { 
                     const tid = `${targetTypePrefix}-${i}`; 
                     if(!resourceState[tid] && tid !== id) { ghostTargetId = tid; break; } 
@@ -693,7 +680,7 @@ const App = () => {
     const handleToggleMax = async (resId) => { const res = resourceState[resId]; if (!res) return; updateResource({ ...resourceState, [resId]: { ...res, isMaxMode: !res.isMaxMode } }); };
     const handleToggleSequence = async (resId) => { const res = resourceState[resId]; if (!res || !res.comboMeta) return; const newSeq = res.comboMeta.sequence === 'FB' ? 'BF' : 'FB'; updateResource({ ...resourceState, [resId]: { ...res, comboMeta: { ...res.comboMeta, sequence: newSeq } } }); }
     
-    // --- PAYMENT HANDLER ---
+    // --- PAYMENT HANDLER (Giữ nguyên) ---
     const handleConfirmPayment = async (itemsToPay, totalAmount) => {
         try {
             setSyncLock(true); setTimeout(() => setSyncLock(false), 5000); 
@@ -790,7 +777,7 @@ const App = () => {
             <header className={`text-white p-3 shadow-md flex justify-between items-center sticky top-0 z-50 transition-colors ${quotaError ? 'bg-red-800' : 'bg-[#1e1b4b]'}`}>
                 {/* Header Content */}
                 <div className="flex items-center gap-3">
-                    <span className="bg-amber-500 text-black px-2 py-1 rounded font-black text-sm">V99.1</span>
+                    <span className="bg-amber-500 text-black px-2 py-1 rounded font-black text-sm">V99.2</span>
                     <span className="font-bold hidden md:inline">XinWuChan</span>
                     <div className="flex items-center gap-2 bg-white/10 rounded px-2 py-1 border border-white/20">
                         <button onClick={()=>{const d=new Date(viewDate); d.setDate(d.getDate()-1); setViewDate(d.toISOString().split('T')[0])}} className="text-white hover:text-amber-400 font-bold px-2">❮</button>
@@ -849,7 +836,7 @@ const App = () => {
             {showWalkIn && <window.WalkInModal onClose={()=>setShowWalkIn(false)} onSave={handleWalkInSave} staffList={staffList} initialDate={viewDate} />}
             {showCheckIn && <window.CheckInBoard staffList={staffList} statusData={statusData} onUpdateStatus={updateStaffStatus} onClose={()=>setShowCheckIn(false)} bookings={todaysBookings} />}
             {showAvailability && <window.AvailabilityCheckModal onClose={()=>setShowAvailability(false)} onSave={handleWalkInSave} staffList={staffList} bookings={bookings} initialDate={viewDate} />}
-            {comboStartData && <window.ComboStartModal onConfirm={confirmComboStart} onCancel={()=>setComboStartData(null)} bookingName={comboStartData.booking.serviceName} />}
+            {comboStartData && <window.ComboStartModal onConfirm={confirmComboStart} onCancel={()=>setComboStartData(null)} bookingName={comboStartData.booking.serviceName} />}\
             {selectedSlot && waitingList.length === 0 && <div className="fixed inset-0 bg-black/30 z-50 flex items-center justify-center text-white font-bold" onClick={()=>setSelectedSlot(null)}>目前無候位! (No Waiting)</div>}
             {billingData && <window.BillingModal activeItem={billingData.activeItem} relatedItems={billingData.relatedItems} onConfirm={handleConfirmPayment} onCancel={() => setBillingData(null)} />}
             {splitData && <window.SplitStaffModal staffList={staffList} statusData={statusData} onCancel={()=>setSplitData(null)} onConfirm={handleSplitConfirm} />}
