@@ -1,6 +1,6 @@
 // TYPE: app.js
-// VERSION: V98 (MATRIX RENDER SYNC & VISUALIZATION UPGRADE)
-// UPDATE: Synchronized Frontend Timeline Rendering with Core V8.0 Matrix Logic
+// VERSION: V99 (SMART LOAD BALANCING & AUTO-INTERLEAVE)
+// UPDATE: Added Logic to automatically split flows (FB/BF) for Combo groups > 2 pax in Matrix Simulation.
 
 const { useState, useEffect, useMemo, useRef } = React;
 
@@ -13,15 +13,32 @@ const TimelineView = window.TimelineView;
 // --- 3. BOOKING LIST VIEW ---
 const BookingListView = window.BookingListView;
 
-// --- [V98] MINI MATRIX HELPER FOR FRONTEND ---
-// Giúp Frontend tính toán slot trống y hệt như Core V8.0
+// --- [V99] MINI MATRIX HELPER FOR FRONTEND ---
 const MatrixHelper = {
     isOverlap: (startA, endA, startB, endB) => {
         return (startA < endB) && (startB < endA);
     },
     // Hàm tìm slot trống thông minh (First-Fit Strategy)
-    findBestSlot: (type, start, end, gridState, reservedTimes) => {
-        const limit = type === 'chair' ? 6 : 6;
+    findBestSlot: (type, start, end, gridState, reservedTimes, preferredIndex = null) => {
+        const limit = 6;
+        
+        // [V99] Optimization: Try preferred index first (e.g. keep group together logically)
+        if (preferredIndex) {
+            const id = `${type}-${preferredIndex}`;
+            let valid = true;
+            if (reservedTimes[id] && start < reservedTimes[id]) valid = false;
+            if (valid && gridState[id]) {
+                for (const slot of gridState[id]) {
+                    if (MatrixHelper.isOverlap(start, end, slot.start, slot.end)) {
+                        valid = false;
+                        break;
+                    }
+                }
+            }
+            if (valid) return id;
+        }
+
+        // Fallback: Scan all slots
         for (let i = 1; i <= limit; i++) {
             const id = `${type}-${i}`;
             // Check 1: Active Running Orders (Hard Reservation)
@@ -62,7 +79,7 @@ const App = () => {
     const [comboStartData, setComboStartData] = useState(null);
     const [splitData, setSplitData] = useState(null);
     
-    // [V6.0] Manual Edit State
+    // Manual Edit State
     const [editComboTarget, setEditComboTarget] = useState(null);
 
     // System States
@@ -134,7 +151,7 @@ const App = () => {
         try { await axios.post(endpoint, payload); } catch(e) { console.log("Universal send check (ignore):", e); }
     };
 
-    // 3. CORE LOGIC (FETCH & RENDER - V98 UPGRADED)
+    // 3. CORE LOGIC (FETCH & RENDER - V99 UPGRADED)
     const fetchData = async () => {
         if (syncLock) return;
         if (quotaError) return; 
@@ -242,7 +259,6 @@ const App = () => {
             });
 
             // --- B. MATRIX LAYER 2: GHOST BLOCKS (PREDICTION) ---
-            // Dự đoán phase 2 của các combo đang chạy phase 1
             Object.keys(tempState).forEach(key => {
                 const item = tempState[key];
                 if (item.comboMeta) {
@@ -258,7 +274,7 @@ const App = () => {
                         const split = window.getComboSplit(item.booking.duration, item.isMaxMode, seq, customPhase1);
                         const p2End = p2Start + split.phase2;
                         
-                        // [V98 Logic] Try to stick to assigned targetId, if blocked, find new slot
+                        // [V99 Logic] Try to stick to assigned targetId, if blocked, find new slot
                         let finalTargetId = item.comboMeta.targetId;
                         const targetType = key.includes('chair') ? 'bed' : 'chair';
 
@@ -276,39 +292,58 @@ const App = () => {
                 }
             });
 
-            // --- C. MATRIX LAYER 3: PENDING SIMULATION (V98 SYNCED) ---
+            // --- C. MATRIX LAYER 3: PENDING SIMULATION (V99 SMART INTERLEAVE) ---
             const pendingBookings = relevantBookings.filter(b => 
                 !b.status.includes('完成') && 
                 !b.status.includes('✅') &&
                 !b.status.includes('Done')
             );
             
-            const listSingles = pendingBookings.filter(b => b.category !== 'COMBO' && !b.serviceName?.includes('套餐'));
-            const listCombos = pendingBookings.filter(b => b.category === 'COMBO' || b.serviceName?.includes('套餐'));
-            
-            // Sort by time to simulate FIFO allocation
-            const sortFn = (a,b) => {
-                const timeA = window.normalizeToTimelineMins(a.startTimeString.split(' ')[1]);
-                const timeB = window.normalizeToTimelineMins(b.startTimeString.split(' ')[1]);
-                if (timeA !== timeB) return timeA - timeB;
-                return String(a.rowId).localeCompare(String(b.rowId));
-            };
-            listSingles.sort(sortFn); listCombos.sort(sortFn);
+            // Group pending bookings by RowID for smarter handling
+            const groupedPending = {};
+            pendingBookings.forEach(b => {
+                if(!groupedPending[b.rowId]) groupedPending[b.rowId] = [];
+                groupedPending[b.rowId].push(b);
+            });
 
-            // [V98] Simulate Singles Allocation using Matrix Helper
+            // Separate Singles and Combos
+            const listSingles = [];
+            const listCombosGroups = [];
+
+            Object.values(groupedPending).forEach(group => {
+                const first = group[0];
+                const isCombo = first.category === 'COMBO' || (first.serviceName && first.serviceName.includes('套餐'));
+                if (isCombo) listCombosGroups.push(group);
+                else group.forEach(b => listSingles.push(b));
+            });
+            
+            // Sort to simulate FIFO
+            const sortFn = (a,b) => window.normalizeToTimelineMins(a.startTimeString.split(' ')[1]) - window.normalizeToTimelineMins(b.startTimeString.split(' ')[1]);
+            listSingles.sort(sortFn);
+            listCombosGroups.sort((a,b) => sortFn(a[0], b[0]));
+
+            // [V99] Simulate Singles Allocation
             listSingles.forEach(b => {
                 const originalStart = window.normalizeToTimelineMins(b.startTimeString.split(' ')[1]);
                 const totalNeeded = b.pax || 1;
                 const alreadyRunning = activePaxCounts[String(b.rowId)] || 0;
+                
+                // Only simulate what is NOT running
+                let neededForThisInstance = 1; // Singles are usually 1 row per person in array logic, but let's be safe
+                // Logic adjustment: pendingBookings array usually has one entry per rowId if grouped, but if multiple entries exist, treat singular.
+                // However, bookings usually come as 1 Object per Group.
+                // Re-calculating remaining needed based on Pax.
+                
                 let completedCount = 0;
                 for(let i=1; i<=totalNeeded; i++) { if(b[`Status${i}`] && b[`Status${i}`].includes('完成')) completedCount++; }
-                const remainingNeeded = totalNeeded - alreadyRunning - completedCount;
-
-                if (remainingNeeded <= 0) return;
-
-                for(let k=0; k<remainingNeeded; k++) {
+                const remainingGlobal = totalNeeded - alreadyRunning - completedCount;
+                
+                // Note: listSingles contains the booking OBJECT. Since one booking object = N pax, we loop N times.
+                // We use a simple loop counter here because we are processing the Group Object.
+                
+                for(let k=0; k<remainingGlobal; k++) {
                     const type = b.type === 'CHAIR' ? 'chair' : 'bed';
-                    let searchOffsets = [0]; for(let i=1; i<=120; i++) searchOffsets.push(i); // Try +2 hours window
+                    let searchOffsets = [0]; for(let i=1; i<=120; i++) searchOffsets.push(i);
                     
                     for(let delay of searchOffsets) {
                         let tryStart = originalStart + delay;
@@ -323,8 +358,9 @@ const App = () => {
                 }
             });
 
-            // [V98] Simulate Combos Allocation (Hybrid Interleaving Logic)
-            listCombos.forEach(b => {
+            // [V99] Simulate Combos Allocation with AUTO-INTERLEAVING
+            listCombosGroups.forEach(group => {
+                const b = group[0]; // Representative booking
                 const originalStart = window.normalizeToTimelineMins(b.startTimeString.split(' ')[1]);
                 const totalNeeded = b.pax || 1;
                 const alreadyRunning = activePaxCounts[String(b.rowId)] || 0;
@@ -332,41 +368,56 @@ const App = () => {
                 for(let i=1; i<=totalNeeded; i++) { if(b[`Status${i}`] && b[`Status${i}`].includes('完成')) completedCount++; }
                 const remainingNeeded = totalNeeded - alreadyRunning - completedCount;
 
-                if (remainingNeeded <= 0) return; 
+                if (remainingNeeded <= 0) return;
 
+                // INTERLEAVING LOGIC: If remaining > 2, try to split flows
+                const shouldInterleave = remainingNeeded > 2;
+                
                 for(let k=0; k<remainingNeeded; k++) {
+                    // Determine Preferred Sequence for this specific pax index
+                    // If interleaving: 0->FB, 1->BF, 2->FB, 3->BF...
+                    const preferredSeq = shouldInterleave ? (k % 2 === 0 ? 'FB' : 'BF') : 'FB';
+                    const alternateSeq = preferredSeq === 'FB' ? 'BF' : 'FB';
+                    
                     let searchOffsets = [0]; for(let i=1; i<=120; i++) searchOffsets.push(i);
+                    
+                    let placed = false;
+
                     for(let delay of searchOffsets) {
                         let tryStart = originalStart + delay;
                         const customPhase1 = b.phase1_duration;
 
-                        // [V98] Try Standard FB First
-                        const splitFB = window.getComboSplit(b.duration, true, 'FB', customPhase1);
-                        const p1EndFB = tryStart + splitFB.phase1;
-                        const p2StartFB = p1EndFB + 5;
-                        const p2EndFB = p2StartFB + splitFB.phase2;
-                        
-                        const s1FB = MatrixHelper.findBestSlot('chair', tryStart, p1EndFB, timelineGrid, activeEndTimes);
-                        const s2FB = MatrixHelper.findBestSlot('bed', p2StartFB, p2EndFB, timelineGrid, activeEndTimes);
+                        // Function to try a specific sequence
+                        const trySequence = (seq) => {
+                            const split = window.getComboSplit(b.duration, true, seq, customPhase1);
+                            const p1End = tryStart + split.phase1;
+                            const p2Start = p1End + 5;
+                            const p2End = p2Start + split.phase2;
+                            
+                            const type1 = seq === 'FB' ? 'chair' : 'bed';
+                            const type2 = seq === 'FB' ? 'bed' : 'chair';
+                            
+                            const s1 = MatrixHelper.findBestSlot(type1, tryStart, p1End, timelineGrid, activeEndTimes);
+                            const s2 = MatrixHelper.findBestSlot(type2, p2Start, p2End, timelineGrid, activeEndTimes);
+                            
+                            if (s1 && s2) {
+                                addToGrid(s1, tryStart, p1End, b, { isCombo: true, phase: 1, sequence: seq, targetId: s2, isPending: true });
+                                addToGrid(s2, p2Start, p2End, b, { isCombo: true, phase: 2, sequence: seq, isPending: true });
+                                return true;
+                            }
+                            return false;
+                        };
 
-                        if (s1FB && s2FB) {
-                            addToGrid(s1FB, tryStart, p1EndFB, b, { isCombo: true, phase: 1, sequence: 'FB', targetId: s2FB, isPending: true });
-                            addToGrid(s2FB, p2StartFB, p2EndFB, b, { isCombo: true, phase: 2, sequence: 'FB', isPending: true });
+                        // 1. Try Preferred Sequence
+                        if (trySequence(preferredSeq)) {
+                            placed = true;
                             break;
                         }
-                        
-                        // [V98] Hybrid Interleaving: Try BF if FB fails
-                        const splitBF = window.getComboSplit(b.duration, true, 'BF', customPhase1);
-                        const p1EndBF = tryStart + splitBF.phase1;
-                        const p2StartBF = p1EndBF + 5;
-                        const p2EndBF = p2StartBF + splitBF.phase2;
-                        
-                        const s1BF_bed = MatrixHelper.findBestSlot('bed', tryStart, p1EndBF, timelineGrid, activeEndTimes);
-                        const s2BF_chair = MatrixHelper.findBestSlot('chair', p2StartBF, p2EndBF, timelineGrid, activeEndTimes);
-                        
-                        if (s1BF_bed && s2BF_chair) {
-                            addToGrid(s1BF_bed, tryStart, p1EndBF, b, { isCombo: true, phase: 1, sequence: 'BF', targetId: s2BF_chair, isPending: true });
-                            addToGrid(s2BF_chair, p2StartBF, p2EndBF, b, { isCombo: true, phase: 2, sequence: 'BF', isPending: true });
+
+                        // 2. If Interleaving was forced but failed, try fallback sequence immediately at same time
+                        // (Only if we really want to fit them in this time slot)
+                        if (trySequence(alternateSeq)) {
+                            placed = true;
                             break;
                         }
                     }
@@ -545,6 +596,7 @@ const App = () => {
         let currentId = id; let shouldMove = false; let targetMoveId = null;
         setSyncLock(true); setTimeout(() => setSyncLock(false), 5000);
         
+        // [V99 Logic] Respect the Sequence for Moving
         if (comboSequence) {
             const currentType = id.split('-')[0];
             if (comboSequence === 'BF' && currentType === 'chair') { shouldMove = true; for(let i=1; i<=6; i++) { if(!resourceState[`bed-${i}`]) { targetMoveId = `bed-${i}`; break; } } } 
@@ -590,7 +642,7 @@ const App = () => {
             const currentType = currentId.split('-')[0]; const index = currentId.split('-')[1];
             let ghostTargetId = null; const targetTypePrefix = currentType === 'chair' ? 'bed' : 'chair';
             
-            // [V98] Ghost ID Selection Logic
+            // [V99] Ghost ID Selection Logic
             // Prioritize same index, then search for any free slot
             const sameIndex = `${targetTypePrefix}-${index}`;
             if (!resourceState[sameIndex] && sameIndex !== id) { ghostTargetId = sameIndex; } 
@@ -753,7 +805,7 @@ const App = () => {
             <header className={`text-white p-3 shadow-md flex justify-between items-center sticky top-0 z-50 transition-colors ${quotaError ? 'bg-red-800' : 'bg-[#1e1b4b]'}`}>
                 {/* Header Content */}
                 <div className="flex items-center gap-3">
-                    <span className="bg-amber-500 text-black px-2 py-1 rounded font-black text-sm">V98</span>
+                    <span className="bg-amber-500 text-black px-2 py-1 rounded font-black text-sm">V99</span>
                     <span className="font-bold hidden md:inline">XinWuChan</span>
                     <div className="flex items-center gap-2 bg-white/10 rounded px-2 py-1 border border-white/20">
                         <button onClick={()=>{const d=new Date(viewDate); d.setDate(d.getDate()-1); setViewDate(d.toISOString().split('T')[0])}} className="text-white hover:text-amber-400 font-bold px-2">❮</button>
