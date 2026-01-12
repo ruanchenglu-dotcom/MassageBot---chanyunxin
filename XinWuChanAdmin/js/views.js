@@ -1,9 +1,12 @@
 /**
  * ============================================================================
  * FILE: js/views.js
- * PHIÊN BẢN: V5.2 (VISUAL UPGRADE & EDIT BUTTON)
+ * PHIÊN BẢN: V5.3 (VISUAL UPGRADE: COMBO SEQUENCE CLARITY)
  * MÔ TẢ: CÁC COMPONENT HIỂN THỊ CHÍNH (TIMELINE, REPORT, CARD...)
- * CẬP NHẬT: Hiển thị Deadline từng Phase, thêm nút Edit (Visual Only)
+ * CẬP NHẬT: 
+ * 1. ResourceCard: Hiển thị rõ ràng chiều mũi tên Combo (FB vs BF).
+ * 2. Thêm cảnh báo thị giác (Visual Cue) khi Combo đảo ngược (Body trước).
+ * 3. TimelineView: Giữ nguyên tính năng Edit Phase (V5.2).
  * TÁC GIẢ: AI ASSISTANT & USER
  * ============================================================================
  */
@@ -149,10 +152,10 @@ const TimelineView = ({ timelineData, onEditPhase }) => {
                                         let bgClass = getRowIdColor(slot.booking.rowId);
                                         const label = getDisplayLabel(slot.booking);
                                         
-                                        // [NEW V5.2] Tính toán Deadline Info
+                                        // Tính toán Deadline Info
                                         const endTimeStr = window.formatMinutesToTime(slot.end);
                                         const deadlineText = `⏳ ${duration}p ➔ ${endTimeStr}`;
-                                        const startTimeStr = window.formatMinutesToTime(slot.start); // Dùng cho Phase 2 nếu cần
+                                        const startTimeStr = window.formatMinutesToTime(slot.start);
 
                                         // Hiển thị icon cho Combo Phase
                                         let comboIcon = "";
@@ -172,7 +175,7 @@ const TimelineView = ({ timelineData, onEditPhase }) => {
                                                     <span>{label} {comboIcon}</span>
                                                 </div>
 
-                                                {/* Dòng 2: Deadline & Thời lượng [QUAN TRỌNG] */}
+                                                {/* Dòng 2: Deadline & Thời lượng */}
                                                 <div className="text-[10px] font-mono font-bold text-slate-700 bg-white/40 rounded px-1 mt-0.5 truncate border border-black/5" title={`Bắt đầu: ${startTimeStr} | Kết thúc: ${endTimeStr}`}>
                                                     {slot.meta && slot.meta.isCombo 
                                                         ? (slot.meta.phase === 1 ? deadlineText : `🏁 ${startTimeStr} ➔ (${duration}p)`) 
@@ -186,13 +189,12 @@ const TimelineView = ({ timelineData, onEditPhase }) => {
                                                     <span>{slot.booking.serviceName}</span>
                                                 </div>
 
-                                                {/* [NEW V5.2] Nút Edit (Chỉ hiện khi Hover) */}
+                                                {/* Edit Button (V5.2) */}
                                                 {slot.meta && slot.meta.isCombo && (
                                                     <button 
                                                         className="edit-btn absolute top-0.5 right-0.5 w-5 h-5 bg-white text-gray-400 rounded-full flex items-center justify-center shadow-md border border-gray-200 z-50"
                                                         onClick={(e) => {
                                                             e.stopPropagation();
-                                                            // Gọi hàm edit nếu được truyền xuống (Giai đoạn 2)
                                                             if (onEditPhase) onEditPhase(slot.booking, slot.meta);
                                                             else console.log("Edit Clicked (Phase 1 Visual Only)", slot.booking);
                                                         }}
@@ -440,7 +442,7 @@ const ReportView = ({ bookings }) => {
 window.ReportView = ReportView;
 
 // ============================================================================
-// 4. RESOURCE CARD (Thẻ đặt lịch - Trái tim hiển thị) - GIỮ NGUYÊN
+// 4. RESOURCE CARD (Thẻ đặt lịch - Trái tim hiển thị) - UPDATED V5.3
 // ============================================================================
 const ResourceCard = ({ id, type, index, data, busyStaffIds, onAction, onSelect, onSwitch, onToggleMax, onToggleSequence, onServiceChange, onStaffChange, onSplit, staffList, getGroupMemberIndex }) => {
     const [timeLeft, setTimeLeft] = useState(0); 
@@ -479,10 +481,24 @@ const ResourceCard = ({ id, type, index, data, busyStaffIds, onAction, onSelect,
                     if (elapsed < phase1Ms) {
                         const left = Math.floor((phase1Ms - elapsed) / 60000);
                         setPhaseTimeLeft(left);
-                        setPhaseLabel(split.type1 === 'FOOT' ? '👣 足部 (Phase 1)' : '🛏️ 身體 (Phase 1)');
+                        // [V5.3 UPDATED] Logic hiển thị Phase Label chính xác theo Sequence
+                        if (sequence === 'FB') {
+                            // FB: Chân trước (Phase 1 = Foot)
+                            setPhaseLabel('👣 足部 (Phase 1)');
+                        } else {
+                            // BF: Thân trước (Phase 1 = Body)
+                            setPhaseLabel('🛏️ 身體 (Phase 1)');
+                        }
                     } else {
                         setPhaseTimeLeft(totalLeft);
-                        setPhaseLabel(split.type2 === 'FOOT' ? '👣 足部 (Phase 2)' : '🛏️ 身體 (Phase 2)');
+                         // [V5.3 UPDATED] Logic hiển thị Phase Label chính xác theo Sequence
+                        if (sequence === 'FB') {
+                            // FB: Thân sau (Phase 2 = Body)
+                            setPhaseLabel('🛏️ 身體 (Phase 2)');
+                        } else {
+                            // BF: Chân sau (Phase 2 = Foot)
+                            setPhaseLabel('👣 足部 (Phase 2)');
+                        }
                     }
                 } else { 
                     setPhaseLabel(null); 
@@ -528,6 +544,7 @@ const ResourceCard = ({ id, type, index, data, busyStaffIds, onAction, onSelect,
     
     let startObj = null, endObj = null, switchObj = null;
     let splitText = '';
+    let isBodyFirst = false;
 
     if(isOccupied && data.isRunning && data.startTime) {
         startObj = new Date(data.startTime);
@@ -535,14 +552,20 @@ const ResourceCard = ({ id, type, index, data, busyStaffIds, onAction, onSelect,
         
         if(isCombo) {
             const seq = (data.comboMeta && data.comboMeta.sequence) || 'FB';
+            isBodyFirst = seq === 'BF';
             const customPhase1 = data.booking.phase1_duration;
             const split = window.getComboSplit(data.booking.duration, data.isMaxMode, seq, customPhase1);
             
             switchObj = new Date(startObj.getTime() + (split.phase1 + flexMinutes) * 60000);
             
-            splitText = (seq === 'FB') 
-                ? `(足:${split.phase1} ➜ 身:${split.phase2})` 
-                : `(身:${split.phase1} ➜ 足:${split.phase2})`;
+            // [V5.3 UPDATED] Hiển thị Text rõ ràng theo Sequence
+            if (isBodyFirst) {
+                // BF: Body First (Lạ - Cần nổi bật)
+                splitText = `(🔀 🛏️身:${split.phase1} ➜ 👣足:${split.phase2})`;
+            } else {
+                // FB: Foot First (Mặc định)
+                splitText = `(👣足:${split.phase1} ➜ 🛏️身:${split.phase2})`;
+            }
             
             if (split.isElastic) {
                 splitText += ' ⚡';
@@ -575,13 +598,21 @@ const ResourceCard = ({ id, type, index, data, busyStaffIds, onAction, onSelect,
                     </div>
                     {isCombo && (
                         <div className="absolute -top-12 left-0 flex gap-1">
-                            <button onClick={(e) => { e.stopPropagation(); onToggleSequence(id); }} className="text-xs font-bold px-2 py-1 rounded shadow z-50 bg-blue-100 text-blue-700 hover:bg-blue-200"><i className="fas fa-sync-alt"></i></button>
+                            {/* [V5.3 UPDATED] Nút đổi Sequence hiển thị khác nếu đang ở chế độ BF */}
+                            <button onClick={(e) => { e.stopPropagation(); onToggleSequence(id); }} className={`text-xs font-bold px-2 py-1 rounded shadow z-50 transition-colors ${isBodyFirst ? 'bg-indigo-600 text-white animate-pulse' : 'bg-blue-100 text-blue-700 hover:bg-blue-200'}`} title={isBodyFirst ? "Đang xếp: Thân trước (Bấm để đổi)" : "Đang xếp: Chân trước (Bấm để đổi)"}><i className="fas fa-sync-alt"></i></button>
                             <button onClick={(e) => { e.stopPropagation(); onToggleMax(id); }} className={`text-xs font-bold px-2 py-1 rounded shadow z-50 transition-colors ${data.isMaxMode ? 'bg-yellow-400 text-black' : 'bg-gray-200 text-gray-500'}`}><i className="fas fa-bolt"></i> Max</button>
                         </div>
                     )}
                     <div className="font-bold text-slate-800 text-2xl truncate mt-4">{(data.booking.customerName || 'Unknown').split('(')[0]}{(data.booking.pax > 1) && <span className="text-sm text-gray-400 ml-1">(Grp)</span>}</div>
                     <select className="text-sm font-bold text-gray-500 text-center bg-transparent border-b border-dashed border-gray-300 focus:outline-none w-full truncate cursor-pointer hover:bg-gray-50" value={data.booking.serviceName || ''} onChange={(e) => onServiceChange(id, e.target.value)} onClick={(e) => e.stopPropagation()}>{window.SERVICES_LIST.map(svc => <option key={svc} value={svc}>{svc}</option>)}</select>
-                    {isCombo && <div className={`text-xs font-mono font-bold ${splitText.includes('⚡') ? 'text-amber-600' : 'text-slate-400'}`}>{splitText}</div>}
+                    
+                    {/* [V5.3 UPDATED] Phần hiển thị Text phân chia Phase - Có cảnh báo nếu là BF */}
+                    {isCombo && (
+                        <div className={`text-xs font-mono font-bold mt-1 ${isBodyFirst ? 'text-indigo-600 bg-indigo-50 border border-indigo-200 p-1 rounded' : 'text-slate-400'}`}>
+                            {splitText}
+                        </div>
+                    )}
+
                     {isCombo && data.isRunning && phaseLabel && (<div className={`text-sm font-black p-2 rounded border bg-white/80 ${phaseLabel.includes('足') ? 'text-emerald-700 border-emerald-200' : 'text-purple-700 border-purple-200'}`}>{phaseLabel} {flexMinutes>0 && <span className="text-xs text-orange-500 bg-orange-100 px-1 rounded ml-1">+{flexMinutes}m</span>} <div className="text-xl font-mono mt-1">{phaseTimeLeft}分</div></div>)}
                     {isCombo && data.isRunning && data.comboMeta && data.comboMeta.targetId && (<div className="text-[10px] text-gray-400">➜ 轉: {data.comboMeta.targetId.toUpperCase()}</div>)}
                     {isOilJob && <div className="text-xs text-purple-600 font-bold border border-purple-200 bg-purple-50 rounded px-2 py-1 inline-block">💧 精油 (Oil)</div>}
