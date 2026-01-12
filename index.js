@@ -1,21 +1,21 @@
 /**
  * =================================================================================================
  * PROJECT: XINWUCHAN MASSAGE BOT (BACKEND SERVER)
- * VERSION: V6.0 (GLOBAL OPTIMIZATION EXECUTOR)
+ * VERSION: V7.0 (MATRIX ARCHITECTURE INTEGRATION)
  * AUTHOR: AI ASSISTANT & USER
  * DATE: 2026/01/12
- * * * * * * * * CHANGE LOG V6.0 (STEP 3 COMPLETE):
- * 1. [SMART WRITE OPERATION]:
- * - Hàm ghiVaoSheet() được nâng cấp để xử lý "Dual Action":
- * (a) INSERT: Ghi booking mới vào cuối danh sách (như cũ).
- * (b) UPDATE: Chấp nhận danh sách 'proposedUpdates' từ thuật toán để sửa đổi 
- * Phase 1/Phase 2 của các khách hàng cũ (Cơ chế "Bóp" thời gian thông minh).
- * * 2. [TRANSACTIONAL SAFETY]:
- * - Sử dụng 'batchUpdate' của Google Sheets API để cập nhật nhiều dòng cùng lúc,
- * giảm thiểu độ trễ và tránh xung đột dữ liệu.
- * * 3. [BOOKING CONFIRMATION LOGIC]:
- * - Tại bước cuối cùng (Nhập SĐT), Server gọi lại ResourceCore để tái kiểm tra
- * và lấy phương án tối ưu nhất trước khi ghi xuống Database.
+ * * * * * * * * * CHANGE LOG V7.0 (ARCHITECTURAL UPGRADE):
+ * 1. [MATRIX RESOURCE ALLOCATION]:
+ * - Nâng cấp `syncData()`: Sau khi parse dữ liệu từ Sheet, gọi ResourceCore để tính toán 
+ * "Ma trận tài nguyên" (Resource Matrix).
+ * - Mỗi booking trong `cachedBookings` sẽ được gắn thêm field `allocated_resource` 
+ * (Ví dụ: 'BED-1', 'CHAIR-3') để Frontend hiển thị chính xác vị trí, thay vì chỉ đếm số lượng.
+ * * 2. [API ENRICHMENT]:
+ * - API `/api/info` trả về dữ liệu booking kèm thông tin định vị không gian (Spatial Data).
+ * - Hỗ trợ Frontend vẽ Timeline chính xác theo từng giường/ghế.
+ * * 3. [LEGACY COMPATIBILITY]:
+ * - Giữ nguyên toàn bộ logic Batch Update, Dual Action (Insert/Update) của V6.0.
+ * - Giữ nguyên logic xử lý Manual Lock (Cột Y) và Elastic Phase (Cột X, Z).
  * =================================================================================================
  */
 
@@ -28,7 +28,7 @@ const cors = require('cors');
 const path = require('path');
 
 // IMPORT CORE LOGIC
-// File này chứa thuật toán Global Optimization V6.0 (đã được nâng cấp ở Bước 2)
+// File này chứa thuật toán Global Optimization & Resource Matrix (V7.0)
 const ResourceCore = require('./resource_core'); 
 
 // --- 1. CẤU HÌNH (CONFIGURATION) ---
@@ -62,13 +62,15 @@ const sheets = google.sheets({ version: 'v4', auth });
 let SERVER_RESOURCE_STATE = {};
 let SERVER_STAFF_STATUS = {};
 let STAFF_LIST = [];
-let cachedBookings = [];
+let cachedBookings = []; // Booking Data + Allocated Matrix Info
 let scheduleMap = {}; 
 let userState = {}; // Lưu trạng thái hội thoại của người dùng Line
 let lastSyncTime = new Date(0); // Khởi tạo thời gian cũ để lần đầu chạy ngay
 let isSystemHealthy = false;
 let isSyncing = false; // Cờ đánh dấu đang đồng bộ để tránh race condition
 let SERVICES = ResourceCore.SERVICES; 
+// Biến lưu snapshot Matrix để debug nếu cần
+let LAST_CALCULATED_MATRIX = null;
 
 // =============================================================================
 // PHẦN 2: CÁC HÀM HỖ TRỢ XỬ LÝ THỜI GIAN & CHUỖI
@@ -189,7 +191,7 @@ function getColumnLetter(colIndex) {
 }
 
 // =============================================================================
-// PHẦN 3: ĐỒNG BỘ DỮ LIỆU (SYNC CORE)
+// PHẦN 3: ĐỒNG BỘ DỮ LIỆU (SYNC CORE WITH MATRIX SUPPORT)
 // =============================================================================
 
 async function syncMenuData() {
@@ -289,7 +291,7 @@ async function syncData() {
         // --- 1. SYNC BOOKINGS (EXPANDED TO COLUMN Z) ---
         const resBooking = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: `${BOOKING_SHEET}!A:Z` });
         const rowsBooking = resBooking.data.values;
-        cachedBookings = [];
+        let tempBookings = [];
 
         if (rowsBooking && rowsBooking.length > 0) {
             for (let i = 1; i < rowsBooking.length; i++) {
@@ -318,7 +320,7 @@ async function syncData() {
                 let serviceCode = 'UNKNOWN';
                 for(const key in SERVICES) { if(SERVICES[key].name === serviceStr) { serviceCode = key; break; } }
 
-                // [V5.0] PARSE DỮ LIỆU MỚI TỪ CỘT X, Y, Z
+                // [V6.0] PARSE DỮ LIỆU CẤU HÌNH (CỘT X, Y, Z)
                 const rawPhase1 = row[23];
                 const phase1Duration = rawPhase1 ? parseInt(rawPhase1) : null;
                 const rawLocked = row[24];
@@ -326,7 +328,7 @@ async function syncData() {
                 const rawPhase2 = row[25];
                 const phase2Duration = rawPhase2 ? parseInt(rawPhase2) : null;
 
-                cachedBookings.push({
+                tempBookings.push({
                     rowId: i + 1, 
                     startTimeString: `${row[0]} ${row[1]}`, 
                     startTime: row[1], 
@@ -346,9 +348,12 @@ async function syncData() {
                     status: status, 
                     lineId: row[9], 
                     isOil: row[4] === "Yes",
+                    // New Fields for Matrix Optimization
                     phase1_duration: phase1Duration,
                     isManualLocked: isManualLocked,
-                    phase2_duration: phase2Duration
+                    phase2_duration: phase2Duration,
+                    // Field này sẽ được ResourceCore điền vào sau
+                    allocated_resource: null 
                 });
             }
         }
@@ -418,9 +423,38 @@ async function syncData() {
             scheduleMap = tempScheduleMap;
             isSystemHealthy = true;
         }
-        
+
+        // --- 3. [NEW V7.0] MATRIX ALLOCATION CALCULATION ---
+        // Bước này rất quan trọng: Server sẽ chạy mô phỏng "Xếp gạch" (Tetris) để xem
+        // thực sự các booking đang nằm ở giường nào. Kết quả sẽ được gắn vào 'allocated_resource'.
+        if (isSystemHealthy && tempBookings.length > 0) {
+            try {
+                // Gọi ResourceCore để tạo Matrix Map (Logic V7.0)
+                // Hàm này sẽ trả về map dạng: { rowId: 'BED-1', rowId2: 'CHAIR-3' }
+                if (typeof ResourceCore.generateResourceMatrix === 'function') {
+                    const matrixAllocation = ResourceCore.generateResourceMatrix(tempBookings, STAFF_LIST);
+                    
+                    // Enrich (Làm giàu) dữ liệu Booking với thông tin vị trí
+                    tempBookings.forEach(booking => {
+                        if (matrixAllocation[booking.rowId]) {
+                            booking.allocated_resource = matrixAllocation[booking.rowId];
+                        }
+                    });
+                    
+                    // Lưu snapshot để debug
+                    LAST_CALCULATED_MATRIX = matrixAllocation;
+                    console.log(`[MATRIX] Successfully allocated resources for ${Object.keys(matrixAllocation).length} bookings.`);
+                } else {
+                    console.warn("[MATRIX] ResourceCore.generateResourceMatrix is missing! Skipping allocation.");
+                }
+            } catch (err) {
+                console.error("[MATRIX ERROR] Failed to calculate resource matrix:", err);
+            }
+        }
+
+        cachedBookings = tempBookings;
         lastSyncTime = new Date();
-        console.log(`[SYNC DONE V6.0] Bookings: ${cachedBookings.length}, Staff: ${STAFF_LIST.length} at ${formatDateTimeString(lastSyncTime)}`);
+        console.log(`[SYNC DONE V7.0] Bookings: ${cachedBookings.length}, Staff: ${STAFF_LIST.length} at ${formatDateTimeString(lastSyncTime)}`);
 
     } catch (e) { 
         console.error('[SYNC ERROR] Fatal Error in SyncData:', e);
@@ -676,7 +710,8 @@ app.use(express.urlencoded({ extended: true }));
 app.use(express.static(path.join(__dirname, 'public')));
 app.use('/admin2', express.static(path.join(__dirname, 'XinWuChanAdmin')));
 
-// --- API INFO ---
+// --- API INFO (V7.0 UPGRADE) ---
+// Giờ đây trả về thêm thông tin Matrix Allocation
 app.get('/api/info', async (req, res) => { 
     const isForceRefresh = req.query.forceRefresh === 'true';
     const now = new Date();
@@ -694,6 +729,7 @@ app.get('/api/info', async (req, res) => {
 
     res.json({ 
         staffList: STAFF_LIST, 
+        // cachedBookings giờ đã có field allocated_resource từ syncData
         bookings: cachedBookings, 
         schedule: scheduleMap, 
         resources: { chairs: MAX_CHAIRS, beds: MAX_BEDS }, 
@@ -701,7 +737,9 @@ app.get('/api/info', async (req, res) => {
         staffStatus: SERVER_STAFF_STATUS, 
         services: SERVICES,
         lastUpdated: lastSyncTime,
-        isSystemHealthy: isSystemHealthy
+        isSystemHealthy: isSystemHealthy,
+        // Debug info cho Frontend
+        matrixDebug: LAST_CALCULATED_MATRIX
     }); 
 });
 
@@ -711,7 +749,7 @@ app.post('/api/admin-booking', async (req, res) => { const data = req.body; awai
 app.post('/api/update-status', async (req, res) => { await updateBookingStatus(req.body.rowId, req.body.status); res.json({ success: true }); });
 app.post('/api/save-salary', async (req, res) => { await syncDailySalary(req.body.date, req.body.staffData); res.json({ success: true }); });
 
-// --- API UPDATE BOOKING DETAILS (V5.0 LOGIC PRESERVED) ---
+// --- API UPDATE BOOKING DETAILS (V6.0 LOGIC PRESERVED) ---
 app.post('/api/update-booking-details', async (req, res) => {
     try {
         const body = req.body; 
@@ -729,7 +767,7 @@ app.post('/api/update-booking-details', async (req, res) => {
         const statusCols = ['R', 'S', 'T', 'U', 'V', 'W'];
         for(let i=0; i<6; i++) { const key = `Status${i+1}`; if(body[key]) await sheets.spreadsheets.values.update({spreadsheetId: SHEET_ID, range: `${BOOKING_SHEET}!${statusCols[i]}${rowId}`, valueInputOption: 'USER_ENTERED', requestBody: { values: [[body[key]]] }}); }
 
-        // Manual Edit Columns
+        // Manual Edit Columns (Quan trọng cho tính năng Elastic Time)
         if (body.phase1_duration !== undefined && body.phase1_duration !== null) await sheets.spreadsheets.values.update({spreadsheetId: SHEET_ID, range: `${BOOKING_SHEET}!X${rowId}`, valueInputOption: 'USER_ENTERED', requestBody: { values: [[body.phase1_duration]] }});
         if (body.isManualLocked !== undefined) { const val = body.isManualLocked ? 'TRUE' : 'FALSE'; await sheets.spreadsheets.values.update({spreadsheetId: SHEET_ID, range: `${BOOKING_SHEET}!Y${rowId}`, valueInputOption: 'USER_ENTERED', requestBody: { values: [[val]] }}); }
         if (body.phase2_duration !== undefined && body.phase2_duration !== null) await sheets.spreadsheets.values.update({spreadsheetId: SHEET_ID, range: `${BOOKING_SHEET}!Z${rowId}`, valueInputOption: 'USER_ENTERED', requestBody: { values: [[body.phase2_duration]] }});

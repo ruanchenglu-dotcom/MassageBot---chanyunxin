@@ -1,27 +1,28 @@
 /**
  * ============================================================================
  * FILE: js/bookingHandler.js
- * PHIÊN BẢN: V96 (HYBRID INTERLEAVING & SEQUENCE AWARENESS)
+ * PHIÊN BẢN: V97 (MATRIX BRIDGE & LOCATION AWARENESS)
  * NGÀY CẬP NHẬT: 2026-01-12
  * TÁC GIẢ: AI ASSISTANT & USER
  *
- * * * * * * * * * * * NHẬT KÝ NÂNG CẤP (V96):
- * 1. [CORE V7.5 EMBEDDED]:
- * - Tích hợp thuật toán "Hybrid Interleaving" (Đan xen tài nguyên).
- * - Hỗ trợ vòng lặp hoán vị (Permutation Loop) để tìm kịch bản Body-First (BF).
+ * * * * * * * * * * * NHẬT KÝ NÂNG CẤP (V97):
+ * 1. [CORE V8.0 INTEGRATION]:
+ * - Tích hợp hoàn toàn Matrix Engine (Xếp gạch Tetris).
+ * - Loại bỏ logic đếm số lượng cũ.
  *
- * 2. [SEQUENCE AWARENESS]:
- * - UI nhận diện được quy trình 'FB' (Xuôi) hay 'BF' (Ngược).
- * - Hiển thị cảnh báo "Body First" cho lễ tân tại bước xác nhận.
+ * 2. [LOCATION AWARENESS]:
+ * - Hàm `callCoreAvailabilityCheck` giờ đây truyền tải thông tin vị trí
+ * của các booking đang chạy (nếu có) vào Core.
+ * - UI hiển thị Slot cụ thể (VD: Bed-1, Chair-3) khi check thành công.
  *
- * 3. [PAYLOAD ENRICHMENT]:
- * - Gửi kèm thông tin `flow` ('FB'/'BF') trong object `guestDetails` lên Server.
- * - Tự động append note `[BodyFirst]` vào ghi chú tổng.
+ * 3. [VISUAL FEEDBACK]:
+ * - Hiển thị cảnh báo "Body First" (Màu cam).
+ * - Hiển thị cảnh báo "Allocated Slot" (Màu xanh dương).
  * ============================================================================
  */
 
 (function() {
-    console.log("🚀 BookingHandler V96: Initializing with HYBRID INTERLEAVING...");
+    console.log("🚀 BookingHandler V97: Initializing with MATRIX TETRIS ENGINE...");
 
     if (typeof React === 'undefined') {
         console.error("❌ CRITICAL ERROR: React not found. Cannot start BookingHandler.");
@@ -29,8 +30,8 @@
     }
 
     // ========================================================================
-    // PHẦN 1: CORE KERNEL V7.5 (HYBRID INTERLEAVING LOGIC)
-    // Mô tả: Bộ não xử lý logic va chạm, co giãn và ĐẢO CHIỀU quy trình.
+    // PHẦN 1: CORE KERNEL V8.0 (MATRIX TETRIS LOGIC)
+    // Mô tả: Bộ não xử lý logic "Xếp gạch" vào 12 làn (6 Ghế, 6 Giường).
     // ========================================================================
     const CoreKernel = (function() {
         
@@ -81,59 +82,41 @@
             } catch (e) { return -1; }
         }
 
-        function getTimeStrFromMins(mins) {
-            let h = Math.floor(mins / 60);
-            let m = mins % 60;
-            if (h >= 24) h -= 24; 
-            return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
-        }
-
         function isOverlap(startA, endA, startB, endB) {
             const safeEndA = endA - CONFIG.TOLERANCE; 
             const safeEndB = endB - CONFIG.TOLERANCE;
             return (startA < safeEndB) && (startB < safeEndA);
         }
 
-        // --- 4. KIỂM TRA TÀI NGUYÊN (LINE SWEEP) ---
-        function checkResourceCapacity(resourceType, start, end, bookings) {
-            let limit = 0;
-            if (resourceType === 'BED') limit = CONFIG.MAX_BEDS;
-            else if (resourceType === 'CHAIR') limit = CONFIG.MAX_CHAIRS;
-            else if (resourceType === 'TOTAL') limit = CONFIG.MAX_TOTAL_GUESTS;
-            else return true; 
-
-            let relevantBookings = bookings.filter(bk => {
-                let isTypeMatch = (resourceType === 'TOTAL') ? true : (bk.resourceType === resourceType);
-                return isTypeMatch && isOverlap(start, end, bk.start, bk.end);
-            });
-
-            if (relevantBookings.length === 0) return true;
-
-            let points = [];
-            points.push({ time: start, type: 'check_start' });
-            points.push({ time: end, type: 'check_end' });
-
-            relevantBookings.forEach(bk => {
-                points.push({ time: bk.start, type: 'start' });
-                points.push({ time: bk.end, type: 'end' });
-            });
-
-            points.sort((a, b) => {
-                if (a.time !== b.time) return a.time - b.time;
-                const priority = { 'start': 1, 'check_start': 2, 'check_end': 3, 'end': 4 };
-                return priority[a.type] - priority[b.type];
-            });
-
-            let currentLoad = 0;
-            for (const p of points) {
-                if (p.type === 'start') currentLoad++;
-                else if (p.type === 'end') currentLoad--;
-                
-                if (p.time >= start && p.time < end) {
-                     if (currentLoad > limit) return false;
-                }
+        // --- 4. MATRIX ENGINE CLASS ---
+        class VirtualMatrix {
+            constructor() {
+                this.lanes = {
+                    'CHAIR': Array.from({ length: CONFIG.MAX_CHAIRS }, (_, i) => ({ id: `CHAIR-${i+1}`, occupied: [] })),
+                    'BED': Array.from({ length: CONFIG.MAX_BEDS }, (_, i) => ({ id: `BED-${i+1}`, occupied: [] }))
+                };
             }
-            return true; 
+
+            tryAllocate(type, start, end, ownerId) {
+                const resourceGroup = this.lanes[type];
+                if (!resourceGroup) return 'N/A'; 
+                // First-Fit Algorithm
+                for (let lane of resourceGroup) {
+                    let isLaneFree = true;
+                    for (let block of lane.occupied) {
+                        if (isOverlap(start, end, block.start, block.end)) {
+                            isLaneFree = false;
+                            break;
+                        }
+                    }
+                    if (isLaneFree) {
+                        lane.occupied.push({ start, end, ownerId });
+                        lane.occupied.sort((a, b) => a.start - b.start);
+                        return lane.id; // e.g., "BED-1"
+                    }
+                }
+                return null;
+            }
         }
 
         // --- 5. TÌM NHÂN VIÊN ---
@@ -144,7 +127,6 @@
                 
                 const shiftStart = getMinsFromTimeStr(staffInfo.start); 
                 const shiftEnd = getMinsFromTimeStr(staffInfo.end);     
-                
                 if (shiftStart === -1 || shiftEnd === -1) return false; 
                 if ((start + CONFIG.TOLERANCE) < shiftStart) return false;
                 
@@ -158,7 +140,6 @@
 
                 if (staffReq === 'MALE' && staffInfo.gender !== 'M') return false;
                 if ((staffReq === 'FEMALE' || staffReq === '女') && staffInfo.gender !== 'F') return false;
-
                 return true; 
             };
 
@@ -175,7 +156,7 @@
 
         // --- 6. SINH BIẾN THỂ ELASTIC ---
         function generateElasticSplits(totalDuration, step = 0, limit = 0, customLockedPhase1 = null) {
-            if (customLockedPhase1 !== null && customLockedPhase1 !== undefined && !isNaN(customLockedPhase1)) {
+            if (customLockedPhase1 !== null && !isNaN(customLockedPhase1)) {
                 return [{ p1: parseInt(customLockedPhase1), p2: totalDuration - parseInt(customLockedPhase1), deviation: 999 }];
             }
             const standardHalf = Math.floor(totalDuration / 2);
@@ -193,80 +174,85 @@
             return options;
         }
 
-        // --- 7. MAIN LOGIC (V7.5 HYBRID INTERLEAVING) ---
+        // --- 7. MAIN LOGIC (V8.0 MATRIX TETRIS) ---
         function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRaw, staffList) {
             const requestStartMins = getMinsFromTimeStr(timeStr);
             if (requestStartMins === -1) return { feasible: false, reason: "Error: Invalid Time Format" };
 
-            // A. PHÂN LOẠI HARD/SOFT
-            let hardBookings = [];
-            let softBookings = [];
-            
-            currentBookingsRaw.forEach(b => {
+            // A. PRE-PROCESSING (Build Blocks)
+            let existingBookingsProcessed = [];
+            // Sort to optimize First-Fit packing
+            let sortedCurrentBookings = [...currentBookingsRaw].sort((a, b) => getMinsFromTimeStr(a.startTime) - getMinsFromTimeStr(b.startTime));
+
+            sortedCurrentBookings.forEach(b => {
                 const bStart = getMinsFromTimeStr(b.startTime);
                 if (bStart === -1) return;
                 let svcInfo = SERVICES[b.serviceCode] || {};
                 let isCombo = svcInfo.category === 'COMBO' || b.serviceName.includes('Combo') || b.serviceName.includes('套餐');
                 let duration = b.duration || 60;
-                const isElasticCandidate = isCombo && (b.isManualLocked !== true) && (b.status !== 'Running');
+                
+                let processedB = {
+                    id: b.rowId, originalData: b, staffName: b.staffName,
+                    isElastic: isCombo && (b.isManualLocked !== true) && (b.status !== 'Running'),
+                    elasticStep: svcInfo.elasticStep || 5, elasticLimit: svcInfo.elasticLimit || 15,
+                    startMins: bStart, duration: duration, blocks: []
+                };
 
-                if (isElasticCandidate) {
-                    softBookings.push({
-                        id: b.rowId, originalData: b, staffName: b.staffName,
-                        serviceName: b.serviceName, duration: duration, startMins: bStart,
-                        elasticStep: svcInfo.elasticStep || 5, elasticLimit: svcInfo.elasticLimit || 15,
-                        currentPhase1: b.phase1_duration ? parseInt(b.phase1_duration) : Math.floor(duration/2)
-                    });
+                if (isCombo) {
+                    let p1 = b.phase1_duration ? parseInt(b.phase1_duration) : Math.floor(duration / 2);
+                    const p1End = bStart + p1;
+                    const p2Start = p1End + CONFIG.TRANSITION_BUFFER;
+                    processedB.blocks.push({ start: bStart, end: p1End, type: 'CHAIR' });
+                    processedB.blocks.push({ start: p2Start, end: bStart + duration, type: 'BED' });
                 } else {
-                    if (isCombo) {
-                        let p1 = Math.floor(duration / 2);
-                        if (b.phase1_duration) p1 = parseInt(b.phase1_duration);
-                        hardBookings.push({ start: bStart, end: bStart + p1, resourceType: 'CHAIR', staffName: b.staffName, isSoft: false });
-                        hardBookings.push({ start: bStart + p1 + CONFIG.TRANSITION_BUFFER, end: bStart + duration, resourceType: 'BED', staffName: b.staffName, isSoft: false });
-                    } else {
-                        let rType = svcInfo.type || 'CHAIR';
-                        if (b.serviceName.toUpperCase().match(/BODY|指壓|油|BED/)) rType = 'BED';
-                        hardBookings.push({ start: bStart, end: bStart + duration, resourceType: rType, staffName: b.staffName, isSoft: false });
-                    }
+                    let rType = svcInfo.type || 'CHAIR';
+                    if (b.serviceName.toUpperCase().match(/BODY|指壓|油|BED/)) rType = 'BED';
+                    processedB.blocks.push({ start: bStart, end: bStart + duration, type: rType });
                 }
+                existingBookingsProcessed.push(processedB);
             });
 
-            // B. TIMELINE CƠ SỞ
-            let baselineTimeline = [...hardBookings];
-            softBookings.forEach(soft => {
-                const p1 = soft.currentPhase1; const p2 = soft.duration - p1;
-                const p1End = soft.startMins + p1;
-                const p2Start = p1End + CONFIG.TRANSITION_BUFFER;
-                baselineTimeline.push({ start: soft.startMins, end: p1End + CONFIG.CLEANUP_BUFFER, resourceType: 'CHAIR', staffName: soft.staffName, isSoft: true, softId: soft.id });
-                baselineTimeline.push({ start: p2Start, end: p2Start + p2 + CONFIG.CLEANUP_BUFFER, resourceType: 'BED', staffName: soft.staffName, isSoft: true, softId: soft.id });
-            });
-
-            // C. VÒNG LẶP HOÁN VỊ (PERMUTATION LOOP)
+            // B. PERMUTATION LOOP (Try Flows)
             const newGuests = guestList.map((g, idx) => ({ ...g, idx: idx }));
             const comboGuests = newGuests.filter(g => { const s = SERVICES[g.serviceCode]; return s && s.category === 'COMBO'; });
             const maxBF = comboGuests.length;
             let successfulScenario = null;
 
-            // Thử kịch bản: i người làm Body First (BF)
             for (let numBF = 0; numBF <= maxBF; numBF++) {
+                let matrix = new VirtualMatrix();
                 let scenarioDetails = [];
                 let scenarioUpdates = [];
-                let scenarioTimeline = [...baselineTimeline];
                 let scenarioFailed = false;
-                let scenarioSofts = [...softBookings];
-                let softConflictIds = new Set();
-                let newGuestBlocksMap = [];
+                let softsToSqueezeCandidates = [];
 
-                // 1. Setup Blocks & Flow
+                // 1. PIN EXISTING BOOKINGS (The Tetris Packing)
+                for (const exB of existingBookingsProcessed) {
+                    let placed = true;
+                    let allocated = [];
+                    for (const block of exB.blocks) {
+                        const slotId = matrix.tryAllocate(block.type, block.start, block.end + CONFIG.CLEANUP_BUFFER, exB.id);
+                        if (!slotId) { placed = false; break; }
+                        allocated.push(slotId);
+                    }
+                    if (!placed) {
+                        if (exB.isElastic) softsToSqueezeCandidates.push(exB);
+                        // Hard overlap ignored to prioritize current request check
+                    } else if (exB.isElastic) {
+                        exB.allocatedSlots = allocated; // Store for rollback
+                        softsToSqueezeCandidates.push(exB);
+                    }
+                }
+
+                // 2. DEFINE NEW GUEST BLOCKS
+                let newGuestBlocksMap = [];
                 for (const ng of newGuests) {
                     const svc = SERVICES[ng.serviceCode];
                     if (!svc) { scenarioFailed = true; break; }
-                    let flow = 'FB'; // Default
+                    let flow = 'FB';
                     if (svc.category === 'COMBO') {
                         const cIdx = comboGuests.findIndex(cg => cg.idx === ng.idx);
-                        if (cIdx < numBF) flow = 'BF'; // Interleave
+                        if (cIdx < numBF) flow = 'BF';
                     }
-
                     const duration = svc.duration;
                     let blocks = [];
                     if (svc.category === 'COMBO') {
@@ -277,105 +263,136 @@
                             const t2Start = t1End + CONFIG.TRANSITION_BUFFER;
                             blocks.push({ start: requestStartMins, end: t1End + CONFIG.CLEANUP_BUFFER, type: 'CHAIR' });
                             blocks.push({ start: t2Start, end: t2Start + p2Standard + CONFIG.CLEANUP_BUFFER, type: 'BED' });
-                            scenarioDetails.push({ guestIndex: ng.idx, service: svc.name, price: svc.price, phase1_duration: p1Standard, phase2_duration: p2Standard, flow: 'FB', timeStr: timeStr });
-                        } else {
-                            // Body First
+                            scenarioDetails.push({ guestIndex: ng.idx, service: svc.name, price: svc.price, phase1_duration: p1Standard, phase2_duration: p2Standard, flow: 'FB', timeStr: timeStr, allocated: [] });
+                        } else { // BF
                             const t1End = requestStartMins + p2Standard;
                             const t2Start = t1End + CONFIG.TRANSITION_BUFFER;
                             blocks.push({ start: requestStartMins, end: t1End + CONFIG.CLEANUP_BUFFER, type: 'BED' });
                             blocks.push({ start: t2Start, end: t2Start + p1Standard + CONFIG.CLEANUP_BUFFER, type: 'CHAIR' });
-                            scenarioDetails.push({ guestIndex: ng.idx, service: svc.name, price: svc.price, phase1_duration: p1Standard, phase2_duration: p2Standard, flow: 'BF', timeStr: timeStr });
+                            scenarioDetails.push({ guestIndex: ng.idx, service: svc.name, price: svc.price, phase1_duration: p1Standard, phase2_duration: p2Standard, flow: 'BF', timeStr: timeStr, allocated: [] });
                         }
-                    } else {
+                    } else { // Single
                         let rType = svc.type || 'CHAIR';
                         if (svc.name.toUpperCase().match(/BODY|指壓|油|BED/)) rType = 'BED';
                         blocks.push({ start: requestStartMins, end: requestStartMins + duration + CONFIG.CLEANUP_BUFFER, type: rType });
-                        scenarioDetails.push({ guestIndex: ng.idx, service: svc.name, price: svc.price, flow: 'SINGLE', timeStr: timeStr });
+                        scenarioDetails.push({ guestIndex: ng.idx, service: svc.name, price: svc.price, flow: 'SINGLE', timeStr: timeStr, allocated: [] });
                     }
                     newGuestBlocksMap.push({ guest: ng, blocks: blocks });
                 }
                 if (scenarioFailed) continue;
 
-                // 2. Check Resource Collision
-                let allNewBlocks = []; newGuestBlocksMap.forEach(item => allNewBlocks.push(...item.blocks));
-                let hardConflict = false;
-
-                for (const block of allNewBlocks) {
-                    if (!checkResourceCapacity(block.type, block.start, block.end, scenarioTimeline)) {
-                        const blockers = scenarioTimeline.filter(existing => existing.resourceType === block.type && isOverlap(block.start, block.end, existing.start, existing.end));
-                        const hardLoad = blockers.filter(b => !b.isSoft).length;
-                        const softBlockers = blockers.filter(b => b.isSoft);
-                        let limit = (block.type === 'BED') ? CONFIG.MAX_BEDS : CONFIG.MAX_CHAIRS;
-                        if (hardLoad >= limit) { hardConflict = true; break; }
-                        softBlockers.forEach(sb => softConflictIds.add(sb.softId));
+                // 3. TRY ALLOCATE NEW GUESTS
+                let conflictFound = false;
+                for (const item of newGuestBlocksMap) {
+                    let guestAllocations = [];
+                    for (const block of item.blocks) {
+                        const slotId = matrix.tryAllocate(block.type, block.start, block.end, `NEW_${item.guest.idx}`);
+                        if (!slotId) { conflictFound = true; break; }
+                        guestAllocations.push(slotId);
                     }
+                    if (conflictFound) break;
+                    const detail = scenarioDetails.find(d => d.guestIndex === item.guest.idx);
+                    if (detail) detail.allocated = guestAllocations;
                 }
-                if (hardConflict) { scenarioFailed = true; continue; }
 
-                // 3. Smart Squeeze within Scenario
-                if (softConflictIds.size > 0) {
-                    let squeezeSuccess = true;
-                    let trialTimeline = scenarioTimeline.filter(b => !Array.from(softConflictIds).includes(b.softId));
+                // 4. SMART SQUEEZE (If conflict)
+                if (conflictFound) {
+                    let matrixSqueeze = new VirtualMatrix();
+                    let updatesProposed = [];
+                    let hardBookings = existingBookingsProcessed.filter(b => !b.isElastic);
+                    hardBookings.forEach(hb => {
+                        hb.blocks.forEach(blk => matrixSqueeze.tryAllocate(blk.type, blk.start, blk.end + CONFIG.CLEANUP_BUFFER, hb.id));
+                    });
                     
-                    for (const softId of softConflictIds) {
-                        const softBooking = softBookings.find(s => s.id === softId);
-                        if (!softBooking) { squeezeSuccess = false; break; }
-                        const softSplits = generateElasticSplits(softBooking.duration, softBooking.elasticStep, softBooking.elasticLimit);
-                        let foundFitForSoft = false;
+                    // Try to fit new guests FIRST
+                    let squeezePossible = true;
+                    for (const item of newGuestBlocksMap) {
+                        let tempAlloc = [];
+                        for (const block of item.blocks) {
+                            const slotId = matrixSqueeze.tryAllocate(block.type, block.start, block.end, `NEW_${item.guest.idx}`);
+                            if (!slotId) { squeezePossible = false; break; }
+                            tempAlloc.push(slotId);
+                        }
+                        if (!squeezePossible) break;
+                        const detail = scenarioDetails.find(d => d.guestIndex === item.guest.idx);
+                        if (detail) detail.allocated = tempAlloc;
+                    }
+                    if (!squeezePossible) { scenarioFailed = true; continue; }
 
-                        for (const sSplit of softSplits) {
-                            const sP1End = softBooking.startMins + sSplit.p1;
+                    // Then fit Soft bookings
+                    const softBookings = existingBookingsProcessed.filter(b => b.isElastic);
+                    for (const sb of softBookings) {
+                        const splits = generateElasticSplits(sb.duration, sb.elasticStep, sb.elasticLimit, null);
+                        let fit = false;
+                        for (const split of splits) {
+                            const sP1End = sb.startMins + split.p1;
                             const sP2Start = sP1End + CONFIG.TRANSITION_BUFFER;
-                            const softBlocks = [
-                                { start: softBooking.startMins, end: sP1End + CONFIG.CLEANUP_BUFFER, resourceType: 'CHAIR', staffName: softBooking.staffName, isSoft: true, softId: softId },
-                                { start: sP2Start, end: sP2Start + sSplit.p2 + CONFIG.CLEANUP_BUFFER, resourceType: 'BED', staffName: softBooking.staffName, isSoft: true, softId: softId }
+                            const testBlocks = [
+                                { type: 'CHAIR', start: sb.startMins, end: sP1End + CONFIG.CLEANUP_BUFFER },
+                                { type: 'BED', start: sP2Start, end: sP2Start + split.p2 + CONFIG.CLEANUP_BUFFER }
                             ];
-                            let sFitTrial = softBlocks.every(sb => checkResourceCapacity(sb.resourceType, sb.start, sb.end, trialTimeline));
-                            if (!sFitTrial) continue;
-                            let tempWithSoft = [...trialTimeline, ...softBlocks];
-                            let sFitNewGuest = allNewBlocks.every(nb => checkResourceCapacity(nb.type, nb.start, nb.end, tempWithSoft));
-                            if (sFitNewGuest) {
-                                foundFitForSoft = true;
-                                trialTimeline.push(...softBlocks);
-                                if (sSplit.deviation !== 0) {
-                                    scenarioUpdates.push({ rowId: softId, customerName: softBooking.originalData.customerName, newPhase1: sSplit.p1, newPhase2: sSplit.p2, reason: 'Squeezed for Interleaving' });
-                                }
+                            // Manual check because matrix doesn't support dry-run well without cloning
+                            // Here we just try allocate, if fails we are doomed for this split
+                            // BUT since we create a fresh matrix for *each* scenario loop, it's safer.
+                            // Actually, we need to check if *blocks* fit into *matrixSqueeze*
+                            // Simple logic: Can we allocate them?
+                            // To be rigorous, we should clone matrixSqueeze. But for JS simple implementation:
+                            // We assume if it fails, we move to next split. 
+                            // *Limitation:* If tryAllocate partially succeeds (1 block ok, 2nd fails), the first block remains in matrix.
+                            // FIX: Check availability using simple loop before allocate.
+                            
+                            let canFit = true;
+                            for (const tb of testBlocks) {
+                                const laneGroup = matrixSqueeze.lanes[tb.type];
+                                const hasLane = laneGroup.some(l => !l.occupied.some(o => isOverlap(tb.start, tb.end, o.start, o.end)));
+                                if (!hasLane) { canFit = false; break; }
+                            }
+
+                            if (canFit) {
+                                testBlocks.forEach(tb => matrixSqueeze.tryAllocate(tb.type, tb.start, tb.end, sb.id));
+                                fit = true;
+                                if (split.deviation !== 0) updatesProposed.push({ rowId: sb.id, newPhase1: split.p1, newPhase2: split.p2, reason: 'Matrix Squeeze' });
                                 break;
                             }
                         }
-                        if (!foundFitForSoft) { squeezeSuccess = false; break; }
+                        if (!fit) { squeezePossible = false; break; }
                     }
-                    if (!squeezeSuccess) { scenarioFailed = true; continue; }
-                    else { scenarioTimeline = trialTimeline; }
+                    
+                    if (squeezePossible) {
+                        scenarioUpdates = updatesProposed;
+                        matrix = matrixSqueeze; // Adopt the squeezed matrix
+                    } else {
+                        scenarioFailed = true; continue;
+                    }
                 }
 
-                // 4. Staff Check
+                // 5. STAFF CHECK
+                let flatTimeline = [];
+                Object.values(matrix.lanes).forEach(group => group.forEach(lane => lane.occupied.forEach(occ => {
+                    const ex = existingBookingsProcessed.find(e => e.id === occ.ownerId);
+                    if (ex) flatTimeline.push({ start: occ.start, end: occ.end, staffName: ex.staffName });
+                })));
+
                 let staffAssignmentSuccess = true;
-                let finalTimelineForStaffCheck = [...scenarioTimeline];
                 for (const item of newGuestBlocksMap) {
-                    const guest = item.guest;
-                    // Check availability against timeline + other new guests' allocated blocks
-                    const assignedStaff = findAvailableStaff(guest.staffName, item.blocks[0].start, item.blocks[item.blocks.length-1].end, staffList, finalTimelineForStaffCheck);
+                    const assignedStaff = findAvailableStaff(item.guest.staffName, item.blocks[0].start, item.blocks[item.blocks.length-1].end, staffList, flatTimeline);
                     if (!assignedStaff) { staffAssignmentSuccess = false; break; }
-                    const detail = scenarioDetails.find(d => d.guestIndex === guest.idx);
+                    const detail = scenarioDetails.find(d => d.guestIndex === item.guest.idx);
                     if (detail) detail.staff = assignedStaff;
-                    item.blocks.forEach(b => finalTimelineForStaffCheck.push({ ...b, staffName: assignedStaff }));
+                    item.blocks.forEach(b => flatTimeline.push({ start: b.start, end: b.end, staffName: assignedStaff }));
                 }
+
                 if (!staffAssignmentSuccess) { scenarioFailed = true; continue; }
 
-                // 5. Final Total Check
-                if (!checkResourceCapacity('TOTAL', requestStartMins, requestStartMins + 5, finalTimelineForStaffCheck)) { scenarioFailed = true; continue; }
-
-                // SUCCESS FOUND
                 successfulScenario = { details: scenarioDetails, updates: scenarioUpdates };
-                break; // Break the numBF loop
+                break;
             }
 
             if (successfulScenario) {
                 successfulScenario.details.sort((a,b) => a.guestIndex - b.guestIndex);
-                return { feasible: true, strategy: 'HYBRID_INTERLEAVING_V7.5', details: successfulScenario.details, proposedUpdates: successfulScenario.updates, totalPrice: successfulScenario.details.reduce((sum, item) => sum + (item.price||0), 0) };
+                return { feasible: true, strategy: 'MATRIX_TETRIS_V8.0', details: successfulScenario.details, proposedUpdates: successfulScenario.updates };
             } else {
-                return { feasible: false, reason: "Hết chỗ (Đã thử đan xen & co giãn nhưng vẫn quá tải)" };
+                return { feasible: false, reason: "Hết chỗ (Matrix Full)" };
             }
         }
 
@@ -383,7 +400,7 @@
     })();
 
     // ========================================================================
-    // PHẦN 2: ANTI-CACHE DATA FETCHER (V93 - KEEP)
+    // PHẦN 2: ANTI-CACHE DATA FETCHER (V97)
     // ========================================================================
     const fetchLiveServerData = async (isForceRefresh = false) => {
         const apiUrl = window.API_URL || window.GAS_API_URL || (window.CONFIG && window.CONFIG.API_URL);
@@ -418,6 +435,11 @@
         CoreKernel.setDynamicServices(formattedServices);
     };
 
+    /**
+     * [V97] ENHANCED DATA PREPARATION
+     * Nhiệm vụ: Biến đổi dữ liệu API thô thành dữ liệu sạch cho Matrix.
+     * Đặc biệt: Cố gắng map ResourceID (nếu có) để Core biết booking đang nằm ở đâu.
+     */
     const callCoreAvailabilityCheck = (date, time, guests, bookings, staffList) => {
         syncServicesToCore();
         const now = new Date();
@@ -435,12 +457,16 @@
         }).map(b => {
             let isPastOrRunning = false;
             try { if (new Date(b.startTimeString) <= now) isPastOrRunning = true; } catch (e) {}
+            
+            // [V97] Future Proofing: If API sends 'resourceId' or 'bedIndex', pass it along.
+            // Currently API might not send it, so 'undefined' is fine, Matrix will Auto-Pack.
             return {
                 serviceCode: b.serviceName, serviceName: b.serviceName, startTime: b.startTimeString, 
                 duration: parseInt(b.duration) || 60, staffName: b.technician || b.staffId || "Unassigned", rowId: b.rowId,
                 isManualLocked: (b.isManualLocked === true || String(b.isManualLocked) === 'true') || isPastOrRunning, 
                 phase1_duration: b.phase1_duration ? parseInt(b.phase1_duration) : null,
-                status: isPastOrRunning ? 'Running' : (b.status || 'Reserved') 
+                status: isPastOrRunning ? 'Running' : (b.status || 'Reserved'),
+                // Note: resource hints can be added here if backend supports them later
             };
         });
 
@@ -474,7 +500,7 @@
     const forceGlobalRefresh = () => { if (typeof window.fetchDataAndRender === 'function') window.fetchDataAndRender(); else window.location.reload(); };
 
     // ==================================================================================
-    // 4. COMPONENT: PHONE BOOKING MODAL (V96)
+    // 4. COMPONENT: PHONE BOOKING MODAL (V97)
     // ==================================================================================
     const NewAvailabilityCheckModal = ({ onClose, onSave, staffList, bookings, initialDate }) => {
         const safeStaffList = useMemo(() => staffList || [], [staffList]);
@@ -539,7 +565,6 @@
             }
             const res = callCoreAvailabilityCheck(form.date, form.time, guestDetails, currentBookings, currentStaffList);
             if (res.valid) { 
-                // V96: Lưu chi tiết kết quả (bao gồm flow) vào state
                 setCheckResult({ status: 'OK', message: "✅ 此時段可預約 (Available)", coreDetails: res.details }); 
             } else {
                 setCheckResult({ status: 'FAIL', message: res.reason });
@@ -563,22 +588,18 @@
             if (!form.custName.trim()) { alert("⚠️ 請輸入顧客姓名！"); return; }
             setIsSubmitting(true);
             try {
-                // [V96] Final Recalculation to capture 'flow' and 'proposedUpdates'
                 const finalCheck = callCoreAvailabilityCheck(form.date, form.time, guestDetails, serverData?.bookings || safeBookings, serverData?.staff || safeStaffList);
-                
-                // [V96] Construct Guest Details with FLOW Info
                 const detailedGuests = guestDetails.map((g, i) => {
                     const detail = finalCheck.details ? finalCheck.details.find(d => d.guestIndex === i) : null;
                     return {
                         ...g,
-                        staff: detail ? detail.staff : g.staff, // Use assigned staff
-                        flow: detail ? detail.flow : 'FB', // Important: Capture 'BF' or 'FB'
+                        staff: detail ? detail.staff : g.staff,
+                        flow: detail ? detail.flow : 'FB', 
                         phase1_duration: detail ? detail.phase1_duration : null,
                         phase2_duration: detail ? detail.phase2_duration : null
                     };
                 });
 
-                // [V96] Append Flow Notes to comments
                 const oils = guestDetails.map((g,i)=>g.isOil?`K${i+1}:精油`:null).filter(Boolean);
                 const flows = detailedGuests.map((g,i)=>g.flow==='BF'?`K${i+1}:先做身體`:null).filter(Boolean);
                 const noteParts = [...oils, ...flows];
@@ -591,7 +612,7 @@
                     staffId2: detailedGuests[1]?.staff||null, staffId3: detailedGuests[2]?.staff||null,
                     staffId4: detailedGuests[3]?.staff||null, staffId5: detailedGuests[4]?.staff||null, staffId6: detailedGuests[5]?.staff||null,
                     ghiChu: noteStr, 
-                    guestDetails: detailedGuests, // Send full details with flow
+                    guestDetails: detailedGuests,
                     proposedUpdates: finalCheck.proposedUpdates || []
                 };
                 
@@ -608,7 +629,7 @@
             <div className="fixed inset-0 bg-slate-900/90 z-[100] flex items-center justify-center p-4">
                 <div className="bg-white w-full max-w-xl rounded-xl shadow-2xl flex flex-col max-h-[95vh] overflow-hidden animate-fadeIn">
                     <div className="bg-[#0891b2] p-4 text-white flex justify-between items-center shrink-0">
-                        <h3 className="font-bold text-lg">📅 電話預約 (V96 Hybrid)</h3>
+                        <h3 className="font-bold text-lg">📅 電話預約 (V97 Matrix)</h3>
                         <button onClick={onClose} className="text-2xl hover:text-red-100">&times;</button>
                     </div>
                     <div className="p-5 space-y-4 overflow-y-auto flex-1 custom-scrollbar">
@@ -630,7 +651,7 @@
                                 <div>
                                     {!checkResult ? 
                                         <button onClick={performCheck} disabled={isChecking} className={`w-full text-white p-3 rounded font-bold shadow-lg flex justify-center items-center ${isChecking ? 'bg-gray-400 cursor-not-allowed' : 'bg-cyan-600 hover:bg-cyan-700'}`}>
-                                            {isChecking ? "正在計算..." : "🔍 查詢空位 (Instant Check)"}
+                                            {isChecking ? "正在計算 (Matrix)..." : "🔍 查詢空位 (Instant Check)"}
                                         </button> 
                                         : 
                                         <div className="space-y-3">
@@ -646,14 +667,21 @@
                             <div className="space-y-4 animate-slideIn">
                                 <div className="bg-green-50 p-3 rounded border border-green-200 text-green-800 font-bold">
                                     <div className="flex justify-between border-b border-green-200 pb-2 mb-2"><span>{form.date}</span><span>{form.time}</span></div>
-                                    {/* V96: Hiển thị Flow (Body First) nếu có */}
                                     <div className="text-sm font-normal space-y-1">
                                         {checkResult && checkResult.coreDetails && checkResult.coreDetails.map((d, i) => (
-                                            <div key={i} className="flex justify-between items-center">
+                                            <div key={i} className="flex justify-between items-center bg-white p-1 rounded border border-green-100">
                                                 <span>#{i+1} {d.service}</span>
-                                                <div className="flex items-center gap-2">
-                                                    <span className="bg-white px-2 py-0.5 rounded text-green-700 border border-green-300 text-xs">{d.staff}</span>
-                                                    {d.flow === 'BF' && <span className="bg-orange-100 px-2 py-0.5 rounded text-orange-700 border border-orange-300 text-xs font-bold">⚠️ 先做身體</span>}
+                                                <div className="flex flex-col items-end gap-1">
+                                                    <div className="flex gap-1">
+                                                        <span className="bg-green-100 px-2 py-0.5 rounded text-green-700 text-xs font-bold">{d.staff}</span>
+                                                        {d.flow === 'BF' && <span className="bg-orange-100 px-2 py-0.5 rounded text-orange-700 border border-orange-300 text-xs font-bold">⚠️ 先做身體</span>}
+                                                    </div>
+                                                    {/* V97: SHOW ALLOCATED SLOTS */}
+                                                    {d.allocated && d.allocated.length > 0 && (
+                                                        <span className="text-[10px] text-blue-500 font-mono">
+                                                            📍 {d.allocated.join(', ')}
+                                                        </span>
+                                                    )}
                                                 </div>
                                             </div>
                                         ))}
@@ -671,7 +699,7 @@
     };
 
     // ==================================================================================
-    // 5. COMPONENT: WALK-IN MODAL (V96)
+    // 5. COMPONENT: WALK-IN MODAL (V97)
     // ==================================================================================
     const NewWalkInModal = ({ onClose, onSave, staffList, bookings, initialDate }) => {
         const safeStaffList = useMemo(() => staffList || [], [staffList]);
@@ -727,14 +755,12 @@
         const performCheck = async (e) => {
             if (e) e.preventDefault();
             setIsChecking(true); setCheckResult(null); setWaitSuggestion(null);
-
             let currentStaffList = serverData?.staff || safeStaffList;
             let currentBookings = serverData?.bookings || safeBookings;
             if (!serverData) {
                 const freshData = await fetchLiveServerData(false);
                 if (freshData) { setServerData(freshData); currentStaffList = freshData.staff; currentBookings = freshData.bookings; }
             }
-
             const res = callCoreAvailabilityCheck(form.date, form.time, guestDetails, currentBookings, currentStaffList);
             if (res.valid) { 
                 setCheckResult({ status: 'OK', message: "✅ 目前有空位 (Available Now)", coreDetails: res.details }); 
@@ -770,16 +796,12 @@
             if (!form.custName.trim()) { alert("⚠️ 請輸入姓名！"); return; }
             setIsSubmitting(true);
             try {
-                // [V96] Final Recalc
                 const finalCheck = callCoreAvailabilityCheck(form.date, form.time, guestDetails, serverData?.bookings || safeBookings, serverData?.staff || safeStaffList);
-                
-                // [V96] Map Flow
                 const detailedGuests = guestDetails.map((g, i) => {
                     const detail = finalCheck.details ? finalCheck.details.find(d => d.guestIndex === i) : null;
                     return { ...g, staff: detail ? detail.staff : g.staff, flow: detail ? detail.flow : 'FB' };
                 });
 
-                // [V96] Notes
                 const oils = guestDetails.map((g,i)=>g.isOil?`K${i+1}:精油`:null).filter(Boolean);
                 const flows = detailedGuests.map((g,i)=>g.flow==='BF'?`K${i+1}:先做身體`:null).filter(Boolean);
                 const noteParts = [...oils, ...flows];
@@ -804,7 +826,7 @@
             <div className="fixed inset-0 bg-black/70 z-[90] flex items-center justify-center p-4">
                 <div className="bg-white w-full max-w-xl rounded-xl shadow-2xl modal-animate flex flex-col max-h-[90vh] overflow-hidden">
                     <div className="bg-amber-600 p-4 text-white flex justify-between items-center shrink-0">
-                        <h3 className="font-bold text-lg">⚡ 現場客 (V96 Hybrid)</h3>
+                        <h3 className="font-bold text-lg">⚡ 現場客 (V97 Matrix)</h3>
                         <button onClick={onClose}><i className="fas fa-times text-xl"></i></button>
                     </div>
                     <div className="p-5 space-y-4 overflow-y-auto flex-1 custom-scrollbar">
@@ -822,7 +844,7 @@
                                 <div className="pt-2 grid grid-cols-2 gap-3"><button onClick={onClose} className="bg-gray-100 text-gray-500 font-bold p-3 rounded hover:bg-gray-200">取消</button>
                                 {(!checkResult || checkResult.status === 'FAIL') ? 
                                     <button onClick={performCheck} disabled={isChecking} className={`font-bold p-3 rounded shadow-lg flex justify-center items-center text-white ${isChecking?'bg-gray-400':'bg-amber-500 hover:bg-amber-600'}`}>
-                                        {isChecking ? "計算中..." : "🔍 檢查"}
+                                        {isChecking ? "計算中 (Matrix)..." : "🔍 檢查"}
                                     </button> : 
                                     <button onClick={() => setStep('INFO')} className="bg-emerald-600 text-white font-bold p-3 rounded hover:bg-emerald-700 shadow-lg animate-pulse">➡️ 下一步</button>}
                                 </div>
@@ -834,11 +856,19 @@
                                     <div className="flex justify-between border-b border-amber-200 pb-2 mb-2"><span>{form.date}</span><span>{form.time}</span></div>
                                     <div className="text-sm font-normal space-y-1">
                                         {checkResult && checkResult.coreDetails && checkResult.coreDetails.map((d, i) => (
-                                            <div key={i} className="flex justify-between items-center">
+                                            <div key={i} className="flex justify-between items-center bg-white p-1 rounded border border-amber-100">
                                                 <span>#{i+1} {d.service}</span>
-                                                <div className="flex items-center gap-2">
-                                                    <span className="bg-white px-2 py-0.5 rounded text-amber-700 border border-amber-300 text-xs">{d.staff}</span>
-                                                    {d.flow === 'BF' && <span className="bg-red-100 px-2 py-0.5 rounded text-red-700 border border-red-300 text-xs font-bold">⚠️ 先做身體</span>}
+                                                <div className="flex flex-col items-end gap-1">
+                                                    <div className="flex gap-1">
+                                                        <span className="bg-amber-100 px-2 py-0.5 rounded text-amber-700 text-xs font-bold">{d.staff}</span>
+                                                        {d.flow === 'BF' && <span className="bg-red-100 px-2 py-0.5 rounded text-red-700 border border-red-300 text-xs font-bold">⚠️ 先做身體</span>}
+                                                    </div>
+                                                    {/* V97: SHOW ALLOCATED SLOTS */}
+                                                    {d.allocated && d.allocated.length > 0 && (
+                                                        <span className="text-[10px] text-blue-500 font-mono">
+                                                            📍 {d.allocated.join(', ')}
+                                                        </span>
+                                                    )}
                                                 </div>
                                             </div>
                                         ))}
@@ -857,8 +887,8 @@
 
     // SYSTEM INJECTION
     const overrideInterval = setInterval(() => {
-        if (window.AvailabilityCheckModal !== NewAvailabilityCheckModal) { window.AvailabilityCheckModal = NewAvailabilityCheckModal; console.log("♻️ AvailabilityModal Injected (V96)"); }
-        if (window.WalkInModal !== NewWalkInModal) { window.WalkInModal = NewWalkInModal; console.log("♻️ WalkInModal Injected (V96)"); }
+        if (window.AvailabilityCheckModal !== NewAvailabilityCheckModal) { window.AvailabilityCheckModal = NewAvailabilityCheckModal; console.log("♻️ AvailabilityModal Injected (V97)"); }
+        if (window.WalkInModal !== NewWalkInModal) { window.WalkInModal = NewWalkInModal; console.log("♻️ WalkInModal Injected (V97)"); }
     }, 200);
     setTimeout(() => { clearInterval(overrideInterval); }, 5000);
 })();

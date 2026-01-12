@@ -1,6 +1,6 @@
 // TYPE: app.js
-// VERSION: V6.0 (MANUAL EDIT & STATE PERSISTENCE)
-// UPDATE: Added Manual Edit Modal, State Management for Phase 1 Duration
+// VERSION: V98 (MATRIX RENDER SYNC & VISUALIZATION UPGRADE)
+// UPDATE: Synchronized Frontend Timeline Rendering with Core V8.0 Matrix Logic
 
 const { useState, useEffect, useMemo, useRef } = React;
 
@@ -12,6 +12,36 @@ const TimelineView = window.TimelineView;
 
 // --- 3. BOOKING LIST VIEW ---
 const BookingListView = window.BookingListView;
+
+// --- [V98] MINI MATRIX HELPER FOR FRONTEND ---
+// Giúp Frontend tính toán slot trống y hệt như Core V8.0
+const MatrixHelper = {
+    isOverlap: (startA, endA, startB, endB) => {
+        return (startA < endB) && (startB < endA);
+    },
+    // Hàm tìm slot trống thông minh (First-Fit Strategy)
+    findBestSlot: (type, start, end, gridState, reservedTimes) => {
+        const limit = type === 'chair' ? 6 : 6;
+        for (let i = 1; i <= limit; i++) {
+            const id = `${type}-${i}`;
+            // Check 1: Active Running Orders (Hard Reservation)
+            if (reservedTimes[id] && start < reservedTimes[id]) continue;
+            
+            // Check 2: Timeline Grid Overlaps (Planned/Ghost Blocks)
+            let isClash = false;
+            if (gridState[id]) {
+                for (const slot of gridState[id]) {
+                    if (MatrixHelper.isOverlap(start, end, slot.start, slot.end)) {
+                        isClash = true;
+                        break;
+                    }
+                }
+            }
+            if (!isClash) return id;
+        }
+        return null; // Không tìm thấy slot trống
+    }
+};
 
 // --- APP COMPONENT ---
 const App = () => {
@@ -32,8 +62,8 @@ const App = () => {
     const [comboStartData, setComboStartData] = useState(null);
     const [splitData, setSplitData] = useState(null);
     
-    // [NEW PHASE 2] Manual Edit State
-    const [editComboTarget, setEditComboTarget] = useState(null); // { id: resId, booking: bookingData }
+    // [V6.0] Manual Edit State
+    const [editComboTarget, setEditComboTarget] = useState(null);
 
     // System States
     const [viewDate, setViewDate] = useState(window.getOperationalDateInputFormat());
@@ -47,7 +77,7 @@ const App = () => {
             if (!r.isRunning || r.isPaused || r.isPreview === true) return false;
             const b = r.booking || {};
             const possibleKeys = [
-                b.serviceStaff, b.staffId, b.ServiceStaff, b.StaffId, b.technician, b.Technician,
+                b.serviceStaff, b.staffId, b.ServiceStaff, b.technician, b.Technician,
                 b.staffId2, b.StaffId2, b.staff2, b.Staff2,
                 b.staffId3, b.StaffId3, b.staff3, b.Staff3,
                 b.staffId4, b.StaffId4, b.staff4, b.Staff4,
@@ -96,20 +126,15 @@ const App = () => {
         });
         
         groupSlots.sort((a, b) => window.getWeight(a) - window.getWeight(b));
-        
         const idx = groupSlots.indexOf(targetResId);
         return idx; 
     };
 
     const universalSend = async (endpoint, payload) => {
-        try {
-            await axios.post(endpoint, payload);
-        } catch(e) {
-            console.log("Universal send check (ignore):", e);
-        }
+        try { await axios.post(endpoint, payload); } catch(e) { console.log("Universal send check (ignore):", e); }
     };
 
-    // 3. CORE LOGIC (FETCH & RENDER)
+    // 3. CORE LOGIC (FETCH & RENDER - V98 UPGRADED)
     const fetchData = async () => {
         if (syncLock) return;
         if (quotaError) return; 
@@ -126,7 +151,6 @@ const App = () => {
                     duration: window.getSafeDuration(b.serviceName, b.duration),
                     pax: parseInt(b.pax, 10) || 1,
                     rowId: String(b.rowId),
-                    // [V6.0] Phase 1 Duration Data Flow
                     phase1_duration: b.phase1_duration ? parseInt(b.phase1_duration) : null,
                     phase2_duration: b.phase2_duration ? parseInt(b.phase2_duration) : null
                 };
@@ -143,7 +167,6 @@ const App = () => {
                 setBookings(prev => {
                     const combinedMap = new Map();
                     relevantBookings.forEach(b => combinedMap.set(String(b.rowId), b));
-
                     prev.forEach(localBooking => {
                         const rid = String(localBooking.rowId);
                         if (combinedMap.has(rid)) {
@@ -173,15 +196,15 @@ const App = () => {
             
             let tempState = {}; 
             const activePaxCounts = {}; 
-            const activeEndTimes = {}; 
-            const timelineGrid = {}; 
+            const activeEndTimes = {}; // Tracks HARD end times of running services
+            const timelineGrid = {}; // Tracks ALL blocks (Running + Ghost + Planned)
 
             const addToGrid = (resId, start, end, booking, meta) => {
                 if (!timelineGrid[resId]) timelineGrid[resId] = [];
                 timelineGrid[resId].push({ start, end, booking, meta });
             };
 
-            // --- RUNNING ORDERS ---
+            // --- A. MATRIX LAYER 1: RUNNING ORDERS (HARD BLOCKS) ---
             Object.keys(currentRes).forEach(key => {
                 if(currentRes[key].isRunning) {
                     tempState[key] = currentRes[key];
@@ -198,7 +221,6 @@ const App = () => {
                         const seq = currentRes[key].comboMeta.sequence || 'FB';
                         const isMax = currentRes[key].isMaxMode;
                         const customPhase1 = currentRes[key].booking.phase1_duration;
-                        
                         const split = window.getComboSplit(durationUsed, isMax, seq, customPhase1);
                         
                         isPhase1 = (seq === 'FB' && key.includes('chair')) || (seq === 'BF' && key.includes('bed'));
@@ -208,7 +230,7 @@ const App = () => {
                     }
 
                     const endMins = startMins + durationUsed;
-                    activeEndTimes[key] = endMins;
+                    activeEndTimes[key] = endMins; // Mark this resource as BUSY until endMins
 
                     addToGrid(key, startMins, endMins, currentRes[key].booking, {
                         isCombo: !!currentRes[key].comboMeta,
@@ -218,27 +240,9 @@ const App = () => {
                     });
                 }
             });
-            
-            const isReservedAt = (resId, start, end) => {
-                if (activeEndTimes[resId] !== undefined) {
-                    if (start < activeEndTimes[resId]) return true; 
-                }
-                if (!timelineGrid[resId]) return false;
-                for (let slot of timelineGrid[resId]) {
-                    if (start < slot.end && end > slot.start) return true;
-                }
-                return false;
-            };
 
-            const findFirstFreeSlot = (prefix, start, end) => {
-                for(let i=1; i<=6; i++) {
-                    const id = `${prefix}-${i}`;
-                    if (!isReservedAt(id, start, end)) return id;
-                }
-                return null; 
-            };
-
-            // --- GHOST BLOCKS (PHASE 2 PREDICTION) ---
+            // --- B. MATRIX LAYER 2: GHOST BLOCKS (PREDICTION) ---
+            // Dự đoán phase 2 của các combo đang chạy phase 1
             Object.keys(tempState).forEach(key => {
                 const item = tempState[key];
                 if (item.comboMeta) {
@@ -248,18 +252,19 @@ const App = () => {
                     
                     if (isPhase1) {
                         const finishTimeMins = activeEndTimes[key]; 
-                        const p2Start = finishTimeMins + 5; 
+                        const p2Start = finishTimeMins + 5; // Transition Buffer
                         
                         const customPhase1 = item.booking.phase1_duration;
                         const split = window.getComboSplit(item.booking.duration, item.isMaxMode, seq, customPhase1);
-                        
                         const p2End = p2Start + split.phase2;
                         
+                        // [V98 Logic] Try to stick to assigned targetId, if blocked, find new slot
                         let finalTargetId = item.comboMeta.targetId;
-                        if (!finalTargetId || isReservedAt(finalTargetId, p2Start, p2End)) {
-                            const type = key.includes('chair') ? 'bed' : 'chair';
-                            const altSlot = findFirstFreeSlot(type, p2Start, p2End);
-                            if (altSlot) finalTargetId = altSlot;
+                        const targetType = key.includes('chair') ? 'bed' : 'chair';
+
+                        if (!finalTargetId || (activeEndTimes[finalTargetId] && p2Start < activeEndTimes[finalTargetId])) {
+                             // Target Blocked -> Search Matrix for new slot
+                             finalTargetId = MatrixHelper.findBestSlot(targetType, p2Start, p2End, timelineGrid, activeEndTimes);
                         }
 
                         if (finalTargetId) {
@@ -271,7 +276,7 @@ const App = () => {
                 }
             });
 
-            // --- PENDING LIST SIMULATION ---
+            // --- C. MATRIX LAYER 3: PENDING SIMULATION (V98 SYNCED) ---
             const pendingBookings = relevantBookings.filter(b => 
                 !b.status.includes('完成') && 
                 !b.status.includes('✅') &&
@@ -281,6 +286,7 @@ const App = () => {
             const listSingles = pendingBookings.filter(b => b.category !== 'COMBO' && !b.serviceName?.includes('套餐'));
             const listCombos = pendingBookings.filter(b => b.category === 'COMBO' || b.serviceName?.includes('套餐'));
             
+            // Sort by time to simulate FIFO allocation
             const sortFn = (a,b) => {
                 const timeA = window.normalizeToTimelineMins(a.startTimeString.split(' ')[1]);
                 const timeB = window.normalizeToTimelineMins(b.startTimeString.split(' ')[1]);
@@ -289,43 +295,41 @@ const App = () => {
             };
             listSingles.sort(sortFn); listCombos.sort(sortFn);
 
-            // Xếp Single
+            // [V98] Simulate Singles Allocation using Matrix Helper
             listSingles.forEach(b => {
                 const originalStart = window.normalizeToTimelineMins(b.startTimeString.split(' ')[1]);
                 const totalNeeded = b.pax || 1;
                 const alreadyRunning = activePaxCounts[String(b.rowId)] || 0;
                 let completedCount = 0;
-                for(let i=1; i<=totalNeeded; i++) {
-                    if(b[`Status${i}`] && b[`Status${i}`].includes('完成')) completedCount++;
-                }
+                for(let i=1; i<=totalNeeded; i++) { if(b[`Status${i}`] && b[`Status${i}`].includes('完成')) completedCount++; }
                 const remainingNeeded = totalNeeded - alreadyRunning - completedCount;
 
                 if (remainingNeeded <= 0) return;
 
                 for(let k=0; k<remainingNeeded; k++) {
                     const type = b.type === 'CHAIR' ? 'chair' : 'bed';
-                    let searchOffsets = [0]; for(let i=1; i<=120; i++) searchOffsets.push(i);
+                    let searchOffsets = [0]; for(let i=1; i<=120; i++) searchOffsets.push(i); // Try +2 hours window
+                    
                     for(let delay of searchOffsets) {
                         let tryStart = originalStart + delay;
                         let tryEnd = tryStart + b.duration;
-                        const slotId = findFirstFreeSlot(type, tryStart, tryEnd);
+                        const slotId = MatrixHelper.findBestSlot(type, tryStart, tryEnd, timelineGrid, activeEndTimes);
+                        
                         if (slotId) {
-                            addToGrid(slotId, tryStart, tryEnd, b, { isCombo: false });
+                            addToGrid(slotId, tryStart, tryEnd, b, { isCombo: false, isPending: true });
                             break; 
                         }
                     }
                 }
             });
 
-            // Xếp Combo
+            // [V98] Simulate Combos Allocation (Hybrid Interleaving Logic)
             listCombos.forEach(b => {
                 const originalStart = window.normalizeToTimelineMins(b.startTimeString.split(' ')[1]);
                 const totalNeeded = b.pax || 1;
                 const alreadyRunning = activePaxCounts[String(b.rowId)] || 0;
                 let completedCount = 0;
-                for(let i=1; i<=totalNeeded; i++) {
-                    if(b[`Status${i}`] && b[`Status${i}`].includes('完成')) completedCount++;
-                }
+                for(let i=1; i<=totalNeeded; i++) { if(b[`Status${i}`] && b[`Status${i}`].includes('完成')) completedCount++; }
                 const remainingNeeded = totalNeeded - alreadyRunning - completedCount;
 
                 if (remainingNeeded <= 0) return; 
@@ -336,33 +340,33 @@ const App = () => {
                         let tryStart = originalStart + delay;
                         const customPhase1 = b.phase1_duration;
 
-                        // Case FB (Foot First)
+                        // [V98] Try Standard FB First
                         const splitFB = window.getComboSplit(b.duration, true, 'FB', customPhase1);
                         const p1EndFB = tryStart + splitFB.phase1;
                         const p2StartFB = p1EndFB + 5;
                         const p2EndFB = p2StartFB + splitFB.phase2;
                         
-                        const s1FB = findFirstFreeSlot('chair', tryStart, p1EndFB);
-                        const s2FB = findFirstFreeSlot('bed', p2StartFB, p2EndFB);
+                        const s1FB = MatrixHelper.findBestSlot('chair', tryStart, p1EndFB, timelineGrid, activeEndTimes);
+                        const s2FB = MatrixHelper.findBestSlot('bed', p2StartFB, p2EndFB, timelineGrid, activeEndTimes);
 
                         if (s1FB && s2FB) {
-                            addToGrid(s1FB, tryStart, p1EndFB, b, { isCombo: true, phase: 1, sequence: 'FB', targetId: s2FB });
-                            addToGrid(s2FB, p2StartFB, p2EndFB, b, { isCombo: true, phase: 2, sequence: 'FB' });
+                            addToGrid(s1FB, tryStart, p1EndFB, b, { isCombo: true, phase: 1, sequence: 'FB', targetId: s2FB, isPending: true });
+                            addToGrid(s2FB, p2StartFB, p2EndFB, b, { isCombo: true, phase: 2, sequence: 'FB', isPending: true });
                             break;
                         }
                         
-                        // Case BF (Body First)
+                        // [V98] Hybrid Interleaving: Try BF if FB fails
                         const splitBF = window.getComboSplit(b.duration, true, 'BF', customPhase1);
                         const p1EndBF = tryStart + splitBF.phase1;
                         const p2StartBF = p1EndBF + 5;
                         const p2EndBF = p2StartBF + splitBF.phase2;
                         
-                        const s1BF_bed = findFirstFreeSlot('bed', tryStart, p1EndBF);
-                        const s2BF_chair = findFirstFreeSlot('chair', p2StartBF, p2EndBF);
+                        const s1BF_bed = MatrixHelper.findBestSlot('bed', tryStart, p1EndBF, timelineGrid, activeEndTimes);
+                        const s2BF_chair = MatrixHelper.findBestSlot('chair', p2StartBF, p2EndBF, timelineGrid, activeEndTimes);
                         
                         if (s1BF_bed && s2BF_chair) {
-                            addToGrid(s1BF_bed, tryStart, p1EndBF, b, { isCombo: true, phase: 1, sequence: 'BF', targetId: s2BF_chair });
-                            addToGrid(s2BF_chair, p2StartBF, p2EndBF, b, { isCombo: true, phase: 2, sequence: 'BF' });
+                            addToGrid(s1BF_bed, tryStart, p1EndBF, b, { isCombo: true, phase: 1, sequence: 'BF', targetId: s2BF_chair, isPending: true });
+                            addToGrid(s2BF_chair, p2StartBF, p2EndBF, b, { isCombo: true, phase: 2, sequence: 'BF', isPending: true });
                             break;
                         }
                     }
@@ -371,7 +375,7 @@ const App = () => {
 
             setTimelineData(timelineGrid);
 
-            // --- PREVIEW RESOURCE CARD ---
+            // --- PREVIEW RESOURCE CARD LOGIC ---
             const allSlots = [];
             for(let i=1; i<=6; i++) allSlots.push(`chair-${i}`);
             for(let i=1; i<=6; i++) allSlots.push(`bed-${i}`);
@@ -485,11 +489,9 @@ const App = () => {
         await updateResource(newState);
     };
 
-    // [NEW PHASE 2] Handle Opening the Edit Modal
     const handleOpenEdit = (resId) => {
         const current = resourceState[resId];
         if (!current || !current.booking) return;
-        // Check if it's a combo
         if (current.booking.category !== 'COMBO' && !current.booking.serviceName.includes('套餐')) {
             alert('⚠️ 僅支援調整套餐時間 (Combo Only)');
             return;
@@ -497,7 +499,6 @@ const App = () => {
         setEditComboTarget({ id: resId, booking: current.booking });
     };
 
-    // [NEW PHASE 2] Save Manual Time Adjustment
     const handleSaveComboTime = async (newPhase1) => {
         if (!editComboTarget) return;
         const { booking } = editComboTarget;
@@ -505,10 +506,8 @@ const App = () => {
         const totalDuration = parseInt(booking.duration || 100);
         const newPhase2 = totalDuration - newPhase1;
 
-        setSyncLock(true);
-        setTimeout(() => setSyncLock(false), 5000); // 5s Lock
+        setSyncLock(true); setTimeout(() => setSyncLock(false), 5000);
 
-        // 1. Update Resource State (Find all slots sharing this RowID)
         const newState = { ...resourceState };
         Object.keys(newState).forEach(key => {
             const res = newState[key];
@@ -525,20 +524,15 @@ const App = () => {
         });
         setResourceState(newState);
 
-        // 2. Sync to Backend
         try {
             await axios.post('/api/update-booking-details', {
                 rowId: rowId,
                 phase1_duration: newPhase1,
                 phase2_duration: newPhase2,
-                isManualLocked: true // Signal for Phase 3 logic
+                isManualLocked: true 
             });
             await updateResource(newState);
-            // alert('✅ 時間已更新 (Time Updated)');
-        } catch(e) {
-            console.error("Save Time Error", e);
-            alert("⚠️ 儲存失敗 (Save Failed)");
-        }
+        } catch(e) { console.error("Save Time Error", e); alert("⚠️ 儲存失敗 (Save Failed)"); }
         setEditComboTarget(null);
     };
 
@@ -578,7 +572,6 @@ const App = () => {
         updateStaffStatus(newStatusData); 
         
         const grpIdx = getGroupMemberIndex(currentId, current.booking.rowId);
-        
         const isComboService = (current.booking.serviceName && current.booking.serviceName.includes('套餐')) || comboSequence;
         const newBooking = { 
             ...current.booking, 
@@ -596,9 +589,18 @@ const App = () => {
         if (comboSequence) {
             const currentType = currentId.split('-')[0]; const index = currentId.split('-')[1];
             let ghostTargetId = null; const targetTypePrefix = currentType === 'chair' ? 'bed' : 'chair';
+            
+            // [V98] Ghost ID Selection Logic
+            // Prioritize same index, then search for any free slot
             const sameIndex = `${targetTypePrefix}-${index}`;
             if (!resourceState[sameIndex] && sameIndex !== id) { ghostTargetId = sameIndex; } 
-            else { for(let i=1; i<=6; i++) { const tid = `${targetTypePrefix}-${i}`; if(!resourceState[tid] && tid !== id) { ghostTargetId = tid; break; } } }
+            else { 
+                // Scan for free slot using MatrixHelper logic simulation
+                for(let i=1; i<=6; i++) { 
+                    const tid = `${targetTypePrefix}-${i}`; 
+                    if(!resourceState[tid] && tid !== id) { ghostTargetId = tid; break; } 
+                } 
+            }
             if (!ghostTargetId) ghostTargetId = `${targetTypePrefix}-${index}`;
             comboMeta = { sequence: comboSequence, targetId: ghostTargetId, flex: (current.comboMeta && current.comboMeta.flex) || 0, phase: 1 };
         }
@@ -657,52 +659,26 @@ const App = () => {
     // --- PAYMENT HANDLER ---
     const handleConfirmPayment = async (itemsToPay, totalAmount) => {
         try {
-            setSyncLock(true); 
-            setTimeout(() => setSyncLock(false), 5000); 
-            
-            const newState = { ...resourceState }; 
-            const newStatusData = { ...statusData }; 
-            const updatesByRow = {}; 
-
+            setSyncLock(true); setTimeout(() => setSyncLock(false), 5000); 
+            const newState = { ...resourceState }; const newStatusData = { ...statusData }; const updatesByRow = {}; 
             const baseTime = Date.now();
 
             for (let i = 0; i < itemsToPay.length; i++) {
-                const item = itemsToPay[i];
-                const b = item.booking;
-                const rid = String(b.rowId);
-                const resId = item.resourceId;
-
-                let targetIndex = -1;
-                const currentStaff = b.serviceStaff || b.staffId; 
+                const item = itemsToPay[i]; const b = item.booking; const rid = String(b.rowId); const resId = item.resourceId;
+                let targetIndex = -1; const currentStaff = b.serviceStaff || b.staffId; 
                 
                 if (currentStaff && currentStaff !== '隨機' && currentStaff !== 'undefined') {
-                    const staffCols = [
-                        b.serviceStaff || b.staffId,
-                        b.staffId2,
-                        b.staffId3,
-                        b.staffId4,
-                        b.staffId5,
-                        b.staffId6
-                    ];
+                    const staffCols = [ b.serviceStaff || b.staffId, b.staffId2, b.staffId3, b.staffId4, b.staffId5, b.staffId6 ];
                     targetIndex = staffCols.findIndex(s => s && s.trim() === currentStaff.trim());
                 }
-
                 if (targetIndex === -1) {
                     const seatNum = parseInt(resId.replace(/\D/g, ''));
-                    if (!isNaN(seatNum) && seatNum > 0) {
-                        targetIndex = Math.min(seatNum - 1, 5); 
-                    } else {
-                        targetIndex = 0;
-                    }
+                    if (!isNaN(seatNum) && seatNum > 0) targetIndex = Math.min(seatNum - 1, 5); 
+                    else targetIndex = 0;
                 }
 
-                const statusNum = targetIndex + 1;
-                const statusColEnglish = `Status${statusNum}`; 
-
-                if (!updatesByRow[rid]) {
-                    updatesByRow[rid] = { rowId: rid, forceSync: true, originalBooking: b };
-                }
-                
+                const statusNum = targetIndex + 1; const statusColEnglish = `Status${statusNum}`; 
+                if (!updatesByRow[rid]) { updatesByRow[rid] = { rowId: rid, forceSync: true, originalBooking: b }; }
                 updatesByRow[rid][statusColEnglish] = '✅ 完成';
                 
                 let staffId = null;
@@ -713,19 +689,14 @@ const App = () => {
                 else if (targetIndex === 4) staffId = b.staffId5;
                 else if (targetIndex === 5) staffId = b.staffId6;
 
-                if (staffId && staffId !== '隨機' && staffId !== 'undefined') {
-                    newStatusData[staffId] = { status: 'READY', checkInTime: baseTime + (i * 1000) };
-                }
-
+                if (staffId && staffId !== '隨機' && staffId !== 'undefined') { newStatusData[staffId] = { status: 'READY', checkInTime: baseTime + (i * 1000) }; }
                 delete newState[resId];
             }
 
             Object.values(updatesByRow).forEach(updatePayload => {
                 const booking = updatePayload.originalBooking;
                 const staffCols = [booking.serviceStaff || booking.staffId, booking.staffId2, booking.staffId3, booking.staffId4, booking.staffId5, booking.staffId6];
-                let activeSlotsCount = 0;
-                let finishedSlotsCount = 0;
-
+                let activeSlotsCount = 0; let finishedSlotsCount = 0;
                 staffCols.forEach((staffName, idx) => {
                     if (staffName && staffName !== 'undefined' && staffName !== 'null' && staffName.trim() !== '') {
                         activeSlotsCount++;
@@ -735,28 +706,14 @@ const App = () => {
                         if (isNewCompletion || wasAlreadyDone) finishedSlotsCount++;
                     }
                 });
-
-                if (activeSlotsCount > 0 && finishedSlotsCount >= activeSlotsCount) {
-                    updatePayload.mainStatus = '✅ 完成'; 
-                }
+                if (activeSlotsCount > 0 && finishedSlotsCount >= activeSlotsCount) { updatePayload.mainStatus = '✅ 完成'; }
                 delete updatePayload.originalBooking;
             });
             
-            updateResource(newState); 
-            updateStaffStatus(newStatusData); 
-            setBillingData(null); 
-
-            const apiCalls = Object.values(updatesByRow).map(payload => 
-                axios.post('/api/update-booking-details', payload)
-            );
-
-            await Promise.all(apiCalls);
-            alert(`✅ 結帳成功: $${totalAmount}`);
-
-        } catch(e) { 
-            console.error("Payment Sync Error:", e);
-            alert("⚠️ Lỗi kết nối. Vui lòng kiểm tra mạng!");
-        }
+            updateResource(newState); updateStaffStatus(newStatusData); setBillingData(null); 
+            const apiCalls = Object.values(updatesByRow).map(payload => axios.post('/api/update-booking-details', payload));
+            await Promise.all(apiCalls); alert(`✅ 結帳成功: $${totalAmount}`);
+        } catch(e) { console.error("Payment Sync Error:", e); alert("⚠️ Lỗi kết nối. Vui lòng kiểm tra mạng!"); }
     };
 
     const handleWalkInSave = async (data) => { await axios.post('/api/admin-booking', data); setShowWalkIn(false); setShowAvailability(false); fetchData(); };
@@ -796,7 +753,7 @@ const App = () => {
             <header className={`text-white p-3 shadow-md flex justify-between items-center sticky top-0 z-50 transition-colors ${quotaError ? 'bg-red-800' : 'bg-[#1e1b4b]'}`}>
                 {/* Header Content */}
                 <div className="flex items-center gap-3">
-                    <span className="bg-amber-500 text-black px-2 py-1 rounded font-black text-sm">V6.0</span>
+                    <span className="bg-amber-500 text-black px-2 py-1 rounded font-black text-sm">V98</span>
                     <span className="font-bold hidden md:inline">XinWuChan</span>
                     <div className="flex items-center gap-2 bg-white/10 rounded px-2 py-1 border border-white/20">
                         <button onClick={()=>{const d=new Date(viewDate); d.setDate(d.getDate()-1); setViewDate(d.toISOString().split('T')[0])}} className="text-white hover:text-amber-400 font-bold px-2">❮</button>
@@ -821,7 +778,6 @@ const App = () => {
                 </div>
             </header>
             
-            {/* Staff Scroll Bar */}
             <div className="bg-white border-b shadow-sm p-2 overflow-x-auto whitespace-nowrap staff-scroll">
                 <div className="flex w-full justify-between items-center min-w-max">
                     <div className="flex gap-1 opacity-30 scale-95 border-r-2 pr-2 mr-1 border-dashed border-slate-300">
@@ -861,7 +817,6 @@ const App = () => {
             {billingData && <window.BillingModal activeItem={billingData.activeItem} relatedItems={billingData.relatedItems} onConfirm={handleConfirmPayment} onCancel={() => setBillingData(null)} />}
             {splitData && <window.SplitStaffModal staffList={staffList} statusData={statusData} onCancel={()=>setSplitData(null)} onConfirm={handleSplitConfirm} />}
             
-            {/* [NEW] Manual Edit Modal */}
             {editComboTarget && <window.ComboTimeEditModal booking={editComboTarget.booking} onConfirm={handleSaveComboTime} onCancel={() => setEditComboTarget(null)} />}
         </div>
     );

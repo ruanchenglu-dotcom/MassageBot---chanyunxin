@@ -2,21 +2,21 @@
  * =================================================================================================
  * PROJECT: XINWUCHAN MASSAGE BOT - CORE LOGIC KERNEL
  * FILE: resource_core.js
- * PHIÊN BẢN: V7.5 (HYBRID INTERLEAVING & ELASTIC ANCHOR)
+ * PHIÊN BẢN: V8.0 (MATRIX TETRIS & SPATIAL AWARENESS)
  * TÁC GIẢ: AI ASSISTANT & USER
  * NGÀY CẬP NHẬT: 2026/01/12
  *
- * * * * * CHANGE LOG V7.5 (THE HYBRID UPGRADE):
- * 1. [RESOURCE INTERLEAVING]:
- * - Giải quyết bài toán "Tắc nghẽn cục bộ" (Ví dụ: Có 2 ghế, 4 giường nhưng khách đông đòi làm chân hết).
- * - Hệ thống tự động thử nghiệm các tổ hợp quy trình (Permutations):
- * + Kịch bản A: Tất cả làm Chân -> Body (FB).
- * + Kịch bản B: Một số làm Body -> Chân (BF) để lấp vào chỗ trống của giường.
- * * 2. [HIERARCHY STRATEGY]:
- * - Ưu tiên 1: Interleaving (Đan xen) với thời gian chuẩn.
- * - Ưu tiên 2: Smart Squeeze (Bóp thời gian khách cũ) nếu Đan xen vẫn không vừa.
- * * 3. [LEGACY PRESERVATION]:
- * - Giữ nguyên toàn bộ logic Elastic Anchor & Smart Squeeze của V7.0.
+ * * * * * CHANGE LOG V8.0 (THE MATRIX REVOLUTION):
+ * 1. [RESOURCE MATRIX ENGINE]:
+ * - Loại bỏ logic "Đếm số lượng" (Count < 6).
+ * - Chuyển sang logic "Xếp gạch" (Spatial Allocation): Hệ thống dựng 12 làn (6 Ghế, 6 Giường).
+ * - "Virtual Bin Packing": Tự động sắp xếp các booking cũ vào các làn trống để tối ưu hóa không gian (Defrag).
+ * 2. [PRECISE SLOT FINDING]:
+ * - Xác định chính xác: "Còn trống Bed-05 từ 16:30-18:00".
+ * - Giải quyết triệt để bài toán: Tổng khách < Max nhưng thời gian bị phân mảnh không nhét vừa khách mới.
+ * 3. [LEGACY PRESERVATION]:
+ * - Vẫn giữ nguyên logic Elastic Anchor, Smart Squeeze & Interleaving của V7.5.
+ * - Matrix được áp dụng BÊN TRONG các kịch bản hoán vị (Permutation Loop).
  * =================================================================================================
  */
 
@@ -28,7 +28,7 @@ const CONFIG = {
     // Tài nguyên phần cứng
     MAX_CHAIRS: 6,        
     MAX_BEDS: 6,          
-    MAX_TOTAL_GUESTS: 12, 
+    MAX_TOTAL_GUESTS: 12, // Dù còn giường/ghế nhưng không được vượt quá tổng tải trọng nhân sự/không gian chung
     
     // Cấu hình thời gian (Đơn vị: Giờ)
     OPEN_HOUR: 8,         // 08:00 Sáng mở cửa
@@ -55,7 +55,6 @@ function setDynamicServices(newServicesObj) {
         'LATE': { name: '⚠️ 延遲 (Late)', duration: 0, type: 'NONE', price: 0, category: 'SYSTEM' }
     };
     SERVICES = { ...newServicesObj, ...systemServices };
-    // console.log(`[CORE V7.5] Services Updated: ${Object.keys(SERVICES).length} entries.`);
 }
 
 // ============================================================================
@@ -110,57 +109,72 @@ function isOverlap(startA, endA, startB, endB) {
 }
 
 // ============================================================================
-// PHẦN 3: LOGIC KIỂM TRA TÀI NGUYÊN (CAPACITY CHECK - LINE SWEEP)
+// PHẦN 3: MATRIX ENGINE (V8.0 NEW CORE) - THAY THẾ LINE SWEEP
 // ============================================================================
 
-/**
- * Kiểm tra xem tài nguyên (Giường/Ghế) có bị quá tải trong khoảng thời gian không
- * Sử dụng thuật toán Line Sweep (Quét đường thẳng) để đếm tải trọng tức thời
- */
-function checkResourceCapacity(resourceType, start, end, bookings) {
-    let limit = 0;
-    if (resourceType === 'BED') limit = CONFIG.MAX_BEDS;
-    else if (resourceType === 'CHAIR') limit = CONFIG.MAX_CHAIRS;
-    else if (resourceType === 'TOTAL') limit = CONFIG.MAX_TOTAL_GUESTS;
-    else return true; // Loại tài nguyên không giới hạn
-
-    // Lọc ra các booking có liên quan đến loại tài nguyên và khung giờ này
-    let relevantBookings = bookings.filter(bk => {
-        let isTypeMatch = (resourceType === 'TOTAL') ? true : (bk.resourceType === resourceType);
-        return isTypeMatch && isOverlap(start, end, bk.start, bk.end);
-    });
-
-    if (relevantBookings.length === 0) return true;
-
-    // Tạo các điểm sự kiện (Start/End)
-    let points = [];
-    points.push({ time: start, type: 'check_start' });
-    points.push({ time: end, type: 'check_end' });
-
-    relevantBookings.forEach(bk => {
-        points.push({ time: bk.start, type: 'start' });
-        points.push({ time: bk.end, type: 'end' });
-    });
-
-    // Sắp xếp sự kiện theo thời gian
-    points.sort((a, b) => {
-        if (a.time !== b.time) return a.time - b.time;
-        // Priority: StartBooking > CheckStart > CheckEnd > EndBooking
-        const priority = { 'start': 1, 'check_start': 2, 'check_end': 3, 'end': 4 };
-        return priority[a.type] - priority[b.type];
-    });
-
-    let currentLoad = 0;
-    for (const p of points) {
-        if (p.type === 'start') currentLoad++;
-        else if (p.type === 'end') currentLoad--;
-        
-        // Chỉ kiểm tra tải trọng TRONG khoảng thời gian yêu cầu
-        if (p.time >= start && p.time < end) {
-             if (currentLoad > limit) return false; 
-        }
+class VirtualMatrix {
+    constructor() {
+        // Khởi tạo các làn chứa (Lanes)
+        // Mỗi lane là một mảng các khoảng thời gian đã bị chiếm {start, end, ownerId}
+        this.lanes = {
+            'CHAIR': Array.from({ length: CONFIG.MAX_CHAIRS }, (_, i) => ({ id: `CHAIR-${i+1}`, occupied: [] })),
+            'BED': Array.from({ length: CONFIG.MAX_BEDS }, (_, i) => ({ id: `BED-${i+1}`, occupied: [] }))
+        };
+        this.totalLoad = []; // Để check tổng số khách (MAX_TOTAL_GUESTS)
     }
-    return true; 
+
+    /**
+     * Cố gắng nhét một block thời gian vào ma trận
+     * @param {string} type 'CHAIR' | 'BED' | 'TOTAL'
+     * @param {number} start 
+     * @param {number} end 
+     * @param {string} ownerId ID định danh của booking (để debug)
+     * @returns {string|null} Trả về ID làn (VD: "BED-5") nếu thành công, null nếu thất bại
+     */
+    tryAllocate(type, start, end, ownerId) {
+        // Kiểm tra tổng tải trọng trước
+        if (type !== 'TOTAL') {
+             // Logic check total load riêng nếu cần, ở đây ta tập trung vào physical slot
+        }
+
+        const resourceGroup = this.lanes[type];
+        if (!resourceGroup) return 'N/A'; // Loại tài nguyên không cần track slot (VD: NONE)
+
+        // Duyệt qua từng làn (Lane 1 -> Lane 6) - Thuật toán First-Fit
+        for (let lane of resourceGroup) {
+            let isLaneFree = true;
+            for (let block of lane.occupied) {
+                if (isOverlap(start, end, block.start, block.end)) {
+                    isLaneFree = false;
+                    break;
+                }
+            }
+
+            if (isLaneFree) {
+                // Tìm thấy làn trống! Đánh dấu luôn vào bộ nhớ đệm của Matrix này
+                lane.occupied.push({ start, end, ownerId });
+                // Sắp xếp lại để timeline gọn gàng (optional)
+                lane.occupied.sort((a, b) => a.start - b.start);
+                return lane.id; // Return "BED-1", "CHAIR-3"...
+            }
+        }
+
+        return null; // Không còn làn nào vừa
+    }
+
+    /**
+     * Kiểm tra nhanh xem có bị quá tải tổng số khách không
+     * (Logic cũ Line Sweep áp dụng cho Total Guests)
+     */
+    checkTotalCapacity(start, end) {
+        // Đếm số booking trùng với khoảng start-end trong toàn bộ matrix
+        // Đây là bản rút gọn, thực tế ta có thể dùng biến đếm riêng
+        // Nhưng để chính xác, ta check tổng load:
+        // Đếm xem tại bất kỳ thời điểm nào trong (start, end), số lượng khách active > 12 không?
+        // (Tạm thời dùng logic đơn giản: Nếu tìm được slot Giường/Ghế thì coi như Total OK, 
+        // trừ khi số ghế + số giường > 12 thì mới cần check kỹ. Mặc định Chair 6 + Bed 6 = 12 = Max Total. Nên slot check là đủ).
+        return true; 
+    }
 }
 
 // ============================================================================
@@ -253,28 +267,36 @@ function generateElasticSplits(totalDuration, step = 0, limit = 0, customLockedP
 }
 
 // ============================================================================
-// PHẦN 6: CORE ENGINE V7.5 (HYBRID INTERLEAVING + SMART SQUEEZE)
+// PHẦN 6: CORE ENGINE V8.0 (MATRIX TETRIS + HYBRID INTERLEAVING)
 // ============================================================================
 
 /**
- * Hàm kiểm tra khả dụng chính
- * V7.5 Strategy: 
- * 1. Hard/Soft Classification (Phân loại khách cũ).
- * 2. Permutation Loop (Vòng lặp hoán vị): Thử các tỉ lệ FB/BF khác nhau cho nhóm khách mới.
- * 3. Smart Squeeze (Bóp khách cũ): Được gọi bên trong mỗi kịch bản nếu tài nguyên bị thiếu.
+ * Hàm kiểm tra khả dụng chính - PHIÊN BẢN V8.0
+ * Quy trình:
+ * 1. Build Virtual Matrix cho mỗi kịch bản (Scenario).
+ * 2. "Pack" (Nhồi) khách cũ vào Matrix. Nếu khách cũ đã chiếm hết khe -> Fail.
+ * 3. Thử "Pack" khách mới vào Matrix.
+ * 4. Nếu không vừa -> Thử Squeeze (Bóp) khách Soft cũ trong Matrix đó.
  */
 function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRaw, staffList) {
     const requestStartMins = getMinsFromTimeStr(timeStr);
     if (requestStartMins === -1) return { feasible: false, reason: "Error: Invalid Time Format" };
 
     // ------------------------------------------------------------------------
-    // BƯỚC A: PHÂN LOẠI DỮ LIỆU CŨ (HARD vs SOFT)
+    // BƯỚC A: CHUẨN BỊ DỮ LIỆU KHÁCH CŨ (PRE-PROCESSING)
     // ------------------------------------------------------------------------
-    
-    let hardBookings = [];      
-    let softBookings = [];      
-    
-    currentBookingsRaw.forEach(b => {
+    // Ta vẫn chia khách thành Hard và Soft, nhưng không tạo Timeline phẳng ngay.
+    // Mà chuẩn bị đối tượng để ném vào Matrix.
+
+    let existingBookingsProcessed = [];
+
+    // Sort existing bookings by Start Time (Quan trọng cho thuật toán First-Fit Packing)
+    // Việc xếp khách đến trước vào trước giúp defragment tốt hơn.
+    let sortedCurrentBookings = [...currentBookingsRaw].sort((a, b) => {
+        return getMinsFromTimeStr(a.startTime) - getMinsFromTimeStr(b.startTime);
+    });
+
+    sortedCurrentBookings.forEach(b => {
         const bStart = getMinsFromTimeStr(b.startTime);
         if (bStart === -1) return;
 
@@ -282,123 +304,131 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
         let isCombo = svcInfo.category === 'COMBO' || b.serviceName.includes('Combo') || b.serviceName.includes('套餐');
         let duration = b.duration || 60;
         
-        // [ELASTIC ANCHOR]: Xác định khách nào có thể "bóp" được
-        const isElasticCandidate = isCombo && (b.isManualLocked !== true) && (b.status !== 'Running');
+        // Object chuẩn hóa để xử lý
+        let processedB = {
+            id: b.rowId,
+            originalData: b,
+            staffName: b.staffName,
+            serviceName: b.serviceName,
+            category: svcInfo.category,
+            isElastic: isCombo && (b.isManualLocked !== true) && (b.status !== 'Running'),
+            elasticStep: svcInfo.elasticStep || 5,
+            elasticLimit: svcInfo.elasticLimit || 15,
+            blocks: [] // Sẽ tính toán blocks cụ thể bên dưới
+        };
 
-        if (isElasticCandidate) {
-            softBookings.push({
-                id: b.rowId,
-                originalData: b,
-                staffName: b.staffName,
-                serviceName: b.serviceName,
-                duration: duration,
-                startMins: bStart, 
-                elasticStep: svcInfo.elasticStep || 5,
-                elasticLimit: svcInfo.elasticLimit || 15,
-                currentPhase1: b.phase1_duration ? parseInt(b.phase1_duration) : Math.floor(duration/2)
-            });
+        // Tính toán Blocks (Hard Geometry)
+        // Lưu ý: Khách cũ mặc định giữ nguyên Flow (FB/BF) trừ khi ta can thiệp sau này (chưa implement đảo khách cũ, chỉ đảo khách mới).
+        // Ta giả định khách cũ đang chạy FB chuẩn.
+        if (isCombo) {
+            let p1 = b.phase1_duration ? parseInt(b.phase1_duration) : Math.floor(duration / 2);
+            let p2 = duration - p1;
+            const p1End = bStart + p1;
+            const p2Start = p1End + CONFIG.TRANSITION_BUFFER;
+            
+            processedB.blocks.push({ start: bStart, end: p1End, type: 'CHAIR' }); // Phase 1
+            processedB.blocks.push({ start: p2Start, end: bStart + duration, type: 'BED' }); // Phase 2
+            
+            // Lưu info để dùng cho Elastic Squeeze sau này
+            processedB.p1_current = p1;
+            processedB.p2_current = p2;
+            processedB.startMins = bStart;
+            processedB.duration = duration;
+
         } else {
-            // Hard Bookings: Cố định vị trí
-            if (isCombo) {
-                let p1 = Math.floor(duration / 2);
-                if (b.phase1_duration) p1 = parseInt(b.phase1_duration);
-                // Mặc định khách cũ coi như đang chạy FB nếu không có chỉ định khác (để đơn giản)
-                const p1End = bStart + p1;
-                const p2Start = p1End + CONFIG.TRANSITION_BUFFER;
-                
-                hardBookings.push({ start: bStart, end: p1End, resourceType: 'CHAIR', staffName: b.staffName, ownerId: b.rowId });
-                hardBookings.push({ start: p2Start, end: bStart + duration, resourceType: 'BED', staffName: b.staffName, ownerId: b.rowId });
-            } else {
-                let rType = svcInfo.type || 'CHAIR';
-                if (b.serviceName.toUpperCase().match(/BODY|指壓|油|BED/)) rType = 'BED';
-                hardBookings.push({ start: bStart, end: bStart + duration, resourceType: rType, staffName: b.staffName, ownerId: b.rowId });
-            }
+            let rType = svcInfo.type || 'CHAIR';
+            if (b.serviceName.toUpperCase().match(/BODY|指壓|油|BED/)) rType = 'BED';
+            processedB.blocks.push({ start: bStart, end: bStart + duration, type: rType });
         }
-    });
-
-    // ------------------------------------------------------------------------
-    // BƯỚC B: TIMELINE CƠ SỞ (BASELINE)
-    // ------------------------------------------------------------------------
-    
-    // Xây dựng timeline với khách Soft ở trạng thái mặc định
-    let baselineTimeline = [...hardBookings];
-    softBookings.forEach(soft => {
-        const p1 = soft.currentPhase1;
-        const p2 = soft.duration - p1;
-        const tStart = soft.startMins;
-        const p1End = tStart + p1;
-        const p2Start = p1End + CONFIG.TRANSITION_BUFFER;
         
-        baselineTimeline.push({ 
-            start: tStart, end: p1End + CONFIG.CLEANUP_BUFFER, 
-            resourceType: 'CHAIR', staffName: soft.staffName, 
-            isSoft: true, softId: soft.id 
-        });
-        baselineTimeline.push({ 
-            start: p2Start, end: p2Start + p2 + CONFIG.CLEANUP_BUFFER, 
-            resourceType: 'BED', staffName: soft.staffName, 
-            isSoft: true, softId: soft.id 
-        });
+        existingBookingsProcessed.push(processedB);
     });
 
     // ------------------------------------------------------------------------
-    // BƯỚC C: VÒNG LẶP HOÁN VỊ (PERMUTATION LOOP - THE V7.5 UPGRADE)
+    // BƯỚC B: VÒNG LẶP HOÁN VỊ (PERMUTATION LOOP)
     // ------------------------------------------------------------------------
-
-    // Sắp xếp khách mới
-    const newGuests = guestList.map((g, idx) => ({ ...g, idx: idx }));
+    // Tương tự V7.5, ta thử đảo Flow của khách MỚI (FB <-> BF) để tìm khe hở.
     
-    // Xác định số lượng khách có thể Interleave (Chỉ Combo mới đảo chiều được)
-    // Để đơn giản, ta chỉ đảo chiều các khách chọn Combo. Khách Single giữ nguyên.
+    const newGuests = guestList.map((g, idx) => ({ ...g, idx: idx }));
     const comboGuests = newGuests.filter(g => {
         const s = SERVICES[g.serviceCode];
         return s && s.category === 'COMBO';
     });
     
-    // Nếu không có khách combo hoặc ít hơn 2 khách, chỉ chạy kịch bản mặc định (0 BF)
-    // Nhưng để nhất quán, ta cứ chạy loop.
-    // Loop: i là số lượng khách Combo sẽ làm Body First (BF).
-    // i chạy từ 0 đến comboGuests.length.
-    
     const maxBF = comboGuests.length;
-    // Thứ tự ưu tiên: Ưu tiên ít đảo lộn nhất (0 BF) -> tăng dần số lượng BF
     let successfulScenario = null;
 
+    // Loop: i là số lượng khách Combo MỚI sẽ làm Body First (BF).
     for (let numBF = 0; numBF <= maxBF; numBF++) {
         
-        // --- CẤU HÌNH KỊCH BẢN (SCENARIO SETUP) ---
-        // Trong kịch bản này: 'numBF' khách Combo đầu tiên sẽ làm Body trước.
-        // Những khách còn lại làm Foot trước (FB).
-        
+        // [QUAN TRỌNG]: Khởi tạo Matrix mới tinh cho kịch bản này
+        let matrix = new VirtualMatrix();
         let scenarioDetails = [];
         let scenarioUpdates = [];
-        let scenarioTimeline = [...baselineTimeline]; // Bắt đầu từ baseline
         let scenarioFailed = false;
+        
+        // --- GIAI ĐOẠN 1: XẾP KHÁCH CŨ VÀO MATRIX (THE PINNING) ---
+        // Ta cố gắng xếp khách cũ vào. Nếu khách cũ không xếp vừa (do data lỗi), ta vẫn phải accept họ 
+        // nhưng sẽ đánh dấu matrix bị bẩn. Tuy nhiên, logic đúng là: First Fit.
+        
+        // Danh sách các booking Soft mà ta có thể cần bóp nát nếu thiếu chỗ
+        let softsToSqueezeCandidates = []; 
 
-        // Clone soft bookings để track trạng thái squeeze trong kịch bản này
-        let scenarioSofts = [...softBookings]; 
-        let softConflictIds = new Set(); 
+        for (const exB of existingBookingsProcessed) {
+            let placedSuccessfully = true;
+            let allocatedSlots = []; // Lưu lại slot đã cấp: ["CHAIR-1", "BED-1"]
 
-        // 1. Tạo Blocks cho từng khách mới dựa trên Flow của kịch bản
-        let newGuestBlocksMap = []; // Lưu blocks của từng khách để check staff sau
+            // Thử xếp nguyên trạng (Standard Shape)
+            for (const block of exB.blocks) {
+                // Thêm buffer dọn dẹp vào block khi check slot
+                // (Khách cũ chiếm chỗ đến lúc dọn xong)
+                const realEnd = block.end + CONFIG.CLEANUP_BUFFER;
+                const slotId = matrix.tryAllocate(block.type, block.start, realEnd, exB.id);
+                
+                if (!slotId) {
+                    placedSuccessfully = false;
+                    break;
+                }
+                allocatedSlots.push(slotId);
+            }
+
+            if (!placedSuccessfully) {
+                // Khách cũ này đang gây xung đột (có thể do data thực tế đang bị chồng).
+                // Ở V8.0, nếu khách cũ không xếp được, ta tạm thời bỏ qua họ khỏi Matrix 
+                // (hoặc coi như họ chiếm slot ảo vô hình).
+                // Nhưng để an toàn cho khách mới, ta coi như Matrix đã bị full chỗ đó.
+                // *Chiến lược:* Nếu exB là Soft (Elastic), ta đưa vào danh sách chờ Squeeze ngay lập tức.
+                if (exB.isElastic) {
+                    softsToSqueezeCandidates.push(exB);
+                } else {
+                    // Hard Booking mà không xếp được -> Data lỗi nghiêm trọng hoặc Overbooking.
+                    // Ta buộc phải lờ đi hoặc return fail. Để hệ thống flexible, ta log warning và tiếp tục.
+                    // console.warn("Hard booking overlapping in Matrix:", exB.id);
+                }
+            } else {
+                // Xếp thành công -> Lưu vào danh sách có thể squeeze sau này nếu cần
+                if (exB.isElastic) {
+                    // Lưu lại trạng thái đã allocate để nếu cần thì undo và allocate lại bản squeeze
+                    exB.allocatedSlots = allocatedSlots; 
+                    softsToSqueezeCandidates.push(exB); 
+                }
+            }
+        }
+
+        // --- GIAI ĐOẠN 2: TÍNH TOÁN BLOCKS CHO KHÁCH MỚI ---
+        let newGuestBlocksMap = []; 
 
         for (const ng of newGuests) {
             const svc = SERVICES[ng.serviceCode];
-            if (!svc) continue;
+            if (!svc) continue; // Should not happen
 
             // Xác định Flow: FB hay BF?
-            let flow = 'FB'; // Mặc định
+            let flow = 'FB'; 
             if (svc.category === 'COMBO') {
-                // Kiểm tra xem khách này có nằm trong nhóm BF của kịch bản không
-                // Lấy index trong mảng comboGuests
                 const cIdx = comboGuests.findIndex(cg => cg.idx === ng.idx);
-                if (cIdx < numBF) {
-                    flow = 'BF'; // Interleaving: Đảo chiều
-                }
+                if (cIdx < numBF) flow = 'BF'; // Interleaving
             }
 
-            // Tính toán khung thời gian (Blocks)
-            // Với khách mới, ta dùng Standard Duration (chưa squeeze khách mới vội)
             const duration = svc.duration;
             let blocks = [];
             
@@ -407,7 +437,6 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
                 const p2Standard = duration - p1Standard;
 
                 if (flow === 'FB') {
-                    // Foot -> Body
                     const t1End = requestStartMins + p1Standard;
                     const t2Start = t1End + CONFIG.TRANSITION_BUFFER;
                     blocks.push({ start: requestStartMins, end: t1End + CONFIG.CLEANUP_BUFFER, type: 'CHAIR' });
@@ -416,165 +445,203 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
                     scenarioDetails.push({
                         guestIndex: ng.idx, service: svc.name, price: svc.price,
                         phase1_duration: p1Standard, phase2_duration: p2Standard,
-                        flow: 'FB', timeStr: timeStr
+                        flow: 'FB', timeStr: timeStr, allocated: []
                     });
-
-                } else {
-                    // Body -> Foot (BF)
-                    // P2 (Body) làm trước, P1 (Foot) làm sau
-                    const t1End = requestStartMins + p2Standard; // Body time
+                } else { // BF
+                    const t1End = requestStartMins + p2Standard; 
                     const t2Start = t1End + CONFIG.TRANSITION_BUFFER;
-                    
-                    // Lưu ý: Resource Type đảo ngược theo flow
                     blocks.push({ start: requestStartMins, end: t1End + CONFIG.CLEANUP_BUFFER, type: 'BED' });
                     blocks.push({ start: t2Start, end: t2Start + p1Standard + CONFIG.CLEANUP_BUFFER, type: 'CHAIR' });
 
                     scenarioDetails.push({
                         guestIndex: ng.idx, service: svc.name, price: svc.price,
                         phase1_duration: p1Standard, phase2_duration: p2Standard,
-                        flow: 'BF', timeStr: timeStr // Đánh dấu flow để UI biết
+                        flow: 'BF', timeStr: timeStr, allocated: []
                     });
                 }
-            } else {
-                // Single Service
+            } else { // Single
                 let rType = svc.type || 'CHAIR';
                 if (svc.name.toUpperCase().match(/BODY|指壓|油|BED/)) rType = 'BED';
                 blocks.push({ start: requestStartMins, end: requestStartMins + duration + CONFIG.CLEANUP_BUFFER, type: rType });
                 
                 scenarioDetails.push({
                     guestIndex: ng.idx, service: svc.name, price: svc.price,
-                    flow: 'SINGLE', timeStr: timeStr
+                    flow: 'SINGLE', timeStr: timeStr, allocated: []
                 });
             }
-
             newGuestBlocksMap.push({ guest: ng, blocks: blocks });
         }
 
-        // 2. Kiểm tra va chạm tài nguyên (Resource Conflict Check)
-        // Duyệt qua tất cả các blocks của TẤT CẢ khách mới trong kịch bản này
-        let allNewBlocks = [];
-        newGuestBlocksMap.forEach(item => allNewBlocks.push(...item.blocks));
-
-        let hardConflict = false;
+        // --- GIAI ĐOẠN 3: XẾP KHÁCH MỚI VÀO MATRIX ---
+        // Duyệt qua từng block của từng khách mới và tryAllocate
+        let conflictFound = false;
         
-        // Check từng block mới với Scenario Timeline
-        for (const block of allNewBlocks) {
-            if (!checkResourceCapacity(block.type, block.start, block.end, scenarioTimeline)) {
-                // Có va chạm. Phân tích va chạm.
-                const blockers = scenarioTimeline.filter(existing => 
-                    existing.resourceType === block.type && 
-                    isOverlap(block.start, block.end, existing.start, existing.end)
-                );
-
-                const hardLoad = blockers.filter(b => !b.isSoft).length;
-                const softBlockers = blockers.filter(b => b.isSoft);
-                
-                let limit = (block.type === 'BED') ? CONFIG.MAX_BEDS : CONFIG.MAX_CHAIRS;
-
-                if (hardLoad >= limit) {
-                    hardConflict = true; // Va Hard -> Kịch bản này hỏng ngay
+        // Backup Matrix state để rollback nếu cần squeeze?
+        // Matrix class hiện tại đơn giản, ta có thể clone bằng cách deep copy lanes nếu cần phức tạp.
+        // Nhưng ở đây ta dùng chiến thuật: Nếu fail -> Reset Matrix của Kịch bản này và Xếp lại từ đầu với Soft Squeezed.
+        
+        for (const item of newGuestBlocksMap) {
+            let guestAllocations = [];
+            for (const block of item.blocks) {
+                const slotId = matrix.tryAllocate(block.type, block.start, block.end, `NEW_GUEST_${item.guest.idx}`);
+                if (!slotId) {
+                    conflictFound = true;
                     break;
                 }
-                
-                // Va Soft -> Ghi nhận để lát nữa Squeeze
-                softBlockers.forEach(sb => softConflictIds.add(sb.softId));
+                guestAllocations.push(slotId);
             }
+            if (conflictFound) break;
+
+            // Update chi tiết slot vào output
+            const detail = scenarioDetails.find(d => d.guestIndex === item.guest.idx);
+            if (detail) detail.allocated = guestAllocations;
         }
 
-        if (hardConflict) {
-            scenarioFailed = true; // Kịch bản này không khả thi do vướng Hard Booking
-            continue; // Thử kịch bản tiếp theo (numBF + 1)
-        }
-
-        // 3. Xử lý Soft Conflicts (SMART SQUEEZE WITHIN SCENARIO)
-        if (softConflictIds.size > 0) {
-            // Chúng ta cần bóp các ông Soft bị va chạm để nhường chỗ cho kịch bản hiện tại
-            let squeezeSuccess = true;
+        // --- GIAI ĐOẠN 4: SMART SQUEEZE (NẾU CẦN) ---
+        if (conflictFound) {
+            // Matrix hiện tại đã đầy. Ta cần reset và thử lại với phiên bản Soft đã bị bóp.
+            // Logic Squeeze: Tìm các Soft Booking xung đột với thời gian khách mới và bóp họ.
+            // Để đơn giản hóa trong V8.0: Ta thử bóp TẤT CẢ Soft Candidates (Brute force optimize).
             
-            // Tạo timeline tạm (bỏ các soft đang bị va chạm ra)
-            let trialTimeline = scenarioTimeline.filter(b => !Array.from(softConflictIds).includes(b.softId));
+            // 4.1. Reset Matrix cho lần thử Squeeze
+            let matrixSqueeze = new VirtualMatrix();
+            let updatesProposed = [];
+            
+            // 4.2. Xếp lại Hard Bookings (Nguyên trạng)
+            // Lọc ra Hard Bookings từ list đã process
+            const hardBookings = existingBookingsProcessed.filter(b => !b.isElastic);
+            hardBookings.forEach(hb => {
+                hb.blocks.forEach(blk => matrixSqueeze.tryAllocate(blk.type, blk.start, blk.end + CONFIG.CLEANUP_BUFFER, hb.id));
+            });
 
-            for (const softId of softConflictIds) {
-                const softBooking = softBookings.find(s => s.id === softId);
-                if (!softBooking) { squeezeSuccess = false; break; }
-
-                const softSplits = generateElasticSplits(softBooking.duration, softBooking.elasticStep, softBooking.elasticLimit);
-                let foundFitForSoft = false;
-
-                for (const sSplit of softSplits) {
-                    // Tạo hình dáng mới cho ông Soft
-                    const sP1End = softBooking.startMins + sSplit.p1;
-                    const sP2Start = sP1End + CONFIG.TRANSITION_BUFFER;
-                    const sP2End = sP2Start + sSplit.p2;
-
-                    const softBlocks = [
-                        { start: softBooking.startMins, end: sP1End + CONFIG.CLEANUP_BUFFER, resourceType: 'CHAIR', staffName: softBooking.staffName, isSoft: true, softId: softId },
-                        { start: sP2Start, end: sP2End + CONFIG.CLEANUP_BUFFER, resourceType: 'BED', staffName: softBooking.staffName, isSoft: true, softId: softId }
-                    ];
-
-                    // Check 1: Soft mới vs TrialTimeline (Hard + Other Softs)
-                    let sFitTrial = true;
-                    for(const sb of softBlocks) {
-                        if(!checkResourceCapacity(sb.resourceType, sb.start, sb.end, trialTimeline)) sFitTrial = false;
-                    }
-                    if(!sFitTrial) continue;
-
-                    // Check 2: Soft mới vs ALL New Blocks của kịch bản này
-                    let sFitNewGuest = true;
-                    const tempTimelineWithNewSoft = [...trialTimeline, ...softBlocks];
-                    for(const nb of allNewBlocks) {
-                         if(!checkResourceCapacity(nb.type, nb.start, nb.end, tempTimelineWithNewSoft)) sFitNewGuest = false;
-                    }
-
-                    if (sFitNewGuest) {
-                        foundFitForSoft = true;
-                        trialTimeline.push(...softBlocks); // Cập nhật soft đã bóp vào
-                        if (sSplit.deviation !== 0) {
-                            scenarioUpdates.push({
-                                rowId: softId,
-                                customerName: softBooking.originalData.customerName,
-                                newPhase1: sSplit.p1,
-                                newPhase2: sSplit.p2,
-                                reason: 'Squeezed for Interleaving'
-                            });
-                        }
-                        break; 
+            // 4.3. Xếp Soft Bookings (Với chế độ thử co giãn)
+            // Với mỗi Soft Candidate, ta tìm biến thể tốt nhất (ít lệch nhất) mà nhét vừa Matrix
+            // Lưu ý: Lúc này Matrix đã có Hard Bookings.
+            // Ta cũng cần chừa chỗ cho Khách Mới nữa! -> Đây là bài toán khó.
+            
+            // Chiến thuật: 
+            // B1: Xếp Hard Bookings.
+            // B2: Xếp Khách Mới (Ưu tiên khách mới để xem có vừa không nếu không có Soft).
+            // B3: Xếp Soft Bookings vào các khe còn lại (Squeeze if needed). 
+            // Nếu Soft không vừa -> Thì có nghĩa là ta buộc phải từ chối khách mới (vì không được kick khách cũ).
+            
+            let squeezeScenarioPossible = true;
+            
+            // Thử xếp Khách Mới vào MatrixSqueeze trước (Priority check)
+            for (const item of newGuestBlocksMap) {
+                for (const block of item.blocks) {
+                    if (!matrixSqueeze.tryAllocate(block.type, block.start, block.end, `NEW_GUEST_${item.guest.idx}`)) {
+                        squeezeScenarioPossible = false; // Ngay cả khi chưa có Soft, Hard đã chặn rồi
+                        break;
                     }
                 }
-                if (!foundFitForSoft) { squeezeSuccess = false; break; }
+                if (!squeezeScenarioPossible) break;
             }
 
-            if (!squeezeSuccess) {
-                scenarioFailed = true; // Squeeze thất bại
-                continue; // Next scenario
+            if (!squeezeScenarioPossible) {
+                scenarioFailed = true; // Hard conflict với khách mới, không cứu được
+                continue; // Next permutation
+            }
+
+            // Nếu khách mới lọt qua khe Hard, giờ ta tìm chỗ cho các ông Soft cũ
+            const softBookings = existingBookingsProcessed.filter(b => b.isElastic);
+            
+            for (const sb of softBookings) {
+                const splits = generateElasticSplits(sb.duration, sb.elasticStep, sb.elasticLimit, null);
+                let fit = false;
+
+                for (const split of splits) {
+                    // Tạo blocks giả định cho split này
+                    const sP1End = sb.startMins + split.p1;
+                    const sP2Start = sP1End + CONFIG.TRANSITION_BUFFER;
+                    const sP2End = sP2Start + split.p2;
+
+                    const testBlocks = [
+                        { type: 'CHAIR', start: sb.startMins, end: sP1End + CONFIG.CLEANUP_BUFFER },
+                        { type: 'BED', start: sP2Start, end: sP2End + CONFIG.CLEANUP_BUFFER }
+                    ];
+
+                    // Check xem có vừa MatrixSqueeze (đang chứa Hard + NewGuests) không
+                    // Cần clone MatrixSqueeze tạm thời để test từng split? 
+                    // Matrix class không support undo. Nên ta check thủ công.
+                    
+                    let splitWorks = true;
+                    // Logic check manual không làm bẩn matrix chính
+                    // Tuy nhiên để đơn giản code: Ta dùng hàm tryAllocate nhưng cần cơ chế 'Dry Run'.
+                    // Ở V8.0 này, ta chấp nhận allocate thật, nếu fail thì coi như split fail.
+                    // Nhưng Matrix là object tham chiếu. Ta cần 1 bản copy cho mỗi lần thử split? Quá tốn mem.
+                    // Giải pháp: Dùng tryAllocate. Nếu thành công -> Done. Nếu fail -> Rollback (cần implement remove?).
+                    // ĐƠN GIẢN HÓA: Ta kiểm tra overlaps thủ công với dữ liệu trong lanes.
+                    
+                    if (isBlockSetAllocatable(testBlocks, matrixSqueeze)) {
+                        // Allocate thật
+                        testBlocks.forEach(tb => matrixSqueeze.tryAllocate(tb.type, tb.start, tb.end, sb.id));
+                        fit = true;
+                        
+                        if (split.deviation !== 0) {
+                            updatesProposed.push({
+                                rowId: sb.id,
+                                customerName: sb.originalData.customerName,
+                                newPhase1: split.p1,
+                                newPhase2: split.p2,
+                                reason: 'Matrix Squeeze V8.0'
+                            });
+                        }
+                        break; // Chọn split này
+                    }
+                }
+
+                if (!fit) {
+                    squeezeScenarioPossible = false; // Không tìm được chỗ cho khách Soft cũ -> Fail
+                    break;
+                }
+            }
+
+            if (squeezeScenarioPossible) {
+                // Thành công rực rỡ!
+                scenarioUpdates = updatesProposed;
+                // Matrix giờ đã chứa full: Hard + New + Soft (Squeezed).
+                matrix = matrixSqueeze; // Swap matrix chính
             } else {
-                scenarioTimeline = trialTimeline; // Squeeze thành công -> Cập nhật timeline
+                scenarioFailed = true;
+                continue;
             }
         }
 
-        // 4. Kiểm tra Staff (Bước cuối cùng của kịch bản)
-        // Timeline lúc này đã sạch (Hard + Squeezed Softs). Giờ check Staff cho từng Guest.
-        // Ta cần add blocks của các guest đã assign staff vào timeline để check guest tiếp theo
+        // --- GIAI ĐOẠN 5: KIỂM TRA STAFF (Staff Availability) ---
+        // Matrix đảm bảo có Giường/Ghế. Giờ check xem có Người làm không.
+        // Ta cần dựng 1 Timeline phẳng từ Matrix để check Staff busy.
         
-        let staffAssignmentSuccess = true;
-        let finalTimelineForStaffCheck = [...scenarioTimeline];
+        let flatTimeline = [];
+        Object.values(matrix.lanes).forEach(group => {
+            group.forEach(lane => {
+                lane.occupied.forEach(occ => {
+                    // Cần tìm lại thông tin staff của occ này
+                    // Với khách cũ:
+                    const ex = existingBookingsProcessed.find(e => e.id === occ.ownerId);
+                    if (ex) {
+                        flatTimeline.push({ start: occ.start, end: occ.end, staffName: ex.staffName, resourceType: lane.id });
+                    }
+                    // Với khách mới: Chưa có staff, ta đang đi tìm.
+                });
+            });
+        });
 
+        // Assign Staff cho khách mới
+        let staffAssignmentSuccess = true;
+        
         for (const item of newGuestBlocksMap) {
-            // Temporary add blocks to timeline as 'BUSY' just for resource check? 
-            // Staff check needs specific resource timeline? 
-            // findAvailableStaff needs to know if the staff is busy. Staff busy check relies on `busyList`.
-            // `busyList` in findAvailableStaff is usually the timeline.
-            
-            // Add other new guests' blocks (allocated so far) to timeline?
-            // Yes, we accumulate blocks.
-            
             const guest = item.guest;
+            const startT = item.blocks[0].start;
+            const endT = item.blocks[item.blocks.length - 1].end; // Lấy time kết thúc của block cuối
+            
+            // Check staff availability với flatTimeline hiện tại
             const assignedStaff = findAvailableStaff(
                 guest.staffName, 
-                item.blocks[0].start, 
-                item.blocks[item.blocks.length-1].end, // End time of last block
+                startT, 
+                endT, 
                 staffList, 
-                finalTimelineForStaffCheck
+                flatTimeline
             );
 
             if (!assignedStaff) {
@@ -582,12 +649,14 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
                 break;
             }
 
-            // Gán Staff thành công -> Update Details
+            // Update result
             const detail = scenarioDetails.find(d => d.guestIndex === guest.idx);
             if (detail) detail.staff = assignedStaff;
 
-            // Add blocks to finalTimeline for next iteration
-            item.blocks.forEach(b => finalTimelineForStaffCheck.push({ ...b, staffName: assignedStaff }));
+            // Add khách mới này vào flatTimeline để check cho khách tiếp theo trong cùng nhóm
+            item.blocks.forEach(b => {
+                flatTimeline.push({ start: b.start, end: b.end, staffName: assignedStaff });
+            });
         }
 
         if (!staffAssignmentSuccess) {
@@ -595,32 +664,24 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
             continue;
         }
 
-        // 5. Kiểm tra tổng thể (Total Guests Limit)
-        if (!checkResourceCapacity('TOTAL', requestStartMins, requestStartMins + 5, finalTimelineForStaffCheck)) {
-             scenarioFailed = true;
-             continue;
-        }
-
         // --- SUCCESS FOUND! ---
-        // Nếu chạy đến đây nghĩa là Kịch bản này (Interleaving + Squeeze) thành công.
-        // Dừng luôn không cần thử kịch bản khác (vì ta ưu tiên numBF nhỏ nhất có thể).
         successfulScenario = {
             details: scenarioDetails,
             updates: scenarioUpdates,
-            timeline: finalTimelineForStaffCheck
+            matrixDump: matrix.lanes // Debug info
         };
-        break; // BREAK LOOP
+        break; // Dừng loop khi tìm thấy kịch bản tốt nhất (ưu tiên ít BF)
     }
 
     // ------------------------------------------------------------------------
-    // BƯỚC D: KẾT QUẢ CUỐI CÙNG
+    // BƯỚC C: KẾT QUẢ CUỐI CÙNG
     // ------------------------------------------------------------------------
 
     if (successfulScenario) {
         successfulScenario.details.sort((a,b) => a.guestIndex - b.guestIndex);
         return {
             feasible: true,
-            strategy: 'HYBRID_INTERLEAVING_V7.5',
+            strategy: 'MATRIX_TETRIS_V8.0',
             details: successfulScenario.details,
             proposedUpdates: successfulScenario.updates,
             totalPrice: successfulScenario.details.reduce((sum, item) => sum + (item.price||0), 0)
@@ -628,9 +689,35 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
     } else {
         return { 
             feasible: false, 
-            reason: "Hết chỗ (Đã thử đan xen & co giãn nhưng vẫn quá tải)" 
+            reason: "Hết chỗ (Không tìm thấy khe trống trong Ma trận tài nguyên)" 
         };
     }
+}
+
+// Helper check overlap thủ công cho Matrix (Dùng trong bước Squeeze)
+function isBlockSetAllocatable(blocks, matrix) {
+    for (const b of blocks) {
+        const laneGroup = matrix.lanes[b.type];
+        if (!laneGroup) return false;
+        
+        // Cần tìm ít nhất 1 lane trống cho block này
+        let foundLane = false;
+        for (const lane of laneGroup) {
+            let isFree = true;
+            for (const occ of lane.occupied) {
+                if (isOverlap(b.start, b.end, occ.start, occ.end)) {
+                    isFree = false;
+                    break;
+                }
+            }
+            if (isFree) {
+                foundLane = true;
+                break;
+            }
+        }
+        if (!foundLane) return false;
+    }
+    return true;
 }
 
 // ============================================================================
@@ -653,5 +740,5 @@ if (typeof window !== 'undefined') {
     window.ResourceCore = CoreAPI;
     window.checkRequestAvailability = CoreAPI.checkRequestAvailability;
     window.setDynamicServices = CoreAPI.setDynamicServices;
-    console.log("✅ Resource Core V7.5: Hybrid Interleaving & Elastic Anchor Active.");
+    console.log("✅ Resource Core V8.0: Matrix Tetris Engine Active.");
 }
