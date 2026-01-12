@@ -117,7 +117,6 @@ const StaffCard3D = ({ s, statusData, resourceState, queueIndex, isForcedBusy })
         cardStyle = 'st-eat';
     }
     else if (displayStatus === 'OUT_SHORT') {
-        // [CẬP NHẬT] Đổi trạng thái 'OUT_SHORT' thành màu Xanh Lá cho khớp với CheckInBoard mới
         cardStyle = 'bg-green-500 text-white border-green-600'; 
     }
 
@@ -149,17 +148,11 @@ window.StaffCard3D = StaffCard3D;
 
 /**
  * ============================================================================
- * 3. CHECKIN BOARD (技師管理看板) - [MODIFIED FOR STEP 2]
- * ----------------------------------------------------------------------------
- * UPDATE LOG:
- * - Kết nối Checkbox "準下" với API Backend (/api/update-staff-config).
- * - Hiển thị trạng thái checked dựa trên dữ liệu thật từ Backend (isStrictTime).
+ * 3. CHECKIN BOARD (技師管理看板)
  * ============================================================================
  */
 const CheckInBoard = ({ staffList, statusData, onClose, onUpdateStatus, bookings }) => {
     const safeStaffList = Array.isArray(staffList) ? staffList : [];
-    
-    // --- 薪資計算參數 ---
     const RATES = { JIE_PRICE: 250, OIL_BONUS: 80 }; 
     const normalize = (str) => String(str || '').trim().replace(/\s+/g, '');
 
@@ -241,7 +234,6 @@ const CheckInBoard = ({ staffList, statusData, onClose, onUpdateStatus, bookings
         return stats;
     }, [bookings, staffList]);
 
-    // Chức năng Đánh thẻ / Tan ca (Local State)
     const toggleCheckIn = (id) => { 
         const current = (statusData && statusData[id]) ? statusData[id] : {}; 
         const newState = { 
@@ -255,43 +247,24 @@ const CheckInBoard = ({ staffList, statusData, onClose, onUpdateStatus, bookings
         onUpdateStatus(newState); 
     };
 
-    // [CRITICAL UPDATE] Chức năng tích chọn "Về đúng giờ" -> GỌI API BACKEND
     const toggleOntimeLeave = async (id, currentValue) => {
-        const newValue = !currentValue; // Đảo ngược giá trị hiện tại
-        
-        // 1. Cập nhật UI ngay lập tức (Optimistic Update) cho mượt
+        const newValue = !currentValue; 
         const current = (statusData && statusData[id]) ? statusData[id] : {};
         const newState = {
             ...statusData,
-            [id]: {
-                ...current,
-                isOntimeLeave: newValue
-            }
+            [id]: { ...current, isOntimeLeave: newValue }
         };
         onUpdateStatus(newState);
 
-        // 2. Gửi lệnh về Backend để ghi vào Sheet
         try {
-            console.log(`Sending Update for Staff ${id}: isStrictTime = ${newValue}`);
             const response = await fetch('/api/update-staff-config', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ staffId: id, isStrictTime: newValue })
             });
-
             const result = await response.json();
-            if (!result.success) {
-                console.error("Failed to update staff config:", result.error);
-                // Nếu lỗi, có thể revert lại UI ở đây (tùy chọn)
-                alert("⚠️ Lưu trạng thái thất bại. Vui lòng thử lại!");
-            } else {
-                console.log("✅ Update Staff Config Success");
-                // Backend sẽ tự động sync lại và trả về data mới sau 60s hoặc lần reload sau
-            }
-        } catch (error) {
-            console.error("API Error:", error);
-            alert("⚠️ Lỗi kết nối Server.");
-        }
+            if (!result.success) { console.error("Failed to update staff config:", result.error); }
+        } catch (error) { console.error("API Error:", error); }
     };
     
     return ( 
@@ -302,7 +275,6 @@ const CheckInBoard = ({ staffList, statusData, onClose, onUpdateStatus, bookings
                     <button onClick={onClose} className="hover:text-red-300 transition-colors bg-white/10 rounded-full w-10 h-10 flex items-center justify-center"><i className="fas fa-times text-2xl"></i></button>
                 </div>
                 
-                {/* HEADERS */}
                 <div className="grid grid-cols-12 gap-2 bg-slate-100 p-4 font-bold text-slate-700 text-base border-b sticky top-0 z-10 shadow-sm">
                     <div className="col-span-2 text-center border-r border-slate-300">姓名 (Name)</div>
                     <div className="col-span-2 text-center text-emerald-700 border-r border-slate-300">💰 薪資 (Salary)</div>
@@ -318,33 +290,21 @@ const CheckInBoard = ({ staffList, statusData, onClose, onUpdateStatus, bookings
                         const current = (statusData && statusData[s.id]) ? statusData[s.id] : { status: 'AWAY', checkInTime: 0 }; 
                         const isWorking = current.status !== 'AWAY' && current.status !== 'OFF';
                         const income = staffIncomeMap[s.id] ? staffIncomeMap[s.id].income : 0;
-                        
-                        // [LOGIC MỚI] Xác định trạng thái checked
-                        // Ưu tiên local state (nếu vừa bấm) -> Nếu không có thì lấy từ DB (s.isStrictTime)
-                        const isOnTime = (current.isOntimeLeave !== undefined) 
-                                         ? current.isOntimeLeave 
-                                         : (s.isStrictTime === true);
+                        const isOnTime = (current.isOntimeLeave !== undefined) ? current.isOntimeLeave : (s.isStrictTime === true);
 
                         return ( 
                             <div key={s.id} className="grid grid-cols-12 gap-2 items-center py-3 px-2 border-b border-gray-100 hover:bg-slate-50 transition-all group">
-                                {/* Name */}
                                 <div className="col-span-2 text-center font-black text-2xl text-slate-800 flex items-center justify-center gap-2">
                                     {s.name}
                                     <span className="text-xs text-gray-400 font-normal opacity-50 group-hover:opacity-100 hidden lg:inline">#{s.id}</span>
                                 </div>
-                                
-                                {/* Salary */}
                                 <div className="col-span-2 text-center">
                                     <span className={`px-3 py-1.5 rounded text-lg font-black border shadow-sm ${income > 0 ? 'bg-emerald-100 text-emerald-700 border-emerald-200' : 'bg-gray-50 text-gray-300 border-gray-100'}`}>
                                         ${income.toLocaleString()}
                                     </span>
                                 </div>
-                                
-                                {/* Shift */}
                                 <div className="col-span-2 text-center font-mono text-xl text-slate-600 font-bold">{s.shiftStart}</div>
                                 <div className="col-span-2 text-center font-mono text-xl text-slate-600 font-bold">{s.shiftEnd}</div>
-                                
-                                {/* Check In/Out */}
                                 <div className="col-span-2 flex justify-center">
                                     {isWorking ? (
                                         <div className="flex items-center gap-2 w-full justify-center">
@@ -365,8 +325,6 @@ const CheckInBoard = ({ staffList, statusData, onClose, onUpdateStatus, bookings
                                         </button>
                                     )}
                                 </div>
-                                
-                                {/* Status Select */}
                                 <div className="col-span-1 text-center">
                                     <div className="relative">
                                         <select 
@@ -380,7 +338,7 @@ const CheckInBoard = ({ staffList, statusData, onClose, onUpdateStatus, bookings
                                             <option value="AWAY">⚪ 未到</option>
                                             <option value="READY">🟣 待命</option>
                                             <option value="EAT">🟠 用餐</option>
-                                            <option value="OUT_SHORT" className="text-green-700 font-bold">🟢 外出 (Out)</option>
+                                            <option value="OUT_SHORT" className="text-green-700 font-bold">🟢 外出</option>
                                         </select>
                                         <div className="absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none">
                                             <div className={`w-3 h-3 rounded-full ring-2 ring-white shadow-sm 
@@ -392,8 +350,6 @@ const CheckInBoard = ({ staffList, statusData, onClose, onUpdateStatus, bookings
                                         </div>
                                     </div>
                                 </div>
-
-                                {/* [NEW COLUMN] 準下 (On-time Leave) Checkbox -> Call API */}
                                 <div className="col-span-1 flex justify-center items-center">
                                     <label className="flex items-center justify-center w-full h-full cursor-pointer p-2 hover:bg-blue-50 rounded-lg transition-colors" title="Check to Enforce Exact End Time">
                                         <input 
@@ -691,3 +647,90 @@ const ComboStartModal = ({ onConfirm, onCancel, bookingName }) => {
     );
 };
 window.ComboStartModal = ComboStartModal;
+
+/**
+ * ============================================================================
+ * 9. COMBO TIME EDIT MODAL (NEW FOR PHASE 2 - MANUAL EDIT)
+ * ============================================================================
+ * Description: Cho phép điều chỉnh thời gian Phase 1, tự động tính Phase 2.
+ */
+const ComboTimeEditModal = ({ booking, onConfirm, onCancel }) => {
+    const totalDuration = parseInt(booking.duration || 100);
+    // Lấy phase1 hiện tại: ưu tiên phase1_duration, nếu không thì lấy mặc định từ window.getComboSplit
+    const defaultSplit = window.getComboSplit ? window.getComboSplit(totalDuration, true, 'FB') : { phase1: totalDuration / 2 };
+    const initialPhase1 = booking.phase1_duration ? parseInt(booking.phase1_duration) : defaultSplit.phase1;
+    
+    const [phase1, setPhase1] = useState(initialPhase1);
+    const [phase2, setPhase2] = useState(totalDuration - initialPhase1);
+
+    useEffect(() => {
+        setPhase2(totalDuration - phase1);
+    }, [phase1, totalDuration]);
+
+    const handleSliderChange = (e) => {
+        const val = parseInt(e.target.value);
+        setPhase1(val);
+    };
+
+    return (
+        <div className="fixed inset-0 bg-slate-900/80 z-[110] flex items-center justify-center p-4 backdrop-blur-sm">
+            <div className="bg-white w-full max-w-sm rounded-2xl shadow-2xl modal-animate overflow-hidden border border-slate-200">
+                <div className="bg-indigo-600 p-4 text-white flex justify-between items-center">
+                    <h3 className="font-bold text-lg"><i className="fas fa-stopwatch"></i> 調整時間 (Adjust Time)</h3>
+                    <button onClick={onCancel} className="opacity-80 hover:opacity-100 transition-opacity"><i className="fas fa-times"></i></button>
+                </div>
+                
+                <div className="p-6 space-y-6">
+                    <div className="text-center">
+                        <div className="text-sm font-bold text-gray-400 uppercase tracking-wider mb-1">Customer</div>
+                        <div className="text-2xl font-black text-slate-800">{booking.customerName}</div>
+                        <div className="text-indigo-600 font-bold text-sm bg-indigo-50 inline-block px-2 py-1 rounded mt-2">{booking.serviceName} ({totalDuration}m)</div>
+                    </div>
+
+                    {/* SLIDER CONTROL */}
+                    <div className="bg-gray-50 p-4 rounded-xl border border-gray-200">
+                        <div className="flex justify-between items-end mb-4">
+                            <div className="text-center w-1/2 border-r border-gray-300 pr-2">
+                                <div className="text-xs font-bold text-gray-400">Phase 1</div>
+                                <div className="text-3xl font-black text-emerald-600">{phase1}<span className="text-sm text-gray-500">m</span></div>
+                            </div>
+                            <div className="text-center w-1/2 pl-2">
+                                <div className="text-xs font-bold text-gray-400">Phase 2</div>
+                                <div className="text-3xl font-black text-purple-600">{phase2}<span className="text-sm text-gray-500">m</span></div>
+                            </div>
+                        </div>
+
+                        <input 
+                            type="range" 
+                            min="10" 
+                            max={totalDuration - 10} 
+                            step="5" 
+                            value={phase1} 
+                            onChange={handleSliderChange}
+                            className="w-full h-3 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-indigo-600 hover:accent-indigo-500 transition-all"
+                        />
+                        <div className="flex justify-between text-xs text-gray-400 font-bold mt-2">
+                            <span>10m</span>
+                            <span>Slide to Adjust</span>
+                            <span>{totalDuration - 10}m</span>
+                        </div>
+                    </div>
+
+                    <div className="text-xs text-center text-amber-600 font-bold bg-amber-50 p-2 rounded border border-amber-100">
+                        <i className="fas fa-lock"></i> 調整後將鎖定時間 (Manual Lock)
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3">
+                        <button onClick={onCancel} className="w-full py-3 bg-gray-100 text-gray-500 font-bold rounded-lg hover:bg-gray-200 transition-colors">
+                            取消 (Cancel)
+                        </button>
+                        <button onClick={() => onConfirm(phase1)} className="w-full py-3 bg-indigo-600 text-white font-bold rounded-lg hover:bg-indigo-700 shadow-lg transform active:scale-95 transition-all">
+                            確認 (Confirm)
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+};
+window.ComboTimeEditModal = ComboTimeEditModal;

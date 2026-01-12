@@ -1,6 +1,6 @@
 // TYPE: app.js
-// VERSION: V5.0 (ELASTIC TIME INTEGRATION)
-// UPDATE: Tích hợp hiển thị Co giãn thời gian thực tế từ Backend
+// VERSION: V6.0 (MANUAL EDIT & STATE PERSISTENCE)
+// UPDATE: Added Manual Edit Modal, State Management for Phase 1 Duration
 
 const { useState, useEffect, useMemo, useRef } = React;
 
@@ -32,6 +32,9 @@ const App = () => {
     const [comboStartData, setComboStartData] = useState(null);
     const [splitData, setSplitData] = useState(null);
     
+    // [NEW PHASE 2] Manual Edit State
+    const [editComboTarget, setEditComboTarget] = useState(null); // { id: resId, booking: bookingData }
+
     // System States
     const [viewDate, setViewDate] = useState(window.getOperationalDateInputFormat());
     const [syncLock, setSyncLock] = useState(false);
@@ -92,7 +95,6 @@ const App = () => {
             return res && res.booking && String(res.booking.rowId) === String(targetRowId);
         });
         
-        // Sắp xếp theo thứ tự ghế/giường
         groupSlots.sort((a, b) => window.getWeight(a) - window.getWeight(b));
         
         const idx = groupSlots.indexOf(targetResId);
@@ -124,7 +126,7 @@ const App = () => {
                     duration: window.getSafeDuration(b.serviceName, b.duration),
                     pax: parseInt(b.pax, 10) || 1,
                     rowId: String(b.rowId),
-                    // [V5.0] Đảm bảo đọc được phase duration từ API
+                    // [V6.0] Phase 1 Duration Data Flow
                     phase1_duration: b.phase1_duration ? parseInt(b.phase1_duration) : null,
                     phase2_duration: b.phase2_duration ? parseInt(b.phase2_duration) : null
                 };
@@ -151,7 +153,6 @@ const App = () => {
                                 const key = `Status${i}`;
                                 const localVal = localBooking[key];
                                 const serverVal = serverBooking[key];
-                                // Ưu tiên trạng thái local nếu nó là "Hoàn thành" mà server chưa kịp cập nhật
                                 if (localVal && localVal.includes('完成') && (!serverVal || !serverVal.includes('完成'))) {
                                     mergedBooking[key] = localVal; 
                                 }
@@ -180,7 +181,7 @@ const App = () => {
                 timelineGrid[resId].push({ start, end, booking, meta });
             };
 
-            // --- XỬ LÝ CÁC ĐƠN ĐANG CHẠY (RUNNING) ---
+            // --- RUNNING ORDERS ---
             Object.keys(currentRes).forEach(key => {
                 if(currentRes[key].isRunning) {
                     tempState[key] = currentRes[key];
@@ -196,11 +197,8 @@ const App = () => {
                     if (currentRes[key].comboMeta) {
                         const seq = currentRes[key].comboMeta.sequence || 'FB';
                         const isMax = currentRes[key].isMaxMode;
-                        
-                        // [V5.0] Lấy phase1_duration từ booking gốc nếu có (Data Driven)
                         const customPhase1 = currentRes[key].booking.phase1_duration;
                         
-                        // Gọi hàm tính toán thông minh (sẽ ưu tiên customPhase1 nếu có)
                         const split = window.getComboSplit(durationUsed, isMax, seq, customPhase1);
                         
                         isPhase1 = (seq === 'FB' && key.includes('chair')) || (seq === 'BF' && key.includes('bed'));
@@ -240,7 +238,7 @@ const App = () => {
                 return null; 
             };
 
-            // --- DỰ ĐOÁN PHASE 2 CHO COMBO (GHOST BLOCKS) ---
+            // --- GHOST BLOCKS (PHASE 2 PREDICTION) ---
             Object.keys(tempState).forEach(key => {
                 const item = tempState[key];
                 if (item.comboMeta) {
@@ -252,7 +250,6 @@ const App = () => {
                         const finishTimeMins = activeEndTimes[key]; 
                         const p2Start = finishTimeMins + 5; 
                         
-                        // [V5.0] Dùng custom phase cho dự đoán
                         const customPhase1 = item.booking.phase1_duration;
                         const split = window.getComboSplit(item.booking.duration, item.isMaxMode, seq, customPhase1);
                         
@@ -274,7 +271,7 @@ const App = () => {
                 }
             });
 
-            // --- XẾP LỊCH CHO CÁC ĐƠN CHỜ (PENDING LIST SIMULATION) ---
+            // --- PENDING LIST SIMULATION ---
             const pendingBookings = relevantBookings.filter(b => 
                 !b.status.includes('完成') && 
                 !b.status.includes('✅') &&
@@ -320,7 +317,7 @@ const App = () => {
                 }
             });
 
-            // Xếp Combo (Giả lập hiển thị trên Timeline)
+            // Xếp Combo
             listCombos.forEach(b => {
                 const originalStart = window.normalizeToTimelineMins(b.startTimeString.split(' ')[1]);
                 const totalNeeded = b.pax || 1;
@@ -337,9 +334,6 @@ const App = () => {
                     let searchOffsets = [0]; for(let i=1; i<=120; i++) searchOffsets.push(i);
                     for(let delay of searchOffsets) {
                         let tryStart = originalStart + delay;
-                        
-                        // [V5.0] Logic quan trọng: Sử dụng phase1_duration đã lưu trong booking để vẽ timeline giả lập
-                        // Nếu backend đã tính toán là 45p, timeline phải vẽ 45p chứ không phải 50p
                         const customPhase1 = b.phase1_duration;
 
                         // Case FB (Foot First)
@@ -377,7 +371,7 @@ const App = () => {
 
             setTimelineData(timelineGrid);
 
-            // --- XỬ LÝ PREVIEW CHO RESOURCE CARD ---
+            // --- PREVIEW RESOURCE CARD ---
             const allSlots = [];
             for(let i=1; i<=6; i++) allSlots.push(`chair-${i}`);
             for(let i=1; i<=6; i++) allSlots.push(`bed-${i}`);
@@ -489,6 +483,63 @@ const App = () => {
         setResourceState(newState);
         await axios.post('/api/update-booking-details', { rowId: current.booking.rowId, serviceName: newServiceName });
         await updateResource(newState);
+    };
+
+    // [NEW PHASE 2] Handle Opening the Edit Modal
+    const handleOpenEdit = (resId) => {
+        const current = resourceState[resId];
+        if (!current || !current.booking) return;
+        // Check if it's a combo
+        if (current.booking.category !== 'COMBO' && !current.booking.serviceName.includes('套餐')) {
+            alert('⚠️ 僅支援調整套餐時間 (Combo Only)');
+            return;
+        }
+        setEditComboTarget({ id: resId, booking: current.booking });
+    };
+
+    // [NEW PHASE 2] Save Manual Time Adjustment
+    const handleSaveComboTime = async (newPhase1) => {
+        if (!editComboTarget) return;
+        const { booking } = editComboTarget;
+        const rowId = booking.rowId;
+        const totalDuration = parseInt(booking.duration || 100);
+        const newPhase2 = totalDuration - newPhase1;
+
+        setSyncLock(true);
+        setTimeout(() => setSyncLock(false), 5000); // 5s Lock
+
+        // 1. Update Resource State (Find all slots sharing this RowID)
+        const newState = { ...resourceState };
+        Object.keys(newState).forEach(key => {
+            const res = newState[key];
+            if (res.booking && String(res.booking.rowId) === String(rowId)) {
+                newState[key] = {
+                    ...res,
+                    booking: {
+                        ...res.booking,
+                        phase1_duration: newPhase1,
+                        phase2_duration: newPhase2
+                    }
+                };
+            }
+        });
+        setResourceState(newState);
+
+        // 2. Sync to Backend
+        try {
+            await axios.post('/api/update-booking-details', {
+                rowId: rowId,
+                phase1_duration: newPhase1,
+                phase2_duration: newPhase2,
+                isManualLocked: true // Signal for Phase 3 logic
+            });
+            await updateResource(newState);
+            // alert('✅ 時間已更新 (Time Updated)');
+        } catch(e) {
+            console.error("Save Time Error", e);
+            alert("⚠️ 儲存失敗 (Save Failed)");
+        }
+        setEditComboTarget(null);
     };
 
     const executeStart = (id, comboSequence) => {
@@ -603,7 +654,7 @@ const App = () => {
     const handleToggleMax = async (resId) => { const res = resourceState[resId]; if (!res) return; updateResource({ ...resourceState, [resId]: { ...res, isMaxMode: !res.isMaxMode } }); };
     const handleToggleSequence = async (resId) => { const res = resourceState[resId]; if (!res || !res.comboMeta) return; const newSeq = res.comboMeta.sequence === 'FB' ? 'BF' : 'FB'; updateResource({ ...resourceState, [resId]: { ...res, comboMeta: { ...res.comboMeta, sequence: newSeq } } }); }
     
-    // --- PAYMENT HANDLER (UPDATED: LOGIC COMPLETE CHECK ALL STAFF) ---
+    // --- PAYMENT HANDLER ---
     const handleConfirmPayment = async (itemsToPay, totalAmount) => {
         try {
             setSyncLock(true); 
@@ -669,40 +720,25 @@ const App = () => {
                 delete newState[resId];
             }
 
-            // Gửi API và tính toán hoàn thành nhóm (LOGIC MỚI: KIỂM TRA TẤT CẢ SLOT CÓ NGƯỜI)
             Object.values(updatesByRow).forEach(updatePayload => {
                 const booking = updatePayload.originalBooking;
-                
-                const staffCols = [
-                    booking.serviceStaff || booking.staffId, 
-                    booking.staffId2,                            
-                    booking.staffId3,                            
-                    booking.staffId4,                            
-                    booking.staffId5,                            
-                    booking.staffId6                             
-                ];
-
+                const staffCols = [booking.serviceStaff || booking.staffId, booking.staffId2, booking.staffId3, booking.staffId4, booking.staffId5, booking.staffId6];
                 let activeSlotsCount = 0;
                 let finishedSlotsCount = 0;
 
                 staffCols.forEach((staffName, idx) => {
                     if (staffName && staffName !== 'undefined' && staffName !== 'null' && staffName.trim() !== '') {
                         activeSlotsCount++;
-                        
                         const key = `Status${idx + 1}`;
                         const isNewCompletion = updatePayload[key] && updatePayload[key].includes('完成');
                         const wasAlreadyDone = booking[key] && (booking[key].includes('完成') || booking[key].includes('Done') || booking[key].includes('✅'));
-                        
-                        if (isNewCompletion || wasAlreadyDone) {
-                            finishedSlotsCount++;
-                        }
+                        if (isNewCompletion || wasAlreadyDone) finishedSlotsCount++;
                     }
                 });
 
                 if (activeSlotsCount > 0 && finishedSlotsCount >= activeSlotsCount) {
                     updatePayload.mainStatus = '✅ 完成'; 
                 }
-                
                 delete updatePayload.originalBooking;
             });
             
@@ -760,7 +796,7 @@ const App = () => {
             <header className={`text-white p-3 shadow-md flex justify-between items-center sticky top-0 z-50 transition-colors ${quotaError ? 'bg-red-800' : 'bg-[#1e1b4b]'}`}>
                 {/* Header Content */}
                 <div className="flex items-center gap-3">
-                    <span className="bg-amber-500 text-black px-2 py-1 rounded font-black text-sm">V277</span>
+                    <span className="bg-amber-500 text-black px-2 py-1 rounded font-black text-sm">V6.0</span>
                     <span className="font-bold hidden md:inline">XinWuChan</span>
                     <div className="flex items-center gap-2 bg-white/10 rounded px-2 py-1 border border-white/20">
                         <button onClick={()=>{const d=new Date(viewDate); d.setDate(d.getDate()-1); setViewDate(d.toISOString().split('T')[0])}} className="text-white hover:text-amber-400 font-bold px-2">❮</button>
@@ -803,9 +839,8 @@ const App = () => {
             </div>
 
             <main className="flex-1 p-4 overflow-y-auto">
-                {activeTab === 'map' && (<div className="grid grid-cols-12 gap-6"><div className="col-span-9 space-y-6"><div><h3 className="font-bold text-emerald-600 mb-3 border-b pb-1">足底按摩區 (Foot)</h3><div className="grid grid-cols-6 gap-3">{[1,2,3,4,5,6].map(i => <window.ResourceCard key={`chair-${i}`} id={`chair-${i}`} type="FOOT" index={i} data={resourceState[`chair-${i}`]} busyStaffIds={busyStaffIds} staffList={staffList} onAction={handleResourceAction} onSelect={()=>setSelectedSlot(`chair-${i}`)} onSwitch={handleSwitch} onToggleMax={handleToggleMax} onToggleSequence={handleToggleSequence} onServiceChange={handleServiceChange} onStaffChange={handleStaffChange} onSplit={(rid)=>setSplitData({resourceId: rid})} getGroupMemberIndex={getGroupMemberIndex} />)}</div></div><div><h3 className="font-bold text-purple-600 mb-3 border-b pb-1">身體指壓區 (Body)</h3><div className="grid grid-cols-6 gap-3">{[1,2,3,4,5,6].map(i => <window.ResourceCard key={`bed-${i}`} id={`bed-${i}`} type="BODY" index={i} data={resourceState[`bed-${i}`]} busyStaffIds={busyStaffIds} staffList={staffList} onAction={handleResourceAction} onSelect={()=>setSelectedSlot(`bed-${i}`)} onSwitch={handleSwitch} onToggleMax={handleToggleMax} onToggleSequence={handleToggleSequence} onServiceChange={handleServiceChange} onStaffChange={handleStaffChange} onSplit={(rid)=>setSplitData({resourceId: rid})} getGroupMemberIndex={getGroupMemberIndex} />)}</div></div></div><div className="col-span-3 bg-white rounded-lg shadow p-4 h-fit sticky top-2"><h3 className="font-bold text-gray-700 mb-3">候位名單 ({waitingList.length})</h3><div className="space-y-2 max-h-[500px] overflow-y-auto">{waitingList.map(b => (<div key={b.rowId} className="border p-2 rounded hover:bg-slate-50 relative group bg-white shadow-sm"><div className="flex justify-between font-bold text-sm"><span>{b.customerName}</span><span className="text-indigo-600 font-mono">{(b.startTimeString||' ').split(' ')[1]}</span></div><div className="text-xs text-gray-500 font-bold">{b.serviceName}</div>{(b.isOil || (b.serviceName && b.serviceName.includes('油'))) && <div className="text-[10px] bg-purple-100 text-purple-700 inline-block px-1 rounded mt-1 font-bold border border-purple-200">💧 精油</div>}{b.pax > 1 && <div className="text-[10px] bg-orange-100 text-orange-600 inline-block px-1 rounded mt-1 ml-1 font-bold">{b.pax} 人</div>}{selectedSlot && <button onClick={()=>handleAssignBooking(b)} className="absolute inset-0 bg-green-500/90 text-white font-bold flex items-center justify-center rounded animate-pulse">排入 {selectedSlot}</button>}<button onClick={()=>handleManualUpdateStatus(b.rowId, '❌ Cancelled')} className="absolute top-1 right-1 text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100"><i className="fas fa-trash"></i></button></div>))}</div></div></div>)}
+                {activeTab === 'map' && (<div className="grid grid-cols-12 gap-6"><div className="col-span-9 space-y-6"><div><h3 className="font-bold text-emerald-600 mb-3 border-b pb-1">足底按摩區 (Foot)</h3><div className="grid grid-cols-6 gap-3">{[1,2,3,4,5,6].map(i => <window.ResourceCard key={`chair-${i}`} id={`chair-${i}`} type="FOOT" index={i} data={resourceState[`chair-${i}`]} busyStaffIds={busyStaffIds} staffList={staffList} onAction={handleResourceAction} onSelect={()=>setSelectedSlot(`chair-${i}`)} onSwitch={handleSwitch} onToggleMax={handleToggleMax} onToggleSequence={handleToggleSequence} onServiceChange={handleServiceChange} onStaffChange={handleStaffChange} onSplit={(rid)=>setSplitData({resourceId: rid})} getGroupMemberIndex={getGroupMemberIndex} onEdit={handleOpenEdit} />)}</div></div><div><h3 className="font-bold text-purple-600 mb-3 border-b pb-1">身體指壓區 (Body)</h3><div className="grid grid-cols-6 gap-3">{[1,2,3,4,5,6].map(i => <window.ResourceCard key={`bed-${i}`} id={`bed-${i}`} type="BODY" index={i} data={resourceState[`bed-${i}`]} busyStaffIds={busyStaffIds} staffList={staffList} onAction={handleResourceAction} onSelect={()=>setSelectedSlot(`bed-${i}`)} onSwitch={handleSwitch} onToggleMax={handleToggleMax} onToggleSequence={handleToggleSequence} onServiceChange={handleServiceChange} onStaffChange={handleStaffChange} onSplit={(rid)=>setSplitData({resourceId: rid})} getGroupMemberIndex={getGroupMemberIndex} onEdit={handleOpenEdit} />)}</div></div></div><div className="col-span-3 bg-white rounded-lg shadow p-4 h-fit sticky top-2"><h3 className="font-bold text-gray-700 mb-3">候位名單 ({waitingList.length})</h3><div className="space-y-2 max-h-[500px] overflow-y-auto">{waitingList.map(b => (<div key={b.rowId} className="border p-2 rounded hover:bg-slate-50 relative group bg-white shadow-sm"><div className="flex justify-between font-bold text-sm"><span>{b.customerName}</span><span className="text-indigo-600 font-mono">{(b.startTimeString||' ').split(' ')[1]}</span></div><div className="text-xs text-gray-500 font-bold">{b.serviceName}</div>{(b.isOil || (b.serviceName && b.serviceName.includes('油'))) && <div className="text-[10px] bg-purple-100 text-purple-700 inline-block px-1 rounded mt-1 font-bold border border-purple-200">💧 精油</div>}{b.pax > 1 && <div className="text-[10px] bg-orange-100 text-orange-600 inline-block px-1 rounded mt-1 ml-1 font-bold">{b.pax} 人</div>}{selectedSlot && <button onClick={()=>handleAssignBooking(b)} className="absolute inset-0 bg-green-500/90 text-white font-bold flex items-center justify-center rounded animate-pulse">排入 {selectedSlot}</button>}<button onClick={()=>handleManualUpdateStatus(b.rowId, '❌ Cancelled')} className="absolute top-1 right-1 text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100"><i className="fas fa-trash"></i></button></div>))}</div></div></div>)}
                 
-                {/* [ĐÃ CẬP NHẬT] Sử dụng BookingListView Component */}
                 {activeTab === 'list' && (
                     <window.BookingListView 
                         bookings={todaysBookings} 
@@ -825,6 +860,9 @@ const App = () => {
             {selectedSlot && waitingList.length === 0 && <div className="fixed inset-0 bg-black/30 z-50 flex items-center justify-center text-white font-bold" onClick={()=>setSelectedSlot(null)}>目前無候位! (No Waiting)</div>}
             {billingData && <window.BillingModal activeItem={billingData.activeItem} relatedItems={billingData.relatedItems} onConfirm={handleConfirmPayment} onCancel={() => setBillingData(null)} />}
             {splitData && <window.SplitStaffModal staffList={staffList} statusData={statusData} onCancel={()=>setSplitData(null)} onConfirm={handleSplitConfirm} />}
+            
+            {/* [NEW] Manual Edit Modal */}
+            {editComboTarget && <window.ComboTimeEditModal booking={editComboTarget.booking} onConfirm={handleSaveComboTime} onCancel={() => setEditComboTarget(null)} />}
         </div>
     );
 };

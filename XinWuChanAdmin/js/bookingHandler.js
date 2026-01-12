@@ -1,20 +1,24 @@
 /**
  * ============================================================================
  * FILE: js/bookingHandler.js
- * PHIÊN BẢN: V91 (HOTFIX: DATA MAPPING & GHOST STAFF REMOVAL)
- * NGÀY CẬP NHẬT: 2026-01-11
+ * PHIÊN BẢN: V93 (MAJOR UPGRADE: BRAIN TRANSPLANT V6.0 - GLOBAL OPTIMIZATION)
+ * NGÀY CẬP NHẬT: 2026-01-12
  * TÁC GIẢ: AI ASSISTANT & USER
- * * * * * * * * * NHẬT KÝ SỬA LỖI (V91):
- * 1. [CRITICAL FIX] Sửa lỗi "Nhân viên ma":
- * - Ánh xạ lại cột '上班'/'下班' từ Google Sheet.
- * - Khắc phục tình trạng mặc định '00:00' khiến hệ thống tưởng 20 nhân viên đều đi làm.
- * 2. [DATA SYNC] Đồng bộ định dạng ngày (YYYY-MM-DD) khi tra cứu trạng thái OFF.
- * 3. [KEEP FEATURES] Giữ nguyên Elastic Time Engine V5.0 và Anti-Cache V90.
+ * * * * * * * * * * * NHẬT KÝ NÂNG CẤP (V93):
+ * 1. [BRAIN TRANSPLANT V6.0]:
+ * - Tích hợp hoàn toàn logic "Global Optimization" từ resource_core.js V6.0.
+ * - Hệ thống giờ đây KHÔNG coi khách cũ là "Đá tảng" (Hard Block) mặc định nữa.
+ * - Khách cũ chưa bị khóa tay (isManualLocked=false) sẽ được coi là "Đất sét" (Elastic) để co giãn nhường chỗ cho khách mới.
+ * 2. [MANUAL LOCK RESPECT]:
+ * - Tôn trọng cờ 'isManualLocked' và 'phase1_duration' từ dữ liệu Backend.
+ * 3. [SYNC V91 & V90 PRESERVED]:
+ * - Giữ nguyên bản vá lỗi hiển thị nhân viên (Data Mapping '上班'/'下班').
+ * - Giữ nguyên cơ chế Anti-Cache (Force Fetch) giúp dữ liệu luôn tươi mới.
  * ============================================================================
  */
 
 (function() {
-    console.log("🚀 BookingHandler V91: Initializing with DATA MAPPING HOTFIX...");
+    console.log("🚀 BookingHandler V93: Initializing with V6.0 GLOBAL OPTIMIZATION BRAIN...");
 
     if (typeof React === 'undefined') {
         console.error("❌ CRITICAL ERROR: React not found. Cannot start BookingHandler.");
@@ -22,25 +26,32 @@
     }
 
     // ========================================================================
-    // PHẦN 1: CORE KERNEL V5.0 (LOGIC XỬ LÝ TRUNG TÂM - GIỮ NGUYÊN)
+    // PHẦN 1: CORE KERNEL V6.0 (LOGIC XỬ LÝ TRUNG TÂM - ĐÃ NÂNG CẤP)
+    // Mô tả: Đây là bộ não tính toán, quyết định xem có xếp được khách hay không.
     // ========================================================================
     const CoreKernel = (function() {
         
-        // --- 1. CẤU HÌNH HỆ THỐNG ---
+        // --- 1. CẤU HÌNH HỆ THỐNG (SYSTEM CONFIGURATION) ---
         const CONFIG = {
             MAX_CHAIRS: 6,        
             MAX_BEDS: 6,          
             MAX_TOTAL_GUESTS: 12, 
+            
+            // Cấu hình thời gian
             OPEN_HOUR: 8,         
+            
+            // Bộ đệm thời gian (Buffer)
             CLEANUP_BUFFER: 5,    
             TRANSITION_BUFFER: 5, 
+            
+            // Dung sai
             TOLERANCE: 1,         
             MAX_TIMELINE_MINS: 1440 
         };
 
         let SERVICES = {}; 
 
-        // --- 2. QUẢN LÝ DỊCH VỤ ---
+        // --- 2. QUẢN LÝ DỊCH VỤ (SERVICE MANAGER) ---
         function setDynamicServices(newServicesObj) {
             const systemServices = {
                 'OFF_DAY': { name: '⛔ 請假 (OFF)', duration: 1080, type: 'NONE', price: 0, category: 'SYSTEM' },
@@ -49,9 +60,10 @@
                 'LATE': { name: '⚠️ 延遲 (Late)', duration: 0, type: 'NONE', price: 0, category: 'SYSTEM' }
             };
             SERVICES = { ...newServicesObj, ...systemServices };
+            // console.log(`[CORE V6.0] Services Updated: ${Object.keys(SERVICES).length} entries.`);
         }
 
-        // --- 3. BỘ CÔNG CỤ XỬ LÝ THỜI GIAN ---
+        // --- 3. BỘ CÔNG CỤ XỬ LÝ THỜI GIAN (TIME UTILS) ---
         function getMinsFromTimeStr(timeStr) {
             if (!timeStr) return -1; 
             try {
@@ -86,7 +98,7 @@
             return (startA < safeEndB) && (startB < safeEndA);
         }
 
-        // --- 4. KIỂM TRA TÀI NGUYÊN (LINE SWEEP) ---
+        // --- 4. KIỂM TRA TÀI NGUYÊN (CAPACITY CHECK - LINE SWEEP) ---
         function checkResourceCapacity(resourceType, start, end, bookings) {
             let limit = 0;
             if (resourceType === 'BED') limit = CONFIG.MAX_BEDS;
@@ -128,7 +140,7 @@
             return true; 
         }
 
-        // --- 5. TÌM NHÂN VIÊN ---
+        // --- 5. TÌM NHÂN VIÊN (STAFF FINDER) ---
         function findAvailableStaff(staffReq, start, end, staffListRef, busyList) {
             const checkOneStaff = (name) => {
                 const staffInfo = staffListRef[name];
@@ -138,7 +150,6 @@
                 const shiftStart = getMinsFromTimeStr(staffInfo.start); 
                 const shiftEnd = getMinsFromTimeStr(staffInfo.end);     
                 
-                // Nếu không đọc được giờ làm (ví dụ trả về -1) -> Coi như không làm
                 if (shiftStart === -1 || shiftEnd === -1) return false; 
 
                 if ((start + CONFIG.TOLERANCE) < shiftStart) return false;
@@ -160,7 +171,7 @@
                 return true; 
             };
 
-            if (staffReq && staffReq !== 'RANDOM' && staffReq !== 'MALE' && staffReq !== 'FEMALE' && staffReq !== '隨機' && staffReq !== 'Any') {
+            if (staffReq && staffReq !== 'RANDOM' && staffReq !== 'MALE' && staffReq !== 'FEMALE' && staffReq !== '隨機' && staffReq !== 'Any' && staffReq !== 'undefined') {
                 return checkOneStaff(staffReq) ? staffReq : null;
             } else {
                 const allStaffNames = Object.keys(staffListRef);
@@ -171,8 +182,18 @@
             }
         }
 
-        // --- [NEW V5.0] BỘ SINH BIẾN THỂ THỜI GIAN (ELASTIC GENERATOR) ---
-        function generateElasticSplits(totalDuration, step = 0, limit = 0) {
+        // --- 6. BỘ SINH BIẾN THỂ THỜI GIAN (ELASTIC GENERATOR V6.0) ---
+        // Đã nâng cấp để hỗ trợ locked phase 1
+        function generateElasticSplits(totalDuration, step = 0, limit = 0, customLockedPhase1 = null) {
+            // Nếu đã bị khóa cứng (Manual Lock), chỉ trả về đúng 1 phương án
+            if (customLockedPhase1 !== null && customLockedPhase1 !== undefined && !isNaN(customLockedPhase1)) {
+                return [{ 
+                    p1: parseInt(customLockedPhase1), 
+                    p2: totalDuration - parseInt(customLockedPhase1), 
+                    deviation: 999 // Đánh dấu là Locked
+                }];
+            }
+
             const standardHalf = Math.floor(totalDuration / 2);
             let options = [{ p1: standardHalf, p2: totalDuration - standardHalf, deviation: 0 }];
 
@@ -192,147 +213,224 @@
                 }
                 currentDeviation += step;
             }
+            // Ưu tiên độ lệch thấp nhất (gần chuẩn nhất)
             options.sort((a, b) => Math.abs(a.deviation) - Math.abs(b.deviation));
             return options;
         }
 
-        // --- 6. MAIN LOGIC (GLOBAL OPTIMIZER V5.0) ---
+        // --- 7. MAIN LOGIC (GLOBAL OPTIMIZER V6.0) ---
+        // Logic mới: Tách "Đá tảng" (Hard) và "Đất sét" (Soft)
         function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRaw, staffList) {
             const requestStartMins = getMinsFromTimeStr(timeStr);
             if (requestStartMins === -1) return { feasible: false, reason: "Error: Invalid Time Format" };
 
-            // BƯỚC A: TIỀN XỬ LÝ
-            let hardBookings = [];
-            let flexibleIntentions = [];
-            let sortedBookings = [...currentBookingsRaw].sort((a,b) => getMinsFromTimeStr(a.startTime) - getMinsFromTimeStr(b.startTime));
-
-            sortedBookings.forEach(b => {
+            // ========================================================================
+            // BƯỚC A: PHÂN LOẠI BOOKING (HARD vs SOFT)
+            // ========================================================================
+            
+            let hardBookings = [];      // Danh sách booking không thể thay đổi
+            let optimizationQueue = []; // Danh sách cần sắp xếp (bao gồm khách cũ Soft + khách mới)
+            
+            // --- 1. Duyệt qua khách cũ (Existing Bookings) ---
+            currentBookingsRaw.forEach(b => {
                 const bStart = getMinsFromTimeStr(b.startTime);
                 if (bStart === -1) return;
 
                 let svcInfo = SERVICES[b.serviceCode] || {};
-                let isCombo = svcInfo.category === 'COMBO';
-                if (!svcInfo.category && (b.serviceName.includes('Combo') || b.serviceName.includes('套餐'))) isCombo = true;
-
+                let isCombo = svcInfo.category === 'COMBO' || b.serviceName.includes('Combo') || b.serviceName.includes('套餐');
                 let duration = b.duration || 60;
+
+                // [LOGIC V6.0] Điều kiện để được tối ưu hóa (Co giãn):
+                // 1. Phải là Combo (Chỉ combo mới co giãn được phase)
+                // 2. Chưa bị khóa tay (isManualLocked !== true)
+                // 3. Không phải là booking đang chạy (status !== 'Running' - frontend truyền status này xuống nếu cần)
+                // Lưu ý: Ở frontend bookingHandler, status thường là chuỗi thô, ta giả định mọi booking tương lai đều có thể tối ưu
+                // trừ khi bị lock.
                 
-                let rType = svcInfo.type || 'CHAIR'; 
-                const nameUpper = b.serviceName.toUpperCase();
-                if (nameUpper.includes('BODY') || nameUpper.includes('指壓') || nameUpper.includes('油') || nameUpper.includes('BED') || isCombo) {
-                    rType = 'BED'; 
+                const isCandidateForOptimization = isCombo && (b.isManualLocked !== true);
+
+                if (isCandidateForOptimization) {
+                    // [OPTIMIZATION]: Đưa vào hàng đợi tối ưu lại
+                    optimizationQueue.push({
+                        type: 'EXISTING',
+                        originalData: b,
+                        id: b.rowId || `exist_${Math.random()}`,
+                        staffReq: b.staffName, // Giữ nguyên Staff cũ
+                        serviceName: b.serviceName,
+                        duration: duration,
+                        startMins: bStart, // Giờ bắt đầu CỐ ĐỊNH (Khách cũ ko đổi giờ hẹn)
+                        elasticStep: svcInfo.elasticStep || 5,
+                        elasticLimit: svcInfo.elasticLimit || 15,
+                        lockedPhase1: null // Chưa lock
+                    });
+                } else {
+                    // [HARD BLOCK]: Giữ nguyên như cũ
+                    if (isCombo) {
+                        // Nếu đã có thông số phase1 lưu trong DB, dùng nó. Nếu không, chia đôi.
+                        let p1 = Math.floor(duration / 2);
+                        if (b.phase1_duration) p1 = parseInt(b.phase1_duration);
+                        
+                        const p1End = bStart + p1;
+                        const p2Start = p1End + CONFIG.TRANSITION_BUFFER;
+                        
+                        // Phase 1 (Chair)
+                        hardBookings.push({ start: bStart, end: p1End, resourceType: 'CHAIR', staffName: b.staffName });
+                        // Phase 2 (Bed)
+                        hardBookings.push({ start: p2Start, end: bStart + duration, resourceType: 'BED', staffName: b.staffName });
+                    } else {
+                        // Single Booking
+                        let rType = svcInfo.type || 'CHAIR';
+                        if (b.serviceName.toUpperCase().match(/BODY|指壓|油|BED/)) rType = 'BED';
+                        hardBookings.push({ start: bStart, end: bStart + duration, resourceType: rType, staffName: b.staffName });
+                    }
                 }
-                
-                hardBookings.push({ start: bStart, end: bStart + duration, resourceType: rType, staffName: b.staffName });
             });
 
-            // Phân loại khách mới
-            let newSingleGuests = [];
-            let newComboGuests = [];
-
+            // --- 2. Thêm khách mới vào hàng đợi (New Requests) ---
             guestList.forEach((g, index) => {
                 const svc = SERVICES[g.serviceCode];
-                if (!svc) return; 
+                if (!svc) return;
                 
-                const guestObj = {
-                    id: index, staffReq: g.staffName, serviceName: svc.name,
-                    duration: svc.duration, price: svc.price, type: svc.type, category: svc.category,
+                optimizationQueue.push({
+                    type: 'NEW',
+                    id: `new_${index}`,
+                    staffReq: g.staffName,
+                    serviceName: svc.name,
+                    duration: svc.duration,
+                    price: svc.price,
+                    resourceType: svc.type,
+                    category: svc.category,
+                    startMins: requestStartMins, // Giờ bắt đầu theo yêu cầu
                     elasticStep: svc.elasticStep || 0,
-                    elasticLimit: svc.elasticLimit || 0
-                };
-
-                if (svc.category === 'COMBO') {
-                    flexibleIntentions.push(guestObj);
-                    newComboGuests.push(guestObj);
-                } else {
-                    newSingleGuests.push(guestObj);
-                }
+                    elasticLimit: svc.elasticLimit || 0,
+                    lockedPhase1: null
+                });
             });
 
-            // BƯỚC B: XẾP KHÁCH LẺ (STANDARD FIT)
-            let baseTimeline = [...hardBookings]; 
-            let finalDetails = new Array(guestList.length);
+            // ========================================================================
+            // BƯỚC B: GIẢI QUYẾT HÀNG ĐỢI (GREEDY OPTIMIZATION LOOP)
+            // ========================================================================
+            
+            // Sắp xếp: Ưu tiên khách cũ trước (để giữ chỗ cho họ), sau đó đến khách mới
+            optimizationQueue.sort((a, b) => {
+                if (a.type === 'EXISTING' && b.type === 'NEW') return -1;
+                if (a.type === 'NEW' && b.type === 'EXISTING') return 1;
+                return a.startMins - b.startMins;
+            });
 
-            for (const g of newSingleGuests) {
-                const start = requestStartMins;
-                const end = start + g.duration + CONFIG.CLEANUP_BUFFER;
+            let currentTimeline = [...hardBookings];
+            let finalDetails = []; // Kết quả hiển thị cho khách mới
+            
+            for (const item of optimizationQueue) {
+                let isFitted = false;
                 
-                if (!checkResourceCapacity(g.type, start, end, baseTimeline))
-                     return { feasible: false, reason: `資源不足 (Resource Full): ${g.type}` };
-
-                const staff = findAvailableStaff(g.staffReq, start, end, staffList, baseTimeline);
-                if (!staff) return { feasible: false, reason: `無可用技師 (No Staff): ${g.staffReq || 'Random'}` };
-
-                baseTimeline.push({ start: start, end: end, resourceType: g.type, staffName: staff });
-                finalDetails[g.id] = {
-                    guestIndex: g.id, staff: staff, service: g.serviceName, price: g.price, 
-                    timeStr: `${timeStr} - ${getTimeStrFromMins(end - CONFIG.CLEANUP_BUFFER)}`
-                };
-            }
-
-            if (flexibleIntentions.length === 0) {
-                 if (!checkResourceCapacity('TOTAL', requestStartMins, requestStartMins + 5, baseTimeline))
-                    return { feasible: false, reason: "Full House (Max Guests)" };
-                 return { feasible: true, details: finalDetails, totalPrice: finalDetails.reduce((a,b)=>a+(b?b.price:0),0) };
-            }
-
-            // BƯỚC C: THUẬT TOÁN CO GIÃN (ELASTIC TIME SIMULATION)
-            let currentSimulation = JSON.parse(JSON.stringify(baseTimeline));
-            let comboSuccessCount = 0;
-
-            for (const guest of flexibleIntentions) {
-                let isGuestFitted = false;
-                
-                const splitOptions = generateElasticSplits(guest.duration, guest.elasticStep, guest.elasticLimit);
-
-                for (const split of splitOptions) {
-                    const modes = ['FB', 'BF'];
+                // 1. Nếu là SINGLE (Thường chỉ khách mới mới vào case này ở đây)
+                if (item.category !== 'COMBO' && !item.serviceName.includes('套餐') && item.type === 'NEW') {
+                    const start = item.startMins;
+                    const end = start + item.duration + CONFIG.CLEANUP_BUFFER;
                     
-                    for (const mode of modes) {
-                        const p1Res = (mode === 'FB') ? 'CHAIR' : 'BED';
-                        const p2Res = (mode === 'FB') ? 'BED' : 'CHAIR';
-                        
-                        const tStart = requestStartMins;
-                        const p1End = tStart + split.p1;
-                        const p2Start = p1End + CONFIG.TRANSITION_BUFFER;
-                        const p2End = p2Start + split.p2;
-                        const fullEnd = p2End + CONFIG.CLEANUP_BUFFER;
-
-                        if (!checkResourceCapacity(p1Res, tStart, p1End + CONFIG.CLEANUP_BUFFER, currentSimulation)) continue;
-                        
-                        let tempTimeline = [...currentSimulation, { start: tStart, end: p1End + CONFIG.CLEANUP_BUFFER, resourceType: p1Res, staffName: 'TEMP' }];
-                        if (!checkResourceCapacity(p2Res, p2Start, fullEnd, tempTimeline)) continue;
-
-                        const assignedStaff = findAvailableStaff(guest.staffReq, tStart, fullEnd, staffList, currentSimulation);
-                        
-                        if (assignedStaff) {
-                            currentSimulation.push({ start: tStart, end: p1End + CONFIG.CLEANUP_BUFFER, resourceType: p1Res, staffName: assignedStaff });
-                            currentSimulation.push({ start: p2Start, end: fullEnd, resourceType: p2Res, staffName: assignedStaff });
-
-                            finalDetails[guest.id] = {
-                                guestIndex: guest.id, staff: assignedStaff, service: guest.serviceName, price: guest.price,
-                                phase1_duration: split.p1, phase2_duration: split.p2, mode: mode,
-                                timeStr: `${timeStr} - ${getTimeStrFromMins(p2End)}`
-                            };
-                            isGuestFitted = true;
-                            break; 
+                    if (checkResourceCapacity(item.resourceType, start, end, currentTimeline)) {
+                        const staff = findAvailableStaff(item.staffReq, start, end, staffList, currentTimeline);
+                        if (staff) {
+                            currentTimeline.push({ start, end, resourceType: item.resourceType, staffName: staff });
+                            finalDetails.push({
+                                guestIndex: parseInt(item.id.replace('new_', '')),
+                                staff: staff,
+                                service: item.serviceName,
+                                price: item.price,
+                                timeStr: `${getTimeStrFromMins(item.startMins)} - ${getTimeStrFromMins(end - CONFIG.CLEANUP_BUFFER)}`
+                            });
+                            isFitted = true;
                         }
                     }
-                    if (isGuestFitted) break; 
+                } 
+                // 2. Nếu là COMBO (Cả cũ và mới đều vào đây để co giãn)
+                else {
+                    const splits = generateElasticSplits(item.duration, item.elasticStep, item.elasticLimit, item.lockedPhase1);
+                    
+                    for (const split of splits) {
+                        // Thử 2 chiều FB và BF. Với khách cũ, ta mặc định giữ FB để an toàn (hoặc đọc từ DB nếu có).
+                        // Ở đây frontend đơn giản hóa: Default FB.
+                        let modes = ['FB', 'BF'];
+                        if (item.type === 'EXISTING') modes = ['FB']; 
+
+                        for (const mode of modes) {
+                            const p1Res = (mode === 'FB') ? 'CHAIR' : 'BED';
+                            const p2Res = (mode === 'FB') ? 'BED' : 'CHAIR';
+                            
+                            const tStart = item.startMins;
+                            const p1End = tStart + split.p1;
+                            const p2Start = p1End + CONFIG.TRANSITION_BUFFER;
+                            const p2End = p2Start + split.p2;
+                            const fullEnd = p2End + CONFIG.CLEANUP_BUFFER;
+
+                            // Check Resource
+                            if (!checkResourceCapacity(p1Res, tStart, p1End + CONFIG.CLEANUP_BUFFER, currentTimeline)) continue;
+                            
+                            let tempTimeline = [...currentTimeline, { start: tStart, end: p1End + CONFIG.CLEANUP_BUFFER, resourceType: p1Res, staffName: 'TEMP' }];
+                            if (!checkResourceCapacity(p2Res, p2Start, fullEnd, tempTimeline)) continue;
+
+                            // Check Staff
+                            const assignedStaff = findAvailableStaff(item.staffReq, tStart, fullEnd, staffList, currentTimeline);
+                            
+                            // Với khách cũ, phải chắc chắn là staff cũ (hoặc staffReq) được assign
+                            if (item.type === 'EXISTING' && assignedStaff !== item.staffReq) continue;
+
+                            if (assignedStaff) {
+                                // Success!
+                                currentTimeline.push({ start: tStart, end: p1End + CONFIG.CLEANUP_BUFFER, resourceType: p1Res, staffName: assignedStaff });
+                                currentTimeline.push({ start: p2Start, end: fullEnd, resourceType: p2Res, staffName: assignedStaff });
+
+                                if (item.type === 'NEW') {
+                                    finalDetails.push({
+                                        guestIndex: parseInt(item.id.replace('new_', '')),
+                                        staff: assignedStaff,
+                                        service: item.serviceName,
+                                        price: item.price,
+                                        phase1_duration: split.p1,
+                                        phase2_duration: split.p2,
+                                        breakdown: `(足:${split.p1} → 身:${split.p2})`,
+                                        is_elastic: split.deviation !== 0,
+                                        timeStr: `${getTimeStrFromMins(tStart)} - ${getTimeStrFromMins(p2End)}`
+                                    });
+                                }
+                                isFitted = true;
+                                break; 
+                            }
+                        }
+                        if (isFitted) break;
+                    }
                 }
 
-                if (isGuestFitted) comboSuccessCount++;
-                else return { feasible: false, reason: "Không tìm được giờ phù hợp (Elastic Failed)" };
-            }
-
-            if (comboSuccessCount === flexibleIntentions.length) {
-                if (!checkResourceCapacity('TOTAL', requestStartMins, requestStartMins + 5, currentSimulation)) {
-                    return { feasible: false, reason: "Quá tải tổng số khách (Max 12)" };
+                if (!isFitted) {
+                    if (item.type === 'NEW') {
+                        return { feasible: false, reason: "Không tìm được chỗ phù hợp (Elastic Failed)" };
+                    } else {
+                        // Khách cũ bị đẩy ra -> Lỗi nghiêm trọng, nhưng để UI không crash, ta báo lỗi chung
+                        console.warn(`[V6.0] Warning: Existing booking ${item.id} could not be refitted. Resource conflict?`);
+                        return { feasible: false, reason: "Xung đột với lịch cũ (System Conflict)" };
+                    }
                 }
-                const cleanDetails = finalDetails.filter(d => d);
-                return { feasible: true, strategy: 'ELASTIC_OPTIMIZED', details: cleanDetails, totalPrice: cleanDetails.reduce((sum, item) => sum + item.price, 0) };
             }
 
-            return { feasible: false, reason: "Unknown Error" };
+            // ========================================================================
+            // BƯỚC C: KẾT QUẢ CUỐI CÙNG
+            // ========================================================================
+            
+            // Check tổng 1 lần nữa
+            if (!checkResourceCapacity('TOTAL', requestStartMins, requestStartMins + 5, currentTimeline)) {
+                return { feasible: false, reason: "Quá tải tổng số khách (Max 12)" };
+            }
+
+            // Sort kết quả
+            finalDetails.sort((a,b) => a.guestIndex - b.guestIndex);
+
+            return { 
+                feasible: true, 
+                strategy: 'GLOBAL_ELASTIC_V6', 
+                details: finalDetails, 
+                totalPrice: finalDetails.reduce((sum, item) => sum + item.price, 0) 
+            };
         }
 
         return { checkRequestAvailability, setDynamicServices };
@@ -340,6 +438,7 @@
 
     // ========================================================================
     // PHẦN 2: ANTI-CACHE DATA FETCHER (V90 - KEEP)
+    // Mô tả: Giữ nguyên logic fetch dữ liệu từ server với tham số timestamp
     // ========================================================================
     const fetchLiveServerData = async (isForceRefresh = false) => {
         const apiUrl = window.API_URL || window.GAS_API_URL || (window.CONFIG && window.CONFIG.API_URL);
@@ -380,7 +479,7 @@
     };
 
     // ========================================================================
-    // PHẦN 3: REACT UI LOGIC (GIAO DIỆN V90 - ĐÃ FIX DATA MAPPING)
+    // PHẦN 3: REACT UI LOGIC (GIAO DIỆN V91 + V92)
     // ========================================================================
     
     const { useState, useEffect, useMemo, useCallback } = React;
@@ -408,7 +507,8 @@
     };
 
     // ------------------------------------------------------------------------
-    // [QUAN TRỌNG] HÀM NÀY ĐÃ ĐƯỢC SỬA LỖI ĐỂ ĐỌC ĐÚNG CỘT TỪ GOOGLE SHEET
+    // HÀM CẦU NỐI (BRIDGE FUNCTION) - V93 UPDATED
+    // Cập nhật để truyền các tham số mới (isManualLocked, phase1_duration) vào Core
     // ------------------------------------------------------------------------
     const callCoreAvailabilityCheck = (date, time, guests, bookings, staffList) => {
         syncServicesToCore();
@@ -418,19 +518,24 @@
             staffName: g.staff === '隨機' ? 'RANDOM' : (g.staff === '女' || g.staff === 'FEMALE_OIL') ? 'FEMALE' : (g.staff === '男') ? 'MALE' : g.staff
         }));
 
-        // Chuẩn hóa ngày:
-        // 1. Dùng cho Booking: YYYY/MM/DD (Khớp với dữ liệu backend trả về)
         const targetDateStandard = date.replace(/-/g, '/');
-        // 2. Dùng cho Sheet Header (Tra cứu OFF): YYYY-MM-DD (Khớp với tiêu đề cột trên Google Sheet)
         const targetDateSheetHeader = date.replace(/\//g, '-');
 
+        // [V93 UPDATE]: Map thêm các trường dữ liệu mới cho Core V6.0
         const coreBookings = (Array.isArray(bookings) ? bookings : []).filter(b => {
             if (!b || !b.startTimeString || (b.status && (b.status.includes('hủy') || b.status.includes('Cancel')))) return false;
             return b.startTimeString.split(' ')[0].replace(/-/g, '/') === targetDateStandard;
         }).map(b => ({
-            serviceCode: b.serviceName, serviceName: b.serviceName, 
-            startTime: b.startTimeString, duration: parseInt(b.duration) || 60, 
-            staffName: b.technician || b.staffId || "Unassigned"
+            serviceCode: b.serviceName, 
+            serviceName: b.serviceName, 
+            startTime: b.startTimeString, 
+            duration: parseInt(b.duration) || 60, 
+            staffName: b.technician || b.staffId || "Unassigned",
+            // --- CÁC TRƯỜNG MỚI CHO V6.0 ---
+            rowId: b.rowId, // Định danh để tracking
+            isManualLocked: (b.isManualLocked === true || b.isManualLocked === 'true'), // Cờ khóa tay
+            phase1_duration: b.phase1_duration ? parseInt(b.phase1_duration) : null, // Thời gian P1 nếu đã lưu
+            status: b.status // Để check 'Running'
         }));
 
         const staffMap = {};
@@ -439,24 +544,18 @@
                 const sId = String(s.id).trim();
 
                 // [FIX V91]: Đọc cột "上班" và "下班" (Tiếng Trung)
-                // Nếu Sheet trả về API không chuẩn hóa tiếng Anh, ta phải đọc trực tiếp key tiếng Trung.
-                // Nếu không tìm thấy giờ làm, mặc định là RỖNG (undefined) để bị loại bỏ, thay vì "00:00".
                 const rawStart = s['上班'] || s.shiftStart || s.start || null;
                 const rawEnd = s['下班'] || s.shiftEnd || s.end || null;
 
                 // [FIX V91]: Logic tra cứu ngày nghỉ OFF
-                // Kiểm tra cả 2 định dạng ngày để chắc chắn bắt được chữ OFF
                 const dayStatus = s[targetDateSheetHeader] || s[targetDateStandard] || "";
-                
-                // Điều kiện OFF: Có trong list offDays HOẶC cột ngày hôm đó có chữ OFF
                 let isOff = (String(s.offDays || "").includes(targetDateStandard) || String(dayStatus).toUpperCase().includes('OFF'));
 
-                // Nếu không có giờ làm (rawStart là null), coi như OFF luôn
+                // Nếu không có giờ làm, coi như OFF
                 if (!rawStart || !rawEnd || rawStart === "00:00") {
-                    // Tuy nhiên, kiểm tra lại nếu shop quy định 00:00 là làm việc thì bỏ dòng này. 
-                    // Nhưng theo mô tả lỗi "20 nhân viên đều rảnh", thì 00:00 đang là giá trị mặc định sai.
-                    // Ta set fallback an toàn: Nếu không có giờ -> Set start=00:00, end=00:00 và set isOff=true nếu cần
-                    // Ở đây tốt nhất là giữ giá trị text, nếu null thì gán "00:00" nhưng đánh dấu logic riêng.
+                    // Logic an toàn: Nếu không set giờ thì coi như không làm
+                    // (Bạn có thể bỏ comment dòng dưới nếu muốn strict check)
+                    // isOff = true; 
                 }
 
                 staffMap[sId] = {
@@ -474,6 +573,7 @@
             const result = CoreKernel.checkRequestAvailability(date, time, coreGuests, coreBookings, staffMap);
             return result.feasible ? { valid: true, details: result.details } : { valid: false, reason: result.reason };
         } catch (err) {
+            console.error("Core Check Error:", err);
             return { valid: false, reason: "System Error: " + err.message };
         }
     };
@@ -616,7 +716,7 @@
             <div className="fixed inset-0 bg-slate-900/90 z-[100] flex items-center justify-center p-4">
                 <div className="bg-white w-full max-w-xl rounded-xl shadow-2xl flex flex-col max-h-[95vh] overflow-hidden animate-fadeIn">
                     <div className="bg-[#0891b2] p-4 text-white flex justify-between items-center shrink-0">
-                        <h3 className="font-bold text-lg">📅 電話預約 (V91+Elastic)</h3>
+                        <h3 className="font-bold text-lg">📅 電話預約 (V93+Brain V6.0)</h3>
                         <button onClick={onClose} className="text-2xl hover:text-red-100">&times;</button>
                     </div>
                     <div className="p-5 space-y-4 overflow-y-auto flex-1 custom-scrollbar">
@@ -806,7 +906,7 @@
             <div className="fixed inset-0 bg-black/70 z-[90] flex items-center justify-center p-4">
                 <div className="bg-white w-full max-w-xl rounded-xl shadow-2xl modal-animate flex flex-col max-h-[90vh] overflow-hidden">
                     <div className="bg-amber-600 p-4 text-white flex justify-between items-center shrink-0">
-                        <h3 className="font-bold text-lg">⚡ 現場客 (V91+Elastic)</h3>
+                        <h3 className="font-bold text-lg">⚡ 現場客 (V93+Brain V6.0)</h3>
                         <button onClick={onClose}><i className="fas fa-times text-xl"></i></button>
                     </div>
                     <div className="p-5 space-y-4 overflow-y-auto flex-1 custom-scrollbar">
@@ -846,8 +946,8 @@
 
     // SYSTEM INJECTION
     const overrideInterval = setInterval(() => {
-        if (window.AvailabilityCheckModal !== NewAvailabilityCheckModal) { window.AvailabilityCheckModal = NewAvailabilityCheckModal; console.log("♻️ AvailabilityModal Injected (V91)"); }
-        if (window.WalkInModal !== NewWalkInModal) { window.WalkInModal = NewWalkInModal; console.log("♻️ WalkInModal Injected (V91)"); }
+        if (window.AvailabilityCheckModal !== NewAvailabilityCheckModal) { window.AvailabilityCheckModal = NewAvailabilityCheckModal; console.log("♻️ AvailabilityModal Injected (V93)"); }
+        if (window.WalkInModal !== NewWalkInModal) { window.WalkInModal = NewWalkInModal; console.log("♻️ WalkInModal Injected (V93)"); }
     }, 200);
     setTimeout(() => { clearInterval(overrideInterval); }, 5000);
 })();

@@ -1,9 +1,9 @@
 /**
  * ============================================================================
  * FILE: js/views.js
- * PHIÊN BẢN: V5.1 (FIXED REFERENCE ERROR)
+ * PHIÊN BẢN: V5.2 (VISUAL UPGRADE & EDIT BUTTON)
  * MÔ TẢ: CÁC COMPONENT HIỂN THỊ CHÍNH (TIMELINE, REPORT, CARD...)
- * CẬP NHẬT: Sửa lỗi "sequence is not defined" trong ResourceCard
+ * CẬP NHẬT: Hiển thị Deadline từng Phase, thêm nút Edit (Visual Only)
  * TÁC GIẢ: AI ASSISTANT & USER
  * ============================================================================
  */
@@ -13,7 +13,7 @@ const { useState, useEffect, useMemo, useRef } = React;
 // ============================================================================
 // 1. TIMELINE VIEW (Biểu đồ thời gian Gantt)
 // ============================================================================
-const TimelineView = ({ timelineData }) => {
+const TimelineView = ({ timelineData, onEditPhase }) => {
     // Cấu hình thời gian hiển thị
     const startHour = 8;
     const endHour = 27; // 27 = 3h sáng hôm sau
@@ -28,7 +28,7 @@ const TimelineView = ({ timelineData }) => {
 
     const TOTAL_WIDTH = LEFT_COL_WIDTH + (hours.length * HOUR_WIDTH);
 
-    // Bảng màu phân biệt khách hàng (18 màu giúp dễ nhìn)
+    // Bảng màu phân biệt khách hàng
     const colorPalette = [
         "bg-red-100 text-red-800 border-red-300 hover:bg-red-200",
         "bg-orange-100 text-orange-800 border-orange-300 hover:bg-orange-200",
@@ -50,31 +50,25 @@ const TimelineView = ({ timelineData }) => {
         "bg-slate-200 text-slate-800 border-slate-400 hover:bg-slate-300"
     ];
 
-    // Hàm lấy màu dựa trên ID booking (Hash function)
     const getRowIdColor = (rowId) => {
         if (!rowId) return colorPalette[0];
         let hash = 0;
         const str = String(rowId);
-        for (let i = 0; i < str.length; i++) {
-            hash = str.charCodeAt(i) + ((hash << 5) - hash);
-        }
+        for (let i = 0; i < str.length; i++) { hash = str.charCodeAt(i) + ((hash << 5) - hash); }
         const index = Math.abs(hash) % colorPalette.length;
         return colorPalette[index];
     };
 
-    // Định dạng giờ hiển thị (ví dụ 25:00 -> 01:00)
     const formatHour = (h) => {
         const displayH = h >= 24 ? h - 24 : h;
         return `${displayH}:00`;
     };
 
-    // Tạo danh sách hàng (6 ghế + 6 giường)
     const rows = [
         ...Array.from({length:6}, (_,i) => ({id: `chair-${i+1}`, label: `足 ${i+1}`, type: 'chair'})),
         ...Array.from({length:6}, (_,i) => ({id: `bed-${i+1}`, label: `身 ${i+1}`, type: 'bed'}))
     ];
 
-    // Tạo nhãn hiển thị tên khách và SĐT
     const getDisplayLabel = (booking) => {
         let name = booking.customerName || '';
         let phone = booking.sdt || '';
@@ -99,6 +93,11 @@ const TimelineView = ({ timelineData }) => {
                 .custom-scrollbar::-webkit-scrollbar-thumb { background-color: #94a3b8; border-radius: 20px; border: 4px solid #f1f5f9; background-clip: content-box; }
                 .custom-scrollbar::-webkit-scrollbar-thumb:hover { background-color: #64748b; }
                 .custom-scrollbar::-webkit-scrollbar-corner { background: #f1f5f9; }
+                
+                /* [NEW V5.2] Animation cho nút Edit */
+                .edit-btn { opacity: 0; transition: opacity 0.2s, transform 0.1s; }
+                .timeline-block:hover .edit-btn { opacity: 1; }
+                .edit-btn:hover { transform: scale(1.1); background-color: rgba(255,255,255,0.9) !important; color: #dc2626 !important; }
             `}</style>
 
             <div style={{ width: `${TOTAL_WIDTH}px`, minWidth: '100%' }}>
@@ -122,9 +121,7 @@ const TimelineView = ({ timelineData }) => {
                 <div className="relative bg-white pb-4">
                     {rows.map((row, index) => {
                         const isLastChairRow = index === 5;
-                        const rowStyleClass = isLastChairRow 
-                            ? "border-b-4 border-red-500" 
-                            : "border-b border-slate-100"; 
+                        const rowStyleClass = isLastChairRow ? "border-b-4 border-red-500" : "border-b border-slate-100"; 
 
                         return (
                             <div key={row.id} className={`flex relative transition-colors hover:bg-slate-50 ${rowStyleClass}`} style={{ height: `${ROW_HEIGHT}px` }}>
@@ -136,7 +133,6 @@ const TimelineView = ({ timelineData }) => {
                                 
                                 {/* Content Area */}
                                 <div className="relative flex-1 h-full">
-                                    {/* Grid Lines (Background) */}
                                     <div className="absolute inset-0 flex pointer-events-none z-0">
                                         {hours.map(h => (
                                             <div key={h} className="shrink-0 border-r border-slate-200 h-full border-dashed" style={{width: `${HOUR_WIDTH}px`}}></div>
@@ -152,19 +148,59 @@ const TimelineView = ({ timelineData }) => {
                                         const width = duration * PIXELS_PER_MIN;
                                         let bgClass = getRowIdColor(slot.booking.rowId);
                                         const label = getDisplayLabel(slot.booking);
+                                        
+                                        // [NEW V5.2] Tính toán Deadline Info
+                                        const endTimeStr = window.formatMinutesToTime(slot.end);
+                                        const deadlineText = `⏳ ${duration}p ➔ ${endTimeStr}`;
+                                        const startTimeStr = window.formatMinutesToTime(slot.start); // Dùng cho Phase 2 nếu cần
+
+                                        // Hiển thị icon cho Combo Phase
+                                        let comboIcon = "";
+                                        if (slot.meta && slot.meta.isCombo) {
+                                            if (slot.meta.phase === 1) comboIcon = "❶";
+                                            else if (slot.meta.phase === 2) comboIcon = "❷";
+                                        }
 
                                         return (
                                             <div key={idx} 
-                                                 className={`absolute top-1 bottom-1 rounded border px-2 flex flex-col justify-center text-xs overflow-hidden shadow-sm z-10 cursor-pointer transition-all ${bgClass}`}
+                                                 className={`absolute top-1 bottom-1 rounded border px-2 flex flex-col justify-center text-xs overflow-hidden shadow-sm z-10 cursor-pointer transition-all timeline-block group ${bgClass}`}
                                                  style={{left: `${leftPos}px`, width: `${width}px`}}
                                                  title={`${slot.booking.serviceName} - ${slot.booking.customerName}`}
                                             >
-                                                <div className="font-bold truncate text-[12px] leading-tight">{label}</div>
-                                                <div className="truncate opacity-75 text-[10px] flex items-center gap-1 mt-0.5">
+                                                {/* Dòng 1: Tên khách & Index */}
+                                                <div className="font-bold truncate text-[11px] leading-tight flex justify-between items-center">
+                                                    <span>{label} {comboIcon}</span>
+                                                </div>
+
+                                                {/* Dòng 2: Deadline & Thời lượng [QUAN TRỌNG] */}
+                                                <div className="text-[10px] font-mono font-bold text-slate-700 bg-white/40 rounded px-1 mt-0.5 truncate border border-black/5" title={`Bắt đầu: ${startTimeStr} | Kết thúc: ${endTimeStr}`}>
+                                                    {slot.meta && slot.meta.isCombo 
+                                                        ? (slot.meta.phase === 1 ? deadlineText : `🏁 ${startTimeStr} ➔ (${duration}p)`) 
+                                                        : deadlineText}
+                                                </div>
+
+                                                {/* Dòng 3: Dịch vụ & Icons */}
+                                                <div className="truncate opacity-75 text-[9px] flex items-center gap-1 mt-0.5">
                                                     {(slot.booking.isOil || (slot.booking.serviceName && slot.booking.serviceName.includes('油'))) && <span title="Oil">💧</span>}
                                                     {(slot.booking.category === 'COMBO') && <span title="Combo">🔥</span>}
-                                                    <i className="fas fa-clock text-[9px] ml-1"></i> {slot.booking.serviceName}
+                                                    <span>{slot.booking.serviceName}</span>
                                                 </div>
+
+                                                {/* [NEW V5.2] Nút Edit (Chỉ hiện khi Hover) */}
+                                                {slot.meta && slot.meta.isCombo && (
+                                                    <button 
+                                                        className="edit-btn absolute top-0.5 right-0.5 w-5 h-5 bg-white text-gray-400 rounded-full flex items-center justify-center shadow-md border border-gray-200 z-50"
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            // Gọi hàm edit nếu được truyền xuống (Giai đoạn 2)
+                                                            if (onEditPhase) onEditPhase(slot.booking, slot.meta);
+                                                            else console.log("Edit Clicked (Phase 1 Visual Only)", slot.booking);
+                                                        }}
+                                                        title="Chỉnh sửa thời gian (Edit Phase)"
+                                                    >
+                                                        <i className="fas fa-pencil-alt text-[10px]"></i>
+                                                    </button>
+                                                )}
                                             </div>
                                         );
                                     })}
@@ -180,13 +216,11 @@ const TimelineView = ({ timelineData }) => {
 window.TimelineView = TimelineView;
 
 // ============================================================================
-// 2. COMMISSION VIEW (Bảng Lương/Tua & Thống kê)
+// 2. COMMISSION VIEW (Bảng Lương/Tua & Thống kê) - GIỮ NGUYÊN
 // ============================================================================
 const CommissionView = ({ bookings, staffList }) => {
     const RATES = { JIE_PRICE: 250, OIL_BONUS: 80 };
     const normalize = (str) => String(str || '').trim().replace(/\s+/g, '');
-
-    // Hàm tính số tiết (Jie) dựa trên thời lượng
     const getJieCount = (serviceName, duration) => {
         const name = (serviceName || "").toUpperCase();
         if (name.includes('190') || name.includes('帝王')) return 6;
@@ -202,7 +236,6 @@ const CommissionView = ({ bookings, staffList }) => {
         if (name.includes('40')) return 1;
         if (name.includes('35')) return 1;
         if (name.includes('30')) return 1;
-        
         const mins = parseInt(duration || 0);
         if (mins >= 175) return 6;
         if (mins >= 115) return 4;
@@ -211,8 +244,6 @@ const CommissionView = ({ bookings, staffList }) => {
         if (mins >= 15) return 1; 
         return 0; 
     };
-
-    // Kiểm tra có phải dầu hay không
     const isOilService = (b) => {
         if (b.isOil === true || b.isOil === 'true') return true;
         const name = (b.serviceName || "").toLowerCase();
@@ -220,26 +251,18 @@ const CommissionView = ({ bookings, staffList }) => {
         if (name.includes('帝王') || name.includes('a6')) return true;
         return false;
     };
-
-    // Tính toán dữ liệu hoa hồng (Memoized để tối ưu hiệu năng)
     const commissionData = useMemo(() => {
         const stats = {};
         const lookupMap = {}; 
-        
-        // Khởi tạo danh sách nhân viên từ staffList
         (staffList || []).forEach(staff => {
             const entry = { id: staff.id, name: staff.name || staff.id, jie: 0, oil: 0, income: 0, orderCount: 0 };
             stats[staff.id] = entry;
             lookupMap[normalize(staff.id)] = entry;
             if (staff.name) lookupMap[normalize(staff.name)] = entry;
         });
-
         const safeBookings = Array.isArray(bookings) ? bookings : [];
-
         safeBookings.forEach(b => {
             if (b.status && (b.status.includes('取消') || b.status.includes('Cancel') || b.status.includes('❌'))) return;
-            
-            // Danh sách các slot có thể có nhân viên trong một đơn hàng
             const slots = [
                 { id: b.serviceStaff || b.staffId, status: b.Status1 }, 
                 { id: b.staffId2, status: b.Status2 },                  
@@ -248,30 +271,21 @@ const CommissionView = ({ bookings, staffList }) => {
                 { id: b.staffId5, status: b.Status5 },                  
                 { id: b.staffId6, status: b.Status6 },                  
             ];
-
             const mainStatusDone = b.status && (b.status.includes('完成') || b.status.includes('Done') || b.status.includes('✅'));
-
             slots.forEach((slot) => {
                 if (!slot.id || slot.id === '隨機' || slot.id === 'undefined' || slot.id === 'null' || slot.id === '') return;
-                
-                // Logic tính: Đã xong slot đó HOẶC đơn chính đã xong
                 const isSlotDone = (slot.status && (slot.status.includes('完成') || slot.status.includes('Done'))) || mainStatusDone;
-                
                 if (isSlotDone) {
                     const normKey = normalize(slot.id);
                     let staffStat = lookupMap[normKey];
-                    
-                    // Nếu nhân viên không có trong danh sách gốc (Ghost Staff), tạo mới
                     if (!staffStat) {
                         staffStat = { id: slot.id, name: slot.id, jie: 0, oil: 0, income: 0, orderCount: 0, isGhost: true };
                         stats[slot.id] = staffStat; 
                         lookupMap[normKey] = staffStat; 
                     }
-
                     if (staffStat) {
                         const q = getJieCount(b.serviceName, b.duration);
                         const hasOil = isOilService(b);
-                        
                         staffStat.jie += q;
                         staffStat.orderCount += 1;
                         if (hasOil) staffStat.oil += 1;
@@ -279,13 +293,7 @@ const CommissionView = ({ bookings, staffList }) => {
                 }
             });
         });
-
-        // Tính tổng thu nhập
-        Object.values(stats).forEach(s => { 
-            s.income = (s.jie * RATES.JIE_PRICE) + (s.oil * RATES.OIL_BONUS); 
-        });
-
-        // Sắp xếp theo thu nhập giảm dần
+        Object.values(stats).forEach(s => { s.income = (s.jie * RATES.JIE_PRICE) + (s.oil * RATES.OIL_BONUS); });
         return Object.values(stats).sort((a, b) => {
              if (b.income !== a.income) return b.income - a.income;
              return String(a.id).localeCompare(String(b.id));
@@ -299,20 +307,15 @@ const CommissionView = ({ bookings, staffList }) => {
 
     return (
         <div className="bg-white rounded shadow-lg flex flex-col h-[calc(100vh-280px)] animate-in fade-in zoom-in duration-300 font-sans border border-slate-200">
-            {/* Header */}
             <div className="bg-[#2e1065] text-white p-2 flex justify-between items-center shrink-0 rounded-t-lg shadow-md z-10">
                 <div className="flex items-center gap-4">
                     <h2 className="text-sm font-bold flex items-center gap-2"><i className="fas fa-calculator"></i> 薪資與節數統計</h2>
                     <span className="text-xs text-gray-300 bg-white/10 px-2 py-0.5 rounded">有效單數: {validOrders}</span>
                 </div>
                 <div className="text-right">
-                    <div className="text-[10px] text-gray-300 bg-white/10 px-2 py-0.5 rounded inline-block font-mono">
-                        (節數×{RATES.JIE_PRICE}) + (精油×{RATES.OIL_BONUS})
-                    </div>
+                    <div className="text-[10px] text-gray-300 bg-white/10 px-2 py-0.5 rounded inline-block font-mono">(節數×{RATES.JIE_PRICE}) + (精油×{RATES.OIL_BONUS})</div>
                 </div>
             </div>
-
-            {/* Table Body */}
             <div className="flex-1 overflow-y-auto overflow-x-hidden custom-scrollbar bg-slate-50">
                 <table className="w-full text-left border-collapse relative">
                     <thead className="sticky top-0 z-10 shadow-sm">
@@ -337,8 +340,6 @@ const CommissionView = ({ bookings, staffList }) => {
                     </tbody>
                 </table>
             </div>
-
-            {/* Footer Total */}
             <div className="bg-slate-100 border-t border-slate-300 p-3 shrink-0 rounded-b-lg">
                 <div className="flex justify-between items-center text-base font-bold text-gray-600">
                     <div className="w-1/4 pl-4 text-gray-800 text-lg">總計:</div>
@@ -354,24 +355,19 @@ const CommissionView = ({ bookings, staffList }) => {
 window.CommissionView = CommissionView;
 
 // ============================================================================
-// 3. REPORT VIEW (Báo cáo doanh thu & Chi tiết giao dịch)
+// 3. REPORT VIEW (Báo cáo doanh thu & Chi tiết giao dịch) - GIỮ NGUYÊN
 // ============================================================================
 const ReportView = ({ bookings }) => {
     const safeBookings = Array.isArray(bookings) ? bookings : [];
-    
-    // Tính toán doanh thu tổng
     const processedStats = useMemo(() => {
         let revenue = 0; let guests = 0;
         safeBookings.forEach(b => {
             if (b.status && b.status.includes('取消')) return;
             const pax = parseInt(b.pax, 10) || 1;
-            
-            // Duyệt qua từng slot để tính tiền nếu slot đó đã xong hoặc đơn đã xong
             for(let i=0; i<6; i++) {
                 const statusKey = `Status${i+1}`;
                 const isItemDone = (b[statusKey] && (b[statusKey].includes('完成') || b[statusKey].includes('Done')));
                 const isAllDone = (b.status && (b.status.includes('完成') || b.status.includes('Done') || b.status.includes('✅')));
-                
                 if (isItemDone || (isAllDone && i < pax)) {
                     guests++;
                     const unitPrice = window.getPrice(b.serviceName);
@@ -395,7 +391,6 @@ const ReportView = ({ bookings }) => {
                     <div className="text-4xl font-black text-blue-600">{processedStats.guests}</div>
                 </div>
             </div>
-
             <div className="bg-white rounded-xl shadow border overflow-hidden flex flex-col h-[600px]">
                 <div className="p-3 bg-slate-50 border-b font-bold text-slate-700 shrink-0">交易明細</div>
                 <div className="overflow-y-auto flex-1">
@@ -415,16 +410,13 @@ const ReportView = ({ bookings }) => {
                                 const pax = parseInt(b.pax, 10) || 1;
                                 const rows = [];
                                 const staffList = [ b.serviceStaff, b.staffId2, b.staffId3, b.staffId4, b.staffId5, b.staffId6 ];
-                                
                                 for (let k = 0; k < 6; k++) {
                                     const statusKey = `Status${k+1}`;
                                     const isSingleDone = (b[statusKey] && (b[statusKey].includes('完成') || b[statusKey].includes('Done')));
                                     const isAllDone = (b.status && (b.status.includes('完成') || b.status.includes('Done') || b.status.includes('✅')));
-                                    
                                     if (isSingleDone || (isAllDone && k < pax)) {
                                         const unitPrice = window.getPrice(b.serviceName); const oilPrice = window.getOilPrice(b.isOil || (b.serviceName && b.serviceName.includes('油'))); const singlePrice = unitPrice + oilPrice;
                                         let staffName = staffList[k] || b.serviceStaff || b.staffId || '隨機';
-                                        
                                         rows.push(
                                             <tr key={`${b.rowId}-${k}`}>
                                                 <td className="p-3 font-mono">{(b.startTimeString||' ').split(' ')[1]}</td>
@@ -448,21 +440,18 @@ const ReportView = ({ bookings }) => {
 window.ReportView = ReportView;
 
 // ============================================================================
-// 4. RESOURCE CARD (Thẻ đặt lịch - Trái tim hiển thị)
+// 4. RESOURCE CARD (Thẻ đặt lịch - Trái tim hiển thị) - GIỮ NGUYÊN
 // ============================================================================
 const ResourceCard = ({ id, type, index, data, busyStaffIds, onAction, onSelect, onSwitch, onToggleMax, onToggleSequence, onServiceChange, onStaffChange, onSplit, staffList, getGroupMemberIndex }) => {
-    // States quản lý thời gian và hiển thị
     const [timeLeft, setTimeLeft] = useState(0); 
     const [percent, setPercent] = useState(0);
     const [phaseLabel, setPhaseLabel] = useState(null);
     const [phaseTimeLeft, setPhaseTimeLeft] = useState(0);
     const [switchPercent, setSwitchPercent] = useState(null);
     
-    // Kiểm tra trạng thái dữ liệu
     const isOccupied = data && data.booking;
     const isPreview = data && data.isPreview;
 
-    // Effect: Đồng hồ đếm ngược và cập nhật tiến độ
     useEffect(() => {
         if (isOccupied && data.isRunning && !data.isPaused && data.startTime) {
             const timer = setInterval(() => {
@@ -475,28 +464,18 @@ const ResourceCard = ({ id, type, index, data, busyStaffIds, onAction, onSelect,
                 setTimeLeft(totalLeft); 
                 setPercent(Math.min(100, Math.max(0, (elapsed / totalMs) * 100)));
                 
-                // Logic xử lý Combo (chia giai đoạn)
                 const isComboName = data.booking.serviceName && (data.booking.serviceName.includes('套餐') || data.booking.serviceName.includes('Combo'));
                 const isCombo = data.booking.category === 'COMBO' || isComboName;
 
                 if (isCombo) {
-                    // Biến này dùng cho useEffect scope - OK
                     const sequence = (data.comboMeta && data.comboMeta.sequence) || 'FB';
-                    
-                    // [NEW V5.0] TRUYỀN THAM SỐ PHASE1 THỰC TẾ
-                    const customPhase1 = data.booking.phase1_duration; // Lấy từ booking gốc
-                    
-                    // Gọi hàm tính toán chia giờ
+                    const customPhase1 = data.booking.phase1_duration; 
                     const split = window.getComboSplit(data.booking.duration, data.isMaxMode, sequence, customPhase1);
-                    
                     const flex = data.comboMeta && data.comboMeta.flex ? data.comboMeta.flex : 0;
                     const phase1Ms = (split.phase1 + flex) * 60000; 
-                    
-                    // Tính lại điểm chuyển giao (switchPercent)
                     const currentSwitchPct = ((split.phase1 + flex) / (data.booking.duration || 1)) * 100;
                     setSwitchPercent(currentSwitchPct);
                     
-                    // Hiển thị Phase hiện tại
                     if (elapsed < phase1Ms) {
                         const left = Math.floor((phase1Ms - elapsed) / 60000);
                         setPhaseTimeLeft(left);
@@ -512,13 +491,10 @@ const ResourceCard = ({ id, type, index, data, busyStaffIds, onAction, onSelect,
             }, 1000); 
             return () => clearInterval(timer);
         } else { 
-            setPercent(0); 
-            setTimeLeft(0); 
-            setPhaseLabel(null); 
+            setPercent(0); setTimeLeft(0); setPhaseLabel(null); 
         }
     }, [data, isOccupied]);
     
-    // Xử lý màu sắc thẻ
     let statusColor = 'bg-slate-50 border-slate-200 border-dashed';
     if (isOccupied) {
         if (isPreview) {
@@ -530,7 +506,6 @@ const ResourceCard = ({ id, type, index, data, busyStaffIds, onAction, onSelect,
         }
     }
     
-    // Hiển thị tên nhân viên
     let staffDisplay = '';
     if (isOccupied) {
         const grpIdx = typeof getGroupMemberIndex === 'function' ? getGroupMemberIndex(id, data.booking.rowId) : 0;
@@ -554,36 +529,27 @@ const ResourceCard = ({ id, type, index, data, busyStaffIds, onAction, onSelect,
     let startObj = null, endObj = null, switchObj = null;
     let splitText = '';
 
-    // ========================================================================
-    // LOGIC RENDER TEXT CHO COMBO (SỬA LỖI REFERENCE ERROR TẠI ĐÂY)
-    // ========================================================================
     if(isOccupied && data.isRunning && data.startTime) {
         startObj = new Date(data.startTime);
         endObj = new Date(startObj.getTime() + (data.booking.duration || 60) * 60000);
         
         if(isCombo) {
-            // [FIX 1] Định nghĩa rõ ràng biến 'seq'
             const seq = (data.comboMeta && data.comboMeta.sequence) || 'FB';
-            
-            // [NEW V5.0] Dùng customPhase1 để tính giờ chuyển giao
             const customPhase1 = data.booking.phase1_duration;
             const split = window.getComboSplit(data.booking.duration, data.isMaxMode, seq, customPhase1);
             
             switchObj = new Date(startObj.getTime() + (split.phase1 + flexMinutes) * 60000);
             
-            // [FIX 2] Sử dụng biến 'seq' thay vì 'sequence' để tránh lỗi ReferenceError
             splitText = (seq === 'FB') 
                 ? `(足:${split.phase1} ➜ 身:${split.phase2})` 
                 : `(身:${split.phase1} ➜ 足:${split.phase2})`;
             
-            // Nếu có co giãn (Elastic), thêm icon cảnh báo
             if (split.isElastic) {
                 splitText += ' ⚡';
             }
         }
     }
 
-    // Render thẻ trống (Empty Card)
     if (!isOccupied) {
         return (
             <div className={`res-card h-72 flex flex-col border-2 ${statusColor} relative`}>
@@ -593,63 +559,36 @@ const ResourceCard = ({ id, type, index, data, busyStaffIds, onAction, onSelect,
         );
     }
     
-    // Render thẻ đang chạy (Active Card)
     return (
         <div className={`res-card h-72 flex flex-col border-2 ${statusColor} relative`}>
-            {/* Header Thẻ */}
             <div className="flex justify-between items-center p-2 border-b border-black/5 bg-black/5">
                 <span className="font-black text-xs text-gray-500 uppercase">{type} {index}</span>
                 {data.isRunning && !isPreview && (<div className={`text-xs font-mono font-bold ${timeLeft < 0 ? 'text-red-600 animate-pulse' : 'text-green-700'}`}>{timeLeft}m</div>)}
                 {isPreview && data.timeToStart !== undefined && (<div className="text-xs font-bold text-blue-600 bg-blue-100 px-1 rounded">{data.previewType === 'NOW' ? 'NOW' : `${data.timeToStart}m`}</div>)}
             </div>
-
-            {/* Nội dung chính */}
             <div className="flex-1 p-2 relative flex flex-col justify-center text-center pb-12">
-                {/* Progress Bar */}
                 {data.isRunning && !isPreview && (<><div className="absolute bottom-0 left-0 h-1 bg-green-500 progress-bar z-0" style={{width: `${percent}%`}}></div>{isCombo && switchPercent && (<div className="absolute bottom-0 h-full w-[2px] bg-red-400 z-0 opacity-30 border-r border-white" style={{left: `${switchPercent}%`}}></div>)}</>)}
-                
                 <div className="z-10 relative flex flex-col gap-2">
-                    {/* Badge Nhân viên & Nút Split */}
                     <div className="absolute -top-12 right-0 z-40 bg-white border-2 border-slate-200 rounded-lg shadow-sm px-3 py-1 flex items-center gap-2">
                         <div className="text-xl font-black text-slate-800 text-center">{staffDisplay || <span className="text-gray-300 text-xs">Waiting</span>}</div>
                         <button onClick={(e) => { e.stopPropagation(); onSplit(id); }} className="w-6 h-6 flex items-center justify-center bg-blue-100 text-blue-600 rounded-full hover:bg-blue-200 text-xs shadow-sm transition-transform hover:scale-110" title="Split / Add Staff"><i className="fas fa-user-plus"></i></button>
                     </div>
-
-                    {/* Nút điều khiển Combo (Đảo chiều, Max) */}
                     {isCombo && (
                         <div className="absolute -top-12 left-0 flex gap-1">
                             <button onClick={(e) => { e.stopPropagation(); onToggleSequence(id); }} className="text-xs font-bold px-2 py-1 rounded shadow z-50 bg-blue-100 text-blue-700 hover:bg-blue-200"><i className="fas fa-sync-alt"></i></button>
                             <button onClick={(e) => { e.stopPropagation(); onToggleMax(id); }} className={`text-xs font-bold px-2 py-1 rounded shadow z-50 transition-colors ${data.isMaxMode ? 'bg-yellow-400 text-black' : 'bg-gray-200 text-gray-500'}`}><i className="fas fa-bolt"></i> Max</button>
                         </div>
                     )}
-
-                    {/* Thông tin khách */}
                     <div className="font-bold text-slate-800 text-2xl truncate mt-4">{(data.booking.customerName || 'Unknown').split('(')[0]}{(data.booking.pax > 1) && <span className="text-sm text-gray-400 ml-1">(Grp)</span>}</div>
-                    
-                    {/* Chọn dịch vụ */}
                     <select className="text-sm font-bold text-gray-500 text-center bg-transparent border-b border-dashed border-gray-300 focus:outline-none w-full truncate cursor-pointer hover:bg-gray-50" value={data.booking.serviceName || ''} onChange={(e) => onServiceChange(id, e.target.value)} onClick={(e) => e.stopPropagation()}>{window.SERVICES_LIST.map(svc => <option key={svc} value={svc}>{svc}</option>)}</select>
-                    
-                    {/* Thông tin Combo Split */}
                     {isCombo && <div className={`text-xs font-mono font-bold ${splitText.includes('⚡') ? 'text-amber-600' : 'text-slate-400'}`}>{splitText}</div>}
-                    
-                    {/* Hiển thị giai đoạn Combo đang chạy */}
                     {isCombo && data.isRunning && phaseLabel && (<div className={`text-sm font-black p-2 rounded border bg-white/80 ${phaseLabel.includes('足') ? 'text-emerald-700 border-emerald-200' : 'text-purple-700 border-purple-200'}`}>{phaseLabel} {flexMinutes>0 && <span className="text-xs text-orange-500 bg-orange-100 px-1 rounded ml-1">+{flexMinutes}m</span>} <div className="text-xl font-mono mt-1">{phaseTimeLeft}分</div></div>)}
-                    
-                    {/* Target ID Combo */}
                     {isCombo && data.isRunning && data.comboMeta && data.comboMeta.targetId && (<div className="text-[10px] text-gray-400">➜ 轉: {data.comboMeta.targetId.toUpperCase()}</div>)}
-                    
-                    {/* Badge Dầu */}
                     {isOilJob && <div className="text-xs text-purple-600 font-bold border border-purple-200 bg-purple-50 rounded px-2 py-1 inline-block">💧 精油 (Oil)</div>}
-                    
-                    {/* Thời gian chi tiết */}
                     {data.isRunning && !isPreview && startObj && (<div className="bg-slate-50 rounded p-2 text-xs text-left space-y-1 mt-2 border border-slate-200 shadow-inner opacity-90"><div className="text-slate-600 font-bold flex justify-between"><span>🕒 開始:</span> <span className="font-mono text-blue-600">{formatTimeStr(startObj)}</span></div>{isCombo && switchObj && <div className="text-slate-500 flex justify-between"><span>⇄ 轉場:</span> <span className="font-mono text-orange-500">{formatTimeStr(switchObj)}</span></div>}<div className="text-slate-600 font-bold flex justify-between"><span>🏁 結束:</span> <span className="font-mono text-green-600">{formatTimeStr(endObj)}</span></div></div>)}
-                    
-                    {/* Trạng thái Preview */}
                     {isPreview && (<div className="mt-2 text-xs font-bold text-center">{data.previewType === 'NOW' && <span className="text-red-500 animate-pulse">🔴 該上鐘了 (Start Now)</span>}{data.previewType === 'SOON' && <span className="text-blue-500">🔵 預約即將到來</span>}{data.previewType === 'PHASE2' && <span className="text-orange-500">🟠 轉場準備</span>}</div>)}
                 </div>
             </div>
-
-            {/* Footer Nút Hành Động */}
             <div className="absolute bottom-0 left-0 w-full p-2 bg-white z-50 border-t">
                 {!data.isRunning || isPreview ? (
                     <div className="grid grid-cols-2 gap-2">
