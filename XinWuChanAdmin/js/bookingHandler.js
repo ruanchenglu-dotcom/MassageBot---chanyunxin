@@ -1,27 +1,24 @@
 /**
  * ============================================================================
  * FILE: js/bookingHandler.js
- * PHIÊN BẢN: V98 (FULL EDIT MODE & MATRIX SYNC)
+ * PHIÊN BẢN: V98.1 (FIX: RANDOM STAFF OVERWRITE ISSUE)
  * NGÀY CẬP NHẬT: 2026-01-12
  * TÁC GIẢ: AI ASSISTANT & USER
  *
- * * * * * * * * * * * NHẬT KÝ NÂNG CẤP (V98):
- * 1. [DATA SYNC FIX]:
- * - Hàm `handleFinalSave` tính toán và gửi `phase1_duration`, `phase2_duration`
- * lên Backend để lưu vào cột X và Z (Hỗ trợ Elastic Time).
+ * * * * * * * * * * * NHẬT KÝ SỬA LỖI (V98.1):
+ * 1. [CRITICAL FIX]:
+ * - Tại hàm `handleFinalSave` (ở cả Booking & Walk-in Modal):
+ * - Đã sửa logic ghi đè nhân viên.
+ * - TRƯỚC ĐÂY: Lấy nhân viên do Matrix tính toán (detail.staff) đè lên lựa chọn của khách.
+ * - HIỆN TẠI: Giữ nguyên lựa chọn của khách (g.staff). Nếu khách chọn "隨機", gửi "隨機".
  *
- * 2. [EDIT MODE ACTIVATED]:
- * - Modal `NewAvailabilityCheckModal` hỗ trợ prop `editingBooking`.
- * - Tự động điền thông tin cũ khi mở chế độ Sửa.
- * - Gửi `rowId` kèm payload để Backend cập nhật đè (Update) thay vì tạo mới (Append).
- *
- * 3. [CORE KERNEL V8.0]:
- * - Giữ nguyên thuật toán xếp gạch Matrix Tetris mạnh mẽ.
+ * 2. [CORE KERNEL V8.0]:
+ * - Giữ nguyên logic Matrix Tetris.
  * ============================================================================
  */
 
 (function() {
-    console.log("🚀 BookingHandler V98: Initializing with FULL EDIT SUPPORT...");
+    console.log("🚀 BookingHandler V98.1: Loaded (Fix Random Staff Logic)...");
 
     if (typeof React === 'undefined') {
         console.error("❌ CRITICAL ERROR: React not found. Cannot start BookingHandler.");
@@ -573,11 +570,18 @@
                     const detail = finalCheck.details ? finalCheck.details.find(d => d.guestIndex === i) : null;
                     return {
                         ...g,
-                        staff: detail ? detail.staff : g.staff,
+                        // [FIX V98.1] QUAN TRỌNG: Giữ nguyên lựa chọn của User (g.staff)
+                        // Nếu khách chọn "隨機", gửi "隨機" về backend.
+                        // Không dùng detail.staff (kết quả tính toán lấp chỗ trống) để ghi đè.
+                        staff: g.staff, 
+                        
+                        // Các thông tin tính toán khác (Flow, Phase) vẫn lấy từ Matrix Core
                         flow: detail ? detail.flow : 'FB', 
-                        // [V98] IMPORTANT: CAPTURE CALCULATED DURATIONS
                         phase1_duration: detail ? detail.phase1_duration : null,
-                        phase2_duration: detail ? detail.phase2_duration : null
+                        phase2_duration: detail ? detail.phase2_duration : null,
+                        
+                        // (Optional) Lưu lại gợi ý của hệ thống để debug nếu cần, nhưng không gửi vào trường 'nhanVien' chính
+                        assigned_suggestion: detail ? detail.staff : null
                     };
                 });
 
@@ -589,7 +593,11 @@
                 const payload = {
                     hoTen: form.custName, sdt: form.custPhone||"", dichVu: detailedGuests.map(g=>g.service).join(','), pax: form.pax,
                     ngayDen: (form.date||"").replace(/-/g, '/'), gioDen: form.time,
-                    nhanVien: detailedGuests[0].staff, isOil: detailedGuests[0].isOil,
+                    
+                    // [FIX V98.1] Sử dụng staff từ detailedGuests (đã được fix ở trên để giữ nguyên g.staff)
+                    nhanVien: detailedGuests[0].staff, 
+                    isOil: detailedGuests[0].isOil,
+                    
                     staffId2: detailedGuests[1]?.staff||null, staffId3: detailedGuests[2]?.staff||null,
                     staffId4: detailedGuests[3]?.staff||null, staffId5: detailedGuests[4]?.staff||null, staffId6: detailedGuests[5]?.staff||null,
                     ghiChu: noteStr, 
@@ -597,10 +605,8 @@
                     proposedUpdates: finalCheck.proposedUpdates || [],
                     
                     // [V98] EXPLICIT FIELDS FOR BACKEND MATRIX SYNC
-                    // Pass phase info for the MAIN booking row (Row ID)
                     phase1_duration: detailedGuests[0].phase1_duration,
                     phase2_duration: detailedGuests[0].phase2_duration,
-                    // If editing, pass ID to update existing row
                     rowId: editingBooking ? editingBooking.rowId : null
                 };
                 
@@ -790,9 +796,11 @@
                     const detail = finalCheck.details ? finalCheck.details.find(d => d.guestIndex === i) : null;
                     return { 
                         ...g, 
-                        staff: detail ? detail.staff : g.staff, 
+                        // [FIX V98.1] QUAN TRỌNG: Giữ nguyên lựa chọn của User (g.staff)
+                        // Nếu chọn Random, hệ thống sẽ gửi '隨機' để lưu vào Sheet thay vì tên nhân viên tính toán được.
+                        staff: g.staff, 
+                        
                         flow: detail ? detail.flow : 'FB',
-                        // [V98] Capture Phase Info
                         phase1_duration: detail ? detail.phase1_duration : null,
                         phase2_duration: detail ? detail.phase2_duration : null
                     };
@@ -806,7 +814,11 @@
                 const payload = {
                     hoTen: form.custName, sdt: form.custPhone||"", dichVu: detailedGuests.map(g=>g.service).join(','), pax: form.pax,
                     ngayDen: (form.date||"").replace(/-/g, '/'), gioDen: form.time,
-                    nhanVien: detailedGuests[0].staff, isOil: detailedGuests[0].isOil,
+                    
+                    // [FIX V98.1] Sử dụng staff từ detailedGuests (đã sửa ở trên)
+                    nhanVien: detailedGuests[0].staff, 
+                    isOil: detailedGuests[0].isOil,
+                    
                     staffId2: detailedGuests[1]?.staff||null, staffId3: detailedGuests[2]?.staff||null,
                     staffId4: detailedGuests[3]?.staff||null, staffId5: detailedGuests[4]?.staff||null, staffId6: detailedGuests[5]?.staff||null,
                     ghiChu: noteStr, guestDetails: detailedGuests,
