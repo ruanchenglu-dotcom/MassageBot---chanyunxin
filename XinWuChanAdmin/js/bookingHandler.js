@@ -1,28 +1,27 @@
 /**
  * ============================================================================
  * FILE: js/bookingHandler.js
- * PHIÊN BẢN: V98.5 (CLIENT-SIDE LOAD BALANCING & MATRIX SYNC)
+ * PHIÊN BẢN: V99.0 (PENDULUM STRATEGY FRONTEND SYNC)
  * NGÀY CẬP NHẬT: 2026-01-13
  * TÁC GIẢ: AI ASSISTANT & USER
  *
- * * * * * CHANGE LOG V98.5:
- * 1. [CORE KERNEL UPDATE]:
- * - Đồng bộ với resource_core.js V8.5.
- * - Thêm Logic "Auto Load Balancer": Tự động chia luồng (Interleaving) cho nhóm khách > 2 người.
- * - Thay thế vòng lặp hoán vị cũ bằng "Priority Try Sequence".
+ * * * * * CHANGE LOG V99.0 (THE BRAIN TRANSPLANT):
+ * 1. [CORE KERNEL UPGRADE V9.0]:
+ * - Thay thế Logic "Priority Sequence" cũ bằng "Pendulum Strategy" (Chiến thuật con lắc).
+ * - Logic: Xuất phát từ tỷ lệ cân bằng (50/50) -> Lan ra 2 phía (Lệch Body / Lệch Foot).
+ * - Mục tiêu: Đồng bộ 100% với resource_core.js V9.0 để kết quả Check trên UI khớp với Server.
  *
- * 2. [SAVE LOGIC SYNC]:
- * - Hàm handleFinalSave giờ đây bắt buộc đọc thuộc tính 'flow' từ Core.
- * - Đảm bảo ghi chú (Kx: 先做身體) được tạo chính xác dựa trên Flow cân bằng tải.
+ * 2. [UI ENHANCEMENT]:
+ * - Hiển thị rõ ràng thẻ cảnh báo [⚠️ 先做身體] (Body First) khi hệ thống tự động đảo chiều khách.
+ * - Hiển thị chi tiết Slot được phân bổ (Allocation Debug) để dễ kiểm tra.
  *
- * 3. [LEGACY PROTECTION]:
- * - Giữ nguyên Fix V98.1 (Không ghi đè nhân viên Random).
- * - Giữ nguyên giao diện Edit/Walk-in Modal.
+ * 3. [DATA CONSISTENCY]:
+ * - Hàm save đảm bảo ghi nhận chính xác Phase1/Phase2 Duration nếu có sự biến đổi do Elastic Squeeze.
  * ============================================================================
  */
 
 (function() {
-    console.log("🚀 BookingHandler V98.5: Loaded (Load Balanced Matrix Engine)...");
+    console.log("🚀 BookingHandler V99.0: Pendulum Strategy Client-Core Loaded.");
 
     if (typeof React === 'undefined') {
         console.error("❌ CRITICAL ERROR: React not found. Cannot start BookingHandler.");
@@ -30,8 +29,8 @@
     }
 
     // ========================================================================
-    // PHẦN 1: CORE KERNEL V8.5 (CLIENT-SIDE BRAIN)
-    // Mô tả: Bản sao thu nhỏ của resource_core.js để tính toán nhanh trên UI
+    // PHẦN 1: CORE KERNEL V9.0 (CLIENT-SIDE BRAIN)
+    // Mô tả: Phiên bản thu nhỏ của resource_core.js V9.0 chạy trực tiếp trên trình duyệt
     // ========================================================================
     const CoreKernel = (function() {
         
@@ -174,7 +173,7 @@
             return options;
         }
 
-        // --- 7. MAIN LOGIC (V8.5: LOAD BALANCED MATRIX) ---
+        // --- 7. MAIN LOGIC V9.0 (PENDULUM EXHAUSTIVE SEARCH) ---
         function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRaw, staffList) {
             const requestStartMins = getMinsFromTimeStr(timeStr);
             if (requestStartMins === -1) return { feasible: false, reason: "Error: Invalid Time Format" };
@@ -199,11 +198,13 @@
 
                 if (isCombo) {
                     let p1 = b.phase1_duration ? parseInt(b.phase1_duration) : Math.floor(duration / 2);
+                    let p2 = duration - p1;
                     const p1End = bStart + p1;
                     const p2Start = p1End + CONFIG.TRANSITION_BUFFER;
+                    // Mặc định khách cũ là FB (để an toàn)
                     processedB.blocks.push({ start: bStart, end: p1End, type: 'CHAIR' });
                     processedB.blocks.push({ start: p2Start, end: bStart + duration, type: 'BED' });
-                    processedB.p1_current = p1; // Store for squeeze
+                    processedB.p1_current = p1; 
                 } else {
                     let rType = svcInfo.type || 'CHAIR';
                     if (b.serviceName.toUpperCase().match(/BODY|指壓|油|BED/)) rType = 'BED';
@@ -212,37 +213,43 @@
                 existingBookingsProcessed.push(processedB);
             });
 
-            // B. PERMUTATION LOOP V8.5 (SMART PRIORITY SEQUENCE)
+            // B. PENDULUM SEQUENCE GENERATOR (LOGIC V9.0)
             const newGuests = guestList.map((g, idx) => ({ ...g, idx: idx }));
             const comboGuests = newGuests.filter(g => { const s = SERVICES[g.serviceCode]; return s && s.category === 'COMBO'; });
             const maxBF = comboGuests.length;
-            let successfulScenario = null;
-
-            // [NEW] Logic ưu tiên V8.5: Nếu khách đông (>2), thử chia đôi trước
+            
             let trySequence = [];
-            if (maxBF > 2) {
-                const idealHalf = Math.floor(maxBF / 2);
-                trySequence.push(idealHalf);
-                if (maxBF % 2 !== 0) trySequence.push(idealHalf + 1);
-                let left = idealHalf - 1;
-                let right = idealHalf + (maxBF % 2 !== 0 ? 2 : 1);
-                while (left >= 0 || right <= maxBF) {
-                    if (left >= 0) trySequence.push(left);
-                    if (right <= maxBF) trySequence.push(right);
-                    left--; right++;
+            // --- PENDULUM STRATEGY ---
+            if (maxBF > 0) {
+                let mid = maxBF / 2;
+                // 1. Center Point (Balanced)
+                trySequence.push(Math.ceil(mid));
+                // 2. Secondary Center (If Odd)
+                if (Math.floor(mid) !== Math.ceil(mid)) trySequence.push(Math.floor(mid));
+                // 3. Spiral Outward
+                let step = 1;
+                while (true) {
+                    let nextUp = Math.ceil(mid) + step;
+                    let nextDown = Math.floor(mid) - step;
+                    if (nextUp > maxBF && nextDown < 0) break;
+                    if (nextUp <= maxBF) trySequence.push(nextUp);
+                    if (nextDown >= 0) trySequence.push(nextDown);
+                    step++;
                 }
             } else {
-                for (let i = 0; i <= maxBF; i++) trySequence.push(i);
+                trySequence.push(0);
             }
 
-            // Start Loop with Priority Sequence
+            // C. EXECUTE EXHAUSTIVE LOOP
+            let successfulScenario = null;
+            
             for (let numBF of trySequence) {
                 let matrix = new VirtualMatrix();
                 let scenarioDetails = [];
                 let scenarioUpdates = [];
                 let scenarioFailed = false;
 
-                // 1. PIN EXISTING HARD & SOFT (Optimistic)
+                // 1. PIN EXISTING HARD & SOFT
                 let softsToSqueezeCandidates = [];
                 for (const exB of existingBookingsProcessed) {
                     let placed = true;
@@ -256,16 +263,19 @@
                     else { if (exB.isElastic) { exB.allocatedSlots = allocated; softsToSqueezeCandidates.push(exB); } }
                 }
 
-                // 2. DEFINE NEW GUEST BLOCKS (Auto Load Balance applied here via numBF)
+                // 2. DEFINE NEW GUEST BLOCKS (Applying numBF Logic)
                 let newGuestBlocksMap = [];
                 for (const ng of newGuests) {
                     const svc = SERVICES[ng.serviceCode];
                     if (!svc) { scenarioFailed = true; break; }
+                    
                     let flow = 'FB';
                     if (svc.category === 'COMBO') {
                         const cIdx = comboGuests.findIndex(cg => cg.idx === ng.idx);
-                        if (cIdx < numBF) flow = 'BF'; // Load Balancing Effect
+                        // Những khách Combo có index < numBF sẽ làm Body First
+                        if (cIdx >= 0 && cIdx < numBF) flow = 'BF'; 
                     }
+                    
                     const duration = svc.duration;
                     let blocks = [];
                     if (svc.category === 'COMBO') {
@@ -308,7 +318,7 @@
                     if (detail) detail.allocated = guestAllocations;
                 }
 
-                // 4. SMART SQUEEZE V8.5 (Fallback if conflict)
+                // 4. SMART SQUEEZE (Fallback if conflict)
                 if (conflictFound) {
                     let matrixSqueeze = new VirtualMatrix();
                     let updatesProposed = [];
@@ -389,14 +399,14 @@
                 if (!staffAssignmentSuccess) { scenarioFailed = true; continue; }
 
                 successfulScenario = { details: scenarioDetails, updates: scenarioUpdates };
-                break; // Stop at first successful scenario in Priority Sequence
+                break; // Stop at first successful scenario in Pendulum Sequence
             }
 
             if (successfulScenario) {
                 successfulScenario.details.sort((a,b) => a.guestIndex - b.guestIndex);
-                return { feasible: true, strategy: 'MATRIX_TETRIS_V8.5_BALANCED', details: successfulScenario.details, proposedUpdates: successfulScenario.updates };
+                return { feasible: true, strategy: 'MATRIX_PENDULUM_V9.0', details: successfulScenario.details, proposedUpdates: successfulScenario.updates };
             } else {
-                return { feasible: false, reason: "Hết chỗ (Matrix Full - Load Balancer Failed)" };
+                return { feasible: false, reason: "Hết chỗ (Matrix Full - Exhaustive Search Failed)" };
             }
         }
 
@@ -404,7 +414,7 @@
     })();
 
     // ========================================================================
-    // PHẦN 2: ANTI-CACHE DATA FETCHER (V98)
+    // PHẦN 2: ANTI-CACHE DATA FETCHER
     // ========================================================================
     const fetchLiveServerData = async (isForceRefresh = false) => {
         const apiUrl = window.API_URL || window.GAS_API_URL || (window.CONFIG && window.CONFIG.API_URL);
@@ -440,7 +450,7 @@
     };
 
     /**
-     * [V98] ENHANCED DATA PREPARATION
+     * [V99] ENHANCED DATA PREPARATION
      * - Parses backend data including phase1_duration, phase2_duration, isManualLocked
      */
     const callCoreAvailabilityCheck = (date, time, guests, bookings, staffList) => {
@@ -464,7 +474,7 @@
             return {
                 serviceCode: b.serviceName, serviceName: b.serviceName, startTime: b.startTimeString, 
                 duration: parseInt(b.duration) || 60, staffName: b.technician || b.staffId || "Unassigned", rowId: b.rowId,
-                // [V98] Pass Matrix Phase data to Core
+                // [V99] Pass Matrix Phase data to Core
                 isManualLocked: (b.isManualLocked === true || String(b.isManualLocked) === 'true') || isPastOrRunning, 
                 phase1_duration: b.phase1_duration ? parseInt(b.phase1_duration) : null,
                 phase2_duration: b.phase2_duration ? parseInt(b.phase2_duration) : null,
@@ -502,7 +512,7 @@
     const forceGlobalRefresh = () => { if (typeof window.fetchDataAndRender === 'function') window.fetchDataAndRender(); else window.location.reload(); };
 
     // ==================================================================================
-    // 4. COMPONENT: PHONE BOOKING MODAL (V98 - EDIT SUPPORT)
+    // 4. COMPONENT: PHONE BOOKING MODAL (V99 - PENDULUM AWARE)
     // ==================================================================================
     const NewAvailabilityCheckModal = ({ onClose, onSave, staffList, bookings, initialDate, editingBooking }) => {
         const safeStaffList = useMemo(() => staffList || [], [staffList]);
@@ -526,7 +536,7 @@
         });
         const [guestDetails, setGuestDetails] = useState([{ service: defaultService, staff: '隨機', isOil: false }]);
 
-        // [V98] EDIT MODE EFFECT: Pre-fill data if editingBooking is present
+        // Edit Mode Effect
         useEffect(() => {
             if (editingBooking) {
                 console.log("✏️ Edit Mode Activated:", editingBooking);
@@ -625,7 +635,7 @@
             if (!form.custName.trim()) { alert("⚠️ 請輸入顧客姓名！"); return; }
             setIsSubmitting(true);
             try {
-                // 1. Final Consistency Check
+                // 1. Final Consistency Check (Re-run logic just to be safe)
                 let checkBookings = serverData?.bookings || safeBookings;
                 if (editingBooking) checkBookings = checkBookings.filter(b => b.rowId !== editingBooking.rowId);
                 const finalCheck = callCoreAvailabilityCheck(form.date, form.time, guestDetails, checkBookings, serverData?.staff || safeStaffList);
@@ -635,10 +645,10 @@
                     const detail = finalCheck.details ? finalCheck.details.find(d => d.guestIndex === i) : null;
                     return {
                         ...g,
-                        // [V98.1 FIXED]: Giữ nguyên lựa chọn của khách.
+                        // [V99]: Giữ nguyên lựa chọn của khách (không ghi đè Random)
                         staff: g.staff, 
                         
-                        // [V98.5 NEW]: Lấy flow chính xác (FB/BF) từ CoreKernel đã được Cân bằng tải
+                        // [V99 PENDULUM]: Lấy flow chính xác (FB/BF) từ kết quả tính toán của CoreKernel
                         flow: detail ? detail.flow : 'FB', 
                         phase1_duration: detail ? detail.phase1_duration : null,
                         phase2_duration: detail ? detail.phase2_duration : null,
@@ -647,6 +657,7 @@
 
                 // 3. Create Note String (Kx:先做身體) - Backend uses this to guide staff
                 const oils = guestDetails.map((g,i)=>g.isOil?`K${i+1}:精油`:null).filter(Boolean);
+                // [V99] Nếu Flow là BF (Body First), thêm ghi chú vào để nhân viên biết
                 const flows = detailedGuests.map((g,i)=>g.flow==='BF'?`K${i+1}:先做身體`:null).filter(Boolean);
                 const noteParts = [...oils, ...flows];
                 const noteStr = noteParts.length > 0 ? `(${noteParts.join(', ')})` : "";
@@ -706,7 +717,7 @@
                                 <div>
                                     {!checkResult ? 
                                         <button onClick={performCheck} disabled={isChecking} className={`w-full text-white p-3 rounded font-bold shadow-lg flex justify-center items-center ${isChecking ? 'bg-gray-400 cursor-not-allowed' : 'bg-cyan-600 hover:bg-cyan-700'}`}>
-                                            {isChecking ? "正在計算 (Matrix)..." : "🔍 查詢空位 (Instant Check)"}
+                                            {isChecking ? "正在計算 (Matrix V9.0)..." : "🔍 查詢空位 (Instant Check)"}
                                         </button> 
                                         : 
                                         <div className="space-y-3">
@@ -729,6 +740,7 @@
                                                 <div className="flex flex-col items-end gap-1">
                                                     <div className="flex gap-1">
                                                         <span className="bg-green-100 px-2 py-0.5 rounded text-green-700 text-xs font-bold">{d.staff}</span>
+                                                        {/* [V99] Hiển thị rõ ràng nếu khách này bị đảo làm Body trước */}
                                                         {d.flow === 'BF' && <span className="bg-orange-100 px-2 py-0.5 rounded text-orange-700 border border-orange-300 text-xs font-bold">⚠️ 先做身體</span>}
                                                     </div>
                                                     {d.allocated && d.allocated.length > 0 && (
@@ -753,7 +765,7 @@
     };
 
     // ==================================================================================
-    // 5. COMPONENT: WALK-IN MODAL (V98 - Standard)
+    // 5. COMPONENT: WALK-IN MODAL (V99 - PENDULUM AWARE)
     // ==================================================================================
     const NewWalkInModal = ({ onClose, onSave, staffList, bookings, initialDate }) => {
         const safeStaffList = useMemo(() => staffList || [], [staffList]);
@@ -855,9 +867,8 @@
                     const detail = finalCheck.details ? finalCheck.details.find(d => d.guestIndex === i) : null;
                     return { 
                         ...g, 
-                        // [V98.1 FIX] Giữ nguyên selection của khách
                         staff: g.staff, 
-                        // [V98.5 NEW] Lấy flow từ Load Balancer
+                        // [V99 PENDULUM SYNC]
                         flow: detail ? detail.flow : 'FB',
                         phase1_duration: detail ? detail.phase1_duration : null,
                         phase2_duration: detail ? detail.phase2_duration : null
@@ -894,7 +905,7 @@
             <div className="fixed inset-0 bg-black/70 z-[90] flex items-center justify-center p-4">
                 <div className="bg-white w-full max-w-xl rounded-xl shadow-2xl modal-animate flex flex-col max-h-[90vh] overflow-hidden">
                     <div className="bg-amber-600 p-4 text-white flex justify-between items-center shrink-0">
-                        <h3 className="font-bold text-lg">⚡ 現場客 (V98.5 Matrix)</h3>
+                        <h3 className="font-bold text-lg">⚡ 現場客 (V99.0 Pendulum)</h3>
                         <button onClick={onClose}><i className="fas fa-times text-xl"></i></button>
                     </div>
                     <div className="p-5 space-y-4 overflow-y-auto flex-1 custom-scrollbar">
@@ -912,7 +923,7 @@
                                 <div className="pt-2 grid grid-cols-2 gap-3"><button onClick={onClose} className="bg-gray-100 text-gray-500 font-bold p-3 rounded hover:bg-gray-200">取消</button>
                                 {(!checkResult || checkResult.status === 'FAIL') ? 
                                     <button onClick={performCheck} disabled={isChecking} className={`font-bold p-3 rounded shadow-lg flex justify-center items-center text-white ${isChecking?'bg-gray-400':'bg-amber-500 hover:bg-amber-600'}`}>
-                                        {isChecking ? "計算中 (Matrix)..." : "🔍 檢查"}
+                                        {isChecking ? "計算中 (Matrix V9.0)..." : "🔍 檢查"}
                                     </button> : 
                                     <button onClick={() => setStep('INFO')} className="bg-emerald-600 text-white font-bold p-3 rounded hover:bg-emerald-700 shadow-lg animate-pulse">➡️ 下一步</button>}
                                 </div>
@@ -954,8 +965,8 @@
 
     // SYSTEM INJECTION
     const overrideInterval = setInterval(() => {
-        if (window.AvailabilityCheckModal !== NewAvailabilityCheckModal) { window.AvailabilityCheckModal = NewAvailabilityCheckModal; console.log("♻️ AvailabilityModal Injected (V98.5)"); }
-        if (window.WalkInModal !== NewWalkInModal) { window.WalkInModal = NewWalkInModal; console.log("♻️ WalkInModal Injected (V98.5)"); }
+        if (window.AvailabilityCheckModal !== NewAvailabilityCheckModal) { window.AvailabilityCheckModal = NewAvailabilityCheckModal; console.log("♻️ AvailabilityModal Injected (V99.0)"); }
+        if (window.WalkInModal !== NewWalkInModal) { window.WalkInModal = NewWalkInModal; console.log("♻️ WalkInModal Injected (V99.0)"); }
     }, 200);
     setTimeout(() => { clearInterval(overrideInterval); }, 5000);
 })();

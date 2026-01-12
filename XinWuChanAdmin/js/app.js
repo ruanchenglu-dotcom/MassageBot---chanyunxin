@@ -1,19 +1,18 @@
 // TYPE: app.js
-// VERSION: V99 (SMART LOAD BALANCING & AUTO-INTERLEAVE)
-// UPDATE: Added Logic to automatically split flows (FB/BF) for Combo groups > 2 pax in Matrix Simulation.
+// VERSION: V99.1 (PENDULUM SYNC & VISUAL INTEGRITY)
+// UPDATE: 2026-01-13
+// 1. [SYNC LOGIC]: Matrix Simulation (Layer 3) now respects the saved 'flow' (BF/FB) from DB instead of guessing.
+// 2. [DATA PARSING]: Added robust parsing for 'flow' and 'phase_duration' in fetchData.
+// 3. [VISUAL]: Eliminated "Ghost Block" glitch where UI showed FB but Logic ran BF.
 
 const { useState, useEffect, useMemo, useRef } = React;
 
-// --- 1. COMPONENT: COMMISSION VIEW ---
+// --- 1. COMPONENT IMPORTS ---
 const CommissionView = window.CommissionView;
-
-// --- 2. TIMELINE VIEW ---
 const TimelineView = window.TimelineView;
-
-// --- 3. BOOKING LIST VIEW ---
 const BookingListView = window.BookingListView;
 
-// --- [V99] MINI MATRIX HELPER FOR FRONTEND ---
+// --- [V99.1] MATRIX HELPER FOR FRONTEND ---
 const MatrixHelper = {
     isOverlap: (startA, endA, startB, endB) => {
         return (startA < endB) && (startB < endA);
@@ -22,7 +21,7 @@ const MatrixHelper = {
     findBestSlot: (type, start, end, gridState, reservedTimes, preferredIndex = null) => {
         const limit = 6;
         
-        // [V99] Optimization: Try preferred index first (e.g. keep group together logically)
+        // [Optimization]: Thử index ưu tiên trước (VD: Để nhóm khách nằm gần nhau)
         if (preferredIndex) {
             const id = `${type}-${preferredIndex}`;
             let valid = true;
@@ -38,13 +37,13 @@ const MatrixHelper = {
             if (valid) return id;
         }
 
-        // Fallback: Scan all slots
+        // Fallback: Quét tất cả các slot từ 1 đến 6
         for (let i = 1; i <= limit; i++) {
             const id = `${type}-${i}`;
-            // Check 1: Active Running Orders (Hard Reservation)
+            // Check 1: Va chạm với đơn ĐANG CHẠY (Hard Reservation)
             if (reservedTimes[id] && start < reservedTimes[id]) continue;
             
-            // Check 2: Timeline Grid Overlaps (Planned/Ghost Blocks)
+            // Check 2: Va chạm với đơn DỰ KIẾN (Ghost Blocks / Planned)
             let isClash = false;
             if (gridState[id]) {
                 for (const slot of gridState[id]) {
@@ -151,7 +150,7 @@ const App = () => {
         try { await axios.post(endpoint, payload); } catch(e) { console.log("Universal send check (ignore):", e); }
     };
 
-    // 3. CORE LOGIC (FETCH & RENDER - V99 UPGRADED)
+    // 3. CORE LOGIC (FETCH & RENDER - V99.1 PENDULUM SYNC)
     const fetchData = async () => {
         if (syncLock) return;
         if (quotaError) return; 
@@ -162,14 +161,22 @@ const App = () => {
             
             const { bookings: apiBookings, staffList: apiStaff, resourceState: serverRes, staffStatus: serverStaff } = res.data;
             
+            // [V99.1 UPGRADE]: Parse 'flow' correctly from API
             const cleanBookings = (apiBookings || []).map(b => {
+                // Tự động detect flow nếu API chưa trả về, dựa trên ghi chú
+                let detectedFlow = b.flow || 'FB';
+                if (!b.flow && b.ghiChu && (b.ghiChu.includes('先做身體') || b.ghiChu.includes('BF'))) {
+                    detectedFlow = 'BF';
+                }
+
                 return { 
                     ...b, 
                     duration: window.getSafeDuration(b.serviceName, b.duration),
                     pax: parseInt(b.pax, 10) || 1,
                     rowId: String(b.rowId),
                     phase1_duration: b.phase1_duration ? parseInt(b.phase1_duration) : null,
-                    phase2_duration: b.phase2_duration ? parseInt(b.phase2_duration) : null
+                    phase2_duration: b.phase2_duration ? parseInt(b.phase2_duration) : null,
+                    flow: detectedFlow // Lưu flow chuẩn vào state
                 };
             });
 
@@ -189,6 +196,7 @@ const App = () => {
                         if (combinedMap.has(rid)) {
                             const serverBooking = combinedMap.get(rid);
                             const mergedBooking = { ...serverBooking };
+                            // Merge status completion locally to avoid flicker
                             for(let i=1; i<=6; i++) {
                                 const key = `Status${i}`;
                                 const localVal = localBooking[key];
@@ -221,7 +229,9 @@ const App = () => {
                 timelineGrid[resId].push({ start, end, booking, meta });
             };
 
-            // --- A. MATRIX LAYER 1: RUNNING ORDERS (HARD BLOCKS) ---
+            // =================================================================
+            // MATRIX LAYER 1: RUNNING ORDERS (HARD BLOCKS)
+            // =================================================================
             Object.keys(currentRes).forEach(key => {
                 if(currentRes[key].isRunning) {
                     tempState[key] = currentRes[key];
@@ -258,7 +268,9 @@ const App = () => {
                 }
             });
 
-            // --- B. MATRIX LAYER 2: GHOST BLOCKS (PREDICTION) ---
+            // =================================================================
+            // MATRIX LAYER 2: GHOST BLOCKS (PREDICTION FOR RUNNING)
+            // =================================================================
             Object.keys(tempState).forEach(key => {
                 const item = tempState[key];
                 if (item.comboMeta) {
@@ -274,12 +286,11 @@ const App = () => {
                         const split = window.getComboSplit(item.booking.duration, item.isMaxMode, seq, customPhase1);
                         const p2End = p2Start + split.phase2;
                         
-                        // [V99 Logic] Try to stick to assigned targetId, if blocked, find new slot
+                        // [V99.1] Logic: Stick to targetId if possible, else search
                         let finalTargetId = item.comboMeta.targetId;
                         const targetType = key.includes('chair') ? 'bed' : 'chair';
 
                         if (!finalTargetId || (activeEndTimes[finalTargetId] && p2Start < activeEndTimes[finalTargetId])) {
-                             // Target Blocked -> Search Matrix for new slot
                              finalTargetId = MatrixHelper.findBestSlot(targetType, p2Start, p2End, timelineGrid, activeEndTimes);
                         }
 
@@ -292,21 +303,22 @@ const App = () => {
                 }
             });
 
-            // --- C. MATRIX LAYER 3: PENDING SIMULATION (V99 SMART INTERLEAVE) ---
+            // =================================================================
+            // MATRIX LAYER 3: PENDING SIMULATION (V99.1 PENDULUM SYNC)
+            // =================================================================
             const pendingBookings = relevantBookings.filter(b => 
                 !b.status.includes('完成') && 
                 !b.status.includes('✅') &&
                 !b.status.includes('Done')
             );
             
-            // Group pending bookings by RowID for smarter handling
+            // Group bookings by RowID to handle Groups correctly
             const groupedPending = {};
             pendingBookings.forEach(b => {
                 if(!groupedPending[b.rowId]) groupedPending[b.rowId] = [];
                 groupedPending[b.rowId].push(b);
             });
 
-            // Separate Singles and Combos
             const listSingles = [];
             const listCombosGroups = [];
 
@@ -317,79 +329,59 @@ const App = () => {
                 else group.forEach(b => listSingles.push(b));
             });
             
-            // Sort to simulate FIFO
             const sortFn = (a,b) => window.normalizeToTimelineMins(a.startTimeString.split(' ')[1]) - window.normalizeToTimelineMins(b.startTimeString.split(' ')[1]);
             listSingles.sort(sortFn);
             listCombosGroups.sort((a,b) => sortFn(a[0], b[0]));
 
-            // [V99] Simulate Singles Allocation
+            // --- ALLOCATE SINGLES ---
             listSingles.forEach(b => {
                 const originalStart = window.normalizeToTimelineMins(b.startTimeString.split(' ')[1]);
                 const totalNeeded = b.pax || 1;
                 const alreadyRunning = activePaxCounts[String(b.rowId)] || 0;
                 
-                // Only simulate what is NOT running
-                let neededForThisInstance = 1; // Singles are usually 1 row per person in array logic, but let's be safe
-                // Logic adjustment: pendingBookings array usually has one entry per rowId if grouped, but if multiple entries exist, treat singular.
-                // However, bookings usually come as 1 Object per Group.
-                // Re-calculating remaining needed based on Pax.
-                
                 let completedCount = 0;
                 for(let i=1; i<=totalNeeded; i++) { if(b[`Status${i}`] && b[`Status${i}`].includes('完成')) completedCount++; }
+                // For singles, groupedPending splits entries, so we process 1 by 1 usually.
+                // Assuming safety check:
                 const remainingGlobal = totalNeeded - alreadyRunning - completedCount;
+                // If groupedPending contains distinct objects per pax, run once.
                 
-                // Note: listSingles contains the booking OBJECT. Since one booking object = N pax, we loop N times.
-                // We use a simple loop counter here because we are processing the Group Object.
+                const type = b.type === 'CHAIR' ? 'chair' : 'bed';
+                let searchOffsets = [0]; for(let i=1; i<=120; i++) searchOffsets.push(i);
                 
-                for(let k=0; k<remainingGlobal; k++) {
-                    const type = b.type === 'CHAIR' ? 'chair' : 'bed';
-                    let searchOffsets = [0]; for(let i=1; i<=120; i++) searchOffsets.push(i);
+                for(let delay of searchOffsets) {
+                    let tryStart = originalStart + delay;
+                    let tryEnd = tryStart + b.duration;
+                    const slotId = MatrixHelper.findBestSlot(type, tryStart, tryEnd, timelineGrid, activeEndTimes);
                     
-                    for(let delay of searchOffsets) {
-                        let tryStart = originalStart + delay;
-                        let tryEnd = tryStart + b.duration;
-                        const slotId = MatrixHelper.findBestSlot(type, tryStart, tryEnd, timelineGrid, activeEndTimes);
-                        
-                        if (slotId) {
-                            addToGrid(slotId, tryStart, tryEnd, b, { isCombo: false, isPending: true });
-                            break; 
-                        }
+                    if (slotId) {
+                        addToGrid(slotId, tryStart, tryEnd, b, { isCombo: false, isPending: true });
+                        break; 
                     }
                 }
             });
 
-            // [V99] Simulate Combos Allocation with AUTO-INTERLEAVING
+            // --- ALLOCATE COMBOS (V99.1 SYNC) ---
             listCombosGroups.forEach(group => {
-                const b = group[0]; // Representative booking
+                // group chứa danh sách các khách đang chờ của cùng 1 mã RowID
+                const b = group[0]; 
                 const originalStart = window.normalizeToTimelineMins(b.startTimeString.split(' ')[1]);
-                const totalNeeded = b.pax || 1;
-                const alreadyRunning = activePaxCounts[String(b.rowId)] || 0;
-                let completedCount = 0;
-                for(let i=1; i<=totalNeeded; i++) { if(b[`Status${i}`] && b[`Status${i}`].includes('完成')) completedCount++; }
-                const remainingNeeded = totalNeeded - alreadyRunning - completedCount;
-
-                if (remainingNeeded <= 0) return;
-
-                // INTERLEAVING LOGIC: If remaining > 2, try to split flows
-                const shouldInterleave = remainingNeeded > 2;
                 
-                for(let k=0; k<remainingNeeded; k++) {
-                    // Determine Preferred Sequence for this specific pax index
-                    // If interleaving: 0->FB, 1->BF, 2->FB, 3->BF...
-                    const preferredSeq = shouldInterleave ? (k % 2 === 0 ? 'FB' : 'BF') : 'FB';
-                    const alternateSeq = preferredSeq === 'FB' ? 'BF' : 'FB';
+                // Duyệt qua từng khách trong nhóm để xếp lịch
+                group.forEach((bookingItem) => {
+                    // [V99.1 CRITICAL FIX]: Đọc trực tiếp Flow từ DB thay vì đoán mò
+                    // Nếu DB là BF, thì hiển thị là BF. Nếu FB thì hiển thị FB.
+                    const preferredSeq = bookingItem.flow || 'FB'; 
                     
                     let searchOffsets = [0]; for(let i=1; i<=120; i++) searchOffsets.push(i);
-                    
                     let placed = false;
 
                     for(let delay of searchOffsets) {
                         let tryStart = originalStart + delay;
-                        const customPhase1 = b.phase1_duration;
+                        const customPhase1 = bookingItem.phase1_duration;
 
-                        // Function to try a specific sequence
                         const trySequence = (seq) => {
-                            const split = window.getComboSplit(b.duration, true, seq, customPhase1);
+                            const split = window.getComboSplit(bookingItem.duration, true, seq, customPhase1);
                             const p1End = tryStart + split.phase1;
                             const p2Start = p1End + 5;
                             const p2End = p2Start + split.phase2;
@@ -401,27 +393,20 @@ const App = () => {
                             const s2 = MatrixHelper.findBestSlot(type2, p2Start, p2End, timelineGrid, activeEndTimes);
                             
                             if (s1 && s2) {
-                                addToGrid(s1, tryStart, p1End, b, { isCombo: true, phase: 1, sequence: seq, targetId: s2, isPending: true });
-                                addToGrid(s2, p2Start, p2End, b, { isCombo: true, phase: 2, sequence: seq, isPending: true });
+                                addToGrid(s1, tryStart, p1End, bookingItem, { isCombo: true, phase: 1, sequence: seq, targetId: s2, isPending: true });
+                                addToGrid(s2, p2Start, p2End, bookingItem, { isCombo: true, phase: 2, sequence: seq, isPending: true });
                                 return true;
                             }
                             return false;
                         };
 
-                        // 1. Try Preferred Sequence
+                        // Luôn ưu tiên thử đúng Sequence đã lưu trong DB
                         if (trySequence(preferredSeq)) {
                             placed = true;
                             break;
                         }
-
-                        // 2. If Interleaving was forced but failed, try fallback sequence immediately at same time
-                        // (Only if we really want to fit them in this time slot)
-                        if (trySequence(alternateSeq)) {
-                            placed = true;
-                            break;
-                        }
                     }
-                }
+                });
             });
 
             setTimelineData(timelineGrid);
@@ -596,7 +581,7 @@ const App = () => {
         let currentId = id; let shouldMove = false; let targetMoveId = null;
         setSyncLock(true); setTimeout(() => setSyncLock(false), 5000);
         
-        // [V99 Logic] Respect the Sequence for Moving
+        // [V99.1] Respect the Sequence for Moving
         if (comboSequence) {
             const currentType = id.split('-')[0];
             if (comboSequence === 'BF' && currentType === 'chair') { shouldMove = true; for(let i=1; i<=6; i++) { if(!resourceState[`bed-${i}`]) { targetMoveId = `bed-${i}`; break; } } } 
@@ -642,7 +627,7 @@ const App = () => {
             const currentType = currentId.split('-')[0]; const index = currentId.split('-')[1];
             let ghostTargetId = null; const targetTypePrefix = currentType === 'chair' ? 'bed' : 'chair';
             
-            // [V99] Ghost ID Selection Logic
+            // [V99.1] Ghost ID Selection Logic
             // Prioritize same index, then search for any free slot
             const sameIndex = `${targetTypePrefix}-${index}`;
             if (!resourceState[sameIndex] && sameIndex !== id) { ghostTargetId = sameIndex; } 
@@ -805,7 +790,7 @@ const App = () => {
             <header className={`text-white p-3 shadow-md flex justify-between items-center sticky top-0 z-50 transition-colors ${quotaError ? 'bg-red-800' : 'bg-[#1e1b4b]'}`}>
                 {/* Header Content */}
                 <div className="flex items-center gap-3">
-                    <span className="bg-amber-500 text-black px-2 py-1 rounded font-black text-sm">V99</span>
+                    <span className="bg-amber-500 text-black px-2 py-1 rounded font-black text-sm">V99.1</span>
                     <span className="font-bold hidden md:inline">XinWuChan</span>
                     <div className="flex items-center gap-2 bg-white/10 rounded px-2 py-1 border border-white/20">
                         <button onClick={()=>{const d=new Date(viewDate); d.setDate(d.getDate()-1); setViewDate(d.toISOString().split('T')[0])}} className="text-white hover:text-amber-400 font-bold px-2">❮</button>

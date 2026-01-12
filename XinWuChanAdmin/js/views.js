@@ -1,12 +1,12 @@
 /**
  * ============================================================================
  * FILE: js/views.js
- * PHIÊN BẢN: V5.3 (VISUAL UPGRADE: COMBO SEQUENCE CLARITY)
+ * PHIÊN BẢN: V5.4 (VISUAL ENHANCEMENT: FLOW ALERTS)
  * MÔ TẢ: CÁC COMPONENT HIỂN THỊ CHÍNH (TIMELINE, REPORT, CARD...)
  * CẬP NHẬT: 
- * 1. ResourceCard: Hiển thị rõ ràng chiều mũi tên Combo (FB vs BF).
- * 2. Thêm cảnh báo thị giác (Visual Cue) khi Combo đảo ngược (Body trước).
- * 3. TimelineView: Giữ nguyên tính năng Edit Phase (V5.2).
+ * 1. [TimelineView]: Highlight đậm các booking bị đảo chiều (BF - Body First).
+ * 2. [ResourceCard]: Thêm thẻ cảnh báo nhấp nháy cho BF để nhân viên không nhầm.
+ * 3. [UX]: Tối ưu hóa hiển thị text và icon để dễ nhìn hơn trên màn hình cảm ứng.
  * TÁC GIẢ: AI ASSISTANT & USER
  * ============================================================================
  */
@@ -31,26 +31,26 @@ const TimelineView = ({ timelineData, onEditPhase }) => {
 
     const TOTAL_WIDTH = LEFT_COL_WIDTH + (hours.length * HOUR_WIDTH);
 
-    // Bảng màu phân biệt khách hàng
+    // Bảng màu phân biệt khách hàng (Màu nền nhẹ nhàng)
     const colorPalette = [
-        "bg-red-100 text-red-800 border-red-300 hover:bg-red-200",
-        "bg-orange-100 text-orange-800 border-orange-300 hover:bg-orange-200",
-        "bg-amber-100 text-amber-800 border-amber-300 hover:bg-amber-200",
-        "bg-yellow-100 text-yellow-800 border-yellow-300 hover:bg-yellow-200",
-        "bg-lime-100 text-lime-800 border-lime-300 hover:bg-lime-200",
-        "bg-green-100 text-green-800 border-green-300 hover:bg-green-200",
-        "bg-emerald-100 text-emerald-800 border-emerald-300 hover:bg-emerald-200",
-        "bg-teal-100 text-teal-800 border-teal-300 hover:bg-teal-200",
-        "bg-cyan-100 text-cyan-800 border-cyan-300 hover:bg-cyan-200",
-        "bg-sky-100 text-sky-800 border-sky-300 hover:bg-sky-200",
-        "bg-blue-100 text-blue-800 border-blue-300 hover:bg-blue-200",
-        "bg-indigo-100 text-indigo-800 border-indigo-300 hover:bg-indigo-200",
-        "bg-violet-100 text-violet-800 border-violet-300 hover:bg-violet-200",
-        "bg-purple-100 text-purple-800 border-purple-300 hover:bg-purple-200",
-        "bg-fuchsia-100 text-fuchsia-800 border-fuchsia-300 hover:bg-fuchsia-200",
-        "bg-pink-100 text-pink-800 border-pink-300 hover:bg-pink-200",
-        "bg-rose-100 text-rose-800 border-rose-300 hover:bg-rose-200",
-        "bg-slate-200 text-slate-800 border-slate-400 hover:bg-slate-300"
+        "bg-red-100 text-red-900 border-red-200 hover:bg-red-200",
+        "bg-orange-100 text-orange-900 border-orange-200 hover:bg-orange-200",
+        "bg-amber-100 text-amber-900 border-amber-200 hover:bg-amber-200",
+        "bg-yellow-100 text-yellow-900 border-yellow-200 hover:bg-yellow-200",
+        "bg-lime-100 text-lime-900 border-lime-200 hover:bg-lime-200",
+        "bg-green-100 text-green-900 border-green-200 hover:bg-green-200",
+        "bg-emerald-100 text-emerald-900 border-emerald-200 hover:bg-emerald-200",
+        "bg-teal-100 text-teal-900 border-teal-200 hover:bg-teal-200",
+        "bg-cyan-100 text-cyan-900 border-cyan-200 hover:bg-cyan-200",
+        "bg-sky-100 text-sky-900 border-sky-200 hover:bg-sky-200",
+        "bg-blue-100 text-blue-900 border-blue-200 hover:bg-blue-200",
+        "bg-indigo-100 text-indigo-900 border-indigo-200 hover:bg-indigo-200",
+        "bg-violet-100 text-violet-900 border-violet-200 hover:bg-violet-200",
+        "bg-purple-100 text-purple-900 border-purple-200 hover:bg-purple-200",
+        "bg-fuchsia-100 text-fuchsia-900 border-fuchsia-200 hover:bg-fuchsia-200",
+        "bg-pink-100 text-pink-900 border-pink-200 hover:bg-pink-200",
+        "bg-rose-100 text-rose-900 border-rose-200 hover:bg-rose-200",
+        "bg-slate-200 text-slate-900 border-slate-300 hover:bg-slate-300"
     ];
 
     const getRowIdColor = (rowId) => {
@@ -97,10 +97,17 @@ const TimelineView = ({ timelineData, onEditPhase }) => {
                 .custom-scrollbar::-webkit-scrollbar-thumb:hover { background-color: #64748b; }
                 .custom-scrollbar::-webkit-scrollbar-corner { background: #f1f5f9; }
                 
-                /* [NEW V5.2] Animation cho nút Edit */
                 .edit-btn { opacity: 0; transition: opacity 0.2s, transform 0.1s; }
                 .timeline-block:hover .edit-btn { opacity: 1; }
                 .edit-btn:hover { transform: scale(1.1); background-color: rgba(255,255,255,0.9) !important; color: #dc2626 !important; }
+                
+                /* [V5.4] Visual Styles cho Body First */
+                .bf-indicator { animation: pulse-border 2s infinite; }
+                @keyframes pulse-border {
+                    0% { border-color: #4f46e5; box-shadow: 0 0 0 0 rgba(79, 70, 229, 0.4); }
+                    70% { border-color: #818cf8; box-shadow: 0 0 0 4px rgba(79, 70, 229, 0); }
+                    100% { border-color: #4f46e5; box-shadow: 0 0 0 0 rgba(79, 70, 229, 0); }
+                }
             `}</style>
 
             <div style={{ width: `${TOTAL_WIDTH}px`, minWidth: '100%' }}>
@@ -152,12 +159,19 @@ const TimelineView = ({ timelineData, onEditPhase }) => {
                                         let bgClass = getRowIdColor(slot.booking.rowId);
                                         const label = getDisplayLabel(slot.booking);
                                         
-                                        // Tính toán Deadline Info
                                         const endTimeStr = window.formatMinutesToTime(slot.end);
-                                        const deadlineText = `⏳ ${duration}p ➔ ${endTimeStr}`;
                                         const startTimeStr = window.formatMinutesToTime(slot.start);
+                                        const deadlineText = `⏳ ${duration}p ➔ ${endTimeStr}`;
 
-                                        // Hiển thị icon cho Combo Phase
+                                        // [V5.4] Check Flow Direction
+                                        const isBodyFirst = slot.meta && slot.meta.sequence === 'BF';
+                                        
+                                        // Highlight class if Body First
+                                        const specialBorderClass = isBodyFirst 
+                                            ? "border-l-[6px] border-l-indigo-700 bf-indicator shadow-indigo-200" 
+                                            : "border border-black/5";
+
+                                        // Icons
                                         let comboIcon = "";
                                         if (slot.meta && slot.meta.isCombo) {
                                             if (slot.meta.phase === 1) comboIcon = "❶";
@@ -166,39 +180,41 @@ const TimelineView = ({ timelineData, onEditPhase }) => {
 
                                         return (
                                             <div key={idx} 
-                                                 className={`absolute top-1 bottom-1 rounded border px-2 flex flex-col justify-center text-xs overflow-hidden shadow-sm z-10 cursor-pointer transition-all timeline-block group ${bgClass}`}
+                                                 className={`absolute top-1 bottom-1 rounded px-2 flex flex-col justify-center text-xs overflow-hidden shadow-sm z-10 cursor-pointer transition-all timeline-block group ${bgClass} ${specialBorderClass}`}
                                                  style={{left: `${leftPos}px`, width: `${width}px`}}
-                                                 title={`${slot.booking.serviceName} - ${slot.booking.customerName}`}
+                                                 title={`${slot.booking.serviceName}\n${isBodyFirst ? '⚠️ Quy trình đảo ngược: Body trước' : 'Quy trình chuẩn: Chân trước'}`}
                                             >
-                                                {/* Dòng 1: Tên khách & Index */}
+                                                {/* Header Line */}
                                                 <div className="font-bold truncate text-[11px] leading-tight flex justify-between items-center">
-                                                    <span>{label} {comboIcon}</span>
+                                                    <span className="flex items-center gap-1">
+                                                        {label} {comboIcon}
+                                                        {isBodyFirst && <span className="text-[10px] bg-indigo-600 text-white px-1 rounded-sm animate-pulse" title="Body First">🔀BF</span>}
+                                                    </span>
                                                 </div>
 
-                                                {/* Dòng 2: Deadline & Thời lượng */}
-                                                <div className="text-[10px] font-mono font-bold text-slate-700 bg-white/40 rounded px-1 mt-0.5 truncate border border-black/5" title={`Bắt đầu: ${startTimeStr} | Kết thúc: ${endTimeStr}`}>
+                                                {/* Time Line */}
+                                                <div className="text-[10px] font-mono font-bold text-slate-700 bg-white/40 rounded px-1 mt-0.5 truncate border border-black/5">
                                                     {slot.meta && slot.meta.isCombo 
                                                         ? (slot.meta.phase === 1 ? deadlineText : `🏁 ${startTimeStr} ➔ (${duration}p)`) 
                                                         : deadlineText}
                                                 </div>
 
-                                                {/* Dòng 3: Dịch vụ & Icons */}
+                                                {/* Service Line */}
                                                 <div className="truncate opacity-75 text-[9px] flex items-center gap-1 mt-0.5">
                                                     {(slot.booking.isOil || (slot.booking.serviceName && slot.booking.serviceName.includes('油'))) && <span title="Oil">💧</span>}
                                                     {(slot.booking.category === 'COMBO') && <span title="Combo">🔥</span>}
                                                     <span>{slot.booking.serviceName}</span>
                                                 </div>
 
-                                                {/* Edit Button (V5.2) */}
+                                                {/* Edit Phase Button */}
                                                 {slot.meta && slot.meta.isCombo && (
                                                     <button 
                                                         className="edit-btn absolute top-0.5 right-0.5 w-5 h-5 bg-white text-gray-400 rounded-full flex items-center justify-center shadow-md border border-gray-200 z-50"
                                                         onClick={(e) => {
                                                             e.stopPropagation();
                                                             if (onEditPhase) onEditPhase(slot.booking, slot.meta);
-                                                            else console.log("Edit Clicked (Phase 1 Visual Only)", slot.booking);
                                                         }}
-                                                        title="Chỉnh sửa thời gian (Edit Phase)"
+                                                        title="Chỉnh sửa thời gian"
                                                     >
                                                         <i className="fas fa-pencil-alt text-[10px]"></i>
                                                     </button>
@@ -218,7 +234,7 @@ const TimelineView = ({ timelineData, onEditPhase }) => {
 window.TimelineView = TimelineView;
 
 // ============================================================================
-// 2. COMMISSION VIEW (Bảng Lương/Tua & Thống kê) - GIỮ NGUYÊN
+// 2. COMMISSION VIEW (Bảng Lương/Tua & Thống kê) - STABLE
 // ============================================================================
 const CommissionView = ({ bookings, staffList }) => {
     const RATES = { JIE_PRICE: 250, OIL_BONUS: 80 };
@@ -357,7 +373,7 @@ const CommissionView = ({ bookings, staffList }) => {
 window.CommissionView = CommissionView;
 
 // ============================================================================
-// 3. REPORT VIEW (Báo cáo doanh thu & Chi tiết giao dịch) - GIỮ NGUYÊN
+// 3. REPORT VIEW (Báo cáo doanh thu & Chi tiết giao dịch) - STABLE
 // ============================================================================
 const ReportView = ({ bookings }) => {
     const safeBookings = Array.isArray(bookings) ? bookings : [];
@@ -442,7 +458,7 @@ const ReportView = ({ bookings }) => {
 window.ReportView = ReportView;
 
 // ============================================================================
-// 4. RESOURCE CARD (Thẻ đặt lịch - Trái tim hiển thị) - UPDATED V5.3
+// 4. RESOURCE CARD (Thẻ đặt lịch - Trái tim hiển thị) - UPGRADED V5.4
 // ============================================================================
 const ResourceCard = ({ id, type, index, data, busyStaffIds, onAction, onSelect, onSwitch, onToggleMax, onToggleSequence, onServiceChange, onStaffChange, onSplit, staffList, getGroupMemberIndex }) => {
     const [timeLeft, setTimeLeft] = useState(0); 
@@ -454,6 +470,7 @@ const ResourceCard = ({ id, type, index, data, busyStaffIds, onAction, onSelect,
     const isOccupied = data && data.booking;
     const isPreview = data && data.isPreview;
 
+    // [V5.4] Hook Animation
     useEffect(() => {
         if (isOccupied && data.isRunning && !data.isPaused && data.startTime) {
             const timer = setInterval(() => {
@@ -481,22 +498,16 @@ const ResourceCard = ({ id, type, index, data, busyStaffIds, onAction, onSelect,
                     if (elapsed < phase1Ms) {
                         const left = Math.floor((phase1Ms - elapsed) / 60000);
                         setPhaseTimeLeft(left);
-                        // [V5.3 UPDATED] Logic hiển thị Phase Label chính xác theo Sequence
                         if (sequence === 'FB') {
-                            // FB: Chân trước (Phase 1 = Foot)
                             setPhaseLabel('👣 足部 (Phase 1)');
                         } else {
-                            // BF: Thân trước (Phase 1 = Body)
                             setPhaseLabel('🛏️ 身體 (Phase 1)');
                         }
                     } else {
                         setPhaseTimeLeft(totalLeft);
-                         // [V5.3 UPDATED] Logic hiển thị Phase Label chính xác theo Sequence
                         if (sequence === 'FB') {
-                            // FB: Thân sau (Phase 2 = Body)
                             setPhaseLabel('🛏️ 身體 (Phase 2)');
                         } else {
-                            // BF: Chân sau (Phase 2 = Foot)
                             setPhaseLabel('👣 足部 (Phase 2)');
                         }
                     }
@@ -558,13 +569,11 @@ const ResourceCard = ({ id, type, index, data, busyStaffIds, onAction, onSelect,
             
             switchObj = new Date(startObj.getTime() + (split.phase1 + flexMinutes) * 60000);
             
-            // [V5.3 UPDATED] Hiển thị Text rõ ràng theo Sequence
+            // [V5.4] Visual Upgrade: Better text for BF
             if (isBodyFirst) {
-                // BF: Body First (Lạ - Cần nổi bật)
-                splitText = `(🔀 🛏️身:${split.phase1} ➜ 👣足:${split.phase2})`;
+                splitText = `(🔀 🛏️先做身體:${split.phase1}p ➜ 👣足:${split.phase2}p)`;
             } else {
-                // FB: Foot First (Mặc định)
-                splitText = `(👣足:${split.phase1} ➜ 🛏️身:${split.phase2})`;
+                splitText = `(👣先做足部:${split.phase1}p ➜ 🛏️身:${split.phase2}p)`;
             }
             
             if (split.isElastic) {
@@ -582,44 +591,88 @@ const ResourceCard = ({ id, type, index, data, busyStaffIds, onAction, onSelect,
         );
     }
     
+    // [V5.4] Warning Badge Style
+    const bfBadgeStyle = isBodyFirst 
+        ? "bg-indigo-600 text-white animate-pulse shadow-lg ring-2 ring-indigo-300"
+        : "hidden";
+
     return (
         <div className={`res-card h-72 flex flex-col border-2 ${statusColor} relative`}>
+            {/* Header */}
             <div className="flex justify-between items-center p-2 border-b border-black/5 bg-black/5">
                 <span className="font-black text-xs text-gray-500 uppercase">{type} {index}</span>
                 {data.isRunning && !isPreview && (<div className={`text-xs font-mono font-bold ${timeLeft < 0 ? 'text-red-600 animate-pulse' : 'text-green-700'}`}>{timeLeft}m</div>)}
                 {isPreview && data.timeToStart !== undefined && (<div className="text-xs font-bold text-blue-600 bg-blue-100 px-1 rounded">{data.previewType === 'NOW' ? 'NOW' : `${data.timeToStart}m`}</div>)}
             </div>
+
+            {/* Content */}
             <div className="flex-1 p-2 relative flex flex-col justify-center text-center pb-12">
-                {data.isRunning && !isPreview && (<><div className="absolute bottom-0 left-0 h-1 bg-green-500 progress-bar z-0" style={{width: `${percent}%`}}></div>{isCombo && switchPercent && (<div className="absolute bottom-0 h-full w-[2px] bg-red-400 z-0 opacity-30 border-r border-white" style={{left: `${switchPercent}%`}}></div>)}</>)}
+                {/* Progress Bar with Transition Marker */}
+                {data.isRunning && !isPreview && (
+                    <>
+                        <div className="absolute bottom-0 left-0 h-1 bg-green-500 progress-bar z-0 transition-all duration-1000" style={{width: `${percent}%`}}></div>
+                        {isCombo && switchPercent && (
+                            <div className="absolute bottom-0 h-2 w-1 bg-orange-500 z-10 border-l border-white" style={{left: `${switchPercent}%`}} title="Transition Point"></div>
+                        )}
+                    </>
+                )}
+
                 <div className="z-10 relative flex flex-col gap-2">
+                    {/* Top Right Staff Badge */}
                     <div className="absolute -top-12 right-0 z-40 bg-white border-2 border-slate-200 rounded-lg shadow-sm px-3 py-1 flex items-center gap-2">
                         <div className="text-xl font-black text-slate-800 text-center">{staffDisplay || <span className="text-gray-300 text-xs">Waiting</span>}</div>
                         <button onClick={(e) => { e.stopPropagation(); onSplit(id); }} className="w-6 h-6 flex items-center justify-center bg-blue-100 text-blue-600 rounded-full hover:bg-blue-200 text-xs shadow-sm transition-transform hover:scale-110" title="Split / Add Staff"><i className="fas fa-user-plus"></i></button>
                     </div>
+
+                    {/* Top Left Controls */}
                     {isCombo && (
-                        <div className="absolute -top-12 left-0 flex gap-1">
-                            {/* [V5.3 UPDATED] Nút đổi Sequence hiển thị khác nếu đang ở chế độ BF */}
-                            <button onClick={(e) => { e.stopPropagation(); onToggleSequence(id); }} className={`text-xs font-bold px-2 py-1 rounded shadow z-50 transition-colors ${isBodyFirst ? 'bg-indigo-600 text-white animate-pulse' : 'bg-blue-100 text-blue-700 hover:bg-blue-200'}`} title={isBodyFirst ? "Đang xếp: Thân trước (Bấm để đổi)" : "Đang xếp: Chân trước (Bấm để đổi)"}><i className="fas fa-sync-alt"></i></button>
+                        <div className="absolute -top-12 left-0 flex gap-1 items-center">
+                            <button onClick={(e) => { e.stopPropagation(); onToggleSequence(id); }} 
+                                    className={`text-xs font-bold px-2 py-1 rounded shadow z-50 transition-colors flex items-center gap-1 ${isBodyFirst ? 'bg-indigo-600 text-white' : 'bg-blue-100 text-blue-700 hover:bg-blue-200'}`} 
+                                    title={isBodyFirst ? "Đang xếp: BODY trước" : "Đang xếp: FOOT trước"}>
+                                <i className="fas fa-sync-alt"></i>
+                                {isBodyFirst && <span>BF</span>}
+                            </button>
                             <button onClick={(e) => { e.stopPropagation(); onToggleMax(id); }} className={`text-xs font-bold px-2 py-1 rounded shadow z-50 transition-colors ${data.isMaxMode ? 'bg-yellow-400 text-black' : 'bg-gray-200 text-gray-500'}`}><i className="fas fa-bolt"></i> Max</button>
                         </div>
                     )}
+
+                    {/* [V5.4] BF Warning Badge */}
+                    {isBodyFirst && (
+                        <div className={`absolute top-0 left-0 w-full text-center z-30 pointer-events-none`}>
+                             <span className={`text-[10px] font-black px-2 py-0.5 rounded shadow-sm border border-indigo-400 ${bfBadgeStyle}`}>
+                                ⚠️ BODY FIRST
+                             </span>
+                        </div>
+                    )}
+
+                    {/* Customer Info */}
                     <div className="font-bold text-slate-800 text-2xl truncate mt-4">{(data.booking.customerName || 'Unknown').split('(')[0]}{(data.booking.pax > 1) && <span className="text-sm text-gray-400 ml-1">(Grp)</span>}</div>
+                    
+                    {/* Service Selector */}
                     <select className="text-sm font-bold text-gray-500 text-center bg-transparent border-b border-dashed border-gray-300 focus:outline-none w-full truncate cursor-pointer hover:bg-gray-50" value={data.booking.serviceName || ''} onChange={(e) => onServiceChange(id, e.target.value)} onClick={(e) => e.stopPropagation()}>{window.SERVICES_LIST.map(svc => <option key={svc} value={svc}>{svc}</option>)}</select>
                     
-                    {/* [V5.3 UPDATED] Phần hiển thị Text phân chia Phase - Có cảnh báo nếu là BF */}
+                    {/* Split Phase Text */}
                     {isCombo && (
-                        <div className={`text-xs font-mono font-bold mt-1 ${isBodyFirst ? 'text-indigo-600 bg-indigo-50 border border-indigo-200 p-1 rounded' : 'text-slate-400'}`}>
+                        <div className={`text-xs font-mono font-bold mt-1 truncate ${isBodyFirst ? 'text-indigo-700 bg-indigo-50 border border-indigo-200 p-1 rounded' : 'text-slate-400'}`}>
                             {splitText}
                         </div>
                     )}
 
+                    {/* Active Phase Status */}
                     {isCombo && data.isRunning && phaseLabel && (<div className={`text-sm font-black p-2 rounded border bg-white/80 ${phaseLabel.includes('足') ? 'text-emerald-700 border-emerald-200' : 'text-purple-700 border-purple-200'}`}>{phaseLabel} {flexMinutes>0 && <span className="text-xs text-orange-500 bg-orange-100 px-1 rounded ml-1">+{flexMinutes}m</span>} <div className="text-xl font-mono mt-1">{phaseTimeLeft}分</div></div>)}
                     {isCombo && data.isRunning && data.comboMeta && data.comboMeta.targetId && (<div className="text-[10px] text-gray-400">➜ 轉: {data.comboMeta.targetId.toUpperCase()}</div>)}
+                    
+                    {/* Oil Badge */}
                     {isOilJob && <div className="text-xs text-purple-600 font-bold border border-purple-200 bg-purple-50 rounded px-2 py-1 inline-block">💧 精油 (Oil)</div>}
+                    
+                    {/* Times */}
                     {data.isRunning && !isPreview && startObj && (<div className="bg-slate-50 rounded p-2 text-xs text-left space-y-1 mt-2 border border-slate-200 shadow-inner opacity-90"><div className="text-slate-600 font-bold flex justify-between"><span>🕒 開始:</span> <span className="font-mono text-blue-600">{formatTimeStr(startObj)}</span></div>{isCombo && switchObj && <div className="text-slate-500 flex justify-between"><span>⇄ 轉場:</span> <span className="font-mono text-orange-500">{formatTimeStr(switchObj)}</span></div>}<div className="text-slate-600 font-bold flex justify-between"><span>🏁 結束:</span> <span className="font-mono text-green-600">{formatTimeStr(endObj)}</span></div></div>)}
                     {isPreview && (<div className="mt-2 text-xs font-bold text-center">{data.previewType === 'NOW' && <span className="text-red-500 animate-pulse">🔴 該上鐘了 (Start Now)</span>}{data.previewType === 'SOON' && <span className="text-blue-500">🔵 預約即將到來</span>}{data.previewType === 'PHASE2' && <span className="text-orange-500">🟠 轉場準備</span>}</div>)}
                 </div>
             </div>
+
+            {/* Footer Buttons */}
             <div className="absolute bottom-0 left-0 w-full p-2 bg-white z-50 border-t">
                 {!data.isRunning || isPreview ? (
                     <div className="grid grid-cols-2 gap-2">
