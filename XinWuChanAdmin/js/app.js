@@ -1,13 +1,16 @@
 // TYPE: app.js
-// VERSION: V99.7 (EXPLICIT TAGGING & OBEDIENCE)
+// VERSION: V100.0 (COMPACT INTERLEAVING - LOGIC TIẾT KIỆM TÀI NGUYÊN)
 // UPDATE: 2026-01-13
 // AUTHOR: AI ASSISTANT & USER
-// CHANGE LOG V99.7:
-// - CRITICAL UPDATE: Nâng cấp hàm detectFlowFromNote để nhận diện chính xác từ khóa "先做身體" (BF) và "先做腳" (FB) từ ghi chú tường minh.
-// - LOGIC OVERRIDE: Thêm cơ chế "Absolute Obedience" (Tuân thủ tuyệt đối). 
-//   Nếu ghi chú có chỉ định rõ (VD: K4:先做腳), App sẽ tuân thủ 100%, bỏ qua Skeptic Mode và bỏ qua Database mặc định.
-//   Điều này giúp giải quyết triệt để vấn đề "App quá thông minh nên tự ý sửa lại lịch của người dùng".
-// - RETAINED: Giữ nguyên Skeptic Mode & Pendulum làm phương án dự phòng (Fallback) khi không có ghi chú.
+//
+// --- CHANGE LOG V100.0 ---
+// 1. [OPTIMIZATION] LOGIC XẾP SLOT THÔNG MINH (COMPACT PLACEMENT):
+//    - Vấn đề cũ (V99.9): Nhóm 6 người (3FB + 3BF) bị xếp dàn trải ra 6 Ghế + 6 Giường. Gây lãng phí tài nguyên, chặn khách lẻ.
+//    - Giải pháp mới: Áp dụng thuật toán "Modulo Wrapping" (Cuốn chiếu).
+//      + Nửa nhóm đầu (K1-K3) -> Ưu tiên Slot 1, 2, 3.
+//      + Nửa nhóm sau (K4-K6) -> Quay vòng lại ưu tiên Slot 1, 2, 3.
+//      + Kết quả: K1 (làm chân Ghế 1) và K4 (làm body Giường 1) sẽ đổi chỗ cho nhau ở Phase 2.
+//      + Tổng tài nguyên tiêu tốn: Chỉ 3 Ghế + 3 Giường cho cả nhóm 6 người.
 
 const { useState, useEffect, useMemo, useRef } = React;
 
@@ -28,7 +31,7 @@ const MatrixHelper = {
     findBestSlot: (type, start, end, gridState, reservedTimes, preferredIndex = null) => {
         const limit = 6;
         
-        // [Optimization]: Thử index ưu tiên trước (VD: Để nhóm khách nằm gần nhau)
+        // [Optimization]: Thử index ưu tiên trước (VD: Để nhóm khách nằm gần nhau hoặc lắp vào chỗ trống)
         if (preferredIndex) {
             const id = `${type}-${preferredIndex}`;
             let valid = true;
@@ -75,49 +78,66 @@ const MatrixHelper = {
     }
 };
 
-// --- SMART NOTE PARSER V99.7 (UPDATED) ---
+// --- SMART NOTE PARSER V99.8 (ROBUST VERSION) ---
 // Hàm này giúp phân tích ghi chú để tìm Flow cho TỪNG khách cụ thể (K1, K2...)
-// Được gọi trong vòng lặp xử lý Combo
+// Được nâng cấp để xử lý các trường hợp ký tự lạ, khoảng trắng, dấu câu khác nhau.
 const detectFlowFromNote = (note, guestIndex) => {
     if (!note) return null;
-    const noteStr = note.toString().toUpperCase();
     
-    // 1. Logic cho ghi chú cụ thể (Có thẻ K1, K2...)
-    // Regex tìm kiếm ngữ cảnh cụ thể: "K{index}: ... BODY ..."
-    // Guest Index bắt đầu từ 0, nhưng trong note là K1, K2 -> cần +1
+    // 1. Data Cleaning (Làm sạch dữ liệu đầu vào)
+    // - Chuyển về chữ hoa
+    // - Thay thế dấu hai chấm/phẩy tiếng Trung (： ，) thành tiếng Anh
+    // - Xóa khoảng trắng thừa để tránh lỗi split
+    const rawStr = note.toString().toUpperCase();
+    const cleanNote = rawStr
+        .replace(/：/g, ':')
+        .replace(/，/g, ',')
+        .replace(/;/g, ',')
+        .replace(/\(/g, ',')
+        .replace(/\)/g, ',')
+        .replace(/\s+/g, ''); // Xóa hết dấu cách: "K 4 : 先做腳" -> "K4:先做腳"
+
+    // 2. Logic cho ghi chú cụ thể (Có thẻ K1, K2...)
+    // guestIndex input vào đây là 0, 1, 2... -> Map thành K1, K2, K3...
     const kTag = `K${guestIndex + 1}`; 
     
-    // Kiểm tra sơ bộ xem note có chứa tag K nào không để tránh loop vô ích
-    if (noteStr.includes('K1') || noteStr.includes('K2') || noteStr.includes('K3') || noteStr.includes('K4') || noteStr.includes('K5') || noteStr.includes('K6')) {
-        
-        // Cắt chuỗi note thành các phần dựa trên dấu phẩy hoặc dấu ngoặc
-        // Ví dụ: (K1: Body, K2: Foot) -> ["K1: Body", " K2: Foot"]
-        const parts = noteStr.split(/[,;()]/);
+    // Kiểm tra sơ bộ xem note có chứa tag K nào không
+    const hasAnyKTag = /K\d/.test(cleanNote);
+
+    if (hasAnyKTag) {
+        // Cắt chuỗi note thành các phần dựa trên dấu phẩy
+        // Do đã clean ở trên, chuỗi sẽ dạng: "SDT:099,K1:BODY,K2:FOOT,K3:..."
+        const parts = cleanNote.split(',');
         
         for (const part of parts) {
             // Chỉ xét phần text có chứa tag của khách hiện tại (VD: K4)
+            // Logic tìm kiếm bao dung hơn: Chỉ cần trong đoạn text đó có K4 và từ khóa
             if (part.includes(kTag)) {
                 
-                // [V99.7 UPDATE] Ưu tiên bắt các từ khóa tiếng Trung rõ ràng từ BookingHandler
+                // [V99.8 KEYWORD UPDATE]
                 // 1. Nhóm từ khóa Body First (Làm giường trước)
-                if (part.includes('先做身體') || part.includes('先身') || part.includes('BODY') || part.includes('BF')) {
+                if (part.includes('BODY') || part.includes('BF') || 
+                    part.includes('先做身體') || part.includes('先身') || part.includes('先做身体')) {
                     return 'BF';
                 }
                 
                 // 2. Nhóm từ khóa Foot First (Làm ghế trước)
-                if (part.includes('先做腳') || part.includes('先足') || part.includes('FOOT') || part.includes('FB') || part.includes('足') || part.includes('腳')) {
+                if (part.includes('FOOT') || part.includes('FB') || 
+                    part.includes('先做腳') || part.includes('先做脚') || 
+                    part.includes('先足') || part.includes('先做足') || 
+                    part.includes('腳') || part.includes('脚') || part.includes('足')) {
                     return 'FB';
                 }
             }
         }
         // Nếu có K-Tag tổng thể nhưng không tìm thấy chỉ thị cho khách index này -> Trả về null
+        // ĐỂ CHO LOGIC SKEPTIC XỬ LÝ
         return null; 
     }
 
-    // 2. Logic cho ghi chú chung (Fallback cũ - dành cho đơn lẻ hoặc nhóm nhỏ không dùng tag K)
-    // Nếu KHÔNG có định dạng K1, K2... thì kiểm tra toàn cục
-    if (noteStr.includes('BF') || noteStr.includes('BODY FIRST') || noteStr.includes('先做身體') || noteStr.includes('先身')) return 'BF';
-    if (noteStr.includes('FB') || noteStr.includes('FOOT FIRST') || noteStr.includes('先做腳')) return 'FB';
+    // 3. Logic cho ghi chú chung (Fallback cũ - dành cho đơn lẻ hoặc nhóm nhỏ không dùng tag K)
+    if (cleanNote.includes('BF') || cleanNote.includes('BODYFIRST') || cleanNote.includes('先做身體')) return 'BF';
+    if (cleanNote.includes('FB') || cleanNote.includes('FOOTFIRST') || cleanNote.includes('先做腳')) return 'FB';
     
     return null;
 };
@@ -377,16 +397,42 @@ const App = () => {
                 !b.status.includes('完成') && !b.status.includes('✅') && !b.status.includes('Done')
             );
             
+            // --- GROUPING LOGIC (V99.9 RETAINED) ---
+            // Thay vì gom theo rowId (luôn duy nhất), ta gom theo (Giờ + SĐT) hoặc (Giờ + Tên)
             const groupedPending = {};
+            
             pendingBookings.forEach(b => {
-                if(!groupedPending[b.rowId]) groupedPending[b.rowId] = [];
-                groupedPending[b.rowId].push(b);
+                // 1. Tạo Key định danh nhóm
+                const timeKey = (b.startTimeString || "").split(' ')[1] || '00:00';
+                // Lấy 5 số cuối của SĐT để làm key (đủ để phân biệt các nhóm khác nhau trong ngày)
+                const phoneRaw = b.phone || b.sdt || b.custPhone || ""; 
+                const phoneKey = phoneRaw.replace(/\D/g, '').slice(-6); 
+                const nameKey = (b.customerName || "Guest").trim();
+                
+                let groupKey;
+
+                if (phoneKey.length >= 3) {
+                    // Ưu tiên 1: Giờ + SĐT (Chính xác nhất cho nhóm đặt cùng lúc)
+                    groupKey = `${timeKey}_P_${phoneKey}`;
+                } else if (nameKey.length > 0 && nameKey !== 'Guest') {
+                    // Ưu tiên 2: Giờ + Tên khách (Trường hợp không có SĐT)
+                    groupKey = `${timeKey}_N_${nameKey}`;
+                } else {
+                    // Fallback: Nếu không có gì định danh, dùng rowId (Chấp nhận tách lẻ)
+                    groupKey = `ROW_${b.rowId}`;
+                }
+
+                if(!groupedPending[groupKey]) groupedPending[groupKey] = [];
+                groupedPending[groupKey].push(b);
             });
 
             const listSingles = [];
             const listCombosGroups = [];
 
             Object.values(groupedPending).forEach(group => {
+                // Đảm bảo sort lại group theo thứ tự rowId để index khớp với thứ tự nhập liệu
+                group.sort((a, b) => parseInt(a.rowId) - parseInt(b.rowId));
+
                 const first = group[0];
                 const isCombo = first.category === 'COMBO' || (first.serviceName && first.serviceName.includes('套餐'));
                 if (isCombo) listCombosGroups.push(group);
@@ -414,43 +460,42 @@ const App = () => {
                 }
             });
 
-            // --- ALLOCATE COMBOS (V99.7 UPDATED - PRIORITY & SKEPTIC MODES) ---
+            // --- ALLOCATE COMBOS (V100.0 UPDATED - MODULO WRAPPING) ---
             listCombosGroups.forEach(group => {
                 const b = group[0]; 
                 const originalStart = window.normalizeToTimelineMins(b.startTimeString.split(' ')[1]);
                 const groupSize = group.length;
+                
+                // Tính toán điểm gãy (Split point) để chia nhóm
                 const idealNumBF = Math.ceil(groupSize / 2);
+                const halfSize = Math.ceil(groupSize / 2); // Kích thước của 1 nửa nhóm
 
+                // Group loop: Idx chạy từ 0 -> groupSize - 1
                 group.forEach((bookingItem, idx) => {
                     const rawNote = bookingItem.originalNote || "";
                     
                     // --- 1. PRIORITY LEVEL 1: ABSOLUTE OBEDIENCE (EXPLICIT NOTE) ---
-                    // Kiểm tra xem note có chỉ thị rõ ràng cho khách này không (VD: K4:先做腳)
-                    // Nếu có, hệ thống TUÂN THỦ 100%, bỏ qua mọi logic khác.
                     const explicitFlow = detectFlowFromNote(rawNote, idx);
-                    
                     let preferredSeq = null;
 
                     if (explicitFlow) {
-                        preferredSeq = explicitFlow; // Dùng ngay, không hỏi lại
+                        preferredSeq = explicitFlow; 
                     } else {
-                        // --- 2. PRIORITY LEVEL 2: SKEPTIC MODE (DOUBT DATABASE) ---
-                        // Nếu không có note cụ thể, ta mới xét đến Database.
-                        // Nhưng nếu nhóm đông (>2) mà không có note cụ thể, ta nghi ngờ DB sai (do lỗi copy)
-                        // nên ta sẽ bỏ qua DB và dùng Pendulum.
-                        const hasSpecificTag = /K\d/i.test(rawNote);
-                        const isCrowdedAndVague = groupSize > 2 && !hasSpecificTag;
-
-                        if (!isCrowdedAndVague) {
-                            // Nếu nhóm nhỏ hoặc có tag (nhưng detect không ra cho index này), ta tạm tin DB
-                            preferredSeq = bookingItem.flow;
-                        } 
-                        // Nếu isCrowdedAndVague = true -> preferredSeq vẫn là null -> Xuống Level 3
+                        // --- 2. PRIORITY LEVEL 2: SKEPTIC MODE ---
+                        const hasKTags = /K\d/i.test(rawNote);
+                        if (hasKTags) {
+                            preferredSeq = null;
+                        } else {
+                            if (groupSize <= 2) {
+                                preferredSeq = bookingItem.flow;
+                            } else {
+                                preferredSeq = null;
+                            }
+                        }
                     }
 
                     // --- 3. PRIORITY LEVEL 3: PENDULUM (AUTO BALANCING) ---
-                    // Nếu cả Note và DB đều không dùng được (hoặc bị Skeptic chặn),
-                    // ta dùng thuật toán Con lắc để chia bài (Một nửa BF, một nửa FB).
+                    // Chia bài tự động
                     if (!preferredSeq) {
                         if (idx < idealNumBF) preferredSeq = 'BF';
                         else preferredSeq = 'FB';
@@ -473,9 +518,23 @@ const App = () => {
                             const type1 = seq === 'FB' ? 'chair' : 'bed';
                             const type2 = seq === 'FB' ? 'bed' : 'chair';
                             
-                            // [OPT] Cố gắng xếp khách vào số ghế/giường trùng với số thứ tự khách (idx + 1)
-                            const preferredSlotIndex = idx + 1;
+                            // [V100.0 CRITICAL LOGIC CHANGE]
+                            // Thay vì preferredSlotIndex = idx + 1 (Tuyến tính) -> Gây lãng phí
+                            // Sử dụng MODULO để "cuộn" nhóm lại.
+                            // VD nhóm 6 người: 0,1,2 -> Slot 1,2,3. 3,4,5 -> Quay lại Slot 1,2,3.
+                            // Điều này tận dụng việc K1 và K4 đổi chỗ cho nhau.
+                            
+                            let preferredSlotIndex;
+                            if (groupSize >= 4) {
+                                // Nếu nhóm đông (>= 4), áp dụng Modulo Wrapping
+                                const normalizedIdx = idx % halfSize;
+                                preferredSlotIndex = normalizedIdx + 1;
+                            } else {
+                                // Nếu nhóm nhỏ (2-3 người), cứ xếp bình thường để dễ nhìn
+                                preferredSlotIndex = idx + 1;
+                            }
 
+                            // Tìm slot với gợi ý ưu tiên
                             const s1 = MatrixHelper.findBestSlot(type1, tryStart, p1End, timelineGrid, activeEndTimes, preferredSlotIndex);
                             const s2 = MatrixHelper.findBestSlot(type2, p2Start, p2End, timelineGrid, activeEndTimes, preferredSlotIndex);
                             
@@ -894,10 +953,10 @@ const App = () => {
             <header className={`text-white p-3 shadow-md flex justify-between items-center sticky top-0 z-50 transition-colors ${quotaError ? 'bg-red-800' : 'bg-[#1e1b4b]'}`}>
                 {/* Header Content */}
                 <div className="flex items-center gap-3">
-                    <span className="bg-amber-500 text-black px-2 py-1 rounded font-black text-sm">V99.7</span>
+                    <span className="bg-amber-500 text-black px-2 py-1 rounded font-black text-sm">V100.0</span>
                     <span className="font-bold hidden md:inline">XinWuChan</span>
                     <div className="flex items-center gap-2 bg-white/10 rounded px-2 py-1 border border-white/20">
-                        <button onClick={()=>{const d=new Date(viewDate); d.setDate(d.getDate()-1); setViewDate(d.toISOString().split('T')[0])}} className="text-white hover:text-amber-400 font-bold px-2">❮</button>
+                        <button onClick={()=>{const d=new Date(viewDate); d.setDate(d.getDate()-1); setViewDate(d.toISOString().split('T')[0])}} className="text-white hover:text-amber-400 font-bold px-2">❯</button>
                         <input type="date" value={viewDate} onChange={(e) => setViewDate(e.target.value)} className="bg-transparent text-white font-bold outline-none cursor-pointer text-center" style={{colorScheme: 'dark'}} />
                         <button onClick={()=>{const d=new Date(viewDate); d.setDate(d.getDate()+1); setViewDate(d.toISOString().split('T')[0])}} className="text-white hover:text-amber-400 font-bold px-2">❯</button>
                     </div>
