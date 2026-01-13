@@ -2,23 +2,18 @@
  * =================================================================================================
  * PROJECT: XINWUCHAN MASSAGE BOT - CORE LOGIC KERNEL
  * FILE: resource_core.js
- * PHIÊN BẢN: V9.1 (ROBUST PENDULUM PATCH)
+ * PHIÊN BẢN: V99.3 (MEMORY & FLOW PERSISTENCE)
  * TÁC GIẢ: AI ASSISTANT & USER
  * NGÀY CẬP NHẬT: 2026/01/13
  *
- * * * * * CHANGE LOG V9.1 (THE CATEGORY FIX):
- * 1. [CRITICAL FIX] COMBO DETECTION:
- * - Khắc phục lỗi hệ thống không nhận diện được gói "Signature Combo" (招牌套餐) 
- * do sai lệch Category trong Database.
- * - Cơ chế nhận diện mới: Quét sâu vào Tên dịch vụ, Category và Type.
- * - Hỗ trợ đa ngôn ngữ: Nhận diện từ khóa "Combo", "Mixed", "套餐", "All".
- * * 2. [DIAGNOSTIC LOGGING]:
- * - Thêm Log chi tiết vào Console để hiển thị chuỗi thử nghiệm (Try Sequence).
- * - Giúp Admin biết tại sao hệ thống chọn phương án hiện tại.
- *
- * * * * * CHANGE LOG V9.0 (THE PERSISTENCE UPDATE):
- * 1. [PENDULUM STRATEGY]: Chiến thuật con lắc lò xo (Center-Out).
- * 2. [ROBUSTNESS]: Vét cạn mọi trường hợp từ cân bằng đến cực đoan.
+ * * * * * CHANGE LOG V99.3 (THE MEMORY FIX):
+ * 1. [CRITICAL FIX] EXISTING BOOKING FLOW RECOGNITION:
+ * - Hệ thống giờ đây đọc được trạng thái "BF" (Body First) từ dữ liệu khách cũ 
+ * thông qua trường `flow`, `note` hoặc `ghiChu` (tìm từ khóa "先做身體" hoặc "BF").
+ * - Khắc phục tình trạng Timeline hiển thị sai toàn bộ về Foot First (Vàng) dù thuật toán đã chia việc.
+ * * 2. [ROBUSTNESS]:
+ * - Tăng cường khả năng chịu lỗi khi tra cứu Dịch vụ (Service Lookup Fallback).
+ * - Đảm bảo tính toán Con lắc (Pendulum) chính xác dựa trên thực tế dữ liệu.
  * =================================================================================================
  */
 
@@ -61,7 +56,7 @@ function setDynamicServices(newServicesObj) {
         'LATE': { name: '⚠️ 延遲 (Late)', duration: 0, type: 'NONE', price: 0, category: 'SYSTEM' }
     };
     SERVICES = { ...newServicesObj, ...systemServices };
-    console.log(`[CORE V9.1] Services Updated. Total: ${Object.keys(SERVICES).length}`);
+    console.log(`[CORE V99.3] Services Updated. Total: ${Object.keys(SERVICES).length}`);
 }
 
 // ============================================================================
@@ -132,17 +127,18 @@ function isOverlap(startA, endA, startB, endB) {
  * Logic này mạnh mẽ hơn so với việc chỉ so sánh category === 'COMBO'
  */
 function isComboService(serviceObj, serviceNameRaw = '') {
-    if (!serviceObj) return false;
+    if (!serviceObj && !serviceNameRaw) return false;
     
     // 1. Kiểm tra Category chuẩn
-    const cat = (serviceObj.category || '').toString().toUpperCase().trim();
+    const cat = (serviceObj && serviceObj.category ? serviceObj.category : '').toString().toUpperCase().trim();
     if (cat === 'COMBO' || cat === 'MIXED') return true;
 
     // 2. Kiểm tra tên Dịch vụ (Service Name)
-    const name = (serviceObj.name || serviceNameRaw || '').toString().toUpperCase();
+    // Fallback: Nếu không có serviceObj, dùng tên thô
+    const name = (serviceObj && serviceObj.name ? serviceObj.name : (serviceNameRaw || '')).toString().toUpperCase();
     
     // Các từ khóa nhận diện Combo: "COMBO", "套餐" (Set Meal), "ALL" (Toàn thân + Chân)
-    const comboKeywords = ['COMBO', '套餐', 'MIX', '+', 'SET', '腳身', '全餐'];
+    const comboKeywords = ['COMBO', '套餐', 'MIX', '+', 'SET', '腳身', '全餐', 'FOOT AND BODY', 'BODY AND FOOT'];
     for (const kw of comboKeywords) {
         if (name.includes(kw)) return true;
     }
@@ -162,7 +158,7 @@ function detectResourceType(serviceObj) {
 
     // Phân tích tên
     const name = (serviceObj.name || '').toUpperCase();
-    if (name.match(/BODY|指壓|油|BED|TOAN THAN|全身|油壓/)) return 'BED';
+    if (name.match(/BODY|指壓|油|BED|TOAN THAN|全身|油壓|BACK/)) return 'BED';
     
     return 'CHAIR'; // Mặc định an toàn
 }
@@ -305,11 +301,11 @@ function generateElasticSplits(totalDuration, step = 0, limit = 0, customLockedP
 }
 
 // ============================================================================
-// PHẦN 7: CORE ENGINE V9.1 (PENDULUM EXHAUSTIVE SEARCH + ROBUST FILTER)
+// PHẦN 7: CORE ENGINE V99.3 (PENDULUM EXHAUSTIVE SEARCH + MEMORY FIX)
 // ============================================================================
 
 /**
- * Hàm kiểm tra khả dụng chính - PHIÊN BẢN V9.1
+ * Hàm kiểm tra khả dụng chính - PHIÊN BẢN V99.3
  */
 function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRaw, staffList) {
     const requestStartMins = getMinsFromTimeStr(timeStr);
@@ -353,9 +349,31 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
             const p1End = bStart + p1;
             const p2Start = p1End + CONFIG.TRANSITION_BUFFER;
             
-            // Hiện tại giả định khách cũ là FB (Foot -> Body) để an toàn
-            processedB.blocks.push({ start: bStart, end: p1End, type: 'CHAIR' }); // Phase 1
-            processedB.blocks.push({ start: p2Start, end: bStart + duration, type: 'BED' }); // Phase 2
+            // [V99.3 FIX] TỰ ĐỘNG NHẬN DIỆN LUỒNG (FLOW) CỦA KHÁCH CŨ
+            // Kiểm tra xem khách này đã được đánh dấu là "先做身體" (Body First) hay chưa
+            let isBodyFirst = false;
+            
+            // Cách 1: Kiểm tra trường 'flow' rõ ràng (nếu có lưu)
+            if (b.flow === 'BF') isBodyFirst = true;
+
+            // Cách 2: Quét Note/Ghi chú để tìm từ khóa "Body First" hoặc "先做身體"
+            const noteContent = (b.note || b.ghiChu || b.originalData?.ghiChu || "").toString().toUpperCase();
+            if (noteContent.includes('BF') || noteContent.includes('BODY FIRST') || noteContent.includes('先做身體') || noteContent.includes('先身')) {
+                isBodyFirst = true;
+            }
+
+            if (isBodyFirst) {
+                // [BF FLOW]: BODY (BED) -> FOOT (CHAIR)
+                // Cố định lại Phase 1 là BED
+                processedB.blocks.push({ start: bStart, end: p1End, type: 'BED' }); 
+                processedB.blocks.push({ start: p2Start, end: bStart + duration, type: 'CHAIR' });
+                processedB.flow = 'BF'; // Ghi nhớ lại
+            } else {
+                // [FB FLOW]: FOOT (CHAIR) -> BODY (BED) (Mặc định)
+                processedB.blocks.push({ start: bStart, end: p1End, type: 'CHAIR' }); 
+                processedB.blocks.push({ start: p2Start, end: bStart + duration, type: 'BED' });
+                processedB.flow = 'FB'; // Ghi nhớ lại
+            }
             
             processedB.p1_current = p1;
             processedB.p2_current = p2;
@@ -380,7 +398,7 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
         const s = SERVICES[g.serviceCode];
         // Kiểm tra xem khách này có khả năng đảo chiều không
         // Nếu không tìm thấy service trong DB, vẫn cố gắng check xem nó có phải combo không
-        return isComboService(s); 
+        return isComboService(s, g.serviceCode); 
     });
     
     const maxBF = comboGuests.length;
@@ -417,9 +435,8 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
         trySequence.push(0);
     }
     
-    // [DEBUG LOGGING] - Giúp phát hiện lỗi logic
-    console.log(`[V9.1 ANALYZER] Total Guests: ${newGuests.length}, Combo Guests Detected: ${maxBF}`);
-    console.log(`[V9.1 STRATEGY] Pending Pendulum Sequence: ${JSON.stringify(trySequence)}`);
+    // [DEBUG LOGGING]
+    // console.log(`[V99.3] Guests: ${newGuests.length}, Combo: ${maxBF}, Sequence: ${JSON.stringify(trySequence)}`);
 
     // ------------------------------------------------------------------------
     // BƯỚC C: THỰC THI VÒNG LẶP VÉT CẠN (EXHAUSTIVE LOOP)
@@ -466,11 +483,11 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
         let newGuestBlocksMap = []; 
 
         for (const ng of newGuests) {
-            const svc = SERVICES[ng.serviceCode] || { name: 'Unknown', duration: 60, price: 0 }; 
+            const svc = SERVICES[ng.serviceCode] || { name: ng.serviceCode || 'Unknown', duration: 60, price: 0 }; 
             
             // Logic xác định Flow: FB hay BF
             let flow = 'FB'; // Mặc định: Chân trước
-            let isThisGuestCombo = isComboService(svc);
+            let isThisGuestCombo = isComboService(svc, ng.serviceCode);
 
             if (isThisGuestCombo) {
                 const cIdx = comboGuests.findIndex(cg => cg.idx === ng.idx);
@@ -685,7 +702,7 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
         successfulScenario.details.sort((a,b) => a.guestIndex - b.guestIndex);
         return {
             feasible: true,
-            strategy: 'MATRIX_PENDULUM_V9.1', 
+            strategy: 'MATRIX_PENDULUM_V99.3', 
             details: successfulScenario.details,
             proposedUpdates: successfulScenario.updates,
             totalPrice: successfulScenario.details.reduce((sum, item) => sum + (item.price||0), 0)
@@ -745,5 +762,5 @@ if (typeof window !== 'undefined') {
     window.ResourceCore = CoreAPI;
     window.checkRequestAvailability = CoreAPI.checkRequestAvailability;
     window.setDynamicServices = CoreAPI.setDynamicServices;
-    console.log("✅ Resource Core V9.1 Loaded: Robust Pendulum Engine Active.");
+    console.log("✅ Resource Core V99.3 Loaded: Memory & Pendulum Flow Persistence.");
 }

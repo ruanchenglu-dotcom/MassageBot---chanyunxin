@@ -1,27 +1,23 @@
 /**
  * ============================================================================
  * FILE: js/bookingHandler.js
- * PHIÊN BẢN: V99.1 (ROBUST BRAIN TRANSPLANT)
+ * PHIÊN BẢN: V99.3 (PERSISTENT MEMORY)
  * NGÀY CẬP NHẬT: 2026-01-13
  * TÁC GIẢ: AI ASSISTANT & USER
  *
- * * * * * CHANGE LOG V99.1 (THE COMBO FIX):
- * 1. [CORE LOGIC SYNCHRONIZATION]:
- * - Đồng bộ hoàn toàn với resource_core.js V9.1.
- * - Cập nhật hàm `isComboService`: Nhận diện thông minh (quét tên, type, category).
- * - Khắc phục lỗi Frontend không nhận ra khách Combo dẫn đến tính toán sai (toàn bộ về Foot First).
+ * * * * * CHANGE LOG V99.3 (THE MEMORY FIX):
+ * 1. [CORE SYNCHRONIZATION]:
+ * - Đồng bộ hoàn toàn logic "Memory Flow" với resource_core.js V99.3.
+ * - Đảm bảo UI Check và Final Save chạy cùng một logic.
  *
- * 2. [DIAGNOSTIC & LOGGING]:
- * - Thêm log chi tiết [V99.1 ANALYZER] vào Console trình duyệt để debug.
- *
- * * * * * CHANGE LOG V99.0 (PENDULUM STRATEGY):
- * 1. [STRATEGY]: Sử dụng chiến thuật Con Lắc Lò Xo (Pendulum) thay vì Priority cũ.
- * 2. [UI]: Hiển thị cảnh báo ⚠️ 先做身體 (Body First).
+ * 2. [CRITICAL SAVE FIX]:
+ * - Khi nhấn "Lưu", hệ thống sẽ ghi thêm tag "先做身體" (Body First) vào Ghi chú
+ * - Điều này giúp hệ thống NHỚ được luồng khách khi reload trang web.
  * ============================================================================
  */
 
 (function() {
-    console.log("🚀 BookingHandler V99.1: Robust Pendulum Brain Loaded.");
+    console.log("🚀 BookingHandler V99.3: Persistent Memory Loaded.");
 
     if (typeof React === 'undefined') {
         console.error("❌ CRITICAL ERROR: React not found. Cannot start BookingHandler.");
@@ -29,8 +25,8 @@
     }
 
     // ========================================================================
-    // PHẦN 1: CORE KERNEL V9.1 (CLIENT-SIDE BRAIN)
-    // Mô tả: Phiên bản song sinh của resource_core.js V9.1 chạy trên Browser
+    // PHẦN 1: CORE KERNEL V99.3 (CLIENT-SIDE BRAIN)
+    // Mô tả: Phiên bản song sinh của resource_core.js V99.3 chạy trên Browser
     // ========================================================================
     const CoreKernel = (function() {
         
@@ -57,7 +53,6 @@
                 'LATE': { name: '⚠️ 延遲 (Late)', duration: 0, type: 'NONE', price: 0, category: 'SYSTEM' }
             };
             SERVICES = { ...newServicesObj, ...systemServices };
-            // console.log(`[KERNEL] Services updated. Count: ${Object.keys(SERVICES).length}`);
         }
 
         // --- 3. TIỆN ÍCH THỜI GIAN ---
@@ -88,20 +83,18 @@
             return (startA < safeEndB) && (startB < safeEndA);
         }
 
-        // --- 4. [NEW V9.1] BỘ NHẬN DIỆN THÔNG MINH (SMART CLASSIFIER) ---
-        // Copy từ Backend V9.1 để đảm bảo đồng bộ logic
+        // --- 4. [NEW V99.3] BỘ NHẬN DIỆN THÔNG MINH (SMART CLASSIFIER) ---
         function isComboService(serviceObj, serviceNameRaw = '') {
-            if (!serviceObj) return false;
+            if (!serviceObj && !serviceNameRaw) return false;
             
-            // 1. Check Category chuẩn
-            const cat = (serviceObj.category || '').toString().toUpperCase().trim();
+            // Check Category
+            const cat = (serviceObj && serviceObj.category ? serviceObj.category : '').toString().toUpperCase().trim();
             if (cat === 'COMBO' || cat === 'MIXED') return true;
 
-            // 2. Check Tên Dịch vụ (Service Name)
-            const name = (serviceObj.name || serviceNameRaw || '').toString().toUpperCase();
+            // Check Tên Dịch vụ
+            const name = (serviceObj && serviceObj.name ? serviceObj.name : (serviceNameRaw || '')).toString().toUpperCase();
             
-            // Các từ khóa nhận diện Combo
-            const comboKeywords = ['COMBO', '套餐', 'MIX', '+', 'SET', '腳身', '全餐'];
+            const comboKeywords = ['COMBO', '套餐', 'MIX', '+', 'SET', '腳身', '全餐', 'FOOT AND BODY'];
             for (const kw of comboKeywords) {
                 if (name.includes(kw)) return true;
             }
@@ -111,12 +104,10 @@
 
         function detectResourceType(serviceObj) {
             if (!serviceObj) return 'CHAIR';
-            // Ưu tiên config cứng
             if (serviceObj.type === 'BED' || serviceObj.type === 'CHAIR') return serviceObj.type;
-            // Phân tích tên
             const name = (serviceObj.name || '').toUpperCase();
             if (name.match(/BODY|指壓|油|BED|TOAN THAN|全身|油壓/)) return 'BED';
-            return 'CHAIR'; // Mặc định an toàn
+            return 'CHAIR'; 
         }
 
         // --- 5. MATRIX ENGINE CLASS ---
@@ -131,7 +122,6 @@
             tryAllocate(type, start, end, ownerId) {
                 const resourceGroup = this.lanes[type];
                 if (!resourceGroup) return 'N/A'; 
-                // First-Fit Algorithm
                 for (let lane of resourceGroup) {
                     let isLaneFree = true;
                     for (let block of lane.occupied) {
@@ -174,7 +164,7 @@
                 return true; 
             };
 
-            if (staffReq && staffReq !== 'RANDOM' && staffReq !== 'MALE' && staffReq !== 'FEMALE' && staffReq !== '隨機' && staffReq !== 'Any' && staffReq !== 'undefined') {
+            if (staffReq && !['RANDOM', 'MALE', 'FEMALE', '隨機', 'Any'].includes(staffReq)) {
                 return checkOneStaff(staffReq) ? staffReq : null;
             } else {
                 const allStaffNames = Object.keys(staffListRef);
@@ -205,12 +195,12 @@
             return options;
         }
 
-        // --- 8. MAIN LOGIC V9.1 (ROBUST PENDULUM EXHAUSTIVE SEARCH) ---
+        // --- 8. MAIN LOGIC V99.3 (MEMORY PENDULUM) ---
         function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRaw, staffList) {
             const requestStartMins = getMinsFromTimeStr(timeStr);
             if (requestStartMins === -1) return { feasible: false, reason: "Error: Invalid Time Format" };
 
-            // A. PRE-PROCESSING (Build Blocks)
+            // A. PRE-PROCESSING (Build Blocks with Memory)
             let existingBookingsProcessed = [];
             let sortedCurrentBookings = [...currentBookingsRaw].sort((a, b) => getMinsFromTimeStr(a.startTime) - getMinsFromTimeStr(b.startTime));
 
@@ -219,7 +209,6 @@
                 if (bStart === -1) return;
                 let svcInfo = SERVICES[b.serviceCode] || {};
                 
-                // [V9.1 UPDATE] Sử dụng hàm nhận diện thông minh
                 let isCombo = isComboService(svcInfo, b.serviceName);
                 let duration = b.duration || 60;
                 
@@ -235,9 +224,26 @@
                     let p2 = duration - p1;
                     const p1End = bStart + p1;
                     const p2Start = p1End + CONFIG.TRANSITION_BUFFER;
-                    // Mặc định khách cũ là FB (để an toàn)
-                    processedB.blocks.push({ start: bStart, end: p1End, type: 'CHAIR' });
-                    processedB.blocks.push({ start: p2Start, end: bStart + duration, type: 'BED' });
+                    
+                    // [FIX V99.3] MEMORY CHECK
+                    // Kiểm tra xem khách cũ có note là BF không?
+                    let isBodyFirst = false;
+                    const noteContent = (b.note || b.ghiChu || b.originalData?.ghiChu || "").toString().toUpperCase();
+                    if (b.flow === 'BF' || noteContent.includes('BF') || noteContent.includes('先做身體') || noteContent.includes('先身')) {
+                        isBodyFirst = true;
+                    }
+
+                    if (isBodyFirst) {
+                        // Body -> Foot
+                        processedB.blocks.push({ start: bStart, end: p1End, type: 'BED' });
+                        processedB.blocks.push({ start: p2Start, end: bStart + duration, type: 'CHAIR' });
+                        processedB.flow = 'BF';
+                    } else {
+                        // Foot -> Body (Default)
+                        processedB.blocks.push({ start: bStart, end: p1End, type: 'CHAIR' });
+                        processedB.blocks.push({ start: p2Start, end: bStart + duration, type: 'BED' });
+                        processedB.flow = 'FB';
+                    }
                     processedB.p1_current = p1; 
                 } else {
                     let rType = detectResourceType(svcInfo);
@@ -246,27 +252,22 @@
                 existingBookingsProcessed.push(processedB);
             });
 
-            // B. PENDULUM SEQUENCE GENERATOR (LOGIC V9.1)
+            // B. PENDULUM SEQUENCE GENERATOR
             const newGuests = guestList.map((g, idx) => ({ ...g, idx: idx }));
             
-            // [V9.1 FIX] Bộ lọc Combo mạnh mẽ hơn (Robust Filter)
             const comboGuests = newGuests.filter(g => { 
                 const s = SERVICES[g.serviceCode]; 
-                return isComboService(s); 
+                return isComboService(s, g.serviceCode); 
             });
             
             const maxBF = comboGuests.length;
-            console.log(`[V9.1 ANALYZER] Total Guests: ${newGuests.length}, Combo Found: ${maxBF}`);
             
             let trySequence = [];
             // --- PENDULUM STRATEGY ---
             if (maxBF > 0) {
                 let mid = maxBF / 2;
-                // 1. Center Point
                 trySequence.push(Math.ceil(mid));
-                // 2. Secondary Center
                 if (Math.floor(mid) !== Math.ceil(mid)) trySequence.push(Math.floor(mid));
-                // 3. Spiral Outward
                 let step = 1;
                 while (true) {
                     let nextUp = Math.ceil(mid) + step;
@@ -279,7 +280,6 @@
             } else {
                 trySequence.push(0);
             }
-            // console.log(`[V9.1 STRATEGY] Try Sequence: ${JSON.stringify(trySequence)}`);
 
             // C. EXECUTE EXHAUSTIVE LOOP
             let successfulScenario = null;
@@ -307,14 +307,13 @@
                 // 2. DEFINE NEW GUEST BLOCKS (Applying numBF Logic)
                 let newGuestBlocksMap = [];
                 for (const ng of newGuests) {
-                    const svc = SERVICES[ng.serviceCode] || { name: 'Unknown', duration: 60 };
+                    const svc = SERVICES[ng.serviceCode] || { name: ng.serviceCode || 'Unknown', duration: 60 };
                     
                     let flow = 'FB';
-                    let isThisGuestCombo = isComboService(svc);
+                    let isThisGuestCombo = isComboService(svc, ng.serviceCode);
 
                     if (isThisGuestCombo) {
                         const cIdx = comboGuests.findIndex(cg => cg.idx === ng.idx);
-                        // Những khách Combo có index < numBF sẽ làm Body First
                         if (cIdx >= 0 && cIdx < numBF) flow = 'BF'; 
                     }
                     
@@ -444,7 +443,7 @@
 
             if (successfulScenario) {
                 successfulScenario.details.sort((a,b) => a.guestIndex - b.guestIndex);
-                return { feasible: true, strategy: 'MATRIX_PENDULUM_V9.1', details: successfulScenario.details, proposedUpdates: successfulScenario.updates };
+                return { feasible: true, strategy: 'MATRIX_PENDULUM_V99.3', details: successfulScenario.details, proposedUpdates: successfulScenario.updates };
             } else {
                 return { feasible: false, reason: "Hết chỗ (Matrix Full - Exhaustive Search Failed)" };
             }
@@ -510,11 +509,13 @@
             return {
                 serviceCode: b.serviceName, serviceName: b.serviceName, startTime: b.startTimeString, 
                 duration: parseInt(b.duration) || 60, staffName: b.technician || b.staffId || "Unassigned", rowId: b.rowId,
-                // [V99] Pass Matrix Phase data to Core
                 isManualLocked: (b.isManualLocked === true || String(b.isManualLocked) === 'true') || isPastOrRunning, 
                 phase1_duration: b.phase1_duration ? parseInt(b.phase1_duration) : null,
                 phase2_duration: b.phase2_duration ? parseInt(b.phase2_duration) : null,
                 status: isPastOrRunning ? 'Running' : (b.status || 'Reserved'),
+                // Pass các trường note xuống Core để nhận diện Flow
+                note: b.ghiChu || b.note,
+                ghiChu: b.ghiChu || b.note
             };
         });
 
@@ -548,7 +549,7 @@
     const forceGlobalRefresh = () => { if (typeof window.fetchDataAndRender === 'function') window.fetchDataAndRender(); else window.location.reload(); };
 
     // ==================================================================================
-    // 4. COMPONENT: PHONE BOOKING MODAL (V99.1 - ROBUST PENDULUM)
+    // 4. COMPONENT: PHONE BOOKING MODAL (V99.3 - PERSISTENT)
     // ==================================================================================
     const NewAvailabilityCheckModal = ({ onClose, onSave, staffList, bookings, initialDate, editingBooking }) => {
         const safeStaffList = useMemo(() => staffList || [], [staffList]);
@@ -561,7 +562,6 @@
         const [isChecking, setIsChecking] = useState(false); 
         const [serverData, setServerData] = useState(null);
 
-        // State cho Form
         const defaultService = (window.SERVICES_LIST && window.SERVICES_LIST.length > 0) ? window.SERVICES_LIST[2] : "Body Massage";
         const [form, setForm] = useState({ 
             date: initialDate || new Date().toISOString().slice(0, 10), 
@@ -572,10 +572,8 @@
         });
         const [guestDetails, setGuestDetails] = useState([{ service: defaultService, staff: '隨機', isOil: false }]);
 
-        // Edit Mode Effect
         useEffect(() => {
             if (editingBooking) {
-                console.log("✏️ Edit Mode Activated:", editingBooking);
                 let timeStr = "12:00";
                 let dateStr = initialDate;
                 if (editingBooking.startTimeString) {
@@ -671,18 +669,16 @@
             if (!form.custName.trim()) { alert("⚠️ 請輸入顧客姓名！"); return; }
             setIsSubmitting(true);
             try {
-                // 1. Final Consistency Check
                 let checkBookings = serverData?.bookings || safeBookings;
                 if (editingBooking) checkBookings = checkBookings.filter(b => b.rowId !== editingBooking.rowId);
                 const finalCheck = callCoreAvailabilityCheck(form.date, form.time, guestDetails, checkBookings, serverData?.staff || safeStaffList);
                 
-                // 2. Enrich Guests with Matrix Data (Crucial Step for Load Balancing)
                 const detailedGuests = guestDetails.map((g, i) => {
                     const detail = finalCheck.details ? finalCheck.details.find(d => d.guestIndex === i) : null;
                     return {
                         ...g,
                         staff: g.staff, 
-                        // [V99.1 PENDULUM]: Flow chính xác từ CoreKernel (FB/BF)
+                        // Quan trọng: Flow được lấy từ Core
                         flow: detail ? detail.flow : 'FB', 
                         phase1_duration: detail ? detail.phase1_duration : null,
                         phase2_duration: detail ? detail.phase2_duration : null,
@@ -690,7 +686,11 @@
                 });
 
                 const oils = guestDetails.map((g,i)=>g.isOil?`K${i+1}:精油`:null).filter(Boolean);
+                
+                // [FIX V99.3]: LƯU TRẠNG THÁI '先做身體' VÀO GHI CHÚ
+                // Nếu khách làm BF, ghi rõ vào note để lần sau hệ thống đọc lại không bị sai
                 const flows = detailedGuests.map((g,i)=>g.flow==='BF'?`K${i+1}:先做身體`:null).filter(Boolean);
+                
                 const noteParts = [...oils, ...flows];
                 const noteStr = noteParts.length > 0 ? `(${noteParts.join(', ')})` : "";
                 
@@ -749,7 +749,7 @@
                                 <div>
                                     {!checkResult ? 
                                         <button onClick={performCheck} disabled={isChecking} className={`w-full text-white p-3 rounded font-bold shadow-lg flex justify-center items-center ${isChecking ? 'bg-gray-400 cursor-not-allowed' : 'bg-cyan-600 hover:bg-cyan-700'}`}>
-                                            {isChecking ? "正在計算 (Matrix V9.1)..." : "🔍 查詢空位 (Instant Check)"}
+                                            {isChecking ? "正在計算 (Matrix V99.3)..." : "🔍 查詢空位 (Instant Check)"}
                                         </button> 
                                         : 
                                         <div className="space-y-3">
@@ -796,7 +796,7 @@
     };
 
     // ==================================================================================
-    // 5. COMPONENT: WALK-IN MODAL (V99.1 - ROBUST PENDULUM)
+    // 5. COMPONENT: WALK-IN MODAL (V99.3 - PERSISTENT)
     // ==================================================================================
     const NewWalkInModal = ({ onClose, onSave, staffList, bookings, initialDate }) => {
         const safeStaffList = useMemo(() => staffList || [], [staffList]);
@@ -899,15 +899,16 @@
                     return { 
                         ...g, 
                         staff: g.staff, 
-                        // [V99.1] Flow Sync
-                        flow: detail ? detail.flow : 'FB',
+                        flow: detail ? detail.flow : 'FB', // Flow from Core
                         phase1_duration: detail ? detail.phase1_duration : null,
                         phase2_duration: detail ? detail.phase2_duration : null
                     };
                 });
 
                 const oils = guestDetails.map((g,i)=>g.isOil?`K${i+1}:精油`:null).filter(Boolean);
+                // [FIX V99.3]: LƯU TRẠNG THÁI '先做身體' VÀO GHI CHÚ
                 const flows = detailedGuests.map((g,i)=>g.flow==='BF'?`K${i+1}:先做身體`:null).filter(Boolean);
+                
                 const noteParts = [...oils, ...flows];
                 const noteStr = noteParts.length > 0 ? `(${noteParts.join(', ')})` : "";
 
@@ -936,7 +937,7 @@
             <div className="fixed inset-0 bg-black/70 z-[90] flex items-center justify-center p-4">
                 <div className="bg-white w-full max-w-xl rounded-xl shadow-2xl modal-animate flex flex-col max-h-[90vh] overflow-hidden">
                     <div className="bg-amber-600 p-4 text-white flex justify-between items-center shrink-0">
-                        <h3 className="font-bold text-lg">⚡ 現場客 (V99.1 Pendulum)</h3>
+                        <h3 className="font-bold text-lg">⚡ 現場客 (V99.3 Memory)</h3>
                         <button onClick={onClose}><i className="fas fa-times text-xl"></i></button>
                     </div>
                     <div className="p-5 space-y-4 overflow-y-auto flex-1 custom-scrollbar">
@@ -954,7 +955,7 @@
                                 <div className="pt-2 grid grid-cols-2 gap-3"><button onClick={onClose} className="bg-gray-100 text-gray-500 font-bold p-3 rounded hover:bg-gray-200">取消</button>
                                 {(!checkResult || checkResult.status === 'FAIL') ? 
                                     <button onClick={performCheck} disabled={isChecking} className={`font-bold p-3 rounded shadow-lg flex justify-center items-center text-white ${isChecking?'bg-gray-400':'bg-amber-500 hover:bg-amber-600'}`}>
-                                        {isChecking ? "計算中 (Matrix V9.1)..." : "🔍 檢查"}
+                                        {isChecking ? "計算中 (Matrix V99.3)..." : "🔍 檢查"}
                                     </button> : 
                                     <button onClick={() => setStep('INFO')} className="bg-emerald-600 text-white font-bold p-3 rounded hover:bg-emerald-700 shadow-lg animate-pulse">➡️ 下一步</button>}
                                 </div>
@@ -996,8 +997,8 @@
 
     // SYSTEM INJECTION
     const overrideInterval = setInterval(() => {
-        if (window.AvailabilityCheckModal !== NewAvailabilityCheckModal) { window.AvailabilityCheckModal = NewAvailabilityCheckModal; console.log("♻️ AvailabilityModal Injected (V99.1)"); }
-        if (window.WalkInModal !== NewWalkInModal) { window.WalkInModal = NewWalkInModal; console.log("♻️ WalkInModal Injected (V99.1)"); }
+        if (window.AvailabilityCheckModal !== NewAvailabilityCheckModal) { window.AvailabilityCheckModal = NewAvailabilityCheckModal; console.log("♻️ AvailabilityModal Injected (V99.3)"); }
+        if (window.WalkInModal !== NewWalkInModal) { window.WalkInModal = NewWalkInModal; console.log("♻️ WalkInModal Injected (V99.3)"); }
     }, 200);
     setTimeout(() => { clearInterval(overrideInterval); }, 5000);
 })();
