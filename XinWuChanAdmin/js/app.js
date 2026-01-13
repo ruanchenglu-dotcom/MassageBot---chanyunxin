@@ -1,11 +1,13 @@
 // TYPE: app.js
-// VERSION: V99.4 (ROBUST PENDULUM & SMART PARSER)
+// VERSION: V99.7 (EXPLICIT TAGGING & OBEDIENCE)
 // UPDATE: 2026-01-13
 // AUTHOR: AI ASSISTANT & USER
-// CHANGE LOG V99.4:
-// - Fixed: "All-or-Nothing" Pendulum logic bug. Now blends explicit user choice with auto-balancing.
-// - Added: Smart Regex Parser to extract specific guest flow (e.g., "K1:BF") from shared notes.
-// - Optimized: Ghost Block allocation fallback.
+// CHANGE LOG V99.7:
+// - CRITICAL UPDATE: Nâng cấp hàm detectFlowFromNote để nhận diện chính xác từ khóa "先做身體" (BF) và "先做腳" (FB) từ ghi chú tường minh.
+// - LOGIC OVERRIDE: Thêm cơ chế "Absolute Obedience" (Tuân thủ tuyệt đối). 
+//   Nếu ghi chú có chỉ định rõ (VD: K4:先做腳), App sẽ tuân thủ 100%, bỏ qua Skeptic Mode và bỏ qua Database mặc định.
+//   Điều này giúp giải quyết triệt để vấn đề "App quá thông minh nên tự ý sửa lại lịch của người dùng".
+// - RETAINED: Giữ nguyên Skeptic Mode & Pendulum làm phương án dự phòng (Fallback) khi không có ghi chú.
 
 const { useState, useEffect, useMemo, useRef } = React;
 
@@ -14,14 +16,15 @@ const CommissionView = window.CommissionView;
 const TimelineView = window.TimelineView;
 const BookingListView = window.BookingListView;
 
-// --- [V99.4] MATRIX HELPER ENHANCED ---
+// --- MATRIX HELPER ENHANCED ---
 const MatrixHelper = {
+    // Kiểm tra va chạm thời gian giữa 2 khoảng [startA, endA] và [startB, endB]
     isOverlap: (startA, endA, startB, endB) => {
-        // Kiểm tra va chạm thời gian: (StartA < EndB) && (StartB < EndA)
         return (startA < endB) && (startB < endA);
     },
 
     // Hàm tìm slot trống thông minh (First-Fit Strategy)
+    // Hỗ trợ tham số preferredIndex để cố gắng xếp khách vào vị trí tương ứng với số thứ tự của họ (Khách 1 -> Ghế 1)
     findBestSlot: (type, start, end, gridState, reservedTimes, preferredIndex = null) => {
         const limit = 6;
         
@@ -29,10 +32,13 @@ const MatrixHelper = {
         if (preferredIndex) {
             const id = `${type}-${preferredIndex}`;
             let valid = true;
-            // Check Hard Reservation (Đang chạy)
+            
+            // Check 1: Va chạm với đơn ĐANG CHẠY (Hard Reservation)
+            // reservedTimes chứa thời điểm kết thúc của các đơn đang chạy thực tế
             if (reservedTimes[id] && start < reservedTimes[id]) valid = false;
             
-            // Check Ghost Blocks (Dự kiến)
+            // Check 2: Va chạm với đơn DỰ KIẾN (Ghost Blocks / Planned)
+            // gridState chứa các block đã được xếp (cả đang chạy và dự kiến)
             if (valid && gridState[id]) {
                 for (const slot of gridState[id]) {
                     if (MatrixHelper.isOverlap(start, end, slot.start, slot.end)) {
@@ -44,7 +50,7 @@ const MatrixHelper = {
             if (valid) return id;
         }
 
-        // Fallback: Quét tất cả các slot từ 1 đến 6
+        // Fallback: Nếu slot ưu tiên không được, quét tất cả các slot từ 1 đến 6
         for (let i = 1; i <= limit; i++) {
             const id = `${type}-${i}`;
             
@@ -69,35 +75,49 @@ const MatrixHelper = {
     }
 };
 
-// --- [V99.4] SMART NOTE PARSER ---
+// --- SMART NOTE PARSER V99.7 (UPDATED) ---
 // Hàm này giúp phân tích ghi chú để tìm Flow cho TỪNG khách cụ thể (K1, K2...)
+// Được gọi trong vòng lặp xử lý Combo
 const detectFlowFromNote = (note, guestIndex) => {
     if (!note) return null;
     const noteStr = note.toString().toUpperCase();
     
-    // 1. Nếu ghi chú quá ngắn hoặc chung chung, kiểm tra toàn cục (Fallback cũ)
-    // Nhưng chỉ áp dụng nếu KHÔNG có định dạng K1, K2...
-    if (!noteStr.includes('K1') && !noteStr.includes('K2')) {
-        if (noteStr.includes('BF') || noteStr.includes('BODY FIRST') || noteStr.includes('先做身體') || noteStr.includes('先身')) return 'BF';
-        if (noteStr.includes('FB') || noteStr.includes('FOOT FIRST') || noteStr.includes('先做腳')) return 'FB';
-        return null;
-    }
-
-    // 2. [NEW] Regex tìm kiếm ngữ cảnh cụ thể: "K{index}: ... BODY ..."
-    // Guest Index bắt đầu từ 0, nhưng trong note thường là K1, K2
+    // 1. Logic cho ghi chú cụ thể (Có thẻ K1, K2...)
+    // Regex tìm kiếm ngữ cảnh cụ thể: "K{index}: ... BODY ..."
+    // Guest Index bắt đầu từ 0, nhưng trong note là K1, K2 -> cần +1
     const kTag = `K${guestIndex + 1}`; 
     
-    // Cắt chuỗi note thành các phần dựa trên dấu phẩy hoặc dấu ngoặc
-    // Ví dụ: (K1: Body, K2: Foot) -> ["K1: Body", " K2: Foot"]
-    const parts = noteStr.split(/[,;()]/);
-    
-    for (const part of parts) {
-        if (part.includes(kTag)) {
-            // Tìm thấy phần ghi chú dành cho khách này
-            if (part.includes('BF') || part.includes('BODY') || part.includes('身')) return 'BF';
-            if (part.includes('FB') || part.includes('FOOT') || part.includes('腳') || part.includes('足')) return 'FB';
+    // Kiểm tra sơ bộ xem note có chứa tag K nào không để tránh loop vô ích
+    if (noteStr.includes('K1') || noteStr.includes('K2') || noteStr.includes('K3') || noteStr.includes('K4') || noteStr.includes('K5') || noteStr.includes('K6')) {
+        
+        // Cắt chuỗi note thành các phần dựa trên dấu phẩy hoặc dấu ngoặc
+        // Ví dụ: (K1: Body, K2: Foot) -> ["K1: Body", " K2: Foot"]
+        const parts = noteStr.split(/[,;()]/);
+        
+        for (const part of parts) {
+            // Chỉ xét phần text có chứa tag của khách hiện tại (VD: K4)
+            if (part.includes(kTag)) {
+                
+                // [V99.7 UPDATE] Ưu tiên bắt các từ khóa tiếng Trung rõ ràng từ BookingHandler
+                // 1. Nhóm từ khóa Body First (Làm giường trước)
+                if (part.includes('先做身體') || part.includes('先身') || part.includes('BODY') || part.includes('BF')) {
+                    return 'BF';
+                }
+                
+                // 2. Nhóm từ khóa Foot First (Làm ghế trước)
+                if (part.includes('先做腳') || part.includes('先足') || part.includes('FOOT') || part.includes('FB') || part.includes('足') || part.includes('腳')) {
+                    return 'FB';
+                }
+            }
         }
+        // Nếu có K-Tag tổng thể nhưng không tìm thấy chỉ thị cho khách index này -> Trả về null
+        return null; 
     }
+
+    // 2. Logic cho ghi chú chung (Fallback cũ - dành cho đơn lẻ hoặc nhóm nhỏ không dùng tag K)
+    // Nếu KHÔNG có định dạng K1, K2... thì kiểm tra toàn cục
+    if (noteStr.includes('BF') || noteStr.includes('BODY FIRST') || noteStr.includes('先做身體') || noteStr.includes('先身')) return 'BF';
+    if (noteStr.includes('FB') || noteStr.includes('FOOT FIRST') || noteStr.includes('先做腳')) return 'FB';
     
     return null;
 };
@@ -138,6 +158,7 @@ const App = () => {
         return Object.values(resourceState).some(r => {
             if (!r.isRunning || r.isPaused || r.isPreview === true) return false;
             const b = r.booking || {};
+            // Kiểm tra tất cả các trường có thể chứa ID nhân viên
             const possibleKeys = [
                 b.serviceStaff, b.staffId, b.ServiceStaff, b.technician, b.Technician,
                 b.staffId2, b.StaffId2, b.staff2, b.Staff2,
@@ -150,7 +171,7 @@ const App = () => {
         });
     };
 
-    // Lấy danh sách ID nhân viên đang bận
+    // Lấy danh sách ID nhân viên đang bận (Dùng cho UI hiển thị thẻ nhân viên)
     const busyStaffIds = useMemo(() => {
         const ids = new Set();
         Object.values(resourceState).forEach(r => {
@@ -179,6 +200,7 @@ const App = () => {
         await axios.post('/api/sync-staff-status', newStatus); 
     }
 
+    // Xác định xem booking hiện tại là khách thứ mấy trong nhóm
     const getGroupMemberIndex = (targetResId, targetRowId) => {
         const allSlots = [];
         for(let i=1; i<=6; i++) allSlots.push(`chair-${i}`);
@@ -197,7 +219,7 @@ const App = () => {
         try { await axios.post(endpoint, payload); } catch(e) { console.log("Universal send check (ignore):", e); }
     };
 
-    // 3. CORE LOGIC (FETCH & RENDER) - TRÁI TIM CỦA HỆ THỐNG V99.4
+    // 3. CORE LOGIC (FETCH & RENDER) - TRÁI TIM CỦA HỆ THỐNG
     const fetchData = async () => {
         if (syncLock) return;
         if (quotaError) return;
@@ -208,12 +230,9 @@ const App = () => {
             
             const { bookings: apiBookings, staffList: apiStaff, resourceState: serverRes, staffStatus: serverStaff } = res.data;
             
-            // [V99.4 UPGRADE]: PARSING DỮ LIỆU
+            // PARSING DỮ LIỆU TỪ SERVER
             const cleanBookings = (apiBookings || []).map(b => {
-                // Chúng ta sẽ detect Flow chi tiết sau ở bước Grouping
-                // Ở đây chỉ lấy giá trị thô nếu có từ DB
                 let rawFlow = b.flow || null;
-
                 const p1 = b.phase1_duration ? parseInt(b.phase1_duration) : null;
                 const p2 = b.phase2_duration ? parseInt(b.phase2_duration) : null;
 
@@ -225,7 +244,7 @@ const App = () => {
                     phase1_duration: p1,
                     phase2_duration: p2,
                     flow: rawFlow,
-                    // Giữ lại ghi chú gốc để xử lý sau
+                    // Giữ lại ghi chú gốc để xử lý logic nhóm sau
                     originalNote: b.ghiChu || b.note || "" 
                 };
             });
@@ -248,6 +267,7 @@ const App = () => {
                         if (combinedMap.has(rid)) {
                             const serverBooking = combinedMap.get(rid);
                             const mergedBooking = { ...serverBooking };
+                            // Giữ lại trạng thái hoàn thành cục bộ nếu server chưa sync
                             for(let i=1; i<=6; i++) {
                                 const key = `Status${i}`;
                                 const localVal = localBooking[key];
@@ -280,7 +300,7 @@ const App = () => {
             };
 
             // =================================================================
-            // MATRIX LAYER 1: RUNNING STATE (Đang chạy)
+            // MATRIX LAYER 1: RUNNING STATE (Đang chạy thực tế)
             // =================================================================
             Object.keys(currentRes).forEach(key => {
                 if(currentRes[key].isRunning) {
@@ -318,7 +338,7 @@ const App = () => {
             });
 
             // =================================================================
-            // MATRIX LAYER 2: GHOST BLOCKS (Dự đoán Phase 2)
+            // MATRIX LAYER 2: GHOST BLOCKS (Dự đoán Phase 2 của đơn đang chạy)
             // =================================================================
             Object.keys(tempState).forEach(key => {
                 const item = tempState[key];
@@ -351,7 +371,7 @@ const App = () => {
             });
 
             // =================================================================
-            // MATRIX LAYER 3: SMART SIMULATION (PENDULUM V99.4)
+            // MATRIX LAYER 3: PENDULUM SIMULATION (Tính toán lịch chưa chạy)
             // =================================================================
             const pendingBookings = relevantBookings.filter(b => 
                 !b.status.includes('完成') && !b.status.includes('✅') && !b.status.includes('Done')
@@ -377,7 +397,7 @@ const App = () => {
             listSingles.sort(sortFn);
             listCombosGroups.sort((a,b) => sortFn(a[0], b[0]));
 
-            // --- ALLOCATE SINGLES ---
+            // --- ALLOCATE SINGLES (Xếp lịch đơn trước) ---
             listSingles.forEach(b => {
                 const originalStart = window.normalizeToTimelineMins(b.startTimeString.split(' ')[1]);
                 const type = b.type === 'CHAIR' ? 'chair' : 'bed';
@@ -394,32 +414,49 @@ const App = () => {
                 }
             });
 
-            // --- ALLOCATE COMBOS (V99.4 FIXED) ---
+            // --- ALLOCATE COMBOS (V99.7 UPDATED - PRIORITY & SKEPTIC MODES) ---
             listCombosGroups.forEach(group => {
                 const b = group[0]; 
                 const originalStart = window.normalizeToTimelineMins(b.startTimeString.split(' ')[1]);
-                
                 const groupSize = group.length;
-                
-                // [LOGIC V99.4 FIX]: Luôn tính toán số lượng BF lý tưởng (50/50) trước
-                // Kể cả khi có Note, chúng ta vẫn dùng con số này làm Base cho những người không có Note
                 const idealNumBF = Math.ceil(groupSize / 2);
 
                 group.forEach((bookingItem, idx) => {
-                    // Ưu tiên 1: Dữ liệu cột Flow rõ ràng từ DB
-                    let preferredSeq = bookingItem.flow; 
+                    const rawNote = bookingItem.originalNote || "";
                     
-                    // Ưu tiên 2: [NEW] Phân tích Note thông minh cho TỪNG khách hàng
-                    if (!preferredSeq) {
-                         preferredSeq = detectFlowFromNote(bookingItem.originalNote, idx);
+                    // --- 1. PRIORITY LEVEL 1: ABSOLUTE OBEDIENCE (EXPLICIT NOTE) ---
+                    // Kiểm tra xem note có chỉ thị rõ ràng cho khách này không (VD: K4:先做腳)
+                    // Nếu có, hệ thống TUÂN THỦ 100%, bỏ qua mọi logic khác.
+                    const explicitFlow = detectFlowFromNote(rawNote, idx);
+                    
+                    let preferredSeq = null;
+
+                    if (explicitFlow) {
+                        preferredSeq = explicitFlow; // Dùng ngay, không hỏi lại
+                    } else {
+                        // --- 2. PRIORITY LEVEL 2: SKEPTIC MODE (DOUBT DATABASE) ---
+                        // Nếu không có note cụ thể, ta mới xét đến Database.
+                        // Nhưng nếu nhóm đông (>2) mà không có note cụ thể, ta nghi ngờ DB sai (do lỗi copy)
+                        // nên ta sẽ bỏ qua DB và dùng Pendulum.
+                        const hasSpecificTag = /K\d/i.test(rawNote);
+                        const isCrowdedAndVague = groupSize > 2 && !hasSpecificTag;
+
+                        if (!isCrowdedAndVague) {
+                            // Nếu nhóm nhỏ hoặc có tag (nhưng detect không ra cho index này), ta tạm tin DB
+                            preferredSeq = bookingItem.flow;
+                        } 
+                        // Nếu isCrowdedAndVague = true -> preferredSeq vẫn là null -> Xuống Level 3
                     }
 
-                    // Ưu tiên 3: Nếu vẫn không có Flow, dùng thuật toán Pendulum (Dựa trên Index)
+                    // --- 3. PRIORITY LEVEL 3: PENDULUM (AUTO BALANCING) ---
+                    // Nếu cả Note và DB đều không dùng được (hoặc bị Skeptic chặn),
+                    // ta dùng thuật toán Con lắc để chia bài (Một nửa BF, một nửa FB).
                     if (!preferredSeq) {
                         if (idx < idealNumBF) preferredSeq = 'BF';
                         else preferredSeq = 'FB';
                     }
                     
+                    // --- Bắt đầu tìm slot dựa trên Sequence đã quyết định ---
                     let searchOffsets = [0]; for(let i=1; i<=120; i++) searchOffsets.push(i);
                     
                     for(let delay of searchOffsets) {
@@ -436,7 +473,7 @@ const App = () => {
                             const type1 = seq === 'FB' ? 'chair' : 'bed';
                             const type2 = seq === 'FB' ? 'bed' : 'chair';
                             
-                            // [OPT] Thử tìm slot tương ứng với index của khách để xếp đẹp (ví dụ khách 1 vào ghế 1)
+                            // [OPT] Cố gắng xếp khách vào số ghế/giường trùng với số thứ tự khách (idx + 1)
                             const preferredSlotIndex = idx + 1;
 
                             const s1 = MatrixHelper.findBestSlot(type1, tryStart, p1End, timelineGrid, activeEndTimes, preferredSlotIndex);
@@ -459,15 +496,16 @@ const App = () => {
 
             setTimelineData(timelineGrid);
 
-            // --- PREVIEW RESOURCE CARD LOGIC ---
+            // --- PREVIEW RESOURCE CARD LOGIC (Tạo dữ liệu hiển thị cho thẻ 3D/Map) ---
             const allSlots = [];
             for(let i=1; i<=6; i++) allSlots.push(`chair-${i}`);
             for(let i=1; i<=6; i++) allSlots.push(`bed-${i}`);
 
             allSlots.forEach(resId => {
-                if (tempState[resId]) return;
+                if (tempState[resId]) return; // Nếu đã có booking đang chạy thì bỏ qua
                 
                 const slots = timelineGrid[resId] || [];
+                // Tìm slot nào đang diễn ra ngay bây giờ (Simulation)
                 const currentSlot = slots.find(s => (nowMins >= s.start && nowMins < s.end));
                 
                 if (currentSlot) {
@@ -480,6 +518,7 @@ const App = () => {
                         isMaxMode: true 
                     };
                 } else {
+                    // Tìm slot sắp diễn ra trong 30 phút tới
                     const upcomingSlot = slots.find(s => s.start > nowMins && s.start - nowMins <= 30);
                     if (upcomingSlot) {
                          tempState[resId] = {
@@ -504,6 +543,7 @@ const App = () => {
         }
     };
 
+    // Auto Fetch Loop
     useEffect(() => { 
         fetchData(); 
         const t = setInterval(fetchData, 2000); 
@@ -512,7 +552,7 @@ const App = () => {
 
     // 4. ACTION HANDLERS
     
-    // Split Staff
+    // Split Staff (Tách thợ cho khách trong nhóm)
     const handleSplitConfirm = async (staffId2) => {
         if (!splitData) return;
         const { resourceId } = splitData;
@@ -543,7 +583,7 @@ const App = () => {
         setSplitData(null);
     };
 
-    // Change Staff
+    // Change Staff (Đổi thợ)
     const handleStaffChange = async (resId, newStaffId) => {
         const current = resourceState[resId]; if (!current) return;
         setSyncLock(true); setTimeout(() => setSyncLock(false), 5000);
@@ -578,7 +618,7 @@ const App = () => {
         try { await universalSend('/api/update-booking-details', payload); await updateResource(newState); } catch(e) { console.error("Sync Failed", e); alert("⚠️ Staff Sync Failed! Please check internet."); }
     };
 
-    // Change Service
+    // Change Service (Đổi dịch vụ)
     const handleServiceChange = async (resId, newServiceName) => {
         const current = resourceState[resId]; if (!current) return;
         const newDef = window.SERVICES_DATA[newServiceName]; if (!newDef) return;
@@ -589,7 +629,7 @@ const App = () => {
         await updateResource(newState);
     };
 
-    // Edit Combo Time
+    // Edit Combo Time (Chỉnh sửa thời gian Phase 1/Phase 2)
     const handleOpenEdit = (resId) => {
         const current = resourceState[resId];
         if (!current || !current.booking) return;
@@ -637,7 +677,7 @@ const App = () => {
         setEditComboTarget(null);
     };
 
-    // Start Service
+    // Start Service (Bắt đầu làm khách)
     const executeStart = (id, comboSequence) => {
         const current = resourceState[id];
         let designatedStaff = current.booking.serviceStaff || current.booking.staffId || current.booking.ServiceStaff || current.booking.technician; 
@@ -655,6 +695,7 @@ const App = () => {
         
         if (shouldMove) { if (!targetMoveId) { alert("⚠️ 無法切換區域: 目標區域已滿!"); return; } currentId = targetMoveId; }
         
+        // Logic chọn thợ tự động nếu là '隨機' (Random)
         if (['隨機', '男', '女', 'Oil'].some(k => designatedStaff.includes(k))) {
             const liveBusyStaffIds = Object.values(resourceState).filter(r => r.isRunning && !r.isPaused && r.isPreview !== true).map(r => r.booking.serviceStaff || r.booking.staffId || r.booking.ServiceStaff);
             const readyStaff = (staffList||[]).filter(s => { 
@@ -755,7 +796,7 @@ const App = () => {
     const handleToggleMax = async (resId) => { const res = resourceState[resId]; if (!res) return; updateResource({ ...resourceState, [resId]: { ...res, isMaxMode: !res.isMaxMode } }); };
     const handleToggleSequence = async (resId) => { const res = resourceState[resId]; if (!res || !res.comboMeta) return; const newSeq = res.comboMeta.sequence === 'FB' ? 'BF' : 'FB'; updateResource({ ...resourceState, [resId]: { ...res, comboMeta: { ...res.comboMeta, sequence: newSeq } } }); }
     
-    // Payment
+    // Payment Logic (Thanh toán)
     const handleConfirmPayment = async (itemsToPay, totalAmount) => {
         try {
             setSyncLock(true); setTimeout(() => setSyncLock(false), 5000); 
@@ -822,7 +863,7 @@ const App = () => {
 
     const getStatus = (id) => statusData[id] ? statusData[id].status : 'AWAY';
     
-    // Filter Helpers
+    // UI Helpers (Filter Staff)
     const safeStaffList = staffList || [];
     const awayStaff = safeStaffList.filter(s => { const st = getStatus(s.id); return st === 'AWAY' || st === 'OFF'; }).sort(window.sortIdAsc);
     
@@ -853,7 +894,7 @@ const App = () => {
             <header className={`text-white p-3 shadow-md flex justify-between items-center sticky top-0 z-50 transition-colors ${quotaError ? 'bg-red-800' : 'bg-[#1e1b4b]'}`}>
                 {/* Header Content */}
                 <div className="flex items-center gap-3">
-                    <span className="bg-amber-500 text-black px-2 py-1 rounded font-black text-sm">V99.4</span>
+                    <span className="bg-amber-500 text-black px-2 py-1 rounded font-black text-sm">V99.7</span>
                     <span className="font-bold hidden md:inline">XinWuChan</span>
                     <div className="flex items-center gap-2 bg-white/10 rounded px-2 py-1 border border-white/20">
                         <button onClick={()=>{const d=new Date(viewDate); d.setDate(d.getDate()-1); setViewDate(d.toISOString().split('T')[0])}} className="text-white hover:text-amber-400 font-bold px-2">❮</button>
