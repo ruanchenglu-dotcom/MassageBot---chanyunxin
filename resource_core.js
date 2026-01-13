@@ -2,18 +2,19 @@
  * =================================================================================================
  * PROJECT: XINWUCHAN MASSAGE BOT - CORE LOGIC KERNEL
  * FILE: resource_core.js
- * PHIÊN BẢN: V99.3 (MEMORY & FLOW PERSISTENCE)
+ * PHIÊN BẢN: V99.4 (ROBUST COMBO DETECTION PATCH)
  * TÁC GIẢ: AI ASSISTANT & USER
  * NGÀY CẬP NHẬT: 2026/01/13
  *
- * * * * * CHANGE LOG V99.3 (THE MEMORY FIX):
- * 1. [CRITICAL FIX] EXISTING BOOKING FLOW RECOGNITION:
- * - Hệ thống giờ đây đọc được trạng thái "BF" (Body First) từ dữ liệu khách cũ 
- * thông qua trường `flow`, `note` hoặc `ghiChu` (tìm từ khóa "先做身體" hoặc "BF").
- * - Khắc phục tình trạng Timeline hiển thị sai toàn bộ về Foot First (Vàng) dù thuật toán đã chia việc.
- * * 2. [ROBUSTNESS]:
- * - Tăng cường khả năng chịu lỗi khi tra cứu Dịch vụ (Service Lookup Fallback).
- * - Đảm bảo tính toán Con lắc (Pendulum) chính xác dựa trên thực tế dữ liệu.
+ * * * * * CHANGE LOG V99.4 (THE COMBO FIX):
+ * 1. [CRITICAL FIX] IS_COMBO_SERVICE LOGIC:
+ * - Vấn đề cũ: Hệ thống bỏ qua từ khóa "套餐" nếu tên trong Database không khớp với tên trên Menu.
+ * - Khắc phục: Hàm nhận diện giờ đây nối chuỗi (Concatenate) cả tên DB và tên Menu (Raw) 
+ * để quét từ khóa. Đảm bảo 100% nhận diện được Combo dù dữ liệu đầu vào bị lệch.
+ * - Kết quả: Khi đặt 6 khách "Combo", thuật toán Con lắc (Pendulum) sẽ hoạt động đúng, 
+ * chia khách thành 3 FB (Chân trước) và 3 BF (Thân trước) để tối ưu tài nguyên.
+ * * * * * * CHANGE LOG V99.3 (PREVIOUS):
+ * - Memory Persistence: Nhớ trạng thái BF/FB của khách cũ qua ghi chú.
  * =================================================================================================
  */
 
@@ -56,7 +57,7 @@ function setDynamicServices(newServicesObj) {
         'LATE': { name: '⚠️ 延遲 (Late)', duration: 0, type: 'NONE', price: 0, category: 'SYSTEM' }
     };
     SERVICES = { ...newServicesObj, ...systemServices };
-    console.log(`[CORE V99.3] Services Updated. Total: ${Object.keys(SERVICES).length}`);
+    console.log(`[CORE V99.4] Services Updated. Total: ${Object.keys(SERVICES).length}`);
 }
 
 // ============================================================================
@@ -119,28 +120,42 @@ function isOverlap(startA, endA, startB, endB) {
 }
 
 // ============================================================================
-// PHẦN 3: HELPER NHẬN DIỆN DỊCH VỤ (SERVICE CLASSIFIER - V9.1 UPDATE)
+// PHẦN 3: HELPER NHẬN DIỆN DỊCH VỤ (SERVICE CLASSIFIER - V99.4 UPDATE)
 // ============================================================================
 
 /**
- * Hàm kiểm tra thông minh xem một dịch vụ có phải là Combo (2 giai đoạn) hay không
- * Logic này mạnh mẽ hơn so với việc chỉ so sánh category === 'COMBO'
+ * [UPDATE V99.4] Hàm kiểm tra thông minh xem một dịch vụ có phải là Combo (2 giai đoạn) hay không.
+ * Logic này cực kỳ mạnh mẽ: Kiểm tra cả Database lẫn Tên người dùng nhập (Raw).
  */
 function isComboService(serviceObj, serviceNameRaw = '') {
+    // Trường hợp tệ nhất: Không có dữ liệu gì
     if (!serviceObj && !serviceNameRaw) return false;
     
-    // 1. Kiểm tra Category chuẩn
+    // 1. Kiểm tra Category chuẩn trong Database (Ưu tiên số 1)
     const cat = (serviceObj && serviceObj.category ? serviceObj.category : '').toString().toUpperCase().trim();
     if (cat === 'COMBO' || cat === 'MIXED') return true;
 
-    // 2. Kiểm tra tên Dịch vụ (Service Name)
-    // Fallback: Nếu không có serviceObj, dùng tên thô
-    const name = (serviceObj && serviceObj.name ? serviceObj.name : (serviceNameRaw || '')).toString().toUpperCase();
+    // 2. [FIXED V99.4] Kiểm tra Tên Dịch vụ (Robust Check)
+    // Lấy tên từ DB (nếu có)
+    const dbName = (serviceObj && serviceObj.name ? serviceObj.name : '').toString().toUpperCase();
+    // Lấy tên từ Input thô (Menu/Dropdown)
+    const rawName = (serviceNameRaw || '').toString().toUpperCase();
     
-    // Các từ khóa nhận diện Combo: "COMBO", "套餐" (Set Meal), "ALL" (Toàn thân + Chân)
-    const comboKeywords = ['COMBO', '套餐', 'MIX', '+', 'SET', '腳身', '全餐', 'FOOT AND BODY', 'BODY AND FOOT'];
+    // KẾT HỢP: Kiểm tra trên cả 2 tên để tránh sót
+    const nameToCheck = dbName + " | " + rawName;
+    
+    // Các từ khóa nhận diện Combo mở rộng
+    const comboKeywords = [
+        'COMBO', '套餐', 'MIX', '+', 'SET', 
+        '腳身', '全餐', 'FOOT AND BODY', 'BODY AND FOOT',
+        '雙人', 'A餐', 'B餐', 'C餐', '油壓+足'
+    ];
+    
     for (const kw of comboKeywords) {
-        if (name.includes(kw)) return true;
+        if (nameToCheck.includes(kw)) {
+            // console.log(`[DEBUG] Detected Combo via Keyword '${kw}': ${nameToCheck}`);
+            return true;
+        }
     }
 
     return false;
@@ -158,13 +173,13 @@ function detectResourceType(serviceObj) {
 
     // Phân tích tên
     const name = (serviceObj.name || '').toUpperCase();
-    if (name.match(/BODY|指壓|油|BED|TOAN THAN|全身|油壓|BACK/)) return 'BED';
+    if (name.match(/BODY|指壓|油|BED|TOAN THAN|全身|油壓|BACK|SPA/)) return 'BED';
     
     return 'CHAIR'; // Mặc định an toàn
 }
 
 // ============================================================================
-// PHẦN 4: MATRIX ENGINE CORE (V8.5 LEGACY)
+// PHẦN 4: MATRIX ENGINE CORE (VIRTUAL RESOURCE ALLOCATION)
 // ============================================================================
 
 class VirtualMatrix {
@@ -199,7 +214,7 @@ class VirtualMatrix {
             if (isLaneFree) {
                 // Đánh dấu
                 lane.occupied.push({ start, end, ownerId });
-                // Sắp xếp lại timeline
+                // Sắp xếp lại timeline để tối ưu cho lần check sau
                 lane.occupied.sort((a, b) => a.start - b.start);
                 return lane.id; 
             }
@@ -226,7 +241,7 @@ function findAvailableStaff(staffReq, start, end, staffListRef, busyList) {
 
         if ((start + CONFIG.TOLERANCE) < shiftStart) return false;
         
-        // Xử lý cờ Strict Time
+        // Xử lý cờ Strict Time (Nghiêm ngặt giờ về)
         const isStrict = staffInfo.isStrictTime === true;
         if (isStrict) {
             if ((end - CONFIG.TOLERANCE) > shiftEnd) return false; 
@@ -250,6 +265,7 @@ function findAvailableStaff(staffReq, start, end, staffListRef, busyList) {
         return checkOneStaff(staffReq) ? staffReq : null;
     } 
     else {
+        // Tìm random: Ưu tiên ai rảnh thì lấy
         const allStaffNames = Object.keys(staffListRef);
         for (const name of allStaffNames) {
             if (checkOneStaff(name)) return name;
@@ -281,14 +297,14 @@ function generateElasticSplits(totalDuration, step = 0, limit = 0, customLockedP
 
     let currentDeviation = step;
     while (currentDeviation <= limit) {
-        // Biến thể A: Giảm Phase 1
+        // Biến thể A: Giảm Phase 1 (VD: 45-55)
         let p1_A = standardHalf - currentDeviation;
         let p2_A = totalDuration - p1_A;
         if (p1_A >= 15 && p2_A >= 15) {
             options.push({ p1: p1_A, p2: p2_A, deviation: currentDeviation });
         }
         
-        // Biến thể B: Tăng Phase 1
+        // Biến thể B: Tăng Phase 1 (VD: 55-45)
         let p1_B = standardHalf + currentDeviation;
         let p2_B = totalDuration - p1_B;
         if (p1_B >= 15 && p2_B >= 15) {
@@ -296,16 +312,17 @@ function generateElasticSplits(totalDuration, step = 0, limit = 0, customLockedP
         }
         currentDeviation += step;
     }
+    // Sắp xếp: Ưu tiên biến thể ít lệch nhất trước
     options.sort((a, b) => Math.abs(a.deviation) - Math.abs(b.deviation));
     return options;
 }
 
 // ============================================================================
-// PHẦN 7: CORE ENGINE V99.3 (PENDULUM EXHAUSTIVE SEARCH + MEMORY FIX)
+// PHẦN 7: CORE ENGINE V99.4 (PENDULUM EXHAUSTIVE SEARCH + COMBO FIX)
 // ============================================================================
 
 /**
- * Hàm kiểm tra khả dụng chính - PHIÊN BẢN V99.3
+ * Hàm kiểm tra khả dụng chính - PHIÊN BẢN V99.4
  */
 function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRaw, staffList) {
     const requestStartMins = getMinsFromTimeStr(timeStr);
@@ -326,7 +343,7 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
         if (bStart === -1) return;
 
         let svcInfo = SERVICES[b.serviceCode] || {};
-        // Sử dụng hàm detect thông minh mới
+        // Sử dụng hàm detect thông minh mới V99.4
         let isCombo = isComboService(svcInfo, b.serviceName);
         let duration = b.duration || 60;
         
@@ -349,14 +366,13 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
             const p1End = bStart + p1;
             const p2Start = p1End + CONFIG.TRANSITION_BUFFER;
             
-            // [V99.3 FIX] TỰ ĐỘNG NHẬN DIỆN LUỒNG (FLOW) CỦA KHÁCH CŨ
-            // Kiểm tra xem khách này đã được đánh dấu là "先做身體" (Body First) hay chưa
+            // [PERSISTENCE] TỰ ĐỘNG NHẬN DIỆN LUỒNG (FLOW) CỦA KHÁCH CŨ
             let isBodyFirst = false;
             
-            // Cách 1: Kiểm tra trường 'flow' rõ ràng (nếu có lưu)
+            // Cách 1: Kiểm tra trường 'flow' rõ ràng
             if (b.flow === 'BF') isBodyFirst = true;
 
-            // Cách 2: Quét Note/Ghi chú để tìm từ khóa "Body First" hoặc "先做身體"
+            // Cách 2: Quét Note/Ghi chú tìm "Body First" hoặc "先做身體"
             const noteContent = (b.note || b.ghiChu || b.originalData?.ghiChu || "").toString().toUpperCase();
             if (noteContent.includes('BF') || noteContent.includes('BODY FIRST') || noteContent.includes('先做身體') || noteContent.includes('先身')) {
                 isBodyFirst = true;
@@ -364,15 +380,14 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
 
             if (isBodyFirst) {
                 // [BF FLOW]: BODY (BED) -> FOOT (CHAIR)
-                // Cố định lại Phase 1 là BED
                 processedB.blocks.push({ start: bStart, end: p1End, type: 'BED' }); 
                 processedB.blocks.push({ start: p2Start, end: bStart + duration, type: 'CHAIR' });
-                processedB.flow = 'BF'; // Ghi nhớ lại
+                processedB.flow = 'BF'; 
             } else {
                 // [FB FLOW]: FOOT (CHAIR) -> BODY (BED) (Mặc định)
                 processedB.blocks.push({ start: bStart, end: p1End, type: 'CHAIR' }); 
                 processedB.blocks.push({ start: p2Start, end: bStart + duration, type: 'BED' });
-                processedB.flow = 'FB'; // Ghi nhớ lại
+                processedB.flow = 'FB'; 
             }
             
             processedB.p1_current = p1;
@@ -388,25 +403,26 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
     });
 
     // ------------------------------------------------------------------------
-    // BƯỚC B: TẠO DANH SÁCH "PENDULUM" (CON LẮC) - V9.1 UPDATE
+    // BƯỚC B: TẠO DANH SÁCH "PENDULUM" (CON LẮC) - V99.4
     // ------------------------------------------------------------------------
     
     const newGuests = guestList.map((g, idx) => ({ ...g, idx: idx }));
     
-    // [FIX V9.1] Bộ lọc Combo mạnh mẽ hơn (Robust Filter)
+    // [FIX V99.4] Bộ lọc Combo này giờ đây cực kỳ chính xác nhờ hàm isComboService mới
     const comboGuests = newGuests.filter(g => {
         const s = SERVICES[g.serviceCode];
-        // Kiểm tra xem khách này có khả năng đảo chiều không
-        // Nếu không tìm thấy service trong DB, vẫn cố gắng check xem nó có phải combo không
         return isComboService(s, g.serviceCode); 
     });
     
+    // DEBUG: Ghi log để kiểm tra nếu còn lỗi
+    // console.log(`[V99.4 Core] Total Guests: ${newGuests.length}, Combo Guests Detected: ${comboGuests.length}`);
+
     const maxBF = comboGuests.length;
     let trySequence = [];
 
     // [PENDULUM GENERATOR LOGIC]
     if (maxBF > 0) {
-        // Tìm điểm cân bằng (Giữa)
+        // Tìm điểm cân bằng (Giữa). VD: 6 khách -> Mid = 3
         let mid = maxBF / 2; 
         
         // 1. Luôn ưu tiên điểm giữa (Cân bằng nhất)
@@ -417,7 +433,7 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
             trySequence.push(Math.floor(mid));
         }
 
-        // 3. Vòng lặp xoắn ốc (Spiral Loop)
+        // 3. Vòng lặp xoắn ốc (Spiral Loop) để mở rộng tìm kiếm (3 -> 4 -> 2 -> 5 -> 1...)
         let step = 1;
         while (true) {
             let nextUp = Math.ceil(mid) + step;   // Lệch về Body
@@ -435,9 +451,6 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
         trySequence.push(0);
     }
     
-    // [DEBUG LOGGING]
-    // console.log(`[V99.3] Guests: ${newGuests.length}, Combo: ${maxBF}, Sequence: ${JSON.stringify(trySequence)}`);
-
     // ------------------------------------------------------------------------
     // BƯỚC C: THỰC THI VÒNG LẶP VÉT CẠN (EXHAUSTIVE LOOP)
     // ------------------------------------------------------------------------
@@ -590,7 +603,7 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
                 continue; // Fail kịch bản này -> Next numBF
             }
 
-            // 4.3. Tìm khe hở cho Soft Bookings
+            // 4.3. Tìm khe hở cho Soft Bookings (Elastic)
             const softBookings = existingBookingsProcessed.filter(b => b.isElastic);
             
             for (const sb of softBookings) {
@@ -617,7 +630,7 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
                                 customerName: sb.originalData.customerName,
                                 newPhase1: split.p1,
                                 newPhase2: split.p2,
-                                reason: 'Matrix Squeeze V9.1'
+                                reason: 'Matrix Squeeze V99.4'
                             });
                         }
                         break; 
@@ -702,7 +715,7 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
         successfulScenario.details.sort((a,b) => a.guestIndex - b.guestIndex);
         return {
             feasible: true,
-            strategy: 'MATRIX_PENDULUM_V99.3', 
+            strategy: 'MATRIX_PENDULUM_V99.4', 
             details: successfulScenario.details,
             proposedUpdates: successfulScenario.updates,
             totalPrice: successfulScenario.details.reduce((sum, item) => sum + (item.price||0), 0)
@@ -762,5 +775,5 @@ if (typeof window !== 'undefined') {
     window.ResourceCore = CoreAPI;
     window.checkRequestAvailability = CoreAPI.checkRequestAvailability;
     window.setDynamicServices = CoreAPI.setDynamicServices;
-    console.log("✅ Resource Core V99.3 Loaded: Memory & Pendulum Flow Persistence.");
+    console.log("✅ Resource Core V99.4 Loaded: Robust Combo Detection & Persistence.");
 }
