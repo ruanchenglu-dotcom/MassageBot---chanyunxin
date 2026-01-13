@@ -1,22 +1,29 @@
 // TYPE: app.js
-// VERSION: V99.2 (SMART SIMULATION & PENDULUM FALLBACK)
+// VERSION: V99.3 (FULL SYNC WITH PENDULUM CORE)
 // UPDATE: 2026-01-13
-// 1. [SMART SIMULATION]: If DB lacks 'flow' data, Frontend re-calculates Pendulum Strategy on the fly.
-// 2. [VISUAL FIX]: Ensures groups > 2 pax are displayed as balanced (50% BF / 50% FB) even without DB support.
+// AUTHOR: AI ASSISTANT & USER
+// DESCRIPTION: 
+// 1. Fully supports 'flow' field (BF/FB) reading from Server.
+// 2. Visualizes Phase 1/Phase 2 durations accurately based on DB data.
+// 3. Implements Pendulum Logic for Ghost Block simulation.
 
 const { useState, useEffect, useMemo, useRef } = React;
 
 // --- 1. COMPONENT IMPORTS ---
+// Đảm bảo các file view đã được load trước file này
 const CommissionView = window.CommissionView;
 const TimelineView = window.TimelineView;
 const BookingListView = window.BookingListView;
 
-// --- [V99.2] MATRIX HELPER FOR FRONTEND ---
+// --- [V99.3] MATRIX HELPER ENHANCED ---
 const MatrixHelper = {
     isOverlap: (startA, endA, startB, endB) => {
+        // Kiểm tra va chạm thời gian: (StartA < EndB) && (StartB < EndA)
         return (startA < endB) && (startB < endA);
     },
+
     // Hàm tìm slot trống thông minh (First-Fit Strategy)
+    // Cập nhật V99.3: Ưu tiên lấp đầy các khoảng trống nhỏ trước để tối ưu hóa
     findBestSlot: (type, start, end, gridState, reservedTimes, preferredIndex = null) => {
         const limit = 6;
         
@@ -24,7 +31,10 @@ const MatrixHelper = {
         if (preferredIndex) {
             const id = `${type}-${preferredIndex}`;
             let valid = true;
+            // Check Hard Reservation (Đang chạy)
             if (reservedTimes[id] && start < reservedTimes[id]) valid = false;
+            
+            // Check Ghost Blocks (Dự kiến)
             if (valid && gridState[id]) {
                 for (const slot of gridState[id]) {
                     if (MatrixHelper.isOverlap(start, end, slot.start, slot.end)) {
@@ -39,7 +49,9 @@ const MatrixHelper = {
         // Fallback: Quét tất cả các slot từ 1 đến 6
         for (let i = 1; i <= limit; i++) {
             const id = `${type}-${i}`;
+            
             // Check 1: Va chạm với đơn ĐANG CHẠY (Hard Reservation)
+            // Nếu slot này đang bận chạy khách (reservedTimes > start hiện tại) -> Bỏ qua
             if (reservedTimes[id] && start < reservedTimes[id]) continue;
             
             // Check 2: Va chạm với đơn DỰ KIẾN (Ghost Blocks / Planned)
@@ -52,16 +64,18 @@ const MatrixHelper = {
                     }
                 }
             }
+            
+            // Nếu không va chạm, đây là slot tốt nhất (First-Fit)
             if (!isClash) return id;
         }
-        return null; // Không tìm thấy slot trống
+        return null; // Không tìm thấy slot trống nào
     }
 };
 
 // --- APP COMPONENT ---
 const App = () => {
     // 1. STATE MANAGEMENT
-    const [activeTab, setActiveTab] = useState('map');
+    const [activeTab, setActiveTab] = useState('map'); // map | timeline | list | report | commission
     const [staffList, setStaffList] = useState([]);
     const [bookings, setBookings] = useState([]); 
     const [resourceState, setResourceState] = useState({}); 
@@ -77,7 +91,7 @@ const App = () => {
     const [comboStartData, setComboStartData] = useState(null);
     const [splitData, setSplitData] = useState(null);
     
-    // Manual Edit State
+    // Manual Edit State (Cây bút chì)
     const [editComboTarget, setEditComboTarget] = useState(null);
 
     // System States
@@ -86,6 +100,8 @@ const App = () => {
     const [quotaError, setQuotaError] = useState(false); 
 
     // 2. HELPER FUNCTIONS & LOGIC
+    
+    // Kiểm tra xem nhân viên có đang bận thật sự không (dựa trên Resource State)
     const isActuallyBusy = (staffId) => {
         if (!resourceState) return false;
         return Object.values(resourceState).some(r => {
@@ -103,6 +119,7 @@ const App = () => {
         });
     };
 
+    // Lấy danh sách ID nhân viên đang bận
     const busyStaffIds = useMemo(() => {
         const ids = new Set();
         Object.values(resourceState).forEach(r => {
@@ -120,16 +137,19 @@ const App = () => {
         return Array.from(ids);
     }, [resourceState]);
 
+    // Đồng bộ trạng thái Resource lên Server
     const updateResource = async (newState) => { 
         setResourceState(newState); 
         await axios.post('/api/sync-resource', newState); 
     };
     
+    // Đồng bộ trạng thái Staff (Ready/Busy/Away) lên Server
     const updateStaffStatus = async (newStatus) => { 
         setStatusData(newStatus); 
         await axios.post('/api/sync-staff-status', newStatus); 
     }
 
+    // Xác định xem resourceId này thuộc thành viên thứ mấy trong nhóm (để update đúng cột StaffIdX)
     const getGroupMemberIndex = (targetResId, targetRowId) => {
         const allSlots = [];
         for(let i=1; i<=6; i++) allSlots.push(`chair-${i}`);
@@ -140,6 +160,7 @@ const App = () => {
             return res && res.booking && String(res.booking.rowId) === String(targetRowId);
         });
         
+        // Sắp xếp theo trọng số (Ghế trước, Giường sau)
         groupSlots.sort((a, b) => window.getWeight(a) - window.getWeight(b));
         const idx = groupSlots.indexOf(targetResId);
         return idx; 
@@ -149,38 +170,49 @@ const App = () => {
         try { await axios.post(endpoint, payload); } catch(e) { console.log("Universal send check (ignore):", e); }
     };
 
-    // 3. CORE LOGIC (FETCH & RENDER)
+    // 3. CORE LOGIC (FETCH & RENDER) - TRÁI TIM CỦA HỆ THỐNG V99.3
     const fetchData = async () => {
-        if (syncLock) return;
-        if (quotaError) return; 
+        if (syncLock) return; // Đang xử lý cục bộ, tạm ngưng sync
+        if (quotaError) return; // Đang bị Google chặn, tạm ngưng
 
         try {
             const res = await axios.get('/api/info');
-            setQuotaError(false); 
+            setQuotaError(false); // Reset lỗi nếu thành công
             
             const { bookings: apiBookings, staffList: apiStaff, resourceState: serverRes, staffStatus: serverStaff } = res.data;
             
-            // [V99.2 UPGRADE]: Enhanced Data Parsing
+            // [V99.3 UPGRADE]: PARSING DỮ LIỆU THÔNG MINH
+            // Mục tiêu: Lấy được Flow (BF/FB) và Phase Durations
             const cleanBookings = (apiBookings || []).map(b => {
-                // Tự động detect flow nếu API chưa trả về, dựa trên ghi chú
-                // Cải thiện Regex để bắt chính xác hơn (ví dụ K1:BF)
+                // 1. Tự động detect flow từ API hoặc từ Ghi chú
                 let detectedFlow = b.flow || null;
-                const note = b.ghiChu || "";
+                const note = (b.ghiChu || b.note || "").toString().toUpperCase();
+                
+                // Regex tìm kiếm từ khóa mạnh mẽ hơn
                 if (!detectedFlow && note) {
-                    if (note.includes('先做身體') || note.includes('BF') || note.includes('Body First')) detectedFlow = 'BF';
+                    if (note.includes('先做身體') || note.includes('BF') || note.includes('BODY FIRST') || note.includes('先身')) {
+                        detectedFlow = 'BF';
+                    } else if (note.includes('先做腳') || note.includes('FB') || note.includes('FOOT FIRST')) {
+                        detectedFlow = 'FB';
+                    }
                 }
+
+                // 2. Parse Phase Duration (nếu đã lưu manual)
+                const p1 = b.phase1_duration ? parseInt(b.phase1_duration) : null;
+                const p2 = b.phase2_duration ? parseInt(b.phase2_duration) : null;
 
                 return { 
                     ...b, 
                     duration: window.getSafeDuration(b.serviceName, b.duration),
                     pax: parseInt(b.pax, 10) || 1,
                     rowId: String(b.rowId),
-                    phase1_duration: b.phase1_duration ? parseInt(b.phase1_duration) : null,
-                    phase2_duration: b.phase2_duration ? parseInt(b.phase2_duration) : null,
-                    flow: detectedFlow // Nếu vẫn null thì sẽ xử lý ở bước Matrix Simulation
+                    phase1_duration: p1,
+                    phase2_duration: p2,
+                    flow: detectedFlow // Trường quan trọng cho V99.3
                 };
             });
 
+            // Lọc các booking liên quan đến ngày hiện tại
             const safeBookingsArray = Array.isArray(cleanBookings) ? cleanBookings : [];
             const relevantBookings = safeBookingsArray.filter(b => 
                 window.isWithinOperationalDay(b.startTimeString.split(' ')[0], b.startTimeString.split(' ')[1], viewDate) && 
@@ -188,6 +220,7 @@ const App = () => {
                 !b.status.includes('Cancelled')
             );
             
+            // Cập nhật State Bookings (Merge với local để tránh giật lag status)
             if (!syncLock) {
                 setBookings(prev => {
                     const combinedMap = new Map();
@@ -197,6 +230,7 @@ const App = () => {
                         if (combinedMap.has(rid)) {
                             const serverBooking = combinedMap.get(rid);
                             const mergedBooking = { ...serverBooking };
+                            // Giữ lại trạng thái hoàn thành cục bộ nếu server chưa kịp cập nhật
                             for(let i=1; i<=6; i++) {
                                 const key = `Status${i}`;
                                 const localVal = localBooking[key];
@@ -221,8 +255,8 @@ const App = () => {
             
             let tempState = {}; 
             const activePaxCounts = {}; 
-            const activeEndTimes = {}; // Tracks HARD end times
-            const timelineGrid = {}; // Tracks ALL blocks
+            const activeEndTimes = {}; // Dùng để chặn slot (Hard Block)
+            const timelineGrid = {};   // Dùng để vẽ timeline (All Blocks)
 
             const addToGrid = (resId, start, end, booking, meta) => {
                 if (!timelineGrid[resId]) timelineGrid[resId] = [];
@@ -230,7 +264,7 @@ const App = () => {
             };
 
             // =================================================================
-            // MATRIX LAYER 1 & 2: RUNNING & PREDICTION (Giữ nguyên)
+            // MATRIX LAYER 1: RUNNING STATE (Trạng thái thực tế đang chạy)
             // =================================================================
             Object.keys(currentRes).forEach(key => {
                 if(currentRes[key].isRunning) {
@@ -244,19 +278,25 @@ const App = () => {
                     let durationUsed = currentRes[key].booking.duration;
                     let isPhase1 = false;
 
+                    // Logic tính thời gian thực tế dựa trên Phase
                     if (currentRes[key].comboMeta) {
                         const seq = currentRes[key].comboMeta.sequence || 'FB';
                         const isMax = currentRes[key].isMaxMode;
                         const customPhase1 = currentRes[key].booking.phase1_duration;
                         const split = window.getComboSplit(durationUsed, isMax, seq, customPhase1);
                         
+                        // Xác định xem đây là Phase 1 hay Phase 2
+                        // FB: Chair = P1, Bed = P2
+                        // BF: Bed = P1, Chair = P2
                         isPhase1 = (seq === 'FB' && key.includes('chair')) || (seq === 'BF' && key.includes('bed'));
+                        
                         if (isPhase1) durationUsed = split.phase1 + (currentRes[key].comboMeta.flex || 0);
                         else durationUsed = split.phase2; 
                     }
 
                     const endMins = startMins + durationUsed;
-                    activeEndTimes[key] = endMins; 
+                    activeEndTimes[key] = endMins; // Đánh dấu slot này bận đến giờ này
+                    
                     addToGrid(key, startMins, endMins, currentRes[key].booking, {
                         isCombo: !!currentRes[key].comboMeta,
                         phase: isPhase1 ? 1 : 2,
@@ -266,26 +306,33 @@ const App = () => {
                 }
             });
 
-            // Ghost Blocks Prediction
+            // =================================================================
+            // MATRIX LAYER 2: GHOST BLOCKS (Dự đoán Phase 2 của đơn đang chạy)
+            // =================================================================
             Object.keys(tempState).forEach(key => {
                 const item = tempState[key];
                 if (item.comboMeta) {
                     const seq = item.comboMeta.sequence || 'FB';
                     const isChair = key.includes('chair');
+                    
+                    // Logic xác định Phase 1
                     const isPhase1 = (seq === 'FB' && isChair) || (seq === 'BF' && !isChair);
                     
                     if (isPhase1) {
                         const finishTimeMins = activeEndTimes[key]; 
-                        const p2Start = finishTimeMins + 5;
+                        const p2Start = finishTimeMins + 5; // Buffer 5 phút
                         const customPhase1 = item.booking.phase1_duration;
                         const split = window.getComboSplit(item.booking.duration, item.isMaxMode, seq, customPhase1);
                         const p2End = p2Start + split.phase2;
                         
                         let finalTargetId = item.comboMeta.targetId;
                         const targetType = key.includes('chair') ? 'bed' : 'chair';
+                        
+                        // Nếu chưa có target hoặc target bị chiếm, tìm slot mới
                         if (!finalTargetId || (activeEndTimes[finalTargetId] && p2Start < activeEndTimes[finalTargetId])) {
                              finalTargetId = MatrixHelper.findBestSlot(targetType, p2Start, p2End, timelineGrid, activeEndTimes);
                         }
+                        
                         if (finalTargetId) {
                             addToGrid(finalTargetId, p2Start, p2End, item.booking, { 
                                 isCombo: true, phase: 2, sequence: seq, originId: key, isPrediction: true 
@@ -296,12 +343,14 @@ const App = () => {
             });
 
             // =================================================================
-            // MATRIX LAYER 3: SMART SIMULATION (PENDULUM FALLBACK)
+            // MATRIX LAYER 3: SMART SIMULATION (PENDULUM V99.3)
+            // Xử lý hiển thị các đơn "Chưa chạy" (Màu xám)
             // =================================================================
             const pendingBookings = relevantBookings.filter(b => 
                 !b.status.includes('完成') && !b.status.includes('✅') && !b.status.includes('Done')
             );
             
+            // Gom nhóm Booking
             const groupedPending = {};
             pendingBookings.forEach(b => {
                 if(!groupedPending[b.rowId]) groupedPending[b.rowId] = [];
@@ -318,15 +367,16 @@ const App = () => {
                 else group.forEach(b => listSingles.push(b));
             });
             
+            // Sort theo thời gian để xếp lần lượt
             const sortFn = (a,b) => window.normalizeToTimelineMins(a.startTimeString.split(' ')[1]) - window.normalizeToTimelineMins(b.startTimeString.split(' ')[1]);
             listSingles.sort(sortFn);
             listCombosGroups.sort((a,b) => sortFn(a[0], b[0]));
 
-            // --- ALLOCATE SINGLES ---
+            // --- ALLOCATE SINGLES (Đơn lẻ) ---
             listSingles.forEach(b => {
                 const originalStart = window.normalizeToTimelineMins(b.startTimeString.split(' ')[1]);
                 const type = b.type === 'CHAIR' ? 'chair' : 'bed';
-                let searchOffsets = [0]; for(let i=1; i<=120; i++) searchOffsets.push(i);
+                let searchOffsets = [0]; for(let i=1; i<=120; i++) searchOffsets.push(i); // Tìm trong vòng 2 tiếng
                 
                 for(let delay of searchOffsets) {
                     let tryStart = originalStart + delay;
@@ -339,17 +389,16 @@ const App = () => {
                 }
             });
 
-            // --- ALLOCATE COMBOS (V99.2 SMART PENDULUM) ---
+            // --- ALLOCATE COMBOS (V99.3 PENDULUM LOGIC) ---
             listCombosGroups.forEach(group => {
                 const b = group[0]; 
                 const originalStart = window.normalizeToTimelineMins(b.startTimeString.split(' ')[1]);
                 
-                // [V99.2 LOGIC] Tự động tính số lượng Body First (numBF)
-                // Nếu DB có lưu flow thì dùng flow. Nếu không, dùng thuật toán chia đôi (Pendulum Center)
+                // [LOGIC V99.3]: Xác định số lượng BF dựa trên dữ liệu thật hoặc Pendulum
                 const groupSize = group.length;
                 let numBF = 0;
                 
-                // Kiểm tra xem dữ liệu có flow không
+                // 1. Kiểm tra xem dữ liệu có flow không
                 const hasSavedFlow = group.some(g => g.flow !== null);
                 
                 if (!hasSavedFlow && groupSize > 2) {
@@ -358,11 +407,11 @@ const App = () => {
                 }
 
                 group.forEach((bookingItem, idx) => {
-                    let preferredSeq = bookingItem.flow;
+                    let preferredSeq = bookingItem.flow; // Ưu tiên flow đã lưu (BF/FB)
                     
-                    // Nếu không có flow lưu sẵn, tự động gán theo chỉ số index
+                    // Nếu không có flow lưu sẵn, tự động gán theo chỉ số index (Pendulum Fallback)
                     if (!preferredSeq) {
-                        // Những người đầu tiên (0, 1, 2...) làm BF
+                        // Những người đầu tiên (0, 1, 2...) làm BF để cân bằng tải
                         if (idx < numBF) preferredSeq = 'BF';
                         else preferredSeq = 'FB';
                     }
@@ -371,21 +420,27 @@ const App = () => {
                     
                     for(let delay of searchOffsets) {
                         let tryStart = originalStart + delay;
+                        // Quan trọng: Lấy customPhase1 từ dữ liệu booking
                         const customPhase1 = bookingItem.phase1_duration;
 
                         const trySequence = (seq) => {
+                            // Gọi hàm getComboSplit với tham số sequence và customPhase1
                             const split = window.getComboSplit(bookingItem.duration, true, seq, customPhase1);
+                            
                             const p1End = tryStart + split.phase1;
-                            const p2Start = p1End + 5;
+                            const p2Start = p1End + 5; // Transition Buffer
                             const p2End = p2Start + split.phase2;
                             
+                            // Xác định loại tài nguyên cho từng Phase
                             const type1 = seq === 'FB' ? 'chair' : 'bed';
                             const type2 = seq === 'FB' ? 'bed' : 'chair';
                             
+                            // Tìm slot trống cho cả 2 Phase
                             const s1 = MatrixHelper.findBestSlot(type1, tryStart, p1End, timelineGrid, activeEndTimes);
                             const s2 = MatrixHelper.findBestSlot(type2, p2Start, p2End, timelineGrid, activeEndTimes);
                             
                             if (s1 && s2) {
+                                // Nếu tìm thấy, ghi vào Grid
                                 addToGrid(s1, tryStart, p1End, bookingItem, { isCombo: true, phase: 1, sequence: seq, targetId: s2, isPending: true });
                                 addToGrid(s2, p2Start, p2End, bookingItem, { isCombo: true, phase: 2, sequence: seq, isPending: true });
                                 return true;
@@ -394,7 +449,7 @@ const App = () => {
                         };
 
                         if (trySequence(preferredSeq)) {
-                            break;
+                            break; // Đã xếp xong khách này, chuyển sang khách tiếp theo
                         }
                     }
                 });
@@ -402,15 +457,19 @@ const App = () => {
 
             setTimelineData(timelineGrid);
 
-            // --- PREVIEW RESOURCE CARD LOGIC (Same as before) ---
+            // --- PREVIEW RESOURCE CARD LOGIC ---
+            // Tạo trạng thái ảo cho Resource Card dựa trên kết quả tính toán Grid
             const allSlots = [];
             for(let i=1; i<=6; i++) allSlots.push(`chair-${i}`);
             for(let i=1; i<=6; i++) allSlots.push(`bed-${i}`);
 
             allSlots.forEach(resId => {
-                if (tempState[resId]) return; 
+                if (tempState[resId]) return; // Nếu đã có đơn chạy thật thì không ghi đè
+                
                 const slots = timelineGrid[resId] || [];
+                // Tìm slot đang diễn ra tại thời điểm hiện tại (nowMins)
                 const currentSlot = slots.find(s => (nowMins >= s.start && nowMins < s.end));
+                
                 if (currentSlot) {
                     const nameLabel = currentSlot.booking.pax > 1 ? `${currentSlot.booking.customerName} (Grp)` : currentSlot.booking.customerName;
                     tempState[resId] = { 
@@ -421,6 +480,7 @@ const App = () => {
                         isMaxMode: true 
                     };
                 } else {
+                    // Tìm slot sắp diễn ra (trong vòng 30p tới)
                     const upcomingSlot = slots.find(s => s.start > nowMins && s.start - nowMins <= 30);
                     if (upcomingSlot) {
                          tempState[resId] = {
@@ -447,19 +507,23 @@ const App = () => {
 
     useEffect(() => { 
         fetchData(); 
-        const t = setInterval(fetchData, 2000); 
+        const t = setInterval(fetchData, 2000); // Polling mỗi 2s
         return () => clearInterval(t); 
     }, [viewDate, syncLock, quotaError]); 
 
-    // 4. ACTION HANDLERS (Giữ nguyên không đổi)
+    // 4. ACTION HANDLERS (LOGIC XỬ LÝ SỰ KIỆN)
+    
+    // Xử lý tách đơn (Thêm nhân viên thứ 2, 3...)
     const handleSplitConfirm = async (staffId2) => {
         if (!splitData) return;
         const { resourceId } = splitData;
         const current = resourceState[resourceId];
         if (!current) return;
         setSyncLock(true); setTimeout(() => setSyncLock(false), 5000);
+        
         const newStatusData = { ...statusData, [staffId2]: { ...statusData[staffId2], status: 'BUSY' } };
         updateStaffStatus(newStatusData);
+        
         const grpIdx = getGroupMemberIndex(resourceId, current.booking.rowId);
         let primaryKey = "服務師傅1"; let targetProp = "serviceStaff"; 
         if (grpIdx === 1) { primaryKey = "服務師傅2"; targetProp = "staffId2"; }
@@ -467,10 +531,12 @@ const App = () => {
         else if (grpIdx === 3) { primaryKey = "服務師傅4"; targetProp = "staffId4"; }
         else if (grpIdx === 4) { primaryKey = "服務師傅5"; targetProp = "staffId5"; }
         else if (grpIdx === 5) { primaryKey = "服務師傅6"; targetProp = "staffId6"; }
+        
         const currentName = current.booking[targetProp] || "";
         const newNameCombined = currentName ? `${currentName}, ${staffId2}` : staffId2;
         const newBooking = { ...current.booking, [targetProp]: newNameCombined };
         const newState = { ...resourceState, [resourceId]: { ...current, booking: newBooking } };
+        
         setResourceState(newState);
         const payload = { rowId: current.booking.rowId, [primaryKey]: newNameCombined, forceSync: true };
         await universalSend('/api/update-booking-details', payload);
@@ -478,34 +544,42 @@ const App = () => {
         setSplitData(null);
     };
 
+    // Xử lý thay đổi nhân viên
     const handleStaffChange = async (resId, newStaffId) => {
         const current = resourceState[resId]; if (!current) return;
         setSyncLock(true); setTimeout(() => setSyncLock(false), 5000);
+        
         const oldServiceStaff = current.booking.serviceStaff || current.booking.staffId; 
         const grpIdx = getGroupMemberIndex(resId, current.booking.rowId);
         const newBooking = { ...current.booking };
+        
         if (grpIdx === 0) newBooking.serviceStaff = newStaffId;
         else if (grpIdx === 1) newBooking.staffId2 = newStaffId;
         else if (grpIdx === 2) newBooking.staffId3 = newStaffId;
         else if (grpIdx === 3) newBooking.staffId4 = newStaffId;
         else if (grpIdx === 4) newBooking.staffId5 = newStaffId;
         else if (grpIdx === 5) newBooking.staffId6 = newStaffId;
+        
         const newState = { ...resourceState, [resId]: { ...current, booking: newBooking } };
         setResourceState(newState);
+        
         const newStatusData = { ...statusData };
         if (oldServiceStaff !== '隨機' && oldServiceStaff !== newStaffId) { newStatusData[oldServiceStaff] = { status: 'READY', checkInTime: Date.now() }; }
         if (newStaffId !== '隨機') { newStatusData[newStaffId] = { status: 'BUSY' }; }
         updateStaffStatus(newStatusData);
+        
         let primaryKey = "服務師傅1"; let fallbackKey = "ServiceStaff1";
         if (grpIdx === 1) { primaryKey = "服務師傅2"; fallbackKey = "ServiceStaff2"; }
         if (grpIdx === 2) { primaryKey = "服務師傅3"; fallbackKey = "ServiceStaff3"; }
         if (grpIdx === 3) { primaryKey = "服務師傅4"; fallbackKey = "ServiceStaff4"; }
         if (grpIdx === 4) { primaryKey = "服務師傅5"; fallbackKey = "ServiceStaff5"; }
         if (grpIdx === 5) { primaryKey = "服務師傅6"; fallbackKey = "ServiceStaff6"; }
+        
         const payload = { rowId: current.booking.rowId, [primaryKey]: newStaffId, [fallbackKey]: newStaffId, [`staff${grpIdx + 1}`]: newStaffId, technician: newStaffId, forceSync: true };
         try { await universalSend('/api/update-booking-details', payload); await updateResource(newState); } catch(e) { console.error("Sync Failed", e); alert("⚠️ Staff Sync Failed! Please check internet."); }
     };
 
+    // Xử lý thay đổi dịch vụ
     const handleServiceChange = async (resId, newServiceName) => {
         const current = resourceState[resId]; if (!current) return;
         const newDef = window.SERVICES_DATA[newServiceName]; if (!newDef) return;
@@ -516,9 +590,11 @@ const App = () => {
         await updateResource(newState);
     };
 
+    // Mở modal chỉnh sửa thời gian (Cây bút chì)
     const handleOpenEdit = (resId) => {
         const current = resourceState[resId];
         if (!current || !current.booking) return;
+        // Chỉ cho phép chỉnh sửa Combo
         if (current.booking.category !== 'COMBO' && !current.booking.serviceName.includes('套餐')) {
             alert('⚠️ 僅支援調整套餐時間 (Combo Only)');
             return;
@@ -526,6 +602,7 @@ const App = () => {
         setEditComboTarget({ id: resId, booking: current.booking });
     };
 
+    // Lưu thời gian Combo sau khi chỉnh sửa
     const handleSaveComboTime = async (newPhase1) => {
         if (!editComboTarget) return;
         const { booking } = editComboTarget;
@@ -535,6 +612,7 @@ const App = () => {
 
         setSyncLock(true); setTimeout(() => setSyncLock(false), 5000);
 
+        // Cập nhật Optimistic UI
         const newState = { ...resourceState };
         Object.keys(newState).forEach(key => {
             const res = newState[key];
@@ -551,6 +629,7 @@ const App = () => {
         });
         setResourceState(newState);
 
+        // Gửi API cập nhật Phase & Khóa Manual
         try {
             await axios.post('/api/update-booking-details', {
                 rowId: rowId,
@@ -563,6 +642,7 @@ const App = () => {
         setEditComboTarget(null);
     };
 
+    // Thực thi bắt đầu dịch vụ (Start)
     const executeStart = (id, comboSequence) => {
         const current = resourceState[id];
         let designatedStaff = current.booking.serviceStaff || current.booking.staffId || current.booking.ServiceStaff || current.booking.technician; 
@@ -572,14 +652,18 @@ const App = () => {
         let currentId = id; let shouldMove = false; let targetMoveId = null;
         setSyncLock(true); setTimeout(() => setSyncLock(false), 5000);
         
+        // Tự động chuyển vùng nếu chọn Sequence ngược với vị trí hiện tại
         if (comboSequence) {
             const currentType = id.split('-')[0];
+            // Nếu chọn BF (Body First) mà đang ở Chair -> Chuyển sang Bed
             if (comboSequence === 'BF' && currentType === 'chair') { shouldMove = true; for(let i=1; i<=6; i++) { if(!resourceState[`bed-${i}`]) { targetMoveId = `bed-${i}`; break; } } } 
+            // Nếu chọn FB (Foot First) mà đang ở Bed -> Chuyển sang Chair
             else if (comboSequence === 'FB' && currentType === 'bed') { shouldMove = true; for(let i=1; i<=6; i++) { if(!resourceState[`chair-${i}`]) { targetMoveId = `chair-${i}`; break; } } }
         }
         
         if (shouldMove) { if (!targetMoveId) { alert("⚠️ 無法切換區域: 目標區域已滿!"); return; } currentId = targetMoveId; }
         
+        // Tìm nhân viên nếu là ngẫu nhiên
         if (['隨機', '男', '女', 'Oil'].some(k => designatedStaff.includes(k))) {
             const liveBusyStaffIds = Object.values(resourceState).filter(r => r.isRunning && !r.isPaused && r.isPreview !== true).map(r => r.booking.serviceStaff || r.booking.staffId || r.booking.ServiceStaff);
             const readyStaff = (staffList||[]).filter(s => { 
@@ -644,10 +728,13 @@ const App = () => {
         universalSend('/api/update-booking-details', payload);
     };
 
+    // Xử lý các nút bấm trên Resource Card
     const handleResourceAction = async (id, action) => {
         const current = resourceState[id]; if (!current) return;
         if (action === 'start') {
             const isCombo = current.booking.category === 'COMBO' || (current.booking.serviceName && current.booking.serviceName.includes('套餐'));
+            // Nếu là Combo mà chưa chạy, hỏi Sequence trước
+            // [V99.3]: Nếu đã có flow lưu sẵn thì có thể bỏ qua bước hỏi (tùy chỉnh), nhưng hiện tại giữ lại để xác nhận
             if (isCombo && !current.isRunning) { setComboStartData({ id, booking: current.booking }); return; }
             executeStart(id, null); 
         }
@@ -680,7 +767,7 @@ const App = () => {
     const handleToggleMax = async (resId) => { const res = resourceState[resId]; if (!res) return; updateResource({ ...resourceState, [resId]: { ...res, isMaxMode: !res.isMaxMode } }); };
     const handleToggleSequence = async (resId) => { const res = resourceState[resId]; if (!res || !res.comboMeta) return; const newSeq = res.comboMeta.sequence === 'FB' ? 'BF' : 'FB'; updateResource({ ...resourceState, [resId]: { ...res, comboMeta: { ...res.comboMeta, sequence: newSeq } } }); }
     
-    // --- PAYMENT HANDLER (Giữ nguyên) ---
+    // --- PAYMENT HANDLER ---
     const handleConfirmPayment = async (itemsToPay, totalAmount) => {
         try {
             setSyncLock(true); setTimeout(() => setSyncLock(false), 5000); 
@@ -747,6 +834,7 @@ const App = () => {
 
     const getStatus = (id) => statusData[id] ? statusData[id].status : 'AWAY';
     
+    // Filter Helpers
     const safeStaffList = staffList || [];
     const awayStaff = safeStaffList.filter(s => { const st = getStatus(s.id); return st === 'AWAY' || st === 'OFF'; }).sort(window.sortIdAsc);
     
@@ -777,7 +865,7 @@ const App = () => {
             <header className={`text-white p-3 shadow-md flex justify-between items-center sticky top-0 z-50 transition-colors ${quotaError ? 'bg-red-800' : 'bg-[#1e1b4b]'}`}>
                 {/* Header Content */}
                 <div className="flex items-center gap-3">
-                    <span className="bg-amber-500 text-black px-2 py-1 rounded font-black text-sm">V99.2</span>
+                    <span className="bg-amber-500 text-black px-2 py-1 rounded font-black text-sm">V99.3</span>
                     <span className="font-bold hidden md:inline">XinWuChan</span>
                     <div className="flex items-center gap-2 bg-white/10 rounded px-2 py-1 border border-white/20">
                         <button onClick={()=>{const d=new Date(viewDate); d.setDate(d.getDate()-1); setViewDate(d.toISOString().split('T')[0])}} className="text-white hover:text-amber-400 font-bold px-2">❮</button>
@@ -836,7 +924,7 @@ const App = () => {
             {showWalkIn && <window.WalkInModal onClose={()=>setShowWalkIn(false)} onSave={handleWalkInSave} staffList={staffList} initialDate={viewDate} />}
             {showCheckIn && <window.CheckInBoard staffList={staffList} statusData={statusData} onUpdateStatus={updateStaffStatus} onClose={()=>setShowCheckIn(false)} bookings={todaysBookings} />}
             {showAvailability && <window.AvailabilityCheckModal onClose={()=>setShowAvailability(false)} onSave={handleWalkInSave} staffList={staffList} bookings={bookings} initialDate={viewDate} />}
-            {comboStartData && <window.ComboStartModal onConfirm={confirmComboStart} onCancel={()=>setComboStartData(null)} bookingName={comboStartData.booking.serviceName} />}\
+            {comboStartData && <window.ComboStartModal onConfirm={confirmComboStart} onCancel={()=>setComboStartData(null)} bookingName={comboStartData.booking.serviceName} />}
             {selectedSlot && waitingList.length === 0 && <div className="fixed inset-0 bg-black/30 z-50 flex items-center justify-center text-white font-bold" onClick={()=>setSelectedSlot(null)}>目前無候位! (No Waiting)</div>}
             {billingData && <window.BillingModal activeItem={billingData.activeItem} relatedItems={billingData.relatedItems} onConfirm={handleConfirmPayment} onCancel={() => setBillingData(null)} />}
             {splitData && <window.SplitStaffModal staffList={staffList} statusData={statusData} onCancel={()=>setSplitData(null)} onConfirm={handleSplitConfirm} />}
