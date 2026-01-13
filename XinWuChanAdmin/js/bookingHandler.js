@@ -1,66 +1,72 @@
 /**
  * =================================================================================================
- * PROJECT: XINWUCHAN MASSAGE BOT - FRONTEND CONTROLLER
+ * PROJECT: XINWUCHAN MASSAGE BOT - FRONTEND CONTROLLER & LOGIC BRIDGE
  * FILE: js/bookingHandler.js
- * PHIÊN BẢN: V100.0 (SYNCED WITH CORE: MODULO INTERLEAVING & TARGETED ALLOCATION)
+ * PHIÊN BẢN: V101.0 (SYNCED WITH CORE: INHERITANCE & MODULO SYNC)
  * NGÀY CẬP NHẬT: 2026/01/13
  * TÁC GIẢ: AI ASSISTANT & USER
  *
- * * * * * CHANGE LOG V100.0 (MAJOR KERNEL UPGRADE):
- * 1. [NEW] CORE SYNC: Tích hợp hoàn toàn thuật toán V100.0 từ resource_core.js.
- * - Áp dụng chiến thuật "Modulo Allocation": PreferredSlot = (Index % HalfSize) + 1.
- * - Giúp xếp khách Combo so le (Interleaving) tự động, tiết kiệm 50% tài nguyên ghế/giường.
- * * 2. [UPGRADE] VIRTUAL MATRIX V2:
- * - Hỗ trợ tham số `preferredIndex` để ưu tiên lấp đầy các khoảng trống (Gaps) cụ thể trước khi tìm random.
+ * * * * * CHANGE LOG V101.0 (THE "TETRIS" UPDATE):
+ * 1. [CRITICAL] CORE KERNEL REPLACEMENT:
+ * - Đã thay thế hoàn toàn bộ não cũ bằng Core V101.0.
+ * - Tích hợp cơ chế "Strict Inheritance" (Thừa kế vị trí): Khách cũ đang ở slot nào (VD: BED-1) 
+ * sẽ được ưu tiên giữ nguyên slot đó khi tính toán lại, ngăn chặn việc đảo lộn lịch (Drifting).
+ * - Tích hợp cơ chế "Modulo Allocation": Phân phối khách mới đều vào các slot còn trống thay vì dồn cục.
  *
- * 3. [PRESERVED] INTELLIGENT ROW DETECTION (Từ V99.9):
- * - Vẫn giữ logic kiểm tra `rowId` (BED/BODY) để đoán Flow khách cũ chính xác, tránh xung đột với logic mới.
+ * 2. [LOGIC] MATRIX ENGINE UPGRADE:
+ * - VirtualMatrix giờ đây hỗ trợ tham số `forcedIndex` để ép buộc gán vào slot cụ thể.
+ * - Hàm `isBlockSetAllocatable` được nâng cấp để kiểm tra va chạm thông minh hơn.
  *
- * 4. [UI] UPDATE:
- * - Cập nhật hiển thị phiên bản trên Modal.
- * - Hiển thị chi tiết slot được cấp phát (Allocated Slots) rõ ràng hơn trong Debug Mode.
+ * 3. [UI/UX] PRESERVED & ENHANCED:
+ * - Giữ nguyên toàn bộ giao diện Modal Đặt lịch và Walk-in.
+ * - Hiển thị chi tiết Slot được cấp phát (Allocated Slots) chính xác hơn nhờ thuật toán mới.
+ * - Code được viết lại chi tiết, tường minh hơn để dễ bảo trì (Long-form coding).
  * =================================================================================================
  */
 
 (function() {
-    console.log("🚀 BookingHandler V100.0: Modulo Interleaving & Targeted Allocation Loaded.");
+    console.log("🚀 BookingHandler V101.0: Tetris Logic & Strict Inheritance Loaded.");
 
+    // Kiểm tra môi trường React
     if (typeof React === 'undefined') {
-        console.error("❌ CRITICAL ERROR: React not found. Cannot start BookingHandler.");
+        console.error("❌ CRITICAL ERROR: React not found. Cannot start BookingHandler V101.0.");
         return;
     }
 
     // ========================================================================
-    // PHẦN 1: CORE KERNEL V100.0 (CLIENT-SIDE BRAIN - FULLY SYNCED)
-    // Mô tả: Bộ não tính toán, đồng bộ 100% với Server Core V100.0
+    // PHẦN 1: CORE KERNEL V101.0 (CLIENT-SIDE BRAIN - FULLY SYNCED)
+    // Mô tả: Bộ não tính toán trung tâm, đồng bộ 100% với file resource_core.js
     // ========================================================================
     const CoreKernel = (function() {
         
         // --- 1. CẤU HÌNH HỆ THỐNG (SYSTEM CONFIGURATION) ---
+        // Các tham số này quyết định giới hạn vật lý và thời gian của tiệm
         const CONFIG = {
             // Tài nguyên phần cứng
             MAX_CHAIRS: 6,        
             MAX_BEDS: 6,          
             MAX_TOTAL_GUESTS: 12, 
             
-            // Cấu hình thời gian
+            // Cấu hình thời gian hoạt động
             OPEN_HOUR: 8,         // 08:00 Sáng mở cửa
             
-            // Bộ đệm thời gian (Đơn vị: Phút)
-            CLEANUP_BUFFER: 5,    // Thời gian dọn dẹp
-            TRANSITION_BUFFER: 5, // Thời gian di chuyển
+            // Bộ đệm thời gian (Time Buffers - Đơn vị: Phút)
+            CLEANUP_BUFFER: 5,    // Thời gian dọn dẹp sau mỗi ca
+            TRANSITION_BUFFER: 5, // Thời gian khách di chuyển hoặc thay đồ
             
-            // Dung sai và giới hạn
-            TOLERANCE: 1,         
-            MAX_TIMELINE_MINS: 1440 
+            // Dung sai và giới hạn tính toán
+            TOLERANCE: 1,         // Sai số cho phép (phút) khi so sánh trùng lặp
+            MAX_TIMELINE_MINS: 1440 // Tổng số phút trong 24h
         };
 
-        // Cơ sở dữ liệu dịch vụ (Dynamic)
+        // Cơ sở dữ liệu dịch vụ (Dynamic Services Database)
+        // Sẽ được cập nhật từ Google Sheets thông qua hàm setDynamicServices
         let SERVICES = {}; 
 
         // --- 2. QUẢN LÝ DỊCH VỤ (SERVICE MANAGEMENT) ---
         /**
-         * Cập nhật danh sách dịch vụ và thêm các dịch vụ hệ thống mặc định
+         * Cập nhật danh sách dịch vụ từ nguồn bên ngoài và merge với dịch vụ hệ thống.
+         * @param {Object} newServicesObj - Danh sách dịch vụ mới
          */
         function setDynamicServices(newServicesObj) {
             const systemServices = {
@@ -69,11 +75,17 @@
                 'SHOP_CLOSE': { name: '⛔ 店休 (Close)', duration: 1440, type: 'NONE', price: 0, category: 'SYSTEM' },
                 'LATE': { name: '⚠️ 延遲 (Late)', duration: 0, type: 'NONE', price: 0, category: 'SYSTEM' }
             };
+            // Merge dịch vụ mới vào, ưu tiên dịch vụ hệ thống nếu trùng key (nhưng thực tế key system là unique)
             SERVICES = { ...newServicesObj, ...systemServices };
-            // console.log(`[CoreKernel] Services synced. Total: ${Object.keys(SERVICES).length}`);
+            // console.log(`[CoreKernel V101] Services synced. Total: ${Object.keys(SERVICES).length}`);
         }
 
         // --- 3. TIỆN ÍCH THỜI GIAN (TIME UTILITIES) ---
+        
+        /**
+         * Chuyển đổi chuỗi giờ (HH:mm) thành số phút tính từ 00:00.
+         * Hỗ trợ xử lý qua đêm (VD: 01:00 sáng -> 25:00 -> 1500 phút).
+         */
         function getMinsFromTimeStr(timeStr) {
             if (!timeStr) return -1; 
             try {
@@ -83,6 +95,7 @@
                     const timeMatch = str.match(/(\d{1,2}):(\d{2})/);
                     if (timeMatch) str = timeMatch[0];
                 }
+                // Chuẩn hóa dấu hai chấm
                 let cleanStr = str.trim().replace(/：/g, ':');
                 const parts = cleanStr.split(':');
                 if (parts.length < 2) return -1;
@@ -92,7 +105,7 @@
                 
                 if (isNaN(h) || isNaN(m)) return -1;
                 
-                // Logic giờ qua đêm: Nếu giờ nhỏ hơn giờ mở cửa (8h), cộng thêm 24h
+                // Logic giờ qua đêm: Nếu giờ nhỏ hơn giờ mở cửa (8h), coi như thuộc ngày hôm sau (cộng thêm 24h)
                 if (h < CONFIG.OPEN_HOUR) h += 24; 
                 
                 return (h * 60) + m;
@@ -101,6 +114,9 @@
             }
         }
 
+        /**
+         * Chuyển đổi số phút thành chuỗi giờ (HH:mm).
+         */
         function getTimeStrFromMins(mins) {
             let h = Math.floor(mins / 60);
             let m = mins % 60;
@@ -108,13 +124,22 @@
             return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
         }
 
+        /**
+         * Kiểm tra sự trùng lặp giữa 2 khoảng thời gian [StartA, EndA] và [StartB, EndB].
+         * Có sử dụng TOLERANCE để tránh các trường hợp tiếp xúc quá sát gây lỗi làm tròn.
+         */
         function isOverlap(startA, endA, startB, endB) {
             const safeEndA = endA - CONFIG.TOLERANCE; 
             const safeEndB = endB - CONFIG.TOLERANCE;
+            // Hai khoảng trùng nhau khi Start này nhỏ hơn End kia và ngược lại
             return (startA < safeEndB) && (startB < safeEndA);
         }
 
         // --- 4. BỘ NHẬN DIỆN THÔNG MINH (SMART CLASSIFIER) ---
+        
+        /**
+         * Xác định xem một dịch vụ có phải là Combo (kết hợp nhiều công đoạn) hay không.
+         */
         function isComboService(serviceObj, serviceNameRaw = '') {
             // Trường hợp tệ nhất: Không có dữ liệu gì
             if (!serviceObj && !serviceNameRaw) return false;
@@ -142,23 +167,27 @@
             return false;
         }
 
+        /**
+         * Xác định loại tài nguyên (CHAIR hoặc BED) dựa trên thông tin dịch vụ.
+         */
         function detectResourceType(serviceObj) {
             if (!serviceObj) return 'CHAIR';
             
             // Ưu tiên config cứng
             if (serviceObj.type === 'BED' || serviceObj.type === 'CHAIR') return serviceObj.type;
 
-            // Phân tích tên
+            // Phân tích tên nếu config không rõ ràng
             const name = (serviceObj.name || '').toUpperCase();
             if (name.match(/BODY|指壓|油|BED|TOAN THAN|全身|油壓|SPA|BACK/)) return 'BED';
             
             return 'CHAIR'; // Mặc định an toàn
         }
 
-        // --- 5. MATRIX ENGINE V100.0 (TARGETED ALLOCATION SUPPORT) ---
+        // --- 5. MATRIX ENGINE V101.0 (INHERITANCE & MODULO READY) ---
+        
         class VirtualMatrix {
             constructor() {
-                // Khởi tạo các làn chứa (Lanes)
+                // Khởi tạo các làn chứa (Lanes) cho từng loại tài nguyên
                 this.lanes = {
                     'CHAIR': Array.from({ length: CONFIG.MAX_CHAIRS }, (_, i) => ({ id: `CHAIR-${i+1}`, occupied: [] })),
                     'BED': Array.from({ length: CONFIG.MAX_BEDS }, (_, i) => ({ id: `BED-${i+1}`, occupied: [] }))
@@ -166,7 +195,7 @@
             }
 
             /**
-             * Helper: Kiểm tra xem một làn cụ thể có trống không
+             * Helper: Kiểm tra xem một làn cụ thể có trống không trong khoảng thời gian cho trước.
              */
             checkLaneFree(lane, start, end) {
                 for (let block of lane.occupied) {
@@ -178,21 +207,25 @@
             }
 
             /**
-             * Helper: Thực hiện đặt chỗ
+             * Helper: Thực hiện đặt chỗ vào làn
              */
             allocateToLane(lane, start, end, ownerId) {
                 lane.occupied.push({ start, end, ownerId });
+                // Sort lại để dễ debug và hiển thị timeline
                 lane.occupied.sort((a, b) => a.start - b.start);
                 return lane.id;
             }
 
             /**
-             * [V100.0 UPGRADE] Try Allocate with Preferred Index (Targeted Allocation)
-             * @param {string} type - 'BED' hoặc 'CHAIR'
+             * [V101.0 CRITICAL UPGRADE] Try Allocate with Preferred Index
+             * Hàm này hỗ trợ cả Khách Cũ (Inheritance) và Khách Mới (Modulo).
+             * @param {string} type - Loại tài nguyên ('BED', 'CHAIR')
              * @param {number} start - Phút bắt đầu
              * @param {number} end - Phút kết thúc
-             * @param {string} ownerId - ID booking
-             * @param {number|null} preferredIndex - (Optional) Chỉ số ưu tiên (1-based: 1, 2, 3...)
+             * @param {string} ownerId - ID booking để tracking
+             * @param {number|null} preferredIndex - Chỉ số ưu tiên (1-based). 
+             * - Nếu là khách cũ: Đây là Anchor Index (vị trí cũ).
+             * - Nếu là khách mới: Đây là Modulo Index (vị trí chia bài).
              */
             tryAllocate(type, start, end, ownerId, preferredIndex = null) {
                 const resourceGroup = this.lanes[type];
@@ -209,6 +242,7 @@
                 }
 
                 // CHIẾN LƯỢC 2: FIRST-FIT (Vét cạn tìm chỗ trống bất kỳ)
+                // Duyệt qua tất cả các làn, làn nào trống thì điền vào ngay
                 for (let lane of resourceGroup) {
                     if (this.checkLaneFree(lane, start, end)) {
                         return this.allocateToLane(lane, start, end, ownerId);
@@ -217,6 +251,42 @@
 
                 return null; // Hết sạch chỗ
             }
+        }
+
+        /**
+         * Hàm phụ trợ cho logic Squeeze (Bóp mềm): Kiểm tra xem một tập hợp các block có thể nhét vào matrix không.
+         * [V101.0 UPDATE] Hỗ trợ kiểm tra forcedIndex trong quá trình Squeeze.
+         */
+        function isBlockSetAllocatable(blocks, matrix) {
+            for (const b of blocks) {
+                const laneGroup = matrix.lanes[b.type];
+                if (!laneGroup) return false;
+                
+                let foundLane = false;
+                
+                // [V101.0] Kiểm tra ưu tiên index trước
+                if (b.forcedIndex && b.forcedIndex > 0 && b.forcedIndex <= laneGroup.length) {
+                    const targetLane = laneGroup[b.forcedIndex - 1];
+                    let isFree = true;
+                    for (const occ of targetLane.occupied) {
+                        if (isOverlap(b.start, b.end, occ.start, occ.end)) { isFree = false; break; }
+                    }
+                    if (isFree) return true; // Nếu vị trí cũ còn trống thì chắc chắn OK (Short-circuit success)
+                }
+
+                // Nếu không có ưu tiên hoặc ưu tiên bị bận, quét tất cả (Fallback)
+                for (const lane of laneGroup) {
+                    let isFree = true;
+                    for (const occ of lane.occupied) {
+                        if (isOverlap(b.start, b.end, occ.start, occ.end)) {
+                            isFree = false; break;
+                        }
+                    }
+                    if (isFree) { foundLane = true; break; }
+                }
+                if (!foundLane) return false;
+            }
+            return true;
         }
 
         // --- 6. LOGIC TÌM NHÂN VIÊN (STAFF FINDER) ---
@@ -233,7 +303,7 @@
 
                 if ((start + CONFIG.TOLERANCE) < shiftStart) return false;
                 
-                // Xử lý cờ Strict Time (Nghiêm ngặt giờ về)
+                // Xử lý cờ Strict Time (Nghiêm ngặt giờ về - không nhận khách quá giờ)
                 const isStrict = staffInfo.isStrictTime === true;
                 if (isStrict) {
                     if ((end - CONFIG.TOLERANCE) > shiftEnd) return false; 
@@ -284,34 +354,39 @@
 
             let currentDeviation = step;
             while (currentDeviation <= limit) {
-                // Biến thể A: Giảm Phase 1
+                // Biến thể A: Giảm Phase 1 (Chân ít hơn)
                 let p1_A = standardHalf - currentDeviation;
                 let p2_A = totalDuration - p1_A;
                 if (p1_A >= 15 && p2_A >= 15) options.push({ p1: p1_A, p2: p2_A, deviation: currentDeviation });
                 
-                // Biến thể B: Tăng Phase 1
+                // Biến thể B: Tăng Phase 1 (Chân nhiều hơn)
                 let p1_B = standardHalf + currentDeviation;
                 let p2_B = totalDuration - p1_B;
                 if (p1_B >= 15 && p2_B >= 15) options.push({ p1: p1_B, p2: p2_B, deviation: currentDeviation });
                 currentDeviation += step;
             }
+            // Sắp xếp các phương án theo độ lệch chuẩn tăng dần (Ưu tiên 50/50 nhất)
             options.sort((a, b) => Math.abs(a.deviation) - Math.abs(b.deviation));
             return options;
         }
 
-        // --- 8. MAIN LOGIC V100.0 (MODULO INTERLEAVING ENGINE) ---
+        // --- 8. MAIN LOGIC V101.0 (MODULO INTERLEAVING & INHERITANCE ENGINE) ---
+        
         /**
-         * Hàm kiểm tra khả dụng chính - PHIÊN BẢN V100.0
-         * Tích hợp: Modulo Allocation + Targeted Allocation + Row ID Detection
+         * HÀM KIỂM TRA KHẢ DỤNG CHÍNH - PHIÊN BẢN V101.0
+         * Tích hợp: 
+         * - Modulo Allocation (Cho khách mới)
+         * - Strict Inheritance (Cho khách cũ dựa trên Anchor Index)
          */
         function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRaw, staffList) {
             const requestStartMins = getMinsFromTimeStr(timeStr);
             if (requestStartMins === -1) return { feasible: false, reason: "Error: Invalid Time Format" };
 
             // ------------------------------------------------------------------------
-            // BƯỚC A: CHUẨN BỊ DỮ LIỆU KHÁCH CŨ (PRE-PROCESSING)
+            // BƯỚC A: CHUẨN BỊ DỮ LIỆU KHÁCH CŨ (PRE-PROCESSING & INDEX PARSING)
             // ------------------------------------------------------------------------
             let existingBookingsProcessed = [];
+            // Sắp xếp booking hiện tại theo thời gian để xử lý tuần tự
             let sortedCurrentBookings = [...currentBookingsRaw].sort((a, b) => {
                 return getMinsFromTimeStr(a.startTime) - getMinsFromTimeStr(b.startTime);
             });
@@ -324,6 +399,17 @@
                 let isCombo = isComboService(svcInfo, b.serviceName);
                 let duration = b.duration || 60;
                 
+                // [V101.0 NEW] Phân tích RowID để tìm "Anchor Index" (Index neo đậu)
+                // Nếu khách đang ở "BED-3", anchorIndex sẽ là 3. Điều này giúp hệ thống biết khách "thuộc về" giường số 3.
+                let anchorIndex = null;
+                if (b.rowId) {
+                    const rowIdStr = b.rowId.toString().toUpperCase();
+                    const match = rowIdStr.match(/(\d+)/); // Regex tìm số trong chuỗi (VD: 'BED-3' -> '3')
+                    if (match) {
+                        anchorIndex = parseInt(match[0]);
+                    }
+                }
+
                 let processedB = {
                     id: b.rowId, 
                     originalData: b, 
@@ -335,7 +421,8 @@
                     elasticLimit: svcInfo.elasticLimit || 15,
                     startMins: bStart,
                     duration: duration,
-                    blocks: [] 
+                    blocks: [], 
+                    anchorIndex: anchorIndex // Lưu lại index này để dùng cho logic thừa kế
                 };
 
                 if (isCombo) {
@@ -344,8 +431,7 @@
                     const p1End = bStart + p1;
                     const p2Start = p1End + CONFIG.TRANSITION_BUFFER;
                     
-                    // --- LOGIC NHẬN DIỆN FLOW KHÁCH CŨ (QUAN TRỌNG) ---
-                    // Kết hợp V99.9 (RowID Check) và V100.0 (Data Check)
+                    // --- LOGIC NHẬN DIỆN FLOW KHÁCH CŨ ---
                     let isBodyFirst = false;
                     const noteContent = (b.note || b.ghiChu || b.originalData?.ghiChu || "").toString().toUpperCase();
                     
@@ -353,8 +439,7 @@
                     if (b.flow === 'BF' || noteContent.includes('BF') || noteContent.includes('BODY FIRST') || noteContent.includes('先做身體') || noteContent.includes('先身')) {
                         isBodyFirst = true;
                     }
-                    // 2. [V99.9 PRESERVED LOGIC] Kiểm tra vị trí vật lý (Fail-safe)
-                    // Nếu không có tag, nhưng rowId lại là BED/BODY -> Chắc chắn là Body First
+                    // 2. Kiểm tra vị trí vật lý (Fallback Logic)
                     else if (b.rowId && (
                         b.rowId.toString().toUpperCase().includes('BED') || 
                         b.rowId.toString().toUpperCase().includes('BODY') || 
@@ -364,14 +449,16 @@
                         isBodyFirst = true;
                     }
 
+                    // [V101.0 LOGIC] Áp dụng Anchor Index vào các Block (Inheritance)
+                    // Nếu anchorIndex tồn tại, ta gán nó vào `forcedIndex` của block tương ứng
                     if (isBodyFirst) {
-                        processedB.blocks.push({ start: bStart, end: p1End, type: 'BED' }); 
-                        processedB.blocks.push({ start: p2Start, end: bStart + duration, type: 'CHAIR' });
+                        processedB.blocks.push({ start: bStart, end: p1End, type: 'BED', forcedIndex: anchorIndex }); 
+                        processedB.blocks.push({ start: p2Start, end: bStart + duration, type: 'CHAIR', forcedIndex: anchorIndex });
                         processedB.flow = 'BF'; 
                     } else {
                         // Mặc định là FB (Chân trước)
-                        processedB.blocks.push({ start: bStart, end: p1End, type: 'CHAIR' }); 
-                        processedB.blocks.push({ start: p2Start, end: bStart + duration, type: 'BED' });
+                        processedB.blocks.push({ start: bStart, end: p1End, type: 'CHAIR', forcedIndex: anchorIndex }); 
+                        processedB.blocks.push({ start: p2Start, end: bStart + duration, type: 'BED', forcedIndex: anchorIndex });
                         processedB.flow = 'FB'; 
                     }
                     
@@ -379,19 +466,19 @@
                     processedB.p2_current = p2;
                 } else {
                     let rType = detectResourceType(svcInfo);
-                    processedB.blocks.push({ start: bStart, end: bStart + duration, type: rType });
+                    // Single Service cũng tôn trọng vị trí hiện tại
+                    processedB.blocks.push({ start: bStart, end: bStart + duration, type: rType, forcedIndex: anchorIndex });
                 }
                 existingBookingsProcessed.push(processedB);
             });
 
             // ------------------------------------------------------------------------
-            // BƯỚC B: TẠO DANH SÁCH "PENDULUM" (CON LẮC) - V100.0
+            // BƯỚC B: TẠO DANH SÁCH "PENDULUM" (CON LẮC) - PHÂN PHỐI FLOW
             // ------------------------------------------------------------------------
             const newGuests = guestList.map((g, idx) => ({ ...g, idx: idx }));
             const comboGuests = newGuests.filter(g => { const s = SERVICES[g.serviceCode]; return isComboService(s, g.serviceCode); });
             
-            // [V100.0] Tính toán kích thước "Nửa nhóm" (Half Size) để dùng cho công thức Modulo
-            // Nếu có 6 khách Combo -> halfSize = 3.
+            // [V101.0] Tính toán kích thước "Nửa nhóm" (Half Size) để dùng cho công thức Modulo
             const halfSize = Math.ceil(comboGuests.length / 2);
 
             const maxBF = comboGuests.length;
@@ -425,15 +512,24 @@
                 let scenarioUpdates = [];
                 let scenarioFailed = false;
                 
-                // === GIAI ĐOẠN 1: XẾP CỨNG KHÁCH CŨ ===
+                // === GIAI ĐOẠN 1: XẾP CỨNG KHÁCH CŨ (ÁP DỤNG INHERITANCE) ===
                 let softsToSqueezeCandidates = []; 
                 for (const exB of existingBookingsProcessed) {
                     let placedSuccessfully = true;
                     let allocatedSlots = []; 
                     for (const block of exB.blocks) {
                         const realEnd = block.end + CONFIG.CLEANUP_BUFFER;
-                        // Khách cũ giữ nguyên chỗ nếu có thể
-                        const slotId = matrix.tryAllocate(block.type, block.start, realEnd, exB.id);
+                        
+                        // [V101.0 CRITICAL FIX] Truyền forcedIndex (Inheritance)
+                        // Hệ thống sẽ cố gắng đặt khách cũ vào đúng số ghế/giường cũ của họ
+                        const slotId = matrix.tryAllocate(
+                            block.type, 
+                            block.start, 
+                            realEnd, 
+                            exB.id, 
+                            block.forcedIndex // <-- Đây là chìa khóa của Strict Inheritance
+                        );
+                        
                         if (!slotId) { placedSuccessfully = false; break; }
                         allocatedSlots.push(slotId);
                     }
@@ -485,16 +581,14 @@
                     newGuestBlocksMap.push({ guest: ng, blocks: blocks });
                 }
 
-                // === GIAI ĐOẠN 3: CỐ GẮNG XẾP KHÁCH MỚI (ÁP DỤNG MODULO ALLOCATION - V100.0) ===
+                // === GIAI ĐOẠN 3: CỐ GẮNG XẾP KHÁCH MỚI (ÁP DỤNG MODULO ALLOCATION) ===
                 let conflictFound = false;
                 
                 for (const item of newGuestBlocksMap) {
                     let guestAllocations = [];
                     
-                    // [V100.0 NEW LOGIC] Tính toán Preferred Index (Chỉ số ưu tiên) dựa trên Modulo
-                    // Công thức: Nếu index < halfSize thì lấy index + 1
-                    // Nếu index >= halfSize thì lấy (index % halfSize) + 1
-                    // VD: 6 khách. Half=3. Khách 0->1, Khách 3->1.
+                    // [V101.0 NEW LOGIC] Tính toán Preferred Index (Chỉ số ưu tiên) dựa trên Modulo
+                    // Logic: Chia bài so le để tối ưu tài nguyên
                     let preferredIdx = null;
                     if (halfSize > 0) {
                         // Chúng ta sử dụng global index (item.guest.idx) để tính toán
@@ -516,13 +610,14 @@
                     if (detail) detail.allocated = guestAllocations;
                 }
 
-                // === GIAI ĐOẠN 4: CHIẾN THUẬT SQUEEZE (BÓP MỀM) ===
+                // === GIAI ĐOẠN 4: CHIẾN THUẬT SQUEEZE (BÓP MỀM) - V101.0 ===
                 if (conflictFound) {
                     let matrixSqueeze = new VirtualMatrix();
                     let updatesProposed = [];
                     const hardBookings = existingBookingsProcessed.filter(b => !b.isElastic);
                     hardBookings.forEach(hb => {
-                        hb.blocks.forEach(blk => matrixSqueeze.tryAllocate(blk.type, blk.start, blk.end + CONFIG.CLEANUP_BUFFER, hb.id));
+                        // Squeeze cũng phải tôn trọng Inheritance (forcedIndex)
+                        hb.blocks.forEach(blk => matrixSqueeze.tryAllocate(blk.type, blk.start, blk.end + CONFIG.CLEANUP_BUFFER, hb.id, blk.forcedIndex));
                     });
 
                     let squeezeScenarioPossible = true;
@@ -549,21 +644,16 @@
                             const sP2End = sP2Start + split.p2;
                             
                             const testBlocks = [
-                                { type: 'CHAIR', start: sb.startMins, end: sP1End + CONFIG.CLEANUP_BUFFER },
-                                { type: 'BED', start: sP2Start, end: sP2End + CONFIG.CLEANUP_BUFFER }
+                                { type: 'CHAIR', start: sb.startMins, end: sP1End + CONFIG.CLEANUP_BUFFER, forcedIndex: sb.blocks[0].forcedIndex },
+                                { type: 'BED', start: sP2Start, end: sP2End + CONFIG.CLEANUP_BUFFER, forcedIndex: sb.blocks[1] ? sb.blocks[1].forcedIndex : null }
                             ];
                             
-                            // Hàm kiểm tra block set cục bộ
-                            const isSafe = testBlocks.every(tb => {
-                                const laneGroup = matrixSqueeze.lanes[tb.type];
-                                return laneGroup.some(lane => !lane.occupied.some(occ => isOverlap(tb.start, tb.end, occ.start, occ.end)));
-                            });
-
-                            if (isSafe) {
-                                testBlocks.forEach(tb => matrixSqueeze.tryAllocate(tb.type, tb.start, tb.end, sb.id));
+                            // Sử dụng hàm kiểm tra set block mới (Updated V101)
+                            if (isBlockSetAllocatable(testBlocks, matrixSqueeze)) {
+                                testBlocks.forEach(tb => matrixSqueeze.tryAllocate(tb.type, tb.start, tb.end, sb.id, tb.forcedIndex));
                                 fit = true;
                                 if (split.deviation !== 0) {
-                                    updatesProposed.push({ rowId: sb.id, customerName: sb.originalData.customerName, newPhase1: split.p1, newPhase2: split.p2, reason: 'Matrix Squeeze V100.0' });
+                                    updatesProposed.push({ rowId: sb.id, customerName: sb.originalData.customerName, newPhase1: split.p1, newPhase2: split.p2, reason: 'Matrix Squeeze V101.0' });
                                 }
                                 break; 
                             }
@@ -608,7 +698,7 @@
                 successfulScenario.details.sort((a,b) => a.guestIndex - b.guestIndex);
                 return {
                     feasible: true, 
-                    strategy: 'MATRIX_PENDULUM_V100.0_MODULO', 
+                    strategy: 'MATRIX_PENDULUM_V101.0_SYNC', 
                     details: successfulScenario.details,
                     proposedUpdates: successfulScenario.updates,
                     totalPrice: successfulScenario.details.reduce((sum, item) => sum + (item.price||0), 0)
@@ -657,6 +747,7 @@
         CoreKernel.setDynamicServices(formattedServices);
     };
 
+    // Hàm gọi Core Check - Cầu nối giữa UI và Logic V101.0
     const callCoreAvailabilityCheck = (date, time, guests, bookings, staffList) => {
         syncServicesToCore();
         const now = new Date();
@@ -705,7 +796,7 @@
         }
 
         try {
-            // GỌI HÀM CORE KERNEL V100.0
+            // GỌI HÀM CORE KERNEL V101.0
             const result = CoreKernel.checkRequestAvailability(date, time, coreGuests, coreBookings, staffMap);
             return result.feasible 
                 ? { valid: true, details: result.details, proposedUpdates: result.proposedUpdates } 
@@ -719,7 +810,7 @@
     const forceGlobalRefresh = () => { if (typeof window.fetchDataAndRender === 'function') window.fetchDataAndRender(); else window.location.reload(); };
 
     // ==================================================================================
-    // 4. COMPONENT: PHONE BOOKING MODAL (V100.0)
+    // 4. COMPONENT: PHONE BOOKING MODAL (V101.0 PRESERVED)
     // ==================================================================================
     const NewAvailabilityCheckModal = ({ onClose, onSave, staffList, bookings, initialDate, editingBooking }) => {
         const safeStaffList = useMemo(() => staffList || [], [staffList]);
@@ -807,6 +898,7 @@
             setIsChecking(true); setCheckResult(null); setSuggestions([]);
             let currentStaffList = serverData?.staff || safeStaffList;
             let currentBookings = serverData?.bookings || safeBookings;
+            // Nếu là sửa booking, loại bỏ booking hiện tại ra khỏi danh sách check
             if (editingBooking) {
                 currentBookings = currentBookings.filter(b => b.rowId !== editingBooking.rowId);
             }
@@ -854,10 +946,10 @@
                     };
                 });
 
-                // 1. Tags cho tinh dau (Oil)
+                // Tags cho tinh dau (Oil)
                 const oils = detailedGuests.map((g,i)=>g.isOil?`K${i+1}:精油`:null).filter(Boolean);
                 
-                // [CRITICAL UPDATE] - EXPLICIT FLOW TAGGING
+                // EXPLICIT FLOW TAGGING
                 const flows = detailedGuests.map((g, i) => {
                     if (g.flow === 'BF') return `K${i+1}:先做身體`; 
                     if (g.flow === 'FB') return `K${i+1}:先做腳`;   
@@ -867,7 +959,7 @@
                 const noteParts = [...oils, ...flows];
                 const noteStr = noteParts.length > 0 ? `(${noteParts.join(', ')})` : "";
                 
-                console.log(`[V100.0 Explicit Note Generated]: ${noteStr}`);
+                console.log(`[V101.0 Note Generated]: ${noteStr}`);
 
                 const payload = {
                     hoTen: form.custName, sdt: form.custPhone||"", dichVu: detailedGuests.map(g=>g.service).join(','), pax: form.pax,
@@ -901,7 +993,7 @@
                 <div className="bg-white w-full max-w-xl rounded-xl shadow-2xl flex flex-col max-h-[95vh] overflow-hidden animate-fadeIn">
                     <div className={`${editingBooking ? 'bg-orange-600' : 'bg-[#0891b2]'} p-4 text-white flex justify-between items-center shrink-0`}>
                         <h3 className="font-bold text-lg">
-                            {editingBooking ? "✏️ 修改預約 (Edit Booking)" : "📅 電話預約 (V100.0)"}
+                            {editingBooking ? "✏️ 修改預約 (Edit Booking)" : "📅 電話預約 (V101.0)"}
                         </h3>
                         <button onClick={onClose} className="text-2xl hover:text-red-100">&times;</button>
                     </div>
@@ -924,7 +1016,7 @@
                                 <div>
                                     {!checkResult ? 
                                         <button onClick={performCheck} disabled={isChecking} className={`w-full text-white p-3 rounded font-bold shadow-lg flex justify-center items-center ${isChecking ? 'bg-gray-400 cursor-not-allowed' : 'bg-cyan-600 hover:bg-cyan-700'}`}>
-                                            {isChecking ? "正在計算 (Matrix V100.0)..." : "🔍 查詢空位 (Instant Check)"}
+                                            {isChecking ? "正在計算 (Matrix V101.0)..." : "🔍 查詢空位 (Instant Check)"}
                                         </button> 
                                         : 
                                         <div className="space-y-3">
@@ -972,7 +1064,7 @@
     };
 
     // ==================================================================================
-    // 5. COMPONENT: WALK-IN MODAL (V100.0)
+    // 5. COMPONENT: WALK-IN MODAL (V101.0 PRESERVED)
     // ==================================================================================
     const NewWalkInModal = ({ onClose, onSave, staffList, bookings, initialDate }) => {
         const safeStaffList = useMemo(() => staffList || [], [staffList]);
@@ -1081,10 +1173,10 @@
                     };
                 });
 
-                // 1. Tags cho tinh dau (Oil)
+                // Tags cho tinh dau (Oil)
                 const oils = detailedGuests.map((g,i)=>g.isOil?`K${i+1}:精油`:null).filter(Boolean);
                 
-                // [CRITICAL UPDATE] - EXPLICIT FLOW TAGGING
+                // EXPLICIT FLOW TAGGING
                 const flows = detailedGuests.map((g, i) => {
                     if (g.flow === 'BF') return `K${i+1}:先做身體`;
                     if (g.flow === 'FB') return `K${i+1}:先做腳`;
@@ -1093,7 +1185,7 @@
                 
                 const noteParts = [...oils, ...flows];
                 const noteStr = noteParts.length > 0 ? `(${noteParts.join(', ')})` : "";
-                console.log(`[V100.0 Explicit Walk-in Note]: ${noteStr}`);
+                console.log(`[V101.0 Explicit Walk-in Note]: ${noteStr}`);
 
                 const payload = {
                     hoTen: form.custName, sdt: form.custPhone||"", dichVu: detailedGuests.map(g=>g.service).join(','), pax: form.pax,
@@ -1120,7 +1212,7 @@
             <div className="fixed inset-0 bg-black/70 z-[90] flex items-center justify-center p-4">
                 <div className="bg-white w-full max-w-xl rounded-xl shadow-2xl modal-animate flex flex-col max-h-[90vh] overflow-hidden">
                     <div className="bg-amber-600 p-4 text-white flex justify-between items-center shrink-0">
-                        <h3 className="font-bold text-lg">⚡ 現場客 (V100.0)</h3>
+                        <h3 className="font-bold text-lg">⚡ 現場客 (V101.0)</h3>
                         <button onClick={onClose}><i className="fas fa-times text-xl"></i></button>
                     </div>
                     <div className="p-5 space-y-4 overflow-y-auto flex-1 custom-scrollbar">
@@ -1138,7 +1230,7 @@
                                 <div className="pt-2 grid grid-cols-2 gap-3"><button onClick={onClose} className="bg-gray-100 text-gray-500 font-bold p-3 rounded hover:bg-gray-200">取消</button>
                                 {(!checkResult || checkResult.status === 'FAIL') ? 
                                     <button onClick={performCheck} disabled={isChecking} className={`font-bold p-3 rounded shadow-lg flex justify-center items-center text-white ${isChecking?'bg-gray-400':'bg-amber-500 hover:bg-amber-600'}`}>
-                                        {isChecking ? "計算中 (Matrix V100.0)..." : "🔍 檢查"}
+                                        {isChecking ? "計算中 (Matrix V101.0)..." : "🔍 檢查"}
                                     </button> : 
                                     <button onClick={() => setStep('INFO')} className="bg-emerald-600 text-white font-bold p-3 rounded hover:bg-emerald-700 shadow-lg animate-pulse">➡️ 下一步</button>}
                                 </div>
@@ -1179,10 +1271,20 @@
         );
     };
 
-    // SYSTEM INJECTION
+    // ==================================================================================
+    // 6. SYSTEM INJECTION
+    // ==================================================================================
+    // Ghi đè Component toàn cục để ứng dụng chính (Index.html) có thể gọi
     const overrideInterval = setInterval(() => {
-        if (window.AvailabilityCheckModal !== NewAvailabilityCheckModal) { window.AvailabilityCheckModal = NewAvailabilityCheckModal; console.log("♻️ AvailabilityModal Injected (V100.0 Synced)"); }
-        if (window.WalkInModal !== NewWalkInModal) { window.WalkInModal = NewWalkInModal; console.log("♻️ WalkInModal Injected (V100.0 Synced)"); }
+        if (window.AvailabilityCheckModal !== NewAvailabilityCheckModal) { 
+            window.AvailabilityCheckModal = NewAvailabilityCheckModal; 
+            console.log("♻️ AvailabilityModal Injected (V101.0 Synced)"); 
+        }
+        if (window.WalkInModal !== NewWalkInModal) { 
+            window.WalkInModal = NewWalkInModal; 
+            console.log("♻️ WalkInModal Injected (V101.0 Synced)"); 
+        }
     }, 200);
     setTimeout(() => { clearInterval(overrideInterval); }, 5000);
+
 })();
