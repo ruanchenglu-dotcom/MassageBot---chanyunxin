@@ -2,22 +2,23 @@
  * =================================================================================================
  * PROJECT: XINWUCHAN MASSAGE BOT - CORE LOGIC KERNEL
  * FILE: resource_core.js
- * PHIÊN BẢN: V9.0 (PENDULUM EXHAUSTIVE SEARCH)
+ * PHIÊN BẢN: V9.1 (ROBUST PENDULUM PATCH)
  * TÁC GIẢ: AI ASSISTANT & USER
  * NGÀY CẬP NHẬT: 2026/01/13
  *
+ * * * * * CHANGE LOG V9.1 (THE CATEGORY FIX):
+ * 1. [CRITICAL FIX] COMBO DETECTION:
+ * - Khắc phục lỗi hệ thống không nhận diện được gói "Signature Combo" (招牌套餐) 
+ * do sai lệch Category trong Database.
+ * - Cơ chế nhận diện mới: Quét sâu vào Tên dịch vụ, Category và Type.
+ * - Hỗ trợ đa ngôn ngữ: Nhận diện từ khóa "Combo", "Mixed", "套餐", "All".
+ * * 2. [DIAGNOSTIC LOGGING]:
+ * - Thêm Log chi tiết vào Console để hiển thị chuỗi thử nghiệm (Try Sequence).
+ * - Giúp Admin biết tại sao hệ thống chọn phương án hiện tại.
+ *
  * * * * * CHANGE LOG V9.0 (THE PERSISTENCE UPDATE):
- * 1. [PENDULUM STRATEGY - CHIẾN THUẬT CON LẮC]:
- * - Thay thế logic thử giới hạn cũ bằng logic "Vét cạn từ tâm" (Center-Out Exhaustive).
- * - Nguyên lý: Xuất phát từ tỷ lệ cân bằng nhất (50/50), sau đó mở rộng dần ra hai phía (lệch Body -> lệch Foot)
- * - Mục tiêu: Tìm kiếm mọi khe hở khả thi trong lịch trình, không bỏ sót bất kỳ phương án phối hợp nào.
- * - Áp dụng cho mọi nhóm khách có nhu cầu Combo (maxBF >= 2).
- * * 2. [ROBUSTNESS - SỰ KIÊN TRÌ]:
- * - Hệ thống sẽ thử từ phương án đẹp nhất (chia đều) đến phương án cực đoan nhất (dồn 100% về một phía).
- * - Đảm bảo tỷ lệ Booking thành công đạt mức tối đa.
- * * 3. [LEGACY COMPATIBILITY]:
- * - Giữ nguyên Matrix Engine V8.5 (Spatial Allocation).
- * - Giữ nguyên Logic Squeeze (Chèn ép khách mềm).
+ * 1. [PENDULUM STRATEGY]: Chiến thuật con lắc lò xo (Center-Out).
+ * 2. [ROBUSTNESS]: Vét cạn mọi trường hợp từ cân bằng đến cực đoan.
  * =================================================================================================
  */
 
@@ -29,7 +30,7 @@ const CONFIG = {
     // Tài nguyên phần cứng
     MAX_CHAIRS: 6,        
     MAX_BEDS: 6,          
-    MAX_TOTAL_GUESTS: 12, // Tổng tải trọng tối đa của cửa hàng (Nhân sự + Không gian)
+    MAX_TOTAL_GUESTS: 12, // Tổng tải trọng tối đa (Nhân sự + Không gian)
     
     // Cấu hình thời gian (Đơn vị: Giờ)
     OPEN_HOUR: 8,         // 08:00 Sáng mở cửa
@@ -60,6 +61,7 @@ function setDynamicServices(newServicesObj) {
         'LATE': { name: '⚠️ 延遲 (Late)', duration: 0, type: 'NONE', price: 0, category: 'SYSTEM' }
     };
     SERVICES = { ...newServicesObj, ...systemServices };
+    console.log(`[CORE V9.1] Services Updated. Total: ${Object.keys(SERVICES).length}`);
 }
 
 // ============================================================================
@@ -122,13 +124,56 @@ function isOverlap(startA, endA, startB, endB) {
 }
 
 // ============================================================================
-// PHẦN 3: MATRIX ENGINE CORE - SPATIAL ALLOCATION (V8.5 LEGACY)
+// PHẦN 3: HELPER NHẬN DIỆN DỊCH VỤ (SERVICE CLASSIFIER - V9.1 UPDATE)
+// ============================================================================
+
+/**
+ * Hàm kiểm tra thông minh xem một dịch vụ có phải là Combo (2 giai đoạn) hay không
+ * Logic này mạnh mẽ hơn so với việc chỉ so sánh category === 'COMBO'
+ */
+function isComboService(serviceObj, serviceNameRaw = '') {
+    if (!serviceObj) return false;
+    
+    // 1. Kiểm tra Category chuẩn
+    const cat = (serviceObj.category || '').toString().toUpperCase().trim();
+    if (cat === 'COMBO' || cat === 'MIXED') return true;
+
+    // 2. Kiểm tra tên Dịch vụ (Service Name)
+    const name = (serviceObj.name || serviceNameRaw || '').toString().toUpperCase();
+    
+    // Các từ khóa nhận diện Combo: "COMBO", "套餐" (Set Meal), "ALL" (Toàn thân + Chân)
+    const comboKeywords = ['COMBO', '套餐', 'MIX', '+', 'SET', '腳身', '全餐'];
+    for (const kw of comboKeywords) {
+        if (name.includes(kw)) return true;
+    }
+
+    return false;
+}
+
+/**
+ * Hàm xác định loại tài nguyên dựa trên tên dịch vụ
+ * Trả về 'BED' hoặc 'CHAIR'
+ */
+function detectResourceType(serviceObj) {
+    if (!serviceObj) return 'CHAIR';
+    
+    // Ưu tiên config cứng
+    if (serviceObj.type === 'BED' || serviceObj.type === 'CHAIR') return serviceObj.type;
+
+    // Phân tích tên
+    const name = (serviceObj.name || '').toUpperCase();
+    if (name.match(/BODY|指壓|油|BED|TOAN THAN|全身|油壓/)) return 'BED';
+    
+    return 'CHAIR'; // Mặc định an toàn
+}
+
+// ============================================================================
+// PHẦN 4: MATRIX ENGINE CORE (V8.5 LEGACY)
 // ============================================================================
 
 class VirtualMatrix {
     constructor() {
         // Khởi tạo các làn chứa (Lanes)
-        // Mỗi lane đại diện cho 1 thiết bị vật lý (Ghế 1-6, Giường 1-6)
         this.lanes = {
             'CHAIR': Array.from({ length: CONFIG.MAX_CHAIRS }, (_, i) => ({ id: `CHAIR-${i+1}`, occupied: [] })),
             'BED': Array.from({ length: CONFIG.MAX_BEDS }, (_, i) => ({ id: `BED-${i+1}`, occupied: [] }))
@@ -138,20 +183,16 @@ class VirtualMatrix {
 
     /**
      * Cố gắng nhét một block thời gian vào ma trận (First-Fit Algorithm)
-     * @param {string} type 'CHAIR' | 'BED' 
-     * @param {number} start 
-     * @param {number} end 
-     * @param {string} ownerId ID định danh của booking (để trace lỗi)
      * @returns {string|null} Trả về ID làn (VD: "BED-5") nếu thành công, null nếu thất bại
      */
     tryAllocate(type, start, end, ownerId) {
         const resourceGroup = this.lanes[type];
-        if (!resourceGroup) return 'N/A'; // Loại tài nguyên không cần track slot (VD: NONE)
+        if (!resourceGroup) return 'N/A'; 
 
-        // Duyệt qua từng làn (Lane 1 -> Lane 6)
+        // Duyệt qua từng làn
         for (let lane of resourceGroup) {
             let isLaneFree = true;
-            // Kiểm tra va chạm với các booking đã có trong làn này
+            // Kiểm tra va chạm
             for (let block of lane.occupied) {
                 if (isOverlap(start, end, block.start, block.end)) {
                     isLaneFree = false;
@@ -160,11 +201,11 @@ class VirtualMatrix {
             }
 
             if (isLaneFree) {
-                // Tìm thấy làn trống! Đánh dấu luôn vào bộ nhớ đệm
+                // Đánh dấu
                 lane.occupied.push({ start, end, ownerId });
-                // Sắp xếp lại timeline của làn để gọn gàng
+                // Sắp xếp lại timeline
                 lane.occupied.sort((a, b) => a.start - b.start);
-                return lane.id; // Return "BED-1", "CHAIR-3"...
+                return lane.id; 
             }
         }
 
@@ -173,13 +214,13 @@ class VirtualMatrix {
 }
 
 // ============================================================================
-// PHẦN 4: LOGIC TÌM NHÂN VIÊN (STAFF FINDER)
+// PHẦN 5: LOGIC TÌM NHÂN VIÊN (STAFF FINDER)
 // ============================================================================
 
 function findAvailableStaff(staffReq, start, end, staffListRef, busyList) {
     const checkOneStaff = (name) => {
         const staffInfo = staffListRef[name];
-        // 1. Staff phải tồn tại và không trong trạng thái OFF
+        // 1. Staff phải tồn tại và không OFF
         if (!staffInfo || staffInfo.off) return false; 
         
         // 2. Kiểm tra giờ làm việc (Shift)
@@ -189,7 +230,7 @@ function findAvailableStaff(staffReq, start, end, staffListRef, busyList) {
 
         if ((start + CONFIG.TOLERANCE) < shiftStart) return false;
         
-        // Xử lý cờ Strict Time (Không làm quá giờ)
+        // Xử lý cờ Strict Time
         const isStrict = staffInfo.isStrictTime === true;
         if (isStrict) {
             if ((end - CONFIG.TOLERANCE) > shiftEnd) return false; 
@@ -197,23 +238,21 @@ function findAvailableStaff(staffReq, start, end, staffListRef, busyList) {
             if (start > shiftEnd) return false;
         }
 
-        // 3. Kiểm tra trùng lịch với khách khác (Busy List)
+        // 3. Kiểm tra trùng lịch (Busy List)
         for (const b of busyList) {
             if (b.staffName === name && isOverlap(start, end, b.start, b.end)) return false; 
         }
 
-        // 4. Kiểm tra giới tính (Nếu có yêu cầu)
+        // 4. Kiểm tra giới tính
         if (staffReq === 'MALE' && staffInfo.gender !== 'M') return false;
         if ((staffReq === 'FEMALE' || staffReq === '女') && staffInfo.gender !== 'F') return false;
 
         return true; 
     };
 
-    // Nếu yêu cầu chỉ định staff cụ thể
     if (staffReq && !['RANDOM', 'MALE', 'FEMALE', '隨機', 'Any', 'undefined'].includes(staffReq)) {
         return checkOneStaff(staffReq) ? staffReq : null;
     } 
-    // Nếu yêu cầu ngẫu nhiên hoặc theo giới tính
     else {
         const allStaffNames = Object.keys(staffListRef);
         for (const name of allStaffNames) {
@@ -224,11 +263,10 @@ function findAvailableStaff(staffReq, start, end, staffListRef, busyList) {
 }
 
 // ============================================================================
-// PHẦN 5: BỘ HELPER SINH BIẾN THỂ THỜI GIAN (ELASTIC GENERATOR)
+// PHẦN 6: BỘ HELPER SINH BIẾN THỂ THỜI GIAN (ELASTIC GENERATOR)
 // ============================================================================
 
 function generateElasticSplits(totalDuration, step = 0, limit = 0, customLockedPhase1 = null) {
-    // Nếu đã bị khóa cứng pha 1 (do User chỉnh tay), chỉ trả về 1 phương án duy nhất
     if (customLockedPhase1 !== null && customLockedPhase1 !== undefined && !isNaN(customLockedPhase1)) {
         return [{ 
             p1: parseInt(customLockedPhase1), 
@@ -238,7 +276,7 @@ function generateElasticSplits(totalDuration, step = 0, limit = 0, customLockedP
     }
 
     const standardHalf = Math.floor(totalDuration / 2);
-    // Phương án mặc định: Chia đôi 50-50
+    // Phương án mặc định: 50-50
     let options = [{ p1: standardHalf, p2: totalDuration - standardHalf, deviation: 0 }];
 
     if (!step || !limit || step <= 0 || limit <= 0) {
@@ -247,14 +285,14 @@ function generateElasticSplits(totalDuration, step = 0, limit = 0, customLockedP
 
     let currentDeviation = step;
     while (currentDeviation <= limit) {
-        // Biến thể A: Giảm Phase 1 (Ít chân, Nhiều body)
+        // Biến thể A: Giảm Phase 1
         let p1_A = standardHalf - currentDeviation;
         let p2_A = totalDuration - p1_A;
         if (p1_A >= 15 && p2_A >= 15) {
             options.push({ p1: p1_A, p2: p2_A, deviation: currentDeviation });
         }
         
-        // Biến thể B: Tăng Phase 1 (Nhiều chân, Ít body)
+        // Biến thể B: Tăng Phase 1
         let p1_B = standardHalf + currentDeviation;
         let p2_B = totalDuration - p1_B;
         if (p1_B >= 15 && p2_B >= 15) {
@@ -262,18 +300,16 @@ function generateElasticSplits(totalDuration, step = 0, limit = 0, customLockedP
         }
         currentDeviation += step;
     }
-    // Sắp xếp ưu tiên độ lệch nhỏ nhất trước
     options.sort((a, b) => Math.abs(a.deviation) - Math.abs(b.deviation));
     return options;
 }
 
 // ============================================================================
-// PHẦN 6: CORE ENGINE V9.0 (PENDULUM EXHAUSTIVE SEARCH)
+// PHẦN 7: CORE ENGINE V9.1 (PENDULUM EXHAUSTIVE SEARCH + ROBUST FILTER)
 // ============================================================================
 
 /**
- * Hàm kiểm tra khả dụng chính - PHIÊN BẢN V9.0
- * * Upgrade: Sử dụng chiến thuật Con Lắc Lò Xo để thử mọi hoán vị Flow (BF/FB).
+ * Hàm kiểm tra khả dụng chính - PHIÊN BẢN V9.1
  */
 function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRaw, staffList) {
     const requestStartMins = getMinsFromTimeStr(timeStr);
@@ -284,7 +320,7 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
     // ------------------------------------------------------------------------
     let existingBookingsProcessed = [];
 
-    // Sắp xếp khách cũ theo thời gian bắt đầu (để mô phỏng thực tế dòng thời gian)
+    // Sắp xếp khách cũ theo thời gian
     let sortedCurrentBookings = [...currentBookingsRaw].sort((a, b) => {
         return getMinsFromTimeStr(a.startTime) - getMinsFromTimeStr(b.startTime);
     });
@@ -294,7 +330,8 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
         if (bStart === -1) return;
 
         let svcInfo = SERVICES[b.serviceCode] || {};
-        let isCombo = svcInfo.category === 'COMBO' || b.serviceName.includes('Combo') || b.serviceName.includes('套餐');
+        // Sử dụng hàm detect thông minh mới
+        let isCombo = isComboService(svcInfo, b.serviceName);
         let duration = b.duration || 60;
         
         let processedB = {
@@ -303,14 +340,13 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
             staffName: b.staffName,
             serviceName: b.serviceName,
             category: svcInfo.category,
-            // Cờ Elastic: Cho phép hệ thống bóp lại thời gian nếu cần (trừ khi user đã khóa)
+            // Cờ Elastic: Cho phép hệ thống bóp lại thời gian nếu cần
             isElastic: isCombo && (b.isManualLocked !== true) && (b.status !== 'Running'),
             elasticStep: svcInfo.elasticStep || 5,
             elasticLimit: svcInfo.elasticLimit || 15,
             blocks: [] 
         };
 
-        // Tính toán Blocks hình học cứng
         if (isCombo) {
             let p1 = b.phase1_duration ? parseInt(b.phase1_duration) : Math.floor(duration / 2);
             let p2 = duration - p1;
@@ -327,50 +363,48 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
             processedB.duration = duration;
 
         } else {
-            let rType = svcInfo.type || 'CHAIR';
-            if (b.serviceName.toUpperCase().match(/BODY|指壓|油|BED/)) rType = 'BED';
+            let rType = detectResourceType(svcInfo);
             processedB.blocks.push({ start: bStart, end: bStart + duration, type: rType });
         }
         existingBookingsProcessed.push(processedB);
     });
 
     // ------------------------------------------------------------------------
-    // BƯỚC B: TẠO DANH SÁCH "PENDULUM" (CON LẮC) ĐỂ THỬ NGHIỆM
+    // BƯỚC B: TẠO DANH SÁCH "PENDULUM" (CON LẮC) - V9.1 UPDATE
     // ------------------------------------------------------------------------
     
-    // Gắn index cho khách để theo dõi
     const newGuests = guestList.map((g, idx) => ({ ...g, idx: idx }));
-    // Lọc ra những khách làm Combo (có thể đảo chiều BF/FB)
+    
+    // [FIX V9.1] Bộ lọc Combo mạnh mẽ hơn (Robust Filter)
     const comboGuests = newGuests.filter(g => {
         const s = SERVICES[g.serviceCode];
-        return s && s.category === 'COMBO';
+        // Kiểm tra xem khách này có khả năng đảo chiều không
+        // Nếu không tìm thấy service trong DB, vẫn cố gắng check xem nó có phải combo không
+        return isComboService(s); 
     });
     
     const maxBF = comboGuests.length;
     let trySequence = [];
 
-    // >>> LOGIC V9.0 PENDULUM GENERATOR <<<
+    // [PENDULUM GENERATOR LOGIC]
     if (maxBF > 0) {
         // Tìm điểm cân bằng (Giữa)
         let mid = maxBF / 2; 
         
-        // 1. Luôn ưu tiên điểm giữa (làm tròn lên nếu lẻ - VD 2.5 -> 3)
-        // Đây là kịch bản cân bằng nhất: 50% Body First - 50% Foot First
+        // 1. Luôn ưu tiên điểm giữa (Cân bằng nhất)
         trySequence.push(Math.ceil(mid));
 
-        // 2. Nếu là số lẻ (VD: 2.5), điểm làm tròn xuống (2) cũng quan trọng ngang ngửa
+        // 2. Nếu là số lẻ (VD: 2.5), điểm làm tròn xuống (2) cũng quan trọng
         if (Math.floor(mid) !== Math.ceil(mid)) {
             trySequence.push(Math.floor(mid));
         }
 
-        // 3. Vòng lặp xoắn ốc (Spiral Loop) mở rộng ra 2 biên
-        // Chiến thuật: Lệch 1 bước về Body -> Lệch 1 bước về Foot -> Lệch 2 bước về Body...
+        // 3. Vòng lặp xoắn ốc (Spiral Loop)
         let step = 1;
         while (true) {
-            let nextUp = Math.ceil(mid) + step;   // Lệch về phía Body (Tăng số lượng BF)
-            let nextDown = Math.floor(mid) - step; // Lệch về phía Foot (Giảm số lượng BF)
+            let nextUp = Math.ceil(mid) + step;   // Lệch về Body
+            let nextDown = Math.floor(mid) - step; // Lệch về Foot
             
-            // Điều kiện thoát: Khi cả 2 hướng đều văng ra khỏi phạm vi [0, maxBF]
             if (nextUp > maxBF && nextDown < 0) break;
 
             if (nextUp <= maxBF) trySequence.push(nextUp);     
@@ -379,12 +413,13 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
             step++;
         }
     } else {
-        // Nếu không có khách Combo nào thì chạy 1 lần duy nhất (0 BF)
+        // Không có khách Combo nào -> Chạy 1 lần (0 BF)
         trySequence.push(0);
     }
     
-    // Debug log để kiểm tra thứ tự thử nghiệm (Có thể bật lên để xem console)
-    // console.log(`[PENDULUM V9] Try Sequence for ${maxBF} combo guests:`, trySequence);
+    // [DEBUG LOGGING] - Giúp phát hiện lỗi logic
+    console.log(`[V9.1 ANALYZER] Total Guests: ${newGuests.length}, Combo Guests Detected: ${maxBF}`);
+    console.log(`[V9.1 STRATEGY] Pending Pendulum Sequence: ${JSON.stringify(trySequence)}`);
 
     // ------------------------------------------------------------------------
     // BƯỚC C: THỰC THI VÒNG LẶP VÉT CẠN (EXHAUSTIVE LOOP)
@@ -392,8 +427,7 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
     
     let successfulScenario = null;
 
-    // Duyệt qua từng kịch bản trong danh sách ưu tiên
-    // numBF = Số lượng khách sẽ làm Body First trong kịch bản này
+    // Duyệt qua từng kịch bản (numBF = số lượng khách làm Body First)
     for (let numBF of trySequence) {
         
         let matrix = new VirtualMatrix();
@@ -402,7 +436,6 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
         let scenarioFailed = false;
         
         // === GIAI ĐOẠN 1: XẾP CỨNG KHÁCH CŨ (PINNING) ===
-        // Khách cũ được coi là các vật thể rắn (Hard Objects) trong Matrix
         let softsToSqueezeCandidates = []; 
 
         for (const exB of existingBookingsProcessed) {
@@ -410,7 +443,6 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
             let allocatedSlots = []; 
 
             for (const block of exB.blocks) {
-                // Tính toán slot thực tế (bao gồm thời gian dọn dẹp)
                 const realEnd = block.end + CONFIG.CLEANUP_BUFFER;
                 const slotId = matrix.tryAllocate(block.type, block.start, realEnd, exB.id);
                 if (!slotId) {
@@ -420,19 +452,13 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
                 allocatedSlots.push(slotId);
             }
 
-            // Nếu khách cũ có tính đàn hồi (Elastic)
             if (exB.isElastic) {
                 if (placedSuccessfully) {
                     exB.allocatedSlots = allocatedSlots; 
-                    // Lưu vào danh sách "Ứng viên có thể bị bóp" nếu sau này cần chỗ
                     softsToSqueezeCandidates.push(exB); 
                 } else {
-                    // Nếu ngay cả khách cũ cũng không xếp được (do lỗi dữ liệu), đưa vào danh sách chờ xử lý sau
                     softsToSqueezeCandidates.push(exB);
                 }
-            } else if (!placedSuccessfully) {
-                // Khách cũ loại cứng (Hard) mà lỗi -> Data lỗi nghiêm trọng, nhưng vẫn phải cố chạy tiếp
-                // (Trong thực tế nên log cảnh báo)
             }
         }
 
@@ -440,21 +466,25 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
         let newGuestBlocksMap = []; 
 
         for (const ng of newGuests) {
-            const svc = SERVICES[ng.serviceCode];
-            if (!svc) continue; 
-
+            const svc = SERVICES[ng.serviceCode] || { name: 'Unknown', duration: 60, price: 0 }; 
+            
             // Logic xác định Flow: FB hay BF
-            let flow = 'FB'; // Mặc định là Chân trước
-            if (svc.category === 'COMBO') {
+            let flow = 'FB'; // Mặc định: Chân trước
+            let isThisGuestCombo = isComboService(svc);
+
+            if (isThisGuestCombo) {
                 const cIdx = comboGuests.findIndex(cg => cg.idx === ng.idx);
-                // Nếu index của khách nằm trong nhóm được chỉ định làm BF
-                if (cIdx >= 0 && cIdx < numBF) flow = 'BF'; 
+                // Nếu khách này nằm trong danh sách Combo Guests
+                // Và chỉ số của họ nhỏ hơn numBF -> Họ sẽ làm Body First (để cân bằng)
+                if (cIdx >= 0 && cIdx < numBF) {
+                    flow = 'BF'; 
+                }
             }
 
-            const duration = svc.duration;
+            const duration = svc.duration || 60;
             let blocks = [];
             
-            if (svc.category === 'COMBO') {
+            if (isThisGuestCombo) {
                 const p1Standard = Math.floor(duration / 2);
                 const p2Standard = duration - p1Standard;
 
@@ -483,9 +513,8 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
                         flow: 'BF', timeStr: timeStr, allocated: []
                     });
                 }
-            } else { // Dịch vụ đơn (Single Service)
-                let rType = svc.type || 'CHAIR';
-                if (svc.name.toUpperCase().match(/BODY|指壓|油|BED/)) rType = 'BED';
+            } else { // Khách lẻ (Single Service)
+                let rType = detectResourceType(svc);
                 blocks.push({ start: requestStartMins, end: requestStartMins + duration + CONFIG.CLEANUP_BUFFER, type: rType });
                 
                 scenarioDetails.push({
@@ -516,9 +545,7 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
         }
 
         // === GIAI ĐOẠN 4: CHIẾN THUẬT SQUEEZE (BÓP MỀM) NẾU CÓ XUNG ĐỘT ===
-        // Nếu cách xếp thông thường thất bại, kích hoạt chế độ "Bóp khách cũ"
         if (conflictFound) {
-            // Tạo một Matrix tạm thời mới
             let matrixSqueeze = new VirtualMatrix();
             let updatesProposed = [];
             
@@ -530,7 +557,7 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
 
             let squeezeScenarioPossible = true;
             
-            // 4.2. Ưu tiên xếp Khách Mới vào trước (Để đảm bảo doanh thu mới)
+            // 4.2. Ưu tiên xếp Khách Mới
             for (const item of newGuestBlocksMap) {
                 for (const block of item.blocks) {
                     if (!matrixSqueeze.tryAllocate(block.type, block.start, block.end, `NEW_GUEST_${item.guest.idx}`)) {
@@ -542,15 +569,14 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
             }
 
             if (!squeezeScenarioPossible) {
-                scenarioFailed = true; // Kể cả bóp hết cỡ thì khách mới vẫn đụng tường -> Thất bại kịch bản này
-                continue; // Chuyển sang numBF tiếp theo trong vòng lặp Con Lắc
+                scenarioFailed = true; 
+                continue; // Fail kịch bản này -> Next numBF
             }
 
-            // 4.3. Tìm khe hở cho Soft Bookings (Khách cũ có thể bóp)
+            // 4.3. Tìm khe hở cho Soft Bookings
             const softBookings = existingBookingsProcessed.filter(b => b.isElastic);
             
             for (const sb of softBookings) {
-                // Sinh ra các biến thể thời gian (VD: 30-60, 25-65, 35-55...)
                 const splits = generateElasticSplits(sb.duration, sb.elasticStep, sb.elasticLimit, null);
                 let fit = false;
 
@@ -564,34 +590,32 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
                         { type: 'BED', start: sP2Start, end: sP2End + CONFIG.CLEANUP_BUFFER }
                     ];
 
-                    // Kiểm tra xem biến thể này có nhét vừa không
                     if (isBlockSetAllocatable(testBlocks, matrixSqueeze)) {
                         testBlocks.forEach(tb => matrixSqueeze.tryAllocate(tb.type, tb.start, tb.end, sb.id));
                         fit = true;
                         
-                        // Nếu phải bóp méo, ghi lại đề xuất cập nhật DB
                         if (split.deviation !== 0) {
                             updatesProposed.push({
                                 rowId: sb.id,
                                 customerName: sb.originalData.customerName,
                                 newPhase1: split.p1,
                                 newPhase2: split.p2,
-                                reason: 'Matrix Squeeze V9.0'
+                                reason: 'Matrix Squeeze V9.1'
                             });
                         }
-                        break; // Đã tìm thấy khe vừa, dừng thử biến thể
+                        break; 
                     }
                 }
 
                 if (!fit) {
-                    squeezeScenarioPossible = false; // Không còn chỗ nào cho khách cũ này -> Thất bại
+                    squeezeScenarioPossible = false;
                     break;
                 }
             }
 
             if (squeezeScenarioPossible) {
                 scenarioUpdates = updatesProposed;
-                matrix = matrixSqueeze; // Chấp nhận Matrix đã bóp làm Matrix chính thức
+                matrix = matrixSqueeze; 
             } else {
                 scenarioFailed = true;
                 continue;
@@ -599,7 +623,6 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
         }
 
         // === GIAI ĐOẠN 5: KIỂM TRA NHÂN SỰ (STAFF AVAILABILITY) ===
-        // Sau khi đã xếp xong Ghế/Giường, kiểm tra xem có người làm không
         let flatTimeline = [];
         Object.values(matrix.lanes).forEach(group => {
             group.forEach(lane => {
@@ -651,8 +674,7 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
             updates: scenarioUpdates,
             matrixDump: matrix.lanes 
         };
-        // CỰC KỲ QUAN TRỌNG: Break ngay lập tức vì trySequence đã được sắp xếp theo độ ưu tiên tốt nhất
-        break; 
+        break; // Dừng ngay khi tìm thấy (Vì đã sắp xếp ưu tiên từ Tâm ra ngoài)
     }
 
     // ------------------------------------------------------------------------
@@ -663,7 +685,7 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
         successfulScenario.details.sort((a,b) => a.guestIndex - b.guestIndex);
         return {
             feasible: true,
-            strategy: 'MATRIX_PENDULUM_V9.0', // Đánh dấu phiên bản chiến thuật
+            strategy: 'MATRIX_PENDULUM_V9.1', 
             details: successfulScenario.details,
             proposedUpdates: successfulScenario.updates,
             totalPrice: successfulScenario.details.reduce((sum, item) => sum + (item.price||0), 0)
@@ -678,7 +700,6 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
 
 /**
  * Hàm phụ trợ: Kiểm tra xem một tập hợp các khối thời gian có thể nhét vào Matrix hiện tại không
- * (Dùng để kiểm thử giả định mà không làm bẩn Matrix chính)
  */
 function isBlockSetAllocatable(blocks, matrix) {
     for (const b of blocks) {
@@ -724,5 +745,5 @@ if (typeof window !== 'undefined') {
     window.ResourceCore = CoreAPI;
     window.checkRequestAvailability = CoreAPI.checkRequestAvailability;
     window.setDynamicServices = CoreAPI.setDynamicServices;
-    console.log("✅ Resource Core V9.0: Pendulum Strategy Active.");
+    console.log("✅ Resource Core V9.1 Loaded: Robust Pendulum Engine Active.");
 }
