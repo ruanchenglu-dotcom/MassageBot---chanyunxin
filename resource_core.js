@@ -2,25 +2,24 @@
  * =================================================================================================
  * PROJECT: XINWUCHAN MASSAGE BOT - CORE LOGIC KERNEL
  * FILE: resource_core.js
- * PHIÊN BẢN: V101.2 (VISUAL-LOGIC SYNC & GROUP FOLDING)
+ * PHIÊN BẢN: V102.0 (COUPLE SYNC STRATEGY & VISUAL PARITY)
  * TÁC GIẢ: AI ASSISTANT & USER
  * NGÀY CẬP NHẬT: 2026/01/14
  *
- * * * * * CHANGE LOG V101.2 (THE "VISUAL SYNC" UPDATE):
- * 1. [NEW] PRE-PROCESSING GROUP FOLDING (Tiền xử lý Gập nhóm):
- * - Vấn đề (V101.1): Core đọc RowID tuyến tính (1,2,3,4,5,6) -> Chiếm 6 Slot. Timeline vẽ gập (1,2,3 chồng 4,5,6) -> Chiếm 3 Slot.
- * Dẫn đến Core báo đầy trong khi mắt thường thấy Timeline còn trống.
- * - Giải pháp: Trước khi nạp vào Matrix, Core sẽ gom các booking thành nhóm (dựa trên SĐT/Tên + Giờ).
- * Áp dụng thuật toán Modulo ((Index % HalfSize) + 1) để tính lại "Virtual Anchor Index".
- * Ví dụ: Khách thứ 4 trong nhóm 6 người sẽ được ép vào Slot 1 (thay vì Slot 4).
+ * * * * * CHANGE LOG V102.0 (THE "COUPLE SYNC" UPDATE) * * * * *
+ * 1. [FEATURE] COUPLE SYNC PRIORITIZATION (Ưu tiên cặp đôi):
+ * - Logic cũ (V101.3): Luôn chia tách nhóm 2 người (1 BF, 1 FB) để cân bằng Matrix.
+ * - Logic mới (V102.0): Nếu phát hiện nhóm 2 khách Combo:
+ * + Ưu tiên 1: Thử xếp cả 2 cùng là FB (Foot First) -> Để nằm cạnh nhau lúc làm chân.
+ * + Ưu tiên 2: Thử xếp cả 2 cùng là BF (Body First) -> Để nằm cạnh nhau lúc làm Body.
+ * + Ưu tiên 3: Mới dùng logic chia tách (Split) nếu không còn đủ cặp slot.
  *
- * 2. [ENHANCED] STATUS AWARENESS:
- * - Phân biệt rõ ràng giữa khách Đang chạy (Running) và Khách đặt trước (Reserved).
- * - Khách Running: Tôn trọng tuyệt đối vị trí vật lý hiện tại.
- * - Khách Reserved: Áp dụng logic Folding để tối ưu hóa dự báo.
+ * 2. [SYNC] ENHANCED MATRIX LOOK-AHEAD:
+ * - Đồng bộ phương thức `countFreeSlots` từ BookingHandler.
+ * - Cải thiện logic tính `preferredIdx` để tránh chồng slot khi chạy chế độ Sync.
  *
- * 3. [PRESERVED] STRICT INHERITANCE:
- * - Vẫn giữ cơ chế khóa slot (forcedIndex) để ngăn chặn hiện tượng trôi lịch lung tung.
+ * 3. [PRESERVED] CORE STABILITY:
+ * - Giữ nguyên toàn bộ logic Squeeze (Bóp mềm), Elastic (Co giãn), và Manual Lock.
  * =================================================================================================
  */
 
@@ -63,7 +62,7 @@ function setDynamicServices(newServicesObj) {
         'LATE': { name: '⚠️ 延遲 (Late)', duration: 0, type: 'NONE', price: 0, category: 'SYSTEM' }
     };
     SERVICES = { ...newServicesObj, ...systemServices };
-    console.log(`[CORE V101.2] Services Synced. Total: ${Object.keys(SERVICES).length} items loaded.`);
+    console.log(`[CORE V102.0] Services Synced. Total: ${Object.keys(SERVICES).length} items loaded.`);
 }
 
 // ============================================================================
@@ -183,7 +182,7 @@ function detectResourceType(serviceObj) {
 }
 
 // ============================================================================
-// PHẦN 4: MATRIX ENGINE V101.2
+// PHẦN 4: MATRIX ENGINE V102.0
 // ============================================================================
 
 class VirtualMatrix {
@@ -208,6 +207,20 @@ class VirtualMatrix {
     }
 
     /**
+     * [V102.0 UPDATED] Đếm số lượng slot trống của một loại trong khoảng thời gian.
+     * Hỗ trợ cho việc đánh giá nhanh khả năng chứa của Matrix.
+     */
+    countFreeSlots(type, start, end) {
+        const resourceGroup = this.lanes[type];
+        if (!resourceGroup) return 0;
+        let count = 0;
+        for (let lane of resourceGroup) {
+            if (this.checkLaneFree(lane, start, end)) count++;
+        }
+        return count;
+    }
+
+    /**
      * Helper: Thực hiện đặt chỗ vào làn
      */
     allocateToLane(lane, start, end, ownerId) {
@@ -218,7 +231,7 @@ class VirtualMatrix {
     }
 
     /**
-     * [V101.1/V101.2 UPDATED] Try Allocate with Preferred Index
+     * [V102.0 UPDATED] Try Allocate with Preferred Index
      * Hàm này đóng vai trò quyết định trong việc xếp chỗ.
      * @param {string} type - 'BED' hoặc 'CHAIR'
      * @param {number} start - Phút bắt đầu
@@ -335,11 +348,15 @@ function generateElasticSplits(totalDuration, step = 0, limit = 0, customLockedP
 }
 
 // ============================================================================
-// PHẦN 7: CORE ENGINE V101.2 (VISUAL SYNC FIX)
+// PHẦN 7: CORE ENGINE V102.0 (COUPLE SYNC ENABLED)
 // ============================================================================
 
 /**
- * HÀM KIỂM TRA KHẢ DỤNG CHÍNH - PHIÊN BẢN V101.2
+ * HÀM KIỂM TRA KHẢ DỤNG CHÍNH - PHIÊN BẢN V102.0
+ * Tích hợp: 
+ * - Group Folding (Gom nhóm hiển thị)
+ * - Modulo Wrapping (Cuộn chỉ số slot ảo)
+ * - Couple Sync Strategy (Ưu tiên đi cùng nhau cho cặp đôi)
  */
 function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRaw, staffList) {
     const requestStartMins = getMinsFromTimeStr(timeStr);
@@ -372,7 +389,7 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
         bookingGroups[groupKey].push(b);
     });
 
-    // 3. Remapping (Tính toán lại Index cho từng booking trong nhóm)
+    // 3. Remapping (Tính toán lại Index và Flow cho từng booking trong nhóm)
     let remappedBookings = [];
     Object.values(bookingGroups).forEach(group => {
         // Sort lại theo rowId để đảm bảo thứ tự 1, 2, 3...
@@ -382,18 +399,30 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
         const halfSize = Math.ceil(groupSize / 2);
 
         group.forEach((b, idx) => {
+            // Mặc định reset các tag ảo
+            b._virtualInheritanceIndex = null;
+            b._impliedFlow = null;
+
             // [LOGIC FOLDING]: Chỉ áp dụng cho booking Tương lai (Reserved)
-            // Nếu booking đang Running, ta tôn trọng vị trí vật lý của nó (không can thiệp)
             if (b.status !== 'Running') {
+                // --- 1. MODULO WRAPPING (Tính Slot Ảo) ---
                 let virtualIndex = null;
-                // Nếu nhóm >= 4 người, áp dụng Modulo Wrapping (như Timeline)
-                if (groupSize >= 4) {
+                if (groupSize >= 2) {
                     virtualIndex = (idx % halfSize) + 1;
                 } else {
-                    // Nhóm nhỏ thì cứ xếp lần lượt 1, 2, 3
-                    virtualIndex = idx + 1;
+                    virtualIndex = idx + 1; // Nhóm 1 người thì cứ Slot 1
                 }
-                b._virtualInheritanceIndex = virtualIndex; // Gắn tag ảo vào booking
+                b._virtualInheritanceIndex = virtualIndex; 
+
+                // --- 2. PENDULUM FLOW DISTRIBUTION (Tự động chia bài) ---
+                // Chỉ định ngầm Flow để booking cũ được xếp vào đúng chỗ như trên UI
+                if (groupSize >= 2) {
+                    if (idx < halfSize) {
+                        b._impliedFlow = 'BF'; // Nửa đầu làm Body trước
+                    } else {
+                        b._impliedFlow = 'FB'; // Nửa sau làm Foot trước
+                    }
+                }
             }
             remappedBookings.push(b);
         });
@@ -412,7 +441,7 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
         let isCombo = isComboService(svcInfo, b.serviceName);
         let duration = b.duration || 60;
         
-        // [V101.2 LOGIC] XÁC ĐỊNH ANCHOR INDEX (VỊ TRÍ NEO)
+        // [V102.0 LOGIC] XÁC ĐỊNH ANCHOR INDEX (VỊ TRÍ NEO)
         let anchorIndex = null;
         
         // Ưu tiên 1: Nếu booking đang chạy (Running), TUYỆT ĐỐI TUÂN THỦ allocated_resource
@@ -458,15 +487,21 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
             const p1End = bStart + p1;
             const p2Start = p1End + CONFIG.TRANSITION_BUFFER;
             
-            // LOGIC FLOW
+            // LOGIC FLOW (HIERARCHY V102.0)
             let isBodyFirst = false;
             const noteContent = (b.note || b.ghiChu || b.originalData?.ghiChu || "").toString().toUpperCase();
             
+            // Priority 1: Manual Note (Tag tường minh)
             if (b.flow === 'BF' || noteContent.includes('BF') || noteContent.includes('BODY FIRST') || noteContent.includes('先做身體') || noteContent.includes('先身')) {
                 isBodyFirst = true;
             }
+            // Priority 2: Running Status (Vị trí vật lý)
             else if (b.status === 'Running' && b.allocated_resource && (b.allocated_resource.includes('BED') || b.allocated_resource.includes('BODY'))) {
                 isBodyFirst = true; 
+            }
+            // Priority 3: Implied Flow (Tự động chia bài)
+            else if (b._impliedFlow === 'BF') {
+                isBodyFirst = true;
             }
 
             // Gán forcedIndex (Strict Inheritance)
@@ -489,18 +524,27 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
     });
 
     // ------------------------------------------------------------------------
-    // BƯỚC C: PHÂN PHỐI FLOW CHO KHÁCH MỚI (PENDULUM)
+    // BƯỚC C: TẠO KỊCH BẢN CHO KHÁCH MỚI (V102.0 COUPLE STRATEGY)
     // ------------------------------------------------------------------------
     const newGuests = guestList.map((g, idx) => ({ ...g, idx: idx }));
     const comboGuests = newGuests.filter(g => { const s = SERVICES[g.serviceCode]; return isComboService(s, g.serviceCode); });
     
     // Half Size cho nhóm khách mới
-    const halfSize = Math.ceil(comboGuests.length / 2);
-
+    const newGuestHalfSize = Math.ceil(comboGuests.length / 2);
     const maxBF = comboGuests.length;
+
+    // [V102.0] SMART SEQUENCE GENERATION
+    // Xác định thứ tự ưu tiên thử nghiệm Flow (Sync vs Split)
     let trySequence = [];
 
-    if (maxBF > 0) {
+    if (maxBF === 2) {
+        // CHIẾN THUẬT CẶP ĐÔI: Ưu tiên SYNC (0 hoặc 2) trước khi thử SPLIT (1)
+        // 0: Cả 2 đều FB (Foot First) -> Ưu tiên cao nhất
+        // 2: Cả 2 đều BF (Body First) -> Ưu tiên nhì
+        // 1: Tách ra (Split) -> Ưu tiên cuối
+        trySequence = [0, 2, 1]; 
+    } else if (maxBF > 0) {
+        // Nhóm khác: Dùng chiến thuật con lắc (Pendulum) cân bằng
         let mid = maxBF / 2; 
         trySequence.push(Math.ceil(mid));
         if (Math.floor(mid) !== Math.ceil(mid)) trySequence.push(Math.floor(mid));
@@ -564,6 +608,7 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
             let isThisGuestCombo = isComboService(svc, ng.serviceCode);
 
             if (isThisGuestCombo) {
+                // Logic chia bài: numBF quy định số lượng khách làm BF trong Scenario này
                 const cIdx = comboGuests.findIndex(cg => cg.idx === ng.idx);
                 if (cIdx >= 0 && cIdx < numBF) { flow = 'BF'; }
             }
@@ -601,10 +646,19 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
         
         for (const item of newGuestBlocksMap) {
             let guestAllocations = [];
-            // Tính toán Preferred Index cho khách mới (tương tự như khách cũ)
+            // Tính toán Preferred Index cho khách mới
             let preferredIdx = null;
-            if (halfSize > 0) {
-                preferredIdx = (item.guest.idx % halfSize) + 1;
+            if (newGuestHalfSize > 0 && newGuests.length >= 2) {
+                preferredIdx = (item.guest.idx % newGuestHalfSize) + 1;
+                
+                // [V102.0 COUPLE SYNC FIX]
+                // Nếu đang chạy chế độ SYNC (Cùng flow), ta muốn khách nằm cạnh nhau (1, 2)
+                // chứ không phải chồng lên nhau (1, 1).
+                // numBF = 0 (All FB) hoặc numBF = max (All BF) => SYNC MODE
+                if (maxBF === 2 && (numBF === 0 || numBF === 2)) {
+                    // Sync Mode: Xếp tuyến tính (1, 2)
+                    preferredIdx = item.guest.idx + 1;
+                }
             }
 
             for (const block of item.blocks) {
@@ -636,7 +690,12 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
             
             // Check New Guests first in Squeeze matrix
             for (const item of newGuestBlocksMap) {
-                let preferredIdxSqueeze = (halfSize > 0) ? (item.guest.idx % halfSize) + 1 : null;
+                let preferredIdxSqueeze = null;
+                if (newGuestHalfSize > 0 && newGuests.length >= 2) {
+                    preferredIdxSqueeze = (item.guest.idx % newGuestHalfSize) + 1;
+                    if (maxBF === 2 && (numBF === 0 || numBF === 2)) preferredIdxSqueeze = item.guest.idx + 1;
+                }
+
                 for (const block of item.blocks) {
                     if (!matrixSqueeze.tryAllocate(block.type, block.start, block.end, `NEW_GUEST_${item.guest.idx}`, preferredIdxSqueeze)) {
                         squeezeScenarioPossible = false; break;
@@ -666,7 +725,7 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
                         testBlocks.forEach(tb => matrixSqueeze.tryAllocate(tb.type, tb.start, tb.end, sb.id, tb.forcedIndex));
                         fit = true;
                         if (split.deviation !== 0) {
-                            updatesProposed.push({ rowId: sb.id, customerName: sb.originalData.customerName, newPhase1: split.p1, newPhase2: split.p2, reason: 'Matrix Squeeze V101.2' });
+                            updatesProposed.push({ rowId: sb.id, customerName: sb.originalData.customerName, newPhase1: split.p1, newPhase2: split.p2, reason: 'Matrix Squeeze V102.0' });
                         }
                         break; 
                     }
@@ -711,7 +770,7 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
         successfulScenario.details.sort((a,b) => a.guestIndex - b.guestIndex);
         return {
             feasible: true, 
-            strategy: 'MATRIX_PENDULUM_V101.2_SYNC', 
+            strategy: 'MATRIX_COUPLE_SYNC_V102.0', 
             details: successfulScenario.details,
             proposedUpdates: successfulScenario.updates,
             totalPrice: successfulScenario.details.reduce((sum, item) => sum + (item.price||0), 0)
@@ -777,5 +836,5 @@ if (typeof window !== 'undefined') {
     window.ResourceCore = CoreAPI;
     window.checkRequestAvailability = CoreAPI.checkRequestAvailability;
     window.setDynamicServices = CoreAPI.setDynamicServices;
-    console.log("✅ Resource Core V101.2 Loaded: Visual-Logic Sync Fix.");
+    console.log("✅ Resource Core V102.0 Loaded: Full Logic Sync with Couple Strategy.");
 }

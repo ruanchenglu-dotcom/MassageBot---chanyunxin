@@ -1,16 +1,19 @@
 // TYPE: app.js
-// VERSION: V100.0 (COMPACT INTERLEAVING - LOGIC TIẾT KIỆM TÀI NGUYÊN)
-// UPDATE: 2026-01-13
+// VERSION: V101.0 (COUPLE SYNC & MODULO WRAPPING)
+// UPDATE: 2026-01-14
 // AUTHOR: AI ASSISTANT & USER
 //
-// --- CHANGE LOG V100.0 ---
-// 1. [OPTIMIZATION] LOGIC XẾP SLOT THÔNG MINH (COMPACT PLACEMENT):
-//    - Vấn đề cũ (V99.9): Nhóm 6 người (3FB + 3BF) bị xếp dàn trải ra 6 Ghế + 6 Giường. Gây lãng phí tài nguyên, chặn khách lẻ.
-//    - Giải pháp mới: Áp dụng thuật toán "Modulo Wrapping" (Cuốn chiếu).
-//      + Nửa nhóm đầu (K1-K3) -> Ưu tiên Slot 1, 2, 3.
-//      + Nửa nhóm sau (K4-K6) -> Quay vòng lại ưu tiên Slot 1, 2, 3.
-//      + Kết quả: K1 (làm chân Ghế 1) và K4 (làm body Giường 1) sẽ đổi chỗ cho nhau ở Phase 2.
-//      + Tổng tài nguyên tiêu tốn: Chỉ 3 Ghế + 3 Giường cho cả nhóm 6 người.
+// --- CHANGE LOG V101.0 ---
+// 1. [FEATURE] CHIẾN THUẬT CẶP ĐÔI (COUPLE STRATEGY):
+//    - Vấn đề cũ: Nhóm 2 người luôn bị thuật toán Pendulum chia đôi (1 Body First, 1 Foot First) để cân bằng tải, 
+//      dẫn đến trải nghiệm khách hàng không tốt (muốn làm cùng nhau).
+//    - Giải pháp mới: Thêm lớp logic "Look-Ahead" cho nhóm đúng 2 người.
+//      + Kiểm tra nếu có đủ 2 Ghế & 2 Giường -> Ép cả 2 cùng làm Foot First (FB).
+//      + Nếu không, kiểm tra ngược lại -> Ép cả 2 cùng làm Body First (BF).
+//      + Chỉ khi quán quá đông (không đủ cặp slot) mới dùng logic chia tách cũ.
+//
+// 2. [CORE] GIỮ NGUYÊN MODULO WRAPPING CHO NHÓM LỚN:
+//    - Với nhóm > 2 người, vẫn dùng thuật toán cuốn chiếu (Slot 1,2,3 xoay vòng) để tối ưu tài nguyên.
 
 const { useState, useEffect, useMemo, useRef } = React;
 
@@ -24,6 +27,29 @@ const MatrixHelper = {
     // Kiểm tra va chạm thời gian giữa 2 khoảng [startA, endA] và [startB, endB]
     isOverlap: (startA, endA, startB, endB) => {
         return (startA < endB) && (startB < endA);
+    },
+
+    // Hàm đếm số lượng tài nguyên trống trong khoảng thời gian (Dùng cho Couple Strategy)
+    countAvailableResources: (type, start, end, gridState, reservedTimes) => {
+        let count = 0;
+        for (let i = 1; i <= 6; i++) {
+            const id = `${type}-${i}`;
+            // Check 1: Va chạm với đơn ĐANG CHẠY (Hard Reservation)
+            if (reservedTimes[id] && start < reservedTimes[id]) continue;
+            
+            // Check 2: Va chạm với đơn DỰ KIẾN (Ghost Blocks / Planned)
+            let isClash = false;
+            if (gridState[id]) {
+                for (const slot of gridState[id]) {
+                    if (MatrixHelper.isOverlap(start, end, slot.start, slot.end)) {
+                        isClash = true;
+                        break;
+                    }
+                }
+            }
+            if (!isClash) count++;
+        }
+        return count;
     },
 
     // Hàm tìm slot trống thông minh (First-Fit Strategy)
@@ -460,17 +486,55 @@ const App = () => {
                 }
             });
 
-            // --- ALLOCATE COMBOS (V100.0 UPDATED - MODULO WRAPPING) ---
+            // --- ALLOCATE COMBOS (V101.0 UPDATED - COUPLE SYNC & MODULO WRAPPING) ---
             listCombosGroups.forEach(group => {
-                const b = group[0]; 
-                const originalStart = window.normalizeToTimelineMins(b.startTimeString.split(' ')[1]);
+                const firstBooking = group[0]; 
+                const originalStart = window.normalizeToTimelineMins(firstBooking.startTimeString.split(' ')[1]);
                 const groupSize = group.length;
                 
-                // Tính toán điểm gãy (Split point) để chia nhóm
-                const idealNumBF = Math.ceil(groupSize / 2);
-                const halfSize = Math.ceil(groupSize / 2); // Kích thước của 1 nửa nhóm
+                // --- V101.0: COUPLE STRATEGY "DECISION PHASE" (QUYẾT ĐỊNH CHO NHÓM 2 NGƯỜI) ---
+                let coupleStrategyOverride = null; // 'FB' | 'BF' | null
 
-                // Group loop: Idx chạy từ 0 -> groupSize - 1
+                if (groupSize === 2) {
+                    // Tính toán nhanh Phase duration của booking đầu tiên để ướm thử
+                    const cDur = firstBooking.duration || 100;
+                    const cSplit = window.getComboSplit(cDur, true, 'FB', firstBooking.phase1_duration);
+                    
+                    // Giả lập thử khung giờ gốc (hoặc trễ tối đa 20 phút)
+                    const scanLimit = 3; // Chỉ check nhanh 3 mốc thời gian đầu tiên để quyết định chiến thuật
+                    const scanOffsets = [0, 10, 20];
+
+                    for (let delay of scanOffsets) {
+                        const tStart = originalStart + delay;
+                        const tP1End = tStart + cSplit.phase1;
+                        const tP2Start = tP1End + 5;
+                        const tP2End = tP2Start + cSplit.phase2;
+
+                        // 1. Thử Sync FB (Cả 2 cùng làm ghế)
+                        const freeChairsP1 = MatrixHelper.countAvailableResources('chair', tStart, tP1End, timelineGrid, activeEndTimes);
+                        const freeBedsP2 = MatrixHelper.countAvailableResources('bed', tP2Start, tP2End, timelineGrid, activeEndTimes);
+                        
+                        if (freeChairsP1 >= 2 && freeBedsP2 >= 2) {
+                            coupleStrategyOverride = 'FB';
+                            break; // Tìm thấy chiến thuật khả thi, chốt luôn!
+                        }
+
+                        // 2. Thử Sync BF (Cả 2 cùng làm giường - Fallback nếu ghế hết)
+                        const freeBedsP1 = MatrixHelper.countAvailableResources('bed', tStart, tP1End, timelineGrid, activeEndTimes);
+                        const freeChairsP2 = MatrixHelper.countAvailableResources('chair', tP2Start, tP2End, timelineGrid, activeEndTimes);
+
+                        if (freeBedsP1 >= 2 && freeChairsP2 >= 2) {
+                            coupleStrategyOverride = 'BF';
+                            break;
+                        }
+                    }
+                    // Nếu không tìm thấy Sync, coupleStrategyOverride sẽ là null -> Rơi vào logic Pendulum (Split)
+                }
+
+                // --- GROUP EXECUTION PHASE (THỰC THI XẾP CHỖ) ---
+                const idealNumBF = Math.ceil(groupSize / 2);
+                const halfSize = Math.ceil(groupSize / 2);
+
                 group.forEach((bookingItem, idx) => {
                     const rawNote = bookingItem.originalNote || "";
                     
@@ -486,19 +550,26 @@ const App = () => {
                         if (hasKTags) {
                             preferredSeq = null;
                         } else {
-                            if (groupSize <= 2) {
-                                preferredSeq = bookingItem.flow;
+                            if (groupSize === 2) {
+                                // [V101.0] ÁP DỤNG CHIẾN THUẬT CẶP ĐÔI
+                                if (coupleStrategyOverride) {
+                                    preferredSeq = coupleStrategyOverride; // Cả 2 cùng là FB hoặc BF
+                                } else {
+                                    // Fallback: Nếu không thể đi cùng, dùng Pendulum cũ
+                                    // 0 -> BF, 1 -> FB (Tách ra để nhét vào lỗ trống)
+                                    if (idx < idealNumBF) preferredSeq = 'BF';
+                                    else preferredSeq = 'FB';
+                                }
                             } else {
-                                preferredSeq = null;
+                                // Nhóm > 2 hoặc = 1: Dùng Pendulum chuẩn để cân bằng tải
+                                if (groupSize > 2) {
+                                     if (idx < idealNumBF) preferredSeq = 'BF';
+                                     else preferredSeq = 'FB';
+                                } else {
+                                    preferredSeq = bookingItem.flow; // Mặc định từ DB cho khách lẻ
+                                }
                             }
                         }
-                    }
-
-                    // --- 3. PRIORITY LEVEL 3: PENDULUM (AUTO BALANCING) ---
-                    // Chia bài tự động
-                    if (!preferredSeq) {
-                        if (idx < idealNumBF) preferredSeq = 'BF';
-                        else preferredSeq = 'FB';
                     }
                     
                     // --- Bắt đầu tìm slot dựa trên Sequence đã quyết định ---
@@ -508,6 +579,7 @@ const App = () => {
                         let tryStart = originalStart + delay;
                         const customPhase1 = bookingItem.phase1_duration;
 
+                        // Hàm thử một Sequence cụ thể
                         const trySequence = (seq) => {
                             const split = window.getComboSplit(bookingItem.duration, true, seq, customPhase1);
                             
@@ -518,19 +590,27 @@ const App = () => {
                             const type1 = seq === 'FB' ? 'chair' : 'bed';
                             const type2 = seq === 'FB' ? 'bed' : 'chair';
                             
-                            // [V100.0 CRITICAL LOGIC CHANGE]
-                            // Thay vì preferredSlotIndex = idx + 1 (Tuyến tính) -> Gây lãng phí
-                            // Sử dụng MODULO để "cuộn" nhóm lại.
-                            // VD nhóm 6 người: 0,1,2 -> Slot 1,2,3. 3,4,5 -> Quay lại Slot 1,2,3.
-                            // Điều này tận dụng việc K1 và K4 đổi chỗ cho nhau.
+                            // [V101.0 LOGIC INDEXING]
+                            // 1. Nhóm 2 người (Couple): 
+                            //    - Nếu Sync (cùng Flow): Guest 1 -> Index 1, Guest 2 -> Index 2 (để xếp cạnh nhau 1-2, 3-4...)
+                            //    - Nếu Split: Guest 1 -> Index 1, Guest 2 -> Index 1 (để tận dụng chéo Bed 1/Chair 1)
+                            // 2. Nhóm Lớn (>2): Dùng Modulo Wrapping.
                             
                             let preferredSlotIndex;
-                            if (groupSize >= 4) {
-                                // Nếu nhóm đông (>= 4), áp dụng Modulo Wrapping
+                            if (groupSize === 2) {
+                                if (coupleStrategyOverride) {
+                                    // Sync Mode: Xếp so le index (0->1, 1->2) để nằm cạnh nhau
+                                    preferredSlotIndex = idx + 1;
+                                } else {
+                                    // Split Mode: Cả 2 cùng ưu tiên slot 1 (để tận dụng chéo cánh)
+                                    preferredSlotIndex = 1; 
+                                }
+                            } else if (groupSize >= 4) {
+                                // Modulo Wrapping cho nhóm lớn
                                 const normalizedIdx = idx % halfSize;
                                 preferredSlotIndex = normalizedIdx + 1;
                             } else {
-                                // Nếu nhóm nhỏ (2-3 người), cứ xếp bình thường để dễ nhìn
+                                // Nhóm 3 người hoặc lẻ: Tuyến tính
                                 preferredSlotIndex = idx + 1;
                             }
 
@@ -546,8 +626,18 @@ const App = () => {
                             return false;
                         };
 
-                        if (trySequence(preferredSeq)) {
-                            break; 
+                        // Logic thử sequence
+                        if (preferredSeq) {
+                            // Nếu đã có chỉ thị cứng (từ Note hoặc Couple Strategy) -> Chỉ thử 1 loại
+                            if (trySequence(preferredSeq)) break;
+                        } else {
+                            // Nếu chưa có, ưu tiên 'BF' trước cho nửa đầu nhóm, 'FB' cho nửa sau (Pendulum Default)
+                            // Nhưng nếu fail thì thử ngược lại
+                            const primary = (idx < idealNumBF) ? 'BF' : 'FB';
+                            const secondary = (primary === 'BF') ? 'FB' : 'BF';
+                            
+                            if (trySequence(primary)) break;
+                            if (trySequence(secondary)) break;
                         }
                     }
                 });
@@ -953,7 +1043,7 @@ const App = () => {
             <header className={`text-white p-3 shadow-md flex justify-between items-center sticky top-0 z-50 transition-colors ${quotaError ? 'bg-red-800' : 'bg-[#1e1b4b]'}`}>
                 {/* Header Content */}
                 <div className="flex items-center gap-3">
-                    <span className="bg-amber-500 text-black px-2 py-1 rounded font-black text-sm">V100.0</span>
+                    <span className="bg-amber-500 text-black px-2 py-1 rounded font-black text-sm">V101.0</span>
                     <span className="font-bold hidden md:inline">XinWuChan</span>
                     <div className="flex items-center gap-2 bg-white/10 rounded px-2 py-1 border border-white/20">
                         <button onClick={()=>{const d=new Date(viewDate); d.setDate(d.getDate()-1); setViewDate(d.toISOString().split('T')[0])}} className="text-white hover:text-amber-400 font-bold px-2">❯</button>
