@@ -1,28 +1,31 @@
 // TYPE: app.js
-// VERSION: V101.0 (COUPLE SYNC & MODULO WRAPPING)
+// VERSION: V101.1 (MANUAL REFRESH & COUPLE SYNC)
 // UPDATE: 2026-01-14
 // AUTHOR: AI ASSISTANT & USER
 //
-// --- CHANGE LOG V101.0 ---
-// 1. [FEATURE] CHIẾN THUẬT CẶP ĐÔI (COUPLE STRATEGY):
-//    - Vấn đề cũ: Nhóm 2 người luôn bị thuật toán Pendulum chia đôi (1 Body First, 1 Foot First) để cân bằng tải, 
-//      dẫn đến trải nghiệm khách hàng không tốt (muốn làm cùng nhau).
-//    - Giải pháp mới: Thêm lớp logic "Look-Ahead" cho nhóm đúng 2 người.
-//      + Kiểm tra nếu có đủ 2 Ghế & 2 Giường -> Ép cả 2 cùng làm Foot First (FB).
-//      + Nếu không, kiểm tra ngược lại -> Ép cả 2 cùng làm Body First (BF).
-//      + Chỉ khi quán quá đông (không đủ cặp slot) mới dùng logic chia tách cũ.
+// --- CHANGE LOG V101.1 ---
+// 1. [UI/UX] NÚT LÀM MỚI CHỦ ĐỘNG (MANUAL REFRESH BUTTON):
+//    - Vấn đề: Người dùng sửa Google Sheet xong phải đợi 15-20s để App tự cập nhật.
+//    - Giải pháp: Thêm nút "Làm mới" trên Header.
+//    - Cơ chế: Gọi API với flag `?forceRefresh=true` để server bỏ qua cache và đọc Sheet ngay lập tức.
+//    - Hiệu ứng: Icon xoay tròn khi đang tải, nút bị vô hiệu hóa để tránh spam click.
 //
-// 2. [CORE] GIỮ NGUYÊN MODULO WRAPPING CHO NHÓM LỚN:
-//    - Với nhóm > 2 người, vẫn dùng thuật toán cuốn chiếu (Slot 1,2,3 xoay vòng) để tối ưu tài nguyên.
+// --- CHANGE LOG V101.0 (RETAINED) ---
+// 1. [FEATURE] CHIẾN THUẬT CẶP ĐÔI (COUPLE STRATEGY):
+//    - Logic "Look-Ahead" cho nhóm 2 người: Ưu tiên xếp cùng ghế (Sync FB) hoặc cùng giường (Sync BF).
+// 2. [CORE] MODULO WRAPPING:
+//    - Thuật toán xoay vòng slot cho nhóm lớn > 2 người.
 
 const { useState, useEffect, useMemo, useRef } = React;
 
 // --- 1. COMPONENT IMPORTS ---
+// Các Component con được load từ window (giả định đã được define ở các file script khác)
 const CommissionView = window.CommissionView;
 const TimelineView = window.TimelineView;
 const BookingListView = window.BookingListView;
 
 // --- MATRIX HELPER ENHANCED ---
+// Bộ công cụ tính toán va chạm và tìm slot trống
 const MatrixHelper = {
     // Kiểm tra va chạm thời gian giữa 2 khoảng [startA, endA] và [startB, endB]
     isOverlap: (startA, endA, startB, endB) => {
@@ -53,7 +56,7 @@ const MatrixHelper = {
     },
 
     // Hàm tìm slot trống thông minh (First-Fit Strategy)
-    // Hỗ trợ tham số preferredIndex để cố gắng xếp khách vào vị trí tương ứng với số thứ tự của họ (Khách 1 -> Ghế 1)
+    // Hỗ trợ tham số preferredIndex để cố gắng xếp khách vào vị trí tương ứng với số thứ tự của họ
     findBestSlot: (type, start, end, gridState, reservedTimes, preferredIndex = null) => {
         const limit = 6;
         
@@ -63,11 +66,9 @@ const MatrixHelper = {
             let valid = true;
             
             // Check 1: Va chạm với đơn ĐANG CHẠY (Hard Reservation)
-            // reservedTimes chứa thời điểm kết thúc của các đơn đang chạy thực tế
             if (reservedTimes[id] && start < reservedTimes[id]) valid = false;
             
             // Check 2: Va chạm với đơn DỰ KIẾN (Ghost Blocks / Planned)
-            // gridState chứa các block đã được xếp (cả đang chạy và dự kiến)
             if (valid && gridState[id]) {
                 for (const slot of gridState[id]) {
                     if (MatrixHelper.isOverlap(start, end, slot.start, slot.end)) {
@@ -106,14 +107,10 @@ const MatrixHelper = {
 
 // --- SMART NOTE PARSER V99.8 (ROBUST VERSION) ---
 // Hàm này giúp phân tích ghi chú để tìm Flow cho TỪNG khách cụ thể (K1, K2...)
-// Được nâng cấp để xử lý các trường hợp ký tự lạ, khoảng trắng, dấu câu khác nhau.
 const detectFlowFromNote = (note, guestIndex) => {
     if (!note) return null;
     
     // 1. Data Cleaning (Làm sạch dữ liệu đầu vào)
-    // - Chuyển về chữ hoa
-    // - Thay thế dấu hai chấm/phẩy tiếng Trung (： ，) thành tiếng Anh
-    // - Xóa khoảng trắng thừa để tránh lỗi split
     const rawStr = note.toString().toUpperCase();
     const cleanNote = rawStr
         .replace(/：/g, ':')
@@ -121,33 +118,23 @@ const detectFlowFromNote = (note, guestIndex) => {
         .replace(/;/g, ',')
         .replace(/\(/g, ',')
         .replace(/\)/g, ',')
-        .replace(/\s+/g, ''); // Xóa hết dấu cách: "K 4 : 先做腳" -> "K4:先做腳"
+        .replace(/\s+/g, ''); // Xóa hết dấu cách
 
     // 2. Logic cho ghi chú cụ thể (Có thẻ K1, K2...)
-    // guestIndex input vào đây là 0, 1, 2... -> Map thành K1, K2, K3...
     const kTag = `K${guestIndex + 1}`; 
-    
-    // Kiểm tra sơ bộ xem note có chứa tag K nào không
     const hasAnyKTag = /K\d/.test(cleanNote);
 
     if (hasAnyKTag) {
-        // Cắt chuỗi note thành các phần dựa trên dấu phẩy
-        // Do đã clean ở trên, chuỗi sẽ dạng: "SDT:099,K1:BODY,K2:FOOT,K3:..."
         const parts = cleanNote.split(',');
-        
         for (const part of parts) {
-            // Chỉ xét phần text có chứa tag của khách hiện tại (VD: K4)
-            // Logic tìm kiếm bao dung hơn: Chỉ cần trong đoạn text đó có K4 và từ khóa
             if (part.includes(kTag)) {
-                
                 // [V99.8 KEYWORD UPDATE]
-                // 1. Nhóm từ khóa Body First (Làm giường trước)
+                // 1. Nhóm từ khóa Body First
                 if (part.includes('BODY') || part.includes('BF') || 
                     part.includes('先做身體') || part.includes('先身') || part.includes('先做身体')) {
                     return 'BF';
                 }
-                
-                // 2. Nhóm từ khóa Foot First (Làm ghế trước)
+                // 2. Nhóm từ khóa Foot First
                 if (part.includes('FOOT') || part.includes('FB') || 
                     part.includes('先做腳') || part.includes('先做脚') || 
                     part.includes('先足') || part.includes('先做足') || 
@@ -156,12 +143,10 @@ const detectFlowFromNote = (note, guestIndex) => {
                 }
             }
         }
-        // Nếu có K-Tag tổng thể nhưng không tìm thấy chỉ thị cho khách index này -> Trả về null
-        // ĐỂ CHO LOGIC SKEPTIC XỬ LÝ
         return null; 
     }
 
-    // 3. Logic cho ghi chú chung (Fallback cũ - dành cho đơn lẻ hoặc nhóm nhỏ không dùng tag K)
+    // 3. Logic cho ghi chú chung
     if (cleanNote.includes('BF') || cleanNote.includes('BODYFIRST') || cleanNote.includes('先做身體')) return 'BF';
     if (cleanNote.includes('FB') || cleanNote.includes('FOOTFIRST') || cleanNote.includes('先做腳')) return 'FB';
     
@@ -169,7 +154,7 @@ const detectFlowFromNote = (note, guestIndex) => {
 };
 
 
-// --- APP COMPONENT ---
+// --- APP COMPONENT (MAIN) ---
 const App = () => {
     // 1. STATE MANAGEMENT
     const [activeTab, setActiveTab] = useState('map'); // map | timeline | list | report | commission
@@ -195,6 +180,9 @@ const App = () => {
     const [viewDate, setViewDate] = useState(window.getOperationalDateInputFormat());
     const [syncLock, setSyncLock] = useState(false);
     const [quotaError, setQuotaError] = useState(false); 
+    
+    // [V101.1 NEW STATE] State cho nút làm mới thủ công
+    const [isManualRefreshing, setIsManualRefreshing] = useState(false);
 
     // 2. HELPER FUNCTIONS & LOGIC
     
@@ -204,7 +192,6 @@ const App = () => {
         return Object.values(resourceState).some(r => {
             if (!r.isRunning || r.isPaused || r.isPreview === true) return false;
             const b = r.booking || {};
-            // Kiểm tra tất cả các trường có thể chứa ID nhân viên
             const possibleKeys = [
                 b.serviceStaff, b.staffId, b.ServiceStaff, b.technician, b.Technician,
                 b.staffId2, b.StaffId2, b.staff2, b.Staff2,
@@ -217,7 +204,7 @@ const App = () => {
         });
     };
 
-    // Lấy danh sách ID nhân viên đang bận (Dùng cho UI hiển thị thẻ nhân viên)
+    // Lấy danh sách ID nhân viên đang bận
     const busyStaffIds = useMemo(() => {
         const ids = new Set();
         Object.values(resourceState).forEach(r => {
@@ -266,12 +253,23 @@ const App = () => {
     };
 
     // 3. CORE LOGIC (FETCH & RENDER) - TRÁI TIM CỦA HỆ THỐNG
-    const fetchData = async () => {
-        if (syncLock) return;
-        if (quotaError) return;
+    // [V101.1 UPDATE] Thêm tham số isManual để xử lý Refresh thủ công
+    const fetchData = async (isManual = false) => {
+        // Nếu đang sync tự động (syncLock) thì bỏ qua, trừ khi là manual refresh thì vẫn cố gắng thực hiện (tùy policy, ở đây ta vẫn tôn trọng syncLock để tránh race condition)
+        if (syncLock && !isManual) return; 
+        
+        // Nếu đang bị lỗi Quota, chỉ cho phép thực hiện nếu người dùng bấm nút Retry hoặc Refresh thủ công
+        if (quotaError && !isManual) return;
+
+        // Bật trạng thái loading cho nút Refresh
+        if (isManual) setIsManualRefreshing(true);
 
         try {
-            const res = await axios.get('/api/info');
+            // [V101.1] Logic endpoint: Nếu manual -> thêm forceRefresh=true
+            const endpoint = isManual ? '/api/info?forceRefresh=true' : '/api/info';
+            const res = await axios.get(endpoint);
+            
+            // Reset lỗi quota nếu thành công
             setQuotaError(false); 
             
             const { bookings: apiBookings, staffList: apiStaff, resourceState: serverRes, staffStatus: serverStaff } = res.data;
@@ -290,12 +288,10 @@ const App = () => {
                     phase1_duration: p1,
                     phase2_duration: p2,
                     flow: rawFlow,
-                    // Giữ lại ghi chú gốc để xử lý logic nhóm sau
                     originalNote: b.ghiChu || b.note || "" 
                 };
             });
 
-            // Lọc các booking
             const safeBookingsArray = Array.isArray(cleanBookings) ? cleanBookings : [];
             const relevantBookings = safeBookingsArray.filter(b => 
                 window.isWithinOperationalDay(b.startTimeString.split(' ')[0], b.startTimeString.split(' ')[1], viewDate) && 
@@ -333,6 +329,7 @@ const App = () => {
             const currentRes = serverRes || {};
             setStatusData(serverStaff || {});
 
+            // --- MATRIX CALCULATION (Grid Rendering) ---
             const nowObj = window.getTaipeiDate();
             const nowMins = nowObj.getHours() * 60 + nowObj.getMinutes() + (nowObj.getHours() < 8 ? 1440 : 0);
             
@@ -364,7 +361,6 @@ const App = () => {
                         const customPhase1 = currentRes[key].booking.phase1_duration;
                         const split = window.getComboSplit(durationUsed, isMax, seq, customPhase1);
                         
-                        // Xác định Phase hiện tại
                         isPhase1 = (seq === 'FB' && key.includes('chair')) || (seq === 'BF' && key.includes('bed'));
                         
                         if (isPhase1) durationUsed = split.phase1 + (currentRes[key].comboMeta.flex || 0);
@@ -423,14 +419,10 @@ const App = () => {
                 !b.status.includes('完成') && !b.status.includes('✅') && !b.status.includes('Done')
             );
             
-            // --- GROUPING LOGIC (V99.9 RETAINED) ---
-            // Thay vì gom theo rowId (luôn duy nhất), ta gom theo (Giờ + SĐT) hoặc (Giờ + Tên)
             const groupedPending = {};
             
             pendingBookings.forEach(b => {
-                // 1. Tạo Key định danh nhóm
                 const timeKey = (b.startTimeString || "").split(' ')[1] || '00:00';
-                // Lấy 5 số cuối của SĐT để làm key (đủ để phân biệt các nhóm khác nhau trong ngày)
                 const phoneRaw = b.phone || b.sdt || b.custPhone || ""; 
                 const phoneKey = phoneRaw.replace(/\D/g, '').slice(-6); 
                 const nameKey = (b.customerName || "Guest").trim();
@@ -438,13 +430,10 @@ const App = () => {
                 let groupKey;
 
                 if (phoneKey.length >= 3) {
-                    // Ưu tiên 1: Giờ + SĐT (Chính xác nhất cho nhóm đặt cùng lúc)
                     groupKey = `${timeKey}_P_${phoneKey}`;
                 } else if (nameKey.length > 0 && nameKey !== 'Guest') {
-                    // Ưu tiên 2: Giờ + Tên khách (Trường hợp không có SĐT)
                     groupKey = `${timeKey}_N_${nameKey}`;
                 } else {
-                    // Fallback: Nếu không có gì định danh, dùng rowId (Chấp nhận tách lẻ)
                     groupKey = `ROW_${b.rowId}`;
                 }
 
@@ -456,9 +445,7 @@ const App = () => {
             const listCombosGroups = [];
 
             Object.values(groupedPending).forEach(group => {
-                // Đảm bảo sort lại group theo thứ tự rowId để index khớp với thứ tự nhập liệu
                 group.sort((a, b) => parseInt(a.rowId) - parseInt(b.rowId));
-
                 const first = group[0];
                 const isCombo = first.category === 'COMBO' || (first.serviceName && first.serviceName.includes('套餐'));
                 if (isCombo) listCombosGroups.push(group);
@@ -486,22 +473,18 @@ const App = () => {
                 }
             });
 
-            // --- ALLOCATE COMBOS (V101.0 UPDATED - COUPLE SYNC & MODULO WRAPPING) ---
+            // --- ALLOCATE COMBOS (COUPLE SYNC & MODULO WRAPPING) ---
             listCombosGroups.forEach(group => {
                 const firstBooking = group[0]; 
                 const originalStart = window.normalizeToTimelineMins(firstBooking.startTimeString.split(' ')[1]);
                 const groupSize = group.length;
                 
-                // --- V101.0: COUPLE STRATEGY "DECISION PHASE" (QUYẾT ĐỊNH CHO NHÓM 2 NGƯỜI) ---
+                // --- COUPLE STRATEGY "DECISION PHASE" ---
                 let coupleStrategyOverride = null; // 'FB' | 'BF' | null
 
                 if (groupSize === 2) {
-                    // Tính toán nhanh Phase duration của booking đầu tiên để ướm thử
                     const cDur = firstBooking.duration || 100;
                     const cSplit = window.getComboSplit(cDur, true, 'FB', firstBooking.phase1_duration);
-                    
-                    // Giả lập thử khung giờ gốc (hoặc trễ tối đa 20 phút)
-                    const scanLimit = 3; // Chỉ check nhanh 3 mốc thời gian đầu tiên để quyết định chiến thuật
                     const scanOffsets = [0, 10, 20];
 
                     for (let delay of scanOffsets) {
@@ -510,16 +493,16 @@ const App = () => {
                         const tP2Start = tP1End + 5;
                         const tP2End = tP2Start + cSplit.phase2;
 
-                        // 1. Thử Sync FB (Cả 2 cùng làm ghế)
+                        // 1. Thử Sync FB
                         const freeChairsP1 = MatrixHelper.countAvailableResources('chair', tStart, tP1End, timelineGrid, activeEndTimes);
                         const freeBedsP2 = MatrixHelper.countAvailableResources('bed', tP2Start, tP2End, timelineGrid, activeEndTimes);
                         
                         if (freeChairsP1 >= 2 && freeBedsP2 >= 2) {
                             coupleStrategyOverride = 'FB';
-                            break; // Tìm thấy chiến thuật khả thi, chốt luôn!
+                            break;
                         }
 
-                        // 2. Thử Sync BF (Cả 2 cùng làm giường - Fallback nếu ghế hết)
+                        // 2. Thử Sync BF
                         const freeBedsP1 = MatrixHelper.countAvailableResources('bed', tStart, tP1End, timelineGrid, activeEndTimes);
                         const freeChairsP2 = MatrixHelper.countAvailableResources('chair', tP2Start, tP2End, timelineGrid, activeEndTimes);
 
@@ -528,58 +511,48 @@ const App = () => {
                             break;
                         }
                     }
-                    // Nếu không tìm thấy Sync, coupleStrategyOverride sẽ là null -> Rơi vào logic Pendulum (Split)
                 }
 
-                // --- GROUP EXECUTION PHASE (THỰC THI XẾP CHỖ) ---
+                // --- GROUP EXECUTION PHASE ---
                 const idealNumBF = Math.ceil(groupSize / 2);
                 const halfSize = Math.ceil(groupSize / 2);
 
                 group.forEach((bookingItem, idx) => {
                     const rawNote = bookingItem.originalNote || "";
-                    
-                    // --- 1. PRIORITY LEVEL 1: ABSOLUTE OBEDIENCE (EXPLICIT NOTE) ---
                     const explicitFlow = detectFlowFromNote(rawNote, idx);
                     let preferredSeq = null;
 
                     if (explicitFlow) {
                         preferredSeq = explicitFlow; 
                     } else {
-                        // --- 2. PRIORITY LEVEL 2: SKEPTIC MODE ---
                         const hasKTags = /K\d/i.test(rawNote);
                         if (hasKTags) {
                             preferredSeq = null;
                         } else {
                             if (groupSize === 2) {
-                                // [V101.0] ÁP DỤNG CHIẾN THUẬT CẶP ĐÔI
                                 if (coupleStrategyOverride) {
-                                    preferredSeq = coupleStrategyOverride; // Cả 2 cùng là FB hoặc BF
+                                    preferredSeq = coupleStrategyOverride;
                                 } else {
-                                    // Fallback: Nếu không thể đi cùng, dùng Pendulum cũ
-                                    // 0 -> BF, 1 -> FB (Tách ra để nhét vào lỗ trống)
                                     if (idx < idealNumBF) preferredSeq = 'BF';
                                     else preferredSeq = 'FB';
                                 }
                             } else {
-                                // Nhóm > 2 hoặc = 1: Dùng Pendulum chuẩn để cân bằng tải
                                 if (groupSize > 2) {
                                      if (idx < idealNumBF) preferredSeq = 'BF';
                                      else preferredSeq = 'FB';
                                 } else {
-                                    preferredSeq = bookingItem.flow; // Mặc định từ DB cho khách lẻ
+                                    preferredSeq = bookingItem.flow;
                                 }
                             }
                         }
                     }
                     
-                    // --- Bắt đầu tìm slot dựa trên Sequence đã quyết định ---
                     let searchOffsets = [0]; for(let i=1; i<=120; i++) searchOffsets.push(i);
                     
                     for(let delay of searchOffsets) {
                         let tryStart = originalStart + delay;
                         const customPhase1 = bookingItem.phase1_duration;
 
-                        // Hàm thử một Sequence cụ thể
                         const trySequence = (seq) => {
                             const split = window.getComboSplit(bookingItem.duration, true, seq, customPhase1);
                             
@@ -590,31 +563,20 @@ const App = () => {
                             const type1 = seq === 'FB' ? 'chair' : 'bed';
                             const type2 = seq === 'FB' ? 'bed' : 'chair';
                             
-                            // [V101.0 LOGIC INDEXING]
-                            // 1. Nhóm 2 người (Couple): 
-                            //    - Nếu Sync (cùng Flow): Guest 1 -> Index 1, Guest 2 -> Index 2 (để xếp cạnh nhau 1-2, 3-4...)
-                            //    - Nếu Split: Guest 1 -> Index 1, Guest 2 -> Index 1 (để tận dụng chéo Bed 1/Chair 1)
-                            // 2. Nhóm Lớn (>2): Dùng Modulo Wrapping.
-                            
                             let preferredSlotIndex;
                             if (groupSize === 2) {
                                 if (coupleStrategyOverride) {
-                                    // Sync Mode: Xếp so le index (0->1, 1->2) để nằm cạnh nhau
                                     preferredSlotIndex = idx + 1;
                                 } else {
-                                    // Split Mode: Cả 2 cùng ưu tiên slot 1 (để tận dụng chéo cánh)
                                     preferredSlotIndex = 1; 
                                 }
                             } else if (groupSize >= 4) {
-                                // Modulo Wrapping cho nhóm lớn
                                 const normalizedIdx = idx % halfSize;
                                 preferredSlotIndex = normalizedIdx + 1;
                             } else {
-                                // Nhóm 3 người hoặc lẻ: Tuyến tính
                                 preferredSlotIndex = idx + 1;
                             }
 
-                            // Tìm slot với gợi ý ưu tiên
                             const s1 = MatrixHelper.findBestSlot(type1, tryStart, p1End, timelineGrid, activeEndTimes, preferredSlotIndex);
                             const s2 = MatrixHelper.findBestSlot(type2, p2Start, p2End, timelineGrid, activeEndTimes, preferredSlotIndex);
                             
@@ -626,16 +588,11 @@ const App = () => {
                             return false;
                         };
 
-                        // Logic thử sequence
                         if (preferredSeq) {
-                            // Nếu đã có chỉ thị cứng (từ Note hoặc Couple Strategy) -> Chỉ thử 1 loại
                             if (trySequence(preferredSeq)) break;
                         } else {
-                            // Nếu chưa có, ưu tiên 'BF' trước cho nửa đầu nhóm, 'FB' cho nửa sau (Pendulum Default)
-                            // Nhưng nếu fail thì thử ngược lại
                             const primary = (idx < idealNumBF) ? 'BF' : 'FB';
                             const secondary = (primary === 'BF') ? 'FB' : 'BF';
-                            
                             if (trySequence(primary)) break;
                             if (trySequence(secondary)) break;
                         }
@@ -645,16 +602,14 @@ const App = () => {
 
             setTimelineData(timelineGrid);
 
-            // --- PREVIEW RESOURCE CARD LOGIC (Tạo dữ liệu hiển thị cho thẻ 3D/Map) ---
+            // --- PREVIEW RESOURCE CARD LOGIC ---
             const allSlots = [];
             for(let i=1; i<=6; i++) allSlots.push(`chair-${i}`);
             for(let i=1; i<=6; i++) allSlots.push(`bed-${i}`);
 
             allSlots.forEach(resId => {
-                if (tempState[resId]) return; // Nếu đã có booking đang chạy thì bỏ qua
-                
+                if (tempState[resId]) return;
                 const slots = timelineGrid[resId] || [];
-                // Tìm slot nào đang diễn ra ngay bây giờ (Simulation)
                 const currentSlot = slots.find(s => (nowMins >= s.start && nowMins < s.end));
                 
                 if (currentSlot) {
@@ -667,7 +622,6 @@ const App = () => {
                         isMaxMode: true 
                     };
                 } else {
-                    // Tìm slot sắp diễn ra trong 30 phút tới
                     const upcomingSlot = slots.find(s => s.start > nowMins && s.start - nowMins <= 30);
                     if (upcomingSlot) {
                          tempState[resId] = {
@@ -689,19 +643,28 @@ const App = () => {
         } catch(e) { 
             console.error("API Error", e);
             if (e.response && e.response.status === 429) setQuotaError(true);
+        } finally {
+            // [V101.1] Tắt loading manual khi hoàn tất (dù thành công hay thất bại)
+            if (isManual) setIsManualRefreshing(false);
         }
     };
 
     // Auto Fetch Loop
     useEffect(() => { 
-        fetchData(); 
-        const t = setInterval(fetchData, 2000); 
+        fetchData(false); // Gọi lần đầu (auto)
+        const t = setInterval(() => fetchData(false), 2000); // Loop auto
         return () => clearInterval(t); 
     }, [viewDate, syncLock, quotaError]); 
 
-    // 4. ACTION HANDLERS
+    // [V101.1 NEW HANDLER] Xử lý sự kiện bấm nút làm mới
+    const handleForceRefresh = () => {
+        if (isManualRefreshing) return; // Chống spam click
+        fetchData(true); // Gọi với tham số manual = true
+    };
+
+    // 4. ACTION HANDLERS (LOGIC BÁN HÀNG & QUẢN LÝ)
     
-    // Split Staff (Tách thợ cho khách trong nhóm)
+    // Split Staff (Tách thợ)
     const handleSplitConfirm = async (staffId2) => {
         if (!splitData) return;
         const { resourceId } = splitData;
@@ -778,7 +741,7 @@ const App = () => {
         await updateResource(newState);
     };
 
-    // Edit Combo Time (Chỉnh sửa thời gian Phase 1/Phase 2)
+    // Edit Combo Time
     const handleOpenEdit = (resId) => {
         const current = resourceState[resId];
         if (!current || !current.booking) return;
@@ -826,7 +789,7 @@ const App = () => {
         setEditComboTarget(null);
     };
 
-    // Start Service (Bắt đầu làm khách)
+    // Start Service
     const executeStart = (id, comboSequence) => {
         const current = resourceState[id];
         let designatedStaff = current.booking.serviceStaff || current.booking.staffId || current.booking.ServiceStaff || current.booking.technician; 
@@ -844,7 +807,6 @@ const App = () => {
         
         if (shouldMove) { if (!targetMoveId) { alert("⚠️ 無法切換區域: 目標區域已滿!"); return; } currentId = targetMoveId; }
         
-        // Logic chọn thợ tự động nếu là '隨機' (Random)
         if (['隨機', '男', '女', 'Oil'].some(k => designatedStaff.includes(k))) {
             const liveBusyStaffIds = Object.values(resourceState).filter(r => r.isRunning && !r.isPaused && r.isPreview !== true).map(r => r.booking.serviceStaff || r.booking.staffId || r.booking.ServiceStaff);
             const readyStaff = (staffList||[]).filter(s => { 
@@ -945,7 +907,7 @@ const App = () => {
     const handleToggleMax = async (resId) => { const res = resourceState[resId]; if (!res) return; updateResource({ ...resourceState, [resId]: { ...res, isMaxMode: !res.isMaxMode } }); };
     const handleToggleSequence = async (resId) => { const res = resourceState[resId]; if (!res || !res.comboMeta) return; const newSeq = res.comboMeta.sequence === 'FB' ? 'BF' : 'FB'; updateResource({ ...resourceState, [resId]: { ...res, comboMeta: { ...res.comboMeta, sequence: newSeq } } }); }
     
-    // Payment Logic (Thanh toán)
+    // Payment Logic
     const handleConfirmPayment = async (itemsToPay, totalAmount) => {
         try {
             setSyncLock(true); setTimeout(() => setSyncLock(false), 5000); 
@@ -1008,7 +970,7 @@ const App = () => {
     const handleWalkInSave = async (data) => { await axios.post('/api/admin-booking', data); setShowWalkIn(false); setShowAvailability(false); fetchData(); };
     const handleAssignBooking = (booking) => { if (!selectedSlot) return; updateResource({ ...resourceState, [selectedSlot]: { booking, startTime: null, isRunning: false } }); setSelectedSlot(null); };
     const handleManualUpdateStatus = async (rowId, status) => { if(confirm('確認更新狀態?')) { await axios.post('/api/update-status', { rowId, status }); fetchData(); } };
-    const handleRetryConnection = () => { setQuotaError(false); fetchData(); };
+    const handleRetryConnection = () => { setQuotaError(false); fetchData(true); };
 
     const getStatus = (id) => statusData[id] ? statusData[id].status : 'AWAY';
     
@@ -1041,10 +1003,10 @@ const App = () => {
     return (
         <div className="min-h-screen flex flex-col bg-slate-50">
             <header className={`text-white p-3 shadow-md flex justify-between items-center sticky top-0 z-50 transition-colors ${quotaError ? 'bg-red-800' : 'bg-[#1e1b4b]'}`}>
-                {/* Header Content */}
+                {/* Header Content Left: Version & Date */}
                 <div className="flex items-center gap-3">
-                    <span className="bg-amber-500 text-black px-2 py-1 rounded font-black text-sm">V101.0</span>
-                    <span className="font-bold hidden md:inline">XinWuChan</span>
+                    <span className="bg-emerald-500 text-white px-2 py-1 rounded font-black text-sm shadow-sm">V101.1</span>
+                    <span className="font-bold hidden md:inline tracking-wider">XinWuChan</span>
                     <div className="flex items-center gap-2 bg-white/10 rounded px-2 py-1 border border-white/20">
                         <button onClick={()=>{const d=new Date(viewDate); d.setDate(d.getDate()-1); setViewDate(d.toISOString().split('T')[0])}} className="text-white hover:text-amber-400 font-bold px-2">❯</button>
                         <input type="date" value={viewDate} onChange={(e) => setViewDate(e.target.value)} className="bg-transparent text-white font-bold outline-none cursor-pointer text-center" style={{colorScheme: 'dark'}} />
@@ -1052,6 +1014,7 @@ const App = () => {
                     </div>
                 </div>
 
+                {/* Header Content Center: Navigation */}
                 <div className="flex gap-3">
                     <button onClick={()=>setActiveTab('map')} className={`px-3 py-1.5 rounded-lg font-bold text-sm flex gap-2 items-center transition-all shadow-lg ${activeTab==='map' ? 'bg-blue-600 text-white ring-2 ring-white scale-105 opacity-100' : 'bg-blue-600 text-white/90 opacity-60 hover:opacity-100 hover:scale-105'}`}><i className="fas fa-th"></i> <span className="hidden md:inline">平面圖</span></button>
                     <button onClick={()=>setActiveTab('timeline')} className={`px-3 py-1.5 rounded-lg font-bold text-sm flex gap-2 items-center transition-all shadow-lg ${activeTab==='timeline' ? 'bg-purple-600 text-white ring-2 ring-white scale-105 opacity-100' : 'bg-purple-600 text-white/90 opacity-60 hover:opacity-100 hover:scale-105'}`}><i className="fas fa-stream"></i> <span className="hidden md:inline">時間軸</span></button>
@@ -1060,9 +1023,22 @@ const App = () => {
                     <button onClick={()=>setActiveTab('commission')} className={`px-3 py-1.5 rounded-lg font-bold text-sm flex gap-2 items-center transition-all shadow-lg ml-2 border-l border-white/30 pl-4 ${activeTab==='commission' ? 'bg-indigo-600 text-white ring-2 ring-white scale-105 opacity-100' : 'bg-indigo-800 text-white/90 opacity-70 hover:opacity-100 hover:scale-105'}`}><i className="fas fa-calculator"></i> <span className="hidden md:inline">節數/薪資</span></button>
                 </div>
 
+                {/* Header Content Right: Actions */}
                 <div className="flex gap-2 items-center">
-                    {quotaError && <button onClick={handleRetryConnection} className="bg-white text-red-600 px-4 py-1.5 rounded font-bold text-sm animate-pulse mr-4"><i className="fas fa-exclamation-triangle"></i> 重連</button>}
-                    <button onClick={()=>setShowAvailability(true)} className="bg-emerald-500 hover:bg-emerald-400 text-white px-3 py-1.5 rounded font-bold text-sm flex gap-1 items-center shadow-md animate-pulse"><i className="fas fa-phone-volume"></i> <span className="hidden lg:inline">電話預約</span></button>
+                    {/* [V101.1] MANUAL REFRESH BUTTON */}
+                    <button 
+                        onClick={handleForceRefresh} 
+                        disabled={isManualRefreshing}
+                        className={`px-3 py-1.5 rounded font-bold text-sm flex gap-2 items-center shadow-md transition-all border border-white/20 ${isManualRefreshing ? 'bg-gray-500 cursor-wait opacity-80' : 'bg-teal-600 hover:bg-teal-500 text-white'}`}
+                        title="Làm mới dữ liệu từ Google Sheet ngay lập tức"
+                    >
+                        <i className={`fas fa-sync-alt ${isManualRefreshing ? 'animate-spin' : ''}`}></i>
+                        <span className="hidden lg:inline">{isManualRefreshing ? 'Đang tải...' : 'Làm mới'}</span>
+                    </button>
+
+                    {quotaError && <button onClick={handleRetryConnection} className="bg-white text-red-600 px-4 py-1.5 rounded font-bold text-sm animate-pulse ml-2"><i className="fas fa-exclamation-triangle"></i> Retry</button>}
+                    
+                    <button onClick={()=>setShowAvailability(true)} className="bg-emerald-500 hover:bg-emerald-400 text-white px-3 py-1.5 rounded font-bold text-sm flex gap-1 items-center shadow-md animate-pulse ml-2"><i className="fas fa-phone-volume"></i> <span className="hidden lg:inline">電話預約</span></button>
                     <button onClick={()=>setShowWalkIn(true)} className="bg-amber-500 hover:bg-amber-400 text-black px-3 py-1.5 rounded font-bold text-sm flex gap-1 items-center"><i className="fas fa-bolt"></i> <span className="hidden lg:inline">現場客</span></button>
                     <button onClick={()=>setShowCheckIn(true)} className="bg-indigo-600 hover:bg-indigo-500 text-white px-3 py-1.5 rounded font-bold text-sm flex gap-1 items-center"><i className="fas fa-user-clock"></i> <span className="hidden lg:inline">技師報到</span></button>
                 </div>

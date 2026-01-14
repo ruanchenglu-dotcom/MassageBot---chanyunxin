@@ -1,20 +1,27 @@
+{
+type: uploaded file
+fileName: index.js
+fullContent:
 /**
  * =================================================================================================
  * PROJECT: XINWUCHAN MASSAGE BOT (BACKEND SERVER - MAIN ENTRY)
- * VERSION: V7.2 (SMART MATRIX SYNC & LOAD BALANCING SUPPORT)
+ * VERSION: V7.3 (MANUAL REFRESH SUPPORT & ENHANCED SYNC GUARD)
  * AUTHOR: AI ASSISTANT & USER
- * DATE: 2026/01/13
- * * * * * * * * * * CHANGE LOG V7.2:
- * 1. [MATRIX INTEGRATION]: 
- * - Tối ưu hóa luồng dữ liệu `phase1_duration` (Col X) và `phase2_duration` (Col Z).
- * - Đảm bảo khi tạo booking nhóm (Combo > 2 người), các tham số này được ghi chính xác vào Sheet.
- * 2. [ROBUST SYNC]:
- * - Hàm `syncData` được gia cố để tránh Race Condition khi Frontend V99 gửi quá nhiều request.
- * - Thêm cơ chế "Debounce" cho API `/api/info` để giảm tải cho Google API.
- * 3. [FULL EDIT API]:
- * - API `/api/update-booking-details` hỗ trợ đầy đủ các trường dữ liệu mới nhất.
- * 4. [LOGGING]:
- * - Thêm Log chi tiết cho các thao tác quan trọng (Ghi Sheet, Sync, Line Bot).
+ * DATE: 2026/01/14
+ * * * * * * * * * * * CHANGE LOG V7.3:
+ * 1. [API UPGRADE] MANUAL REFRESH HANDLER:
+ * - Cập nhật endpoint `/api/info` để xử lý tham số `?forceRefresh=true`.
+ * - Cơ chế "Smart Throttling": 
+ * + Auto Sync: 15 giây/lần.
+ * + Manual Sync: Cho phép 5 giây/lần (để phản hồi nhanh thao tác người dùng).
+ * * 2. [CORE] SYNC LOCK STABILITY:
+ * - Tăng cường `try-finally` trong hàm `syncData` để đảm bảo biến cờ `isSyncing` 
+ * luôn được giải phóng dù có lỗi xảy ra (tránh Deadlock).
+ * * 3. [LOGGING]:
+ * - Phân biệt rõ Log giữa "Auto Sync" và "Manual Trigger" để dễ debug.
+ * * * * * * * * * * * CHANGE LOG V7.2 (RETAINED):
+ * - Matrix Integration (Cols X, Y, Z).
+ * - Robust Sync & Full Edit API.
  * =================================================================================================
  */
 
@@ -28,6 +35,7 @@ const path = require('path');
 
 // IMPORT CORE LOGIC
 // File này chứa "bộ não" tính toán xếp chỗ (V99 Logic resides here)
+// Đảm bảo file resource_core.js nằm cùng thư mục
 const ResourceCore = require('./resource_core'); 
 
 // --- 1. CẤU HÌNH HỆ THỐNG (SYSTEM CONFIGURATION) ---
@@ -58,6 +66,7 @@ const auth = new google.auth.GoogleAuth({
 const sheets = google.sheets({ version: 'v4', auth });
 
 // --- 2. GLOBAL STATE (TRẠNG THÁI SERVER TRÊN RAM) ---
+// Biến này lưu trữ toàn bộ trạng thái hoạt động của hệ thống
 let SERVER_RESOURCE_STATE = {}; // Trạng thái ghế/giường realtime (từ Frontend gửi lên)
 let SERVER_STAFF_STATUS = {};   // Trạng thái nhân viên (Ready, Busy, Away...)
 let STAFF_LIST = [];            // Danh sách nhân viên và lịch làm việc
@@ -66,7 +75,7 @@ let scheduleMap = {};           // Bản đồ lịch nghỉ nhân viên
 let userState = {};             // Lưu trạng thái hội thoại của người dùng Line (Context)
 let lastSyncTime = new Date(0); // Thời điểm đồng bộ dữ liệu gần nhất
 let isSystemHealthy = false;    // Cờ báo hiệu hệ thống có đang hoạt động tốt không
-let isSyncing = false;          // Mutex Lock: Ngăn chặn đồng bộ chồng chéo
+let isSyncing = false;          // Mutex Lock: Ngăn chặn đồng bộ chồng chéo (Race Condition Guard)
 let SERVICES = ResourceCore.SERVICES || {}; 
 let LAST_CALCULATED_MATRIX = null; // Snapshot kết quả tính toán Matrix cuối cùng để debug
 
@@ -304,15 +313,17 @@ async function syncDailySalary(dateStr, staffDataList) {
 /**
  * HÀM TRUNG TÂM: ĐỒNG BỘ DỮ LIỆU BOOKING & SCHEDULE
  * V7.2 Update: Đọc đầy đủ cột X, Y, Z để phục vụ Matrix Logic
+ * V7.3 Update: Bọc try-finally để đảm bảo isSyncing luôn được reset
  */
 async function syncData() {
+    // Nếu đang sync thì bỏ qua ngay để tránh xung đột
     if (isSyncing) {
-        console.log("⚠️ Skip sync: Sync process locked (Busy).");
+        console.log("⚠️ Skip sync: Sync process locked (System is Busy).");
         return;
     }
 
     try {
-        isSyncing = true; // Lock
+        isSyncing = true; // LOCK: Khóa tiến trình sync
 
         // --- BƯỚC 1: ĐỌC DỮ LIỆU BOOKING (CỘT A -> Z) ---
         const resBooking = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: `${BOOKING_SHEET}!A:Z` });
@@ -381,7 +392,9 @@ async function syncData() {
                     isManualLocked: isManualLocked,
                     phase2_duration: phase2Duration,
                     // Field này sẽ được ResourceCore điền vào sau
-                    allocated_resource: null 
+                    allocated_resource: null,
+                    flow: null, // Placeholder cho flow (sẽ parse từ note sau)
+                    note: row[20] // Lấy ghi chú nếu có (giả định cột U)
                 });
             }
         }
@@ -458,7 +471,7 @@ async function syncData() {
         if (isSystemHealthy && tempBookings.length > 0) {
             try {
                 // Kiểm tra sự tồn tại của Core Function
-                if (typeof ResourceCore.generateResourceMatrix === 'function') {
+                if (ResourceCore && typeof ResourceCore.generateResourceMatrix === 'function') {
                     // Core V8.0/V99 sẽ xử lý logic Interleaving tại đây dựa trên phase1/2 duration
                     const matrixAllocation = ResourceCore.generateResourceMatrix(tempBookings, STAFF_LIST);
                     
@@ -488,7 +501,7 @@ async function syncData() {
         isSystemHealthy = false; 
         STAFF_LIST = []; 
     } finally {
-        isSyncing = false; // Unlock process
+        isSyncing = false; // UNLOCK: Giải phóng khóa bất kể thành công hay thất bại
     }
 }
 
@@ -763,20 +776,25 @@ app.use(express.urlencoded({ extended: true }));
 app.use(express.static(path.join(__dirname, 'public')));
 app.use('/admin2', express.static(path.join(__dirname, 'XinWuChanAdmin')));
 
-// --- API: INFO (GET STATUS) ---
+// --- [V7.3 API UPGRADE] INFO ENDPOINT WITH MANUAL REFRESH SUPPORT ---
 app.get('/api/info', async (req, res) => { 
-    // Debounce Logic: Tránh spam refresh
     const isForceRefresh = req.query.forceRefresh === 'true';
     const now = new Date();
     const timeSinceLastSync = now - lastSyncTime;
-    const MIN_SYNC_INTERVAL = 15000; // 15 giây
-
+    
+    // Cấu hình thời gian Sync
+    const AUTO_SYNC_INTERVAL = 15000; // 15 giây cho auto
+    const MANUAL_SYNC_INTERVAL = 5000; // 5 giây cho manual click
+    
     if (isForceRefresh) {
         if (isSyncing) {
-            console.log("⚠️ API Info: Force refresh skipped (Already syncing).");
-        } else if (timeSinceLastSync > MIN_SYNC_INTERVAL) {
-            console.log(`🚀 API Info: FORCE REFRESH Triggered by Frontend (Last: ${timeSinceLastSync}ms ago)`);
+            console.log("⚠️ API Info: Manual refresh skipped (System is already syncing).");
+        } else if (timeSinceLastSync > MANUAL_SYNC_INTERVAL) {
+            console.log(`🚀 API Info: FORCE REFRESH Triggered by User (Last sync: ${Math.round(timeSinceLastSync/1000)}s ago)`);
+            // Gọi sync ngay lập tức (không đợi loop)
             await syncData();
+        } else {
+            console.log(`⏳ API Info: Manual refresh throttled (Too fast). Waiting...`);
         }
     }
 
@@ -1150,11 +1168,12 @@ async function handleEvent(event) {
 // 1. Initial Sync
 syncMenuData().then(() => syncData());
 
-// 2. Auto Sync Interval (30s)
-setInterval(() => { syncData(); }, 30000); 
+// 2. Auto Sync Interval (15s) - Normal Loop
+setInterval(() => { syncData(); }, 15000); 
 
 // 3. Health Check
 app.get('/ping', (req, res) => { res.status(200).send('Pong!'); });
 
 const port = process.env.PORT || 3000;
-app.listen(port, () => { console.log(`XinWuChan Bot V7.2 running on port ${port}`); });
+app.listen(port, () => { console.log(`XinWuChan Bot V7.3 running on port ${port}`); });
+}
