@@ -1,25 +1,28 @@
 // TYPE: app.js
-// VERSION: V101.1 (MANUAL REFRESH & COUPLE SYNC)
+// VERSION: V101.3 (FIX: GHOST BOOKING DUAL VALIDATION)
 // UPDATE: 2026-01-14
 // AUTHOR: AI ASSISTANT & USER
 //
-// --- CHANGE LOG V101.1 ---
-// 1. [UI/UX] NÚT LÀM MỚI CHỦ ĐỘNG (MANUAL REFRESH BUTTON):
-//    - Vấn đề: Người dùng sửa Google Sheet xong phải đợi 15-20s để App tự cập nhật.
-//    - Giải pháp: Thêm nút "Làm mới" trên Header.
-//    - Cơ chế: Gọi API với flag `?forceRefresh=true` để server bỏ qua cache và đọc Sheet ngay lập tức.
-//    - Hiệu ứng: Icon xoay tròn khi đang tải, nút bị vô hiệu hóa để tránh spam click.
+// --- CHANGE LOG V101.3 ---
+// 1. [CRITICAL FIX] DUAL VALIDATION FOR GHOST BOOKINGS:
+//    - Vấn đề cũ: Khi Google Sheet bị chèn dòng, rowId thay đổi -> Hệ thống tưởng khách mới -> Tạo thẻ trùng.
+//    - Giải pháp V101.3: Sử dụng cơ chế so sánh kép. 
+//      + Ưu tiên 1: So khớp ID (Strict Match).
+//      + Ưu tiên 2: Nếu ID không khớp, so khớp "Chữ ký" (Tên + Giờ + SĐT đuôi).
+//      -> Đảm bảo loại bỏ triệt để khách đang chạy khỏi danh sách chờ dù ID có bị đổi.
+// 2. [UI] LANGUAGE UPDATE:
+//    - Đổi nút "Làm mới" thành Tiếng Trung Phồn Thể "立即刷新".
 //
+// --- CHANGE LOG V101.2 (RETAINED) ---
+// 1. [CRITICAL FIX] LOẠI BỎ KHÁCH ẢO (GHOST BOOKING) - BASIC.
+// --- CHANGE LOG V101.1 (RETAINED) ---
+// 1. [UI/UX] MANUAL REFRESH BUTTON.
 // --- CHANGE LOG V101.0 (RETAINED) ---
-// 1. [FEATURE] CHIẾN THUẬT CẶP ĐÔI (COUPLE STRATEGY):
-//    - Logic "Look-Ahead" cho nhóm 2 người: Ưu tiên xếp cùng ghế (Sync FB) hoặc cùng giường (Sync BF).
-// 2. [CORE] MODULO WRAPPING:
-//    - Thuật toán xoay vòng slot cho nhóm lớn > 2 người.
+// 1. [FEATURE] COUPLE STRATEGY & MODULO WRAPPING.
 
 const { useState, useEffect, useMemo, useRef } = React;
 
 // --- 1. COMPONENT IMPORTS ---
-// Các Component con được load từ window (giả định đã được define ở các file script khác)
 const CommissionView = window.CommissionView;
 const TimelineView = window.TimelineView;
 const BookingListView = window.BookingListView;
@@ -253,23 +256,14 @@ const App = () => {
     };
 
     // 3. CORE LOGIC (FETCH & RENDER) - TRÁI TIM CỦA HỆ THỐNG
-    // [V101.1 UPDATE] Thêm tham số isManual để xử lý Refresh thủ công
     const fetchData = async (isManual = false) => {
-        // Nếu đang sync tự động (syncLock) thì bỏ qua, trừ khi là manual refresh thì vẫn cố gắng thực hiện (tùy policy, ở đây ta vẫn tôn trọng syncLock để tránh race condition)
         if (syncLock && !isManual) return; 
-        
-        // Nếu đang bị lỗi Quota, chỉ cho phép thực hiện nếu người dùng bấm nút Retry hoặc Refresh thủ công
         if (quotaError && !isManual) return;
-
-        // Bật trạng thái loading cho nút Refresh
         if (isManual) setIsManualRefreshing(true);
 
         try {
-            // [V101.1] Logic endpoint: Nếu manual -> thêm forceRefresh=true
             const endpoint = isManual ? '/api/info?forceRefresh=true' : '/api/info';
             const res = await axios.get(endpoint);
-            
-            // Reset lỗi quota nếu thành công
             setQuotaError(false); 
             
             const { bookings: apiBookings, staffList: apiStaff, resourceState: serverRes, staffStatus: serverStaff } = res.data;
@@ -299,7 +293,6 @@ const App = () => {
                 !b.status.includes('Cancelled')
             );
             
-            // Merge bookings để tránh UI flickering
             if (!syncLock) {
                 setBookings(prev => {
                     const combinedMap = new Map();
@@ -309,7 +302,6 @@ const App = () => {
                         if (combinedMap.has(rid)) {
                             const serverBooking = combinedMap.get(rid);
                             const mergedBooking = { ...serverBooking };
-                            // Giữ lại trạng thái hoàn thành cục bộ nếu server chưa sync
                             for(let i=1; i<=6; i++) {
                                 const key = `Status${i}`;
                                 const localVal = localBooking[key];
@@ -415,9 +407,54 @@ const App = () => {
             // =================================================================
             // MATRIX LAYER 3: PENDULUM SIMULATION (Tính toán lịch chưa chạy)
             // =================================================================
-            const pendingBookings = relevantBookings.filter(b => 
-                !b.status.includes('完成') && !b.status.includes('✅') && !b.status.includes('Done')
-            );
+            
+            // [V101.3 CRITICAL FIX]: DUAL VALIDATION FILTER
+            // Vấn đề: rowId từ Sheet có thể bị thay đổi khi chèn/xóa dòng.
+            // Giải pháp: So khớp cả ID (cứng) và Signature (mềm: Tên + Giờ + Phone)
+            
+            // 1. Tạo Pool các đơn đang chạy
+            const runningPool = [];
+            Object.values(tempState).forEach(state => {
+                if (state.booking) {
+                    const b = state.booking;
+                    const phoneSuffix = (b.phone || b.sdt || b.custPhone || "").replace(/\D/g, '').slice(-6);
+                    runningPool.push({
+                        rowId: String(b.rowId),
+                        signature: `${(b.customerName || '').trim()}|${b.startTimeString.split(' ')[1]}|${phoneSuffix}`
+                    });
+                }
+            });
+
+            // 2. Filter thông minh
+            const pendingBookings = relevantBookings.filter(b => {
+                // Loại bỏ đơn đã hoàn thành
+                if (b.status.includes('完成') || b.status.includes('✅') || b.status.includes('Done')) return false;
+
+                // Chuẩn bị dữ liệu so sánh
+                const currentId = String(b.rowId);
+                const phoneSuffix = (b.phone || b.sdt || b.custPhone || "").replace(/\D/g, '').slice(-6);
+                const currentSig = `${(b.customerName || '').trim()}|${b.startTimeString.split(' ')[1]}|${phoneSuffix}`;
+
+                // CHECK 1: Strict Match (So khớp ID tuyệt đối)
+                const strictIndex = runningPool.findIndex(r => r.rowId === currentId);
+                if (strictIndex !== -1) {
+                    // Tìm thấy chính xác ID đang chạy -> Loại bỏ khỏi Pending
+                    runningPool.splice(strictIndex, 1); // Đánh dấu đã xử lý
+                    return false;
+                }
+
+                // CHECK 2: Soft Match (So khớp Chữ ký - Đề phòng trôi dòng)
+                // Nếu ID khác nhau (do trôi dòng), nhưng Tên + Giờ + SĐT giống hệt -> Coi là trùng
+                const softIndex = runningPool.findIndex(r => r.signature === currentSig);
+                if (softIndex !== -1) {
+                    // Tìm thấy khách có cùng thông tin đang chạy (dù ID khác) -> Loại bỏ
+                    runningPool.splice(softIndex, 1); // Đánh dấu đã xử lý
+                    return false;
+                }
+
+                // Nếu không dính lỗi trùng nào -> Đây là khách chờ thật sự
+                return true;
+            });
             
             const groupedPending = {};
             
@@ -644,7 +681,6 @@ const App = () => {
             console.error("API Error", e);
             if (e.response && e.response.status === 429) setQuotaError(true);
         } finally {
-            // [V101.1] Tắt loading manual khi hoàn tất (dù thành công hay thất bại)
             if (isManual) setIsManualRefreshing(false);
         }
     };
@@ -1005,7 +1041,7 @@ const App = () => {
             <header className={`text-white p-3 shadow-md flex justify-between items-center sticky top-0 z-50 transition-colors ${quotaError ? 'bg-red-800' : 'bg-[#1e1b4b]'}`}>
                 {/* Header Content Left: Version & Date */}
                 <div className="flex items-center gap-3">
-                    <span className="bg-emerald-500 text-white px-2 py-1 rounded font-black text-sm shadow-sm">V101.1</span>
+                    <span className="bg-emerald-500 text-white px-2 py-1 rounded font-black text-sm shadow-sm">V101.3</span>
                     <span className="font-bold hidden md:inline tracking-wider">XinWuChan</span>
                     <div className="flex items-center gap-2 bg-white/10 rounded px-2 py-1 border border-white/20">
                         <button onClick={()=>{const d=new Date(viewDate); d.setDate(d.getDate()-1); setViewDate(d.toISOString().split('T')[0])}} className="text-white hover:text-amber-400 font-bold px-2">❯</button>
@@ -1025,15 +1061,15 @@ const App = () => {
 
                 {/* Header Content Right: Actions */}
                 <div className="flex gap-2 items-center">
-                    {/* [V101.1] MANUAL REFRESH BUTTON */}
+                    {/* [V101.1] MANUAL REFRESH BUTTON - [V101.3] TRANSLATED */}
                     <button 
                         onClick={handleForceRefresh} 
                         disabled={isManualRefreshing}
                         className={`px-3 py-1.5 rounded font-bold text-sm flex gap-2 items-center shadow-md transition-all border border-white/20 ${isManualRefreshing ? 'bg-gray-500 cursor-wait opacity-80' : 'bg-teal-600 hover:bg-teal-500 text-white'}`}
-                        title="Làm mới dữ liệu từ Google Sheet ngay lập tức"
+                        title="立即從 Google Sheet 重新載入 (Force Refresh)"
                     >
                         <i className={`fas fa-sync-alt ${isManualRefreshing ? 'animate-spin' : ''}`}></i>
-                        <span className="hidden lg:inline">{isManualRefreshing ? 'Đang tải...' : 'Làm mới'}</span>
+                        <span className="hidden lg:inline">{isManualRefreshing ? '載入中...' : '立即刷新'}</span>
                     </button>
 
                     {quotaError && <button onClick={handleRetryConnection} className="bg-white text-red-600 px-4 py-1.5 rounded font-bold text-sm animate-pulse ml-2"><i className="fas fa-exclamation-triangle"></i> Retry</button>}

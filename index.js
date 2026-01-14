@@ -1,18 +1,22 @@
 /**
  * =================================================================================================
  * PROJECT: XINWUCHAN MASSAGE BOT (BACKEND SERVER - MAIN ENTRY)
- * VERSION: V7.3 (MANUAL REFRESH SUPPORT & ROBUST LOGGING)
+ * VERSION: V102.0 (FIX: COLUMN MAPPING REFACTOR O-P-Q)
  * AUTHOR: AI ASSISTANT & USER
  * DATE: 2026/01/14
- * * * * * * * * * * * CHANGE LOG V7.3:
- * 1. [API UPGRADE]: 
- * - Nâng cấp API `/api/info` để xử lý tham số `forceRefresh=true`.
- * - Tinh chỉnh thời gian Debounce xuống 10s để nút "Làm mới" nhạy hơn.
- * 2. [SAFETY]:
- * - Thêm Try-Catch bao quanh API Info để tránh crash khi đồng bộ lỗi.
- * 3. [PRESERVATION]:
- * - Giữ nguyên toàn bộ logic V99 Matrix (Phase 1, Phase 2, Manual Lock).
- * - Giữ nguyên logic Line Bot Booking.
+ * * * * * * * * * * * * CHANGE LOG V102.0:
+ * 1. [CRITICAL FIX] COLUMN REMAPPING (SỬA LỖI GHI SAI CỘT):
+ * - Di chuyển dữ liệu Matrix (Thời gian Combo) về đúng vị trí yêu cầu:
+ * + Phase 1 Duration: Cột X -> Cột O
+ * + Phase 2 Duration: Cột Z -> Cột P
+ * + Manual Lock:      Cột Y -> Cột Q
+ * * 2. [CONFLICT RESOLUTION] STAFF COLUMNS:
+ * - Để tránh xung đột với cột O, P, Q (vốn dùng cho Staff 4, 5, 6 cũ):
+ * + Staff 1, 2, 3: Giữ nguyên (L, M, N).
+ * + Staff 4, 5, 6: Dời sang (AA, AB, AC) để nhường chỗ cho dữ liệu thời gian.
+ * * 3. [PRESERVATION]:
+ * - Giữ nguyên toàn bộ logic V99 Matrix.
+ * - Giữ nguyên Manual Refresh & Line Bot.
  * =================================================================================================
  */
 
@@ -306,7 +310,9 @@ async function syncDailySalary(dateStr, staffDataList) {
 
 /**
  * HÀM TRUNG TÂM: ĐỒNG BỘ DỮ LIỆU BOOKING & SCHEDULE
- * V7.2 Update: Đọc đầy đủ cột X, Y, Z để phục vụ Matrix Logic
+ * V102.0 Update: 
+ * - Mở rộng phạm vi đọc đến AC (A:AC) để lấy dữ liệu Staff dự phòng.
+ * - Đọc dữ liệu Matrix từ cột O (14), P (15), Q (16).
  */
 async function syncData() {
     if (isSyncing) {
@@ -317,9 +323,9 @@ async function syncData() {
     try {
         isSyncing = true; // Lock
 
-        // --- BƯỚC 1: ĐỌC DỮ LIỆU BOOKING (CỘT A -> Z) ---
-        // Range mở rộng đến cột Z để lấy dữ liệu Phase1/Phase2
-        const resBooking = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: `${BOOKING_SHEET}!A:Z` });
+        // --- BƯỚC 1: ĐỌC DỮ LIỆU BOOKING (CỘT A -> AC) ---
+        // Range mở rộng đến cột AC (29) để bao quát hết O, P, Q và AA, AB, AC
+        const resBooking = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: `${BOOKING_SHEET}!A:AC` });
         const rowsBooking = resBooking.data.values;
         let tempBookings = [];
 
@@ -352,14 +358,30 @@ async function syncData() {
                 let serviceCode = 'UNKNOWN';
                 for(const key in SERVICES) { if(SERVICES[key].name === serviceStr) { serviceCode = key; break; } }
 
-                // [MATRIX DATA FIELDS - QUAN TRỌNG CHO V99]
-                // Đọc dữ liệu từ cột X, Y, Z để biết thời lượng các phase của Combo
-                const rawPhase1 = row[23]; // Col X
+                // [MATRIX DATA FIELDS - QUAN TRỌNG CHO V102.0]
+                // Đọc dữ liệu từ cột O, P, Q thay vì X, Y, Z
+                // Cột O = Index 14
+                // Cột P = Index 15
+                // Cột Q = Index 16
+                const rawPhase1 = row[14]; // Col O
                 const phase1Duration = rawPhase1 ? parseInt(rawPhase1) : null;
-                const rawLocked = row[24]; // Col Y
-                const isManualLocked = (rawLocked && (rawLocked.toUpperCase() === 'TRUE' || rawLocked === 'TRUE'));
-                const rawPhase2 = row[25]; // Col Z
+                
+                const rawPhase2 = row[15]; // Col P
                 const phase2Duration = rawPhase2 ? parseInt(rawPhase2) : null;
+
+                const rawLocked = row[16]; // Col Q
+                const isManualLocked = (rawLocked && (rawLocked.toUpperCase() === 'TRUE' || rawLocked === 'TRUE'));
+
+                // Staff Reading Logic (Cần update để đọc từ AA, AB, AC cho staff 4,5,6 nếu có)
+                // Staff 1 (L=11), Staff 2 (M=12), Staff 3 (N=13)
+                // Staff 4 (AA=26), Staff 5 (AB=27), Staff 6 (AC=28)
+                const staffId = row[8] || '隨機';
+                const serviceStaff1 = row[11];
+                const staffId2 = row[12];
+                const staffId3 = row[13];
+                const staffId4 = row[26]; // AA
+                const staffId5 = row[27]; // AB
+                const staffId6 = row[28]; // AC
 
                 tempBookings.push({
                     rowId: i + 1, 
@@ -369,9 +391,14 @@ async function syncData() {
                     type: type, 
                     category: category, 
                     price: price,
-                    staffId: row[8] || '隨機', 
-                    staffName: row[8], 
-                    serviceStaff: row[11], 
+                    staffId: staffId, 
+                    staffName: staffId, 
+                    serviceStaff: serviceStaff1,
+                    staffId2: staffId2,
+                    staffId3: staffId3,
+                    staffId4: staffId4,
+                    staffId5: staffId5,
+                    staffId6: staffId6,
                     pax: pax, 
                     customerName: `${row[2]} (${row[6]})`,
                     serviceName: serviceStr, 
@@ -381,7 +408,7 @@ async function syncData() {
                     status: status, 
                     lineId: row[9], 
                     isOil: row[4] === "Yes",
-                    // New Fields for Matrix Optimization V99
+                    // New Fields for Matrix Optimization V102.0
                     phase1_duration: phase1Duration,
                     isManualLocked: isManualLocked,
                     phase2_duration: phase2Duration,
@@ -622,7 +649,7 @@ function createMenuFlexMessage() {
 // =============================================================================
 
 /**
- * GHI BOOKING MỚI VÀO GOOGLE SHEET (Hỗ trợ Matrix Cols X, Y, Z)
+ * GHI BOOKING MỚI VÀO GOOGLE SHEET (V102.0: Update Cols O, P, Q)
  * @param {Object} data - Thông tin booking
  * @param {Array} proposedUpdates - Danh sách các booking cũ cần bóp giờ (nếu có)
  */
@@ -672,39 +699,40 @@ async function ghiVaoSheet(data, proposedUpdates = []) {
             }
         }
 
-        // --- 3. GHI DỮ LIỆU MATRIX (CỘT X, Y, Z) CHO BOOKING VỪA TẠO ---
-        // V7.2: Đảm bảo dữ liệu này được ghi chính xác cho cả Booking Nhóm
+        // --- 3. GHI DỮ LIỆU MATRIX (CỘT O, P, Q) CHO BOOKING VỪA TẠO ---
+        // V102.0: Cập nhật ghi vào O, P, Q thay vì X, Y, Z
         const matrixUpdates = [];
         if (newRowStartIndex !== -1) {
              const numberOfRows = valuesToWrite.length;
              for(let i = 0; i < numberOfRows; i++) {
                  const currentRow = newRowStartIndex + i;
                  
-                 // Phase 1 (Col X)
+                 // Phase 1 (Col O)
                  if (data.phase1_duration !== undefined && data.phase1_duration !== null) {
-                     matrixUpdates.push({ range: `${BOOKING_SHEET}!X${currentRow}`, values: [[data.phase1_duration]] });
+                     matrixUpdates.push({ range: `${BOOKING_SHEET}!O${currentRow}`, values: [[data.phase1_duration]] });
                  }
                  
-                 // Manual Lock (Col Y) - Mặc định là FALSE khi mới tạo, trừ khi có chỉ định
-                 if (data.isManualLocked) {
-                     matrixUpdates.push({ range: `${BOOKING_SHEET}!Y${currentRow}`, values: [['TRUE']] });
-                 }
-                 
-                 // Phase 2 (Col Z)
+                 // Phase 2 (Col P)
                  if (data.phase2_duration !== undefined && data.phase2_duration !== null) {
-                     matrixUpdates.push({ range: `${BOOKING_SHEET}!Z${currentRow}`, values: [[data.phase2_duration]] });
+                     matrixUpdates.push({ range: `${BOOKING_SHEET}!P${currentRow}`, values: [[data.phase2_duration]] });
+                 }
+
+                 // Manual Lock (Col Q) - Mặc định là FALSE khi mới tạo, trừ khi có chỉ định
+                 if (data.isManualLocked) {
+                     matrixUpdates.push({ range: `${BOOKING_SHEET}!Q${currentRow}`, values: [['TRUE']] });
                  }
              }
         }
 
         // --- 4. XỬ LÝ PROPOSED UPDATES (BÓP GIỜ CÁC KHÁCH KHÁC) ---
-        // Đây là tính năng Elastic Time V7.0
+        // Đây là tính năng Elastic Time V7.0 - Đã cập nhật V102.0 để sửa cột
         if (proposedUpdates && proposedUpdates.length > 0) {
             console.log(`[OPTIMIZATION] Executing ${proposedUpdates.length} updates to existing bookings...`);
             proposedUpdates.forEach(update => {
                 if (!update.rowId) return;
-                if (update.phase1 !== undefined) matrixUpdates.push({ range: `${BOOKING_SHEET}!X${update.rowId}`, values: [[update.phase1]] });
-                if (update.phase2 !== undefined) matrixUpdates.push({ range: `${BOOKING_SHEET}!Z${update.rowId}`, values: [[update.phase2]] });
+                // Update Col O & P instead of X & Z
+                if (update.phase1 !== undefined) matrixUpdates.push({ range: `${BOOKING_SHEET}!O${update.rowId}`, values: [[update.phase1]] });
+                if (update.phase2 !== undefined) matrixUpdates.push({ range: `${BOOKING_SHEET}!P${update.rowId}`, values: [[update.phase2]] });
             });
         }
 
@@ -717,7 +745,7 @@ async function ghiVaoSheet(data, proposedUpdates = []) {
                     data: matrixUpdates
                 }
             });
-            console.log(`[SHEET WRITE] Updated Matrix Data (Cols X,Y,Z) for ${matrixUpdates.length} cells.`);
+            console.log(`[SHEET WRITE] Updated Matrix Data (Cols O,P,Q) for ${matrixUpdates.length} cells.`);
         }
 
         // --- 6. TRIGGER SYNC ---
@@ -845,6 +873,7 @@ app.post('/api/save-salary', async (req, res) => { await syncDailySalary(req.bod
 
 // --- API: UPDATE BOOKING DETAILS (FULL EDIT MODE) ---
 // API quan trọng cho tính năng "Cây bút" và "Chỉnh sửa thời gian Combo"
+// V102.0: Cập nhật mapping cột để tránh xung đột
 app.post('/api/update-booking-details', async (req, res) => {
     try {
         const body = req.body; 
@@ -873,8 +902,11 @@ app.post('/api/update-booking-details', async (req, res) => {
         if (body.mainStatus) await sheets.spreadsheets.values.update({spreadsheetId: SHEET_ID, range: `${BOOKING_SHEET}!H${rowId}`, valueInputOption: 'USER_ENTERED', requestBody: { values: [[body.mainStatus]] }});
         if (body.staffId && body.staffId !== '随機') await sheets.spreadsheets.values.update({spreadsheetId: SHEET_ID, range: `${BOOKING_SHEET}!I${rowId}`, valueInputOption: 'USER_ENTERED', requestBody: { values: [[body.staffId]] }});
 
-        // --- 2. CẬP NHẬT STAFF LOG COLUMNS (L-Q) ---
-        const staffCols = ['L', 'M', 'N', 'O', 'P', 'Q'];
+        // --- 2. CẬP NHẬT STAFF LOG COLUMNS ---
+        // V102.0: Thay đổi cột cho Staff 4, 5, 6 để tránh O, P, Q
+        // Staff 1, 2, 3 -> L, M, N (Giữ nguyên)
+        // Staff 4, 5, 6 -> AA, AB, AC (Mới)
+        const staffCols = ['L', 'M', 'N', 'AA', 'AB', 'AC'];
         for(let i=0; i<6; i++) { 
             const key = `staff${i+1}`; 
             const val = body[key] || body[`ServiceStaff${i+1}`] || body[`服務師傅${i+1}`]; 
@@ -888,16 +920,23 @@ app.post('/api/update-booking-details', async (req, res) => {
             if(body[key]) await sheets.spreadsheets.values.update({spreadsheetId: SHEET_ID, range: `${BOOKING_SHEET}!${statusCols[i]}${rowId}`, valueInputOption: 'USER_ENTERED', requestBody: { values: [[body[key]]] }}); 
         }
 
-        // --- 4. CẬP NHẬT MATRIX DATA (X, Y, Z) - QUAN TRỌNG V99 ---
+        // --- 4. CẬP NHẬT MATRIX DATA (O, P, Q) - QUAN TRỌNG V102.0 ---
+        // Dùng O, P, Q thay vì X, Y, Z
+        
+        // Phase 1 -> Col O
         if (body.phase1_duration !== undefined && body.phase1_duration !== null) {
-            await sheets.spreadsheets.values.update({spreadsheetId: SHEET_ID, range: `${BOOKING_SHEET}!X${rowId}`, valueInputOption: 'USER_ENTERED', requestBody: { values: [[body.phase1_duration]] }});
+            await sheets.spreadsheets.values.update({spreadsheetId: SHEET_ID, range: `${BOOKING_SHEET}!O${rowId}`, valueInputOption: 'USER_ENTERED', requestBody: { values: [[body.phase1_duration]] }});
         }
+        
+        // Phase 2 -> Col P
+        if (body.phase2_duration !== undefined && body.phase2_duration !== null) {
+            await sheets.spreadsheets.values.update({spreadsheetId: SHEET_ID, range: `${BOOKING_SHEET}!P${rowId}`, valueInputOption: 'USER_ENTERED', requestBody: { values: [[body.phase2_duration]] }});
+        }
+
+        // Manual Lock -> Col Q
         if (body.isManualLocked !== undefined) { 
             const val = body.isManualLocked ? 'TRUE' : 'FALSE'; 
-            await sheets.spreadsheets.values.update({spreadsheetId: SHEET_ID, range: `${BOOKING_SHEET}!Y${rowId}`, valueInputOption: 'USER_ENTERED', requestBody: { values: [[val]] }}); 
-        }
-        if (body.phase2_duration !== undefined && body.phase2_duration !== null) {
-            await sheets.spreadsheets.values.update({spreadsheetId: SHEET_ID, range: `${BOOKING_SHEET}!Z${rowId}`, valueInputOption: 'USER_ENTERED', requestBody: { values: [[body.phase2_duration]] }});
+            await sheets.spreadsheets.values.update({spreadsheetId: SHEET_ID, range: `${BOOKING_SHEET}!Q${rowId}`, valueInputOption: 'USER_ENTERED', requestBody: { values: [[val]] }}); 
         }
 
         // --- 5. SYNC TRIGGER ---
@@ -1176,4 +1215,4 @@ setInterval(() => { syncData(); }, 30000);
 app.get('/ping', (req, res) => { res.status(200).send('Pong!'); });
 
 const port = process.env.PORT || 3000;
-app.listen(port, () => { console.log(`XinWuChan Bot V7.3 running on port ${port}`); });
+app.listen(port, () => { console.log(`XinWuChan Bot V102.0 running on port ${port}`); });
