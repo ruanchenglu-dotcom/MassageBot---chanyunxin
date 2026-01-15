@@ -2,41 +2,40 @@
  * =================================================================================================
  * PROJECT: XINWUCHAN MASSAGE BOT - FRONTEND CONTROLLER & LOGIC BRIDGE
  * FILE: js/bookingHandler.js
- * PHIÊN BẢN: V102.0 (COUPLE SYNC STRATEGY & VISUAL PARITY)
- * NGÀY CẬP NHẬT: 2026/01/14
+ * PHIÊN BẢN: V103.0 (GLOBAL CAPACITY GUARDRAIL & COUPLE SYNC)
+ * NGÀY CẬP NHẬT: 2026/01/15
  * TÁC GIẢ: AI ASSISTANT & USER
  *
- * * * * * CHANGE LOG V102.0 (THE "COUPLE STRATEGY" UPDATE) * * * * *
- * 1. [FEATURE] COUPLE SYNC PRIORITIZATION (ƯU TIÊN CẶP ĐÔI):
- * - Vấn đề cũ: Handler luôn cố gắng chia đôi nhóm 2 người (1 BF, 1 FB) để cân bằng tài nguyên (Pendulum).
- * Điều này khiến khách đi đôi bị tách ra dù quán còn đủ chỗ cạnh nhau.
- * - Giải pháp mới: Điều chỉnh thuật toán sinh kịch bản (Scenario Generator).
- * + Nếu phát hiện nhóm 2 khách Combo:
- * + Ưu tiên 1: Thử xếp cả 2 cùng là FB (Foot First).
- * + Ưu tiên 2: Thử xếp cả 2 cùng là BF (Body First).
- * + Ưu tiên 3: Mới dùng logic chia tách (Split) nếu không còn đủ cặp slot.
+ * * * * * CHANGE LOG V103.0 (THE "GUARDRAIL" UPDATE) * * * * *
+ * 1. [CRITICAL] GLOBAL CAPACITY GUARDRAIL (HÀNG RÀO DUNG LƯỢNG TỔNG):
+ * - Logic cũ (V102): Chỉ tìm khe hở giường/ghế. Nếu thợ chưa gán tên (Random), hệ thống dễ bị đánh lừa.
+ * - Logic mới (V103): Trước khi xếp giường, hệ thống đếm tổng số đầu người (Headcount).
+ * Công thức: (Khách đang làm + Khách mới) <= (Tổng nhân viên đi làm lúc đó).
+ * Nếu vi phạm -> REJECT ngay lập tức (Báo lỗi: "Not enough staff").
  *
- * 2. [CORE] ENHANCED MATRIX LOOK-AHEAD:
- * - Thêm khả năng đếm slot trống song song (Parallel Resource Counting) trong VirtualMatrix.
+ * 2. [CORE] DYNAMIC STAFF COUNTING:
+ * - Tính toán số lượng nhân viên thực tế theo từng phút (xét cả giờ vào ca/tan ca).
+ * - Một nhân viên làm ca 14:00 sẽ không được tính vào dung lượng của slot 13:00.
  *
- * 3. [STABILITY] FULL COMPATIBILITY:
- * - Giữ nguyên logic Modulo Wrapping cho nhóm > 2 người.
- * - Giữ nguyên giao diện Modal, Walk-in.
+ * 3. [INHERITANCE] GIỮ NGUYÊN TÍNH NĂNG V102.0:
+ * - Couple Sync Strategy (Ưu tiên cặp đôi đi cùng Flow).
+ * - Modulo Wrapping (Chia bài đều).
+ * - Matrix Squeeze (Bóp méo thời gian để nhét khách).
  * =================================================================================================
  */
 
 (function() {
-    console.log("🚀 BookingHandler V102.0: Couple Sync Strategy Loaded.");
+    console.log("🚀 BookingHandler V103.0: Global Capacity Guardrail Loaded.");
 
     // Kiểm tra môi trường React
     if (typeof React === 'undefined') {
-        console.error("❌ CRITICAL ERROR: React not found. Cannot start BookingHandler V102.0.");
+        console.error("❌ CRITICAL ERROR: React not found. Cannot start BookingHandler V103.0.");
         return;
     }
 
     // ========================================================================
-    // PHẦN 1: CORE KERNEL V102.0 (CLIENT-SIDE BRAIN)
-    // Mô tả: Bộ não tính toán trung tâm, tích hợp tư duy "Couple Sync".
+    // PHẦN 1: CORE KERNEL V103.0 (CLIENT-SIDE BRAIN)
+    // Mô tả: Bộ não tính toán trung tâm, tích hợp Guardrail & Matrix.
     // ========================================================================
     const CoreKernel = (function() {
         
@@ -49,6 +48,7 @@
             
             // Cấu hình thời gian hoạt động
             OPEN_HOUR: 8,         // 08:00 Sáng mở cửa
+            CLOSE_HOUR: 28,       // 04:00 Sáng hôm sau (28h)
             
             // Bộ đệm thời gian (Time Buffers - Đơn vị: Phút)
             CLEANUP_BUFFER: 5,    // Thời gian dọn dẹp sau mỗi ca
@@ -56,7 +56,7 @@
             
             // Dung sai và giới hạn tính toán
             TOLERANCE: 1,         // Sai số cho phép (phút) khi so sánh trùng lặp
-            MAX_TIMELINE_MINS: 1440 // Tổng số phút trong 24h
+            MAX_TIMELINE_MINS: 1680 // Tổng số phút (28h * 60)
         };
 
         // Cơ sở dữ liệu dịch vụ (Dynamic Services Database)
@@ -90,6 +90,7 @@
                 let m = parseInt(parts[1], 10);
                 
                 if (isNaN(h) || isNaN(m)) return -1;
+                // Nếu giờ < 8 (ví dụ 01:00, 02:00) thì hiểu là ca đêm của ngày hôm sau (25h, 26h...)
                 if (h < CONFIG.OPEN_HOUR) h += 24; 
                 
                 return (h * 60) + m;
@@ -134,7 +135,7 @@
             return 'CHAIR'; 
         }
 
-        // --- 5. MATRIX ENGINE V102.0 (ENHANCED FOR COUPLES) ---
+        // --- 5. MATRIX ENGINE V103.0 (CORE ALLOCATION LOGIC) ---
         class VirtualMatrix {
             constructor() {
                 this.lanes = {
@@ -150,7 +151,6 @@
                 return true; 
             }
 
-            // [V102.0] Đếm số lượng slot trống của một loại trong khoảng thời gian
             countFreeSlots(type, start, end) {
                 const resourceGroup = this.lanes[type];
                 if (!resourceGroup) return 0;
@@ -167,7 +167,6 @@
                 return lane.id;
             }
 
-            // Hỗ trợ tham số preferredIndex (Folding Logic)
             tryAllocate(type, start, end, ownerId, preferredIndex = null) {
                 const resourceGroup = this.lanes[type];
                 if (!resourceGroup) return null; 
@@ -190,7 +189,6 @@
             }
         }
 
-        // Hàm kiểm tra xem một tập hợp block có nhét vừa Matrix không
         function isBlockSetAllocatable(blocks, matrix) {
             for (const b of blocks) {
                 const laneGroup = matrix.lanes[b.type];
@@ -218,7 +216,30 @@
             return true;
         }
 
-        // --- 6. LOGIC TÌM NHÂN VIÊN (STAFF FINDER) ---
+        // --- 6. LOGIC TÌM NHÂN VIÊN & TÍNH TOÁN DUNG LƯỢNG (GUARDRAIL LOGIC) ---
+        
+        // [V103.0] Hàm đếm số nhân viên ĐANG ĐI LÀM tại thời điểm T
+        function countActiveStaffAtTime(staffListRef, timePointMins) {
+            let count = 0;
+            const staffArray = Object.values(staffListRef);
+            for (const staff of staffArray) {
+                if (staff.off) continue; // Bỏ qua người nghỉ
+                
+                const shiftStart = getMinsFromTimeStr(staff.start);
+                const shiftEnd = getMinsFromTimeStr(staff.end);
+                
+                if (shiftStart === -1 || shiftEnd === -1) continue;
+                
+                // Kiểm tra xem thời điểm T có nằm trong ca làm việc không
+                // Thêm buffer nhỏ để tránh biên
+                if (timePointMins >= shiftStart && timePointMins < shiftEnd) {
+                    count++;
+                }
+            }
+            return count;
+        }
+
+        // [V103.0] Logic gán thợ cụ thể (đã có từ V102, giữ nguyên)
         function findAvailableStaff(staffReq, start, end, staffListRef, busyList) {
             const checkOneStaff = (name) => {
                 const staffInfo = staffListRef[name];
@@ -277,18 +298,66 @@
             return options;
         }
 
-        // --- 8. MAIN LOGIC V102.0 (COUPLE SYNC ENABLED) ---
+        // --- 8. MAIN LOGIC V103.0 (GUARDRAIL + COUPLE SYNC) ---
         
         /**
-         * HÀM KIỂM TRA KHẢ DỤNG CHÍNH - PHIÊN BẢN V102.0
+         * HÀM KIỂM TRA KHẢ DỤNG CHÍNH - PHIÊN BẢN V103.0
          * Tích hợp: 
-         * - Group Folding (Gom nhóm)
-         * - Modulo Wrapping (Cuộn chỉ số slot ảo)
-         * - Couple Sync Strategy (Ưu tiên đi cùng nhau cho cặp đôi)
+         * 1. Global Capacity Guardrail (NEW) - Chặn quá tải nhân sự ngay lập tức.
+         * 2. Group Folding & Modulo Wrapping - Gom nhóm tối ưu.
+         * 3. Couple Sync Strategy - Ưu tiên đi cùng nhau.
          */
         function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRaw, staffList) {
             const requestStartMins = getMinsFromTimeStr(timeStr);
             if (requestStartMins === -1) return { feasible: false, reason: "Error: Invalid Time Format" };
+
+            // Xác định thời gian kết thúc dự kiến của nhóm khách mới (để check Guardrail)
+            let maxDuration = 60;
+            guestList.forEach(g => {
+                const svc = SERVICES[g.serviceCode] || { duration: 60 };
+                if (svc.duration > maxDuration) maxDuration = svc.duration;
+            });
+            const requestEndMins = requestStartMins + maxDuration;
+
+            // ------------------------------------------------------------------------
+            // [V103.0 FEATURE] BƯỚC 0: GLOBAL CAPACITY GUARDRAIL (HÀNG RÀO DUNG LƯỢNG)
+            // ------------------------------------------------------------------------
+            // Nguyên lý: Tổng người đang làm + Tổng khách mới <= Tổng nhân viên đi làm
+            // Kiểm tra tại 2 điểm: Lúc bắt đầu (Start) và lúc giữa (Start + 30) để đảm bảo an toàn.
+            
+            const timeCheckPoints = [requestStartMins, requestStartMins + 30]; // Check điểm đầu và điểm giữa
+            const newGuestCount = guestList.length;
+
+            for (const timePoint of timeCheckPoints) {
+                if (timePoint >= requestEndMins) break; // Không check quá thời gian
+
+                // 1. Tính tổng nhân viên đi làm lúc này
+                const totalWorkingStaff = countActiveStaffAtTime(staffList, timePoint);
+
+                // 2. Tính tổng khách đang phục vụ (Existing Load)
+                let currentLoad = 0;
+                for (const b of currentBookingsRaw) {
+                    const bStart = getMinsFromTimeStr(b.startTime);
+                    const bDuration = parseInt(b.duration) || 60;
+                    const bEnd = bStart + bDuration;
+                    
+                    // Nếu booking này đè lên thời điểm timePoint -> Tính là 1 slot
+                    if (timePoint >= bStart && timePoint < bEnd) {
+                        currentLoad++;
+                    }
+                }
+
+                // 3. So sánh (THE GUARDRAIL CHECK)
+                if ((currentLoad + newGuestCount) > totalWorkingStaff) {
+                    console.warn(`⛔ GUARDRAIL BLOCKED: Time ${timePoint} | Load: ${currentLoad} + New: ${newGuestCount} > Staff: ${totalWorkingStaff}`);
+                    return { 
+                        feasible: false, 
+                        reason: `Hết nhân viên (Staff Limit): Đang bận ${currentLoad}/${totalWorkingStaff} người. Cần thêm ${newGuestCount} người.` 
+                    };
+                }
+            }
+            
+            // Nếu qua được Guardrail -> Hệ thống còn đủ người -> Tiếp tục chạy logic Matrix phức tạp bên dưới
 
             // ------------------------------------------------------------------------
             // BƯỚC A: TIỀN XỬ LÝ & GOM NHÓM (EXISTING BOOKINGS)
@@ -430,9 +499,6 @@
             
             if (maxBF === 2) {
                 // CHIẾN THUẬT CẶP ĐÔI: Ưu tiên SYNC (0 hoặc 2) trước khi thử SPLIT (1)
-                // 0: Cả 2 đều FB (Foot First) -> Ưu tiên cao nhất
-                // 2: Cả 2 đều BF (Body First) -> Ưu tiên nhì
-                // 1: Tách ra (Split) -> Ưu tiên cuối
                 trySequence = [0, 2, 1]; 
             } else if (maxBF > 0) {
                 // Nhóm khác: Dùng chiến thuật con lắc (Pendulum) cân bằng
@@ -532,9 +598,7 @@
                         
                         // [V102.0 Fix] Nếu đang chạy chế độ SYNC (Cùng flow),
                         // Ta muốn khách nằm cạnh nhau (1, 2) chứ không phải chồng lên nhau (1, 1).
-                        // numBF = 0 (All FB) hoặc numBF = max (All BF) => SYNC MODE
                         if (maxBF === 2 && (numBF === 0 || numBF === 2)) {
-                            // Sync Mode: Xếp tuyến tính (1, 2)
                             preferredIdx = item.guest.idx + 1;
                         }
                     }
@@ -613,7 +677,7 @@
                     }
                 }
 
-                // === GIAI ĐOẠN 5: KIỂM TRA NHÂN SỰ ===
+                // === GIAI ĐOẠN 5: KIỂM TRA NHÂN SỰ CỤ THỂ (ASSIGNMENT) ===
                 let flatTimeline = [];
                 Object.values(matrix.lanes).forEach(group => group.forEach(lane => lane.occupied.forEach(occ => {
                     const ex = existingBookingsProcessed.find(e => e.id === occ.ownerId);
@@ -642,13 +706,13 @@
                 successfulScenario.details.sort((a,b) => a.guestIndex - b.guestIndex);
                 return {
                     feasible: true, 
-                    strategy: 'MATRIX_COUPLE_SYNC_V102.0', 
+                    strategy: 'MATRIX_COUPLE_SYNC_V103.0', 
                     details: successfulScenario.details,
                     proposedUpdates: successfulScenario.updates,
                     totalPrice: successfulScenario.details.reduce((sum, item) => sum + (item.price||0), 0)
                 };
             } else {
-                return { feasible: false, reason: "Hết chỗ (Full - Không tìm thấy khe hở)" };
+                return { feasible: false, reason: "Hết chỗ (Full - Matrix Scan Failed)" };
             }
         }
 
@@ -673,7 +737,7 @@
     };
 
     // ========================================================================
-    // PHẦN 3: BRIDGE LOGIC & REACT COMPONENT (GIỮ NGUYÊN)
+    // PHẦN 3: BRIDGE LOGIC & REACT COMPONENT
     // ========================================================================
     const { useState, useEffect, useMemo, useCallback } = React;
 
@@ -713,7 +777,7 @@
                 serviceCode: b.serviceName, serviceName: b.serviceName, startTime: b.startTimeString, 
                 duration: parseInt(b.duration) || 60, staffName: b.technician || b.staffId || "Unassigned", rowId: b.rowId,
                 allocated_resource: b.resourceId || b.allocated_resource || b.rowId,
-                originalData: b, // Pass nguyên gốc để Core xử lý grouping
+                originalData: b, 
                 isManualLocked: (b.isManualLocked === true || String(b.isManualLocked) === 'true') || isPastOrRunning, 
                 phase1_duration: b.phase1_duration ? parseInt(b.phase1_duration) : null,
                 phase2_duration: b.phase2_duration ? parseInt(b.phase2_duration) : null,
@@ -754,7 +818,7 @@
     const forceGlobalRefresh = () => { if (typeof window.fetchDataAndRender === 'function') window.fetchDataAndRender(); else window.location.reload(); };
 
     // ==================================================================================
-    // 4. COMPONENT: PHONE BOOKING MODAL (PRESERVED)
+    // 4. COMPONENT: PHONE BOOKING MODAL
     // ==================================================================================
     const NewAvailabilityCheckModal = ({ onClose, onSave, staffList, bookings, initialDate, editingBooking }) => {
         const safeStaffList = useMemo(() => staffList || [], [staffList]);
@@ -877,7 +941,6 @@
                     };
                 });
                 
-                // Note generation logic
                 const oils = detailedGuests.map((g,i)=>g.isOil?`K${i+1}:精油`:null).filter(Boolean);
                 const flows = detailedGuests.map((g, i) => {
                     if (g.flow === 'BF') return `K${i+1}:先做身體`; 
@@ -911,7 +974,7 @@
             <div className="fixed inset-0 bg-slate-900/90 z-[100] flex items-center justify-center p-4">
                 <div className="bg-white w-full max-w-xl rounded-xl shadow-2xl flex flex-col max-h-[95vh] overflow-hidden animate-fadeIn">
                     <div className={`${editingBooking ? 'bg-orange-600' : 'bg-[#0891b2]'} p-4 text-white flex justify-between items-center shrink-0`}>
-                        <h3 className="font-bold text-lg">{editingBooking ? "✏️ 修改預約 (Edit)" : "📅 電話預約 (V102.0)"}</h3>
+                        <h3 className="font-bold text-lg">{editingBooking ? "✏️ 修改預約 (Edit)" : "📅 電話預約 (V103.0)"}</h3>
                         <button onClick={onClose} className="text-2xl hover:text-red-100">&times;</button>
                     </div>
                     <div className="p-5 space-y-4 overflow-y-auto flex-1 custom-scrollbar">
@@ -933,7 +996,7 @@
                                 <div>
                                     {!checkResult ? 
                                         <button onClick={performCheck} disabled={isChecking} className={`w-full text-white p-3 rounded font-bold shadow-lg flex justify-center items-center ${isChecking ? 'bg-gray-400 cursor-not-allowed' : 'bg-cyan-600 hover:bg-cyan-700'}`}>
-                                            {isChecking ? "正在計算 (Matrix V102.0)..." : "🔍 查詢空位 (Instant Check)"}
+                                            {isChecking ? "正在計算 (Guardrail V103)..." : "🔍 查詢空位 (Instant Check)"}
                                         </button> 
                                         : 
                                         <div className="space-y-3">
@@ -976,7 +1039,7 @@
     };
 
     // ==================================================================================
-    // 5. COMPONENT: WALK-IN MODAL (PRESERVED)
+    // 5. COMPONENT: WALK-IN MODAL
     // ==================================================================================
     const NewWalkInModal = ({ onClose, onSave, staffList, bookings, initialDate }) => {
         const safeStaffList = useMemo(() => staffList || [], [staffList]);
@@ -1041,7 +1104,7 @@
                 setCheckResult({ status: 'OK', message: "✅ 目前有空位 (Available Now)", coreDetails: res.details }); 
                 setWaitSuggestion(null); 
             } else {
-                if (res.reason.includes("System")) { setCheckResult({ status: 'FAIL', message: res.reason }); setIsChecking(false); return; }
+                if (res.reason.includes("System") || res.reason.includes("Error")) { setCheckResult({ status: 'FAIL', message: res.reason }); setIsChecking(false); return; }
                 const parts = form.time.split(':').map(Number);
                 let currMins = (parts[0]||0)*60 + (parts[1]||0);
                 let foundTime = null, foundDate = form.date, waitMins = 0, isNextDay = false;
@@ -1081,7 +1144,6 @@
                         phase2_duration: detail ? detail.phase2_duration : null
                     };
                 });
-                // Tagging
                 const oils = detailedGuests.map((g,i)=>g.isOil?`K${i+1}:精油`:null).filter(Boolean);
                 const flows = detailedGuests.map((g, i) => {
                     if (g.flow === 'BF') return `K${i+1}:先做身體`;
@@ -1110,7 +1172,7 @@
             <div className="fixed inset-0 bg-black/70 z-[90] flex items-center justify-center p-4">
                 <div className="bg-white w-full max-w-xl rounded-xl shadow-2xl modal-animate flex flex-col max-h-[90vh] overflow-hidden">
                     <div className="bg-amber-600 p-4 text-white flex justify-between items-center shrink-0">
-                        <h3 className="font-bold text-lg">⚡ 現場客 (V102.0)</h3>
+                        <h3 className="font-bold text-lg">⚡ 現場客 (V103.0)</h3>
                         <button onClick={onClose}><i className="fas fa-times text-xl"></i></button>
                     </div>
                     <div className="p-5 space-y-4 overflow-y-auto flex-1 custom-scrollbar">
@@ -1128,7 +1190,7 @@
                                 <div className="pt-2 grid grid-cols-2 gap-3"><button onClick={onClose} className="bg-gray-100 text-gray-500 font-bold p-3 rounded hover:bg-gray-200">取消</button>
                                 {(!checkResult || checkResult.status === 'FAIL') ? 
                                     <button onClick={performCheck} disabled={isChecking} className={`font-bold p-3 rounded shadow-lg flex justify-center items-center text-white ${isChecking?'bg-gray-400':'bg-amber-500 hover:bg-amber-600'}`}>
-                                        {isChecking ? "計算中 (Matrix V102.0)..." : "🔍 檢查"}
+                                        {isChecking ? "計算中 (Guardrail V103)..." : "🔍 檢查"}
                                     </button> : 
                                     <button onClick={() => setStep('INFO')} className="bg-emerald-600 text-white font-bold p-3 rounded hover:bg-emerald-700 shadow-lg animate-pulse">➡️ 下一步</button>}
                                 </div>
@@ -1170,11 +1232,11 @@
     const overrideInterval = setInterval(() => {
         if (window.AvailabilityCheckModal !== NewAvailabilityCheckModal) { 
             window.AvailabilityCheckModal = NewAvailabilityCheckModal; 
-            console.log("♻️ AvailabilityModal Injected (V102.0 Synced)"); 
+            console.log("♻️ AvailabilityModal Injected (V103.0 Guardrail)"); 
         }
         if (window.WalkInModal !== NewWalkInModal) { 
             window.WalkInModal = NewWalkInModal; 
-            console.log("♻️ WalkInModal Injected (V102.0 Synced)"); 
+            console.log("♻️ WalkInModal Injected (V103.0 Guardrail)"); 
         }
     }, 200);
     setTimeout(() => { clearInterval(overrideInterval); }, 5000);

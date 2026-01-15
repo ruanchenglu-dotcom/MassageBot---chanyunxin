@@ -1209,7 +1209,7 @@ syncMenuData().then(() => syncData());
 
 // 2. Auto Sync Interval (30s)
 // Tăng lên 30s để giảm tải, vì giờ đã có nút Manual Refresh
-setInterval(() => { syncData(); }, 30000); 
+setInterval(() => { syncData(); }, 10000); 
 
 // 3. Health Check
 app.get('/ping', (req, res) => { res.status(200).send('Pong!'); });

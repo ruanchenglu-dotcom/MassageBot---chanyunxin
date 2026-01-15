@@ -4,6 +4,7 @@ const { useState, useEffect, useMemo, useRef } = React;
  * ============================================================================
  * 1. ERROR BOUNDARY (系統錯誤攔截)
  * ============================================================================
+ * Chức năng: Bắt lỗi React để tránh sập toàn bộ trang web.
  */
 class ErrorBoundary extends React.Component {
     constructor(props) {
@@ -53,6 +54,7 @@ window.ErrorBoundary = ErrorBoundary;
  * ============================================================================
  * 2. STAFF CARD 3D (技師卡片)
  * ============================================================================
+ * Chức năng: Hiển thị trạng thái từng nhân viên (Busy, Ready, Away...).
  */
 const StaffCard3D = ({ s, statusData, resourceState, queueIndex, isForcedBusy }) => {
     if (!s) return null;
@@ -68,6 +70,7 @@ const StaffCard3D = ({ s, statusData, resourceState, queueIndex, isForcedBusy })
     const staffId = String(s.id).trim();
     const staffName = String(s.name).trim();
 
+    // Tìm booking đang hoạt động liên quan đến nhân viên này
     const activeRes = Object.values(resourceState || {}).find(r => {
         if (!r.isRunning || r.isPaused || r.isPreview === true) return false;
         const b = r.booking || {};
@@ -87,6 +90,7 @@ const StaffCard3D = ({ s, statusData, resourceState, queueIndex, isForcedBusy })
         displayStatus = 'BUSY'; 
     }
 
+    // Kiểm tra xem có phải là khách chỉ định (Designated) hay không
     let isDesignated = false;
     if (displayStatus === 'BUSY' && actualActiveBooking) {
         const b = actualActiveBooking;
@@ -107,6 +111,7 @@ const StaffCard3D = ({ s, statusData, resourceState, queueIndex, isForcedBusy })
     if (displayStatus === 'BUSY') {
         cardStyle = 'st-busy'; 
         if (isDesignated) {
+            // Hiệu ứng đặc biệt cho khách chỉ định
             customClass = "!bg-amber-500 !border-amber-600 !text-white shadow-[0_0_15px_rgba(245,158,11,0.8)] border-2 ring-2 ring-amber-300 transform scale-105 z-10";
         }
     }
@@ -150,12 +155,14 @@ window.StaffCard3D = StaffCard3D;
  * ============================================================================
  * 3. CHECKIN BOARD (技師管理看板)
  * ============================================================================
+ * Chức năng: Quản lý chấm công, tính lương tạm tính, trạng thái đi làm.
  */
 const CheckInBoard = ({ staffList, statusData, onClose, onUpdateStatus, bookings }) => {
     const safeStaffList = Array.isArray(staffList) ? staffList : [];
     const RATES = { JIE_PRICE: 250, OIL_BONUS: 80 }; 
     const normalize = (str) => String(str || '').trim().replace(/\s+/g, '');
 
+    // Logic tính số "Jie" (Suất) dựa trên tên dịch vụ hoặc thời gian
     const getJieCount = (serviceName, duration) => {
         const name = (serviceName || "").toUpperCase();
         if (name.includes('190') || name.includes('帝王')) return 6;
@@ -189,6 +196,7 @@ const CheckInBoard = ({ staffList, statusData, onClose, onUpdateStatus, bookings
         return false;
     };
 
+    // Tính toán thu nhập real-time
     const staffIncomeMap = useMemo(() => {
         const stats = {};
         const lookupMap = {}; 
@@ -374,6 +382,8 @@ window.CheckInBoard = CheckInBoard;
  * ============================================================================
  * 4. AVAILABILITY CHECK MODAL (電話預約檢查)
  * ============================================================================
+ * Chức năng: Kiểm tra xem có thể nhận thêm khách không.
+ * NÂNG CẤP MỚI: GLOBAL CAPACITY GUARDRAIL (Hàng rào dung lượng tổng).
  */
 const AvailabilityCheckModal = ({ onClose, onSave, staffList, bookings, initialDate }) => {
     const [step, setStep] = useState('CHECK');
@@ -395,13 +405,59 @@ const AvailabilityCheckModal = ({ onClose, onSave, staffList, bookings, initialD
     }, [form.isOil]);
 
     const performCheck = () => {
+        const safeStaffList = staffList || [];
+        const safeBookings = bookings || [];
         const duration = window.getSafeDuration(form.service, 60);
         const startMins = window.normalizeToTimelineMins(form.time);
         const endMins = startMins + duration;
         
-        const safeBookings = bookings || [];
-        const todays = safeBookings.filter(b => window.isWithinOperationalDay(b.startTimeString.split(' ')[0], b.startTimeString.split(' ')[1], initialDate) && !b.status.includes('取消') && !b.status.includes('完成'));
+        // Lọc các booking trong ngày (chưa huỷ, chưa hoàn thành)
+        const todays = safeBookings.filter(b => 
+            window.isWithinOperationalDay(b.startTimeString.split(' ')[0], b.startTimeString.split(' ')[1], initialDate) && 
+            !b.status.includes('取消') && !b.status.includes('完成')
+        );
         
+        /**
+         * --------------------------------------------------------------------
+         * 1. GLOBAL CAPACITY GUARDRAIL (KIỂM TRA TỔNG DUNG LƯỢNG) - NEW!!
+         * --------------------------------------------------------------------
+         * Logic: Quét từng phút trong khoảng thời gian khách muốn đặt.
+         * Nếu (Số khách đang phục vụ + Số khách mới) > Tổng nhân viên
+         * => TỪ CHỐI NGAY.
+         */
+        const totalStaffCapacity = safeStaffList.length; // Tổng số nhân viên trong danh sách
+        let maxConcurrency = 0;
+        let isGlobalFull = false;
+
+        // Quét Timeline mỗi 5 phút để tìm điểm quá tải
+        for (let t = startMins; t < endMins; t += 5) {
+            let currentLoad = 0;
+            // Đếm số booking đang chạy tại thời điểm t
+            todays.forEach(b => {
+                const bStart = window.normalizeToTimelineMins(b.startTimeString.split(' ')[1]);
+                const bEnd = bStart + window.getSafeDuration(b.serviceName, 60);
+                if (t >= bStart && t < bEnd) {
+                    currentLoad += (b.pax || 1);
+                }
+            });
+            // Cộng thêm số khách đang muốn đặt
+            const totalLoadAtT = currentLoad + form.pax;
+            if (totalLoadAtT > maxConcurrency) maxConcurrency = totalLoadAtT;
+        }
+
+        if (maxConcurrency > totalStaffCapacity) {
+            setCheckResult({ 
+                status: 'FULL', 
+                message: `❌ Nhân viên kín lịch (Staff Full): ${maxConcurrency}/${totalStaffCapacity} needed.` 
+            });
+            return; // Dừng ngay, không cần kiểm tra giường/ghế
+        }
+
+        /**
+         * --------------------------------------------------------------------
+         * 2. RESOURCE CHECK (KIỂM TRA GIƯỜNG / GHẾ)
+         * --------------------------------------------------------------------
+         */
         let chairOccupied = 0;
         let bedOccupied = 0;
         
@@ -409,6 +465,7 @@ const AvailabilityCheckModal = ({ onClose, onSave, staffList, bookings, initialD
             const bStart = window.normalizeToTimelineMins(b.startTimeString.split(' ')[1]);
             const bEnd = bStart + window.getSafeDuration(b.serviceName, 60);
             
+            // Chỉ tính nếu có sự chồng chéo thời gian
             if (startMins < bEnd && endMins > bStart) {
                 if (b.serviceName.includes('足') || b.type === 'CHAIR') chairOccupied += (b.pax || 1);
                 else bedOccupied += (b.pax || 1);
@@ -426,9 +483,15 @@ const AvailabilityCheckModal = ({ onClose, onSave, staffList, bookings, initialD
         } else if (resourceType === 'BED') {
             if (bedOccupied + needed > 6) { available = false; msg = "❌ 指壓區客滿 (Body Area Full)"; }
         } else {
+            // Trường hợp dịch vụ dùng cả 2 hoặc không xác định
             if (chairOccupied + needed > 6 || bedOccupied + needed > 6) { available = false; msg = "❌ 區域客滿 (Area Full)"; }
         }
 
+        /**
+         * --------------------------------------------------------------------
+         * 3. SPECIFIC STAFF CHECK (KIỂM TRA THỢ CHỈ ĐỊNH)
+         * --------------------------------------------------------------------
+         */
         if (available && form.genderPref !== '隨機' && form.genderPref !== '男' && form.genderPref !== '女') {
             const staffId = form.genderPref;
             const isStaffBooked = todays.some(b => {
@@ -439,6 +502,7 @@ const AvailabilityCheckModal = ({ onClose, onSave, staffList, bookings, initialD
             });
             if (isStaffBooked) { available = false; msg = `❌ 技師 ${staffId} 該時段忙碌`; }
         }
+
         setCheckResult({ status: available ? 'OK' : 'FULL', message: msg });
     };
 
@@ -456,6 +520,7 @@ const AvailabilityCheckModal = ({ onClose, onSave, staffList, bookings, initialD
         };
         onSave(bookingData);
     };
+    
     const safeStaffList = staffList || [];
 
     return (
@@ -477,8 +542,28 @@ const AvailabilityCheckModal = ({ onClose, onSave, staffList, bookings, initialD
                                 <div><label className="text-xs font-bold text-gray-500">指定技師</label><select className="w-full border p-2 rounded font-bold" value={form.genderPref} onChange={e => { setForm({...form, genderPref: e.target.value}); setCheckResult(null); }}><option value="隨機">🎲 隨機</option><option value="女">🚺 女師傅</option><option value="男">🚹 男師傅</option><optgroup label="指定 ID">{safeStaffList.map(s => <option key={s.id} value={s.id}>{s.id} - {s.name}</option>)}</optgroup></select></div>
                                 <div><label className="text-xs font-bold text-gray-500">精油</label><button onClick={() => { const newVal = !form.isOil; setForm({ ...form, isOil: newVal, genderPref: newVal ? '女' : form.genderPref }); setCheckResult(null); }} className={`w-full border p-2 rounded font-bold flex items-center justify-center gap-2 ${form.isOil ? 'bg-purple-600 text-white' : 'bg-gray-100'}`}>{form.isOil ? '✅ 有' : '⬜ 無'}</button></div>
                             </div>
-                            {checkResult && (<div className={`p-3 rounded text-center font-bold ${checkResult.status === 'OK' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>{checkResult.message}</div>)}
-                            <div className="pt-2">{!checkResult ? (<button onClick={performCheck} className="w-full bg-blue-600 text-white p-3 rounded font-bold hover:bg-blue-700 shadow-md">🔍 查詢空位</button>) : (checkResult.status === 'OK' ? (<button onClick={() => setStep('INFO')} className="w-full bg-green-600 text-white p-3 rounded font-bold hover:bg-green-700 animate-pulse shadow-md">➡️ 下一步: 輸入資料</button>) : (<button onClick={performCheck} className="w-full bg-gray-400 text-white p-3 rounded font-bold">🔄 重新查詢</button>))}</div>
+                            
+                            {checkResult && (
+                                <div className={`p-3 rounded text-center font-bold border-2 ${checkResult.status === 'OK' ? 'bg-green-100 text-green-700 border-green-200' : 'bg-red-100 text-red-700 border-red-200'}`}>
+                                    {checkResult.message}
+                                </div>
+                            )}
+                            
+                            <div className="pt-2">
+                                {!checkResult ? (
+                                    <button onClick={performCheck} className="w-full bg-blue-600 text-white p-3 rounded font-bold hover:bg-blue-700 shadow-md transition-transform active:scale-95">
+                                        🔍 查詢空位 (Check)
+                                    </button>
+                                ) : (checkResult.status === 'OK' ? (
+                                    <button onClick={() => setStep('INFO')} className="w-full bg-green-600 text-white p-3 rounded font-bold hover:bg-green-700 animate-pulse shadow-md transition-transform active:scale-95">
+                                        ➡️ 下一步: 輸入資料
+                                    </button>
+                                ) : (
+                                    <button onClick={performCheck} className="w-full bg-gray-400 text-white p-3 rounded font-bold hover:bg-gray-500 transition-colors">
+                                        🔄 重新查詢 (Re-Check)
+                                    </button>
+                                ))}
+                            </div>
                         </>
                     )}
                     {step === 'INFO' && (
@@ -650,13 +735,12 @@ window.ComboStartModal = ComboStartModal;
 
 /**
  * ============================================================================
- * 9. COMBO TIME EDIT MODAL (NEW FOR PHASE 2 - MANUAL EDIT)
+ * 9. COMBO TIME EDIT MODAL
  * ============================================================================
  * Description: Cho phép điều chỉnh thời gian Phase 1, tự động tính Phase 2.
  */
 const ComboTimeEditModal = ({ booking, onConfirm, onCancel }) => {
     const totalDuration = parseInt(booking.duration || 100);
-    // Lấy phase1 hiện tại: ưu tiên phase1_duration, nếu không thì lấy mặc định từ window.getComboSplit
     const defaultSplit = window.getComboSplit ? window.getComboSplit(totalDuration, true, 'FB') : { phase1: totalDuration / 2 };
     const initialPhase1 = booking.phase1_duration ? parseInt(booking.phase1_duration) : defaultSplit.phase1;
     
@@ -687,7 +771,6 @@ const ComboTimeEditModal = ({ booking, onConfirm, onCancel }) => {
                         <div className="text-indigo-600 font-bold text-sm bg-indigo-50 inline-block px-2 py-1 rounded mt-2">{booking.serviceName} ({totalDuration}m)</div>
                     </div>
 
-                    {/* SLIDER CONTROL */}
                     <div className="bg-gray-50 p-4 rounded-xl border border-gray-200">
                         <div className="flex justify-between items-end mb-4">
                             <div className="text-center w-1/2 border-r border-gray-300 pr-2">
