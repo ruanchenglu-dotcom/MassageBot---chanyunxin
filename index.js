@@ -1,22 +1,21 @@
 /**
  * =================================================================================================
  * PROJECT: XINWUCHAN MASSAGE BOT (BACKEND SERVER - MAIN ENTRY)
- * VERSION: V105.0 (STABLE RELEASE)
+ * VERSION: V105.1 (STABLE RELEASE - FLOW CAPTURE UPGRADE)
  * FEATURE: CORE KERNEL SYNCHRONIZATION & FLOW PERSISTENCE
  * AUTHOR: AI ASSISTANT & USER
  * DATE: 2026/01/20
- * * ========================== CHANGE LOG V105.0 ==========================
- * 1. [CORE INTEGRATION] Đồng bộ hoàn toàn với Logic Frontend V105.
- * - Đảm bảo tham số truyền vào ResourceCore.checkRequestAvailability chính xác 100%.
- * - Hỗ trợ Elastic Step & Limit từ Menu.
- * * 2. [FLOW PERSISTENCE - CỘT Y]
- * - Đọc/Ghi cột Y (Flow Code: 'BF' hoặc 'FB') chuẩn xác.
- * - Khi check availability, nếu khách có yêu cầu flow cụ thể, hệ thống sẽ ưu tiên.
- * * 3. [MATRIX DATA MAPPING]
- * - Map dữ liệu cột O (Phase 1), P (Phase 2), Q (Lock) vào Booking Object.
- * - Truyền dữ liệu này vào Core để tính toán xung đột (Collision Check).
- * * 4. [ENHANCED LOGGING]
- * - Thêm log chi tiết khi đồng bộ và khi có booking mới để trace lỗi nhanh hơn.
+ * * ========================== CHANGE LOG V105.1 ==========================
+ * 1. [LINE BOT LOGIC UPGRADE]
+ * - Fix logic tại bước "Confirm" (PHONE step):
+ * - Thay vì set flow: null, Bot sẽ đọc kết quả từ ResourceCore.checkResult.details.
+ * - Lấy chính xác 'BF' hoặc 'FB' và thời gian phase1/phase2 để đẩy vào GuestDetails.
+ * * 2. [ADMIN API INTELLIGENCE]
+ * - API /api/admin-booking: Nếu admin không chọn Flow (null), hệ thống tự gọi Core để tính toán.
+ * - Đảm bảo Admin đặt lịch cũng tối ưu hóa tài nguyên như Bot.
+ * * 3. [SHEET WRITER REFINEMENT]
+ * - Hàm ghiVaoSheet: Nâng cấp để đọc phase1/phase2 từ guestDetails[i] (ưu tiên) thay vì chỉ đọc global.
+ * - Đảm bảo cột Y (Flow), O (Phase1), P (Phase2) được ghi chính xác 100%.
  * =================================================================================================
  */
 
@@ -159,7 +158,6 @@ function getNext15Days() {
         if(i===1) l="明天 (Tmr)";
         days.push({label: l, value: v});
     }
-    // Đảo ngược để hiển thị ngày gần nhất ở dưới cùng (hoặc tùy UI) - Ở đây giữ nguyên thứ tự
     return days; 
 }
 
@@ -633,9 +631,8 @@ function createMenuFlexMessage() {
 
 /**
  * GHI BOOKING MỚI VÀO GOOGLE SHEET 
- * Update V105.0:
- * - Ghi dữ liệu Matrix (O, P, Q).
- * - Ghi dữ liệu Flow (Y) một cách thông minh từ Guest Details.
+ * Update V105.1:
+ * - Ưu tiên đọc phase1, phase2, flow từ guestDetails từng người (để support batch booking chính xác).
  */
 async function ghiVaoSheet(data, proposedUpdates = []) {
     try {
@@ -685,12 +682,19 @@ async function ghiVaoSheet(data, proposedUpdates = []) {
                  const currentRow = newRowStartIndex + i;
                  
                  // [MATRIX DATA] - Cột O, P, Q
-                 // Nếu booking này được tạo từ "Smart Suggest" có proposedUpdates, ưu tiên dùng dữ liệu đó
-                 let p1 = data.phase1_duration;
-                 let p2 = data.phase2_duration;
+                 // V105.1 UPDATE: Ưu tiên lấy từ guestDetails (độ chính xác cao hơn cho nhóm)
+                 // Nếu không có trong guestDetails thì mới lấy từ data chung (Fallback)
+                 let p1 = null;
+                 let p2 = null;
+
+                 if (data.guestDetails && data.guestDetails[i]) {
+                     if (data.guestDetails[i].phase1 !== undefined) p1 = data.guestDetails[i].phase1;
+                     if (data.guestDetails[i].phase2 !== undefined) p2 = data.guestDetails[i].phase2;
+                 }
                  
-                 // Check if current guest has specific proposal
-                 // (Giả sử proposedUpdates trả về list khớp index, hoặc ta dùng logic chung)
+                 // Fallback nếu chưa có (dùng chung cho cả nhóm - trường hợp cũ)
+                 if (p1 === null) p1 = data.phase1_duration;
+                 if (p2 === null) p2 = data.phase2_duration;
                  
                  if (p1 !== undefined && p1 !== null) {
                      matrixUpdates.push({ range: `${BOOKING_SHEET}!O${currentRow}`, values: [[p1]] });
@@ -702,7 +706,7 @@ async function ghiVaoSheet(data, proposedUpdates = []) {
                      matrixUpdates.push({ range: `${BOOKING_SHEET}!Q${currentRow}`, values: [['TRUE']] });
                  }
 
-                 // [FLOW PERSISTENCE] - Cột Y (V105 NEW)
+                 // [FLOW PERSISTENCE] - Cột Y (V105.1 UPDATED)
                  // Logic: Lấy Flow từ Guest Details (ưu tiên) -> hoặc từ data gốc
                  let flowToWrite = null;
                  if (data.guestDetails && data.guestDetails[i] && data.guestDetails[i].flow) {
@@ -733,7 +737,7 @@ async function ghiVaoSheet(data, proposedUpdates = []) {
             await sheets.spreadsheets.values.batchUpdate({
                 spreadsheetId: SHEET_ID, requestBody: { valueInputOption: 'USER_ENTERED', data: matrixUpdates }
             });
-            console.log(`[SHEET WRITE V105] Updated Matrix & Flow Data (Cols O,P,Q,Y) for ${matrixUpdates.length} cells.`);
+            console.log(`[SHEET WRITE V105.1] Updated Matrix & Flow Data (Cols O,P,Q,Y) for ${matrixUpdates.length} cells.`);
         }
 
         // Trigger sync sau 1s để refresh cache
@@ -824,11 +828,57 @@ app.post('/api/sync-resource', (req, res) => { SERVER_RESOURCE_STATE = req.body;
 app.post('/api/sync-staff-status', (req, res) => { SERVER_STAFF_STATUS = req.body; res.json({ success: true }); });
 
 // --- API: ADMIN CREATE BOOKING ---
-// Update V105: Nhận tham số flow từ Admin UI
+// Update V105.1: Tự động tính Flow nếu Admin không nhập (NULL)
 app.post('/api/admin-booking', async (req, res) => { 
     const data = req.body; 
-    console.log(`[ADMIN BOOKING] Received request for ${data.hoTen}. Flow: ${data.flow || 'Default'}`);
+    console.log(`[ADMIN BOOKING] Received request for ${data.hoTen}. Flow input: ${data.flow || 'NULL (Will Auto-Calc)'}`);
     
+    // [V105.1] INTELLIGENT FLOW CALCULATION FOR ADMIN
+    // Nếu admin không chọn Flow (data.flow null/undefined), ta sẽ nhờ Core tính toán flow tối ưu 'BF'/'FB'
+    if (!data.flow && ResourceCore.checkRequestAvailability) {
+        try {
+            // 1. Chuẩn bị dữ liệu để gọi Core Check
+            const staffListMap = {};
+            STAFF_LIST.forEach(s => { staffListMap[s.id] = s; });
+            const relevantBookings = cachedBookings.filter(b => b.date === data.ngayDen && !b.status.includes('取消'));
+            
+            // Xây dựng Guest đơn giản (Admin thường book từng đơn, nếu batch thì logic phức tạp hơn chút)
+            // Giả định admin book 1 service code
+            let serviceCode = 'UNKNOWN';
+            for(const key in SERVICES) { if(SERVICES[key].name === data.dichVu) { serviceCode = key; break; } }
+            
+            if (serviceCode !== 'UNKNOWN') {
+                const guestList = [];
+                const pax = data.pax || 1;
+                for(let i=0; i<pax; i++) {
+                     // Nếu admin đã chọn staff, dùng staff đó. Nếu không thì RANDOM.
+                     let sId = (data.nhanVien && data.nhanVien !== '隨機' && data.nhanVien !== 'ALL_STAFF') ? data.nhanVien : 'RANDOM';
+                     guestList.push({ serviceCode: serviceCode, staffName: sId, flow: null });
+                }
+
+                // 2. Gọi Core
+                // Lưu ý: data.gioDen format 'HH:mm'
+                const checkResult = ResourceCore.checkRequestAvailability(data.ngayDen, data.gioDen, guestList, relevantBookings, staffListMap);
+                
+                if (checkResult.feasible && checkResult.details && checkResult.details.length > 0) {
+                    // 3. Lấy Flow từ kết quả tính toán của Core
+                    // Nếu là guest lẻ, lấy của guest đầu tiên.
+                    const optimalFlow = checkResult.details[0].flow;
+                    if (optimalFlow === 'BF' || optimalFlow === 'FB') {
+                        data.flow = optimalFlow;
+                        // Lấy luôn Phase durations để ghi matrix chính xác
+                        data.phase1_duration = checkResult.details[0].phase1;
+                        data.phase2_duration = checkResult.details[0].phase2;
+                        console.log(`[ADMIN AUTO-FLOW] Calculated: ${optimalFlow} (P1:${data.phase1_duration}, P2:${data.phase2_duration})`);
+                    }
+                }
+            }
+        } catch (err) {
+            console.error("[ADMIN AUTO-FLOW ERROR]", err);
+        }
+    }
+
+    // Gọi hàm ghi Sheet với dữ liệu đã được làm giàu
     await ghiVaoSheet({ 
         ngayDen: data.ngayDen, 
         gioDen: data.gioDen, 
@@ -841,7 +891,7 @@ app.post('/api/admin-booking', async (req, res) => {
         pax: data.pax || 1, 
         isOil: data.isOil || false, 
         guestDetails: data.guestDetails,
-        // Matrix & Flow
+        // Matrix & Flow (Updated from calc above if null)
         phase1_duration: data.phase1_duration,
         phase2_duration: data.phase2_duration,
         isManualLocked: data.isManualLocked,
@@ -1090,7 +1140,7 @@ async function handleEvent(event) {
       return client.replyMessage(event.replyToken, { type: 'text', text: "請輸入手機號碼 (Phone):" });
   }
 
-  // --- FINAL CONFIRMATION ---
+  // --- FINAL CONFIRMATION (FLOW CAPTURE LOGIC ADDED HERE) ---
   if (userState[userId] && userState[userId].step === 'PHONE') {
       const sdt = normalizePhoneNumber(text); const s = userState[userId];
       let finalDate = s.date; 
@@ -1105,7 +1155,7 @@ async function handleEvent(event) {
       for(let i=0; i<s.pax; i++) { 
           let sId = 'RANDOM'; 
           if(s.selectedStaff && s.selectedStaff.length > i) sId = s.selectedStaff[i]; 
-          // V105: Với Line Bot, mặc định Flow là NULL để hệ thống tự tối ưu.
+          // V105.1: Mặc định flow NULL để Core tính toán
           guestList.push({ serviceCode: s.service, staffName: sId, flow: null }); 
       }
       
@@ -1137,11 +1187,33 @@ async function handleEvent(event) {
       await client.replyMessage(event.replyToken, { type: 'text', text: confirmMsg });
       client.pushMessage(ID_BA_CHU, { type: 'text', text: `💰 New Booking: ${s.surname} - $${totalPrice}` });
       
+      // [V105.1 KEY UPDATE] CREATE GUEST DETAILS FROM CORE RESULT
       const guestDetails = [];
       for(let i=0; i<s.pax; i++) {
-          let sId = '隨機'; if(s.selectedStaff && s.selectedStaff.length > i) sId = s.selectedStaff[i]; else if(s.pref === 'FEMALE') sId = '女'; else if(s.pref === 'MALE') sId = '男';
-          // Ghi flow mặc định vào chi tiết (sẽ được cập nhật sau nếu cần)
-          guestDetails.push({ service: SERVICES[s.service].name, staff: sId, isOil: s.isOil, flow: null });
+          let sId = '隨機'; 
+          if(s.selectedStaff && s.selectedStaff.length > i) sId = s.selectedStaff[i]; 
+          else if(s.pref === 'FEMALE') sId = '女'; 
+          else if(s.pref === 'MALE') sId = '男';
+
+          // Truy xuất kết quả tính toán từ Core cho khách thứ i
+          const coreDetail = checkResult.details && checkResult.details[i] ? checkResult.details[i] : null;
+          
+          // Lấy Flow (BF/FB) và Phase Durations từ Core
+          const optimalFlow = coreDetail ? coreDetail.flow : null; 
+          const p1 = coreDetail ? coreDetail.phase1 : null;
+          const p2 = coreDetail ? coreDetail.phase2 : null;
+          
+          // Debug log nhẹ
+          console.log(`[BOT CONFIRM] Guest ${i+1}: Flow=${optimalFlow}, P1=${p1}, P2=${p2}`);
+
+          guestDetails.push({ 
+              service: SERVICES[s.service].name, 
+              staff: sId, 
+              isOil: s.isOil, 
+              flow: optimalFlow, // QUAN TRỌNG: Lưu flow vào guestDetails để ghiVaoSheet đọc
+              phase1: p1,        // Lưu Phase1 vào để ghi cột O
+              phase2: p2         // Lưu Phase2 vào để ghi cột P
+          });
       }
       
       await ghiVaoSheet(
@@ -1176,4 +1248,4 @@ setInterval(() => { syncData(); }, 30000);
 app.get('/ping', (req, res) => { res.status(200).send('Pong!'); });
 
 const port = process.env.PORT || 3000;
-app.listen(port, () => { console.log(`XinWuChan Bot V105.0 (Core Enhanced) running on port ${port}`); });
+app.listen(port, () => { console.log(`XinWuChan Bot V105.1 (Flow Capture Enabled) running on port ${port}`); });
