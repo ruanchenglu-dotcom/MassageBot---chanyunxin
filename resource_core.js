@@ -1,24 +1,27 @@
 /*
  * =================================================================================================
- * PROJECT: XINWUCHAN MASSAGE BOT - CORE LOGIC KERNEL
+ * PROJECT: XINWUCHAN MASSAGE BOT - CORE LOGIC KERNEL (SERVER SIDE)
  * FILE: resource_core.js
- * PHIÊN BẢN: V105.0 (SINGLE SOURCE OF TRUTH - EXPLICIT FLOW)
+ * PHIÊN BẢN: V113.0 (DATA MAPPING COMPLIANCE & HARD MATRIX SYNC)
+ * NGÀY CẬP NHẬT: 2026/01/21
  * TÁC GIẢ: AI ASSISTANT & USER
- * NGÀY CẬP NHẬT: 2026/01/20
  *
- * * * * * CHANGE LOG V105.0 (THE "BRAIN TRANSPLANT" UPDATE) * * * * *
- * 1. [CRITICAL] EXPLICIT FLOW PRIORITY (Ưu tiên luồng cứng):
- * - Hệ thống KHÔNG CÒN đoán luồng dựa trên Ghi chú (Note) nếu dữ liệu có trường 'flowCode'.
- * - Nếu Database (Google Sheet Cột Y) trả về 'BF' hoặc 'FB', hệ thống tuân thủ tuyệt đối.
- * - Loại bỏ sự sai lệch giữa lúc Booking (trên Web) và lúc Bot kiểm tra (trên Server).
+ * * * * * CHANGE LOG V113.0 (THE "TRUTH SOURCE" UPDATE) * * * * *
+ * 1. [CRITICAL] SERVICE CODE PRIORITY (Ưu tiên Mã Dịch Vụ):
+ * - Logic tìm kiếm dịch vụ (`getServiceInfo`) được viết lại để ưu tiên Key (Cột A Menu) 
+ * trước, sau đó mới fallback sang Name (Cột B Menu).
+ * * 2. [SYNC] HARD MATRIX DATA READING (Đọc dữ liệu cứng):
+ * - Tích hợp logic đọc các cột dữ liệu vật lý từ Database:
+ * + Phase 1 Duration (Cột Y/24)
+ * + Phase 2 Duration (Cột Z/25)
+ * + Flow Code (Cột AA/26 - BF/FB)
+ * + Locked Status (Cột AE/30 - TRUE/FALSE)
+ * - Đảm bảo khi xếp lại Matrix, các booking cũ giữ nguyên cấu trúc vật lý đã lưu.
  *
- * 2. [INHERIT] STRICT GUARDRAIL & SMART SCANNER (Từ V104.0):
- * - Giữ nguyên logic kiểm tra thợ "về đúng giờ" (Strict Time).
- * - Giữ nguyên vòng lặp quét tải trọng 15 phút (Demand vs Supply).
- *
- * 3. [ENHANCED] ROBUSTNESS (Sự bền vững):
- * - Thêm các kiểm tra null/undefined kỹ càng hơn cho dữ liệu đầu vào.
- * - Mở rộng khả năng tương thích ngược với các booking cũ không có flowCode.
+ * 3. [MAINTAIN] CORE FEATURES PRESERVED:
+ * - Universal Date Adapter (Chuẩn hóa ngày tuyệt đối).
+ * - Global Capacity Guardrail (Hàng rào kiểm soát tải trọng).
+ * - Elastic Squeeze (Co giãn thông minh).
  * =================================================================================================
  */
 
@@ -44,18 +47,20 @@ const CONFIG = {
     TOLERANCE: 1,           // Sai số cho phép (tránh lỗi làm tròn giây)
     MAX_TIMELINE_MINS: 1680, // Hỗ trợ ca đêm (24h + 4h sáng hôm sau = 28h * 60)
     
-    // --- Cấu hình Guardrail (V104/V105) ---
-    CAPACITY_CHECK_STEP: 15 // Bước nhảy khi quét tải trọng (Check mỗi 15 phút)
+    // --- Cấu hình Guardrail (V104/V105/V112) ---
+    // Bước nhảy khi quét tải trọng. Để 10 phút như Frontend để đảm bảo độ chính xác cao.
+    CAPACITY_CHECK_STEP: 10 
 };
 
 // Cơ sở dữ liệu dịch vụ (Dynamic Services Database)
-// Sẽ được nạp từ Google Sheet thông qua hàm setDynamicServices
+// Key: Service Code (Cột A Menu - VD: 'A6', 'F4')
+// Value: Object chứa info { name, duration, price, type, category... }
 let SERVICES = {}; 
 
 /**
  * Cập nhật danh sách dịch vụ và thêm các dịch vụ hệ thống mặc định.
  * Hàm này cần được gọi ngay khi Server khởi động hoặc nạp dữ liệu mới.
- * @param {Object} newServicesObj - Object chứa danh sách dịch vụ từ Sheet
+ * @param {Object} newServicesObj - Object chứa danh sách dịch vụ (Key = Code)
  */
 function setDynamicServices(newServicesObj) {
     const systemServices = {
@@ -65,13 +70,96 @@ function setDynamicServices(newServicesObj) {
         'LATE': { name: '⚠️ 延遲 (Late)', duration: 0, type: 'NONE', price: 0, category: 'SYSTEM' }
     };
     
-    // Merge dịch vụ từ Sheet với dịch vụ hệ thống
+    // Merge dịch vụ từ nguồn ngoài với dịch vụ hệ thống
     SERVICES = { ...newServicesObj, ...systemServices };
-    console.log(`[CORE V105.0] Services Synced. Database updated with ${Object.keys(SERVICES).length} entries.`);
+    
+    // Log kiểm tra để đảm bảo Service Code được load đúng
+    // console.log(`[CORE V113] Services Database Synced. Total Items: ${Object.keys(SERVICES).length}`);
+}
+
+/**
+ * [HELPER V113] Lấy thông tin dịch vụ an toàn.
+ * Ưu tiên tìm theo CODE (Cột A), nếu không thấy tìm theo NAME (Cột B).
+ * @param {string} code - Mã dịch vụ (VD: 'A6')
+ * @param {string} name - Tên dịch vụ (VD: 'Foot Massage 60min')
+ */
+function getServiceInfo(code, name) {
+    // 1. Thử tìm bằng Code trước (Độ chính xác cao nhất)
+    if (code && SERVICES[code]) {
+        return SERVICES[code];
+    }
+    
+    // 2. Nếu không có Code, hoặc Code không khớp, tìm bằng Name
+    if (name) {
+        const cleanName = name.toString().trim().toUpperCase();
+        for (const key in SERVICES) {
+            const svc = SERVICES[key];
+            if (svc.name && svc.name.toString().trim().toUpperCase() === cleanName) {
+                return svc;
+            }
+        }
+    }
+    
+    // 3. Fallback: Trả về object mặc định để không crash code
+    return { name: name || 'Unknown', duration: 60, price: 0, type: 'CHAIR' };
 }
 
 // ============================================================================
-// PHẦN 2: TIỆN ÍCH THỜI GIAN & DATA (TIME & DATA UTILITIES)
+// PHẦN 2: UNIVERSAL DATE ADAPTER (CÔNG CỤ XỬ LÝ NGÀY TUYỆT ĐỐI)
+// Mô tả: Trái tim của bản cập nhật V112/V113. Xử lý sự bất nhất về định dạng ngày.
+// ============================================================================
+
+/**
+ * [CRITICAL] HÀM CHUẨN HÓA NGÀY TUYỆT ĐỐI.
+ * Chuyển mọi định dạng (DD/MM/YYYY, YYYY-MM-DD, dấu chấm, dấu gạch) về YYYY/MM/DD.
+ * Đảm bảo Server luôn hiểu đúng ngày mà Client gửi lên hoặc đọc từ Database.
+ * * @param {string|Date} input - Chuỗi ngày đầu vào
+ * @returns {string} - Chuỗi ngày chuẩn dạng "YYYY/MM/DD"
+ */
+function normalizeDateStrict(input) {
+    if (!input) return "";
+    try {
+        let str = input.toString().trim();
+        
+        // 1. Vệ sinh dữ liệu: Loại bỏ giờ giấc nếu dính (VD: 2026-01-20T00:00:00)
+        if (str.includes('T')) str = str.split('T')[0];
+        if (str.includes(' ')) str = str.split(' ')[0];
+
+        // 2. Thay thế tất cả gạch ngang (-), chấm (.) bằng gạch chéo (/)
+        str = str.replace(/-/g, '/').replace(/\./g, '/');
+
+        // 3. Phân tách các phần
+        const parts = str.split('/');
+        
+        // Nếu không đủ 3 phần, trả về nguyên gốc (fail safe mechanism)
+        if (parts.length !== 3) return str;
+
+        // 4. Logic nhận diện thông minh (Heuristic Detection)
+        const partA = parts[0]; // Có thể là YYYY hoặc DD
+        const partB = parts[1]; // MM
+        const partC = parts[2]; // Có thể là DD hoặc YYYY
+
+        // TRƯỜNG HỢP 1: Dạng YYYY/MM/DD (VD: 2026/01/20) - Chuẩn quốc tế/ISO
+        if (partA.length === 4) {
+            return `${partA}/${partB.padStart(2, '0')}/${partC.padStart(2, '0')}`;
+        }
+        
+        // TRƯỜNG HỢP 2: Dạng DD/MM/YYYY (VD: 20/01/2026) - Chuẩn Việt Nam/Châu Á
+        // Cần đảo ngược lại thành YYYY/MM/DD để hệ thống so sánh chuỗi chính xác
+        if (partC.length === 4) {
+            return `${partC}/${partB.padStart(2, '0')}/${partA.padStart(2, '0')}`;
+        }
+
+        // Mặc định trả về nguyên gốc nếu không nhận diện được (ví dụ năm 2 số)
+        return str;
+    } catch (e) {
+        console.error("[CORE V113] Date Normalize Error:", e);
+        return input;
+    }
+}
+
+// ============================================================================
+// PHẦN 3: TIỆN ÍCH THỜI GIAN & DATA (TIME & DATA UTILITIES)
 // Mô tả: Các hàm bổ trợ xử lý chuỗi thời gian, so sánh va chạm.
 // ============================================================================
 
@@ -136,9 +224,9 @@ function isOverlap(startA, endA, startB, endB) {
 }
 
 /**
- * [V104/105] Normalize Booking Status
+ * [V112 Synced] Normalize Booking Status
  * Kiểm tra xem trạng thái booking có đang chiếm chỗ (Active) hay không.
- * Hỗ trợ đa ngôn ngữ: Anh, Việt, Trung.
+ * Các trạng thái trong Cột O, P, Q (Status1, 2, 3) cũng nên được map qua đây.
  */
 function isActiveBookingStatus(statusRaw) {
     if (!statusRaw) return false;
@@ -158,19 +246,21 @@ function isActiveBookingStatus(statusRaw) {
 }
 
 // ============================================================================
-// PHẦN 3: BỘ NHẬN DIỆN THÔNG MINH (SMART CLASSIFIER)
+// PHẦN 4: BỘ NHẬN DIỆN THÔNG MINH (SMART CLASSIFIER)
 // Mô tả: Phân loại dịch vụ Combo/Single và loại tài nguyên (Bed/Chair).
 // ============================================================================
 
 /**
  * Kiểm tra xem một dịch vụ có phải là COMBO (làm cả chân và mình) hay không.
+ * Cập nhật V113: Sử dụng `getServiceInfo` để tìm đúng object.
  */
 function isComboService(serviceObj, serviceNameRaw = '') {
-    // Ưu tiên check Category trong Database
-    if (serviceObj && serviceObj.category) {
-        const cat = serviceObj.category.toString().toUpperCase().trim();
-        if (cat === 'COMBO' || cat === 'MIXED') return true;
-    }
+    // Check nếu obj không tồn tại
+    if (!serviceObj && !serviceNameRaw) return false;
+
+    // Ưu tiên check Category trong Database (Do Service Code đã map đúng)
+    const cat = (serviceObj && serviceObj.category ? serviceObj.category : '').toString().toUpperCase().trim();
+    if (cat === 'COMBO' || cat === 'MIXED') return true;
 
     // Fallback: Check theo tên (Keyword Matching)
     const dbName = (serviceObj && serviceObj.name ? serviceObj.name : '').toString().toUpperCase();
@@ -206,16 +296,71 @@ function detectResourceType(serviceObj) {
 }
 
 // ============================================================================
-// PHẦN 4: HÀNG RÀO DUNG LƯỢNG & STRICT TIME (GUARDRAIL V105.0)
-// Mô tả: Logic kiểm tra tải trọng toàn cục trước khi xếp lịch chi tiết.
+// PHẦN 5: HÀNG RÀO DUNG LƯỢNG & STRICT RESOURCE (GUARDRAIL V112.0)
+// Mô tả: Logic kiểm tra tải trọng toàn cục, đồng bộ tuyệt đối với Frontend.
 // ============================================================================
 
 /**
- * [STRICT STAFF COUNTING V105.0]
- * Đếm số lượng nhân viên thực tế có thể phục vụ cho một yêu cầu cụ thể.
- * Yêu cầu:
- * 1. Nhân viên phải có mặt tại thời điểm `currentTimeMins`.
- * 2. Nếu nhân viên là `isStrictTime`, họ phải CHƯA VỀ trước khi khách làm xong.
+ * [UPDATED V113] Suy luận loại tài nguyên đang bị chiếm dụng tại một thời điểm cụ thể.
+ * Tích hợp việc đọc FlowCode từ cột AA và Phase Duration từ Y/Z.
+ */
+function inferResourceAtTime(booking, timeMins) {
+    const bStart = getMinsFromTimeStr(booking.startTime);
+    // V113: Lấy duration chính xác từ Service Code
+    const svcInfo = getServiceInfo(booking.serviceCode, booking.serviceName);
+    
+    const duration = parseInt(booking.duration) || svcInfo.duration || 60;
+    const bEnd = bStart + duration + CONFIG.CLEANUP_BUFFER;
+
+    // Nếu thời gian kiểm tra nằm ngoài phạm vi booking -> Không chiếm
+    if (timeMins < bStart || timeMins >= bEnd) return null; 
+
+    const isCombo = isComboService(svcInfo, booking.serviceName);
+
+    if (!isCombo) {
+        // Nếu là Single, chiếm 1 loại tài nguyên suốt thời gian
+        return detectResourceType(svcInfo);
+    } else {
+        // Nếu là Combo, phải xem đang ở giai đoạn nào.
+        // --- LOGIC V113: ƯU TIÊN DỮ LIỆU CỨNG TỪ DB ---
+        let isBodyFirst = false;
+        
+        // 1. Kiểm tra cột AA (Flow Code)
+        const storedFlow = booking.flow || booking.originalData?.flowCode;
+        // 2. Kiểm tra Note
+        const noteContent = (booking.note || booking.ghiChu || "").toString().toUpperCase();
+
+        if (storedFlow === 'BF') isBodyFirst = true;
+        else if (storedFlow === 'FB') isBodyFirst = false;
+        else if (noteContent.includes('BF') || noteContent.includes('BODY FIRST') || noteContent.includes('先做身體')) isBodyFirst = true;
+        else if (booking.allocated_resource && (booking.allocated_resource.includes('BED') || booking.allocated_resource.includes('BODY'))) isBodyFirst = true;
+
+        // 3. Kiểm tra cột Y (Phase 1 Duration) - Nếu có thì dùng, nếu không chia đôi
+        let p1 = 0;
+        if (booking.originalData && booking.originalData.phase1_duration) {
+             p1 = parseInt(booking.originalData.phase1_duration);
+        } else if (booking.phase1_duration) {
+             p1 = parseInt(booking.phase1_duration);
+        } else {
+             p1 = Math.floor(duration / 2);
+        }
+        
+        const splitTime = bStart + p1;
+
+        if (timeMins < splitTime) {
+            // Đang ở Phase 1
+            return isBodyFirst ? 'BED' : 'CHAIR';
+        } else {
+            // Đang ở Phase 2
+            return isBodyFirst ? 'CHAIR' : 'BED';
+        }
+    }
+}
+
+/**
+ * [STRICT STAFF COUNTING]
+ * Đếm số lượng nhân viên thực tế có thể phục vụ (xét cả giờ làm việc và Strict Mode).
+ * Hiện tại kiểm tra Staff 1 (Primary). Staff 2 và 3 chỉ mang tính chất tham chiếu trong hiển thị.
  */
 function getEligibleStaffCount(staffList, currentTimeMins, requiredEndTime) {
     let count = 0;
@@ -231,12 +376,10 @@ function getEligibleStaffCount(staffList, currentTimeMins, requiredEndTime) {
         // 2. Kiểm tra xem thời điểm hiện tại t có nằm trong ca làm việc không
         if (currentTimeMins >= shiftStart && currentTimeMins < shiftEnd) {
             
-            // 3. [STRICT TIME CHECK] - Logic quan trọng của V104/V105
+            // 3. [STRICT TIME CHECK] - Nếu thợ về sớm, không tính là available cho ca này
             if (info.isStrictTime === true) {
-                // Nếu khách làm đến 14:00 mà thợ 13:30 về -> Loại
-                // Sử dụng Tolerance để lỏng tay một chút (1 phút)
                 if (shiftEnd < (requiredEndTime - CONFIG.TOLERANCE)) {
-                    continue; // Thợ này không đủ thời gian phục vụ ca này
+                    continue; // Thợ này không đủ thời gian phục vụ
                 }
             }
             
@@ -248,10 +391,10 @@ function getEligibleStaffCount(staffList, currentTimeMins, requiredEndTime) {
 }
 
 /**
- * [GLOBAL SCANNER V105.0]
- * Quét toàn bộ dòng thời gian dự kiến của khách mới để đảm bảo không lúc nào bị thiếu thợ.
+ * [GLOBAL SCANNER V113.0]
+ * Quét toàn bộ dòng thời gian để đảm bảo không lúc nào bị thiếu Giường, Ghế hoặc Thợ.
  */
-function validateGlobalCapacity(requestStart, maxDuration, newGuestCount, currentBookingsRaw, staffList) {
+function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBookingsRaw, staffList, queryDateStr) {
     const requestEnd = requestStart + maxDuration + CONFIG.CLEANUP_BUFFER;
     
     // 1. Lọc ra các booking cũ đang thực sự chiếm chỗ (Active & Overlap)
@@ -259,52 +402,138 @@ function validateGlobalCapacity(requestStart, maxDuration, newGuestCount, curren
         const bStart = getMinsFromTimeStr(b.startTime);
         if (bStart === -1) return false;
         
-        // Kiểm tra trạng thái đa ngôn ngữ
         if (!isActiveBookingStatus(b.status)) return false;
 
-        // Thời gian kết thúc booking cũ
         const bEnd = bStart + (b.duration || 60) + CONFIG.CLEANUP_BUFFER;
         
         // Chỉ lấy những booking có giao thoa với khoảng thời gian khách mới yêu cầu
         return isOverlap(requestStart, requestEnd, bStart, bEnd);
     });
 
+    // Biến lưu snapshot debug đầu tiên bị lỗi (nếu có)
+    let failureSnapshot = null;
+
     // 2. QUÉT TỪNG LÁT CẮT THỜI GIAN (Time Slicing Loop)
-    // Bước nhảy 15 phút để đảm bảo hiệu năng và độ chính xác
     for (let t = requestStart; t < requestEnd; t += CONFIG.CAPACITY_CHECK_STEP) {
         
-        // A. Tính Cung (Supply): Số lượng thợ khả dụng & đủ giờ làm
+        // A. KIỂM TRA NHÂN VIÊN (STAFF SUPPLY vs DEMAND)
         const supplyCount = getEligibleStaffCount(staffList, t, requestEnd);
-
-        // B. Tính Cầu (Demand): Khách cũ đang làm tại t + Khách mới
-        let currentLoad = 0;
+        
+        let currentStaffLoad = 0;
         for (const b of activeExistingBookings) {
             const bStart = getMinsFromTimeStr(b.startTime);
             const bEnd = bStart + (b.duration || 60) + CONFIG.CLEANUP_BUFFER;
             // Nếu thời điểm t nằm trong khoảng booking cũ
             if (t >= bStart && t < bEnd) {
-                currentLoad++;
+                currentStaffLoad++;
             }
         }
         
-        // Tổng cầu = Khách cũ + Khách mới
-        const totalDemand = currentLoad + newGuestCount;
+        const totalStaffDemand = currentStaffLoad + guestList.length;
 
-        // C. SO SÁNH (GUARDRAIL CONDITION)
-        // Nếu tại bất kỳ thời điểm nào, Cầu > Cung -> BÁO HẾT CHỖ NGAY
-        if (totalDemand > supplyCount) {
+        // B. KIỂM TRA TÀI NGUYÊN VẬT LÝ (BEDS & CHAIRS)
+        let usedBeds = 0;
+        let usedChairs = 0;
+
+        // Đếm tài nguyên bị khách cũ chiếm
+        for (const b of activeExistingBookings) {
+            const resType = inferResourceAtTime(b, t);
+            if (resType === 'BED') usedBeds++;
+            else if (resType === 'CHAIR') usedChairs++;
+        }
+
+        // Đếm tài nguyên khách mới cần
+        let neededBeds = 0;
+        let neededChairs = 0;
+        let neededFlexible = 0; // Dành cho Combo (chưa biết xếp vào đâu)
+
+        for (const g of guestList) {
+            // Dùng getServiceInfo để đảm bảo lấy đúng duration
+            const svc = getServiceInfo(g.serviceCode, g.serviceName);
+            const isCombo = isComboService(svc, g.serviceCode);
+            const gDuration = svc.duration || 60;
+            const elapsed = t - requestStart; 
+
+            // Nếu khách này đã làm xong tại thời điểm t -> không tính
+            if (elapsed >= gDuration + CONFIG.CLEANUP_BUFFER) continue; 
+
+            if (!isCombo) {
+                const rType = detectResourceType(svc);
+                if (rType === 'BED') neededBeds++;
+                else neededChairs++;
+            } else {
+                // Combo: Tạm tính logic đơn giản cho Guardrail
+                // Ở phase nào cũng cần 1 chỗ. Ta sẽ check tổng thể.
+                neededFlexible++;
+            }
+        }
+
+        const availableBeds = CONFIG.MAX_BEDS - usedBeds;
+        const availableChairs = CONFIG.MAX_CHAIRS - usedChairs;
+
+        // Tạo Snapshot cho thời điểm này (để debug)
+        const snapshot = {
+            queryDate: queryDateStr,
+            time: getTimeStrFromMins(t),
+            activeStaff: supplyCount,
+            guestsRunning: currentStaffLoad,
+            usedBeds: usedBeds,
+            usedChairs: usedChairs,
+            maxBeds: CONFIG.MAX_BEDS,
+            maxChairs: CONFIG.MAX_CHAIRS
+        };
+
+        // C. SO SÁNH (GUARDRAIL CONDITIONS)
+        
+        // 1. Check Thợ
+        if (totalStaffDemand > supplyCount) {
             return {
                 pass: false,
-                reason: `Quá tải lúc ${getTimeStrFromMins(t)}. Cần ${totalDemand} thợ, chỉ có ${supplyCount} thợ đáp ứng đủ giờ (Strict Time).`
+                reason: `Quá tải THỢ lúc ${getTimeStrFromMins(t)}. Cần ${totalStaffDemand}, có ${supplyCount}.`,
+                debug: snapshot
             };
         }
+
+        // 2. Check Giường cứng
+        if (neededBeds > availableBeds) {
+            return { 
+                pass: false, 
+                reason: `Hết GIƯỜNG lúc ${getTimeStrFromMins(t)}. (Trống: ${availableBeds}, Cần: ${neededBeds})`,
+                debug: snapshot
+            };
+        }
+        
+        // 3. Check Ghế cứng
+        if (neededChairs > availableChairs) {
+            return { 
+                pass: false, 
+                reason: `Hết GHẾ lúc ${getTimeStrFromMins(t)}. (Trống: ${availableChairs}, Cần: ${neededChairs})`,
+                debug: snapshot
+            };
+        }
+
+        // 4. Check Tổng thể (cho Combo)
+        const remainingBeds = availableBeds - neededBeds;
+        const remainingChairs = availableChairs - neededChairs;
+        const totalSlots = remainingBeds + remainingChairs;
+
+        if (neededFlexible > totalSlots) {
+            return { 
+                pass: false, 
+                reason: `Không đủ GIƯỜNG/GHẾ Combo lúc ${getTimeStrFromMins(t)}. (Dư: ${totalSlots}, Cần: ${neededFlexible})`,
+                debug: snapshot
+            };
+        }
+        
+        // Lưu lại snapshot đầu tiên nếu chưa có (để trả về nếu thành công)
+        if (!failureSnapshot) failureSnapshot = snapshot;
     }
 
-    return { pass: true };
+    return { pass: true, debug: failureSnapshot };
 }
 
 // ============================================================================
-// PHẦN 5: MATRIX ENGINE (CORE ALLOCATION)
+// PHẦN 6: MATRIX ENGINE (CORE ALLOCATION)
 // Mô tả: Máy ảo xếp chỗ vào Giường/Ghế.
 // ============================================================================
 
@@ -366,13 +595,11 @@ class VirtualMatrix {
 }
 
 // ============================================================================
-// PHẦN 6: LOGIC TÌM NHÂN VIÊN & CO GIÃN (STAFF & ELASTIC LOGIC)
+// PHẦN 7: LOGIC TÌM NHÂN VIÊN & CO GIÃN (STAFF & ELASTIC LOGIC)
 // ============================================================================
 
 /**
  * Tìm nhân viên phù hợp cho một booking cụ thể.
- * @param {string} staffReq - Yêu cầu (VD: '10', 'MALE', 'FEMALE', 'RANDOM')
- * @param {Array} busyList - Danh sách các khoảng thời gian nhân viên đã bị book trong kịch bản giả lập
  */
 function findAvailableStaff(staffReq, start, end, staffListRef, busyList) {
     const checkOneStaff = (name) => {
@@ -424,7 +651,6 @@ function findAvailableStaff(staffReq, start, end, staffListRef, busyList) {
 
 /**
  * Sinh ra các phương án chia cắt thời gian (Split) cho dịch vụ Combo.
- * VD: 60p -> [30, 30], [25, 35], [35, 25]...
  */
 function generateElasticSplits(totalDuration, step = 0, limit = 0, customLockedPhase1 = null) {
     // Nếu đã bị khóa Phase 1 (do User chỉnh tay) -> Chỉ trả về 1 phương án duy nhất
@@ -457,48 +683,99 @@ function generateElasticSplits(totalDuration, step = 0, limit = 0, customLockedP
     return options;
 }
 
+/**
+ * Helper: Kiểm tra nhanh xem một bộ block có nhét vừa ma trận không (dùng cho Squeeze)
+ */
+function isBlockSetAllocatable(blocks, matrix) {
+    for (const b of blocks) {
+        const laneGroup = matrix.lanes[b.type];
+        if (!laneGroup) return false;
+        let foundLane = false;
+        if (b.forcedIndex && b.forcedIndex > 0 && b.forcedIndex <= laneGroup.length) {
+            const targetLane = laneGroup[b.forcedIndex - 1];
+            let isFree = true;
+            for (const occ of targetLane.occupied) {
+                if (isOverlap(b.start, b.end, occ.start, occ.end)) { isFree = false; break; }
+            }
+            if (isFree) return true; 
+        }
+        for (const lane of laneGroup) {
+            let isFree = true;
+            for (const occ of lane.occupied) {
+                if (isOverlap(b.start, b.end, occ.start, occ.end)) { isFree = false; break; }
+            }
+            if (isFree) { foundLane = true; break; }
+        }
+        if (!foundLane) return false;
+    }
+    return true;
+}
+
 // ============================================================================
-// PHẦN 7: CORE ENGINE V105.0 (INTEGRATED SINGLE SOURCE OF TRUTH)
+// PHẦN 8: CORE ENGINE V113.0 (INTEGRATED SINGLE SOURCE OF TRUTH)
 // Mô tả: Hàm chính xử lý logic.
 // ============================================================================
 
 /**
- * HÀM KIỂM TRA KHẢ DỤNG CHÍNH - PHIÊN BẢN V105.0
- * @param {string} dateStr - Ngày kiểm tra "YYYY/MM/DD"
+ * HÀM KIỂM TRA KHẢ DỤNG CHÍNH - PHIÊN BẢN V113.0
+ * @param {string} dateStr - Ngày kiểm tra (Bất kỳ định dạng nào)
  * @param {string} timeStr - Giờ kiểm tra "HH:mm"
- * @param {Array} guestList - Danh sách khách mới
- * @param {Array} currentBookingsRaw - Danh sách booking hiện tại từ DB
+ * @param {Array} guestList - Danh sách khách mới { serviceCode, serviceName, staffName... }
+ * @param {Array} currentBookingsRaw - Danh sách booking hiện tại từ DB (Raw)
  * @param {Object} staffList - Danh sách nhân viên và ca làm việc
  */
 function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRaw, staffList) {
+    // ------------------------------------------------------------------------
+    // [V112.0] BƯỚC PRE-CHECK: CHUẨN HÓA DỮ LIỆU ĐẦU VÀO
+    // ------------------------------------------------------------------------
     const requestStartMins = getMinsFromTimeStr(timeStr);
     if (requestStartMins === -1) return { feasible: false, reason: "Error: Invalid Time Format" };
+
+    // 1. Chuẩn hóa ngày yêu cầu về chuẩn duy nhất YYYY/MM/DD
+    const normalizedQueryDate = normalizeDateStrict(dateStr);
+
+    // 2. Lọc và chuẩn hóa ngày của Booking từ Database
+    // Đây là bước quan trọng nhất để fix lỗi Server "mù".
+    const filteredBookings = currentBookingsRaw.filter(b => {
+        if (!b || !b.startTimeString) return false;
+        
+        // Trích xuất ngày từ chuỗi booking (VD: "2026-01-20 12:00")
+        const rawDate = b.startTimeString.split(' ')[0];
+        const bDateNormalized = normalizeDateStrict(rawDate);
+        
+        // So sánh chuỗi đã chuẩn hóa.
+        // Nếu khác ngày -> Bỏ qua.
+        return bDateNormalized === normalizedQueryDate;
+    });
 
     // Tìm duration lớn nhất của nhóm khách mới để tính khung thời gian quét
     let maxGuestDuration = 0;
     guestList.forEach(g => {
-        const s = SERVICES[g.serviceCode] || { duration: 60 };
+        // V113: Dùng getServiceInfo để tìm theo code (A6, F4...)
+        const s = getServiceInfo(g.serviceCode, g.serviceName);
         const dur = s.duration || 60;
         if (dur > maxGuestDuration) maxGuestDuration = dur;
     });
 
     // ------------------------------------------------------------------------
-    // [V105.0] BƯỚC 0: STRICT GUARDRAIL CHECK (HÀNG RÀO BẢO VỆ)
+    // [V112.0] BƯỚC 0: STRICT GUARDRAIL CHECK (HÀNG RÀO BẢO VỆ)
     // ------------------------------------------------------------------------
     // Thực hiện quét toàn cục Demand/Supply trước khi chạy Matrix.
     const guardrailCheck = validateGlobalCapacity(
         requestStartMins, 
         maxGuestDuration, 
-        guestList.length, 
-        currentBookingsRaw, 
-        staffList
+        guestList, 
+        filteredBookings, // Sử dụng danh sách đã filter chuẩn ngày
+        staffList,
+        normalizedQueryDate
     );
 
     if (!guardrailCheck.pass) {
-        console.warn(`[CORE V105.0] GUARDRAIL REJECTED: ${guardrailCheck.reason}`);
+        // console.warn(`[CORE V113] GUARDRAIL REJECTED: ${guardrailCheck.reason}`);
         return { 
             feasible: false, 
-            reason: `SYSTEM REJECT: ${guardrailCheck.reason}` 
+            reason: `SYSTEM REJECT: ${guardrailCheck.reason}`,
+            debug: guardrailCheck.debug // Trả về debug info để hiển thị
         };
     }
 
@@ -506,8 +783,8 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
     // BƯỚC A: TIỀN XỬ LÝ - GOM NHÓM (VISUAL SYNC)
     // ------------------------------------------------------------------------
     // Sắp xếp booking theo thời gian để xử lý tuần tự
-    let sortedRaw = [...currentBookingsRaw].sort((a, b) => {
-        return getMinsFromTimeStr(a.startTime) - getMinsFromTimeStr(b.startTime);
+    let sortedRaw = [...filteredBookings].sort((a, b) => {
+        return getMinsFromTimeStr(a.startTimeString || a.startTime) - getMinsFromTimeStr(b.startTimeString || b.startTime);
     });
 
     // Gom nhóm các booking đi cùng nhau (Couple/Group) dựa trên Contact hoặc RowID
@@ -516,7 +793,8 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
         // Chỉ gom nhóm các booking Active
         if (!isActiveBookingStatus(b.status)) return;
 
-        const timeKey = (b.startTime || "").split(' ')[1] || "00:00";
+        const bTime = b.startTimeString || b.startTime;
+        const timeKey = (bTime || "").split(' ')[1] || "00:00";
         // Lấy SĐT hoặc tên làm key gom nhóm
         const contactInfo = b.originalData?.phone || b.originalData?.sdt || b.originalData?.custPhone || b.originalData?.customerName || "Unknown";
         const contactKey = contactInfo.toString().replace(/\D/g, '').slice(-6) || contactInfo.toString().trim();
@@ -558,12 +836,13 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
     // ------------------------------------------------------------------------
     let existingBookingsProcessed = [];
     remappedBookings.forEach(b => {
-        const bStart = getMinsFromTimeStr(b.startTime);
+        const bStart = getMinsFromTimeStr(b.startTimeString || b.startTime);
         if (bStart === -1) return;
 
-        let svcInfo = SERVICES[b.serviceCode] || {};
+        // V113: Dùng helper để lấy Service Info chuẩn
+        let svcInfo = getServiceInfo(b.serviceCode, b.serviceName);
         let isCombo = isComboService(svcInfo, b.serviceName);
-        let duration = b.duration || 60;
+        let duration = b.duration || svcInfo.duration || 60;
         let anchorIndex = null;
         const statusLower = (b.status||'').toLowerCase();
         const isRunning = statusLower.includes('running');
@@ -585,22 +864,36 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
             }
         }
 
+        // --- [V113 CRITICAL: LOCKED CHECK] ---
+        // Kiểm tra xem booking có bị khóa thủ công không (Cột AE/30)
+        const isLockedRaw = b.originalData?.isManualLocked || b.isManualLocked;
+        const isLocked = (isLockedRaw === true || isLockedRaw === 'TRUE');
+
         // Tạo đối tượng xử lý
         let processedB = {
             id: b.rowId, originalData: b, staffName: b.staffName, serviceName: b.serviceName, 
             category: svcInfo.category, 
-            // Chỉ cho phép Squeeze (Co giãn) nếu KHÔNG phải booking đang chạy
-            isElastic: isCombo && (b.isManualLocked !== true) && (!isRunning),
+            // Chỉ cho phép Squeeze (Co giãn) nếu KHÔNG phải booking đang chạy VÀ KHÔNG BỊ KHÓA
+            isElastic: isCombo && (!isLocked) && (!isRunning),
             elasticStep: svcInfo.elasticStep || 5, elasticLimit: svcInfo.elasticLimit || 15,
             startMins: bStart, duration: duration, blocks: [], anchorIndex: anchorIndex
         };
 
-        // --- [CRITICAL V105.0 LOGIC: EXPLICIT FLOW READING] ---
-        // Ưu tiên đọc từ cột flow/flowCode đã được lưu trong DB
+        // --- [CRITICAL V113.0 LOGIC: EXPLICIT FLOW & PHASES] ---
+        // Ưu tiên đọc từ cột flow/flowCode đã được lưu trong DB (Cột AA)
         let storedFlow = b.flow || b.originalData?.flowCode || b.originalData?.flow || null;
 
         if (isCombo) {
-            let p1 = b.phase1_duration ? parseInt(b.phase1_duration) : Math.floor(duration / 2);
+            // 1. Xác định Phase Duration từ DB (Cột Y) nếu có
+            let p1 = 0;
+            if (b.originalData && b.originalData.phase1_duration) {
+                p1 = parseInt(b.originalData.phase1_duration);
+            } else if (b.phase1_duration) {
+                p1 = parseInt(b.phase1_duration);
+            } else {
+                p1 = Math.floor(duration / 2); // Fallback chia đôi
+            }
+            
             let p2 = duration - p1;
             const p1End = bStart + p1;
             const p2Start = p1End + CONFIG.TRANSITION_BUFFER;
@@ -642,7 +935,10 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
     // BƯỚC C: KỊCH BẢN KHÁCH MỚI (NEW GUESTS & COUPLE SYNC)
     // ------------------------------------------------------------------------
     const newGuests = guestList.map((g, idx) => ({ ...g, idx: idx }));
-    const comboGuests = newGuests.filter(g => { const s = SERVICES[g.serviceCode]; return isComboService(s, g.serviceCode); });
+    const comboGuests = newGuests.filter(g => { 
+        const s = getServiceInfo(g.serviceCode, g.serviceName); 
+        return isComboService(s, g.serviceCode); 
+    });
     const newGuestHalfSize = Math.ceil(comboGuests.length / 2);
     const maxBF = comboGuests.length;
     let trySequence = [];
@@ -698,7 +994,7 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
         // --- 2. TÍNH TOÁN BLOCK KHÁCH MỚI ---
         let newGuestBlocksMap = []; 
         for (const ng of newGuests) {
-            const svc = SERVICES[ng.serviceCode] || { name: ng.serviceCode || 'Unknown', duration: 60, price: 0 }; 
+            const svc = getServiceInfo(ng.serviceCode, ng.serviceName); 
             let flow = 'FB'; 
             let isThisGuestCombo = isComboService(svc, ng.serviceCode);
             if (isThisGuestCombo) {
@@ -798,7 +1094,7 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
                     if (isBlockSetAllocatable(testBlocks, matrixSqueeze)) {
                         testBlocks.forEach(tb => matrixSqueeze.tryAllocate(tb.type, tb.start, tb.end, sb.id, tb.forcedIndex));
                         fit = true;
-                        if (split.deviation !== 0) updatesProposed.push({ rowId: sb.id, customerName: sb.originalData.customerName, newPhase1: split.p1, newPhase2: split.p2, reason: 'Matrix Squeeze V105.0' });
+                        if (split.deviation !== 0) updatesProposed.push({ rowId: sb.id, customerName: sb.originalData.customerName, newPhase1: split.p1, newPhase2: split.p2, reason: 'Matrix Squeeze V113.0' });
                         break; 
                     }
                 }
@@ -843,46 +1139,23 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
         successfulScenario.details.sort((a,b) => a.guestIndex - b.guestIndex);
         return {
             feasible: true, 
-            strategy: 'MATRIX_COUPLE_SYNC_V105.0', 
+            strategy: 'MATRIX_COUPLE_SYNC_V113.0', 
             details: successfulScenario.details,
             proposedUpdates: successfulScenario.updates,
-            totalPrice: successfulScenario.details.reduce((sum, item) => sum + (item.price||0), 0)
+            totalPrice: successfulScenario.details.reduce((sum, item) => sum + (item.price||0), 0),
+            debug: guardrailCheck.debug // Kèm theo debug info để audit
         };
     } else {
-        return { feasible: false, reason: "Hết chỗ (Không tìm thấy khe hở phù hợp hoặc không đủ nhân viên)" };
+        return { 
+            feasible: false, 
+            reason: "Hết chỗ (Không tìm thấy khe hở phù hợp hoặc không đủ nhân viên)",
+            debug: guardrailCheck.debug // Kèm theo debug info kể cả khi fail
+        };
     }
-}
-
-/**
- * Helper: Kiểm tra nhanh xem một bộ block có nhét vừa ma trận không (dùng cho Squeeze)
- */
-function isBlockSetAllocatable(blocks, matrix) {
-    for (const b of blocks) {
-        const laneGroup = matrix.lanes[b.type];
-        if (!laneGroup) return false;
-        let foundLane = false;
-        if (b.forcedIndex && b.forcedIndex > 0 && b.forcedIndex <= laneGroup.length) {
-            const targetLane = laneGroup[b.forcedIndex - 1];
-            let isFree = true;
-            for (const occ of targetLane.occupied) {
-                if (isOverlap(b.start, b.end, occ.start, occ.end)) { isFree = false; break; }
-            }
-            if (isFree) return true; 
-        }
-        for (const lane of laneGroup) {
-            let isFree = true;
-            for (const occ of lane.occupied) {
-                if (isOverlap(b.start, b.end, occ.start, occ.end)) { isFree = false; break; }
-            }
-            if (isFree) { foundLane = true; break; }
-        }
-        if (!foundLane) return false;
-    }
-    return true;
 }
 
 // ============================================================================
-// PHẦN 8: MODULE EXPORT (Node.js & Browser Compatible)
+// PHẦN 9: MODULE EXPORT (NODE.JS & GOOGLE APPS SCRIPT COMPATIBLE)
 // ============================================================================
 const CoreAPI = {
     checkRequestAvailability,
@@ -891,16 +1164,20 @@ const CoreAPI = {
     CONFIG,
     getMinsFromTimeStr,
     getTimeStrFromMins,
-    getTaipeiNow
+    getTaipeiNow,
+    normalizeDateStrict // Export để index.js có thể dùng nếu cần
 };
 
+// Môi trường Node.js (Cho Local Test hoặc Cloud Function)
 if (typeof module !== 'undefined' && module.exports) {
     module.exports = CoreAPI;
 }
 
+// Môi trường Browser (Nếu file này được nhúng trực tiếp vào HTML)
 if (typeof window !== 'undefined') {
     window.ResourceCore = CoreAPI;
     window.checkRequestAvailability = CoreAPI.checkRequestAvailability;
     window.setDynamicServices = CoreAPI.setDynamicServices;
-    console.log("✅ Resource Core V105.0 Loaded: SINGLE SOURCE OF TRUTH (EXPLICIT FLOW) ACTIVE.");
+    window.normalizeDateStrict = CoreAPI.normalizeDateStrict;
+    console.log("✅ Resource Core V113.0 Loaded: DATA MAPPING COMPLIANCE ACTIVE.");
 }

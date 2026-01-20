@@ -2,38 +2,99 @@
  * =================================================================================================
  * PROJECT: XINWUCHAN MASSAGE BOT - FRONTEND CONTROLLER & LOGIC BRIDGE
  * FILE: js/bookingHandler.js
- * PHIÊN BẢN: V105.0 (EXPLICIT FLOW PERSISTENCE - SINGLE SOURCE OF TRUTH)
- * NGÀY CẬP NHẬT: 2026/01/20
+ * PHIÊN BẢN: V112.0 (SERVICE CODE MAPPING & FULL COLUMN SYNC)
+ * NGÀY CẬP NHẬT: 2026/01/21
  * TÁC GIẢ: AI ASSISTANT & USER
  *
- * * * * * CHANGE LOG V105.0 (THE "HARD-CODING FLOW" UPDATE) * * * * *
- * 1. [CRITICAL] EXPLICIT FLOW PERSISTENCE (Ghi cứng luồng đi):
- * - Implementing Step 2/3 of the "Single Source of Truth" architecture.
- * - Frontend không còn giữ bí mật về Flow (BF/FB) sau khi tính toán.
- * - Khi Save, Frontend đóng gói 'flowCode' ('BF' hoặc 'FB') vào payload gửi Backend.
- * - Mục tiêu: Backend sẽ ghi thẳng giá trị này vào Cột dữ liệu (VD: Cột Y) trên Sheet.
- * * 2. [INHERIT] V104.0 FEATURES:
- * - Giữ nguyên Strict Guardrail (Chặn xếp khách nếu thợ hết giờ làm).
- * - Giữ nguyên Smart Scanner (Quét tải trọng 15 phút/lần).
- * - Giữ nguyên Logic Combo Elastic (Co giãn thời gian linh hoạt).
- * * 3. [SAFETY] BACKWARD COMPATIBILITY:
- * - Vẫn tạo chuỗi 'ghiChu' (Note) text để tương thích với các phiên bản App.js cũ.
+ * * * * * CHANGE LOG V112.0 (DATA INTEGRITY UPGRADE) * * * * *
+ * 1. [DATA SYNC] SERVICE CODE MAPPING:
+ * - Logic UI cho phép chọn Tên Dịch Vụ, nhưng hệ thống sẽ tự động tra cứu "Mã Dịch Vụ" (Service Code)
+ * từ dữ liệu Menu (window.SERVICES_DATA) để gửi về Server.
+ * - Mục đích: Để Server ghi đúng Mã Dịch Vụ vào Cột U (Index 20).
+ *
+ * 2. [PAYLOAD] EXTENDED DATA FIELDS:
+ * - Payload gửi đi bao gồm đầy đủ: staffId2, staffId3, phase1_duration, phase2_duration, flowCode.
+ * - Hỗ trợ đầy đủ việc ghi dữ liệu vào các cột mới từ L đến AE của Sheet.
+ *
+ * 3. [CORE] UNIVERSAL DATE ADAPTER (KEPT):
+ * - Giữ nguyên logic chuẩn hóa ngày YYYY/MM/DD của V111.
  * =================================================================================================
  */
 
 (function() {
-    console.log("🚀 BookingHandler V105.0: Explicit Flow Persistence Active.");
+    console.log("🚀 BookingHandler V112.0: Service Code Mapping & Full Sync Active.");
 
-    // Kiểm tra môi trường React để đảm bảo an toàn
+    // Kiểm tra môi trường React
     if (typeof React === 'undefined') {
-        console.error("❌ CRITICAL ERROR: React not found. Cannot start BookingHandler V105.0.");
+        console.error("❌ CRITICAL ERROR: React not found. Cannot start BookingHandler V112.0.");
         return;
     }
 
     // ========================================================================
-    // PHẦN 1: CORE KERNEL V105.0 (CLIENT-SIDE BRAIN)
-    // Mô tả: Bộ não tính toán trung tâm.
-    // Nhiệm vụ: Tính toán khả thi và QUYẾT ĐỊNH FLOW (BF/FB) cho từng khách.
+    // PHẦN 0: UNIVERSAL UTILS (CÔNG CỤ DÙNG CHUNG)
+    // ========================================================================
+    
+    /**
+     * HÀM CHUẨN HÓA NGÀY TUYỆT ĐỐI (CORE)
+     * Chuyển mọi định dạng (DD/MM/YYYY, YYYY-MM-DD) về YYYY/MM/DD
+     */
+    const normalizeDateStrict = (input) => {
+        if (!input) return "";
+        try {
+            let str = input.toString().trim();
+            // 1. Loại bỏ giờ giấc nếu dính (VD: 2026-01-20T00:00:00)
+            if (str.includes('T')) str = str.split('T')[0];
+            if (str.includes(' ')) str = str.split(' ')[0];
+
+            // 2. Thay thế tất cả gạch ngang, chấm bằng gạch chéo
+            str = str.replace(/-/g, '/').replace(/\./g, '/');
+
+            // 3. Phân tách các phần
+            const parts = str.split('/');
+            
+            // Nếu không đủ 3 phần, trả về nguyên gốc (fail safe)
+            if (parts.length !== 3) return str;
+
+            // 4. Logic nhận diện thông minh
+            const partA = parts[0]; // Có thể là YYYY hoặc DD
+            const partB = parts[1]; // MM
+            const partC = parts[2]; // Có thể là DD hoặc YYYY
+
+            // TRƯỜNG HỢP 1: Dạng YYYY/MM/DD (VD: 2026/01/20)
+            if (partA.length === 4) {
+                return `${partA}/${partB.padStart(2, '0')}/${partC.padStart(2, '0')}`;
+            }
+            
+            // TRƯỜNG HỢP 2: Dạng DD/MM/YYYY (VD: 20/01/2026) -> Convert đảo ngược lại
+            if (partC.length === 4) {
+                return `${partC}/${partB.padStart(2, '0')}/${partA.padStart(2, '0')}`;
+            }
+
+            // Mặc định trả về nguyên gốc nếu không nhận diện được
+            return str;
+        } catch (e) {
+            console.error("Date Normalize Error:", e);
+            return input;
+        }
+    };
+
+    /**
+     * HÀM TRA CỨU MÃ DỊCH VỤ (NEW V112)
+     * Tìm Service Code (Cột A Menu) dựa trên Tên hiển thị (Cột B Menu)
+     */
+    const getServiceCodeByName = (serviceName) => {
+        const rawServices = window.SERVICES_DATA || {};
+        // rawServices có dạng { "A1": {name: "Body 60", ...}, "B2": {...} }
+        for (const [code, details] of Object.entries(rawServices)) {
+            if (details.name === serviceName) {
+                return code; // Trả về Key (VD: A6, F4...)
+            }
+        }
+        return ""; // Fallback nếu không tìm thấy
+    };
+
+    // ========================================================================
+    // PHẦN 1: CORE KERNEL (CLIENT-SIDE BRAIN)
     // ========================================================================
     const CoreKernel = (function() {
         
@@ -44,22 +105,22 @@
             MAX_TOTAL_GUESTS: 12, 
             OPEN_HOUR: 8,         // 08:00 Sáng mở cửa
             
-            // Bộ đệm thời gian (Time Buffers)
+            // Bộ đệm thời gian
             CLEANUP_BUFFER: 5,    
             TRANSITION_BUFFER: 5, 
             
-            // Dung sai và giới hạn
+            // Dung sai
             TOLERANCE: 1,         
-            MAX_TIMELINE_MINS: 1680, // Hỗ trợ ca đêm đến 4h sáng hôm sau (28h)
+            MAX_TIMELINE_MINS: 1680, 
             
             // Cấu hình Guardrail
-            CAPACITY_CHECK_STEP: 15 // Quét mỗi 15 phút
+            CAPACITY_CHECK_STEP: 10 
         };
 
         // Cơ sở dữ liệu dịch vụ Dynamic
         let SERVICES = {}; 
 
-        // --- 2. QUẢN LÝ DỊCH VỤ (SERVICE MANAGEMENT) ---
+        // --- 2. QUẢN LÝ DỊCH VỤ ---
         function setDynamicServices(newServicesObj) {
             const systemServices = {
                 'OFF_DAY': { name: '⛔ 請假 (OFF)', duration: 1080, type: 'NONE', price: 0, category: 'SYSTEM' },
@@ -70,11 +131,12 @@
             SERVICES = { ...newServicesObj, ...systemServices };
         }
 
-        // --- 3. TIỆN ÍCH THỜI GIAN & DATA (UTILITIES) ---
+        // --- 3. TIỆN ÍCH THỜI GIAN & DATA ---
         function getMinsFromTimeStr(timeStr) {
             if (!timeStr) return -1; 
             try {
                 let str = timeStr.toString();
+                // Xử lý ISO string nếu có
                 if (str.includes('T') || str.includes(' ')) {
                     const timeMatch = str.match(/(\d{1,2}):(\d{2})/);
                     if (timeMatch) str = timeMatch[0];
@@ -147,7 +209,41 @@
             return 'CHAIR'; 
         }
 
-        // --- 5. GLOBAL CAPACITY & STRICT TIME (GUARDRAIL V104/V105) ---
+        // --- 5. GLOBAL CAPACITY & STRICT RESOURCE CHECK (GUARDRAIL) ---
+        
+        function inferResourceAtTime(booking, timeMins) {
+            const bStart = getMinsFromTimeStr(booking.startTime);
+            const duration = parseInt(booking.duration) || 60;
+            const bEnd = bStart + duration + CONFIG.CLEANUP_BUFFER;
+
+            if (timeMins < bStart || timeMins >= bEnd) return null; 
+
+            const svcInfo = SERVICES[booking.serviceCode] || { name: booking.serviceName };
+            const isCombo = isComboService(svcInfo, booking.serviceName);
+
+            if (!isCombo) {
+                return detectResourceType(svcInfo);
+            } else {
+                let isBodyFirst = false;
+                const storedFlow = booking.originalData?.flowCode || booking.flow;
+                const noteContent = (booking.note || booking.ghiChu || "").toString().toUpperCase();
+                
+                if (storedFlow === 'BF') isBodyFirst = true;
+                else if (storedFlow === 'FB') isBodyFirst = false;
+                else if (noteContent.includes('BF') || noteContent.includes('BODY FIRST') || noteContent.includes('先做身體')) isBodyFirst = true;
+                else if (booking.allocated_resource && (booking.allocated_resource.includes('BED') || booking.allocated_resource.includes('BODY'))) isBodyFirst = true;
+
+                let p1 = booking.phase1_duration ? parseInt(booking.phase1_duration) : Math.floor(duration / 2);
+                const splitTime = bStart + p1;
+
+                if (timeMins < splitTime) {
+                    return isBodyFirst ? 'BED' : 'CHAIR';
+                } else {
+                    return isBodyFirst ? 'CHAIR' : 'BED';
+                }
+            }
+        }
+
         function getEligibleStaffCount(staffList, currentTimeMins, requiredEndTime) {
             let count = 0;
             for (const [staffName, info] of Object.entries(staffList)) {
@@ -155,19 +251,15 @@
                 const shiftStart = getMinsFromTimeStr(info.start);
                 const shiftEnd = getMinsFromTimeStr(info.end);
                 if (shiftStart === -1 || shiftEnd === -1) continue;
-
                 if (currentTimeMins >= shiftStart && currentTimeMins < shiftEnd) {
-                    // [STRICT TIME CHECK V105]
-                    if (info.isStrictTime === true) {
-                        if (shiftEnd < (requiredEndTime - CONFIG.TOLERANCE)) continue; // Loại vì về sớm
-                    }
+                    if (info.isStrictTime === true && shiftEnd < (requiredEndTime - CONFIG.TOLERANCE)) continue;
                     count++;
                 }
             }
             return count;
         }
 
-        function validateGlobalCapacity(requestStart, maxDuration, newGuestCount, currentBookingsRaw, staffList) {
+        function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBookingsRaw, staffList, queryDateStr) {
             const requestEnd = requestStart + maxDuration + CONFIG.CLEANUP_BUFFER;
             const activeExistingBookings = currentBookingsRaw.filter(b => {
                 const bStart = getMinsFromTimeStr(b.startTime);
@@ -177,24 +269,108 @@
                 return isOverlap(requestStart, requestEnd, bStart, bEnd);
             });
 
+            // Biến lưu snapshot debug để trả về UI
+            let failureSnapshot = null;
+
             for (let t = requestStart; t < requestEnd; t += CONFIG.CAPACITY_CHECK_STEP) {
+                
+                // --- BƯỚC 1: KIỂM TRA NHÂN VIÊN (STAFF) ---
                 const supplyCount = getEligibleStaffCount(staffList, t, requestEnd);
-                let currentLoad = 0;
+                let currentStaffLoad = 0;
                 for (const b of activeExistingBookings) {
                     const bStart = getMinsFromTimeStr(b.startTime);
                     const bEnd = bStart + (b.duration || 60) + CONFIG.CLEANUP_BUFFER;
-                    if (t >= bStart && t < bEnd) currentLoad++;
+                    if (t >= bStart && t < bEnd) currentStaffLoad++;
                 }
-                const totalDemand = currentLoad + newGuestCount;
+                const totalStaffDemand = currentStaffLoad + guestList.length;
 
-                if (totalDemand > supplyCount) {
+                // --- BƯỚC 2: KIỂM TRA TÀI NGUYÊN VẬT LÝ (BEDS & CHAIRS) ---
+                let usedBeds = 0;
+                let usedChairs = 0;
+
+                for (const b of activeExistingBookings) {
+                    const resType = inferResourceAtTime(b, t);
+                    if (resType === 'BED') usedBeds++;
+                    else if (resType === 'CHAIR') usedChairs++;
+                }
+
+                let neededBeds = 0;
+                let neededChairs = 0;
+                let neededFlexible = 0; 
+
+                for (const g of guestList) {
+                    const svc = SERVICES[g.serviceCode] || { duration: 60 };
+                    const isCombo = isComboService(svc, g.serviceCode);
+                    const gDuration = svc.duration || 60;
+                    const elapsed = t - requestStart; 
+
+                    if (elapsed >= gDuration + CONFIG.CLEANUP_BUFFER) continue; 
+
+                    if (!isCombo) {
+                        const rType = detectResourceType(svc);
+                        if (rType === 'BED') neededBeds++;
+                        else neededChairs++;
+                    } else {
+                        const p1 = Math.floor(gDuration / 2);
+                        if (elapsed < p1) neededFlexible++; 
+                        else neededFlexible++;
+                    }
+                }
+
+                const availableBeds = CONFIG.MAX_BEDS - usedBeds;
+                const availableChairs = CONFIG.MAX_CHAIRS - usedChairs;
+
+                // Create Snapshot for this moment
+                const snapshot = {
+                    queryDate: queryDateStr,
+                    time: getTimeStrFromMins(t),
+                    activeStaff: supplyCount,
+                    guestsRunning: currentStaffLoad,
+                    usedBeds: usedBeds,
+                    usedChairs: usedChairs,
+                    maxBeds: CONFIG.MAX_BEDS,
+                    maxChairs: CONFIG.MAX_CHAIRS
+                };
+
+                if (totalStaffDemand > supplyCount) {
                     return {
                         pass: false,
-                        reason: `Quá tải lúc ${getTimeStrFromMins(t)}. Cần ${totalDemand} thợ, chỉ có ${supplyCount} thợ khả dụng (đủ giờ).`
+                        reason: `Quá tải THỢ lúc ${getTimeStrFromMins(t)}. Cần ${totalStaffDemand}, có ${supplyCount}.`,
+                        debug: snapshot
                     };
                 }
+
+                if (neededBeds > availableBeds) {
+                    return { 
+                        pass: false, 
+                        reason: `Hết GIƯỜNG lúc ${getTimeStrFromMins(t)}. (Trống: ${availableBeds}, Cần: ${neededBeds})`,
+                        debug: snapshot
+                    };
+                }
+                if (neededChairs > availableChairs) {
+                    return { 
+                        pass: false, 
+                        reason: `Hết GHẾ lúc ${getTimeStrFromMins(t)}. (Trống: ${availableChairs}, Cần: ${neededChairs})`,
+                        debug: snapshot
+                    };
+                }
+
+                const remainingBeds = availableBeds - neededBeds;
+                const remainingChairs = availableChairs - neededChairs;
+                const totalSlots = remainingBeds + remainingChairs;
+
+                if (neededFlexible > totalSlots) {
+                    return { 
+                        pass: false, 
+                        reason: `Không đủ GIƯỜNG/GHẾ Combo lúc ${getTimeStrFromMins(t)}. (Dư: ${totalSlots}, Cần: ${neededFlexible})`,
+                        debug: snapshot
+                    };
+                }
+                
+                // Keep the first snapshot as a reference of the start time state
+                if (!failureSnapshot) failureSnapshot = snapshot;
             }
-            return { pass: true };
+            return { pass: true, debug: failureSnapshot };
         }
 
         // --- 6. MATRIX ENGINE (LOGIC ALLOCATION) ---
@@ -318,7 +494,7 @@
             return true;
         }
 
-        // --- 8. MAIN ENGINE V105.0 (INTEGRATED) ---
+        // --- 8. MAIN ENGINE (INTEGRATED) ---
 
         function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRaw, staffList) {
             const requestStartMins = getMinsFromTimeStr(timeStr);
@@ -331,21 +507,21 @@
                 if (dur > maxGuestDuration) maxGuestDuration = dur;
             });
 
-            // GIAI ĐOẠN 0: KIỂM TRA TẢI TRỌNG (STRICT GUARDRAIL)
+            // GIAI ĐOẠN 0: KIỂM TRA TÀI NGUYÊN (STRICT GUARDRAIL)
             const guardrailCheck = validateGlobalCapacity(
                 requestStartMins, 
                 maxGuestDuration, 
-                guestList.length, 
+                guestList, 
                 currentBookingsRaw, 
-                staffList
+                staffList,
+                dateStr // Pass normalized date string for audit
             );
 
             if (!guardrailCheck.pass) {
-                console.warn(`[CORE V105.0] GUARDRAIL REJECTED: ${guardrailCheck.reason}`);
-                return { feasible: false, reason: `⚠️ ${guardrailCheck.reason}` };
+                return { feasible: false, reason: `⛔ ${guardrailCheck.reason}`, debug: guardrailCheck.debug };
             }
 
-            // GIAI ĐOẠN A: TIỀN XỬ LÝ - GOM NHÓM (VISUAL SYNC)
+            // GIAI ĐOẠN A: TIỀN XỬ LÝ
             let sortedRaw = [...currentBookingsRaw].sort((a, b) => {
                 return getMinsFromTimeStr(a.startTime) - getMinsFromTimeStr(b.startTime);
             });
@@ -382,7 +558,7 @@
                 });
             });
 
-            // GIAI ĐOẠN B: XỬ LÝ CHI TIẾT BOOKING (BLOCKS)
+            // GIAI ĐOẠN B: XỬ LÝ CHI TIẾT BOOKING
             let existingBookingsProcessed = [];
             remappedBookings.forEach(b => {
                 const bStart = getMinsFromTimeStr(b.startTime);
@@ -419,8 +595,6 @@
                     startMins: bStart, duration: duration, blocks: [], anchorIndex: anchorIndex
                 };
 
-                // [CRITICAL] Đọc Flow từ dữ liệu cũ nếu có
-                // Nếu Backend đã lưu Flow Code (VD: cột Y), ưu tiên dùng nó
                 let storedFlow = b.originalData?.flowCode || b.flow || null; 
 
                 if (isCombo) {
@@ -431,7 +605,6 @@
                     let isBodyFirst = false;
                     const noteContent = (b.note || b.ghiChu || b.originalData?.ghiChu || "").toString().toUpperCase();
                     
-                    // Logic xác định Flow cũ (kết hợp cả lưu trữ và suy luận)
                     if (storedFlow === 'BF') isBodyFirst = true;
                     else if (storedFlow === 'FB') isBodyFirst = false;
                     else if (noteContent.includes('BF') || noteContent.includes('BODY FIRST') || noteContent.includes('先做身體')) isBodyFirst = true;
@@ -542,7 +715,7 @@
                     newGuestBlocksMap.push({ guest: ng, blocks: blocks });
                 }
 
-                // 3. XẾP KHÁCH MỚI (MODULO)
+                // 3. XẾP KHÁCH MỚI
                 let conflictFound = false;
                 for (const item of newGuestBlocksMap) {
                     let guestAllocations = [];
@@ -603,7 +776,7 @@
                             if (isBlockSetAllocatable(testBlocks, matrixSqueeze)) {
                                 testBlocks.forEach(tb => matrixSqueeze.tryAllocate(tb.type, tb.start, tb.end, sb.id, tb.forcedIndex));
                                 fit = true;
-                                if (split.deviation !== 0) updatesProposed.push({ rowId: sb.id, customerName: sb.originalData.customerName, newPhase1: split.p1, newPhase2: split.p2, reason: 'Matrix Squeeze V105.0' });
+                                if (split.deviation !== 0) updatesProposed.push({ rowId: sb.id, customerName: sb.originalData.customerName, newPhase1: split.p1, newPhase2: split.p2, reason: 'Matrix Squeeze' });
                                 break; 
                             }
                         }
@@ -645,13 +818,14 @@
                 successfulScenario.details.sort((a,b) => a.guestIndex - b.guestIndex);
                 return {
                     feasible: true, 
-                    strategy: 'MATRIX_COUPLE_SYNC_V105.0', 
+                    strategy: 'MATRIX_COUPLE_SYNC_V112.0', 
                     details: successfulScenario.details,
                     proposedUpdates: successfulScenario.updates,
-                    totalPrice: successfulScenario.details.reduce((sum, item) => sum + (item.price||0), 0)
+                    totalPrice: successfulScenario.details.reduce((sum, item) => sum + (item.price||0), 0),
+                    debug: guardrailCheck.debug // Pass guardrail stats for info
                 };
             } else {
-                return { feasible: false, reason: "Hết chỗ (Full - Không tìm thấy khe hở phù hợp hoặc không đủ nhân viên)" };
+                return { feasible: false, reason: "Hết chỗ (Full - Matrix Logic)", debug: guardrailCheck.debug };
             }
         }
 
@@ -668,9 +842,13 @@
             const params = [`_t=${new Date().getTime()}`];
             if (isForceRefresh) params.push('forceRefresh=true');
             const targetUrl = apiUrl.includes('?') ? `${apiUrl}&${params.join('&')}` : `${apiUrl}?${params.join('&')}`;
+            
             const response = await fetch(targetUrl);
             const data = await response.json();
-            if (data && data.staff && data.bookings) return data;
+            
+            if (data && data.staff && data.bookings) {
+                return data;
+            }
             return null;
         } catch (err) { console.error("❌ Fetch Failed", err); return null; }
     };
@@ -694,26 +872,47 @@
         CoreKernel.setDynamicServices(formattedServices);
     };
 
+    const mergeBookingData = (serverBookings, localBookings) => {
+        if (!Array.isArray(serverBookings)) serverBookings = [];
+        if (!Array.isArray(localBookings)) localBookings = [];
+        const mergedMap = new Map();
+        serverBookings.forEach(b => { if (b.rowId) mergedMap.set(b.rowId, b); });
+        localBookings.forEach(b => { if (b.rowId) mergedMap.set(b.rowId, b); });
+        return Array.from(mergedMap.values());
+    };
+
+    // [V112.0] UPDATED BRIDGE: Mapping Service Code Before Core Check
     const callCoreAvailabilityCheck = (date, time, guests, bookings, staffList) => {
         syncServicesToCore();
         const now = new Date();
-        const coreGuests = guests.map(g => ({
-            serviceCode: g.service,
-            staffName: g.staff === '隨機' ? 'RANDOM' : (g.staff === '女' || g.staff === 'FEMALE_OIL') ? 'FEMALE' : (g.staff === '男') ? 'MALE' : g.staff
-        }));
+        
+        // [V112] MAP SERVICE NAME -> SERVICE CODE (Core needs Key A6, F4, etc.)
+        const coreGuests = guests.map(g => {
+            // Find Service Code from Name
+            let foundCode = getServiceCodeByName(g.service);
+            
+            return {
+                serviceCode: foundCode || g.service, // Use Code if found, else fallback to Name
+                staffName: g.staff === '隨機' ? 'RANDOM' : (g.staff === '女' || g.staff === 'FEMALE_OIL') ? 'FEMALE' : (g.staff === '男') ? 'MALE' : g.staff
+            };
+        });
 
-        const targetDateStandard = date.replace(/-/g, '/');
-        const targetDateSheetHeader = date.replace(/\//g, '-');
-
+        const targetDateStandard = normalizeDateStrict(date);
+        
         const coreBookings = (Array.isArray(bookings) ? bookings : []).filter(b => {
             if (!b || !b.startTimeString || (b.status && (b.status.includes('hủy') || b.status.includes('Cancel')))) return false;
-            return b.startTimeString.split(' ')[0].replace(/-/g, '/') === targetDateStandard;
+            
+            const rawDate = b.startTimeString.split(' ')[0];
+            const bDate = normalizeDateStrict(rawDate);
+            return bDate === targetDateStandard;
         }).map(b => {
             let isPastOrRunning = false;
             try { if (new Date(b.startTimeString) <= now) isPastOrRunning = true; } catch (e) {}
             
             return {
-                serviceCode: b.serviceName, serviceName: b.serviceName, startTime: b.startTimeString, 
+                serviceCode: b.serviceCode || b.serviceName, // Try to use Code if available from DB
+                serviceName: b.serviceName, 
+                startTime: b.startTimeString, 
                 duration: parseInt(b.duration) || 60, staffName: b.technician || b.staffId || "Unassigned", rowId: b.rowId,
                 allocated_resource: b.resourceId || b.allocated_resource || b.rowId,
                 originalData: b, 
@@ -723,7 +922,7 @@
                 status: isPastOrRunning ? 'Running' : (b.status || 'Reserved'),
                 note: b.ghiChu || b.note,
                 ghiChu: b.ghiChu || b.note,
-                flow: b.flow || b.originalData?.flowCode // Support V105 Flow Code reading
+                flow: b.flow || b.originalData?.flowCode
             };
         });
 
@@ -733,7 +932,8 @@
                 const sId = String(s.id).trim();
                 const rawStart = s['上班'] || s.shiftStart || s.start || "00:00";
                 const rawEnd = s['下班'] || s.shiftEnd || s.end || "00:00";
-                const dayStatus = s[targetDateSheetHeader] || s[targetDateStandard] || "";
+                
+                const dayStatus = s[targetDateStandard] || s[targetDateStandard.replace(/\//g, '-')] || "";
                 let isOff = (String(s.offDays || "").includes(targetDateStandard) || String(dayStatus).toUpperCase().includes('OFF'));
                 
                 staffMap[sId] = {
@@ -746,10 +946,10 @@
         }
 
         try {
-            const result = CoreKernel.checkRequestAvailability(date, time, coreGuests, coreBookings, staffMap);
+            const result = CoreKernel.checkRequestAvailability(targetDateStandard, time, coreGuests, coreBookings, staffMap);
             return result.feasible 
-                ? { valid: true, details: result.details, proposedUpdates: result.proposedUpdates } 
-                : { valid: false, reason: result.reason };
+                ? { valid: true, details: result.details, proposedUpdates: result.proposedUpdates, debug: result.debug } 
+                : { valid: false, reason: result.reason, debug: result.debug };
         } catch (err) {
             console.error("Core Check Error:", err);
             return { valid: false, reason: "System Error: " + err.message };
@@ -759,7 +959,7 @@
     const forceGlobalRefresh = () => { if (typeof window.fetchDataAndRender === 'function') window.fetchDataAndRender(); else window.location.reload(); };
 
     // ==================================================================================
-    // 4. COMPONENT: PHONE BOOKING MODAL (V105.0)
+    // 4. COMPONENT: PHONE BOOKING MODAL (STANDARD)
     // ==================================================================================
     const NewAvailabilityCheckModal = ({ onClose, onSave, staffList, bookings, initialDate, editingBooking }) => {
         const safeStaffList = useMemo(() => staffList || [], [staffList]);
@@ -836,27 +1036,28 @@
         const performCheck = async (e) => {
             if (e) e.preventDefault();
             setIsChecking(true); setCheckResult(null); setSuggestions([]);
-            let currentStaffList = serverData?.staff || safeStaffList;
-            let currentBookings = serverData?.bookings || safeBookings;
-            if (editingBooking) { currentBookings = currentBookings.filter(b => b.rowId !== editingBooking.rowId); }
-            if (!serverData) {
-                const freshData = await fetchLiveServerData(false);
-                if (freshData) { setServerData(freshData); currentStaffList = freshData.staff; currentBookings = freshData.bookings; }
-            }
+
+            let freshData = await fetchLiveServerData(true);
+            let serverBookingsList = freshData ? freshData.bookings : (serverData?.bookings || []);
+            let serverStaffList = freshData ? freshData.staff : (serverData?.staff || safeStaffList);
+            let localBookingsList = safeBookings;
+            let finalBookings = mergeBookingData(serverBookingsList, localBookingsList);
+
+            if (editingBooking) { finalBookings = finalBookings.filter(b => b.rowId !== editingBooking.rowId); }
             
-            const res = callCoreAvailabilityCheck(form.date, form.time, guestDetails, currentBookings, currentStaffList);
+            const res = callCoreAvailabilityCheck(form.date, form.time, guestDetails, finalBookings, serverStaffList);
             
             if (res.valid) { 
-                setCheckResult({ status: 'OK', message: "✅ 此時段可預約 (Available)", coreDetails: res.details }); 
+                setCheckResult({ status: 'OK', message: "✅ 此時段可預約 (Available)", coreDetails: res.details, debug: res.debug }); 
             } else {
-                setCheckResult({ status: 'FAIL', message: res.reason });
+                setCheckResult({ status: 'FAIL', message: res.reason, debug: res.debug });
                 const found = [];
                 const parts = form.time.split(':').map(Number);
                 let currMins = (parts[0]||0)*60 + (parts[1]||0);
                 for (let i=1; i<=24; i++) {
                     let nM = currMins + (i*10); let h = Math.floor(nM/60); let m = nM%60; if(h>=24) h-=24;
                     let tStr = `${String(h).padStart(2,'0')}:${String(Math.floor(m/10)*10).padStart(2,'0')}`;
-                    if (callCoreAvailabilityCheck(form.date, tStr, guestDetails, currentBookings, currentStaffList).valid) {
+                    if (callCoreAvailabilityCheck(form.date, tStr, guestDetails, finalBookings, serverStaffList).valid) {
                         found.push(tStr); if(found.length>=4) break;
                     }
                 }
@@ -865,12 +1066,13 @@
             setIsChecking(false);
         };
 
+        // [V112.0] UPDATED: HANDLE FINAL SAVE WITH FULL DATA SYNC
         const handleFinalSave = async (e) => {
             if (e) e.preventDefault(); if (isSubmitting) return;
             if (!form.custName.trim()) { alert("⚠️ 請輸入顧客姓名！"); return; }
             setIsSubmitting(true);
             try {
-                let checkBookings = serverData?.bookings || safeBookings;
+                let checkBookings = mergeBookingData(serverData?.bookings || [], safeBookings);
                 if (editingBooking) checkBookings = checkBookings.filter(b => b.rowId !== editingBooking.rowId);
                 const finalCheck = callCoreAvailabilityCheck(form.date, form.time, guestDetails, checkBookings, serverData?.staff || safeStaffList);
                 
@@ -880,20 +1082,21 @@
                      return;
                 }
 
-                // [STEP 2] EXPLICIT FLOW CONSTRUCTION
-                // Tại đây, chúng ta gán cứng FlowCode (BF/FB) vào dữ liệu gửi đi.
+                // [V112] MAP DATA FOR SHEET COLUMNS (L -> AE)
                 const detailedGuests = guestDetails.map((g, i) => {
                     const detail = finalCheck.details ? finalCheck.details.find(d => d.guestIndex === i) : null;
                     return {
-                        ...g, staff: g.staff, 
-                        flow: detail ? detail.flow : 'FB',          // Fallback logic
-                        flowCode: detail ? detail.flow : 'FB',      // [NEW V105] Explicit Data Field
+                        ...g, 
+                        // Find Code (Important for Column U)
+                        serviceCode: getServiceCodeByName(g.service) || "",
+                        staff: g.staff, 
+                        flow: detail ? detail.flow : 'FB',          
+                        flowCode: detail ? detail.flow : 'FB',      
                         phase1_duration: detail ? detail.phase1_duration : null,
                         phase2_duration: detail ? detail.phase2_duration : null,
                     };
                 });
                 
-                // Vẫn tạo note text cho backward compatibility
                 const oils = detailedGuests.map((g,i)=>g.isOil?`K${i+1}:精油`:null).filter(Boolean);
                 const flows = detailedGuests.map((g, i) => {
                     if (g.flow === 'BF') return `K${i+1}:先做身體`; 
@@ -903,20 +1106,30 @@
                 const noteParts = [...oils, ...flows];
                 const noteStr = noteParts.length > 0 ? `(${noteParts.join(', ')})` : "";
 
+                // [V112] FULL PAYLOAD
                 const payload = {
                     hoTen: form.custName, sdt: form.custPhone||"", dichVu: detailedGuests.map(g=>g.service).join(','), pax: form.pax,
-                    ngayDen: (form.date||"").replace(/-/g, '/'), gioDen: form.time,
-                    nhanVien: detailedGuests[0].staff, isOil: detailedGuests[0].isOil,
+                    ngayDen: normalizeDateStrict(form.date), // V111 Strict
+                    gioDen: form.time,
+                    // Primary Guest Info (for standard columns)
+                    nhanVien: detailedGuests[0].staff, 
+                    isOil: detailedGuests[0].isOil,
+                    // Service Code (Column U)
+                    serviceCode: detailedGuests[0].serviceCode, 
+
+                    // Additional Staff (Columns M, N...)
                     staffId2: detailedGuests[1]?.staff||null, staffId3: detailedGuests[2]?.staff||null,
                     staffId4: detailedGuests[3]?.staff||null, staffId5: detailedGuests[4]?.staff||null, staffId6: detailedGuests[5]?.staff||null,
-                    ghiChu: noteStr, 
                     
-                    // [IMPORTANT V105] Payload chứa Flow Code cho Backend
+                    ghiChu: noteStr, 
                     guestDetails: detailedGuests, 
-                    mainFlow: detailedGuests[0].flowCode, // Shortcut for main row
+                    
+                    // Matrix Data (Column AA, Y, Z)
+                    mainFlow: detailedGuests[0].flowCode, 
+                    phase1_duration: detailedGuests[0].phase1_duration, 
+                    phase2_duration: detailedGuests[0].phase2_duration,
                     
                     proposedUpdates: finalCheck.proposedUpdates || [],
-                    phase1_duration: detailedGuests[0].phase1_duration, phase2_duration: detailedGuests[0].phase2_duration,
                     rowId: editingBooking ? editingBooking.rowId : null
                 };
                 
@@ -933,7 +1146,7 @@
             <div className="fixed inset-0 bg-slate-900/90 z-[100] flex items-center justify-center p-4">
                 <div className="bg-white w-full max-w-xl rounded-xl shadow-2xl flex flex-col max-h-[95vh] overflow-hidden animate-fadeIn">
                     <div className={`${editingBooking ? 'bg-orange-600' : 'bg-[#0891b2]'} p-4 text-white flex justify-between items-center shrink-0`}>
-                        <h3 className="font-bold text-lg">{editingBooking ? "✏️ 修改預約 (Edit)" : "📅 電話預約 (V105.0)"}</h3>
+                        <h3 className="font-bold text-lg">{editingBooking ? "✏️ 修改預約 (Edit)" : "📅 電話預約 (V112.0)"}</h3>
                         <button onClick={onClose} className="text-2xl hover:text-red-100">&times;</button>
                     </div>
                     <div className="p-5 space-y-4 overflow-y-auto flex-1 custom-scrollbar">
@@ -955,11 +1168,25 @@
                                 <div>
                                     {!checkResult ? 
                                         <button onClick={performCheck} disabled={isChecking} className={`w-full text-white p-3 rounded font-bold shadow-lg flex justify-center items-center ${isChecking ? 'bg-gray-400 cursor-not-allowed' : 'bg-cyan-600 hover:bg-cyan-700'}`}>
-                                            {isChecking ? "正在計算 (Scanner V105)..." : "🔍 查詢空位 (Instant Check)"}
+                                            {isChecking ? "🔄 正在同步數據 (Syncing Data)..." : "🔍 查詢空位 (Strict Mode)"}
                                         </button> 
                                         : 
                                         <div className="space-y-3">
                                             <div className={`p-3 rounded text-center font-bold text-sm border-2 ${checkResult.status==='OK'?'bg-green-100 text-green-700 border-green-300':'bg-red-50 text-red-700 border-red-200'}`}>{checkResult.message}</div>
+                                            
+                                            {/* SYSTEM AUDIT VISIBILITY */}
+                                            {checkResult.debug && (
+                                                <div className="bg-gray-100 p-2 rounded text-xs font-mono text-gray-600 border border-gray-300">
+                                                    <div className="font-bold border-b border-gray-300 pb-1 mb-1">🛠 SYSTEM AUDIT ({checkResult.debug.time})</div>
+                                                    <div className="mb-1 text-blue-600">📅 Query Date: {checkResult.debug.queryDate}</div>
+                                                    <div className="grid grid-cols-3 gap-1">
+                                                        <span>👥 Run: {checkResult.debug.guestsRunning}</span>
+                                                        <span>🛏 Beds: {checkResult.debug.usedBeds}/{checkResult.debug.maxBeds}</span>
+                                                        <span>🪑 Chairs: {checkResult.debug.usedChairs}/{checkResult.debug.maxChairs}</span>
+                                                    </div>
+                                                </div>
+                                            )}
+
                                             {checkResult.status==='FAIL'&&suggestions.length>0&&(<div className="bg-yellow-50 p-3 rounded border border-yellow-200"><div className="text-xs font-bold text-yellow-700 mb-2">💡 建議時段:</div><div className="flex gap-2 flex-wrap">{suggestions.map(t=><button key={t} onClick={()=>{setForm(f=>({...f,time:t}));setCheckResult(null);setSuggestions([]);}} className="px-3 py-1 bg-white border border-yellow-300 text-yellow-800 rounded font-bold hover:bg-yellow-100">{t}</button>)}</div></div>)}
                                             {checkResult.status==='OK'?<button onClick={()=>setStep('INFO')} className="w-full bg-emerald-600 text-white p-3 rounded font-bold shadow-lg animate-pulse hover:bg-emerald-700">➡️ 下一步</button>:<button onClick={()=>{setCheckResult(null);setSuggestions([])}} className="w-full bg-gray-400 text-white p-3 rounded font-bold hover:bg-gray-500">🔄 重新選擇</button>}
                                         </div>
@@ -998,35 +1225,47 @@
     };
 
     // ==================================================================================
-    // 5. COMPONENT: WALK-IN MODAL (V105.0)
+    // 5. COMPONENT: WALK-IN MODAL (V112.0 UNIFIED LOGIC)
     // ==================================================================================
     const NewWalkInModal = ({ onClose, onSave, staffList, bookings, initialDate }) => {
+        // Safe fallbacks
         const safeStaffList = useMemo(() => staffList || [], [staffList]);
         const safeBookings = useMemo(() => bookings || [], [bookings]);
         const [step, setStep] = useState('CHECK');
         const [checkResult, setCheckResult] = useState(null);
-        const [waitSuggestion, setWaitSuggestion] = useState(null); 
+        const [suggestions, setSuggestions] = useState([]);
         const [isSubmitting, setIsSubmitting] = useState(false); 
         const [isChecking, setIsChecking] = useState(false);
         const [serverData, setServerData] = useState(null);
 
-        useEffect(() => { fetchLiveServerData(true).then(data => { if (data) setServerData(data); }); }, []);
+        // --- TIME HELPER ---
+        const getRoundUpTime = () => {
+            const now = new Date();
+            let h = now.getHours();
+            let m = Math.ceil(now.getMinutes() / 10) * 10;
+            if (m >= 60) { m = 0; h += 1; }
+            if (h >= 24) h = 0; 
+            return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+        };
 
-        const now = new Date();
-        const currentHour = now.getHours().toString().padStart(2,'0');
-        let currentMin = Math.ceil(now.getMinutes() / 10) * 10;
-        let startHour = parseInt(currentHour);
-        if (currentMin >= 60) { currentMin = 0; startHour += 1; }
-        const currentTimeStr = `${startHour.toString().padStart(2,'0')}:${currentMin === 0 ? '00' : currentMin}`;
-        const todayStr = initialDate || now.toISOString().slice(0, 10);
-        
         const defaultService = (window.SERVICES_LIST && window.SERVICES_LIST.length > 0) ? window.SERVICES_LIST[2] : "Body Massage";
-        const [form, setForm] = useState({ pax: 1, custName: '現場客', custPhone: '', time: currentTimeStr, date: todayStr });
+        
+        // Initial State
+        const [form, setForm] = useState({ 
+            pax: 1, custName: '現場客', custPhone: '', 
+            time: getRoundUpTime(), 
+            date: initialDate || new Date().toISOString().slice(0, 10) 
+        });
         const [guestDetails, setGuestDetails] = useState([{ service: defaultService, staff: '隨機', isOil: false }]);
+
+        // Pre-fetch on mount (FORCED)
+        useEffect(() => { 
+            fetchLiveServerData(true).then(data => { if (data) setServerData(data); }); 
+        }, []);
 
         const handlePaxChange = (val) => {
             const num = parseInt(val) || 1;
-            setForm(prev => ({ ...prev, pax: num })); setCheckResult(null); setWaitSuggestion(null);
+            setForm(prev => ({ ...prev, pax: num })); setCheckResult(null); setSuggestions([]);
             setGuestDetails(prev => {
                 const newD = [...prev];
                 if (num > prev.length) for(let i=prev.length; i<num; i++) newD.push({ service: prev[0]?.service||defaultService, staff: '隨機', isOil: false });
@@ -1036,7 +1275,7 @@
         };
 
         const handleGuestUpdate = (idx, field, val) => {
-            setCheckResult(null); setWaitSuggestion(null);
+            setCheckResult(null); setSuggestions([]);
             setGuestDetails(prev => {
                 const c = [...prev]; c[idx] = { ...c[idx] };
                 if (field === 'service') { c[idx].service = val; if(val && (val.includes('足')||val.includes('Foot'))) c[idx].isOil = false; }
@@ -1049,65 +1288,67 @@
             });
         };
 
+        // [V112.0] REPLICATED LOGIC FROM BOOKING MODAL
         const performCheck = async (e) => {
             if (e) e.preventDefault();
-            setIsChecking(true); setCheckResult(null); setWaitSuggestion(null);
-            let currentStaffList = serverData?.staff || safeStaffList;
-            let currentBookings = serverData?.bookings || safeBookings;
-            if (!serverData) {
-                const freshData = await fetchLiveServerData(false);
-                if (freshData) { setServerData(freshData); currentStaffList = freshData.staff; currentBookings = freshData.bookings; }
-            }
-            const res = callCoreAvailabilityCheck(form.date, form.time, guestDetails, currentBookings, currentStaffList);
+            setIsChecking(true); setCheckResult(null); setSuggestions([]);
+            
+            // 1. Fetch Server Data (FORCED SYNC)
+            let freshData = await fetchLiveServerData(true);
+            let serverBookingsList = freshData ? freshData.bookings : (serverData?.bookings || []);
+            let serverStaffList = freshData ? freshData.staff : (serverData?.staff || safeStaffList);
+            let localBookingsList = safeBookings; 
+
+            // 2. Merge Data
+            let finalBookings = mergeBookingData(serverBookingsList, localBookingsList);
+
+            // 3. Main Check (At Current Time)
+            const res = callCoreAvailabilityCheck(form.date, form.time, guestDetails, finalBookings, serverStaffList);
+            
             if (res.valid) { 
-                setCheckResult({ status: 'OK', message: "✅ 目前有空位 (Available Now)", coreDetails: res.details }); 
-                setWaitSuggestion(null); 
+                setCheckResult({ status: 'OK', message: "✅ Có thể vào ngay (Available Now)", coreDetails: res.details, debug: res.debug }); 
             } else {
-                if (res.reason.includes("System") || res.reason.includes("Error")) { setCheckResult({ status: 'FAIL', message: res.reason }); setIsChecking(false); return; }
+                setCheckResult({ status: 'FAIL', message: res.reason, debug: res.debug });
+                // 4. Suggestion Loop (If NOW is full, find next slots)
+                const found = [];
                 const parts = form.time.split(':').map(Number);
                 let currMins = (parts[0]||0)*60 + (parts[1]||0);
-                let foundTime = null, foundDate = form.date, waitMins = 0, isNextDay = false;
-                for (let i=1; i<=18; i++) {
+                for (let i=1; i<=18; i++) { // Check next 3 hours
                     let nM = currMins + (i*10); let h = Math.floor(nM/60); let m = nM%60; if(h>=24) h-=24;
                     let tStr = `${String(h).padStart(2,'0')}:${String(Math.floor(m/10)*10).padStart(2,'0')}`;
-                    if (callCoreAvailabilityCheck(form.date, tStr, guestDetails, currentBookings, currentStaffList).valid) { foundTime=tStr; waitMins=i*10; break; }
-                }
-                if (!foundTime) {
-                    const tmr = new Date(form.date); tmr.setDate(tmr.getDate() + 1);
-                    const tomorrowStr = tmr.toISOString().slice(0, 10);
-                    const openH = 8;
-                    for (let t = openH*60; t < openH*60 + 240; t += 10) {
-                        const h = Math.floor(t / 60); const m = t % 60;
-                        const tStr = `${h.toString().padStart(2,'0')}:${m.toString().padStart(2,'0')}`;
-                        if (callCoreAvailabilityCheck(tomorrowStr, tStr, guestDetails, currentBookings, currentStaffList).valid) { foundTime=tStr; foundDate=tomorrowStr; isNextDay=true; break; }
+                    if (callCoreAvailabilityCheck(form.date, tStr, guestDetails, finalBookings, serverStaffList).valid) {
+                        found.push(tStr); if(found.length>=4) break;
                     }
                 }
-                if (foundTime) { setCheckResult({ status: 'FAIL', message: isNextDay?"⛔ 今日已滿":"⚠️ 需等待" }); setWaitSuggestion({ time: foundTime, date: foundDate, mins: waitMins, isNextDay }); }
-                else { setCheckResult({ status: 'FAIL', message: "❌ 預約已滿 (Fully Booked)" }); setWaitSuggestion(null); }
+                setSuggestions(found);
             }
             setIsChecking(false);
         };
 
         const handleFinalSave = async (e) => {
             if (e) e.preventDefault(); if (isSubmitting) return;
-            if (!form.custName.trim()) { alert("⚠️ 請輸入姓名！"); return; }
+            if (!form.custName.trim()) { alert("⚠️ Xin nhập tên khách!"); return; }
             setIsSubmitting(true);
             try {
-                const finalCheck = callCoreAvailabilityCheck(form.date, form.time, guestDetails, serverData?.bookings || safeBookings, serverData?.staff || safeStaffList);
+                // Double check
+                let checkBookings = mergeBookingData(serverData?.bookings || [], safeBookings);
+                const finalCheck = callCoreAvailabilityCheck(form.date, form.time, guestDetails, checkBookings, serverData?.staff || safeStaffList);
                 
                 if (!finalCheck.valid) {
-                     alert("⚠️ Không thể đặt: " + finalCheck.reason);
+                     alert("⚠️ Dữ liệu thay đổi, không thể đặt: " + finalCheck.reason);
                      setIsSubmitting(false);
                      return;
                 }
 
-                // [STEP 2] EXPLICIT FLOW CONSTRUCTION FOR WALK-IN
                 const detailedGuests = guestDetails.map((g, i) => {
                     const detail = finalCheck.details ? finalCheck.details.find(d => d.guestIndex === i) : null;
                     return { 
-                        ...g, staff: g.staff, 
+                        ...g, 
+                        // Find Code
+                        serviceCode: getServiceCodeByName(g.service) || "",
+                        staff: g.staff, 
                         flow: detail ? detail.flow : 'FB',          
-                        flowCode: detail ? detail.flow : 'FB', // [NEW V105] 
+                        flowCode: detail ? detail.flow : 'FB', 
                         phase1_duration: detail ? detail.phase1_duration : null,
                         phase2_duration: detail ? detail.phase2_duration : null
                     };
@@ -1122,23 +1363,33 @@
                 const noteParts = [...oils, ...flows];
                 const noteStr = noteParts.length > 0 ? `(${noteParts.join(', ')})` : "";
 
+                // [V112] FULL PAYLOAD
                 const payload = {
                     hoTen: form.custName, sdt: form.custPhone||"", dichVu: detailedGuests.map(g=>g.service).join(','), pax: form.pax,
-                    ngayDen: (form.date||"").replace(/-/g, '/'), gioDen: form.time,
-                    nhanVien: detailedGuests[0].staff, isOil: detailedGuests[0].isOil,
+                    ngayDen: normalizeDateStrict(form.date), // V111 Strict
+                    gioDen: form.time,
+                    // Primary Guest Info
+                    nhanVien: detailedGuests[0].staff, 
+                    isOil: detailedGuests[0].isOil,
+                    // Service Code (Column U)
+                    serviceCode: detailedGuests[0].serviceCode,
+
+                    // Additional Staff (Columns M, N...)
                     staffId2: detailedGuests[1]?.staff||null, staffId3: detailedGuests[2]?.staff||null,
                     staffId4: detailedGuests[3]?.staff||null, staffId5: detailedGuests[4]?.staff||null, staffId6: detailedGuests[5]?.staff||null,
+                    
                     ghiChu: noteStr, 
-                    
-                    // [IMPORTANT V105] Payload chứa Flow Code
                     guestDetails: detailedGuests, 
-                    mainFlow: detailedGuests[0].flowCode,
                     
-                    proposedUpdates: finalCheck.proposedUpdates || [],
-                    phase1_duration: detailedGuests[0].phase1_duration, phase2_duration: detailedGuests[0].phase2_duration
+                    // Matrix Data
+                    mainFlow: detailedGuests[0].flowCode,
+                    phase1_duration: detailedGuests[0].phase1_duration, 
+                    phase2_duration: detailedGuests[0].phase2_duration,
+
+                    proposedUpdates: finalCheck.proposedUpdates || []
                 };
                 if (onSave) { await Promise.resolve(onSave(payload)); forceGlobalRefresh(); setTimeout(()=>{onClose();setIsSubmitting(false);}, 500); }
-            } catch(err) { alert("錯誤: "+err.message); setIsSubmitting(false); }
+            } catch(err) { alert("Lỗi: "+err.message); setIsSubmitting(false); }
         };
 
         const paxOptions = [1,2,3,4,5,6];
@@ -1147,12 +1398,18 @@
             <div className="fixed inset-0 bg-black/70 z-[90] flex items-center justify-center p-4">
                 <div className="bg-white w-full max-w-xl rounded-xl shadow-2xl modal-animate flex flex-col max-h-[90vh] overflow-hidden">
                     <div className="bg-amber-600 p-4 text-white flex justify-between items-center shrink-0">
-                        <h3 className="font-bold text-lg">⚡ 現場客 (V105.0)</h3>
+                        <h3 className="font-bold text-lg">⚡ 現場客 (Full Sync V112)</h3>
                         <button onClick={onClose}><i className="fas fa-times text-xl"></i></button>
                     </div>
                     <div className="p-5 space-y-4 overflow-y-auto flex-1 custom-scrollbar">
                         {step === 'CHECK' && (
                             <>
+                                <div className="text-center bg-gray-100 p-2 rounded">
+                                    <span className="text-gray-500 font-bold text-xs">THỜI GIAN VÀO (LOCKED):</span>
+                                    <div className="text-2xl font-black text-amber-700">{form.time}</div>
+                                    <div className="text-xs text-gray-400">{form.date}</div>
+                                </div>
+
                                 <div><label className="text-xs font-bold text-gray-500">人數</label><select className="w-full border p-2 rounded font-bold text-center h-[42px]" value={form.pax} onChange={e=>handlePaxChange(e.target.value)}>{paxOptions.map(n=><option key={n} value={n}>{n} 位</option>)}</select></div>
                                 <div className="bg-slate-50 p-3 rounded border space-y-2">
                                     {guestDetails.map((g, i) => (
@@ -1161,13 +1418,41 @@
                                         <select className="flex-1 border p-2 rounded font-bold text-sm h-10" value={(g.staff==='女'&&g.isOil)?'FEMALE_OIL':g.staff} onChange={e=>handleGuestUpdate(i,'staff',e.target.value)}><option value="隨機">🎲 隨機</option><option value="女">🚺 女師</option><option value="FEMALE_OIL">🚺+油</option><option value="男">🚹 男師</option><optgroup label="技師">{safeStaffList.map(s=><option key={s.id} value={s.id}>{s.id}</option>)}</optgroup></select></div>
                                     ))}
                                 </div>
-                                {checkResult && (<div className="space-y-2"><div className={`p-3 rounded text-center font-bold text-sm border-2 ${checkResult.status==='OK'?'bg-green-100 text-green-700 border-green-300':'bg-red-50 text-red-700 border-red-200'}`}>{checkResult.message}</div>{waitSuggestion&&(<div className="bg-blue-50 border border-blue-200 p-3 rounded animate-fadeIn text-center"><div className={`mb-2 font-bold text-lg ${waitSuggestion.isNextDay?'text-orange-600':'text-blue-700'}`}>{waitSuggestion.isNextDay ? `🌅 最快明天: ${waitSuggestion.time}` : `⏳ 需等待 ${waitSuggestion.mins} 分鐘 (${waitSuggestion.time})`}</div><button onClick={(e) => { e.preventDefault(); setForm({...form, time: waitSuggestion.time, date: waitSuggestion.date}); setStep('INFO'); }} className="w-full bg-blue-600 text-white font-bold py-2 rounded shadow hover:bg-blue-700">➡️ 接受安排</button></div>)}</div>)}
+                                {checkResult && (
+                                    <div className="space-y-2">
+                                        <div className={`p-3 rounded text-center font-bold text-sm border-2 ${checkResult.status==='OK'?'bg-green-100 text-green-700 border-green-300':'bg-red-50 text-red-700 border-red-200'}`}>{checkResult.message}</div>
+                                        
+                                        {/* SYSTEM AUDIT VISIBILITY - WALK IN */}
+                                        {checkResult.debug && (
+                                            <div className="bg-gray-100 p-2 rounded text-xs font-mono text-gray-600 border border-gray-300">
+                                                <div className="font-bold border-b border-gray-300 pb-1 mb-1">🛠 SYSTEM AUDIT (Data Real-time)</div>
+                                                <div className="mb-1 text-amber-700">📅 Query Date: {checkResult.debug.queryDate}</div>
+                                                <div className="grid grid-cols-3 gap-1">
+                                                    <span title="Staff Active">👥 Run: {checkResult.debug.guestsRunning}</span>
+                                                    <span title="Used Beds">🛏 Beds: {checkResult.debug.usedBeds}/{checkResult.debug.maxBeds}</span>
+                                                    <span title="Used Chairs">🪑 Chairs: {checkResult.debug.usedChairs}/{checkResult.debug.maxChairs}</span>
+                                                </div>
+                                            </div>
+                                        )}
+
+                                        {checkResult.status === 'FAIL' && suggestions.length > 0 && (
+                                            <div className="bg-blue-50 border border-blue-200 p-3 rounded animate-fadeIn text-center">
+                                                <div className="text-xs font-bold text-blue-700 mb-2">⏳ Hết chỗ lúc {form.time}, hãy chọn giờ khác:</div>
+                                                <div className="flex gap-2 justify-center flex-wrap">
+                                                    {suggestions.map(t => (
+                                                        <button key={t} onClick={(e) => { e.preventDefault(); setForm({...form, time: t}); setCheckResult(null); setSuggestions([]); }} className="px-3 py-2 bg-blue-600 text-white rounded shadow font-bold hover:bg-blue-700 animate-pulse">{t}</button>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
                                 <div className="pt-2 grid grid-cols-2 gap-3"><button onClick={onClose} className="bg-gray-100 text-gray-500 font-bold p-3 rounded hover:bg-gray-200">取消</button>
                                 {(!checkResult || checkResult.status === 'FAIL') ? 
                                     <button onClick={performCheck} disabled={isChecking} className={`font-bold p-3 rounded shadow-lg flex justify-center items-center text-white ${isChecking?'bg-gray-400':'bg-amber-500 hover:bg-amber-600'}`}>
-                                        {isChecking ? "計算中 (Scanner V105)..." : "🔍 檢查"}
+                                        {isChecking ? "🔄 Syncing..." : "🔍 Check Now"}
                                     </button> : 
-                                    <button onClick={() => setStep('INFO')} className="bg-emerald-600 text-white font-bold p-3 rounded hover:bg-emerald-700 shadow-lg animate-pulse">➡️ 下一步</button>}
+                                    <button onClick={() => setStep('INFO')} className="bg-emerald-600 text-white font-bold p-3 rounded hover:bg-emerald-700 shadow-lg animate-pulse">➡️ Nhập tên</button>}
                                 </div>
                             </>
                         )}
@@ -1190,9 +1475,9 @@
                                         ))}
                                     </div>
                                 </div>
-                                <input className="w-full border p-3 rounded font-bold text-lg focus:ring-2 focus:ring-amber-500 outline-none" value={form.custName} onChange={e=>setForm({...form,custName:e.target.value})} placeholder="顧客姓名..." disabled={isSubmitting}/>
-                                <input className="w-full border p-3 rounded font-bold text-lg focus:ring-2 focus:ring-amber-500 outline-none" value={form.custPhone} onChange={e=>setForm({...form,custPhone:e.target.value})} placeholder="電話號碼..." disabled={isSubmitting}/>
-                                <div className="grid grid-cols-2 gap-3 pt-2"><button onClick={(e) => {e.preventDefault(); if(!isSubmitting) setStep('CHECK');}} className="bg-gray-200 text-gray-600 p-3 rounded font-bold" disabled={isSubmitting}>⬅️ 返回</button><button onClick={handleFinalSave} className="bg-indigo-600 text-white p-3 rounded font-bold shadow-xl hover:bg-indigo-700" disabled={isSubmitting}>{isSubmitting ? "處理中..." : "✅ 確認開單"}</button></div>
+                                <input className="w-full border p-3 rounded font-bold text-lg focus:ring-2 focus:ring-amber-500 outline-none" value={form.custName} onChange={e=>setForm({...form,custName:e.target.value})} placeholder="Tên khách (Customer Name)..." disabled={isSubmitting}/>
+                                <input className="w-full border p-3 rounded font-bold text-lg focus:ring-2 focus:ring-amber-500 outline-none" value={form.custPhone} onChange={e=>setForm({...form,custPhone:e.target.value})} placeholder="SĐT (Optional)..." disabled={isSubmitting}/>
+                                <div className="grid grid-cols-2 gap-3 pt-2"><button onClick={(e) => {e.preventDefault(); if(!isSubmitting) setStep('CHECK');}} className="bg-gray-200 text-gray-600 p-3 rounded font-bold" disabled={isSubmitting}>⬅️ Quay lại</button><button onClick={handleFinalSave} className="bg-indigo-600 text-white p-3 rounded font-bold shadow-xl hover:bg-indigo-700" disabled={isSubmitting}>{isSubmitting ? "Processing..." : "✅ XÁC NHẬN"}</button></div>
                             </div>
                         )}
                     </div>
@@ -1207,11 +1492,11 @@
     const overrideInterval = setInterval(() => {
         if (window.AvailabilityCheckModal !== NewAvailabilityCheckModal) { 
             window.AvailabilityCheckModal = NewAvailabilityCheckModal; 
-            console.log("♻️ AvailabilityModal Injected (V105.0 Explicit Flow)"); 
+            console.log("♻️ AvailabilityModal Injected (V112.0)"); 
         }
         if (window.WalkInModal !== NewWalkInModal) { 
             window.WalkInModal = NewWalkInModal; 
-            console.log("♻️ WalkInModal Injected (V105.0 Explicit Flow)"); 
+            console.log("♻️ WalkInModal Injected (V112.0 Full Sync)"); 
         }
     }, 200);
     setTimeout(() => { clearInterval(overrideInterval); }, 5000);
