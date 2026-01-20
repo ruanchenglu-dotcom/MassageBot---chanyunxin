@@ -2,64 +2,61 @@
  * =================================================================================================
  * PROJECT: XINWUCHAN MASSAGE BOT - FRONTEND CONTROLLER & LOGIC BRIDGE
  * FILE: js/bookingHandler.js
- * PHIÊN BẢN: V103.0 (GLOBAL CAPACITY GUARDRAIL & COUPLE SYNC)
- * NGÀY CẬP NHẬT: 2026/01/15
+ * PHIÊN BẢN: V105.0 (EXPLICIT FLOW PERSISTENCE - SINGLE SOURCE OF TRUTH)
+ * NGÀY CẬP NHẬT: 2026/01/20
  * TÁC GIẢ: AI ASSISTANT & USER
  *
- * * * * * CHANGE LOG V103.0 (THE "GUARDRAIL" UPDATE) * * * * *
- * 1. [CRITICAL] GLOBAL CAPACITY GUARDRAIL (HÀNG RÀO DUNG LƯỢNG TỔNG):
- * - Logic cũ (V102): Chỉ tìm khe hở giường/ghế. Nếu thợ chưa gán tên (Random), hệ thống dễ bị đánh lừa.
- * - Logic mới (V103): Trước khi xếp giường, hệ thống đếm tổng số đầu người (Headcount).
- * Công thức: (Khách đang làm + Khách mới) <= (Tổng nhân viên đi làm lúc đó).
- * Nếu vi phạm -> REJECT ngay lập tức (Báo lỗi: "Not enough staff").
- *
- * 2. [CORE] DYNAMIC STAFF COUNTING:
- * - Tính toán số lượng nhân viên thực tế theo từng phút (xét cả giờ vào ca/tan ca).
- * - Một nhân viên làm ca 14:00 sẽ không được tính vào dung lượng của slot 13:00.
- *
- * 3. [INHERITANCE] GIỮ NGUYÊN TÍNH NĂNG V102.0:
- * - Couple Sync Strategy (Ưu tiên cặp đôi đi cùng Flow).
- * - Modulo Wrapping (Chia bài đều).
- * - Matrix Squeeze (Bóp méo thời gian để nhét khách).
+ * * * * * CHANGE LOG V105.0 (THE "HARD-CODING FLOW" UPDATE) * * * * *
+ * 1. [CRITICAL] EXPLICIT FLOW PERSISTENCE (Ghi cứng luồng đi):
+ * - Implementing Step 2/3 of the "Single Source of Truth" architecture.
+ * - Frontend không còn giữ bí mật về Flow (BF/FB) sau khi tính toán.
+ * - Khi Save, Frontend đóng gói 'flowCode' ('BF' hoặc 'FB') vào payload gửi Backend.
+ * - Mục tiêu: Backend sẽ ghi thẳng giá trị này vào Cột dữ liệu (VD: Cột Y) trên Sheet.
+ * * 2. [INHERIT] V104.0 FEATURES:
+ * - Giữ nguyên Strict Guardrail (Chặn xếp khách nếu thợ hết giờ làm).
+ * - Giữ nguyên Smart Scanner (Quét tải trọng 15 phút/lần).
+ * - Giữ nguyên Logic Combo Elastic (Co giãn thời gian linh hoạt).
+ * * 3. [SAFETY] BACKWARD COMPATIBILITY:
+ * - Vẫn tạo chuỗi 'ghiChu' (Note) text để tương thích với các phiên bản App.js cũ.
  * =================================================================================================
  */
 
 (function() {
-    console.log("🚀 BookingHandler V103.0: Global Capacity Guardrail Loaded.");
+    console.log("🚀 BookingHandler V105.0: Explicit Flow Persistence Active.");
 
-    // Kiểm tra môi trường React
+    // Kiểm tra môi trường React để đảm bảo an toàn
     if (typeof React === 'undefined') {
-        console.error("❌ CRITICAL ERROR: React not found. Cannot start BookingHandler V103.0.");
+        console.error("❌ CRITICAL ERROR: React not found. Cannot start BookingHandler V105.0.");
         return;
     }
 
     // ========================================================================
-    // PHẦN 1: CORE KERNEL V103.0 (CLIENT-SIDE BRAIN)
-    // Mô tả: Bộ não tính toán trung tâm, tích hợp Guardrail & Matrix.
+    // PHẦN 1: CORE KERNEL V105.0 (CLIENT-SIDE BRAIN)
+    // Mô tả: Bộ não tính toán trung tâm.
+    // Nhiệm vụ: Tính toán khả thi và QUYẾT ĐỊNH FLOW (BF/FB) cho từng khách.
     // ========================================================================
     const CoreKernel = (function() {
         
         // --- 1. CẤU HÌNH HỆ THỐNG (SYSTEM CONFIGURATION) ---
         const CONFIG = {
-            // Tài nguyên phần cứng
             MAX_CHAIRS: 6,        
             MAX_BEDS: 6,          
             MAX_TOTAL_GUESTS: 12, 
-            
-            // Cấu hình thời gian hoạt động
             OPEN_HOUR: 8,         // 08:00 Sáng mở cửa
-            CLOSE_HOUR: 28,       // 04:00 Sáng hôm sau (28h)
             
-            // Bộ đệm thời gian (Time Buffers - Đơn vị: Phút)
-            CLEANUP_BUFFER: 5,    // Thời gian dọn dẹp sau mỗi ca
-            TRANSITION_BUFFER: 5, // Thời gian khách di chuyển hoặc thay đồ
+            // Bộ đệm thời gian (Time Buffers)
+            CLEANUP_BUFFER: 5,    
+            TRANSITION_BUFFER: 5, 
             
-            // Dung sai và giới hạn tính toán
-            TOLERANCE: 1,         // Sai số cho phép (phút) khi so sánh trùng lặp
-            MAX_TIMELINE_MINS: 1680 // Tổng số phút (28h * 60)
+            // Dung sai và giới hạn
+            TOLERANCE: 1,         
+            MAX_TIMELINE_MINS: 1680, // Hỗ trợ ca đêm đến 4h sáng hôm sau (28h)
+            
+            // Cấu hình Guardrail
+            CAPACITY_CHECK_STEP: 15 // Quét mỗi 15 phút
         };
 
-        // Cơ sở dữ liệu dịch vụ (Dynamic Services Database)
+        // Cơ sở dữ liệu dịch vụ Dynamic
         let SERVICES = {}; 
 
         // --- 2. QUẢN LÝ DỊCH VỤ (SERVICE MANAGEMENT) ---
@@ -73,7 +70,7 @@
             SERVICES = { ...newServicesObj, ...systemServices };
         }
 
-        // --- 3. TIỆN ÍCH THỜI GIAN (TIME UTILITIES) ---
+        // --- 3. TIỆN ÍCH THỜI GIAN & DATA (UTILITIES) ---
         function getMinsFromTimeStr(timeStr) {
             if (!timeStr) return -1; 
             try {
@@ -90,7 +87,6 @@
                 let m = parseInt(parts[1], 10);
                 
                 if (isNaN(h) || isNaN(m)) return -1;
-                // Nếu giờ < 8 (ví dụ 01:00, 02:00) thì hiểu là ca đêm của ngày hôm sau (25h, 26h...)
                 if (h < CONFIG.OPEN_HOUR) h += 24; 
                 
                 return (h * 60) + m;
@@ -99,13 +95,30 @@
             }
         }
 
+        function getTimeStrFromMins(mins) {
+            let h = Math.floor(mins / 60);
+            let m = mins % 60;
+            if (h >= 24) h -= 24; 
+            return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+        }
+
         function isOverlap(startA, endA, startB, endB) {
             const safeEndA = endA - CONFIG.TOLERANCE; 
             const safeEndB = endB - CONFIG.TOLERANCE;
             return (startA < safeEndB) && (startB < safeEndA);
         }
 
-        // --- 4. BỘ NHẬN DIỆN THÔNG MINH (SMART CLASSIFIER) ---
+        function isActiveBookingStatus(statusRaw) {
+            if (!statusRaw) return false;
+            const s = statusRaw.toString().toLowerCase().trim();
+            const inactiveKeywords = ['cancel', 'hủy', 'huỷ', 'finish', 'done', 'xong', 'check-out', 'checkout', '取消', '完成', '空'];
+            for (const kw of inactiveKeywords) {
+                if (s.includes(kw)) return false;
+            }
+            return true; 
+        }
+
+        // --- 4. BỘ NHẬN DIỆN (SMART CLASSIFIER) ---
         function isComboService(serviceObj, serviceNameRaw = '') {
             if (!serviceObj && !serviceNameRaw) return false;
             const cat = (serviceObj && serviceObj.category ? serviceObj.category : '').toString().toUpperCase().trim();
@@ -120,7 +133,6 @@
                 '腳身', '全餐', 'FOOT AND BODY', 'BODY AND FOOT',
                 '雙人', 'A餐', 'B餐', 'C餐', '油壓+足'
             ];
-            
             for (const kw of comboKeywords) {
                 if (nameToCheck.includes(kw)) return true;
             }
@@ -135,7 +147,57 @@
             return 'CHAIR'; 
         }
 
-        // --- 5. MATRIX ENGINE V103.0 (CORE ALLOCATION LOGIC) ---
+        // --- 5. GLOBAL CAPACITY & STRICT TIME (GUARDRAIL V104/V105) ---
+        function getEligibleStaffCount(staffList, currentTimeMins, requiredEndTime) {
+            let count = 0;
+            for (const [staffName, info] of Object.entries(staffList)) {
+                if (info.off) continue;
+                const shiftStart = getMinsFromTimeStr(info.start);
+                const shiftEnd = getMinsFromTimeStr(info.end);
+                if (shiftStart === -1 || shiftEnd === -1) continue;
+
+                if (currentTimeMins >= shiftStart && currentTimeMins < shiftEnd) {
+                    // [STRICT TIME CHECK V105]
+                    if (info.isStrictTime === true) {
+                        if (shiftEnd < (requiredEndTime - CONFIG.TOLERANCE)) continue; // Loại vì về sớm
+                    }
+                    count++;
+                }
+            }
+            return count;
+        }
+
+        function validateGlobalCapacity(requestStart, maxDuration, newGuestCount, currentBookingsRaw, staffList) {
+            const requestEnd = requestStart + maxDuration + CONFIG.CLEANUP_BUFFER;
+            const activeExistingBookings = currentBookingsRaw.filter(b => {
+                const bStart = getMinsFromTimeStr(b.startTime);
+                if (bStart === -1) return false;
+                if (!isActiveBookingStatus(b.status)) return false;
+                const bEnd = bStart + (b.duration || 60) + CONFIG.CLEANUP_BUFFER;
+                return isOverlap(requestStart, requestEnd, bStart, bEnd);
+            });
+
+            for (let t = requestStart; t < requestEnd; t += CONFIG.CAPACITY_CHECK_STEP) {
+                const supplyCount = getEligibleStaffCount(staffList, t, requestEnd);
+                let currentLoad = 0;
+                for (const b of activeExistingBookings) {
+                    const bStart = getMinsFromTimeStr(b.startTime);
+                    const bEnd = bStart + (b.duration || 60) + CONFIG.CLEANUP_BUFFER;
+                    if (t >= bStart && t < bEnd) currentLoad++;
+                }
+                const totalDemand = currentLoad + newGuestCount;
+
+                if (totalDemand > supplyCount) {
+                    return {
+                        pass: false,
+                        reason: `Quá tải lúc ${getTimeStrFromMins(t)}. Cần ${totalDemand} thợ, chỉ có ${supplyCount} thợ khả dụng (đủ giờ).`
+                    };
+                }
+            }
+            return { pass: true };
+        }
+
+        // --- 6. MATRIX ENGINE (LOGIC ALLOCATION) ---
         class VirtualMatrix {
             constructor() {
                 this.lanes = {
@@ -143,43 +205,27 @@
                     'BED': Array.from({ length: CONFIG.MAX_BEDS }, (_, i) => ({ id: `BED-${i+1}`, occupied: [] }))
                 };
             }
-
             checkLaneFree(lane, start, end) {
                 for (let block of lane.occupied) {
                     if (isOverlap(start, end, block.start, block.end)) return false; 
                 }
                 return true; 
             }
-
-            countFreeSlots(type, start, end) {
-                const resourceGroup = this.lanes[type];
-                if (!resourceGroup) return 0;
-                let count = 0;
-                for (let lane of resourceGroup) {
-                    if (this.checkLaneFree(lane, start, end)) count++;
-                }
-                return count;
-            }
-
             allocateToLane(lane, start, end, ownerId) {
                 lane.occupied.push({ start, end, ownerId });
                 lane.occupied.sort((a, b) => a.start - b.start);
                 return lane.id;
             }
-
             tryAllocate(type, start, end, ownerId, preferredIndex = null) {
                 const resourceGroup = this.lanes[type];
                 if (!resourceGroup) return null; 
-
-                // CHIẾN LƯỢC 1: TARGETED ALLOCATION (Ưu tiên vị trí định sẵn/ảo)
+                
                 if (preferredIndex !== null && preferredIndex > 0 && preferredIndex <= resourceGroup.length) {
-                    const targetLane = resourceGroup[preferredIndex - 1];
+                    const targetLane = resourceGroup[preferredIndex - 1]; 
                     if (this.checkLaneFree(targetLane, start, end)) {
                         return this.allocateToLane(targetLane, start, end, ownerId);
                     }
                 }
-
-                // CHIẾN LƯỢC 2: FIRST-FIT (Vét cạn các slot còn lại)
                 for (let lane of resourceGroup) {
                     if (this.checkLaneFree(lane, start, end)) {
                         return this.allocateToLane(lane, start, end, ownerId);
@@ -189,71 +235,22 @@
             }
         }
 
-        function isBlockSetAllocatable(blocks, matrix) {
-            for (const b of blocks) {
-                const laneGroup = matrix.lanes[b.type];
-                if (!laneGroup) return false;
-                
-                let foundLane = false;
-                if (b.forcedIndex && b.forcedIndex > 0 && b.forcedIndex <= laneGroup.length) {
-                    const targetLane = laneGroup[b.forcedIndex - 1];
-                    let isFree = true;
-                    for (const occ of targetLane.occupied) {
-                        if (isOverlap(b.start, b.end, occ.start, occ.end)) { isFree = false; break; }
-                    }
-                    if (isFree) return true; 
-                }
-
-                for (const lane of laneGroup) {
-                    let isFree = true;
-                    for (const occ of lane.occupied) {
-                        if (isOverlap(b.start, b.end, occ.start, occ.end)) { isFree = false; break; }
-                    }
-                    if (isFree) { foundLane = true; break; }
-                }
-                if (!foundLane) return false;
-            }
-            return true;
-        }
-
-        // --- 6. LOGIC TÌM NHÂN VIÊN & TÍNH TOÁN DUNG LƯỢNG (GUARDRAIL LOGIC) ---
-        
-        // [V103.0] Hàm đếm số nhân viên ĐANG ĐI LÀM tại thời điểm T
-        function countActiveStaffAtTime(staffListRef, timePointMins) {
-            let count = 0;
-            const staffArray = Object.values(staffListRef);
-            for (const staff of staffArray) {
-                if (staff.off) continue; // Bỏ qua người nghỉ
-                
-                const shiftStart = getMinsFromTimeStr(staff.start);
-                const shiftEnd = getMinsFromTimeStr(staff.end);
-                
-                if (shiftStart === -1 || shiftEnd === -1) continue;
-                
-                // Kiểm tra xem thời điểm T có nằm trong ca làm việc không
-                // Thêm buffer nhỏ để tránh biên
-                if (timePointMins >= shiftStart && timePointMins < shiftEnd) {
-                    count++;
-                }
-            }
-            return count;
-        }
-
-        // [V103.0] Logic gán thợ cụ thể (đã có từ V102, giữ nguyên)
+        // --- 7. HELPER LOGIC: STAFF MATCHING & ELASTIC ---
         function findAvailableStaff(staffReq, start, end, staffListRef, busyList) {
             const checkOneStaff = (name) => {
                 const staffInfo = staffListRef[name];
                 if (!staffInfo || staffInfo.off) return false; 
-                
                 const shiftStart = getMinsFromTimeStr(staffInfo.start); 
                 const shiftEnd = getMinsFromTimeStr(staffInfo.end);     
                 if (shiftStart === -1 || shiftEnd === -1) return false; 
-
-                if ((start + CONFIG.TOLERANCE) < shiftStart) return false;
                 
+                if ((start + CONFIG.TOLERANCE) < shiftStart) return false;
                 const isStrict = staffInfo.isStrictTime === true;
-                if (isStrict) { if ((end - CONFIG.TOLERANCE) > shiftEnd) return false; } 
-                else { if (start > shiftEnd) return false; }
+                if (isStrict) {
+                    if ((end - CONFIG.TOLERANCE) > shiftEnd) return false; 
+                } else {
+                    if (start > shiftEnd) return false;
+                }
 
                 for (const b of busyList) {
                     if (b.staffName === name && isOverlap(start, end, b.start, b.end)) return false; 
@@ -266,15 +263,15 @@
 
             if (staffReq && !['RANDOM', 'MALE', 'FEMALE', '隨機', 'Any', 'undefined'].includes(staffReq)) {
                 return checkOneStaff(staffReq) ? staffReq : null;
-            } 
-            else {
+            } else {
                 const allStaffNames = Object.keys(staffListRef);
-                for (const name of allStaffNames) { if (checkOneStaff(name)) return name; }
+                for (const name of allStaffNames) {
+                    if (checkOneStaff(name)) return name;
+                }
                 return null;
             }
         }
 
-        // --- 7. BỘ HELPER SINH BIẾN THỂ THỜI GIAN (ELASTIC GENERATOR) ---
         function generateElasticSplits(totalDuration, step = 0, limit = 0, customLockedPhase1 = null) {
             if (customLockedPhase1 !== null && customLockedPhase1 !== undefined && !isNaN(customLockedPhase1)) {
                 return [{ p1: parseInt(customLockedPhase1), p2: totalDuration - parseInt(customLockedPhase1), deviation: 999 }];
@@ -282,13 +279,11 @@
             const standardHalf = Math.floor(totalDuration / 2);
             let options = [{ p1: standardHalf, p2: totalDuration - standardHalf, deviation: 0 }];
             if (!step || !limit || step <= 0 || limit <= 0) return options;
-
             let currentDeviation = step;
             while (currentDeviation <= limit) {
                 let p1_A = standardHalf - currentDeviation;
                 let p2_A = totalDuration - p1_A;
                 if (p1_A >= 15 && p2_A >= 15) options.push({ p1: p1_A, p2: p2_A, deviation: currentDeviation });
-                
                 let p1_B = standardHalf + currentDeviation;
                 let p2_B = totalDuration - p1_B;
                 if (p1_B >= 15 && p2_B >= 15) options.push({ p1: p1_B, p2: p2_B, deviation: currentDeviation });
@@ -298,123 +293,97 @@
             return options;
         }
 
-        // --- 8. MAIN LOGIC V103.0 (GUARDRAIL + COUPLE SYNC) ---
-        
-        /**
-         * HÀM KIỂM TRA KHẢ DỤNG CHÍNH - PHIÊN BẢN V103.0
-         * Tích hợp: 
-         * 1. Global Capacity Guardrail (NEW) - Chặn quá tải nhân sự ngay lập tức.
-         * 2. Group Folding & Modulo Wrapping - Gom nhóm tối ưu.
-         * 3. Couple Sync Strategy - Ưu tiên đi cùng nhau.
-         */
+        function isBlockSetAllocatable(blocks, matrix) {
+            for (const b of blocks) {
+                const laneGroup = matrix.lanes[b.type];
+                if (!laneGroup) return false;
+                let foundLane = false;
+                if (b.forcedIndex && b.forcedIndex > 0 && b.forcedIndex <= laneGroup.length) {
+                    const targetLane = laneGroup[b.forcedIndex - 1];
+                    let isFree = true;
+                    for (const occ of targetLane.occupied) {
+                        if (isOverlap(b.start, b.end, occ.start, occ.end)) { isFree = false; break; }
+                    }
+                    if (isFree) return true; 
+                }
+                for (const lane of laneGroup) {
+                    let isFree = true;
+                    for (const occ of lane.occupied) {
+                        if (isOverlap(b.start, b.end, occ.start, occ.end)) { isFree = false; break; }
+                    }
+                    if (isFree) { foundLane = true; break; }
+                }
+                if (!foundLane) return false;
+            }
+            return true;
+        }
+
+        // --- 8. MAIN ENGINE V105.0 (INTEGRATED) ---
+
         function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRaw, staffList) {
             const requestStartMins = getMinsFromTimeStr(timeStr);
             if (requestStartMins === -1) return { feasible: false, reason: "Error: Invalid Time Format" };
 
-            // Xác định thời gian kết thúc dự kiến của nhóm khách mới (để check Guardrail)
-            let maxDuration = 60;
+            let maxGuestDuration = 0;
             guestList.forEach(g => {
-                const svc = SERVICES[g.serviceCode] || { duration: 60 };
-                if (svc.duration > maxDuration) maxDuration = svc.duration;
+                const s = SERVICES[g.serviceCode] || { duration: 60 };
+                const dur = s.duration || 60;
+                if (dur > maxGuestDuration) maxGuestDuration = dur;
             });
-            const requestEndMins = requestStartMins + maxDuration;
 
-            // ------------------------------------------------------------------------
-            // [V103.0 FEATURE] BƯỚC 0: GLOBAL CAPACITY GUARDRAIL (HÀNG RÀO DUNG LƯỢNG)
-            // ------------------------------------------------------------------------
-            // Nguyên lý: Tổng người đang làm + Tổng khách mới <= Tổng nhân viên đi làm
-            // Kiểm tra tại 2 điểm: Lúc bắt đầu (Start) và lúc giữa (Start + 30) để đảm bảo an toàn.
-            
-            const timeCheckPoints = [requestStartMins, requestStartMins + 30]; // Check điểm đầu và điểm giữa
-            const newGuestCount = guestList.length;
+            // GIAI ĐOẠN 0: KIỂM TRA TẢI TRỌNG (STRICT GUARDRAIL)
+            const guardrailCheck = validateGlobalCapacity(
+                requestStartMins, 
+                maxGuestDuration, 
+                guestList.length, 
+                currentBookingsRaw, 
+                staffList
+            );
 
-            for (const timePoint of timeCheckPoints) {
-                if (timePoint >= requestEndMins) break; // Không check quá thời gian
-
-                // 1. Tính tổng nhân viên đi làm lúc này
-                const totalWorkingStaff = countActiveStaffAtTime(staffList, timePoint);
-
-                // 2. Tính tổng khách đang phục vụ (Existing Load)
-                let currentLoad = 0;
-                for (const b of currentBookingsRaw) {
-                    const bStart = getMinsFromTimeStr(b.startTime);
-                    const bDuration = parseInt(b.duration) || 60;
-                    const bEnd = bStart + bDuration;
-                    
-                    // Nếu booking này đè lên thời điểm timePoint -> Tính là 1 slot
-                    if (timePoint >= bStart && timePoint < bEnd) {
-                        currentLoad++;
-                    }
-                }
-
-                // 3. So sánh (THE GUARDRAIL CHECK)
-                if ((currentLoad + newGuestCount) > totalWorkingStaff) {
-                    console.warn(`⛔ GUARDRAIL BLOCKED: Time ${timePoint} | Load: ${currentLoad} + New: ${newGuestCount} > Staff: ${totalWorkingStaff}`);
-                    return { 
-                        feasible: false, 
-                        reason: `Hết nhân viên (Staff Limit): Đang bận ${currentLoad}/${totalWorkingStaff} người. Cần thêm ${newGuestCount} người.` 
-                    };
-                }
+            if (!guardrailCheck.pass) {
+                console.warn(`[CORE V105.0] GUARDRAIL REJECTED: ${guardrailCheck.reason}`);
+                return { feasible: false, reason: `⚠️ ${guardrailCheck.reason}` };
             }
-            
-            // Nếu qua được Guardrail -> Hệ thống còn đủ người -> Tiếp tục chạy logic Matrix phức tạp bên dưới
 
-            // ------------------------------------------------------------------------
-            // BƯỚC A: TIỀN XỬ LÝ & GOM NHÓM (EXISTING BOOKINGS)
-            // ------------------------------------------------------------------------
-            
-            // 1. Sắp xếp sơ bộ các booking hiện có
+            // GIAI ĐOẠN A: TIỀN XỬ LÝ - GOM NHÓM (VISUAL SYNC)
             let sortedRaw = [...currentBookingsRaw].sort((a, b) => {
                 return getMinsFromTimeStr(a.startTime) - getMinsFromTimeStr(b.startTime);
             });
 
-            // 2. Gom nhóm (Grouping Strategy)
             const bookingGroups = {};
             sortedRaw.forEach(b => {
+                if (!isActiveBookingStatus(b.status)) return;
                 const timeKey = (b.startTime || "").split(' ')[1] || "00:00";
                 const contactInfo = b.originalData?.phone || b.originalData?.sdt || b.originalData?.custPhone || b.originalData?.customerName || "Unknown";
                 const contactKey = contactInfo.toString().replace(/\D/g, '').slice(-6) || contactInfo.toString().trim();
-                const groupKey = (b.status === 'Running') ? `RUNNING_${b.rowId}` : `${timeKey}_${contactKey}`;
+                const statusLower = (b.status||'').toLowerCase();
+                const groupKey = (statusLower.includes('running') || statusLower.includes('doing')) ? `RUNNING_${b.rowId}` : `${timeKey}_${contactKey}`;
                 if (!bookingGroups[groupKey]) bookingGroups[groupKey] = [];
                 bookingGroups[groupKey].push(b);
             });
 
-            // 3. Remapping với Modulo & Pendulum
             let remappedBookings = [];
             Object.values(bookingGroups).forEach(group => {
                 group.sort((a,b) => parseInt(a.rowId) - parseInt(b.rowId));
                 const groupSize = group.length;
                 const halfSize = Math.ceil(groupSize / 2);
-
                 group.forEach((b, idx) => {
                     b._virtualInheritanceIndex = null;
                     b._impliedFlow = null;
-
-                    if (b.status !== 'Running') {
-                        // LOGIC: MODULO WRAPPING
-                        let virtualIndex = null;
+                    const statusLower = (b.status||'').toLowerCase();
+                    if (!statusLower.includes('running')) {
+                        let virtualIndex = (groupSize >= 2) ? (idx % halfSize) + 1 : idx + 1;
+                        b._virtualInheritanceIndex = virtualIndex; 
                         if (groupSize >= 2) {
-                            virtualIndex = (idx % halfSize) + 1;
-                        } else {
-                            virtualIndex = idx + 1;
-                        }
-                        b._virtualInheritanceIndex = virtualIndex;
-
-                        // LOGIC: PENDULUM FLOW (Nếu chưa có chỉ định cứng)
-                        if (groupSize >= 2) {
-                            if (idx < halfSize) b._impliedFlow = 'BF';
-                            else b._impliedFlow = 'FB';
+                            b._impliedFlow = (idx < halfSize) ? 'BF' : 'FB';
                         }
                     }
                     remappedBookings.push(b);
                 });
             });
 
-            // ------------------------------------------------------------------------
-            // BƯỚC B: XỬ LÝ CHI TIẾT BOOKING THÀNH BLOCKS
-            // ------------------------------------------------------------------------
+            // GIAI ĐOẠN B: XỬ LÝ CHI TIẾT BOOKING (BLOCKS)
             let existingBookingsProcessed = [];
-
             remappedBookings.forEach(b => {
                 const bStart = getMinsFromTimeStr(b.startTime);
                 if (bStart === -1) return;
@@ -422,49 +391,52 @@
                 let svcInfo = SERVICES[b.serviceCode] || {};
                 let isCombo = isComboService(svcInfo, b.serviceName);
                 let duration = b.duration || 60;
-                
                 let anchorIndex = null;
-                if (b.status === 'Running') {
+                const statusLower = (b.status||'').toLowerCase();
+                const isRunning = statusLower.includes('running');
+
+                if (isRunning) {
                      if (b.allocated_resource) {
                         const match = b.allocated_resource.toString().match(/(\d+)/);
                         if (match) anchorIndex = parseInt(match[0]);
-                     } else if (b.rowId && (b.rowId.includes('BED') || b.rowId.includes('CHAIR'))) {
+                     } else if (b.rowId && typeof b.rowId === 'string' && (b.rowId.includes('BED') || b.rowId.includes('CHAIR'))) {
                          const match = b.rowId.toString().match(/(\d+)/);
                          if (match) anchorIndex = parseInt(match[0]);
                      }
                 } else {
-                    if (b._virtualInheritanceIndex) {
-                        anchorIndex = b._virtualInheritanceIndex;
-                    } else if (b.allocated_resource) {
-                         const match = b.allocated_resource.toString().match(/(\d+)/);
-                         if (match) anchorIndex = parseInt(match[0]);
+                    if (b._virtualInheritanceIndex) anchorIndex = b._virtualInheritanceIndex;
+                    else if (b.allocated_resource) {
+                        const match = b.allocated_resource.toString().match(/(\d+)/);
+                        if (match) anchorIndex = parseInt(match[0]);
                     }
                 }
-                
+
                 let processedB = {
                     id: b.rowId, originalData: b, staffName: b.staffName, serviceName: b.serviceName, 
-                    category: svcInfo.category, isElastic: isCombo && (b.isManualLocked !== true) && (b.status !== 'Running'),
+                    category: svcInfo.category, 
+                    isElastic: isCombo && (b.isManualLocked !== true) && (!isRunning),
                     elasticStep: svcInfo.elasticStep || 5, elasticLimit: svcInfo.elasticLimit || 15,
                     startMins: bStart, duration: duration, blocks: [], anchorIndex: anchorIndex
                 };
+
+                // [CRITICAL] Đọc Flow từ dữ liệu cũ nếu có
+                // Nếu Backend đã lưu Flow Code (VD: cột Y), ưu tiên dùng nó
+                let storedFlow = b.originalData?.flowCode || b.flow || null; 
 
                 if (isCombo) {
                     let p1 = b.phase1_duration ? parseInt(b.phase1_duration) : Math.floor(duration / 2);
                     let p2 = duration - p1;
                     const p1End = bStart + p1;
                     const p2Start = p1End + CONFIG.TRANSITION_BUFFER;
-                    
                     let isBodyFirst = false;
                     const noteContent = (b.note || b.ghiChu || b.originalData?.ghiChu || "").toString().toUpperCase();
                     
-                    // Ưu tiên theo thứ tự: Note > Running > Implied
-                    if (b.flow === 'BF' || noteContent.includes('BF') || noteContent.includes('BODY FIRST') || noteContent.includes('先做身體') || noteContent.includes('先身')) {
-                        isBodyFirst = true;
-                    } else if (b.status === 'Running' && b.allocated_resource && (b.allocated_resource.includes('BED') || b.allocated_resource.includes('BODY'))) {
-                        isBodyFirst = true;
-                    } else if (b._impliedFlow === 'BF') {
-                        isBodyFirst = true;
-                    }
+                    // Logic xác định Flow cũ (kết hợp cả lưu trữ và suy luận)
+                    if (storedFlow === 'BF') isBodyFirst = true;
+                    else if (storedFlow === 'FB') isBodyFirst = false;
+                    else if (noteContent.includes('BF') || noteContent.includes('BODY FIRST') || noteContent.includes('先做身體')) isBodyFirst = true;
+                    else if (isRunning && b.allocated_resource && (b.allocated_resource.includes('BED') || b.allocated_resource.includes('BODY'))) isBodyFirst = true; 
+                    else if (b._impliedFlow === 'BF') isBodyFirst = true;
 
                     if (isBodyFirst) {
                         processedB.blocks.push({ start: bStart, end: p1End, type: 'BED', forcedIndex: anchorIndex }); 
@@ -475,8 +447,7 @@
                         processedB.blocks.push({ start: p2Start, end: bStart + duration, type: 'BED', forcedIndex: anchorIndex });
                         processedB.flow = 'FB'; 
                     }
-                    processedB.p1_current = p1; 
-                    processedB.p2_current = p2;
+                    processedB.p1_current = p1; processedB.p2_current = p2;
                 } else {
                     let rType = detectResourceType(svcInfo);
                     processedB.blocks.push({ start: bStart, end: bStart + duration, type: rType, forcedIndex: anchorIndex });
@@ -484,24 +455,16 @@
                 existingBookingsProcessed.push(processedB);
             });
 
-            // ------------------------------------------------------------------------
-            // BƯỚC C: TẠO KỊCH BẢN CHO KHÁCH MỚI (V102.0 COUPLE STRATEGY)
-            // ------------------------------------------------------------------------
+            // GIAI ĐOẠN C: KỊCH BẢN KHÁCH MỚI
             const newGuests = guestList.map((g, idx) => ({ ...g, idx: idx }));
             const comboGuests = newGuests.filter(g => { const s = SERVICES[g.serviceCode]; return isComboService(s, g.serviceCode); });
-            
-            const maxBF = comboGuests.length;
             const newGuestHalfSize = Math.ceil(comboGuests.length / 2);
-            
-            // [V102.0] SMART SEQUENCE GENERATION
-            // Xác định thứ tự ưu tiên thử nghiệm Flow (Sync vs Split)
+            const maxBF = comboGuests.length;
             let trySequence = [];
-            
+
             if (maxBF === 2) {
-                // CHIẾN THUẬT CẶP ĐÔI: Ưu tiên SYNC (0 hoặc 2) trước khi thử SPLIT (1)
                 trySequence = [0, 2, 1]; 
             } else if (maxBF > 0) {
-                // Nhóm khác: Dùng chiến thuật con lắc (Pendulum) cân bằng
                 let mid = maxBF / 2; 
                 trySequence.push(Math.ceil(mid));
                 if (Math.floor(mid) !== Math.ceil(mid)) trySequence.push(Math.floor(mid));
@@ -513,11 +476,11 @@
                     if (nextDown >= 0) trySequence.push(nextDown);     
                     step++;
                 }
-            } else { trySequence.push(0); }
+            } else {
+                trySequence.push(0);
+            }
             
-            // ------------------------------------------------------------------------
-            // BƯỚC D: VÒNG LẶP VÉT CẠN (EXHAUSTIVE SEARCH)
-            // ------------------------------------------------------------------------
+            // GIAI ĐOẠN D: VÒNG LẶP VÉT CẠN (EXHAUSTIVE MATRIX LOOP)
             let successfulScenario = null;
 
             for (let numBF of trySequence) {
@@ -526,14 +489,13 @@
                 let scenarioUpdates = [];
                 let scenarioFailed = false;
                 
-                // === GIAI ĐOẠN 1: XẾP CHỖ CHO KHÁCH CŨ ===
+                // 1. NẠP KHÁCH CŨ
                 let softsToSqueezeCandidates = []; 
                 for (const exB of existingBookingsProcessed) {
                     let placedSuccessfully = true;
                     let allocatedSlots = []; 
                     for (const block of exB.blocks) {
                         const realEnd = block.end + CONFIG.CLEANUP_BUFFER;
-                        // Cố gắng đặt vào slot chỉ định (forcedIndex)
                         const slotId = matrix.tryAllocate(block.type, block.start, realEnd, exB.id, block.forcedIndex);
                         if (!slotId) { placedSuccessfully = false; break; }
                         allocatedSlots.push(slotId);
@@ -544,27 +506,21 @@
                     }
                 }
 
-                // === GIAI ĐOẠN 2: TẠO BLOCK CHO KHÁCH MỚI ===
-                // Dựa trên numBF (số lượng khách làm BF) hiện tại đang thử nghiệm
+                // 2. TÍNH TOÁN BLOCK KHÁCH MỚI
                 let newGuestBlocksMap = []; 
                 for (const ng of newGuests) {
                     const svc = SERVICES[ng.serviceCode] || { name: ng.serviceCode || 'Unknown', duration: 60, price: 0 }; 
                     let flow = 'FB'; 
                     let isThisGuestCombo = isComboService(svc, ng.serviceCode);
-
                     if (isThisGuestCombo) {
-                        // Logic chia bài Pendulum
                         const cIdx = comboGuests.findIndex(cg => cg.idx === ng.idx);
                         if (cIdx >= 0 && cIdx < numBF) { flow = 'BF'; }
                     }
-
                     const duration = svc.duration || 60;
                     let blocks = [];
-                    
                     if (isThisGuestCombo) {
                         const p1Standard = Math.floor(duration / 2);
                         const p2Standard = duration - p1Standard;
-
                         if (flow === 'FB') { 
                             const t1End = requestStartMins + p1Standard;
                             const t2Start = t1End + CONFIG.TRANSITION_BUFFER;
@@ -586,23 +542,15 @@
                     newGuestBlocksMap.push({ guest: ng, blocks: blocks });
                 }
 
-                // === GIAI ĐOẠN 3: XẾP CHỖ KHÁCH MỚI (ÁP DỤNG MODULO) ===
+                // 3. XẾP KHÁCH MỚI (MODULO)
                 let conflictFound = false;
-                
                 for (const item of newGuestBlocksMap) {
                     let guestAllocations = [];
-                    // Tính chỉ số ưu tiên Modulo
                     let preferredIdx = null;
                     if (newGuestHalfSize > 0 && newGuests.length >= 2) {
                         preferredIdx = (item.guest.idx % newGuestHalfSize) + 1;
-                        
-                        // [V102.0 Fix] Nếu đang chạy chế độ SYNC (Cùng flow),
-                        // Ta muốn khách nằm cạnh nhau (1, 2) chứ không phải chồng lên nhau (1, 1).
-                        if (maxBF === 2 && (numBF === 0 || numBF === 2)) {
-                            preferredIdx = item.guest.idx + 1;
-                        }
+                        if (maxBF === 2 && (numBF === 0 || numBF === 2)) preferredIdx = item.guest.idx + 1;
                     }
-
                     for (const block of item.blocks) {
                         const slotId = matrix.tryAllocate(block.type, block.start, block.end, `NEW_GUEST_${item.guest.idx}`, preferredIdx);
                         if (!slotId) { conflictFound = true; break; }
@@ -613,25 +561,23 @@
                     if (detail) detail.allocated = guestAllocations;
                 }
 
-                // === GIAI ĐOẠN 4: CHIẾN THUẬT SQUEEZE (BÓP MỀM KHI CẦN THIẾT) ===
+                // 4. SQUEEZE LOGIC
                 if (conflictFound) {
                     let matrixSqueeze = new VirtualMatrix();
                     let updatesProposed = [];
+                    
                     const hardBookings = existingBookingsProcessed.filter(b => !b.isElastic);
                     hardBookings.forEach(hb => {
                         hb.blocks.forEach(blk => matrixSqueeze.tryAllocate(blk.type, blk.start, blk.end + CONFIG.CLEANUP_BUFFER, hb.id, blk.forcedIndex));
                     });
 
                     let squeezeScenarioPossible = true;
-                    // Thử xếp lại khách mới vào Matrix sạch
                     for (const item of newGuestBlocksMap) {
-                        // Copy logic preferredIdx từ trên xuống
                         let preferredIdxSqueeze = null;
                         if (newGuestHalfSize > 0 && newGuests.length >= 2) {
                             preferredIdxSqueeze = (item.guest.idx % newGuestHalfSize) + 1;
                             if (maxBF === 2 && (numBF === 0 || numBF === 2)) preferredIdxSqueeze = item.guest.idx + 1;
                         }
-
                         for (const block of item.blocks) {
                             if (!matrixSqueeze.tryAllocate(block.type, block.start, block.end, `NEW_GUEST_${item.guest.idx}`, preferredIdxSqueeze)) {
                                 squeezeScenarioPossible = false; break;
@@ -642,7 +588,6 @@
 
                     if (!squeezeScenarioPossible) { scenarioFailed = true; continue; }
 
-                    // Nhét các booking mềm (Elastic) vào khe hở còn lại
                     const softBookings = existingBookingsProcessed.filter(b => b.isElastic);
                     for (const sb of softBookings) {
                         const splits = generateElasticSplits(sb.duration, sb.elasticStep, sb.elasticLimit, null);
@@ -651,24 +596,19 @@
                             const sP1End = sb.startMins + split.p1;
                             const sP2Start = sP1End + CONFIG.TRANSITION_BUFFER;
                             const sP2End = sP2Start + split.p2;
-                            
                             const testBlocks = [
                                 { type: 'CHAIR', start: sb.startMins, end: sP1End + CONFIG.CLEANUP_BUFFER, forcedIndex: sb.blocks[0].forcedIndex },
                                 { type: 'BED', start: sP2Start, end: sP2End + CONFIG.CLEANUP_BUFFER, forcedIndex: sb.blocks[1] ? sb.blocks[1].forcedIndex : null }
                             ];
-                            
                             if (isBlockSetAllocatable(testBlocks, matrixSqueeze)) {
                                 testBlocks.forEach(tb => matrixSqueeze.tryAllocate(tb.type, tb.start, tb.end, sb.id, tb.forcedIndex));
                                 fit = true;
-                                if (split.deviation !== 0) {
-                                    updatesProposed.push({ rowId: sb.id, customerName: sb.originalData.customerName, newPhase1: split.p1, newPhase2: split.p2, reason: 'Matrix Squeeze V102.0' });
-                                }
+                                if (split.deviation !== 0) updatesProposed.push({ rowId: sb.id, customerName: sb.originalData.customerName, newPhase1: split.p1, newPhase2: split.p2, reason: 'Matrix Squeeze V105.0' });
                                 break; 
                             }
                         }
                         if (!fit) { squeezeScenarioPossible = false; break; }
                     }
-
                     if (squeezeScenarioPossible) {
                         scenarioUpdates = updatesProposed;
                         matrix = matrixSqueeze; 
@@ -677,7 +617,7 @@
                     }
                 }
 
-                // === GIAI ĐOẠN 5: KIỂM TRA NHÂN SỰ CỤ THỂ (ASSIGNMENT) ===
+                // 5. STAFF CHECK (ASSIGNMENT)
                 let flatTimeline = [];
                 Object.values(matrix.lanes).forEach(group => group.forEach(lane => lane.occupied.forEach(occ => {
                     const ex = existingBookingsProcessed.find(e => e.id === occ.ownerId);
@@ -687,7 +627,9 @@
                 let staffAssignmentSuccess = true;
                 for (const item of newGuestBlocksMap) {
                     const assignedStaff = findAvailableStaff(item.guest.staffName, item.blocks[0].start, item.blocks[item.blocks.length - 1].end, staffList, flatTimeline);
+                    
                     if (!assignedStaff) { staffAssignmentSuccess = false; break; }
+                    
                     const detail = scenarioDetails.find(d => d.guestIndex === item.guest.idx);
                     if (detail) detail.staff = assignedStaff;
                     item.blocks.forEach(b => flatTimeline.push({ start: b.start, end: b.end, staffName: assignedStaff }));
@@ -699,20 +641,17 @@
                 break; 
             }
 
-            // ------------------------------------------------------------------------
-            // BƯỚC E: KẾT QUẢ CUỐI CÙNG
-            // ------------------------------------------------------------------------
             if (successfulScenario) {
                 successfulScenario.details.sort((a,b) => a.guestIndex - b.guestIndex);
                 return {
                     feasible: true, 
-                    strategy: 'MATRIX_COUPLE_SYNC_V103.0', 
+                    strategy: 'MATRIX_COUPLE_SYNC_V105.0', 
                     details: successfulScenario.details,
                     proposedUpdates: successfulScenario.updates,
                     totalPrice: successfulScenario.details.reduce((sum, item) => sum + (item.price||0), 0)
                 };
             } else {
-                return { feasible: false, reason: "Hết chỗ (Full - Matrix Scan Failed)" };
+                return { feasible: false, reason: "Hết chỗ (Full - Không tìm thấy khe hở phù hợp hoặc không đủ nhân viên)" };
             }
         }
 
@@ -720,7 +659,7 @@
     })();
 
     // ========================================================================
-    // PHẦN 2: ANTI-CACHE DATA FETCHER (GIỮ NGUYÊN)
+    // PHẦN 2: DATA FETCHER
     // ========================================================================
     const fetchLiveServerData = async (isForceRefresh = false) => {
         const apiUrl = window.API_URL || window.GAS_API_URL || (window.CONFIG && window.CONFIG.API_URL);
@@ -784,7 +723,7 @@
                 status: isPastOrRunning ? 'Running' : (b.status || 'Reserved'),
                 note: b.ghiChu || b.note,
                 ghiChu: b.ghiChu || b.note,
-                flow: b.flow 
+                flow: b.flow || b.originalData?.flowCode // Support V105 Flow Code reading
             };
         });
 
@@ -796,9 +735,11 @@
                 const rawEnd = s['下班'] || s.shiftEnd || s.end || "00:00";
                 const dayStatus = s[targetDateSheetHeader] || s[targetDateStandard] || "";
                 let isOff = (String(s.offDays || "").includes(targetDateStandard) || String(dayStatus).toUpperCase().includes('OFF'));
+                
                 staffMap[sId] = {
                     id: sId, gender: s.gender, start: rawStart, end: rawEnd,
-                    isStrictTime: (s.isStrictTime === true || s.isStrictTime === 'TRUE'), off: isOff
+                    isStrictTime: (s.isStrictTime === true || String(s.isStrictTime).toUpperCase() === 'TRUE'), 
+                    off: isOff
                 };
                 if (s.name) staffMap[s.name] = staffMap[sId];
             });
@@ -818,7 +759,7 @@
     const forceGlobalRefresh = () => { if (typeof window.fetchDataAndRender === 'function') window.fetchDataAndRender(); else window.location.reload(); };
 
     // ==================================================================================
-    // 4. COMPONENT: PHONE BOOKING MODAL
+    // 4. COMPONENT: PHONE BOOKING MODAL (V105.0)
     // ==================================================================================
     const NewAvailabilityCheckModal = ({ onClose, onSave, staffList, bookings, initialDate, editingBooking }) => {
         const safeStaffList = useMemo(() => staffList || [], [staffList]);
@@ -902,7 +843,9 @@
                 const freshData = await fetchLiveServerData(false);
                 if (freshData) { setServerData(freshData); currentStaffList = freshData.staff; currentBookings = freshData.bookings; }
             }
+            
             const res = callCoreAvailabilityCheck(form.date, form.time, guestDetails, currentBookings, currentStaffList);
+            
             if (res.valid) { 
                 setCheckResult({ status: 'OK', message: "✅ 此時段可預約 (Available)", coreDetails: res.details }); 
             } else {
@@ -931,16 +874,26 @@
                 if (editingBooking) checkBookings = checkBookings.filter(b => b.rowId !== editingBooking.rowId);
                 const finalCheck = callCoreAvailabilityCheck(form.date, form.time, guestDetails, checkBookings, serverData?.staff || safeStaffList);
                 
+                if (!finalCheck.valid) {
+                     alert("⚠️ Dữ liệu thay đổi, hiện không thể đặt: " + finalCheck.reason);
+                     setIsSubmitting(false);
+                     return;
+                }
+
+                // [STEP 2] EXPLICIT FLOW CONSTRUCTION
+                // Tại đây, chúng ta gán cứng FlowCode (BF/FB) vào dữ liệu gửi đi.
                 const detailedGuests = guestDetails.map((g, i) => {
                     const detail = finalCheck.details ? finalCheck.details.find(d => d.guestIndex === i) : null;
                     return {
                         ...g, staff: g.staff, 
-                        flow: detail ? detail.flow : 'FB', 
+                        flow: detail ? detail.flow : 'FB',          // Fallback logic
+                        flowCode: detail ? detail.flow : 'FB',      // [NEW V105] Explicit Data Field
                         phase1_duration: detail ? detail.phase1_duration : null,
                         phase2_duration: detail ? detail.phase2_duration : null,
                     };
                 });
                 
+                // Vẫn tạo note text cho backward compatibility
                 const oils = detailedGuests.map((g,i)=>g.isOil?`K${i+1}:精油`:null).filter(Boolean);
                 const flows = detailedGuests.map((g, i) => {
                     if (g.flow === 'BF') return `K${i+1}:先做身體`; 
@@ -956,7 +909,13 @@
                     nhanVien: detailedGuests[0].staff, isOil: detailedGuests[0].isOil,
                     staffId2: detailedGuests[1]?.staff||null, staffId3: detailedGuests[2]?.staff||null,
                     staffId4: detailedGuests[3]?.staff||null, staffId5: detailedGuests[4]?.staff||null, staffId6: detailedGuests[5]?.staff||null,
-                    ghiChu: noteStr, guestDetails: detailedGuests, proposedUpdates: finalCheck.proposedUpdates || [],
+                    ghiChu: noteStr, 
+                    
+                    // [IMPORTANT V105] Payload chứa Flow Code cho Backend
+                    guestDetails: detailedGuests, 
+                    mainFlow: detailedGuests[0].flowCode, // Shortcut for main row
+                    
+                    proposedUpdates: finalCheck.proposedUpdates || [],
                     phase1_duration: detailedGuests[0].phase1_duration, phase2_duration: detailedGuests[0].phase2_duration,
                     rowId: editingBooking ? editingBooking.rowId : null
                 };
@@ -974,7 +933,7 @@
             <div className="fixed inset-0 bg-slate-900/90 z-[100] flex items-center justify-center p-4">
                 <div className="bg-white w-full max-w-xl rounded-xl shadow-2xl flex flex-col max-h-[95vh] overflow-hidden animate-fadeIn">
                     <div className={`${editingBooking ? 'bg-orange-600' : 'bg-[#0891b2]'} p-4 text-white flex justify-between items-center shrink-0`}>
-                        <h3 className="font-bold text-lg">{editingBooking ? "✏️ 修改預約 (Edit)" : "📅 電話預約 (V103.0)"}</h3>
+                        <h3 className="font-bold text-lg">{editingBooking ? "✏️ 修改預約 (Edit)" : "📅 電話預約 (V105.0)"}</h3>
                         <button onClick={onClose} className="text-2xl hover:text-red-100">&times;</button>
                     </div>
                     <div className="p-5 space-y-4 overflow-y-auto flex-1 custom-scrollbar">
@@ -996,7 +955,7 @@
                                 <div>
                                     {!checkResult ? 
                                         <button onClick={performCheck} disabled={isChecking} className={`w-full text-white p-3 rounded font-bold shadow-lg flex justify-center items-center ${isChecking ? 'bg-gray-400 cursor-not-allowed' : 'bg-cyan-600 hover:bg-cyan-700'}`}>
-                                            {isChecking ? "正在計算 (Guardrail V103)..." : "🔍 查詢空位 (Instant Check)"}
+                                            {isChecking ? "正在計算 (Scanner V105)..." : "🔍 查詢空位 (Instant Check)"}
                                         </button> 
                                         : 
                                         <div className="space-y-3">
@@ -1039,7 +998,7 @@
     };
 
     // ==================================================================================
-    // 5. COMPONENT: WALK-IN MODAL
+    // 5. COMPONENT: WALK-IN MODAL (V105.0)
     // ==================================================================================
     const NewWalkInModal = ({ onClose, onSave, staffList, bookings, initialDate }) => {
         const safeStaffList = useMemo(() => staffList || [], [staffList]);
@@ -1135,15 +1094,25 @@
             setIsSubmitting(true);
             try {
                 const finalCheck = callCoreAvailabilityCheck(form.date, form.time, guestDetails, serverData?.bookings || safeBookings, serverData?.staff || safeStaffList);
+                
+                if (!finalCheck.valid) {
+                     alert("⚠️ Không thể đặt: " + finalCheck.reason);
+                     setIsSubmitting(false);
+                     return;
+                }
+
+                // [STEP 2] EXPLICIT FLOW CONSTRUCTION FOR WALK-IN
                 const detailedGuests = guestDetails.map((g, i) => {
                     const detail = finalCheck.details ? finalCheck.details.find(d => d.guestIndex === i) : null;
                     return { 
                         ...g, staff: g.staff, 
-                        flow: detail ? detail.flow : 'FB', 
+                        flow: detail ? detail.flow : 'FB',          
+                        flowCode: detail ? detail.flow : 'FB', // [NEW V105] 
                         phase1_duration: detail ? detail.phase1_duration : null,
                         phase2_duration: detail ? detail.phase2_duration : null
                     };
                 });
+
                 const oils = detailedGuests.map((g,i)=>g.isOil?`K${i+1}:精油`:null).filter(Boolean);
                 const flows = detailedGuests.map((g, i) => {
                     if (g.flow === 'BF') return `K${i+1}:先做身體`;
@@ -1159,7 +1128,13 @@
                     nhanVien: detailedGuests[0].staff, isOil: detailedGuests[0].isOil,
                     staffId2: detailedGuests[1]?.staff||null, staffId3: detailedGuests[2]?.staff||null,
                     staffId4: detailedGuests[3]?.staff||null, staffId5: detailedGuests[4]?.staff||null, staffId6: detailedGuests[5]?.staff||null,
-                    ghiChu: noteStr, guestDetails: detailedGuests, proposedUpdates: finalCheck.proposedUpdates || [],
+                    ghiChu: noteStr, 
+                    
+                    // [IMPORTANT V105] Payload chứa Flow Code
+                    guestDetails: detailedGuests, 
+                    mainFlow: detailedGuests[0].flowCode,
+                    
+                    proposedUpdates: finalCheck.proposedUpdates || [],
                     phase1_duration: detailedGuests[0].phase1_duration, phase2_duration: detailedGuests[0].phase2_duration
                 };
                 if (onSave) { await Promise.resolve(onSave(payload)); forceGlobalRefresh(); setTimeout(()=>{onClose();setIsSubmitting(false);}, 500); }
@@ -1172,7 +1147,7 @@
             <div className="fixed inset-0 bg-black/70 z-[90] flex items-center justify-center p-4">
                 <div className="bg-white w-full max-w-xl rounded-xl shadow-2xl modal-animate flex flex-col max-h-[90vh] overflow-hidden">
                     <div className="bg-amber-600 p-4 text-white flex justify-between items-center shrink-0">
-                        <h3 className="font-bold text-lg">⚡ 現場客 (V103.0)</h3>
+                        <h3 className="font-bold text-lg">⚡ 現場客 (V105.0)</h3>
                         <button onClick={onClose}><i className="fas fa-times text-xl"></i></button>
                     </div>
                     <div className="p-5 space-y-4 overflow-y-auto flex-1 custom-scrollbar">
@@ -1190,7 +1165,7 @@
                                 <div className="pt-2 grid grid-cols-2 gap-3"><button onClick={onClose} className="bg-gray-100 text-gray-500 font-bold p-3 rounded hover:bg-gray-200">取消</button>
                                 {(!checkResult || checkResult.status === 'FAIL') ? 
                                     <button onClick={performCheck} disabled={isChecking} className={`font-bold p-3 rounded shadow-lg flex justify-center items-center text-white ${isChecking?'bg-gray-400':'bg-amber-500 hover:bg-amber-600'}`}>
-                                        {isChecking ? "計算中 (Guardrail V103)..." : "🔍 檢查"}
+                                        {isChecking ? "計算中 (Scanner V105)..." : "🔍 檢查"}
                                     </button> : 
                                     <button onClick={() => setStep('INFO')} className="bg-emerald-600 text-white font-bold p-3 rounded hover:bg-emerald-700 shadow-lg animate-pulse">➡️ 下一步</button>}
                                 </div>
@@ -1232,11 +1207,11 @@
     const overrideInterval = setInterval(() => {
         if (window.AvailabilityCheckModal !== NewAvailabilityCheckModal) { 
             window.AvailabilityCheckModal = NewAvailabilityCheckModal; 
-            console.log("♻️ AvailabilityModal Injected (V103.0 Guardrail)"); 
+            console.log("♻️ AvailabilityModal Injected (V105.0 Explicit Flow)"); 
         }
         if (window.WalkInModal !== NewWalkInModal) { 
             window.WalkInModal = NewWalkInModal; 
-            console.log("♻️ WalkInModal Injected (V103.0 Guardrail)"); 
+            console.log("♻️ WalkInModal Injected (V105.0 Explicit Flow)"); 
         }
     }, 200);
     setTimeout(() => { clearInterval(overrideInterval); }, 5000);

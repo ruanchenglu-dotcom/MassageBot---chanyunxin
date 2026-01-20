@@ -1,22 +1,22 @@
 /**
  * =================================================================================================
  * PROJECT: XINWUCHAN MASSAGE BOT (BACKEND SERVER - MAIN ENTRY)
- * VERSION: V102.0 (FIX: COLUMN MAPPING REFACTOR O-P-Q)
+ * VERSION: V103.0 (FEATURE: FLOW PERSISTENCE & COLUMN Y)
  * AUTHOR: AI ASSISTANT & USER
- * DATE: 2026/01/14
- * * * * * * * * * * * * CHANGE LOG V102.0:
+ * DATE: 2026/01/20
+ * * * * * * * * * * * * * CHANGE LOG V103.0:
+ * 1. [NEW FEATURE] FLOW PERSISTENCE (LƯU TRỮ LUỒNG KHÁCH):
+ * - Mục tiêu: Ghi nhớ chính xác khách đi Combo theo kiểu nào (Giường trước hay Ghế trước).
+ * - Vị trí lưu trữ: Cột Y (Index 24) trên Google Sheet.
+ * - Giá trị: 'BF' (Bed -> Foot) hoặc 'FB' (Foot -> Bed).
+ * - Tác dụng: Giúp Frontend vẽ Timeline chính xác 100% mà không cần đoán (guessing).
+ * * * * * * * * * * * * * CHANGE LOG V102.0 (PRESERVED):
  * 1. [CRITICAL FIX] COLUMN REMAPPING (SỬA LỖI GHI SAI CỘT):
- * - Di chuyển dữ liệu Matrix (Thời gian Combo) về đúng vị trí yêu cầu:
  * + Phase 1 Duration: Cột X -> Cột O
  * + Phase 2 Duration: Cột Z -> Cột P
  * + Manual Lock:      Cột Y -> Cột Q
- * * 2. [CONFLICT RESOLUTION] STAFF COLUMNS:
- * - Để tránh xung đột với cột O, P, Q (vốn dùng cho Staff 4, 5, 6 cũ):
- * + Staff 1, 2, 3: Giữ nguyên (L, M, N).
- * + Staff 4, 5, 6: Dời sang (AA, AB, AC) để nhường chỗ cho dữ liệu thời gian.
- * * 3. [PRESERVATION]:
- * - Giữ nguyên toàn bộ logic V99 Matrix.
- * - Giữ nguyên Manual Refresh & Line Bot.
+ * 2. [CONFLICT RESOLUTION] STAFF COLUMNS:
+ * + Staff 4, 5, 6: Dời sang (AA, AB, AC).
  * =================================================================================================
  */
 
@@ -30,7 +30,6 @@ const path = require('path');
 
 // IMPORT CORE LOGIC
 // File này chứa "bộ não" tính toán xếp chỗ (V99 Logic resides here)
-// Đảm bảo file resource_core.js nằm cùng thư mục
 const ResourceCore = require('./resource_core'); 
 
 // --- 1. CẤU HÌNH HỆ THỐNG (SYSTEM CONFIGURATION) ---
@@ -50,12 +49,10 @@ const SALARY_SHEET = 'SalaryLog';
 const MENU_SHEET = 'menu'; 
 
 // Lấy config giới hạn tài nguyên từ Core
-// Nếu Core chưa load kịp, dùng giá trị mặc định an toàn là 6
 const MAX_CHAIRS = ResourceCore.CONFIG ? ResourceCore.CONFIG.MAX_CHAIRS : 6;
 const MAX_BEDS = ResourceCore.CONFIG ? ResourceCore.CONFIG.MAX_BEDS : 6;
 
 // Khởi tạo Google Sheets API Client
-// Sử dụng key file JSON để xác thực service account
 const auth = new google.auth.GoogleAuth({
     keyFile: 'google-key.json',
     scopes: ['https://www.googleapis.com/auth/spreadsheets'],
@@ -63,65 +60,48 @@ const auth = new google.auth.GoogleAuth({
 const sheets = google.sheets({ version: 'v4', auth });
 
 // --- 2. GLOBAL STATE (TRẠNG THÁI SERVER TRÊN RAM) ---
-// Biến lưu trữ dữ liệu tạm thời để phục vụ nhanh, giảm tải đọc Sheet liên tục
-let SERVER_RESOURCE_STATE = {}; // Trạng thái ghế/giường realtime (từ Frontend gửi lên)
-let SERVER_STAFF_STATUS = {};   // Trạng thái nhân viên (Ready, Busy, Away...)
+let SERVER_RESOURCE_STATE = {}; // Trạng thái ghế/giường realtime
+let SERVER_STAFF_STATUS = {};   // Trạng thái nhân viên
 let STAFF_LIST = [];            // Danh sách nhân viên và lịch làm việc
-let cachedBookings = [];        // Dữ liệu Booking đã được xử lý kèm thông tin Matrix Allocation
+let cachedBookings = [];        // Dữ liệu Booking đã được xử lý
 let scheduleMap = {};           // Bản đồ lịch nghỉ nhân viên
-let userState = {};             // Lưu trạng thái hội thoại của người dùng Line (Context)
-let lastSyncTime = new Date(0); // Thời điểm đồng bộ dữ liệu gần nhất
-let isSystemHealthy = false;    // Cờ báo hiệu hệ thống có đang hoạt động tốt không
-let isSyncing = false;          // Mutex Lock: Ngăn chặn đồng bộ chồng chéo (Race Condition)
+let userState = {};             // Lưu trạng thái hội thoại Line
+let lastSyncTime = new Date(0); // Thời điểm đồng bộ gần nhất
+let isSystemHealthy = false;    // Health Check
+let isSyncing = false;          // Mutex Lock
 let SERVICES = ResourceCore.SERVICES || {}; 
-let LAST_CALCULATED_MATRIX = null; // Snapshot kết quả tính toán Matrix cuối cùng để debug
+let LAST_CALCULATED_MATRIX = null; // Snapshot debug
 
 // =============================================================================
 // PHẦN 3: CÁC HÀM TIỆN ÍCH (UTILITIES)
 // =============================================================================
 
-/**
- * Lấy đối tượng Date hiện tại theo múi giờ Đài Loan (UTC+8)
- * Quan trọng để tính toán giờ Booking chính xác
- */
 function getTaipeiNow() {
     return ResourceCore.getTaipeiNow ? ResourceCore.getTaipeiNow() : new Date(new Date().toLocaleString("en-US", {timeZone: "Asia/Taipei"}));
 }
 
-/**
- * Chuẩn hóa số điện thoại (chỉ giữ lại số)
- */
 function normalizePhoneNumber(phone) {
     if (!phone) return '';
     return phone.replace(/[^0-9]/g, '');
 }
 
-/**
- * Hàm chuẩn hóa ngày tháng từ Google Sheet về định dạng YYYY/MM/DD
- * Xử lý được cả dạng ISO string và dạng chuỗi thông thường.
- */
 function normalizeSheetDate(rawDateStr) {
     if (!rawDateStr) return null;
     try {
         const str = rawDateStr.toString().trim();
-        
-        // Trường hợp 1: Dạng chuỗi ISO có múi giờ (VD: 2026-01-13T00:00:00.000Z)
         if (str.includes('T') && (str.endsWith('Z') || str.includes('+'))) {
             const d = new Date(str);
             const utc = d.getTime() + (d.getTimezoneOffset() * 60000);
             const taipeiTime = new Date(utc + (3600000 * 8));
             return formatDateString(taipeiTime); 
         }
-
-        // Trường hợp 2: Dạng chuỗi thuần (VD: 2026-01-13 hoặc 2026/01/13)
         const cleanStr = str.replace(/-/g, '/');
         const parts = cleanStr.split('/');
-        
         if (parts.length === 3) {
             let y = parseInt(parts[0]);
             let m = parseInt(parts[1]);
             let d = parseInt(parts[2]);
-            if (y < 100) y += 2000; // Xử lý năm 2 số
+            if (y < 100) y += 2000; 
             const mm = m.toString().padStart(2, '0');
             const dd = d.toString().padStart(2, '0');
             return `${y}/${mm}/${dd}`;
@@ -133,9 +113,6 @@ function normalizeSheetDate(rawDateStr) {
     }
 }
 
-/**
- * Format Date Object sang chuỗi YYYY/MM/DD
- */
 function formatDateString(dateObj) {
     const y = dateObj.getFullYear();
     const m = String(dateObj.getMonth() + 1).padStart(2, '0');
@@ -143,9 +120,6 @@ function formatDateString(dateObj) {
     return `${y}/${m}/${d}`;
 }
 
-/**
- * Format Date Object sang chuỗi YYYY/MM/DD HH:mm
- */
 function formatDateTimeString(dateObj) {
     const y = dateObj.getFullYear();
     const m = String(dateObj.getMonth() + 1).padStart(2, '0');
@@ -155,14 +129,10 @@ function formatDateTimeString(dateObj) {
     return `${y}/${m}/${d} ${h}:${min}`;
 }
 
-/**
- * Lấy danh sách 15 ngày tiếp theo cho Line Bot Menu
- */
 function getNext15Days() {
     let days = [];
     const t = getTaipeiNow();
     t.setHours(0,0,0,0);
-
     for(let i=0; i<15; i++) {
         let d = new Date(t);
         d.setDate(t.getDate() + i);
@@ -179,9 +149,6 @@ function getNext15Days() {
     return days.reverse(); 
 }
 
-/**
- * Format hiển thị ngày tháng
- */
 function formatDateDisplay(dateInput) {
     if (!dateInput) return "";
     try {
@@ -201,9 +168,6 @@ function getCurrentDateTimeStr() {
     return formatDateTimeString(getTaipeiNow());
 }
 
-/**
- * Chuyển đổi index số sang tên cột Excel (0 -> A, 1 -> B...)
- */
 function getColumnLetter(colIndex) {
     let temp, letter = '';
     while (colIndex >= 0) {
@@ -218,9 +182,6 @@ function getColumnLetter(colIndex) {
 // PHẦN 4: ĐỒNG BỘ DỮ LIỆU (CORE SYNC LOGIC)
 // =============================================================================
 
-/**
- * Đồng bộ Menu & Cấu hình Elastic Time từ Sheet 'menu'
- */
 async function syncMenuData() {
     try {
         const res = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: `${MENU_SHEET}!A2:F50` });
@@ -241,8 +202,6 @@ async function syncMenuData() {
 
             let elasticStep = 0;
             let elasticLimit = 0;
-
-            // Đọc cấu hình Elastic (Bóp thời gian)
             if (row[4]) {
                 const parsedStep = parseInt(row[4].toString().replace(/\D/g, '')); 
                 if (!isNaN(parsedStep)) elasticStep = parsedStep;
@@ -259,13 +218,8 @@ async function syncMenuData() {
             else if (prefix === 'B') { type = 'BED'; category = 'BODY'; }
 
             newServices[code] = { 
-                name: name, 
-                duration: duration, 
-                type: type, 
-                category: category, 
-                price: price,
-                elasticStep: elasticStep,
-                elasticLimit: elasticLimit
+                name: name, duration: duration, type: type, category: category, price: price,
+                elasticStep: elasticStep, elasticLimit: elasticLimit
             };
         });
         
@@ -275,9 +229,6 @@ async function syncMenuData() {
     } catch (e) { console.error('[MENU ERROR]', e); }
 }
 
-/**
- * Đồng bộ lương (Salary Log)
- */
 async function syncDailySalary(dateStr, staffDataList) {
     try {
         const range = `${SALARY_SHEET}!A1:AZ100`; 
@@ -310,9 +261,9 @@ async function syncDailySalary(dateStr, staffDataList) {
 
 /**
  * HÀM TRUNG TÂM: ĐỒNG BỘ DỮ LIỆU BOOKING & SCHEDULE
- * V102.0 Update: 
- * - Mở rộng phạm vi đọc đến AC (A:AC) để lấy dữ liệu Staff dự phòng.
- * - Đọc dữ liệu Matrix từ cột O (14), P (15), Q (16).
+ * V103.0 Update: 
+ * - Đọc thêm Cột Y (Index 24) để lấy dữ liệu 'flow' (BF/FB).
+ * - Range vẫn giữ A:AC.
  */
 async function syncData() {
     if (isSyncing) {
@@ -324,7 +275,6 @@ async function syncData() {
         isSyncing = true; // Lock
 
         // --- BƯỚC 1: ĐỌC DỮ LIỆU BOOKING (CỘT A -> AC) ---
-        // Range mở rộng đến cột AC (29) để bao quát hết O, P, Q và AA, AB, AC
         const resBooking = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: `${BOOKING_SHEET}!A:AC` });
         const rowsBooking = resBooking.data.values;
         let tempBookings = [];
@@ -340,7 +290,6 @@ async function syncData() {
                 let duration = 60; let type = 'BED'; let category = 'BODY'; let price = 0;
                 let foundService = false;
                 
-                // Map Service Definition
                 for (const key in SERVICES) {
                     if (serviceStr.includes(SERVICES[key].name.split('(')[0])) {
                         duration = SERVICES[key].duration; type = SERVICES[key].type; category = SERVICES[key].category; price = SERVICES[key].price; 
@@ -349,7 +298,6 @@ async function syncData() {
                 }
                 
                 if (!foundService) {
-                    // Fallback detection
                     if (serviceStr.includes('套餐')) { category = 'COMBO'; duration = 100; }
                     else if (serviceStr.includes('足')) { type = 'CHAIR'; category = 'FOOT'; }
                 }
@@ -358,27 +306,27 @@ async function syncData() {
                 let serviceCode = 'UNKNOWN';
                 for(const key in SERVICES) { if(SERVICES[key].name === serviceStr) { serviceCode = key; break; } }
 
-                // [MATRIX DATA FIELDS - QUAN TRỌNG CHO V102.0]
-                // Đọc dữ liệu từ cột O, P, Q thay vì X, Y, Z
-                // Cột O = Index 14
-                // Cột P = Index 15
-                // Cột Q = Index 16
+                // [MATRIX DATA FIELDS - V102.0]
                 const rawPhase1 = row[14]; // Col O
                 const phase1Duration = rawPhase1 ? parseInt(rawPhase1) : null;
-                
                 const rawPhase2 = row[15]; // Col P
                 const phase2Duration = rawPhase2 ? parseInt(rawPhase2) : null;
-
                 const rawLocked = row[16]; // Col Q
                 const isManualLocked = (rawLocked && (rawLocked.toUpperCase() === 'TRUE' || rawLocked === 'TRUE'));
 
-                // Staff Reading Logic (Cần update để đọc từ AA, AB, AC cho staff 4,5,6 nếu có)
-                // Staff 1 (L=11), Staff 2 (M=12), Staff 3 (N=13)
-                // Staff 4 (AA=26), Staff 5 (AB=27), Staff 6 (AC=28)
+                // [FLOW DATA FIELD - V103.0]
+                // Đọc cột Y (Index 24)
+                const rawFlow = row[24]; // Col Y
+                let flowCode = null;
+                if (rawFlow && (rawFlow === 'BF' || rawFlow === 'FB')) {
+                    flowCode = rawFlow;
+                }
+
+                // Staff Reading Logic
                 const staffId = row[8] || '隨機';
-                const serviceStaff1 = row[11];
-                const staffId2 = row[12];
-                const staffId3 = row[13];
+                const serviceStaff1 = row[11]; // L
+                const staffId2 = row[12]; // M
+                const staffId3 = row[13]; // N
                 const staffId4 = row[26]; // AA
                 const staffId5 = row[27]; // AB
                 const staffId6 = row[28]; // AC
@@ -394,11 +342,7 @@ async function syncData() {
                     staffId: staffId, 
                     staffName: staffId, 
                     serviceStaff: serviceStaff1,
-                    staffId2: staffId2,
-                    staffId3: staffId3,
-                    staffId4: staffId4,
-                    staffId5: staffId5,
-                    staffId6: staffId6,
+                    staffId2: staffId2, staffId3: staffId3, staffId4: staffId4, staffId5: staffId5, staffId6: staffId6,
                     pax: pax, 
                     customerName: `${row[2]} (${row[6]})`,
                     serviceName: serviceStr, 
@@ -408,11 +352,13 @@ async function syncData() {
                     status: status, 
                     lineId: row[9], 
                     isOil: row[4] === "Yes",
-                    // New Fields for Matrix Optimization V102.0
+                    // Matrix Fields V102
                     phase1_duration: phase1Duration,
-                    isManualLocked: isManualLocked,
                     phase2_duration: phase2Duration,
-                    // Field này sẽ được ResourceCore điền vào sau
+                    isManualLocked: isManualLocked,
+                    // Flow Field V103
+                    flow: flowCode, 
+                    // Field allocated by ResourceCore
                     allocated_resource: null 
                 });
             }
@@ -421,9 +367,7 @@ async function syncData() {
         // --- BƯỚC 2: ĐỌC LỊCH LÀM VIỆC (SCHEDULE) ---
         const resSchedule = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: `${SCHEDULE_SHEET}!A1:BG100` });
         const rows = resSchedule.data.values;
-        
-        let tempStaffList = []; 
-        let tempScheduleMap = {}; 
+        let tempStaffList = []; let tempScheduleMap = {}; 
 
         if (rows && rows.length > 1) {
             const headerRow = rows[0]; 
@@ -439,34 +383,21 @@ async function syncData() {
                 const isStrictTime = (onTimeVal === 'TRUE' || onTimeVal === 'YES' || onTimeVal === 'X');
 
                 const staffObj = { 
-                    id: cleanName, 
-                    name: cleanName, 
-                    gender: gender, 
-                    start: startTime, 
-                    end: endTime,   
-                    shiftStart: startTime, 
-                    shiftEnd: endTime,
-                    isStrictTime: isStrictTime, 
-                    sheetRowIndex: i + 1,       
-                    off: false, 
-                    offDays: [] 
+                    id: cleanName, name: cleanName, gender: gender, 
+                    start: startTime, end: endTime, shiftStart: startTime, shiftEnd: endTime,
+                    isStrictTime: isStrictTime, sheetRowIndex: i + 1, off: false, offDays: [] 
                 };
                 
                 const todayStr = formatDateDisplay(getTaipeiNow());
-                
-                // Parse Off Days
                 for (let j = 5; j < headerRow.length; j++) {
                     if (headerRow[j]) {
                         const normalizedDate = normalizeSheetDate(headerRow[j]); 
-                        
                         if (normalizedDate) {
                             if (row[j] && row[j].trim().toUpperCase() === 'OFF') {
                                 if (!tempScheduleMap[normalizedDate]) tempScheduleMap[normalizedDate] = [];
                                 tempScheduleMap[normalizedDate].push(cleanName);
                                 staffObj.offDays.push(normalizedDate);
-                                if (normalizedDate === todayStr) {
-                                    staffObj.off = true;
-                                }
+                                if (normalizedDate === todayStr) { staffObj.off = true; }
                             }
                         }
                     }
@@ -477,32 +408,22 @@ async function syncData() {
         
         if (tempStaffList.length === 0) {
             console.error("⛔ CRITICAL: Không đọc được StaffSchedule! Chuyển sang chế độ bảo trì.");
-            isSystemHealthy = false;
-            STAFF_LIST = []; 
+            isSystemHealthy = false; STAFF_LIST = []; 
         } else {
-            STAFF_LIST = tempStaffList;
-            scheduleMap = tempScheduleMap;
-            isSystemHealthy = true;
+            STAFF_LIST = tempStaffList; scheduleMap = tempScheduleMap; isSystemHealthy = true;
         }
 
         // --- BƯỚC 3: TÍNH TOÁN RESOURCE MATRIX (V99 LOGIC) ---
-        // Phần này gọi Core để tính toán việc phân bổ tài nguyên (ghế/giường)
         if (isSystemHealthy && tempBookings.length > 0) {
             try {
-                // Kiểm tra sự tồn tại của Core Function
                 if (typeof ResourceCore.generateResourceMatrix === 'function') {
-                    // Core V8.0/V99 sẽ xử lý logic Interleaving tại đây dựa trên phase1/2 duration
                     const matrixAllocation = ResourceCore.generateResourceMatrix(tempBookings, STAFF_LIST);
-                    
-                    // Merge kết quả phân bổ vào cachedBookings để Frontend hiển thị
                     tempBookings.forEach(booking => {
                         if (matrixAllocation[booking.rowId]) {
                             booking.allocated_resource = matrixAllocation[booking.rowId];
                         }
                     });
-                    
                     LAST_CALCULATED_MATRIX = matrixAllocation;
-                    // console.log(`[MATRIX] Updated allocation for ${Object.keys(matrixAllocation).length} bookings.`);
                 } else {
                     console.warn("[MATRIX] ResourceCore.generateResourceMatrix missing! Skipping.");
                 }
@@ -516,11 +437,9 @@ async function syncData() {
         console.log(`[SYNC SUCCESS] Bookings: ${cachedBookings.length}, Staff: ${STAFF_LIST.length}, Time: ${formatDateTimeString(lastSyncTime)}`);
 
     } catch (e) { 
-        console.error('[SYNC FATAL ERROR]', e);
-        isSystemHealthy = false; 
-        STAFF_LIST = []; 
+        console.error('[SYNC FATAL ERROR]', e); isSystemHealthy = false; STAFF_LIST = []; 
     } finally {
-        isSyncing = false; // Unlock process
+        isSyncing = false; 
     }
 }
 
@@ -550,21 +469,12 @@ function findBestSlots(selectedDate, serviceCode, pax = 1, requireFemale = false
     const guestList = []; for(let i=0; i<pax; i++) guestList.push({ serviceCode: serviceCode, staffName: 'RANDOM' });
     let candidates = [];
     
-    // Quét từng khung giờ để tìm slot
     for (let h = 8; h <= 24; h += 1) { 
-        if (isToday && h < currentFloatTime) {
-            continue; 
-        }
-
+        if (isToday && h < currentFloatTime) continue; 
         const hourInt = Math.floor(h); const minuteInt = 0; let displayH = hourInt; if (displayH >= 24) displayH -= 24; 
         const timeStr = `${displayH.toString().padStart(2, '0')}:${minuteInt.toString().padStart(2, '0')}`;
-        
-        // Gọi Core để kiểm tra tính khả thi
         const result = ResourceCore.checkRequestAvailability(selectedDate, timeStr, guestList, relevantBookings, staffListMap);
-        
-        if (result.feasible) {
-            candidates.push({ timeStr: timeStr, sortVal: h, score: 10, label: `${timeStr}` });
-        }
+        if (result.feasible) candidates.push({ timeStr: timeStr, sortVal: h, score: 10, label: `${timeStr}` });
     }
     candidates.sort((a, b) => a.sortVal - b.sortVal);
     return candidates.slice(0, 6); 
@@ -572,7 +482,6 @@ function findBestSlots(selectedDate, serviceCode, pax = 1, requireFemale = false
 
 function generateTimeBubbles(selectedDate, serviceCode, specificStaffIds = null, pax = 1, requireFemale = false, requireMale = false) {
     if (!isSystemHealthy || STAFF_LIST.length === 0) return null;
-    
     const nowTaipei = getTaipeiNow();
     const todayStr = formatDateString(nowTaipei);
     const isToday = (selectedDate === todayStr);
@@ -597,20 +506,17 @@ function generateTimeBubbles(selectedDate, serviceCode, specificStaffIds = null,
         if (isToday && h < currentFloatTime) continue; 
         const hourInt = Math.floor(h); let displayH = hourInt >= 24 ? hourInt - 24 : hourInt;
         const timeStr = `${displayH.toString().padStart(2, '0')}:00`;
-        
         const result = ResourceCore.checkRequestAvailability(selectedDate, timeStr, guestList, relevantBookings, staffListMap);
         if (result.feasible) validSlots.push(h);
     }
     
     if (validSlots.length === 0) return null;
-    
     const formatTime = (h) => { const hourInt = Math.floor(h); if (hourInt < 24) return `${hourInt.toString().padStart(2, '0')}:00`; return `${(hourInt - 24).toString().padStart(2, '0')}:00 (凌晨)`; };
     const formatValue = (h) => { const hourInt = Math.floor(h); const displayH = hourInt < 24 ? hourInt : hourInt - 24; return `${displayH.toString().padStart(2, '0')}:00`; }
     const groups = [ { name: '🌞 早安 (Morning)', slots: validSlots.filter(h => h >= 8 && h < 12) }, { name: '☀️ 午後 (Afternoon)', slots: validSlots.filter(h => h >= 12 && h < 18) }, { name: '🌙 晚安 (Evening)', slots: validSlots.filter(h => h >= 18 && h < 24) }, { name: '✨ 深夜 (Late Night)', slots: validSlots.filter(h => h >= 24) } ];
     
     let bubbles = [];
     bubbles.push({ "type": "bubble", "size": "kilo", "body": { "type": "box", "layout": "vertical", "backgroundColor": "#F0F9FF", "cornerRadius": "lg", "contents": [ { "type": "text", "text": "💎 SMART BOOKING", "weight": "bold", "color": "#0284C7", "align": "center", "size": "xs" }, { "type": "text", "text": "精選推薦時段", "weight": "bold", "size": "md", "align": "center", "margin": "xs" }, { "type": "button", "style": "primary", "color": "#0EA5E9", "margin": "md", "height": "sm", "action": { "type": "message", "label": "⭐ 查看 (View)", "text": "Time:Suggest" } } ] } });
-    
     const timeBubbles = groups.filter(g => g.slots.length > 0).map(group => { const buttons = group.slots.map(h => { return { "type": "button", "style": "primary", "margin": "xs", "height": "sm", "action": { "type": "message", "label": formatTime(h), "text": `Time:${formatValue(h)}` } }; }); return { "type": "bubble", "size": "kilo", "body": { "type": "box", "layout": "vertical", "contents": [{ "type": "text", "text": group.name, "weight": "bold", "color": "#1DB446", "align": "center" }, { "type": "separator", "margin": "sm" }, ...buttons] } }; });
     return { type: 'carousel', contents: [...bubbles, ...timeBubbles] };
 }
@@ -649,9 +555,10 @@ function createMenuFlexMessage() {
 // =============================================================================
 
 /**
- * GHI BOOKING MỚI VÀO GOOGLE SHEET (V102.0: Update Cols O, P, Q)
- * @param {Object} data - Thông tin booking
- * @param {Array} proposedUpdates - Danh sách các booking cũ cần bóp giờ (nếu có)
+ * GHI BOOKING MỚI VÀO GOOGLE SHEET 
+ * V103.0 Update: 
+ * - Ghi dữ liệu Matrix (O, P, Q).
+ * - Ghi dữ liệu Flow (Y) từ guestDetails hoặc root data.
  */
 async function ghiVaoSheet(data, proposedUpdates = []) {
     try {
@@ -662,7 +569,6 @@ async function ghiVaoSheet(data, proposedUpdates = []) {
         
         // --- 1. CHUẨN BỊ DỮ LIỆU ĐỂ APPEND (DÒNG MỚI) ---
         const valuesToWrite = [];
-        // Xử lý booking nhóm (Guest Details Array)
         if (data.guestDetails && Array.isArray(data.guestDetails) && data.guestDetails.length > 0) {
             data.guestDetails.forEach((guest, index) => {
                 const guestNum = index + 1; const total = data.guestDetails.length;
@@ -672,7 +578,6 @@ async function ghiVaoSheet(data, proposedUpdates = []) {
                 valuesToWrite.push([ colA_Date, colB_Time, colC_Name, colD_Service, colE_Oil, colF_Pax, colG_Phone, colH_Status, colI_Staff, colJ_LineID, colK_Created ]);
             });
         } else {
-            // Xử lý booking đơn
             const colC_Name = data.hoTen || '現場客'; let colD_Service = data.dichVu; if (data.isOil) colD_Service += " (油推+$200)";
             const colE_Oil = data.isOil ? "Yes" : ""; const colF_Pax = data.pax || 1; const colI_Staff = data.nhanVien || '隨機';
             valuesToWrite.push([ colA_Date, colB_Time, colC_Name, colD_Service, colE_Oil, colF_Pax, colG_Phone, colH_Status, colI_Staff, colJ_LineID, colK_Created ]);
@@ -682,74 +587,69 @@ async function ghiVaoSheet(data, proposedUpdates = []) {
         let newRowStartIndex = -1;
         if (valuesToWrite.length > 0) {
             const appendRes = await sheets.spreadsheets.values.append({ 
-                spreadsheetId: SHEET_ID, 
-                range: 'Sheet1!A:A', 
-                valueInputOption: 'USER_ENTERED', 
-                requestBody: { values: valuesToWrite } 
+                spreadsheetId: SHEET_ID, range: 'Sheet1!A:A', 
+                valueInputOption: 'USER_ENTERED', requestBody: { values: valuesToWrite } 
             });
             
-            // Tìm index dòng vừa tạo
             if (appendRes.data.updates && appendRes.data.updates.updatedRange) {
-                // Range format: Sheet1!A100:K102
                 const rangeStr = appendRes.data.updates.updatedRange;
                 const match = rangeStr.match(/[A-Z]+(\d+):/);
-                if (match) {
-                    newRowStartIndex = parseInt(match[1]);
-                }
+                if (match) newRowStartIndex = parseInt(match[1]);
             }
         }
 
-        // --- 3. GHI DỮ LIỆU MATRIX (CỘT O, P, Q) CHO BOOKING VỪA TẠO ---
-        // V102.0: Cập nhật ghi vào O, P, Q thay vì X, Y, Z
+        // --- 3. GHI DỮ LIỆU NÂNG CAO (MATRIX O,P,Q & FLOW Y) ---
         const matrixUpdates = [];
         if (newRowStartIndex !== -1) {
              const numberOfRows = valuesToWrite.length;
              for(let i = 0; i < numberOfRows; i++) {
                  const currentRow = newRowStartIndex + i;
                  
-                 // Phase 1 (Col O)
+                 // [V102.0] Matrix Data
                  if (data.phase1_duration !== undefined && data.phase1_duration !== null) {
                      matrixUpdates.push({ range: `${BOOKING_SHEET}!O${currentRow}`, values: [[data.phase1_duration]] });
                  }
-                 
-                 // Phase 2 (Col P)
                  if (data.phase2_duration !== undefined && data.phase2_duration !== null) {
                      matrixUpdates.push({ range: `${BOOKING_SHEET}!P${currentRow}`, values: [[data.phase2_duration]] });
                  }
-
-                 // Manual Lock (Col Q) - Mặc định là FALSE khi mới tạo, trừ khi có chỉ định
                  if (data.isManualLocked) {
                      matrixUpdates.push({ range: `${BOOKING_SHEET}!Q${currentRow}`, values: [['TRUE']] });
+                 }
+
+                 // [V103.0] Flow Data (Column Y)
+                 // Lấy Flow từ Guest Details nếu có (vì mỗi khách trong nhóm có thể đi hướng khác nhau)
+                 // Nếu không có trong Guest Details thì lấy từ data gốc (booking đơn)
+                 let flowToWrite = null;
+                 if (data.guestDetails && data.guestDetails[i] && data.guestDetails[i].flow) {
+                     flowToWrite = data.guestDetails[i].flow;
+                 } else if (data.flow) {
+                     flowToWrite = data.flow;
+                 }
+
+                 if (flowToWrite) {
+                     matrixUpdates.push({ range: `${BOOKING_SHEET}!Y${currentRow}`, values: [[flowToWrite]] });
                  }
              }
         }
 
-        // --- 4. XỬ LÝ PROPOSED UPDATES (BÓP GIỜ CÁC KHÁCH KHÁC) ---
-        // Đây là tính năng Elastic Time V7.0 - Đã cập nhật V102.0 để sửa cột
+        // --- 4. XỬ LÝ PROPOSED UPDATES (ELASTIC TIME V7.0) ---
         if (proposedUpdates && proposedUpdates.length > 0) {
             console.log(`[OPTIMIZATION] Executing ${proposedUpdates.length} updates to existing bookings...`);
             proposedUpdates.forEach(update => {
                 if (!update.rowId) return;
-                // Update Col O & P instead of X & Z
                 if (update.phase1 !== undefined) matrixUpdates.push({ range: `${BOOKING_SHEET}!O${update.rowId}`, values: [[update.phase1]] });
                 if (update.phase2 !== undefined) matrixUpdates.push({ range: `${BOOKING_SHEET}!P${update.rowId}`, values: [[update.phase2]] });
             });
         }
 
-        // --- 5. GỬI BATCH UPDATE (NẾU CÓ DỮ LIỆU MATRIX) ---
+        // --- 5. GỬI BATCH UPDATE ---
         if (matrixUpdates.length > 0) {
             await sheets.spreadsheets.values.batchUpdate({
-                spreadsheetId: SHEET_ID,
-                requestBody: {
-                    valueInputOption: 'USER_ENTERED',
-                    data: matrixUpdates
-                }
+                spreadsheetId: SHEET_ID, requestBody: { valueInputOption: 'USER_ENTERED', data: matrixUpdates }
             });
-            console.log(`[SHEET WRITE] Updated Matrix Data (Cols O,P,Q) for ${matrixUpdates.length} cells.`);
+            console.log(`[SHEET WRITE] Updated Matrix & Flow Data (Cols O,P,Q,Y) for ${matrixUpdates.length} cells.`);
         }
 
-        // --- 6. TRIGGER SYNC ---
-        // Chờ 1s để Google Sheet index xong rồi mới đọc lại
         setTimeout(() => syncData(), 1000);
 
     } catch (e) { console.error('[ERROR] Sheet Write/Update:', e); }
@@ -796,35 +696,29 @@ app.use(express.urlencoded({ extended: true }));
 app.use(express.static(path.join(__dirname, 'public')));
 app.use('/admin2', express.static(path.join(__dirname, 'XinWuChanAdmin')));
 
-// --- API: INFO (GET STATUS & HANDLE MANUAL REFRESH) ---
+// --- API: INFO ---
 app.get('/api/info', async (req, res) => { 
     try {
-        // Debounce Logic & Force Refresh Handling
         const isForceRefresh = req.query.forceRefresh === 'true';
         const now = new Date();
         const timeSinceLastSync = now - lastSyncTime;
-        
-        // Thời gian chờ tối thiểu giữa các lần Manual Sync (10 giây để an toàn)
-        // Nếu user bấm liên tục, chỉ lần đầu có tác dụng, các lần sau sẽ trả cache
         const MIN_SYNC_INTERVAL_MANUAL = 10000; 
         
         if (isForceRefresh) {
-            // Log khi có yêu cầu Manual Refresh từ Frontend
             console.log(`[API INFO] Manual Refresh Requested. Time since last sync: ${timeSinceLastSync}ms`);
-
             if (isSyncing) {
                 console.log("⚠️ Manual Sync SKIPPED: Sync process is already running/locked.");
             } else if (timeSinceLastSync > MIN_SYNC_INTERVAL_MANUAL) {
                 console.log("⚡ MANUAL SYNC TRIGGERED: Fetching new data from Google Sheet...");
-                await syncData(); // Gọi hàm đồng bộ ngay lập tức
+                await syncData(); 
             } else {
-                console.log(`⚠️ Manual Sync THROTTLED: Too frequent (Wait ${Math.round((MIN_SYNC_INTERVAL_MANUAL - timeSinceLastSync)/1000)}s more). Returning cache.`);
+                console.log(`⚠️ Manual Sync THROTTLED. Returning cache.`);
             }
         }
 
         res.json({ 
             staffList: STAFF_LIST, 
-            bookings: cachedBookings, // Bao gồm cả allocated_resource
+            bookings: cachedBookings,
             schedule: scheduleMap, 
             resources: { chairs: MAX_CHAIRS, beds: MAX_BEDS }, 
             resourceState: SERVER_RESOURCE_STATE, 
@@ -832,7 +726,7 @@ app.get('/api/info', async (req, res) => {
             services: SERVICES,
             lastUpdated: lastSyncTime,
             isSystemHealthy: isSystemHealthy,
-            matrixDebug: LAST_CALCULATED_MATRIX // Gửi snapshot debug về frontend
+            matrixDebug: LAST_CALCULATED_MATRIX 
         }); 
     } catch (error) {
         console.error("[API INFO FATAL ERROR]", error);
@@ -840,12 +734,12 @@ app.get('/api/info', async (req, res) => {
     }
 });
 
-// --- API: SYNC STATE FROM FRONTEND ---
+// --- API: SYNC STATE ---
 app.post('/api/sync-resource', (req, res) => { SERVER_RESOURCE_STATE = req.body; res.json({ success: true }); });
 app.post('/api/sync-staff-status', (req, res) => { SERVER_STAFF_STATUS = req.body; res.json({ success: true }); });
 
 // --- API: ADMIN CREATE BOOKING ---
-// Hỗ trợ tạo booking với đầy đủ Phase Data
+// V103.0: Add `flow` parameter support
 app.post('/api/admin-booking', async (req, res) => { 
     const data = req.body; 
     await ghiVaoSheet({ 
@@ -860,10 +754,12 @@ app.post('/api/admin-booking', async (req, res) => {
         pax: data.pax || 1, 
         isOil: data.isOil || false, 
         guestDetails: data.guestDetails,
-        // Matrix Data từ Frontend V99
+        // Matrix Data (V102)
         phase1_duration: data.phase1_duration,
         phase2_duration: data.phase2_duration,
-        isManualLocked: data.isManualLocked
+        isManualLocked: data.isManualLocked,
+        // Flow Data (V103)
+        flow: data.flow 
     }); 
     res.json({ success: true }); 
 });
@@ -872,8 +768,7 @@ app.post('/api/update-status', async (req, res) => { await updateBookingStatus(r
 app.post('/api/save-salary', async (req, res) => { await syncDailySalary(req.body.date, req.body.staffData); res.json({ success: true }); });
 
 // --- API: UPDATE BOOKING DETAILS (FULL EDIT MODE) ---
-// API quan trọng cho tính năng "Cây bút" và "Chỉnh sửa thời gian Combo"
-// V102.0: Cập nhật mapping cột để tránh xung đột
+// V103.0: Support updating 'flow' in Column Y
 app.post('/api/update-booking-details', async (req, res) => {
     try {
         const body = req.body; 
@@ -882,7 +777,7 @@ app.post('/api/update-booking-details', async (req, res) => {
 
         console.log(`[UPDATE REQUEST] Row: ${rowId}, Body Keys: ${Object.keys(body).join(', ')}`);
         
-        // --- 1. CẬP NHẬT CÁC CỘT CƠ BẢN (A-K) ---
+        // 1. Basic Columns (A-K)
         if (body.date) {
             const formattedDate = formatDateDisplay(body.date);
             await sheets.spreadsheets.values.update({spreadsheetId: SHEET_ID, range: `${BOOKING_SHEET}!A${rowId}`, valueInputOption: 'USER_ENTERED', requestBody: { values: [[formattedDate]] }});
@@ -902,10 +797,7 @@ app.post('/api/update-booking-details', async (req, res) => {
         if (body.mainStatus) await sheets.spreadsheets.values.update({spreadsheetId: SHEET_ID, range: `${BOOKING_SHEET}!H${rowId}`, valueInputOption: 'USER_ENTERED', requestBody: { values: [[body.mainStatus]] }});
         if (body.staffId && body.staffId !== '随機') await sheets.spreadsheets.values.update({spreadsheetId: SHEET_ID, range: `${BOOKING_SHEET}!I${rowId}`, valueInputOption: 'USER_ENTERED', requestBody: { values: [[body.staffId]] }});
 
-        // --- 2. CẬP NHẬT STAFF LOG COLUMNS ---
-        // V102.0: Thay đổi cột cho Staff 4, 5, 6 để tránh O, P, Q
-        // Staff 1, 2, 3 -> L, M, N (Giữ nguyên)
-        // Staff 4, 5, 6 -> AA, AB, AC (Mới)
+        // 2. Staff Log Columns (L, M, N, AA, AB, AC)
         const staffCols = ['L', 'M', 'N', 'AA', 'AB', 'AC'];
         for(let i=0; i<6; i++) { 
             const key = `staff${i+1}`; 
@@ -913,37 +805,34 @@ app.post('/api/update-booking-details', async (req, res) => {
             if(val) await sheets.spreadsheets.values.update({spreadsheetId: SHEET_ID, range: `${BOOKING_SHEET}!${staffCols[i]}${rowId}`, valueInputOption: 'USER_ENTERED', requestBody: { values: [[val]] }}); 
         }
         
-        // --- 3. CẬP NHẬT STATUS COLUMNS (R-W) ---
+        // 3. Status Columns (R-W)
         const statusCols = ['R', 'S', 'T', 'U', 'V', 'W'];
         for(let i=0; i<6; i++) { 
             const key = `Status${i+1}`; 
             if(body[key]) await sheets.spreadsheets.values.update({spreadsheetId: SHEET_ID, range: `${BOOKING_SHEET}!${statusCols[i]}${rowId}`, valueInputOption: 'USER_ENTERED', requestBody: { values: [[body[key]]] }}); 
         }
 
-        // --- 4. CẬP NHẬT MATRIX DATA (O, P, Q) - QUAN TRỌNG V102.0 ---
-        // Dùng O, P, Q thay vì X, Y, Z
-        
-        // Phase 1 -> Col O
+        // 4. Matrix Data (O, P, Q) & Flow Data (Y) - V103.0
         if (body.phase1_duration !== undefined && body.phase1_duration !== null) {
             await sheets.spreadsheets.values.update({spreadsheetId: SHEET_ID, range: `${BOOKING_SHEET}!O${rowId}`, valueInputOption: 'USER_ENTERED', requestBody: { values: [[body.phase1_duration]] }});
         }
-        
-        // Phase 2 -> Col P
         if (body.phase2_duration !== undefined && body.phase2_duration !== null) {
             await sheets.spreadsheets.values.update({spreadsheetId: SHEET_ID, range: `${BOOKING_SHEET}!P${rowId}`, valueInputOption: 'USER_ENTERED', requestBody: { values: [[body.phase2_duration]] }});
         }
-
-        // Manual Lock -> Col Q
         if (body.isManualLocked !== undefined) { 
             const val = body.isManualLocked ? 'TRUE' : 'FALSE'; 
             await sheets.spreadsheets.values.update({spreadsheetId: SHEET_ID, range: `${BOOKING_SHEET}!Q${rowId}`, valueInputOption: 'USER_ENTERED', requestBody: { values: [[val]] }}); 
         }
+        // [NEW] Flow Persistence
+        if (body.flow) {
+            await sheets.spreadsheets.values.update({spreadsheetId: SHEET_ID, range: `${BOOKING_SHEET}!Y${rowId}`, valueInputOption: 'USER_ENTERED', requestBody: { values: [[body.flow]] }});
+        }
 
-        // --- 5. SYNC TRIGGER ---
+        // 5. Sync Trigger
         if (body.forceSync) {
             await syncData(); 
         } else {
-            setTimeout(() => syncData(), 500); // Debounce
+            setTimeout(() => syncData(), 500); 
         }
         
         res.json({ success: true });
@@ -972,10 +861,7 @@ app.post('/api/update-staff-config', async (req, res) => {
             const valueToWrite = isStrictTime ? "TRUE" : "";
             const range = `${SCHEDULE_SHEET}!E${sheetRowIndex}`;
             await sheets.spreadsheets.values.update({
-                spreadsheetId: SHEET_ID,
-                range: range,
-                valueInputOption: 'USER_ENTERED',
-                requestBody: { values: [[valueToWrite]] }
+                spreadsheetId: SHEET_ID, range: range, valueInputOption: 'USER_ENTERED', requestBody: { values: [[valueToWrite]] }
             });
         }
         await syncData();
@@ -999,29 +885,24 @@ async function handleEvent(event) {
       else text = event.postback.data;
   }
 
-  // Chặn Bot nếu hệ thống đang bảo trì
   const isBookingAction = text === 'Action:Booking' || text.startsWith('Cat:') || text.startsWith('Svc:') || text.startsWith('Date:') || text.startsWith('Pref:') || text.startsWith('Pax:') || text.startsWith('Time:');
   if (isBookingAction && (!isSystemHealthy || STAFF_LIST.length === 0)) {
        return client.replyMessage(event.replyToken, { 
-           type: 'flex', 
-           altText: 'Hệ thống bảo trì', 
+           type: 'flex', altText: 'Hệ thống bảo trì', 
            contents: { "type": "bubble", "body": { "type": "box", "layout": "vertical", "contents": [ { "type": "text", "text": "⛔ TẠM NGƯNG ĐẶT LỊCH", "weight": "bold", "color": "#E63946", "size": "lg", "align": "center" }, { "type": "text", "text": "Hệ thống đang đồng bộ dữ liệu hoặc gặp sự cố kết nối.", "margin": "md", "wrap": true, "size": "sm", "align": "center" }, { "type": "text", "text": "Vui lòng liên hệ trực tiếp quầy để đặt lịch.", "margin": "sm", "wrap": true, "size": "sm", "align": "center", "weight": "bold" } ] } }
        });
   }
 
-  // --- ENTRY: BOOKING ---
   if (text === 'Action:Booking') {
       userState[userId] = {};
       return client.replyMessage(event.replyToken, { type: 'flex', altText: '選擇服務', contents: { "type": "bubble", "body": { "type": "box", "layout": "vertical", "contents": [ { "type": "text", "text": "請選擇服務類別 (Service)", "weight": "bold", "size": "lg", "align": "center", "color": "#1DB446" }, { "type": "separator", "margin": "md" }, { "type": "button", "style": "primary", "color": "#A17DF5", "margin": "md", "action": { "type": "message", "label": "🔥 套餐 (Combo)", "text": "Cat:COMBO" } }, { "type": "button", "style": "secondary", "margin": "sm", "action": { "type": "message", "label": "👣 足底按摩 (Foot)", "text": "Cat:FOOT" } }, { "type": "button", "style": "secondary", "margin": "sm", "action": { "type": "message", "label": "🛏️ 身體指壓 (Body)", "text": "Cat:BODY" } } ] } } });
   }
 
-  // --- ENTRY: MENU ---
   if (text.includes('Menu') || text.includes('價目') || text === '服務價目') {
       if (Object.keys(SERVICES).length === 0) await syncMenuData();
       return client.replyMessage(event.replyToken, { type: 'flex', altText: '服務價目表', contents: createMenuFlexMessage() });
   }
 
-  // --- ADMIN FLOW ---
   if (text === 'Admin') { return client.replyMessage(event.replyToken, { type: 'flex', altText: 'Admin', contents: { "type": "bubble", "body": { "type": "box", "layout": "vertical", "contents": [ { "type": "text", "text": "🛠️ 師傅管理 (Admin)", "weight": "bold", "color": "#E63946", "size": "lg" }, { "type": "separator", "margin": "md" }, { "type": "button", "style": "primary", "color": "#000000", "margin": "md", "action": { "type": "message", "label": "⛔ 全店店休", "text": "Admin:CloseShop" } }, { "type": "separator", "margin": "md" }, { "type": "button", "style": "secondary", "margin": "sm", "action": { "type": "message", "label": "🛌 請假", "text": "Admin:SetOff" } }, { "type": "button", "style": "secondary", "margin": "sm", "action": { "type": "message", "label": "🤒 早退", "text": "Admin:SetLeaveEarly" } }, { "type": "button", "style": "secondary", "margin": "sm", "action": { "type": "message", "label": "🍱 用餐", "text": "Admin:SetBreak" } } ] } } }); }
   if (text === 'Admin:CloseShop') { userState[userId] = { step: 'ADMIN_PICK_CLOSE_DATE' }; return client.replyMessage(event.replyToken, { type: 'template', altText: '選擇日期', template: { type: 'buttons', text: '請選擇店休日期:', actions: [ { type: 'datetimepicker', label: '🗓️ 點擊選擇', data: 'ShopClosePicked', mode: 'date' } ] } }); }
   if (text.startsWith('DatePick:') && userState[userId] && userState[userId].step === 'ADMIN_PICK_CLOSE_DATE') { const pickedDate = text.split(':')[1]; await ghiVaoSheet({ gioDen: '08:00', ngayDen: pickedDate, dichVu: SERVICES['SHOP_CLOSE'].name, nhanVien: 'ALL_STAFF', userId: 'ADMIN', sdt: 'ADMIN', hoTen: '全店店休', trangThai: '⛔ 店休' }); delete userState[userId]; return client.replyMessage(event.replyToken, { type: 'text', text: `✅ 已設定 ${pickedDate} 全店店休。` }); }
@@ -1035,7 +916,6 @@ async function handleEvent(event) {
       SERVER_STAFF_STATUS[staffId] = { status: currentState.action === 'SetOff' ? 'AWAY' : currentState.action === 'SetBreak' ? 'EAT' : 'OUT_SHORT', checkInTime: 0 }; delete userState[userId]; return client.replyMessage(event.replyToken, { type: 'text', text: `✅ 已登記: ${staffId} - ${logType}\n(${logNote})` });
   }
 
-  // --- BOOKING STEPS ---
   if (text.startsWith('Cat:')) {
       const category = text.split(':')[1];
       const buttons = Object.keys(SERVICES).filter(k => SERVICES[k].category === category).map(key => ({ "type": "button", "style": "primary", "margin": "sm", "height": "sm", "action": { "type": "message", "label": `${SERVICES[key].name} ($${SERVICES[key].price})`, "text": `Svc:${key}` } }));
@@ -1120,7 +1000,6 @@ async function handleEvent(event) {
       return client.replyMessage(event.replyToken, { type: 'text', text: "請輸入手機號碼 (Phone):" });
   }
 
-  // --- FINAL CONFIRMATION & BOOKING COMMIT ---
   if (userState[userId] && userState[userId].step === 'PHONE') {
       const sdt = normalizePhoneNumber(text); const s = userState[userId];
       let finalDate = s.date; 
@@ -1130,7 +1009,6 @@ async function handleEvent(event) {
       let basePrice = SERVICES[s.service].price; if (s.isOil) basePrice += 200; const totalPrice = basePrice * s.pax;
       let staffDisplay = '隨機'; if (s.selectedStaff && s.selectedStaff.length > 0) staffDisplay = s.selectedStaff.join(', '); else if (s.pref === 'FEMALE') staffDisplay = '女師傅'; else if (s.pref === 'MALE') staffDisplay = '男師傅'; else if (s.pref === 'OIL') staffDisplay = '女師傅(油)';
 
-      // 1. RE-CHECK AVAILABILITY (RACE CONDITION CHECK)
       const guestList = []; 
       for(let i=0; i<s.pax; i++) { 
           let sId = 'RANDOM'; 
@@ -1141,14 +1019,12 @@ async function handleEvent(event) {
       const relevantBookings = cachedBookings.filter(b => b.date === s.date && !b.status.includes('取消') && !b.status.includes('Cancel'));
       const staffListMap = {}; STAFF_LIST.forEach(staff => { if (!staff.offDays.includes(s.date)) staffListMap[staff.id] = staff; });
 
-      // Gọi Core với logic Smart Load Balancing V99
       const checkResult = ResourceCore.checkRequestAvailability(s.date, s.time, guestList, relevantBookings, staffListMap);
 
       if (!checkResult.feasible) {
           return client.replyMessage(event.replyToken, { type: 'text', text: "😢 Rất tiếc, khung giờ này vừa bị người khác đặt mất. Vui lòng chọn giờ khác." });
       }
 
-      // 2. CONFIRM MESSAGE
       let confirmMsg = `✅ 預約成功 (Confirmed)\n\n` +
                          `👤 ${s.surname} (${sdt})\n` +
                          `📅 ${finalDate} ${s.time}\n` +
@@ -1167,27 +1043,17 @@ async function handleEvent(event) {
       await client.replyMessage(event.replyToken, { type: 'text', text: confirmMsg });
       client.pushMessage(ID_BA_CHU, { type: 'text', text: `💰 New Booking: ${s.surname} - $${totalPrice}` });
       
-      // 3. PREPARE GUEST DETAILS FOR SHEET
       const guestDetails = [];
       for(let i=0; i<s.pax; i++) {
           let sId = '隨機'; if(s.selectedStaff && s.selectedStaff.length > i) sId = s.selectedStaff[i]; else if(s.pref === 'FEMALE') sId = '女'; else if(s.pref === 'MALE') sId = '男';
           guestDetails.push({ service: SERVICES[s.service].name, staff: sId, isOil: s.isOil });
       }
       
-      // 4. WRITE TO SHEET (INCLUDE UPDATES)
       await ghiVaoSheet(
           { 
-              gioDen: s.time, 
-              ngayDen: finalDate, 
-              dichVu: SERVICES[s.service].name, 
-              nhanVien: staffDisplay, 
-              userId: userId, 
-              sdt: sdt, 
-              hoTen: s.surname, 
-              trangThai: '已預約', 
-              pax: s.pax, 
-              isOil: s.isOil, 
-              guestDetails: guestDetails 
+              gioDen: s.time, ngayDen: finalDate, dichVu: SERVICES[s.service].name, 
+              nhanVien: staffDisplay, userId: userId, sdt: sdt, hoTen: s.surname, 
+              trangThai: '已預約', pax: s.pax, isOil: s.isOil, guestDetails: guestDetails 
           }, 
           checkResult.proposedUpdates
       );
@@ -1208,11 +1074,10 @@ async function handleEvent(event) {
 syncMenuData().then(() => syncData());
 
 // 2. Auto Sync Interval (30s)
-// Tăng lên 30s để giảm tải, vì giờ đã có nút Manual Refresh
-setInterval(() => { syncData(); }, 10000); 
+setInterval(() => { syncData(); }, 30000); // 30s as requested
 
 // 3. Health Check
 app.get('/ping', (req, res) => { res.status(200).send('Pong!'); });
 
 const port = process.env.PORT || 3000;
-app.listen(port, () => { console.log(`XinWuChan Bot V102.0 running on port ${port}`); });
+app.listen(port, () => { console.log(`XinWuChan Bot V103.0 running on port ${port}`); });
