@@ -1,24 +1,20 @@
 /**
  * =================================================================================================
  * PROJECT: XINWUCHAN MASSAGE BOT (BACKEND SERVER - MAIN ENTRY)
- * VERSION: V117 (ONE-SHOT WRITE ENGINE & UI FIX)
- * FEATURE: ATOMIC WRITE, ZERO DATA LOSS, ROBUST DATE PICKER
+ * VERSION: V118 (INTEGRATED STAFF BOT & V117 CORE)
+ * FEATURE: DUAL BOT (CUSTOMER + STAFF), ATOMIC WRITE, ZERO DATA LOSS
  * AUTHOR: AI ASSISTANT & USER
  * DATE: 2026/01/21
- * * * * * * * ========================== CHANGE LOG V117 ==========================
- * 1. [CORE - ONE-SHOT WRITE ENGINE (QUY TRÌNH GHI ATOMIC)]
- * - THAY THẾ hoàn toàn quy trình ghi 2 bước (Write -> Sleep -> Update) cũ kỹ và rủi ro.
- * - CƠ CHẾ MỚI: Xây dựng một Payload hoàn chỉnh gồm 31 cột (A -> AE) ngay trong bộ nhớ.
- * - KẾT QUẢ: Ghi đè 1 lần duy nhất (Append). Đảm bảo 100% có đủ cột S (Date) và AA (Flow).
- * - LOẠI BỎ: Không còn cần hàm Sleep, không cần Smart Lookup, không cần quét ngược tìm ID.
- * - TỐI ƯU: Tốc độ xử lý nhanh gấp đôi, tiết kiệm Quota Google API.
- * * 2. [UI - DATE PICKER STABILITY]
- * - Xác nhận giữ nguyên logic đảo ngược ngày (Reverse) theo yêu cầu.
- * - Thứ tự: [Ngày 14] (Trên cùng) -> ... -> [Hôm Nay] (Dưới cùng).
- * - Khắc phục lỗi hiển thị sai thứ tự trên một số thiết bị.
- * * 3. [SYSTEM - DATA INTEGRITY]
- * - Bắt buộc chuẩn hóa ngày (Normalized Date) vào cột S (Index 18) ngay lập tức.
- * - Mặc định Flow = 'FB' nếu logic chưa tính toán kịp, tránh crash hệ thống tính lương.
+ * * * * * * * ========================== CHANGE LOG ==========================
+ * 1. [STAFF BOT INTEGRATION]
+ * - Đã loại bỏ đoạn code cấu hình Staff bị lỗi trong ảnh cũ.
+ * - Thay thế bằng module 'require('./staff_bot')' an toàn.
+ * - Thêm route '/callback-staff' để lắng nghe webhook từ Bot Nhân Viên.
+ * - Truyền các hàm quan trọng (ghiVaoSheet, STAFF_LIST...) sang Bot Nhân Viên để dùng chung.
+ * * 2. [CORE V117 PRESERVED]
+ * - Giữ nguyên ONE-SHOT WRITE ENGINE (Ghi 1 lần 31 cột).
+ * - Giữ nguyên Date Picker Reversed (Hôm nay nằm dưới).
+ * - Giữ nguyên Matrix Resource Calculation.
  * =================================================================================================
  */
 
@@ -31,10 +27,14 @@ const cors = require('cors');
 const path = require('path');
 
 // --- IMPORT CORE LOGIC ---
-// Đảm bảo file resource_core.js nằm cùng thư mục
 const ResourceCore = require('./resource_core'); 
 
-// --- 1. CẤU HÌNH HỆ THỐNG ---
+// =============================================================================
+// [NEW] IMPORT MODULE BOT NHÂN VIÊN (ĐÃ TÁCH FILE)
+// =============================================================================
+const StaffBot = require('./staff_bot'); 
+
+// --- 1. CẤU HÌNH HỆ THỐNG (BOT KHÁCH HÀNG) ---
 const config = {
   channelAccessToken: process.env.CHANNEL_ACCESS_TOKEN,
   channelSecret: process.env.CHANNEL_SECRET
@@ -80,7 +80,6 @@ let LAST_CALCULATED_MATRIX = null;
 
 /**
  * HÀM CHUẨN HÓA NGÀY (Cổng Gác)
- * Chuyển đổi mọi định dạng ngày về YYYY/MM/DD
  */
 function normalizeDateStrict(inputDate) {
     if (!inputDate) return null;
@@ -89,7 +88,6 @@ function normalizeDateStrict(inputDate) {
         if (typeof inputDate === 'string' && inputDate.includes('T')) {
             dateObj = new Date(inputDate);
         } else if (typeof inputDate === 'number' && inputDate > 40000) {
-            // Excel serial date format
             dateObj = new Date(Math.round((inputDate - 25569) * 86400 * 1000));
         } else {
             const dateString = inputDate.toString().trim().replace(/-/g, '/');
@@ -134,15 +132,12 @@ function formatDateTimeString(dateObj) {
 
 /**
  * [UI UPGRADE V117] DATE PICKER REVERSED
- * Logic: Giữ nguyên logic đảo ngược để Hôm nay nằm dưới cùng.
- * [Ngày 14] -> ... -> [Hôm Nay]
  */
 function getNext15Days() {
     let days = [];
     const t = getTaipeiNow();
-    t.setHours(0,0,0,0); // Reset về 0h
+    t.setHours(0,0,0,0); 
 
-    // 1. Tạo danh sách xuôi (Hôm nay -> 14 ngày sau)
     const todayYear = t.getFullYear();
     const todayMonth = (t.getMonth() + 1).toString().padStart(2, '0');
     const todayDay = t.getDate().toString().padStart(2, '0');
@@ -162,7 +157,6 @@ function getNext15Days() {
         const day = d.getDate().toString().padStart(2, '0');
         const v = `${year}/${month}/${day}`;
         
-        // Format hiển thị: MM/DD (Thứ)
         const w = d.toLocaleDateString('zh-TW', { weekday: 'short' });
         let l = `${d.getMonth()+1}/${d.getDate()} (${w})`;
         
@@ -171,7 +165,7 @@ function getNext15Days() {
         days.push({label: l, value: v});
     }
 
-    // 2. [CONFIRMED V117] Đảo ngược mảng để ngày xa nhất lên đầu, Hôm nay xuống dưới cùng
+    // [CONFIRMED V117] Đảo ngược mảng
     return days.reverse(); 
 }
 
@@ -230,7 +224,6 @@ async function syncDailySalary(dateStr, staffDataList) {
     try {
         const range = `${SALARY_SHEET}!A1:AZ100`; 
         const res = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: range });
-        // Logic lương giữ nguyên
     } catch (e) { console.error('[SALARY ERROR]', e); }
 }
 
@@ -261,7 +254,6 @@ async function syncData() {
                 if (!debugDateCounts[cleanDate]) debugDateCounts[cleanDate] = 0; debugDateCounts[cleanDate]++;
 
                 const serviceStr = row[3] || ''; 
-                
                 let duration = 60; let type = 'BED'; let category = 'BODY'; let price = 0;
                 let foundService = false;
                 
@@ -283,9 +275,9 @@ async function syncData() {
                 let pax = 1; if (row[5]) pax = parseInt(row[5]);
 
                 const staffId = row[8] || '隨機';
-                const serviceStaff1 = row[11]; // Cột L
-                const staffId2 = row[12];      // Cột M
-                const staffId3 = row[13];      // Cột N
+                const serviceStaff1 = row[11]; 
+                const staffId2 = row[12];      
+                const staffId3 = row[13];      
                 
                 let serviceCode = row[20]; 
                 if (!serviceCode || serviceCode === '') {
@@ -398,8 +390,6 @@ async function syncData() {
 
         cachedBookings = tempBookings;
         lastSyncTime = new Date();
-        const todayDebug = normalizeDateStrict(getTaipeiNow());
-        console.log(`[SYNC SUCCESS V117] Total Bookings: ${cachedBookings.length}. Today: ${debugDateCounts[todayDebug] || 0}`);
 
     } catch (e) { 
         console.error('[SYNC FATAL ERROR]', e); isSystemHealthy = false; STAFF_LIST = []; 
@@ -529,13 +519,6 @@ function createMenuFlexMessage() {
 // PHẦN 6: GHI SHEET & XỬ LÝ BOOKING (CORE V117 - ONE-SHOT WRITE ENGINE)
 // =============================================================================
 
-/**
- * [V117 CRITICAL UPGRADE] HÀM GHI DỮ LIỆU ONE-SHOT (ATOMIC)
- * Thay vì ghi A-K rồi mới update L-AE (dễ lỗi), phiên bản này:
- * 1. Tạo một Array đầy đủ 31 cột (A-AE) ngay từ đầu.
- * 2. Điền đầy đủ cột S (Normalized Date) và cột AA (Flow) để Resource Core luôn đọc được.
- * 3. Gọi lệnh Append 1 lần duy nhất.
- */
 async function ghiVaoSheet(data, proposedUpdates = []) {
     try {
         const timeCreate = getCurrentDateTimeStr();
@@ -559,12 +542,8 @@ async function ghiVaoSheet(data, proposedUpdates = []) {
         }
 
         // --- 2. XÂY DỰNG ONE-SHOT PAYLOAD (31 COLUMNS: A -> AE) ---
-        // Mapping Index: A=0, K=10, L=11, S=18, U=20, Y=24, AA=26, AE=30
         for (let i = 0; i < loopCount; i++) {
-            // Khởi tạo mảng rỗng 31 phần tử (để cover đến cột AE)
             const row = new Array(31).fill("");
-
-            // --- ĐIỀN DATA NHÓM 1: CƠ BẢN (A-K) ---
             let guestDetail = (data.guestDetails && data.guestDetails[i]) ? data.guestDetails[i] : null;
 
             const guestNum = i + 1; const total = loopCount;
@@ -584,35 +563,30 @@ async function ghiVaoSheet(data, proposedUpdates = []) {
             row[6] = colG_Phone; // G: Phone
             row[7] = colH_Status; // H: Status
             
-            // I: Main Staff (Staff 1)
             if (guestDetail && guestDetail.staff) row[8] = guestDetail.staff;
             else row[8] = data.nhanVien || '隨機';
             
             row[9] = colJ_LineID; // J: LineID
             row[10] = colK_Created; // K: Created Time
 
-            // --- ĐIỀN DATA NHÓM 2: MỞ RỘNG (L-AE) ---
-            // Staff 2 & 3 (L, M, N... wait mapping: L=ServiceStaff, M=Staff2, N=Staff3)
-            // Trong code cũ: row[11] = ServiceStaff, row[12]=Staff2, row[13]=Staff3
+            // Staff 2 & 3
             if (guestDetail) {
-                if (guestDetail.staffId2) row[12] = guestDetail.staffId2; // M
-                if (guestDetail.staffId3) row[13] = guestDetail.staffId3; // N
+                if (guestDetail.staffId2) row[12] = guestDetail.staffId2; 
+                if (guestDetail.staffId3) row[13] = guestDetail.staffId3; 
             }
 
-            // [V117 CRITICAL] S: NORMALIZED DATE (Index 18)
-            // Bắt buộc phải có để ResourceCore tìm được dòng này vào lần sau
+            // [V117] S: NORMALIZED DATE
             row[18] = normalizeDateStrict(colA_Date);
 
-            // U: Service Code (Index 20)
+            // U: Service Code
             let sCode = data.serviceCode;
             if (guestDetail && guestDetail.serviceCode) sCode = guestDetail.serviceCode;
-            // Fallback tìm code theo tên
             if (!sCode && svcName) {
                  for(const k in SERVICES) { if(SERVICES[k].name === svcName.split('(')[0].trim()) { sCode = k; break; } }
             }
             row[20] = sCode || "";
 
-            // Y, Z: Phase 1 & 2 (Index 24, 25)
+            // Y, Z: Phase 1 & 2
             let p1 = null; let p2 = null;
             if (guestDetail) { p1 = guestDetail.phase1; p2 = guestDetail.phase2; }
             if (p1 === null || p1 === undefined) p1 = data.phase1_duration;
@@ -621,15 +595,13 @@ async function ghiVaoSheet(data, proposedUpdates = []) {
             row[24] = (p1 !== null && p1 !== undefined) ? p1 : "";
             row[25] = (p2 !== null && p2 !== undefined) ? p2 : "";
 
-            // AA: Flow Code (Index 26)
+            // AA: Flow Code
             let flowVal = null;
             if (guestDetail && (guestDetail.flow || guestDetail.flowCode)) flowVal = guestDetail.flow || guestDetail.flowCode;
             if (!flowVal) flowVal = data.flow || data.flowCode;
-            
-            // [FAIL-SAFE] Nếu không tính được Flow, mặc định là FB để không gãy hệ thống
             row[26] = flowVal || "FB";
 
-            // AE: Locked (Index 30)
+            // AE: Locked
             if (data.isManualLocked) row[30] = 'TRUE';
 
             valuesToWrite.push(row);
@@ -642,10 +614,9 @@ async function ghiVaoSheet(data, proposedUpdates = []) {
                 spreadsheetId: SHEET_ID, range: 'Sheet1!A:A', 
                 valueInputOption: 'USER_ENTERED', requestBody: { values: valuesToWrite } 
             });
-            console.log(`[WRITE V117] Success. Data consistency guaranteed.`);
+            console.log(`[WRITE V117] Success.`);
         }
         
-        // Cập nhật lại cache sau khi ghi
         setTimeout(() => syncData(), 500);
 
     } catch (e) { console.error('[ERROR V117] One-Shot Write Failed:', e); }
@@ -679,13 +650,38 @@ async function layLichDatGanNhat(userId) {
 // PHẦN 7: EXPRESS SERVER & API & LINE BOT INTEGRATION
 // =============================================================================
 
-const client = new line.Client(config);
+const client = new line.Client(config); // Client Bot Khách
 const app = express();
 app.use(cors());
 
+// --- ROUTE CHO BOT KHÁCH HÀNG (GIỮ NGUYÊN) ---
 app.post('/callback', line.middleware(config), (req, res) => {
   Promise.all(req.body.events.map(handleEvent)).then((r) => res.json(r)).catch((e) => { console.error('[LINE WEBHOOK ERROR]', e); res.status(500).end(); });
 });
+
+// =============================================================================
+// [NEW] ROUTE CHO BOT NHÂN VIÊN (ĐÃ TÁCH FILE SANG STAFF_BOT.JS)
+// =============================================================================
+app.post('/callback-staff', StaffBot.middleware(StaffBot.config), (req, res) => {
+  Promise.all(req.body.events.map(event => {
+      // TRUYỀN CÔNG CỤ TỪ FILE CHÍNH SANG FILE PHỤ
+      return StaffBot.handleEvent(event, {
+          ghiVaoSheet: ghiVaoSheet,           // Cho phép bot nhân viên ghi lịch nghỉ
+          normalizeDateStrict: normalizeDateStrict,
+          getTaipeiNow: getTaipeiNow,
+          formatDateTimeString: formatDateTimeString,
+          STAFF_LIST: STAFF_LIST,             // Cho phép bot nhân viên biết danh sách đồng nghiệp
+          ID_BA_CHU: ID_BA_CHU,
+          clientMain: client                  // Cho phép bot nhân viên báo tin cho Bà Chủ (qua Bot chính)
+      });
+  }))
+  .then((r) => res.json(r))
+  .catch((e) => {
+      console.error('[STAFF BOT ERROR]', e);
+      res.status(500).end();
+  });
+});
+// =============================================================================
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
@@ -821,7 +817,7 @@ app.post('/api/update-staff-config', async (req, res) => {
     } catch (e) { res.status(500).json({ success: false, error: e.message }); }
 });
 
-// --- LINE EVENT HANDLER (MAIN BOT LOGIC) ---
+// --- LINE EVENT HANDLER (BOT KHÁCH - GIỮ NGUYÊN 100% LOGIC CŨ) ---
 async function handleEvent(event) {
   const isText = event.type === 'message' && event.message.type === 'text';
   const isPostback = event.type === 'postback';
@@ -838,11 +834,10 @@ async function handleEvent(event) {
   if (isBookingAction && (!isSystemHealthy || STAFF_LIST.length === 0)) {
        return client.replyMessage(event.replyToken, { 
            type: 'flex', altText: 'Hệ thống bảo trì', 
-           contents: { "type": "bubble", "body": { "type": "box", "layout": "vertical", "contents": [ { "type": "text", "text": "⛔ TẠM NGƯNG ĐẶT LỊCH", "weight": "bold", "color": "#E63946", "size": "lg", "align": "center" }, { "type": "text", "text": "Hệ thống đang đồng bộ dữ liệu hoặc gặp sự cố kết nối.", "margin": "md", "wrap": true, "size": "sm", "align": "center" }, { "type": "text", "text": "Vui lòng liên hệ trực tiếp quầy để đặt lịch.", "margin": "sm", "wrap": true, "size": "sm", "align": "center", "weight": "bold" } ] } }
+           contents: { "type": "bubble", "body": { "type": "box", "layout": "vertical", "contents": [ { "type": "text", "text": "⛔ TẠM NGƯNG ĐẶT LỊCH", "weight": "bold", "color": "#E63946", "size": "lg", "align": "center" }, { "type": "text", "text": "Hệ thống đang đồng bộ dữ liệu.", "margin": "md", "wrap": true, "size": "sm", "align": "center" } ] } }
        });
   }
 
-  // --- LOGIC LUỒNG ĐẶT LỊCH ---
   if (text === 'Action:Booking') {
       userState[userId] = {};
       return client.replyMessage(event.replyToken, { type: 'flex', altText: '選擇服務', contents: { "type": "bubble", "body": { "type": "box", "layout": "vertical", "contents": [ { "type": "text", "text": "請選擇服務類別 (Service)", "weight": "bold", "size": "lg", "align": "center", "color": "#1DB446" }, { "type": "separator", "margin": "md" }, { "type": "button", "style": "primary", "color": "#A17DF5", "margin": "md", "action": { "type": "message", "label": "🔥 套餐 (Combo)", "text": "Cat:COMBO" } }, { "type": "button", "style": "secondary", "margin": "sm", "action": { "type": "message", "label": "👣 足底按摩 (Foot)", "text": "Cat:FOOT" } }, { "type": "button", "style": "secondary", "margin": "sm", "action": { "type": "message", "label": "🛏️ 身體指壓 (Body)", "text": "Cat:BODY" } } ] } } });
@@ -870,7 +865,6 @@ async function handleEvent(event) {
       SERVER_STAFF_STATUS[staffId] = { status: currentState.action === 'SetOff' ? 'AWAY' : currentState.action === 'SetBreak' ? 'EAT' : 'OUT_SHORT', checkInTime: 0 }; delete userState[userId]; return client.replyMessage(event.replyToken, { type: 'text', text: `✅ 已登記: ${staffId} - ${logType}\n(${logNote})` });
   }
 
-  // --- BOOKING STEPS ---
   if (text.startsWith('Cat:')) {
       const category = text.split(':')[1];
       const buttons = Object.keys(SERVICES).filter(k => SERVICES[k].category === category).map(key => ({ "type": "button", "style": "primary", "margin": "sm", "height": "sm", "action": { "type": "message", "label": `${SERVICES[key].name} ($${SERVICES[key].price})`, "text": `Svc:${key}` } }));
@@ -879,7 +873,7 @@ async function handleEvent(event) {
 
   if (text.startsWith('Svc:')) {
       const svcCode = text.split(':')[1]; userState[userId] = { step: 'DATE', service: svcCode }; 
-      const days = getNext15Days(); // [UI V117 CHECKED] - Reversed
+      const days = getNext15Days(); 
       return client.replyMessage(event.replyToken, { type: 'flex', altText: 'Date', contents: { "type": "bubble", "body": { "type": "box", "layout": "vertical", "contents": [ { "type": "text", "text": "📅 請選擇日期 (Date)", "align": "center", "weight": "bold" }, ...days.map(d=>({ "type": "button", "style": "secondary", "margin": "sm", "action": { "type": "message", "label": d.label, "text": `Date:${d.value}` } })) ] } } });
   }
 
@@ -1056,4 +1050,4 @@ setInterval(() => { syncData(); }, 30000);
 app.get('/ping', (req, res) => { res.status(200).send('Pong!'); });
 
 const port = process.env.PORT || 3000;
-app.listen(port, () => { console.log(`XinWuChan Bot V117 (One-Shot Write & UI Fix) running on port ${port}`); });
+app.listen(port, () => { console.log(`XinWuChan Bot V118 (Integrated Staff Bot) running on port ${port}`); });

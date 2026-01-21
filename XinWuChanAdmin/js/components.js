@@ -689,31 +689,8 @@ window.SplitStaffModal = SplitStaffModal;
 
 /**
  * ============================================================================
- * 7. WALK-IN MODAL (現場客)
- * ============================================================================
- */
-const WalkInModal = ({ onClose, onSave, staffList, initialDate }) => {
-    const [form, setForm] = useState({ hoTen: '現場客', dichVu: '👣 足底按摩 (40分)', pax: 1, nhanVien: '隨機', isOil: false });
-    return (
-        <div className="fixed inset-0 bg-black/60 z-[90] flex items-center justify-center p-4">
-            <div className="bg-white w-full max-w-sm rounded-xl shadow-2xl modal-animate p-5">
-                <h3 className="text-xl font-black text-slate-800 mb-4 flex items-center gap-2"><i className="fas fa-bolt text-amber-500"></i> 現場客 (Walk-in)</h3>
-                <div className="space-y-3">
-                    <div><label className="text-xs font-bold text-gray-500">顧客姓名</label><input className="w-full p-2 border rounded font-bold" value={form.hoTen} onChange={e=>setForm({...form, hoTen: e.target.value})} /></div>
-                    <div><label className="text-xs font-bold text-gray-500">服務項目</label><select className="w-full p-2 border rounded font-bold" value={form.dichVu} onChange={e=>setForm({...form, dichVu: e.target.value})}>{(window.SERVICES_LIST||[]).map(s=><option key={s} value={s}>{s}</option>)}</select></div>
-                    <div className="flex gap-3"><div className="flex-1"><label className="text-xs font-bold text-gray-500">人數</label><select className="w-full p-2 border rounded font-bold" value={form.pax} onChange={e=>setForm({...form, pax: parseInt(e.target.value)})}>{[1,2,3,4,5,6].map(n=><option key={n} value={n}>{n} 位</option>)}</select></div><div className="flex-1"><label className="text-xs font-bold text-gray-500">精油</label><button onClick={()=>setForm({...form, isOil: !form.isOil})} className={`w-full p-2 border rounded font-bold flex items-center justify-center gap-2 ${form.isOil ? 'bg-purple-100 border-purple-500 text-purple-700' : 'bg-gray-50'}`}>{form.isOil ? '是' : '否'}</button></div></div>
-                    <div><label className="text-xs font-bold text-gray-500">指定技師</label><select className="w-full p-2 border rounded font-bold" value={form.nhanVien} onChange={e=>setForm({...form, nhanVien: e.target.value})}><option value="隨機">-- 隨機 --</option>{(staffList||[]).map(s=><option key={s.id} value={s.id}>{s.id} - {s.name}</option>)}</select></div>
-                </div>
-                <div className="mt-6 grid grid-cols-2 gap-3"><button onClick={onClose} className="p-3 bg-gray-100 text-gray-500 font-bold rounded-lg hover:bg-gray-200">取消</button><button onClick={()=>onSave({ ...form, ngayDen: initialDate.replace(/-/g, '/'), gioDen: new Date().toLocaleTimeString('en-US',{hour12:false, hour:'2-digit', minute:'2-digit'}) })} className="p-3 bg-indigo-600 text-white font-bold rounded-lg hover:bg-indigo-700 shadow-lg">確認</button></div>
-            </div>
-        </div>
-    );
-};
-window.WalkInModal = WalkInModal;
-
-/**
- * ============================================================================
- * 8. COMBO START MODAL (套餐順序)
+ 
+ * 7. COMBO START MODAL (套餐順序)
  * ============================================================================
  */
 const ComboStartModal = ({ onConfirm, onCancel, bookingName }) => {
@@ -735,7 +712,7 @@ window.ComboStartModal = ComboStartModal;
 
 /**
  * ============================================================================
- * 9. COMBO TIME EDIT MODAL
+ * 8. COMBO TIME EDIT MODAL
  * ============================================================================
  * Description: Cho phép điều chỉnh thời gian Phase 1, tự động tính Phase 2.
  */
