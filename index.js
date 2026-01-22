@@ -1075,8 +1075,8 @@ async function handleEvent(event) {
 // 1. Initial Sync
 syncMenuData().then(() => syncData());
 
-// 2. Auto Sync Interval (30s)
-setInterval(() => { syncData(); }, 30000); 
+// 2. Auto Sync Interval (10s)
+setInterval(() => { syncData(); }, 10000); 
 
 // 3. Health Check
 app.get('/ping', (req, res) => { res.status(200).send('Pong!'); });
