@@ -1,19 +1,21 @@
 /**
  * =================================================================================================
  * PROJECT: XINWUCHAN MASSAGE BOT (BACKEND SERVER - MAIN ENTRY)
- * VERSION: V118 (INTEGRATED STAFF BOT & V117 CORE)
+ * VERSION: V118-FIX (ABSOLUTE TIMESTAMPS)
  * FEATURE: DUAL BOT (CUSTOMER + STAFF), ATOMIC WRITE, ZERO DATA LOSS
  * AUTHOR: AI ASSISTANT & USER
  * DATE: 2026/01/21
  * * * * * * * ========================== CHANGE LOG ==========================
- * 1. [STAFF BOT INTEGRATION]
- * - Đã loại bỏ đoạn code cấu hình Staff bị lỗi trong ảnh cũ.
- * - Thay thế bằng module 'require('./staff_bot')' an toàn.
- * - Thêm route '/callback-staff' để lắng nghe webhook từ Bot Nhân Viên.
- * - Truyền các hàm quan trọng (ghiVaoSheet, STAFF_LIST...) sang Bot Nhân Viên để dùng chung.
- * * 2. [CORE V117 PRESERVED]
- * - Giữ nguyên ONE-SHOT WRITE ENGINE (Ghi 1 lần 31 cột).
- * - Giữ nguyên Date Picker Reversed (Hôm nay nằm dưới).
+ * 1. [CRITICAL FIX - TIME GENERATION]
+ * - Thay thế logic kiểm tra ngày (isToday) bằng so sánh Mốc Thời Gian Tuyệt Đối (Absolute Timestamp).
+ * - Sửa lỗi bot hiển thị giờ quá khứ (ví dụ: đang 23:45 vẫn hiện 16:00).
+ * - Logic mới: Tạo đối tượng Date cho từng slot giờ -> So sánh với getTaipeiNow().
+ * * 2. [STAFF BOT INTEGRATION]
+ * - Giữ nguyên module 'require('./staff_bot')'.
+ * - Giữ nguyên route '/callback-staff'.
+ * * 3. [CORE V117 PRESERVED]
+ * - Giữ nguyên ONE-SHOT WRITE ENGINE.
+ * - Giữ nguyên Date Picker Reversed.
  * - Giữ nguyên Matrix Resource Calculation.
  * =================================================================================================
  */
@@ -109,6 +111,7 @@ function normalizeDateStrict(inputDate) {
 }
 
 function getTaipeiNow() {
+    // Trả về đối tượng Date đã được shift sang múi giờ Taipei (để so sánh giờ/phút cục bộ)
     return ResourceCore.getTaipeiNow ? ResourceCore.getTaipeiNow() : new Date(new Date().toLocaleString("en-US", {timeZone: "Asia/Taipei"}));
 }
 
@@ -399,17 +402,24 @@ async function syncData() {
 }
 
 // =============================================================================
-// PHẦN 5: LOGIC LINE BOT BOOKING HELPERS
+// PHẦN 5: LOGIC LINE BOT BOOKING HELPERS (UPDATED ABSOLUTE TIME LOGIC)
 // =============================================================================
 
 function findBestSlots(selectedDate, serviceCode, pax = 1, requireFemale = false, requireMale = false) {
     if (!isSystemHealthy || STAFF_LIST.length === 0) return [];
     
+    // [FIX-V118] CHUẨN BỊ LOGIC THỜI GIAN TUYỆT ĐỐI
     const cleanSelectedDate = normalizeDateStrict(selectedDate);
+    if (!cleanSelectedDate) return [];
+
     const nowTaipei = getTaipeiNow();
-    const todayStr = normalizeDateStrict(nowTaipei);
-    const isToday = (cleanSelectedDate === todayStr);
-    const currentFloatTime = nowTaipei.getHours() + (nowTaipei.getMinutes() / 60);
+    
+    // Parse ngày khách chọn ra thành các thành phần số (YYYY, MM, DD)
+    // cleanSelectedDate format là "YYYY/MM/DD"
+    const dateParts = cleanSelectedDate.split('/');
+    const sYear = parseInt(dateParts[0]);
+    const sMonth = parseInt(dateParts[1]);
+    const sDay = parseInt(dateParts[2]);
 
     const staffListMap = {};
     STAFF_LIST.forEach(s => {
@@ -426,7 +436,16 @@ function findBestSlots(selectedDate, serviceCode, pax = 1, requireFemale = false
     
     let candidates = [];
     for (let h = 8; h <= 24; h += 1) { 
-        if (isToday && h < currentFloatTime) continue; 
+        // [FIX-V118] TẠO TIMESTAMP CHO SLOT ĐANG XÉT
+        // Lưu ý: new Date(year, monthIndex, day, hour...) trong đó monthIndex = month - 1
+        const slotTime = new Date(sYear, sMonth - 1, sDay, h, 0, 0);
+        
+        // Nếu h=24, JS tự động hiểu là 00:00 ngày hôm sau -> Timestamp vẫn đúng.
+        // So sánh với thời gian hiện tại của Taipei
+        if (slotTime.getTime() <= nowTaipei.getTime()) {
+            continue; // Nếu slot này đã qua (nhỏ hơn hoặc bằng hiện tại), bỏ qua.
+        }
+
         const hourInt = Math.floor(h); const displayH = hourInt >= 24 ? hourInt - 24 : hourInt; 
         const timeStr = `${displayH.toString().padStart(2, '0')}:00`;
         const result = ResourceCore.checkRequestAvailability(cleanSelectedDate, timeStr, guestList, relevantBookings, staffListMap);
@@ -439,10 +458,14 @@ function findBestSlots(selectedDate, serviceCode, pax = 1, requireFemale = false
 function generateTimeBubbles(selectedDate, serviceCode, specificStaffIds = null, pax = 1, requireFemale = false, requireMale = false) {
     if (!isSystemHealthy || STAFF_LIST.length === 0) return null;
     const cleanSelectedDate = normalizeDateStrict(selectedDate);
+    if (!cleanSelectedDate) return null;
+
+    // [FIX-V118] CHUẨN BỊ LOGIC THỜI GIAN TUYỆT ĐỐI
     const nowTaipei = getTaipeiNow();
-    const todayStr = normalizeDateStrict(nowTaipei);
-    const isToday = (cleanSelectedDate === todayStr);
-    const currentFloatTime = nowTaipei.getHours() + (nowTaipei.getMinutes() / 60);
+    const dateParts = cleanSelectedDate.split('/');
+    const sYear = parseInt(dateParts[0]);
+    const sMonth = parseInt(dateParts[1]);
+    const sDay = parseInt(dateParts[2]);
 
     let validSlots = [];
     const staffListMap = {};
@@ -464,7 +487,16 @@ function generateTimeBubbles(selectedDate, serviceCode, specificStaffIds = null,
     }
     
     for (let h = 8; h <= 24; h += 1) { 
-        if (isToday && h < currentFloatTime) continue; 
+        // [FIX-V118] TẠO TIMESTAMP CHO SLOT ĐANG XÉT VÀ SO SÁNH TUYỆT ĐỐI
+        const slotTime = new Date(sYear, sMonth - 1, sDay, h, 0, 0);
+        
+        // Nếu slotTime <= nowTaipei nghĩa là giờ này đã qua. 
+        // Ví dụ: now là 23:45, slotTime 16:00 cùng ngày -> 16 < 23.45 -> Bỏ qua.
+        // Ví dụ: now là 23:45, slotTime 24:00 (0h sáng mai) -> 24 > 23.45 -> Giữ lại.
+        if (slotTime.getTime() <= nowTaipei.getTime()) {
+            continue; 
+        }
+
         const hourInt = Math.floor(h); const displayH = hourInt >= 24 ? hourInt - 24 : hourInt;
         const timeStr = `${displayH.toString().padStart(2, '0')}:00`;
         const result = ResourceCore.checkRequestAvailability(cleanSelectedDate, timeStr, guestList, relevantBookings, staffListMap);
@@ -1050,4 +1082,4 @@ setInterval(() => { syncData(); }, 30000);
 app.get('/ping', (req, res) => { res.status(200).send('Pong!'); });
 
 const port = process.env.PORT || 3000;
-app.listen(port, () => { console.log(`XinWuChan Bot V118 (Integrated Staff Bot) running on port ${port}`); });
+app.listen(port, () => { console.log(`XinWuChan Bot V118-FIX running on port ${port}`); });
