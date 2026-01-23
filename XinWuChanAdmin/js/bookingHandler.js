@@ -2,26 +2,31 @@
  * =================================================================================================
  * PROJECT: XINWUCHAN MASSAGE BOT - FRONTEND CONTROLLER & LOGIC BRIDGE
  * FILE: js/bookingHandler.js
- * PHIÊN BẢN: V112.2 (REMOVED WALK-IN FEATURE)
- * NGÀY CẬP NHẬT: 2026/01/21
+ * PHIÊN BẢN: V112.4 (EXPLICIT FLOW UPGRADE)
+ * NGÀY CẬP NHẬT: 2026/01/22
  * TÁC GIẢ: AI ASSISTANT & USER
  *
- * * * * * CHANGE LOG V112.2 * * * * *
- * 1. [FEATURE REMOVAL] REMOVED WALK-IN MODAL:
- * - Theo yêu cầu, đã loại bỏ hoàn toàn nút "Khách vãng lai" (現場客).
- * - Component NewWalkInModal đã bị xóa.
- * * 2. [CORE] LOGIC PRESERVATION:
- * - Giữ nguyên Core Kernel (tính toán tài nguyên, giường/ghế).
- * - Giữ nguyên NewAvailabilityCheckModal (Đặt lịch qua điện thoại).
+ * * * * * CHANGE LOG V112.4 * * * * *
+ * 1. [CORE UPGRADE] EXPLICIT FLOW SPLIT (FOOTSINGLE / BODYSINGLE):
+ * - Hệ thống không còn dùng mã chung 'SINGLE' cho các booking mới.
+ * - Thay vào đó: Dịch vụ chân/ghế dùng 'FOOTSINGLE', dịch vụ body/giường dùng 'BODYSINGLE'.
+ * - Hàm inferResourceAtTime được nâng cấp để nhận diện 2 mã này và cấp tài nguyên tuyệt đối chính xác
+ * mà không cần đoán qua tên dịch vụ.
+ * * 2. [BACKWARD COMPATIBILITY] TƯƠNG THÍCH NGƯỢC:
+ * - Vẫn hỗ trợ mã 'SINGLE' cũ: Nếu gặp 'SINGLE', hệ thống sẽ fallback về logic đoán tên (detectResourceType)
+ * để đảm bảo dữ liệu lịch sử không bị lỗi.
+ * * 3. [DATA INTEGRITY] SAVE LOGIC UPDATE:
+ * - Hàm handleFinalSave được cập nhật để tự động chuyển đổi 'SINGLE' -> 'FOOTSINGLE'/'BODYSINGLE'
+ * dựa trên Service Type trước khi lưu xuống Google Sheet.
  * =================================================================================================
  */
 
 (function() {
-    console.log("🚀 BookingHandler V112.2: Walk-in Removed. Core Logic Active.");
+    console.log("🚀 BookingHandler V112.4: Explicit Flow Logic (Foot/Body) Active.");
 
     // Kiểm tra môi trường React
     if (typeof React === 'undefined') {
-        console.error("❌ CRITICAL ERROR: React not found. Cannot start BookingHandler V112.2.");
+        console.error("❌ CRITICAL ERROR: React not found. Cannot start BookingHandler V112.4.");
         return;
     }
 
@@ -175,8 +180,22 @@
             return true; 
         }
 
-        // --- 4. BỘ NHẬN DIỆN (SMART CLASSIFIER) ---
-        function isComboService(serviceObj, serviceNameRaw = '') {
+        // --- 4. BỘ NHẬN DIỆN (SMART CLASSIFIER V112.4 UPGRADE) ---
+        /**
+         * Hàm xác định dịch vụ có phải là Combo hay không.
+         * NÂNG CẤP: Chấp nhận explicitFlow mới.
+         */
+        function isComboService(serviceObj, serviceNameRaw = '', explicitFlow = null) {
+            // [V112.4] EXPLICIT FLOW CHECK
+            if (explicitFlow) {
+                const flowUpper = explicitFlow.toString().toUpperCase().trim();
+                // Các mã Single mới -> Tuyệt đối không phải Combo
+                if (['SINGLE', 'FOOTSINGLE', 'BODYSINGLE'].includes(flowUpper)) return false;
+                // Nếu đã đánh dấu là BF hoặc FB -> Chắc chắn là Combo
+                if (flowUpper === 'BF' || flowUpper === 'FB') return true;
+            }
+
+            // Fallback: Nếu không có explicitFlow, dùng logic đoán như cũ
             if (!serviceObj && !serviceNameRaw) return false;
             const cat = (serviceObj && serviceObj.category ? serviceObj.category : '').toString().toUpperCase().trim();
             if (cat === 'COMBO' || cat === 'MIXED') return true;
@@ -196,16 +215,22 @@
             return false;
         }
 
+        // [LEGACY SUPPORT] Hàm đoán tài nguyên dựa vào tên (chỉ dùng khi flow='SINGLE')
         function detectResourceType(serviceObj) {
             if (!serviceObj) return 'CHAIR';
             if (serviceObj.type === 'BED' || serviceObj.type === 'CHAIR') return serviceObj.type;
             const name = (serviceObj.name || '').toUpperCase();
+            // Đoán tên nếu không có type rõ ràng
             if (name.match(/BODY|指壓|油|BED|TOAN THAN|全身|油壓|SPA|BACK/)) return 'BED';
             return 'CHAIR'; 
         }
 
-        // --- 5. GLOBAL CAPACITY & STRICT RESOURCE CHECK (GUARDRAIL) ---
+        // --- 5. GLOBAL CAPACITY & STRICT RESOURCE CHECK (GUARDRAIL V112.4) ---
         
+        /**
+         * Hàm suy luận loại tài nguyên tại phút thứ t.
+         * NÂNG CẤP V112.4: Nhận diện FOOTSINGLE / BODYSINGLE.
+         */
         function inferResourceAtTime(booking, timeMins) {
             const bStart = getMinsFromTimeStr(booking.startTime);
             const duration = parseInt(booking.duration) || 60;
@@ -213,18 +238,40 @@
 
             if (timeMins < bStart || timeMins >= bEnd) return null; 
 
+            // Lấy thông tin dịch vụ
             const svcInfo = SERVICES[booking.serviceCode] || { name: booking.serviceName };
-            const isCombo = isComboService(svcInfo, booking.serviceName);
+            const storedFlow = booking.originalData?.flowCode || booking.flow;
+
+            // [V112.4] PRIORITY 1: EXPLICIT SINGLE FLOWS (ĐỘ CHÍNH XÁC CAO NHẤT)
+            // Nếu flowCode nói rõ là FOOTSINGLE -> Cấp CHAIR
+            if (storedFlow === 'FOOTSINGLE') {
+                return 'CHAIR';
+            }
+            // Nếu flowCode nói rõ là BODYSINGLE -> Cấp BED
+            if (storedFlow === 'BODYSINGLE') {
+                return 'BED';
+            }
+
+            // [V112.3] PRIORITY 2: LEGACY SINGLE FLOW (Backward Compatibility)
+            // Nếu flowCode là SINGLE cũ -> Phải đoán qua tên (detectResourceType)
+            if (storedFlow === 'SINGLE') {
+                return detectResourceType(svcInfo);
+            }
+
+            // [V112.x] PRIORITY 3: COMBO LOGIC
+            const isCombo = isComboService(svcInfo, booking.serviceName, storedFlow);
 
             if (!isCombo) {
+                // Nếu không có flowCode nào (booking rất cũ), cũng fallback về đoán tên
                 return detectResourceType(svcInfo);
             } else {
+                // Logic xử lý Combo (chia pha)
                 let isBodyFirst = false;
-                const storedFlow = booking.originalData?.flowCode || booking.flow;
                 const noteContent = (booking.note || booking.ghiChu || "").toString().toUpperCase();
                 
                 if (storedFlow === 'BF') isBodyFirst = true;
                 else if (storedFlow === 'FB') isBodyFirst = false;
+                // Fallback nếu không có flow code rõ ràng
                 else if (noteContent.includes('BF') || noteContent.includes('BODY FIRST') || noteContent.includes('先做身體')) isBodyFirst = true;
                 else if (booking.allocated_resource && (booking.allocated_resource.includes('BED') || booking.allocated_resource.includes('BODY'))) isBodyFirst = true;
 
@@ -284,6 +331,7 @@
                 let usedChairs = 0;
 
                 for (const b of activeExistingBookings) {
+                    // Gọi hàm inferResourceAtTime đã được nâng cấp V112.4
                     const resType = inferResourceAtTime(b, t);
                     if (resType === 'BED') usedBeds++;
                     else if (resType === 'CHAIR') usedChairs++;
@@ -295,14 +343,23 @@
 
                 for (const g of guestList) {
                     const svc = SERVICES[g.serviceCode] || { duration: 60 };
-                    const isCombo = isComboService(svc, g.serviceCode);
+                    // Khách mới cũng cần được check isComboService chính xác
+                    // [V112.4] FlowCode có thể là FOOTSINGLE hoặc BODYSINGLE
+                    const explicitFlow = g.flowCode || null;
+                    const isCombo = isComboService(svc, g.serviceCode, explicitFlow);
+                    
                     const gDuration = svc.duration || 60;
                     const elapsed = t - requestStart; 
 
                     if (elapsed >= gDuration + CONFIG.CLEANUP_BUFFER) continue; 
 
                     if (!isCombo) {
-                        const rType = detectResourceType(svc);
+                        // [V112.4] Ưu tiên check explicit flow trước
+                        let rType = null;
+                        if (explicitFlow === 'FOOTSINGLE') rType = 'CHAIR';
+                        else if (explicitFlow === 'BODYSINGLE') rType = 'BED';
+                        else rType = detectResourceType(svc); // Fallback cũ
+
                         if (rType === 'BED') neededBeds++;
                         else neededChairs++;
                     } else {
@@ -327,7 +384,7 @@
                     maxChairs: CONFIG.MAX_CHAIRS
                 };
 
-                // [TRANSLATED] DEBUG MESSAGES (Traditional Chinese)
+                // [TRANSLATED] DEBUG MESSAGES
                 if (totalStaffDemand > supplyCount) {
                     return {
                         pass: false,
@@ -510,7 +567,7 @@
                 guestList, 
                 currentBookingsRaw, 
                 staffList,
-                dateStr // Pass normalized date string for audit
+                dateStr 
             );
 
             if (!guardrailCheck.pass) {
@@ -554,14 +611,20 @@
                 });
             });
 
-            // GIAI ĐOẠN B: XỬ LÝ CHI TIẾT BOOKING
+            // GIAI ĐOẠN B: XỬ LÝ CHI TIẾT BOOKING (CẬP NHẬT V112.4)
             let existingBookingsProcessed = [];
             remappedBookings.forEach(b => {
                 const bStart = getMinsFromTimeStr(b.startTime);
                 if (bStart === -1) return;
 
                 let svcInfo = SERVICES[b.serviceCode] || {};
-                let isCombo = isComboService(svcInfo, b.serviceName);
+                
+                // [V112.4] TRUST LOGIC: Lấy flow đã lưu
+                let storedFlow = b.originalData?.flowCode || b.flow || null;
+                
+                // [V112.4] TRUST LOGIC: Đưa storedFlow vào check Combo
+                let isCombo = isComboService(svcInfo, b.serviceName, storedFlow);
+                
                 let duration = b.duration || 60;
                 let anchorIndex = null;
                 const statusLower = (b.status||'').toLowerCase();
@@ -591,8 +654,6 @@
                     startMins: bStart, duration: duration, blocks: [], anchorIndex: anchorIndex
                 };
 
-                let storedFlow = b.originalData?.flowCode || b.flow || null; 
-
                 if (isCombo) {
                     let p1 = b.phase1_duration ? parseInt(b.phase1_duration) : Math.floor(duration / 2);
                     let p2 = duration - p1;
@@ -618,7 +679,20 @@
                     }
                     processedB.p1_current = p1; processedB.p2_current = p2;
                 } else {
-                    let rType = detectResourceType(svcInfo);
+                    // [V112.4] XỬ LÝ FLOW ĐƠN (EXPLICIT CHECK)
+                    // Logic cũ: processedB.flow = 'SINGLE'; (Bỏ)
+                    // Logic mới: Tôn trọng storedFlow nếu có
+                    if (storedFlow === 'FOOTSINGLE' || storedFlow === 'BODYSINGLE') {
+                        processedB.flow = storedFlow;
+                    } else {
+                        processedB.flow = 'SINGLE'; // Fallback về single cũ
+                    }
+                    
+                    // Sử dụng hàm inferResourceAtTime để quyết định loại tài nguyên
+                    // Lưu ý: inferResourceAtTime đã hỗ trợ check flow mới bên trong
+                    let rType = inferResourceAtTime(b, bStart);
+                    if (!rType) rType = detectResourceType(svcInfo); // Fail safe
+
                     processedB.blocks.push({ start: bStart, end: bStart + duration, type: rType, forcedIndex: anchorIndex });
                 }
                 existingBookingsProcessed.push(processedB);
@@ -626,7 +700,11 @@
 
             // GIAI ĐOẠN C: KỊCH BẢN KHÁCH MỚI
             const newGuests = guestList.map((g, idx) => ({ ...g, idx: idx }));
-            const comboGuests = newGuests.filter(g => { const s = SERVICES[g.serviceCode]; return isComboService(s, g.serviceCode); });
+            // Khách mới cũng cần dùng Trust Logic trong g.flowCode (nếu có từ UI)
+            const comboGuests = newGuests.filter(g => { 
+                const s = SERVICES[g.serviceCode]; 
+                return isComboService(s, g.serviceCode, g.flowCode); 
+            });
             const newGuestHalfSize = Math.ceil(comboGuests.length / 2);
             const maxBF = comboGuests.length;
             let trySequence = [];
@@ -680,11 +758,18 @@
                 for (const ng of newGuests) {
                     const svc = SERVICES[ng.serviceCode] || { name: ng.serviceCode || 'Unknown', duration: 60, price: 0 }; 
                     let flow = 'FB'; 
-                    let isThisGuestCombo = isComboService(svc, ng.serviceCode);
+                    // Dùng Trust Logic cho khách mới
+                    let isThisGuestCombo = isComboService(svc, ng.serviceCode, ng.flowCode);
+                    
                     if (isThisGuestCombo) {
                         const cIdx = comboGuests.findIndex(cg => cg.idx === ng.idx);
                         if (cIdx >= 0 && cIdx < numBF) { flow = 'BF'; }
+                    } else {
+                        // [V112.4] Khách mới thì flowCode đã được chuẩn bị sẵn ở UI (FOOTSINGLE/BODYSINGLE)
+                        // Nếu chưa có (ví dụ gọi từ console), fallback về SINGLE
+                        flow = ng.flowCode || 'SINGLE';
                     }
+
                     const duration = svc.duration || 60;
                     let blocks = [];
                     if (isThisGuestCombo) {
@@ -704,9 +789,14 @@
                             scenarioDetails.push({ guestIndex: ng.idx, service: svc.name, price: svc.price, phase1_duration: p1Standard, phase2_duration: p2Standard, flow: 'BF', timeStr: timeStr, allocated: [] });
                         }
                     } else { 
-                        let rType = detectResourceType(svc);
+                        // [V112.4] Xử lý Single với Explicit Flow
+                        let rType = 'CHAIR'; // Default safe
+                        if (flow === 'FOOTSINGLE') rType = 'CHAIR';
+                        else if (flow === 'BODYSINGLE') rType = 'BED';
+                        else rType = detectResourceType(svc); // Fallback
+
                         blocks.push({ start: requestStartMins, end: requestStartMins + duration + CONFIG.CLEANUP_BUFFER, type: rType });
-                        scenarioDetails.push({ guestIndex: ng.idx, service: svc.name, price: svc.price, flow: 'SINGLE', timeStr: timeStr, allocated: [] });
+                        scenarioDetails.push({ guestIndex: ng.idx, service: svc.name, price: svc.price, flow: flow, timeStr: timeStr, allocated: [] });
                     }
                     newGuestBlocksMap.push({ guest: ng, blocks: blocks });
                 }
@@ -814,7 +904,7 @@
                 successfulScenario.details.sort((a,b) => a.guestIndex - b.guestIndex);
                 return {
                     feasible: true, 
-                    strategy: 'MATRIX_COUPLE_SYNC_V112.1', 
+                    strategy: 'MATRIX_COUPLE_SYNC_V112.4', 
                     details: successfulScenario.details,
                     proposedUpdates: successfulScenario.updates,
                     totalPrice: successfulScenario.details.reduce((sum, item) => sum + (item.price||0), 0),
@@ -854,15 +944,24 @@
     // ========================================================================
     const { useState, useEffect, useMemo, useCallback } = React;
 
+    // [V112.4] AUTO TAG DEFAULT FLOW FOR SERVICES
     const syncServicesToCore = () => {
         const rawServices = window.SERVICES_DATA || {};
         const formattedServices = {};
         Object.keys(rawServices).forEach(key => {
             const svc = rawServices[key];
+            const sType = svc.type ? svc.type.toUpperCase() : 'BODY';
+            
+            // LOGIC QUYẾT ĐỊNH DEFAULT FLOW
+            let defFlow = 'BODYSINGLE'; // Default
+            if (sType === 'FOOT' || sType === 'CHAIR') defFlow = 'FOOTSINGLE';
+            else if (sType === 'BODY' || sType === 'BED') defFlow = 'BODYSINGLE';
+            
             formattedServices[key] = {
                 name: svc.name || key, duration: parseInt(svc.duration) || 60,
-                type: svc.type ? svc.type.toUpperCase() : 'BODY', category: svc.category || 'SINGLE', price: svc.price || 0,
-                elasticStep: svc.elasticStep || 0, elasticLimit: svc.elasticLimit || 0
+                type: sType, category: svc.category || 'SINGLE', price: svc.price || 0,
+                elasticStep: svc.elasticStep || 0, elasticLimit: svc.elasticLimit || 0,
+                defaultFlow: defFlow // Lưu vào để UI sử dụng
             };
         });
         CoreKernel.setDynamicServices(formattedServices);
@@ -877,19 +976,32 @@
         return Array.from(mergedMap.values());
     };
 
-    // [V112.0] UPDATED BRIDGE: Mapping Service Code Before Core Check
+    // [V112.4] UPDATED BRIDGE: Inject Default Flow if Missing
     const callCoreAvailabilityCheck = (date, time, guests, bookings, staffList) => {
         syncServicesToCore();
         const now = new Date();
         
-        // [V112] MAP SERVICE NAME -> SERVICE CODE (Core needs Key A6, F4, etc.)
         const coreGuests = guests.map(g => {
             // Find Service Code from Name
             let foundCode = getServiceCodeByName(g.service);
+            // Lấy defaultFlow từ Service Config (đã sync)
+            const svcDef = window.SERVICES_DATA && foundCode ? window.SERVICES_DATA[foundCode] : null;
             
+            // Xác định flowCode sơ bộ (nếu là single thì lấy FOOTSINGLE/BODYSINGLE)
+            let impliedFlow = undefined;
+            if (svcDef) {
+                const cat = (svcDef.category || '').toUpperCase();
+                const sType = (svcDef.type || 'BODY').toUpperCase();
+                if (cat !== 'COMBO' && cat !== 'MIXED') {
+                    if (sType === 'FOOT' || sType === 'CHAIR') impliedFlow = 'FOOTSINGLE';
+                    else impliedFlow = 'BODYSINGLE';
+                }
+            }
+
             return {
-                serviceCode: foundCode || g.service, // Use Code if found, else fallback to Name
-                staffName: g.staff === '隨機' ? 'RANDOM' : (g.staff === '女' || g.staff === 'FEMALE_OIL') ? 'FEMALE' : (g.staff === '男') ? 'MALE' : g.staff
+                serviceCode: foundCode || g.service, 
+                staffName: g.staff === '隨機' ? 'RANDOM' : (g.staff === '女' || g.staff === 'FEMALE_OIL') ? 'FEMALE' : (g.staff === '男') ? 'MALE' : g.staff,
+                flowCode: impliedFlow // Truyền hint này vào Core
             };
         });
 
@@ -906,7 +1018,7 @@
             try { if (new Date(b.startTimeString) <= now) isPastOrRunning = true; } catch (e) {}
             
             return {
-                serviceCode: b.serviceCode || b.serviceName, // Try to use Code if available from DB
+                serviceCode: b.serviceCode || b.serviceName, 
                 serviceName: b.serviceName, 
                 startTime: b.startTimeString, 
                 duration: parseInt(b.duration) || 60, staffName: b.technician || b.staffId || "Unassigned", rowId: b.rowId,
@@ -918,7 +1030,8 @@
                 status: isPastOrRunning ? 'Running' : (b.status || 'Reserved'),
                 note: b.ghiChu || b.note,
                 ghiChu: b.ghiChu || b.note,
-                flow: b.flow || b.originalData?.flowCode
+                // [V112.4] Pass original flow code to kernel (supports SINGLE/FOOTSINGLE/BODYSINGLE)
+                flow: b.flow || b.originalData?.flowCode || b.originalData?.mainFlow
             };
         });
 
@@ -1062,7 +1175,7 @@
             setIsChecking(false);
         };
 
-        // [V112.0] UPDATED: HANDLE FINAL SAVE WITH FULL DATA SYNC
+        // [V112.4] UPDATED: HANDLE FINAL SAVE WITH EXPLICIT FLOW CONVERSION
         const handleFinalSave = async (e) => {
             if (e) e.preventDefault(); if (isSubmitting) return;
             if (!form.custName.trim()) { alert("⚠️ 請輸入顧客姓名 (Enter Name)!"); return; }
@@ -1078,16 +1191,34 @@
                      return;
                 }
 
-                // [V112] MAP DATA FOR SHEET COLUMNS (L -> AE)
+                // [V112.4] MAP DATA AND FORCE EXPLICIT FLOW
                 const detailedGuests = guestDetails.map((g, i) => {
                     const detail = finalCheck.details ? finalCheck.details.find(d => d.guestIndex === i) : null;
+                    let finalFlow = detail ? detail.flow : 'SINGLE'; 
+                    
+                    // [CRITICAL UPGRADE V112.4]
+                    // Nếu Flow là SINGLE, kiểm tra Service Type để chuyển thành FOOTSINGLE hoặc BODYSINGLE
+                    if (finalFlow === 'SINGLE') {
+                        const svcCode = getServiceCodeByName(g.service);
+                        if (svcCode && window.SERVICES_DATA && window.SERVICES_DATA[svcCode]) {
+                            const svcDef = window.SERVICES_DATA[svcCode];
+                            const sType = (svcDef.type || 'BODY').toUpperCase();
+                            if (sType === 'FOOT' || sType === 'CHAIR') finalFlow = 'FOOTSINGLE';
+                            else finalFlow = 'BODYSINGLE';
+                        } else {
+                            // Nếu không tìm thấy def (hiếm), giữ logic cũ là đoán qua tên (nhưng ở đây chỉ gán code)
+                            if (g.service.toUpperCase().match(/FOOT|CHAIR|足/)) finalFlow = 'FOOTSINGLE';
+                            else finalFlow = 'BODYSINGLE'; // Default safety
+                        }
+                    }
+                    
                     return {
                         ...g, 
                         // Find Code (Important for Column U)
                         serviceCode: getServiceCodeByName(g.service) || "",
                         staff: g.staff, 
-                        flow: detail ? detail.flow : 'FB',          
-                        flowCode: detail ? detail.flow : 'FB',      
+                        flow: finalFlow,          
+                        flowCode: finalFlow,      
                         phase1_duration: detail ? detail.phase1_duration : null,
                         phase2_duration: detail ? detail.phase2_duration : null,
                     };
@@ -1102,10 +1233,10 @@
                 const noteParts = [...oils, ...flows];
                 const noteStr = noteParts.length > 0 ? `(${noteParts.join(', ')})` : "";
 
-                // [V112] FULL PAYLOAD
+                // FULL PAYLOAD
                 const payload = {
                     hoTen: form.custName, sdt: form.custPhone||"", dichVu: detailedGuests.map(g=>g.service).join(','), pax: form.pax,
-                    ngayDen: normalizeDateStrict(form.date), // V111 Strict
+                    ngayDen: normalizeDateStrict(form.date),
                     gioDen: form.time,
                     // Primary Guest Info (for standard columns)
                     nhanVien: detailedGuests[0].staff, 
@@ -1120,7 +1251,7 @@
                     ghiChu: noteStr, 
                     guestDetails: detailedGuests, 
                     
-                    // Matrix Data (Column AA, Y, Z)
+                    // Matrix Data (Column AA, Y, Z) - THIS NOW CONTAINS FOOTSINGLE/BODYSINGLE
                     mainFlow: detailedGuests[0].flowCode, 
                     phase1_duration: detailedGuests[0].phase1_duration, 
                     phase2_duration: detailedGuests[0].phase2_duration,
@@ -1142,7 +1273,7 @@
             <div className="fixed inset-0 bg-slate-900/90 z-[100] flex items-center justify-center p-4">
                 <div className="bg-white w-full max-w-xl rounded-xl shadow-2xl flex flex-col max-h-[95vh] overflow-hidden animate-fadeIn">
                     <div className={`${editingBooking ? 'bg-orange-600' : 'bg-[#0891b2]'} p-4 text-white flex justify-between items-center shrink-0`}>
-                        <h3 className="font-bold text-lg">{editingBooking ? "✏️ 修改預約 (Edit)" : "📅 電話預約 (Booking V112.1)"}</h3>
+                        <h3 className="font-bold text-lg">{editingBooking ? "✏️ 修改預約 (Edit)" : "📅 電話預約 (Booking V112.4)"}</h3>
                         <button onClick={onClose} className="text-2xl hover:text-red-100">&times;</button>
                     </div>
                     <div className="p-5 space-y-4 overflow-y-auto flex-1 custom-scrollbar">
@@ -1203,6 +1334,8 @@
                                                         <span className="bg-green-100 px-2 py-0.5 rounded text-green-700 text-xs font-bold">{d.staff}</span>
                                                         {d.flow === 'BF' && <span className="bg-orange-100 px-2 py-0.5 rounded text-orange-700 border border-orange-300 text-xs font-bold">⚠️ 先做身體</span>}
                                                         {d.flow === 'FB' && <span className="bg-blue-100 px-2 py-0.5 rounded text-blue-700 border border-blue-300 text-xs font-bold">🦶 先做腳</span>}
+                                                        {(d.flow === 'SINGLE' || d.flow === 'BODYSINGLE') && <span className="bg-indigo-100 px-2 py-0.5 rounded text-indigo-700 border border-indigo-300 text-xs font-bold">🛏 Body Only</span>}
+                                                        {(d.flow === 'FOOTSINGLE') && <span className="bg-teal-100 px-2 py-0.5 rounded text-teal-700 border border-teal-300 text-xs font-bold">🪑 Foot Only</span>}
                                                     </div>
                                                 </div>
                                             </div>
@@ -1221,24 +1354,14 @@
     };
 
     // ==================================================================================
-    // 5. COMPONENT: WALK-IN MODAL (REMOVED)
-    // ==================================================================================
-    // ❌ [WALK-IN FEATURE REMOVED PER REQUEST V112.2]
-    // The NewWalkInModal component has been completely deleted to disable the "Khách vãng lai" feature.
-    // Logic for walk-in guests is no longer handled by this file.
-
-    // ==================================================================================
     // 6. SYSTEM INJECTION (AUTO UPGRADE)
     // ==================================================================================
     const overrideInterval = setInterval(() => {
         // Chỉ inject AvailabilityCheckModal (Đặt lịch điện thoại/Sửa)
         if (window.AvailabilityCheckModal !== NewAvailabilityCheckModal) { 
             window.AvailabilityCheckModal = NewAvailabilityCheckModal; 
-            console.log("♻️ AvailabilityModal Injected (V112.2)"); 
+            console.log("♻️ AvailabilityModal Injected (V112.4)"); 
         }
-        
-        // ❌ [REMOVED] WalkInModal injection is disabled.
-        // if (window.WalkInModal !== NewWalkInModal) { ... } -> DELETED
     }, 200);
     setTimeout(() => { clearInterval(overrideInterval); }, 5000);
 

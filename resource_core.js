@@ -2,26 +2,21 @@
  * =================================================================================================
  * PROJECT: XINWUCHAN MASSAGE BOT - CORE LOGIC KERNEL (SERVER SIDE)
  * FILE: resource_core.js
- * PHIÊN BẢN: V113.0 (DATA MAPPING COMPLIANCE & HARD MATRIX SYNC)
- * NGÀY CẬP NHẬT: 2026/01/21
+ * PHIÊN BẢN: V113.1 (EXPLICIT FLOW & DATA MAPPING SYNC)
+ * NGÀY CẬP NHẬT: 2026/01/23
  * TÁC GIẢ: AI ASSISTANT & USER
  *
- * * * * * CHANGE LOG V113.0 (THE "TRUTH SOURCE" UPDATE) * * * * *
- * 1. [CRITICAL] SERVICE CODE PRIORITY (Ưu tiên Mã Dịch Vụ):
- * - Logic tìm kiếm dịch vụ (`getServiceInfo`) được viết lại để ưu tiên Key (Cột A Menu) 
- * trước, sau đó mới fallback sang Name (Cột B Menu).
- * * 2. [SYNC] HARD MATRIX DATA READING (Đọc dữ liệu cứng):
- * - Tích hợp logic đọc các cột dữ liệu vật lý từ Database:
- * + Phase 1 Duration (Cột Y/24)
- * + Phase 2 Duration (Cột Z/25)
- * + Flow Code (Cột AA/26 - BF/FB)
- * + Locked Status (Cột AE/30 - TRUE/FALSE)
- * - Đảm bảo khi xếp lại Matrix, các booking cũ giữ nguyên cấu trúc vật lý đã lưu.
- *
- * 3. [MAINTAIN] CORE FEATURES PRESERVED:
- * - Universal Date Adapter (Chuẩn hóa ngày tuyệt đối).
- * - Global Capacity Guardrail (Hàng rào kiểm soát tải trọng).
- * - Elastic Squeeze (Co giãn thông minh).
+ * * * * * CHANGE LOG V113.1 (EXPLICIT FLOW SYNC) * * * * *
+ * 1. [CRITICAL] EXPLICIT FLOW SUPPORT (Hỗ trợ luồng định danh):
+ * - Tích hợp logic nhận diện mã 'FOOTSINGLE' (Chân/Ghế) và 'BODYSINGLE' (Body/Giường).
+ * - Đồng bộ hoàn toàn với logic Frontend V112.4.
+ * * 2. [GUARDRAIL UPGRADE] INTELLIGENT RESOURCE INFERENCE:
+ * - Cập nhật hàm `inferResourceAtTime`: Ưu tiên Flow Code (Cột AA) hơn đoán tên dịch vụ.
+ * - Đảm bảo tính toán tải trọng chính xác 100% theo ý định của Client.
+ * * 3. [MAINTAIN] V113.0 FEATURES PRESERVED:
+ * - Giữ nguyên Service Code Priority (Ưu tiên Mã Dịch Vụ).
+ * - Giữ nguyên Hard Matrix Sync (Đọc dữ liệu cứng từ DB).
+ * - Giữ nguyên Universal Date Adapter.
  * =================================================================================================
  */
 
@@ -47,7 +42,7 @@ const CONFIG = {
     TOLERANCE: 1,           // Sai số cho phép (tránh lỗi làm tròn giây)
     MAX_TIMELINE_MINS: 1680, // Hỗ trợ ca đêm (24h + 4h sáng hôm sau = 28h * 60)
     
-    // --- Cấu hình Guardrail (V104/V105/V112) ---
+    // --- Cấu hình Guardrail ---
     // Bước nhảy khi quét tải trọng. Để 10 phút như Frontend để đảm bảo độ chính xác cao.
     CAPACITY_CHECK_STEP: 10 
 };
@@ -74,7 +69,7 @@ function setDynamicServices(newServicesObj) {
     SERVICES = { ...newServicesObj, ...systemServices };
     
     // Log kiểm tra để đảm bảo Service Code được load đúng
-    // console.log(`[CORE V113] Services Database Synced. Total Items: ${Object.keys(SERVICES).length}`);
+    // console.log(`[CORE V113.1] Services Database Synced. Total Items: ${Object.keys(SERVICES).length}`);
 }
 
 /**
@@ -153,7 +148,7 @@ function normalizeDateStrict(input) {
         // Mặc định trả về nguyên gốc nếu không nhận diện được (ví dụ năm 2 số)
         return str;
     } catch (e) {
-        console.error("[CORE V113] Date Normalize Error:", e);
+        console.error("[CORE V113.1] Date Normalize Error:", e);
         return input;
     }
 }
@@ -252,9 +247,18 @@ function isActiveBookingStatus(statusRaw) {
 
 /**
  * Kiểm tra xem một dịch vụ có phải là COMBO (làm cả chân và mình) hay không.
- * Cập nhật V113: Sử dụng `getServiceInfo` để tìm đúng object.
+ * Cập nhật V113.1: Nhận thêm explicitFlow để loại trừ các mã Single mới.
  */
-function isComboService(serviceObj, serviceNameRaw = '') {
+function isComboService(serviceObj, serviceNameRaw = '', explicitFlow = null) {
+    // [V113.1] EXPLICIT FLOW CHECK
+    // Nếu explicitFlow là các mã Single, return false ngay lập tức.
+    if (explicitFlow) {
+        const flowUpper = explicitFlow.toString().toUpperCase().trim();
+        if (['SINGLE', 'FOOTSINGLE', 'BODYSINGLE'].includes(flowUpper)) return false;
+        // Nếu là BF hoặc FB -> Chắc chắn là Combo
+        if (flowUpper === 'BF' || flowUpper === 'FB') return true;
+    }
+
     // Check nếu obj không tồn tại
     if (!serviceObj && !serviceNameRaw) return false;
 
@@ -281,6 +285,7 @@ function isComboService(serviceObj, serviceNameRaw = '') {
 
 /**
  * Xác định loại tài nguyên chính (BED hoặc CHAIR) dựa trên dịch vụ.
+ * Chỉ dùng làm fallback nếu không có Explicit Flow.
  */
 function detectResourceType(serviceObj) {
     if (!serviceObj) return 'CHAIR'; // Mặc định là ghế nếu không rõ
@@ -296,13 +301,13 @@ function detectResourceType(serviceObj) {
 }
 
 // ============================================================================
-// PHẦN 5: HÀNG RÀO DUNG LƯỢNG & STRICT RESOURCE (GUARDRAIL V112.0)
+// PHẦN 5: HÀNG RÀO DUNG LƯỢNG & STRICT RESOURCE (GUARDRAIL V112.4+ SYNC)
 // Mô tả: Logic kiểm tra tải trọng toàn cục, đồng bộ tuyệt đối với Frontend.
 // ============================================================================
 
 /**
- * [UPDATED V113] Suy luận loại tài nguyên đang bị chiếm dụng tại một thời điểm cụ thể.
- * Tích hợp việc đọc FlowCode từ cột AA và Phase Duration từ Y/Z.
+ * [UPDATED V113.1] Suy luận loại tài nguyên đang bị chiếm dụng tại một thời điểm cụ thể.
+ * Tích hợp logic nhận diện 'FOOTSINGLE' và 'BODYSINGLE' từ cột AA.
  */
 function inferResourceAtTime(booking, timeMins) {
     const bStart = getMinsFromTimeStr(booking.startTime);
@@ -315,10 +320,19 @@ function inferResourceAtTime(booking, timeMins) {
     // Nếu thời gian kiểm tra nằm ngoài phạm vi booking -> Không chiếm
     if (timeMins < bStart || timeMins >= bEnd) return null; 
 
-    const isCombo = isComboService(svcInfo, booking.serviceName);
+    // [V113.1] PRIORITY 1: CHECK EXPLICIT SINGLE FLOW
+    const storedFlow = booking.flow || booking.originalData?.flowCode;
+    
+    if (storedFlow === 'FOOTSINGLE') return 'CHAIR';
+    if (storedFlow === 'BODYSINGLE') return 'BED';
+
+    // [V113.1] PRIORITY 2: COMBO LOGIC
+    // Sử dụng hàm isComboService đã nâng cấp
+    const isCombo = isComboService(svcInfo, booking.serviceName, storedFlow);
 
     if (!isCombo) {
-        // Nếu là Single, chiếm 1 loại tài nguyên suốt thời gian
+        // [V113.1] PRIORITY 3: LEGACY SINGLE (Fallback)
+        // Nếu là SINGLE cũ hoặc không có mã, dùng đoán tên
         return detectResourceType(svcInfo);
     } else {
         // Nếu là Combo, phải xem đang ở giai đoạn nào.
@@ -326,8 +340,6 @@ function inferResourceAtTime(booking, timeMins) {
         let isBodyFirst = false;
         
         // 1. Kiểm tra cột AA (Flow Code)
-        const storedFlow = booking.flow || booking.originalData?.flowCode;
-        // 2. Kiểm tra Note
         const noteContent = (booking.note || booking.ghiChu || "").toString().toUpperCase();
 
         if (storedFlow === 'BF') isBodyFirst = true;
@@ -335,7 +347,7 @@ function inferResourceAtTime(booking, timeMins) {
         else if (noteContent.includes('BF') || noteContent.includes('BODY FIRST') || noteContent.includes('先做身體')) isBodyFirst = true;
         else if (booking.allocated_resource && (booking.allocated_resource.includes('BED') || booking.allocated_resource.includes('BODY'))) isBodyFirst = true;
 
-        // 3. Kiểm tra cột Y (Phase 1 Duration) - Nếu có thì dùng, nếu không chia đôi
+        // 2. Kiểm tra cột Y (Phase 1 Duration) - Nếu có thì dùng, nếu không chia đôi
         let p1 = 0;
         if (booking.originalData && booking.originalData.phase1_duration) {
              p1 = parseInt(booking.originalData.phase1_duration);
@@ -391,7 +403,7 @@ function getEligibleStaffCount(staffList, currentTimeMins, requiredEndTime) {
 }
 
 /**
- * [GLOBAL SCANNER V113.0]
+ * [GLOBAL SCANNER V113.1]
  * Quét toàn bộ dòng thời gian để đảm bảo không lúc nào bị thiếu Giường, Ghế hoặc Thợ.
  */
 function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBookingsRaw, staffList, queryDateStr) {
@@ -437,6 +449,7 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
 
         // Đếm tài nguyên bị khách cũ chiếm
         for (const b of activeExistingBookings) {
+            // [V113.1] inferResourceAtTime đã được nâng cấp để hiểu FOOTSINGLE/BODYSINGLE
             const resType = inferResourceAtTime(b, t);
             if (resType === 'BED') usedBeds++;
             else if (resType === 'CHAIR') usedChairs++;
@@ -450,7 +463,11 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
         for (const g of guestList) {
             // Dùng getServiceInfo để đảm bảo lấy đúng duration
             const svc = getServiceInfo(g.serviceCode, g.serviceName);
-            const isCombo = isComboService(svc, g.serviceCode);
+            
+            // [V113.1] Explicit Flow Check cho khách mới (gửi từ Client)
+            const explicitFlow = g.flowCode || null;
+            const isCombo = isComboService(svc, g.serviceCode, explicitFlow);
+            
             const gDuration = svc.duration || 60;
             const elapsed = t - requestStart; 
 
@@ -458,7 +475,12 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
             if (elapsed >= gDuration + CONFIG.CLEANUP_BUFFER) continue; 
 
             if (!isCombo) {
-                const rType = detectResourceType(svc);
+                // [V113.1] Check Explicit Single
+                let rType = null;
+                if (explicitFlow === 'FOOTSINGLE') rType = 'CHAIR';
+                else if (explicitFlow === 'BODYSINGLE') rType = 'BED';
+                else rType = detectResourceType(svc); // Fallback cũ
+
                 if (rType === 'BED') neededBeds++;
                 else neededChairs++;
             } else {
@@ -712,15 +734,15 @@ function isBlockSetAllocatable(blocks, matrix) {
 }
 
 // ============================================================================
-// PHẦN 8: CORE ENGINE V113.0 (INTEGRATED SINGLE SOURCE OF TRUTH)
+// PHẦN 8: CORE ENGINE V113.1 (INTEGRATED SINGLE SOURCE OF TRUTH)
 // Mô tả: Hàm chính xử lý logic.
 // ============================================================================
 
 /**
- * HÀM KIỂM TRA KHẢ DỤNG CHÍNH - PHIÊN BẢN V113.0
+ * HÀM KIỂM TRA KHẢ DỤNG CHÍNH - PHIÊN BẢN V113.1
  * @param {string} dateStr - Ngày kiểm tra (Bất kỳ định dạng nào)
  * @param {string} timeStr - Giờ kiểm tra "HH:mm"
- * @param {Array} guestList - Danh sách khách mới { serviceCode, serviceName, staffName... }
+ * @param {Array} guestList - Danh sách khách mới { serviceCode, serviceName, staffName, flowCode... }
  * @param {Array} currentBookingsRaw - Danh sách booking hiện tại từ DB (Raw)
  * @param {Object} staffList - Danh sách nhân viên và ca làm việc
  */
@@ -758,9 +780,10 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
     });
 
     // ------------------------------------------------------------------------
-    // [V112.0] BƯỚC 0: STRICT GUARDRAIL CHECK (HÀNG RÀO BẢO VỆ)
+    // [V113.1] BƯỚC 0: STRICT GUARDRAIL CHECK (HÀNG RÀO BẢO VỆ)
     // ------------------------------------------------------------------------
     // Thực hiện quét toàn cục Demand/Supply trước khi chạy Matrix.
+    // Logic V113.1 sẽ nhận diện FOOTSINGLE/BODYSINGLE để tính toán chính xác.
     const guardrailCheck = validateGlobalCapacity(
         requestStartMins, 
         maxGuestDuration, 
@@ -841,7 +864,14 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
 
         // V113: Dùng helper để lấy Service Info chuẩn
         let svcInfo = getServiceInfo(b.serviceCode, b.serviceName);
-        let isCombo = isComboService(svcInfo, b.serviceName);
+        
+        // --- [CRITICAL V113.1 LOGIC: EXPLICIT FLOW & PHASES] ---
+        // Ưu tiên đọc từ cột flow/flowCode đã được lưu trong DB (Cột AA)
+        let storedFlow = b.flow || b.originalData?.flowCode || b.originalData?.flow || null;
+
+        // Pass storedFlow into isCombo check
+        let isCombo = isComboService(svcInfo, b.serviceName, storedFlow);
+        
         let duration = b.duration || svcInfo.duration || 60;
         let anchorIndex = null;
         const statusLower = (b.status||'').toLowerCase();
@@ -878,10 +908,6 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
             elasticStep: svcInfo.elasticStep || 5, elasticLimit: svcInfo.elasticLimit || 15,
             startMins: bStart, duration: duration, blocks: [], anchorIndex: anchorIndex
         };
-
-        // --- [CRITICAL V113.0 LOGIC: EXPLICIT FLOW & PHASES] ---
-        // Ưu tiên đọc từ cột flow/flowCode đã được lưu trong DB (Cột AA)
-        let storedFlow = b.flow || b.originalData?.flowCode || b.originalData?.flow || null;
 
         if (isCombo) {
             // 1. Xác định Phase Duration từ DB (Cột Y) nếu có
@@ -924,9 +950,19 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
             }
             processedB.p1_current = p1; processedB.p2_current = p2;
         } else {
-            // Khách Single
-            let rType = detectResourceType(svcInfo);
-            processedB.blocks.push({ start: bStart, end: bStart + duration, type: rType, forcedIndex: anchorIndex });
+            // [V113.1] XỬ LÝ SINGLE FLOW VỚI EXPLICIT CHECK
+            // Check nếu là Explicit Single Flow
+            if (storedFlow === 'FOOTSINGLE' || storedFlow === 'BODYSINGLE') {
+                processedB.flow = storedFlow;
+                // Force loại tài nguyên theo Flow Code
+                let rType = (storedFlow === 'FOOTSINGLE') ? 'CHAIR' : 'BED';
+                processedB.blocks.push({ start: bStart, end: bStart + duration, type: rType, forcedIndex: anchorIndex });
+            } else {
+                // Fallback cũ (Backward Compatibility)
+                processedB.flow = 'SINGLE';
+                let rType = detectResourceType(svcInfo);
+                processedB.blocks.push({ start: bStart, end: bStart + duration, type: rType, forcedIndex: anchorIndex });
+            }
         }
         existingBookingsProcessed.push(processedB);
     });
@@ -937,7 +973,8 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
     const newGuests = guestList.map((g, idx) => ({ ...g, idx: idx }));
     const comboGuests = newGuests.filter(g => { 
         const s = getServiceInfo(g.serviceCode, g.serviceName); 
-        return isComboService(s, g.serviceCode); 
+        // V113.1: Pass explicitFlow code from Client into Combo Check
+        return isComboService(s, g.serviceCode, g.flowCode); 
     });
     const newGuestHalfSize = Math.ceil(comboGuests.length / 2);
     const maxBF = comboGuests.length;
@@ -996,12 +1033,20 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
         for (const ng of newGuests) {
             const svc = getServiceInfo(ng.serviceCode, ng.serviceName); 
             let flow = 'FB'; 
-            let isThisGuestCombo = isComboService(svc, ng.serviceCode);
+            
+            // [V113.1] Explicit Flow Logic for New Guest
+            let isThisGuestCombo = isComboService(svc, ng.serviceCode, ng.flowCode);
+            
             if (isThisGuestCombo) {
                 const cIdx = comboGuests.findIndex(cg => cg.idx === ng.idx);
                 // Quyết định BF/FB cho khách mới dựa trên kịch bản vòng lặp
                 if (cIdx >= 0 && cIdx < numBF) { flow = 'BF'; }
+            } else {
+                // Nếu không phải Combo, kiểm tra xem có Explicit Single Flow không?
+                // Nếu client gửi FOOTSINGLE/BODYSINGLE, dùng nó. Nếu không, fallback về SINGLE.
+                flow = ng.flowCode || 'SINGLE';
             }
+
             const duration = svc.duration || 60;
             let blocks = [];
             if (isThisGuestCombo) {
@@ -1021,9 +1066,15 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
                     scenarioDetails.push({ guestIndex: ng.idx, service: svc.name, price: svc.price, phase1_duration: p1Standard, phase2_duration: p2Standard, flow: 'BF', timeStr: timeStr, allocated: [] });
                 }
             } else { 
-                let rType = detectResourceType(svc);
+                // [V113.1] Explicit Resource Allocation for Single
+                let rType = 'CHAIR'; // Default safe
+                
+                if (flow === 'FOOTSINGLE') rType = 'CHAIR';
+                else if (flow === 'BODYSINGLE') rType = 'BED';
+                else rType = detectResourceType(svc); // Fallback old logic
+
                 blocks.push({ start: requestStartMins, end: requestStartMins + duration + CONFIG.CLEANUP_BUFFER, type: rType });
-                scenarioDetails.push({ guestIndex: ng.idx, service: svc.name, price: svc.price, flow: 'SINGLE', timeStr: timeStr, allocated: [] });
+                scenarioDetails.push({ guestIndex: ng.idx, service: svc.name, price: svc.price, flow: flow, timeStr: timeStr, allocated: [] });
             }
             newGuestBlocksMap.push({ guest: ng, blocks: blocks });
         }
@@ -1094,7 +1145,7 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
                     if (isBlockSetAllocatable(testBlocks, matrixSqueeze)) {
                         testBlocks.forEach(tb => matrixSqueeze.tryAllocate(tb.type, tb.start, tb.end, sb.id, tb.forcedIndex));
                         fit = true;
-                        if (split.deviation !== 0) updatesProposed.push({ rowId: sb.id, customerName: sb.originalData.customerName, newPhase1: split.p1, newPhase2: split.p2, reason: 'Matrix Squeeze V113.0' });
+                        if (split.deviation !== 0) updatesProposed.push({ rowId: sb.id, customerName: sb.originalData.customerName, newPhase1: split.p1, newPhase2: split.p2, reason: 'Matrix Squeeze V113.1' });
                         break; 
                     }
                 }
@@ -1139,7 +1190,7 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
         successfulScenario.details.sort((a,b) => a.guestIndex - b.guestIndex);
         return {
             feasible: true, 
-            strategy: 'MATRIX_COUPLE_SYNC_V113.0', 
+            strategy: 'MATRIX_COUPLE_SYNC_V113.1', 
             details: successfulScenario.details,
             proposedUpdates: successfulScenario.updates,
             totalPrice: successfulScenario.details.reduce((sum, item) => sum + (item.price||0), 0),
@@ -1179,5 +1230,5 @@ if (typeof window !== 'undefined') {
     window.checkRequestAvailability = CoreAPI.checkRequestAvailability;
     window.setDynamicServices = CoreAPI.setDynamicServices;
     window.normalizeDateStrict = CoreAPI.normalizeDateStrict;
-    console.log("✅ Resource Core V113.0 Loaded: DATA MAPPING COMPLIANCE ACTIVE.");
+    console.log("✅ Resource Core V113.1 Loaded: EXPLICIT FLOW & DATA MAPPING ACTIVE.");
 }
