@@ -1,20 +1,22 @@
 /**
  * =================================================================================================
  * PROJECT: XINWUCHAN MASSAGE BOT (BACKEND SERVER - MAIN ENTRY)
- * VERSION: V119-FLOW-GUARD (FLOW TYPE SAFETY)
+ * VERSION: V120-STABLE (DATA INTEGRITY UPGRADE)
  * FEATURE: DUAL BOT (CUSTOMER + STAFF), ATOMIC WRITE, ZERO DATA LOSS, FLOW CONTROL
  * AUTHOR: AI ASSISTANT & USER
  * DATE: 2026/01/24
- * * * * * * * ========================== CHANGE LOG ==========================
- * 1. [CRITICAL UPDATE - FLOW LOGIC V119]
- * - Tại bước 'PHONE' (Xác nhận đặt lịch): Thêm logic ép kiểu Flow.
- * - Nếu là dịch vụ lẻ (Single Service), tự động gán 'FOOTSINGLE' hoặc 'BODYSINGLE'.
- * - Ngăn chặn việc ghi nhầm 'FB' cho các dịch vụ không phải Combo.
- * * 2. [GHI VAO SHEET UPGRADE]
- * - Hàm ghiVaoSheet kiểm tra category dịch vụ để set default flow thông minh hơn.
- * * 3. [PRESERVED CORE V118]
- * - Giữ nguyên Absolute Timestamp Logic.
- * - Giữ nguyên Staff Bot Integration.
+ * * * * * * * * ========================== CHANGE LOG ==========================
+ * * 1. [FIX - BOT DATA MAPPING V120]
+ * - Sửa lỗi Line Bot không ghi được thời gian Phase 1 & 2 vào cột Y, Z.
+ * - Nguyên nhân: ResourceCore trả về 'phase1_duration' nhưng Bot lại tìm 'phase1'.
+ * - Giải pháp: Đồng bộ tên biến, ưu tiên đọc 'phase1_duration'.
+ * * 2. [FIX - SERVICE CODE FALLBACK V120]
+ * - Sửa lỗi Admin Web/App đặt lịch bị mất Service Code (Cột U).
+ * - Giải pháp: Thêm hàm 'smartFindServiceCode'. Nếu input thiếu Code, hệ thống
+ * sẽ tự động dò tìm dựa trên tên dịch vụ (bỏ qua khoảng trắng, viết hoa/thường).
+ * * 3. [MAINTENANCE]
+ * - Giữ nguyên logic Flow Guard V119.
+ * - Tăng cường Log để debug.
  * =================================================================================================
  */
 
@@ -129,6 +131,40 @@ function formatDateTimeString(dateObj) {
     const h = String(dateObj.getHours()).padStart(2, '0');
     const min = String(dateObj.getMinutes()).padStart(2, '0');
     return `${y}/${m}/${d} ${h}:${min}`;
+}
+
+/**
+ * [HELPER V120] SMART SERVICE FINDER
+ * Giúp tìm mã dịch vụ (Code) kể cả khi Frontend chỉ gửi tên hoặc tên không chính xác tuyệt đối.
+ */
+function smartFindServiceCode(inputName) {
+    if (!inputName) return null;
+    const cleanInput = inputName.trim();
+    const upperInput = cleanInput.toUpperCase();
+
+    // 1. Kiểm tra nếu input chính là KEY (Code)
+    if (SERVICES[upperInput]) return upperInput;
+
+    // 2. Kiểm tra Exact Match tên
+    for (const code in SERVICES) {
+        if (SERVICES[code].name === cleanInput) return code;
+    }
+
+    // 3. Kiểm tra Fuzzy Match (Bỏ phần thời gian trong ngoặc, ví dụ: "Combo A (90分)" -> "Combo A")
+    // Lấy phần tên cơ bản của Input
+    const baseInput = upperInput.split('(')[0].trim();
+    
+    for (const code in SERVICES) {
+        const dbName = SERVICES[code].name.toUpperCase();
+        const baseDbName = dbName.split('(')[0].trim();
+
+        if (baseDbName === baseInput) {
+            console.log(`[SMART MATCH] Mapped "${inputName}" -> Code: ${code}`);
+            return code;
+        }
+    }
+
+    return null;
 }
 
 /**
@@ -606,17 +642,26 @@ async function ghiVaoSheet(data, proposedUpdates = []) {
             // [V117] S: NORMALIZED DATE
             row[18] = normalizeDateStrict(colA_Date);
 
-            // U: Service Code
+            // [V120 UPGRADE] U: Service Code - SMART FALLBACK
             let sCode = data.serviceCode;
             if (guestDetail && guestDetail.serviceCode) sCode = guestDetail.serviceCode;
+            
+            // Nếu không có Code (Frontend lỗi hoặc chỉ gửi tên), dùng Smart Search
             if (!sCode && svcName) {
-                 for(const k in SERVICES) { if(SERVICES[k].name === svcName.split('(')[0].trim()) { sCode = k; break; } }
+                // Tách tên gốc trước khi tìm (Bỏ phần ' (油推+$200)')
+                const cleanSvcName = svcName.replace(" (油推+$200)", "");
+                sCode = smartFindServiceCode(cleanSvcName);
             }
             row[20] = sCode || "";
 
-            // Y, Z: Phase 1 & 2
+            // [V120 UPGRADE] Y, Z: Phase 1 & 2 - DURATION CHECK
             let p1 = null; let p2 = null;
-            if (guestDetail) { p1 = guestDetail.phase1; p2 = guestDetail.phase2; }
+            if (guestDetail) { 
+                // Ưu tiên đọc key đúng '_duration', nếu không có thì đọc fallback
+                p1 = (guestDetail.phase1_duration !== undefined) ? guestDetail.phase1_duration : guestDetail.phase1;
+                p2 = (guestDetail.phase2_duration !== undefined) ? guestDetail.phase2_duration : guestDetail.phase2;
+            }
+            // Fallback về data gốc nếu detail không có
             if (p1 === null || p1 === undefined) p1 = data.phase1_duration;
             if (p2 === null || p2 === undefined) p2 = data.phase2_duration;
             
@@ -751,6 +796,12 @@ app.post('/api/admin-booking', async (req, res) => {
     const data = req.body; 
     if (data.ngayDen) data.ngayDen = normalizeDateStrict(data.ngayDen);
 
+    // [V120] Ensure we have a Service Code even if Frontend sent empty
+    if (!data.serviceCode || data.serviceCode === "") {
+        data.serviceCode = smartFindServiceCode(data.dichVu);
+        console.log(`[API ADMIN] Auto-mapped Service Code: ${data.serviceCode}`);
+    }
+
     if (!data.flow && ResourceCore.checkRequestAvailability) {
         try {
             const staffListMap = {}; STAFF_LIST.forEach(s => { staffListMap[s.id] = s; });
@@ -770,8 +821,10 @@ app.post('/api/admin-booking', async (req, res) => {
                     const optimalFlow = checkResult.details[0].flow;
                     if (optimalFlow === 'BF' || optimalFlow === 'FB' || optimalFlow === 'FOOTSINGLE' || optimalFlow === 'BODYSINGLE') {
                         data.flow = optimalFlow; 
-                        data.phase1_duration = checkResult.details[0].phase1;
-                        data.phase2_duration = checkResult.details[0].phase2;
+                        
+                        // [V120 FIX] Map correct duration keys
+                        if (data.phase1_duration === undefined) data.phase1_duration = checkResult.details[0].phase1_duration || checkResult.details[0].phase1;
+                        if (data.phase2_duration === undefined) data.phase2_duration = checkResult.details[0].phase2_duration || checkResult.details[0].phase2;
                     }
                 }
             }
@@ -1055,16 +1108,20 @@ async function handleEvent(event) {
           }
           // -----------------------------------------------------------
 
-          const p1 = coreDetail ? coreDetail.phase1 : null;
-          const p2 = coreDetail ? coreDetail.phase2 : null;
+          // [FIX-V120] CORRECT DATA MAPPING FOR PHASE DURATION
+          // ResourceCore returns 'phase1_duration' (V118), but Bot was looking for 'phase1' (V117)
+          const p1 = coreDetail ? (coreDetail.phase1_duration !== undefined ? coreDetail.phase1_duration : coreDetail.phase1) : null;
+          const p2 = coreDetail ? (coreDetail.phase2_duration !== undefined ? coreDetail.phase2_duration : coreDetail.phase2) : null;
           
           guestDetails.push({ 
               service: SERVICES[s.service].name, 
               staff: sId, 
               isOil: s.isOil, 
               flow: optimalFlow, 
-              phase1: p1, 
-              phase2: p2, 
+              phase1_duration: p1, // Pass explicit key for V120 Writer
+              phase2_duration: p2, 
+              phase1: p1, // Keep old key for backward compat
+              phase2: p2,
               serviceCode: s.service       
           });
       }
@@ -1096,11 +1153,11 @@ async function handleEvent(event) {
 // 1. Initial Sync
 syncMenuData().then(() => syncData());
 
-// 2. Auto Sync Interval (5s)
-setInterval(() => { syncData(); }, 5000); 
+// 2. Auto Sync Interval (10s)
+setInterval(() => { syncData(); }, 10000); 
 
 // 3. Health Check
 app.get('/ping', (req, res) => { res.status(200).send('Pong!'); });
 
 const port = process.env.PORT || 3000;
-app.listen(port, () => { console.log(`XinWuChan Bot V119-FLOW-GUARD running on port ${port}`); });
+app.listen(port, () => { console.log(`XinWuChan Bot V120-STABLE running on port ${port}`); });
