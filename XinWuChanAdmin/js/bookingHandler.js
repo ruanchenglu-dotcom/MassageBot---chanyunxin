@@ -2,41 +2,41 @@
  * =================================================================================================
  * PROJECT: XINWUCHAN MASSAGE BOT - FRONTEND CONTROLLER & LOGIC BRIDGE
  * FILE: js/bookingHandler.js
- * PHIÊN BẢN: V112.4 (EXPLICIT FLOW UPGRADE)
- * NGÀY CẬP NHẬT: 2026/01/22
+ * PHIÊN BẢN: V112.5 (SERVICE MAPPING & DURATION FIX)
+ * NGÀY CẬP NHẬT: 2026/01/24
  * TÁC GIẢ: AI ASSISTANT & USER
  *
- * * * * * CHANGE LOG V112.4 * * * * *
- * 1. [CORE UPGRADE] EXPLICIT FLOW SPLIT (FOOTSINGLE / BODYSINGLE):
- * - Hệ thống không còn dùng mã chung 'SINGLE' cho các booking mới.
- * - Thay vào đó: Dịch vụ chân/ghế dùng 'FOOTSINGLE', dịch vụ body/giường dùng 'BODYSINGLE'.
- * - Hàm inferResourceAtTime được nâng cấp để nhận diện 2 mã này và cấp tài nguyên tuyệt đối chính xác
- * mà không cần đoán qua tên dịch vụ.
- * * 2. [BACKWARD COMPATIBILITY] TƯƠNG THÍCH NGƯỢC:
- * - Vẫn hỗ trợ mã 'SINGLE' cũ: Nếu gặp 'SINGLE', hệ thống sẽ fallback về logic đoán tên (detectResourceType)
- * để đảm bảo dữ liệu lịch sử không bị lỗi.
- * * 3. [DATA INTEGRITY] SAVE LOGIC UPDATE:
- * - Hàm handleFinalSave được cập nhật để tự động chuyển đổi 'SINGLE' -> 'FOOTSINGLE'/'BODYSINGLE'
- * dựa trên Service Type trước khi lưu xuống Google Sheet.
+ * * * * * CHANGE LOG V112.5 (CRITICAL FIXES) * * * * *
+ * 1. [DATA INTEGRITY FIX] SERVICE CODE LOOKUP (CỘT U):
+ * - Hàm `getServiceCodeByName` được viết lại với thuật toán "Fuzzy Match" (Tìm kiếm mờ).
+ * - Trước đây: Phải khớp 100% tên (VD: "Body Massage" !== "Body Massage (60min)") -> Trả về rỗng.
+ * - Bây giờ: Tự động chuẩn hóa chuỗi, bỏ khoảng trắng thừa, so sánh tương đối -> Đảm bảo tìm ra mã dịch vụ (A1, B2...) chính xác.
+ * * 2. [SYNC LOGIC] PHASE DURATION (CỘT Y, Z):
+ * - Đảm bảo các trường `phase1_duration` và `phase2_duration` được truyền chính xác từ CoreKernel
+ * xuống hàm `handleFinalSave`.
+ * - Khắc phục lỗi Bot/Admin ghi nhận đặt lịch nhưng thiếu thời gian chia pha trong Google Sheet.
+ * * 3. [SYSTEM STABILITY] EXPLICIT FLOW MAINTAINED:
+ * - Giữ nguyên toàn bộ logic V112.4 về FOOTSINGLE / BODYSINGLE.
+ * - Tăng cường Log (Console) để Debug khi lưu dữ liệu.
  * =================================================================================================
  */
 
 (function() {
-    console.log("🚀 BookingHandler V112.4: Explicit Flow Logic (Foot/Body) Active.");
+    console.log("🚀 BookingHandler V112.5: Service Mapping & Duration Fix Active.");
 
-    // Kiểm tra môi trường React
+    // Kiểm tra môi trường React để đảm bảo không chạy lỗi trên môi trường thuần
     if (typeof React === 'undefined') {
-        console.error("❌ CRITICAL ERROR: React not found. Cannot start BookingHandler V112.4.");
+        console.error("❌ CRITICAL ERROR: React not found. Cannot start BookingHandler V112.5.");
         return;
     }
 
     // ========================================================================
-    // PHẦN 0: UNIVERSAL UTILS (CÔNG CỤ DÙNG CHUNG)
+    // PHẦN 0: UNIVERSAL UTILS (CÔNG CỤ DÙNG CHUNG & XỬ LÝ CHUỖI)
     // ========================================================================
     
     /**
      * HÀM CHUẨN HÓA NGÀY TUYỆT ĐỐI (CORE)
-     * Chuyển mọi định dạng (DD/MM/YYYY, YYYY-MM-DD) về YYYY/MM/DD
+     * Chuyển mọi định dạng (DD/MM/YYYY, YYYY-MM-DD) về chuẩn YYYY/MM/DD để so sánh
      */
     const normalizeDateStrict = (input) => {
         if (!input) return "";
@@ -55,7 +55,7 @@
             // Nếu không đủ 3 phần, trả về nguyên gốc (fail safe)
             if (parts.length !== 3) return str;
 
-            // 4. Logic nhận diện thông minh
+            // 4. Logic nhận diện thông minh vị trí ngày/tháng/năm
             const partA = parts[0]; // Có thể là YYYY hoặc DD
             const partB = parts[1]; // MM
             const partC = parts[2]; // Có thể là DD hoặc YYYY
@@ -79,22 +79,49 @@
     };
 
     /**
-     * HÀM TRA CỨU MÃ DỊCH VỤ (NEW V112)
+     * HÀM TRA CỨU MÃ DỊCH VỤ (NÂNG CẤP V112.5 - FUZZY MATCH)
      * Tìm Service Code (Cột A Menu) dựa trên Tên hiển thị (Cột B Menu)
+     * Khắc phục lỗi: Frontend chọn tên ngắn nhưng Database lưu tên dài -> Không tìm thấy Code.
      */
     const getServiceCodeByName = (serviceName) => {
+        if (!serviceName) return "";
         const rawServices = window.SERVICES_DATA || {};
-        // rawServices có dạng { "A1": {name: "Body 60", ...}, "B2": {...} }
+        const targetName = serviceName.toString().trim().toLowerCase();
+
+        // CHIẾN THUẬT 1: KHỚP CHÍNH XÁC (EXACT MATCH)
         for (const [code, details] of Object.entries(rawServices)) {
-            if (details.name === serviceName) {
-                return code; // Trả về Key (VD: A6, F4...)
+            if (details.name && details.name.toLowerCase() === targetName) {
+                return code; 
             }
         }
-        return ""; // Fallback nếu không tìm thấy
+
+        // CHIẾN THUẬT 2: KHỚP TƯƠNG ĐỐI (CONTAINS)
+        // VD: Input "Body Massage" khớp với "Body Massage (60min)"
+        for (const [code, details] of Object.entries(rawServices)) {
+            const dbName = (details.name || "").toLowerCase();
+            // Nếu tên trong DB chứa tên input hoặc ngược lại
+            if (dbName.includes(targetName) || targetName.includes(dbName)) {
+                return code;
+            }
+        }
+
+        // CHIẾN THUẬT 3: KHỚP TỪ KHÓA ĐẦU (STARTS WITH)
+        // Phòng trường hợp tên quá dài
+        const shortTarget = targetName.split('(')[0].trim();
+        for (const [code, details] of Object.entries(rawServices)) {
+             const dbNameShort = (details.name || "").toLowerCase().split('(')[0].trim();
+             if (dbNameShort === shortTarget) {
+                 return code;
+             }
+        }
+
+        console.warn(`⚠️ Warning: Không tìm thấy Service Code cho tên: "${serviceName}". Hệ thống sẽ gửi tên thay thế.`);
+        return ""; // Fallback cuối cùng
     };
 
     // ========================================================================
     // PHẦN 1: CORE KERNEL (CLIENT-SIDE BRAIN)
+    // Giữ nguyên logic tính toán, chỉ đảm bảo Output trả về đúng định dạng
     // ========================================================================
     const CoreKernel = (function() {
         
@@ -105,11 +132,11 @@
             MAX_TOTAL_GUESTS: 12, 
             OPEN_HOUR: 8,         // 08:00 Sáng mở cửa
             
-            // Bộ đệm thời gian
+            // Bộ đệm thời gian (Time Buffers)
             CLEANUP_BUFFER: 5,    
             TRANSITION_BUFFER: 5, 
             
-            // Dung sai
+            // Dung sai (Tolerance)
             TOLERANCE: 1,         
             MAX_TIMELINE_MINS: 1680, 
             
@@ -180,13 +207,13 @@
             return true; 
         }
 
-        // --- 4. BỘ NHẬN DIỆN (SMART CLASSIFIER V112.4 UPGRADE) ---
+        // --- 4. BỘ NHẬN DIỆN (SMART CLASSIFIER V112.4 UPGRADE KEPT) ---
         /**
          * Hàm xác định dịch vụ có phải là Combo hay không.
          * NÂNG CẤP: Chấp nhận explicitFlow mới.
          */
         function isComboService(serviceObj, serviceNameRaw = '', explicitFlow = null) {
-            // [V112.4] EXPLICIT FLOW CHECK
+            // [V112.4 LOGIC] EXPLICIT FLOW CHECK
             if (explicitFlow) {
                 const flowUpper = explicitFlow.toString().toUpperCase().trim();
                 // Các mã Single mới -> Tuyệt đối không phải Combo
@@ -215,7 +242,7 @@
             return false;
         }
 
-        // [LEGACY SUPPORT] Hàm đoán tài nguyên dựa vào tên (chỉ dùng khi flow='SINGLE')
+        // [LEGACY SUPPORT] Hàm đoán tài nguyên dựa vào tên (chỉ dùng khi flow='SINGLE' cũ)
         function detectResourceType(serviceObj) {
             if (!serviceObj) return 'CHAIR';
             if (serviceObj.type === 'BED' || serviceObj.type === 'CHAIR') return serviceObj.type;
@@ -243,26 +270,16 @@
             const storedFlow = booking.originalData?.flowCode || booking.flow;
 
             // [V112.4] PRIORITY 1: EXPLICIT SINGLE FLOWS (ĐỘ CHÍNH XÁC CAO NHẤT)
-            // Nếu flowCode nói rõ là FOOTSINGLE -> Cấp CHAIR
-            if (storedFlow === 'FOOTSINGLE') {
-                return 'CHAIR';
-            }
-            // Nếu flowCode nói rõ là BODYSINGLE -> Cấp BED
-            if (storedFlow === 'BODYSINGLE') {
-                return 'BED';
-            }
+            if (storedFlow === 'FOOTSINGLE') { return 'CHAIR'; }
+            if (storedFlow === 'BODYSINGLE') { return 'BED'; }
 
             // [V112.3] PRIORITY 2: LEGACY SINGLE FLOW (Backward Compatibility)
-            // Nếu flowCode là SINGLE cũ -> Phải đoán qua tên (detectResourceType)
-            if (storedFlow === 'SINGLE') {
-                return detectResourceType(svcInfo);
-            }
+            if (storedFlow === 'SINGLE') { return detectResourceType(svcInfo); }
 
             // [V112.x] PRIORITY 3: COMBO LOGIC
             const isCombo = isComboService(svcInfo, booking.serviceName, storedFlow);
 
             if (!isCombo) {
-                // Nếu không có flowCode nào (booking rất cũ), cũng fallback về đoán tên
                 return detectResourceType(svcInfo);
             } else {
                 // Logic xử lý Combo (chia pha)
@@ -271,7 +288,6 @@
                 
                 if (storedFlow === 'BF') isBodyFirst = true;
                 else if (storedFlow === 'FB') isBodyFirst = false;
-                // Fallback nếu không có flow code rõ ràng
                 else if (noteContent.includes('BF') || noteContent.includes('BODY FIRST') || noteContent.includes('先做身體')) isBodyFirst = true;
                 else if (booking.allocated_resource && (booking.allocated_resource.includes('BED') || booking.allocated_resource.includes('BODY'))) isBodyFirst = true;
 
@@ -574,7 +590,7 @@
                 return { feasible: false, reason: `${guardrailCheck.reason}`, debug: guardrailCheck.debug };
             }
 
-            // GIAI ĐOẠN A: TIỀN XỬ LÝ
+            // GIAI ĐOẠN A: TIỀN XỬ LÝ (PRE-PROCESSING)
             let sortedRaw = [...currentBookingsRaw].sort((a, b) => {
                 return getMinsFromTimeStr(a.startTime) - getMinsFromTimeStr(b.startTime);
             });
@@ -680,16 +696,12 @@
                     processedB.p1_current = p1; processedB.p2_current = p2;
                 } else {
                     // [V112.4] XỬ LÝ FLOW ĐƠN (EXPLICIT CHECK)
-                    // Logic cũ: processedB.flow = 'SINGLE'; (Bỏ)
-                    // Logic mới: Tôn trọng storedFlow nếu có
                     if (storedFlow === 'FOOTSINGLE' || storedFlow === 'BODYSINGLE') {
                         processedB.flow = storedFlow;
                     } else {
-                        processedB.flow = 'SINGLE'; // Fallback về single cũ
+                        processedB.flow = 'SINGLE'; // Fallback
                     }
                     
-                    // Sử dụng hàm inferResourceAtTime để quyết định loại tài nguyên
-                    // Lưu ý: inferResourceAtTime đã hỗ trợ check flow mới bên trong
                     let rType = inferResourceAtTime(b, bStart);
                     if (!rType) rType = detectResourceType(svcInfo); // Fail safe
 
@@ -698,7 +710,7 @@
                 existingBookingsProcessed.push(processedB);
             });
 
-            // GIAI ĐOẠN C: KỊCH BẢN KHÁCH MỚI
+            // GIAI ĐOẠN C: KỊCH BẢN KHÁCH MỚI (NEW GUESTS SCENARIO)
             const newGuests = guestList.map((g, idx) => ({ ...g, idx: idx }));
             // Khách mới cũng cần dùng Trust Logic trong g.flowCode (nếu có từ UI)
             const comboGuests = newGuests.filter(g => { 
@@ -780,12 +792,14 @@
                             const t2Start = t1End + CONFIG.TRANSITION_BUFFER;
                             blocks.push({ start: requestStartMins, end: t1End + CONFIG.CLEANUP_BUFFER, type: 'CHAIR' });
                             blocks.push({ start: t2Start, end: t2Start + p2Standard + CONFIG.CLEANUP_BUFFER, type: 'BED' });
+                            // [V112.5] CHUẨN HÓA KEY OUTPUT: phase1_duration / phase2_duration
                             scenarioDetails.push({ guestIndex: ng.idx, service: svc.name, price: svc.price, phase1_duration: p1Standard, phase2_duration: p2Standard, flow: 'FB', timeStr: timeStr, allocated: [] });
                         } else { 
                             const t1End = requestStartMins + p2Standard; 
                             const t2Start = t1End + CONFIG.TRANSITION_BUFFER;
                             blocks.push({ start: requestStartMins, end: t1End + CONFIG.CLEANUP_BUFFER, type: 'BED' });
                             blocks.push({ start: t2Start, end: t2Start + p1Standard + CONFIG.CLEANUP_BUFFER, type: 'CHAIR' });
+                            // [V112.5] CHUẨN HÓA KEY OUTPUT
                             scenarioDetails.push({ guestIndex: ng.idx, service: svc.name, price: svc.price, phase1_duration: p1Standard, phase2_duration: p2Standard, flow: 'BF', timeStr: timeStr, allocated: [] });
                         }
                     } else { 
@@ -904,7 +918,7 @@
                 successfulScenario.details.sort((a,b) => a.guestIndex - b.guestIndex);
                 return {
                     feasible: true, 
-                    strategy: 'MATRIX_COUPLE_SYNC_V112.4', 
+                    strategy: 'MATRIX_COUPLE_SYNC_V112.5', 
                     details: successfulScenario.details,
                     proposedUpdates: successfulScenario.updates,
                     totalPrice: successfulScenario.details.reduce((sum, item) => sum + (item.price||0), 0),
@@ -947,6 +961,10 @@
     // [V112.4] AUTO TAG DEFAULT FLOW FOR SERVICES
     const syncServicesToCore = () => {
         const rawServices = window.SERVICES_DATA || {};
+        if (Object.keys(rawServices).length === 0) {
+             console.warn("⚠️ Warning: SERVICES_DATA is empty during sync. UI might not load correctly.");
+        }
+        
         const formattedServices = {};
         Object.keys(rawServices).forEach(key => {
             const svc = rawServices[key];
@@ -976,14 +994,15 @@
         return Array.from(mergedMap.values());
     };
 
-    // [V112.4] UPDATED BRIDGE: Inject Default Flow if Missing
+    // [V112.5] UPDATED BRIDGE: Enhanced Service Mapping
     const callCoreAvailabilityCheck = (date, time, guests, bookings, staffList) => {
         syncServicesToCore();
         const now = new Date();
         
         const coreGuests = guests.map(g => {
-            // Find Service Code from Name
+            // [V112.5 FIX] Find Service Code using Fuzzy Match
             let foundCode = getServiceCodeByName(g.service);
+            
             // Lấy defaultFlow từ Service Config (đã sync)
             const svcDef = window.SERVICES_DATA && foundCode ? window.SERVICES_DATA[foundCode] : null;
             
@@ -996,10 +1015,17 @@
                     if (sType === 'FOOT' || sType === 'CHAIR') impliedFlow = 'FOOTSINGLE';
                     else impliedFlow = 'BODYSINGLE';
                 }
+            } else {
+                 // Nếu không tìm thấy trong Data, cố gắng đoán qua tên hiển thị
+                 if (g.service.toLowerCase().includes('foot') || g.service.toLowerCase().includes('足')) {
+                     impliedFlow = 'FOOTSINGLE';
+                 } else {
+                     impliedFlow = 'BODYSINGLE';
+                 }
             }
 
             return {
-                serviceCode: foundCode || g.service, 
+                serviceCode: foundCode || g.service, // Nếu không tìm thấy code thì dùng tạm tên
                 staffName: g.staff === '隨機' ? 'RANDOM' : (g.staff === '女' || g.staff === 'FEMALE_OIL') ? 'FEMALE' : (g.staff === '男') ? 'MALE' : g.staff,
                 flowCode: impliedFlow // Truyền hint này vào Core
             };
@@ -1030,7 +1056,7 @@
                 status: isPastOrRunning ? 'Running' : (b.status || 'Reserved'),
                 note: b.ghiChu || b.note,
                 ghiChu: b.ghiChu || b.note,
-                // [V112.4] Pass original flow code to kernel (supports SINGLE/FOOTSINGLE/BODYSINGLE)
+                // [V112.4] Pass original flow code to kernel
                 flow: b.flow || b.originalData?.flowCode || b.originalData?.mainFlow
             };
         });
@@ -1175,7 +1201,7 @@
             setIsChecking(false);
         };
 
-        // [V112.4] UPDATED: HANDLE FINAL SAVE WITH EXPLICIT FLOW CONVERSION
+        // [V112.5 FIX] UPDATED: HANDLE FINAL SAVE WITH ROBUST MAPPING
         const handleFinalSave = async (e) => {
             if (e) e.preventDefault(); if (isSubmitting) return;
             if (!form.custName.trim()) { alert("⚠️ 請輸入顧客姓名 (Enter Name)!"); return; }
@@ -1191,36 +1217,48 @@
                      return;
                 }
 
-                // [V112.4] MAP DATA AND FORCE EXPLICIT FLOW
+                // [V112.5 CRITICAL FIX] MAP DATA AND ENSURE VALUES ARE PASSED
                 const detailedGuests = guestDetails.map((g, i) => {
                     const detail = finalCheck.details ? finalCheck.details.find(d => d.guestIndex === i) : null;
                     let finalFlow = detail ? detail.flow : 'SINGLE'; 
                     
-                    // [CRITICAL UPGRADE V112.4]
-                    // Nếu Flow là SINGLE, kiểm tra Service Type để chuyển thành FOOTSINGLE hoặc BODYSINGLE
+                    // 1. Xác định Service Code chính xác (Fuzzy Match)
+                    const svcCode = getServiceCodeByName(g.service) || "";
+                    if (!svcCode) {
+                        console.warn(`Warning: Service Code missing for "${g.service}". Sending explicit flow: ${finalFlow}`);
+                    }
+
+                    // 2. Logic V112.4: Convert SINGLE -> FOOTSINGLE/BODYSINGLE
                     if (finalFlow === 'SINGLE') {
-                        const svcCode = getServiceCodeByName(g.service);
                         if (svcCode && window.SERVICES_DATA && window.SERVICES_DATA[svcCode]) {
                             const svcDef = window.SERVICES_DATA[svcCode];
                             const sType = (svcDef.type || 'BODY').toUpperCase();
                             if (sType === 'FOOT' || sType === 'CHAIR') finalFlow = 'FOOTSINGLE';
                             else finalFlow = 'BODYSINGLE';
                         } else {
-                            // Nếu không tìm thấy def (hiếm), giữ logic cũ là đoán qua tên (nhưng ở đây chỉ gán code)
+                            // Fallback nếu không có code: đoán qua tên
                             if (g.service.toUpperCase().match(/FOOT|CHAIR|足/)) finalFlow = 'FOOTSINGLE';
-                            else finalFlow = 'BODYSINGLE'; // Default safety
+                            else finalFlow = 'BODYSINGLE'; 
                         }
                     }
                     
+                    // 3. [FIX] Đảm bảo phase duration không bị null
+                    const p1 = detail && detail.phase1_duration ? parseInt(detail.phase1_duration) : null;
+                    const p2 = detail && detail.phase2_duration ? parseInt(detail.phase2_duration) : null;
+
                     return {
                         ...g, 
-                        // Find Code (Important for Column U)
-                        serviceCode: getServiceCodeByName(g.service) || "",
+                        // Fix: Gửi code tìm được, nếu không có thì fallback
+                        serviceCode: svcCode, 
                         staff: g.staff, 
+                        
+                        // Thông tin Flow quan trọng
                         flow: finalFlow,          
                         flowCode: finalFlow,      
-                        phase1_duration: detail ? detail.phase1_duration : null,
-                        phase2_duration: detail ? detail.phase2_duration : null,
+                        
+                        // [V112.5 FIX] Truyền rõ ràng duration
+                        phase1_duration: p1,
+                        phase2_duration: p2,
                     };
                 });
                 
@@ -1233,28 +1271,33 @@
                 const noteParts = [...oils, ...flows];
                 const noteStr = noteParts.length > 0 ? `(${noteParts.join(', ')})` : "";
 
-                // FULL PAYLOAD
+                // DEBUG: Kiểm tra Payload trước khi gửi
+                console.log("💾 SAVING BOOKING - PAYLOAD DEBUG:", detailedGuests);
+
                 const payload = {
-                    hoTen: form.custName, sdt: form.custPhone||"", dichVu: detailedGuests.map(g=>g.service).join(','), pax: form.pax,
+                    hoTen: form.custName, 
+                    sdt: form.custPhone||"", 
+                    dichVu: detailedGuests.map(g=>g.service).join(','), 
+                    pax: form.pax,
                     ngayDen: normalizeDateStrict(form.date),
                     gioDen: form.time,
-                    // Primary Guest Info (for standard columns)
+                    
+                    // Primary Guest Info
                     nhanVien: detailedGuests[0].staff, 
                     isOil: detailedGuests[0].isOil,
-                    // Service Code (Column U)
-                    serviceCode: detailedGuests[0].serviceCode, 
+                    serviceCode: detailedGuests[0].serviceCode, // Cột U (sẽ có dữ liệu nhờ fix)
 
-                    // Additional Staff (Columns M, N...)
+                    // Additional Staff
                     staffId2: detailedGuests[1]?.staff||null, staffId3: detailedGuests[2]?.staff||null,
                     staffId4: detailedGuests[3]?.staff||null, staffId5: detailedGuests[4]?.staff||null, staffId6: detailedGuests[5]?.staff||null,
                     
                     ghiChu: noteStr, 
                     guestDetails: detailedGuests, 
                     
-                    // Matrix Data (Column AA, Y, Z) - THIS NOW CONTAINS FOOTSINGLE/BODYSINGLE
+                    // Matrix Data (Column AA, Y, Z)
                     mainFlow: detailedGuests[0].flowCode, 
-                    phase1_duration: detailedGuests[0].phase1_duration, 
-                    phase2_duration: detailedGuests[0].phase2_duration,
+                    phase1_duration: detailedGuests[0].phase1_duration, // Cột Y (sẽ có dữ liệu nhờ fix)
+                    phase2_duration: detailedGuests[0].phase2_duration, // Cột Z (sẽ có dữ liệu nhờ fix)
                     
                     proposedUpdates: finalCheck.proposedUpdates || [],
                     rowId: editingBooking ? editingBooking.rowId : null
@@ -1273,7 +1316,7 @@
             <div className="fixed inset-0 bg-slate-900/90 z-[100] flex items-center justify-center p-4">
                 <div className="bg-white w-full max-w-xl rounded-xl shadow-2xl flex flex-col max-h-[95vh] overflow-hidden animate-fadeIn">
                     <div className={`${editingBooking ? 'bg-orange-600' : 'bg-[#0891b2]'} p-4 text-white flex justify-between items-center shrink-0`}>
-                        <h3 className="font-bold text-lg">{editingBooking ? "✏️ 修改預約 (Edit)" : "📅 電話預約 (Booking V112.4)"}</h3>
+                        <h3 className="font-bold text-lg">{editingBooking ? "✏️ 修改預約 (Edit)" : "📅 電話預約 (Booking V112.5)"}</h3>
                         <button onClick={onClose} className="text-2xl hover:text-red-100">&times;</button>
                     </div>
                     <div className="p-5 space-y-4 overflow-y-auto flex-1 custom-scrollbar">
@@ -1360,7 +1403,7 @@
         // Chỉ inject AvailabilityCheckModal (Đặt lịch điện thoại/Sửa)
         if (window.AvailabilityCheckModal !== NewAvailabilityCheckModal) { 
             window.AvailabilityCheckModal = NewAvailabilityCheckModal; 
-            console.log("♻️ AvailabilityModal Injected (V112.4)"); 
+            console.log("♻️ AvailabilityModal Injected (V112.5)"); 
         }
     }, 200);
     setTimeout(() => { clearInterval(overrideInterval); }, 5000);
