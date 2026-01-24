@@ -1,22 +1,20 @@
 /**
  * =================================================================================================
  * PROJECT: XINWUCHAN MASSAGE BOT (BACKEND SERVER - MAIN ENTRY)
- * VERSION: V118-FIX (ABSOLUTE TIMESTAMPS)
- * FEATURE: DUAL BOT (CUSTOMER + STAFF), ATOMIC WRITE, ZERO DATA LOSS
+ * VERSION: V119-FLOW-GUARD (FLOW TYPE SAFETY)
+ * FEATURE: DUAL BOT (CUSTOMER + STAFF), ATOMIC WRITE, ZERO DATA LOSS, FLOW CONTROL
  * AUTHOR: AI ASSISTANT & USER
- * DATE: 2026/01/21
+ * DATE: 2026/01/24
  * * * * * * * ========================== CHANGE LOG ==========================
- * 1. [CRITICAL FIX - TIME GENERATION]
- * - Thay thế logic kiểm tra ngày (isToday) bằng so sánh Mốc Thời Gian Tuyệt Đối (Absolute Timestamp).
- * - Sửa lỗi bot hiển thị giờ quá khứ (ví dụ: đang 23:45 vẫn hiện 16:00).
- * - Logic mới: Tạo đối tượng Date cho từng slot giờ -> So sánh với getTaipeiNow().
- * * 2. [STAFF BOT INTEGRATION]
- * - Giữ nguyên module 'require('./staff_bot')'.
- * - Giữ nguyên route '/callback-staff'.
- * * 3. [CORE V117 PRESERVED]
- * - Giữ nguyên ONE-SHOT WRITE ENGINE.
- * - Giữ nguyên Date Picker Reversed.
- * - Giữ nguyên Matrix Resource Calculation.
+ * 1. [CRITICAL UPDATE - FLOW LOGIC V119]
+ * - Tại bước 'PHONE' (Xác nhận đặt lịch): Thêm logic ép kiểu Flow.
+ * - Nếu là dịch vụ lẻ (Single Service), tự động gán 'FOOTSINGLE' hoặc 'BODYSINGLE'.
+ * - Ngăn chặn việc ghi nhầm 'FB' cho các dịch vụ không phải Combo.
+ * * 2. [GHI VAO SHEET UPGRADE]
+ * - Hàm ghiVaoSheet kiểm tra category dịch vụ để set default flow thông minh hơn.
+ * * 3. [PRESERVED CORE V118]
+ * - Giữ nguyên Absolute Timestamp Logic.
+ * - Giữ nguyên Staff Bot Integration.
  * =================================================================================================
  */
 
@@ -292,7 +290,7 @@ async function syncData() {
                 
                 const rawFlow = row[26]; 
                 let flowCode = null;
-                if (rawFlow && (rawFlow === 'BF' || rawFlow === 'FB')) { flowCode = rawFlow; }
+                if (rawFlow && (rawFlow === 'BF' || rawFlow === 'FB' || rawFlow === 'FOOTSINGLE' || rawFlow === 'BODYSINGLE')) { flowCode = rawFlow; }
                 
                 const rawLocked = row[30]; 
                 const isManualLocked = (rawLocked && (rawLocked.toUpperCase() === 'TRUE' || rawLocked === 'TRUE'));
@@ -491,8 +489,6 @@ function generateTimeBubbles(selectedDate, serviceCode, specificStaffIds = null,
         const slotTime = new Date(sYear, sMonth - 1, sDay, h, 0, 0);
         
         // Nếu slotTime <= nowTaipei nghĩa là giờ này đã qua. 
-        // Ví dụ: now là 23:45, slotTime 16:00 cùng ngày -> 16 < 23.45 -> Bỏ qua.
-        // Ví dụ: now là 23:45, slotTime 24:00 (0h sáng mai) -> 24 > 23.45 -> Giữ lại.
         if (slotTime.getTime() <= nowTaipei.getTime()) {
             continue; 
         }
@@ -627,10 +623,20 @@ async function ghiVaoSheet(data, proposedUpdates = []) {
             row[24] = (p1 !== null && p1 !== undefined) ? p1 : "";
             row[25] = (p2 !== null && p2 !== undefined) ? p2 : "";
 
-            // AA: Flow Code
+            // AA: Flow Code [V119 UPGRADE - INTELLIGENT DEFAULT]
             let flowVal = null;
             if (guestDetail && (guestDetail.flow || guestDetail.flowCode)) flowVal = guestDetail.flow || guestDetail.flowCode;
             if (!flowVal) flowVal = data.flow || data.flowCode;
+            
+            // Nếu vẫn chưa có Flow, cố gắng xác định dựa trên Service Code
+            if (!flowVal && sCode && SERVICES[sCode]) {
+                const svcDef = SERVICES[sCode];
+                if (svcDef.category === 'FOOT') flowVal = "FOOTSINGLE";
+                else if (svcDef.category === 'BODY') flowVal = "BODYSINGLE";
+                else if (svcDef.category === 'COMBO') flowVal = "FB";
+            }
+
+            // Fallback cuối cùng nếu vẫn null (tránh lỗi) - ưu tiên FB cho Combo, còn lại để trống hoặc FB
             row[26] = flowVal || "FB";
 
             // AE: Locked
@@ -762,7 +768,7 @@ app.post('/api/admin-booking', async (req, res) => {
                 const checkResult = ResourceCore.checkRequestAvailability(data.ngayDen, data.gioDen, guestList, relevantBookings, staffListMap);
                 if (checkResult.feasible && checkResult.details && checkResult.details.length > 0) {
                     const optimalFlow = checkResult.details[0].flow;
-                    if (optimalFlow === 'BF' || optimalFlow === 'FB') {
+                    if (optimalFlow === 'BF' || optimalFlow === 'FB' || optimalFlow === 'FOOTSINGLE' || optimalFlow === 'BODYSINGLE') {
                         data.flow = optimalFlow; 
                         data.phase1_duration = checkResult.details[0].phase1;
                         data.phase2_duration = checkResult.details[0].phase2;
@@ -1033,7 +1039,22 @@ async function handleEvent(event) {
           else if(s.pref === 'MALE') sId = '男';
 
           const coreDetail = checkResult.details && checkResult.details[i] ? checkResult.details[i] : null;
-          const optimalFlow = coreDetail ? coreDetail.flow : 'FB'; 
+          let optimalFlow = coreDetail ? coreDetail.flow : null;
+          
+          // [FIX-V119] FLOW TYPE GUARD - ÉP KIỂU FLOW CHÍNH XÁC
+          // Logic: Nếu Core không trả về flow cụ thể (hoặc trả 'SINGLE'), ta tự check Service Type để gán FOOTSINGLE/BODYSINGLE
+          if (!optimalFlow || optimalFlow === 'SINGLE' || optimalFlow === null) {
+              const svcDef = SERVICES[s.service];
+              if (svcDef) {
+                  if (svcDef.category === 'COMBO') optimalFlow = 'FB'; // Mặc định Combo là FB nếu không có chỉ định
+                  else if (svcDef.type === 'CHAIR' || svcDef.category === 'FOOT') optimalFlow = 'FOOTSINGLE';
+                  else optimalFlow = 'BODYSINGLE';
+              } else {
+                  optimalFlow = 'BODYSINGLE'; // Fallback an toàn
+              }
+          }
+          // -----------------------------------------------------------
+
           const p1 = coreDetail ? coreDetail.phase1 : null;
           const p2 = coreDetail ? coreDetail.phase2 : null;
           
@@ -1075,11 +1096,11 @@ async function handleEvent(event) {
 // 1. Initial Sync
 syncMenuData().then(() => syncData());
 
-// 2. Auto Sync Interval (10s)
-setInterval(() => { syncData(); }, 10000); 
+// 2. Auto Sync Interval (5s)
+setInterval(() => { syncData(); }, 5000); 
 
 // 3. Health Check
 app.get('/ping', (req, res) => { res.status(200).send('Pong!'); });
 
 const port = process.env.PORT || 3000;
-app.listen(port, () => { console.log(`XinWuChan Bot V118-FIX running on port ${port}`); });
+app.listen(port, () => { console.log(`XinWuChan Bot V119-FLOW-GUARD running on port ${port}`); });
