@@ -1,29 +1,28 @@
 // TYPE: app.js
-// VERSION: V102.5 (FEATURE: STRICT FLOW ENFORCEMENT)
-// UPDATE: 2026-01-22
+// VERSION: V102.6 (OPTIMISTIC TIME SPLIT & STRICT FLOW)
+// UPDATE: 2026-01-25
 // AUTHOR: AI ASSISTANT & USER
 //
-// --- CHANGE LOG V102.5 (STRICT FLOW UPDATE) ---
-// 1. [PARSING] Hỗ trợ mã flow 'FOOTSINGLE' và 'BODYSINGLE'.
-//    - FOOTSINGLE -> Bắt buộc là CHAIR, IsCombo = False.
-//    - BODYSINGLE -> Bắt buộc là BED, IsCombo = False.
-// 2. [MATRIX] Logic xếp chỗ (Matrix Helper) ưu tiên 'forceResourceType' hơn 'service type'.
-// 3. [VISUAL] Sửa lỗi hiển thị Tooltip: Nếu là Strict Single, ẩn thông tin Phase/Sequence.
-// 4. [GUARD] Chặn executeStart/handleSwitch di chuyển nhầm tài nguyên đối với Strict Flows.
+// --- CHANGE LOG V102.6 ---
+// 1. [OPTIMISTIC UI] handleSaveComboTime: Cập nhật state cục bộ ngay lập tức trước khi gọi API.
+// 2. [LOGIC] getSmartSplit: Ưu tiên tuyệt đối dữ liệu phase1/phase2 từ Database nếu tồn tại.
+// 3. [VALIDATION] Thêm kiểm tra đầu vào khi chỉnh sửa thời gian Combo.
 //
-// --- CHANGE LOG V102.0 (RETAINED) ---
-// 1. [CORE] TRUST THE SHEET (TIN VÀO SHEET).
-// 2. [LOGIC] LOCKED STATE SUPPORT.
-// 3. [SYNC] DATA HYDRATION.
+// --- CHANGE LOG V102.5 (RETAINED) ---
+// 1. [PARSING] Hỗ trợ mã flow 'FOOTSINGLE' và 'BODYSINGLE'.
+// 2. [MATRIX] Logic xếp chỗ ưu tiên 'forceResourceType'.
+// 3. [GUARD] Chặn di chuyển nhầm tài nguyên đối với Strict Flows.
 
 const { useState, useEffect, useMemo, useRef } = React;
 
 // --- 1. COMPONENT IMPORTS ---
+// Các component con được load từ window (giả lập môi trường script tag)
 const CommissionView = window.CommissionView;
 const TimelineView = window.TimelineView;
 const BookingListView = window.BookingListView;
 
 // --- MATRIX HELPER ---
+// Hỗ trợ tính toán va chạm thời gian và tìm slot trống
 const MatrixHelper = {
     isOverlap: (startA, endA, startB, endB) => {
         return (startA < endB) && (startB < endA);
@@ -48,6 +47,7 @@ const MatrixHelper = {
     },
     findBestSlot: (type, start, end, gridState, reservedTimes, preferredIndex = null) => {
         const limit = 6;
+        // Ưu tiên tìm đúng ghế/giường mong muốn (nếu có preferredIndex)
         if (preferredIndex) {
             const id = `${type}-${preferredIndex}`;
             let valid = true;
@@ -62,6 +62,7 @@ const MatrixHelper = {
             }
             if (valid) return id;
         }
+        // Nếu không, tìm slot đầu tiên trống
         for (let i = 1; i <= limit; i++) {
             const id = `${type}-${i}`;
             if (reservedTimes[id] && start < reservedTimes[id]) continue;
@@ -81,6 +82,7 @@ const MatrixHelper = {
 };
 
 // --- HELPER: FALLBACK PARSER ---
+// Phân tích ghi chú để đoán Flow (BF/FB) nếu dữ liệu thiếu
 const detectFlowFromNote = (note, guestIndex) => {
     if (!note) return null;
     const rawStr = note.toString().toUpperCase();
@@ -103,21 +105,27 @@ const detectFlowFromNote = (note, guestIndex) => {
     return null;
 };
 
-// --- HELPER: DATA DRIVEN SPLIT ---
+// --- HELPER: DATA DRIVEN SPLIT (CORE LOGIC UPDATE V102.6) ---
 const getSmartSplit = (booking, totalDuration, isMaxMode, sequence) => {
-    // 1. Priority: Data from Sheet (Cột Phase1/Phase2)
-    if (booking.phase1_duration && booking.phase2_duration) {
+    // 1. PRIORITY: Data from Sheet/DB (Phase 1 & Phase 2 exist)
+    // Nếu dữ liệu đã có sẵn phase1 và phase2 (do chỉnh tay hoặc lưu trước đó), dùng ngay lập tức.
+    if (booking.phase1_duration !== undefined && booking.phase1_duration !== null && booking.phase1_duration > 0 &&
+        booking.phase2_duration !== undefined && booking.phase2_duration !== null) {
         return { 
             phase1: parseInt(booking.phase1_duration), 
             phase2: parseInt(booking.phase2_duration) 
         };
     }
-    // 2. Priority: Manual Locked Phase 1 (Legacy support)
-    if (booking.phase1_duration) {
+
+    // 2. Priority: Legacy Manual Locked Phase 1
+    // Hỗ trợ dữ liệu cũ chỉ có phase1
+    if (booking.phase1_duration && booking.phase1_duration > 0) {
         const p1 = parseInt(booking.phase1_duration);
         return { phase1: p1, phase2: totalDuration - p1 };
     }
-    // 3. Fallback: Algorithm
+
+    // 3. Fallback: Algorithm (Default Split)
+    // Nếu chưa có dữ liệu tuỳ chỉnh, dùng hàm chia mặc định của hệ thống
     return window.getComboSplit(totalDuration, isMaxMode, sequence, null);
 };
 
@@ -143,11 +151,11 @@ const App = () => {
 
     // System States
     const [viewDate, setViewDate] = useState(window.getOperationalDateInputFormat());
-    const [syncLock, setSyncLock] = useState(false);
+    const [syncLock, setSyncLock] = useState(false); // Khoá sync khi đang thao tác tay
     const [quotaError, setQuotaError] = useState(false); 
     const [isManualRefreshing, setIsManualRefreshing] = useState(false);
 
-    // 2. HELPER FUNCTIONS
+    // 2. HELPER FUNCTIONS WITHIN COMPONENT
     const isActuallyBusy = (staffId) => {
         if (!resourceState) return false;
         return Object.values(resourceState).some(r => {
@@ -221,20 +229,18 @@ const App = () => {
             
             const { bookings: apiBookings, staffList: apiStaff, resourceState: serverRes, staffStatus: serverStaff } = res.data;
             
-            // --- DATA CLEANING V102.5 (THE TRUTH PARSER) ---
+            // --- DATA CLEANING (STRICT FLOW LOGIC) ---
             const cleanBookings = (apiBookings || []).map(b => {
-                // 1. Đọc dữ liệu thô
                 let rawFlow = b.flow || null;
                 if (rawFlow === 'null' || rawFlow === 'undefined' || rawFlow === '') rawFlow = null;
                 if (rawFlow) rawFlow = rawFlow.toUpperCase();
 
-                // 2. Map cột thời gian thực từ Sheet
+                // Map cột thời gian thực từ Sheet
                 const p1 = b.phase1_duration ? parseInt(b.phase1_duration) : null;
                 const p2 = b.phase2_duration ? parseInt(b.phase2_duration) : null;
                 const isLocked = (b.isManualLocked === true || String(b.isManualLocked) === 'TRUE');
 
-                // 3. [V102.5 NEW] STRICT RESOURCE LOGIC
-                // Logic này tạo ra chỉ thị cứng, không cho phép các bước sau tự ý "đoán"
+                // STRICT RESOURCE LOGIC
                 let forceResourceType = null;
                 let isForcedSingle = false;
 
@@ -257,24 +263,21 @@ const App = () => {
                     flow: rawFlow,
                     isManualLocked: isLocked,
                     originalNote: b.ghiChu || b.note || "",
-                    // V102.5 Props
                     forceResourceType: forceResourceType,
                     isForcedSingle: isForcedSingle
                 };
             });
 
-            // Map Bookings để tra cứu nhanh
             const bookingMap = new Map();
             cleanBookings.forEach(b => bookingMap.set(String(b.rowId), b));
 
-            // Lọc đơn trong ngày
             const relevantBookings = cleanBookings.filter(b => 
                 window.isWithinOperationalDay(b.startTimeString.split(' ')[0], b.startTimeString.split(' ')[1], viewDate) && 
                 !b.status.includes('取消') && 
                 !b.status.includes('Cancelled')
             );
             
-            // Sync Logic (Giữ trạng thái Local nếu server chậm)
+            // Sync Logic
             if (!syncLock) {
                 setBookings(prev => {
                     const combinedMap = new Map();
@@ -304,17 +307,18 @@ const App = () => {
             const currentRes = serverRes || {};
             setStatusData(serverStaff || {});
 
-            // --- DATA HYDRATION (Cực kỳ quan trọng) ---
+            // --- DATA HYDRATION (QUAN TRỌNG CHO OPTIMISTIC UPDATE) ---
+            // Cập nhật lại thông tin thời gian vào resource đang chạy để khớp với booking list
             Object.keys(currentRes).forEach(key => {
                 if (currentRes[key] && currentRes[key].booking) {
                     const rowId = String(currentRes[key].booking.rowId);
                     if (bookingMap.has(rowId)) {
                         const freshData = bookingMap.get(rowId);
+                        // Hydrate các trường quan trọng
                         currentRes[key].booking.phase1_duration = freshData.phase1_duration;
                         currentRes[key].booking.phase2_duration = freshData.phase2_duration;
                         currentRes[key].booking.flow = freshData.flow;
                         currentRes[key].booking.isManualLocked = freshData.isManualLocked;
-                        // V102.5 Hydrate
                         currentRes[key].booking.forceResourceType = freshData.forceResourceType;
                         currentRes[key].booking.isForcedSingle = freshData.isForcedSingle;
                     }
@@ -334,9 +338,7 @@ const App = () => {
                 timelineGrid[resId].push({ start, end, booking, meta });
             };
 
-            // =================================================================
-            // MATRIX LAYER 1: RUNNING STATE (Khách đang nằm)
-            // =================================================================
+            // LAYER 1: RUNNING STATE
             Object.keys(currentRes).forEach(key => {
                 if(currentRes[key].isRunning) {
                     tempState[key] = currentRes[key];
@@ -347,28 +349,27 @@ const App = () => {
                     let durationUsed = b.duration;
                     let isPhase1 = false;
                     
-                    // [V102.5 FIX] Nếu là Strict Single (FOOTSINGLE/BODYSINGLE), TUYỆT ĐỐI KHÔNG coi là Combo.
-                    // Bất kể backend có gửi comboMeta hay không.
+                    // Strict Single check
                     const isStrictSingle = b.isForcedSingle === true; 
 
                     if (currentRes[key].comboMeta && !isStrictSingle) {
                         const seq = currentRes[key].comboMeta.sequence || 'FB';
                         const isMax = currentRes[key].isMaxMode;
                         
+                        // Sử dụng getSmartSplit mới đã được cập nhật logic ưu tiên
                         const split = getSmartSplit(b, b.duration, isMax, seq);
                         isPhase1 = (seq === 'FB' && key.includes('chair')) || (seq === 'BF' && key.includes('bed'));
                         
                         if (isPhase1) durationUsed = split.phase1 + (currentRes[key].comboMeta.flex || 0);
                         else durationUsed = split.phase2; 
                     } else {
-                        // Nếu là Single, chắc chắn không có comboMeta để UI không hiển thị nhầm
                          tempState[key].comboMeta = null;
                     }
 
                     const endMins = startMins + durationUsed;
                     activeEndTimes[key] = endMins;
                     addToGrid(key, startMins, endMins, b, {
-                        isCombo: !!tempState[key].comboMeta, // Dùng giá trị đã check
+                        isCombo: !!tempState[key].comboMeta,
                         phase: isPhase1 ? 1 : 2,
                         sequence: tempState[key].comboMeta?.sequence,
                         isRunning: true 
@@ -376,12 +377,9 @@ const App = () => {
                 }
             });
 
-            // =================================================================
-            // MATRIX LAYER 2: GHOST BLOCKS (Dự đoán phần còn lại)
-            // =================================================================
+            // LAYER 2: GHOST BLOCKS
             Object.keys(tempState).forEach(key => {
                 const item = tempState[key];
-                // [V102.5 FIX] Ghost Blocks chỉ sinh ra nếu KHÔNG phải là Strict Single
                 if (item.comboMeta && !item.booking.isForcedSingle) {
                     const seq = item.comboMeta.sequence || 'FB';
                     const isChair = key.includes('chair');
@@ -409,9 +407,7 @@ const App = () => {
                 }
             });
 
-            // =================================================================
-            // MATRIX LAYER 3: PENDING BOOKINGS (Khách chưa đến)
-            // =================================================================
+            // LAYER 3: PENDING BOOKINGS
             const runningPool = [];
             Object.values(tempState).forEach(state => {
                 if (state.booking) {
@@ -437,7 +433,6 @@ const App = () => {
                 return true;
             });
             
-            // Grouping logic
             const groupedPending = {};
             pendingBookings.forEach(b => {
                 const timeKey = (b.startTimeString || "").split(' ')[1] || '00:00';
@@ -458,7 +453,6 @@ const App = () => {
             Object.values(groupedPending).forEach(group => {
                 group.sort((a, b) => parseInt(a.rowId) - parseInt(b.rowId));
                 const first = group[0];
-                // [V102.5 FIX] Nếu là Strict Single (forceResourceType khác null) -> Chắc chắn là Single
                 const isForceSingle = first.forceResourceType !== null;
                 const isCombo = !isForceSingle && (first.category === 'COMBO' || (first.serviceName && first.serviceName.includes('套餐')));
                 
@@ -470,13 +464,9 @@ const App = () => {
             listSingles.sort(sortFn);
             listCombosGroups.sort((a,b) => sortFn(a[0], b[0]));
 
-            // --- ALLOCATE SINGLES (WITH V102.5 LOGIC) ---
+            // ALLOCATE SINGLES
             listSingles.forEach(b => {
                 const originalStart = window.normalizeToTimelineMins(b.startTimeString.split(' ')[1]);
-                
-                // [V102.5] DECISION TREE FOR RESOURCE TYPE
-                // Priority 1: Force Type (From FOOTSINGLE/BODYSINGLE)
-                // Priority 2: Service Definition Type
                 let type = 'chair';
                 if (b.forceResourceType) {
                     type = b.forceResourceType === 'CHAIR' ? 'chair' : 'bed';
@@ -493,7 +483,7 @@ const App = () => {
                 }
             });
 
-            // --- ALLOCATE COMBOS (TRUST THE SHEET) ---
+            // ALLOCATE COMBOS
             listCombosGroups.forEach(group => {
                 const firstBooking = group[0]; 
                 const originalStart = window.normalizeToTimelineMins(firstBooking.startTimeString.split(' ')[1]);
@@ -532,12 +522,7 @@ const App = () => {
                 const idealNumBF = Math.ceil(groupSize / 2); 
 
                 group.forEach((bookingItem, idx) => {
-                    // Check logic for Single forced booking accidentally grouped? (Safe guard)
-                    if (bookingItem.forceResourceType) {
-                         // Fallback to single allocation logic if strict type found inside a group
-                         // (But usually grouping logic prevents this)
-                         return; 
-                    }
+                    if (bookingItem.forceResourceType) return; 
 
                     const dataFlow = bookingItem.flow; 
                     const noteFlow = detectFlowFromNote(bookingItem.originalNote || masterNote, idx);
@@ -606,7 +591,7 @@ const App = () => {
 
             setTimelineData(timelineGrid);
 
-            // --- PREVIEW RESOURCE CARD ---
+            // PREVIEW RESOURCE CARD
             const allSlots = [];
             for(let i=1; i<=6; i++) allSlots.push(`chair-${i}`);
             for(let i=1; i<=6; i++) allSlots.push(`bed-${i}`);
@@ -624,7 +609,6 @@ const App = () => {
                         booking: { ...currentSlot.booking, customerName: nameLabel, serviceStaff: null }, 
                         startTime: null, isRunning: false, 
                         isPreview: true, previewType: 'NOW', 
-                        // [V102.5] Prevent Preview from showing combo meta if strict single
                         comboMeta: (currentSlot.meta.isCombo && !isStrict) ? { sequence: currentSlot.meta.sequence, phase: currentSlot.meta.phase, targetId: currentSlot.meta.targetId } : null, 
                         isMaxMode: true 
                     };
@@ -754,14 +738,27 @@ const App = () => {
         setEditComboTarget({ id: resId, booking: current.booking });
     };
 
+    // --- HANDLE SAVE COMBO TIME (MAJOR UPDATE V102.6: OPTIMISTIC UI) ---
     const handleSaveComboTime = async (newPhase1) => {
         if (!editComboTarget) return;
         const { booking } = editComboTarget;
         const rowId = booking.rowId;
         const totalDuration = parseInt(booking.duration || 100);
-        const newPhase2 = totalDuration - newPhase1;
 
-        setSyncLock(true); setTimeout(() => setSyncLock(false), 5000);
+        // 1. VALIDATION
+        const p1 = parseInt(newPhase1);
+        if (isNaN(p1) || p1 <= 0 || p1 >= totalDuration) {
+            alert("⚠️ Invalid Phase 1 Duration (Thời gian không hợp lệ)!");
+            return;
+        }
+
+        const newPhase2 = totalDuration - p1;
+
+        // 2. OPTIMISTIC UI UPDATE
+        // Cập nhật State ngay lập tức không cần chờ Server
+        // Khoá Sync tạm thời để tránh Server ghi đè dữ liệu cũ trong vài giây
+        setSyncLock(true); 
+        setTimeout(() => setSyncLock(false), 5000);
 
         const newState = { ...resourceState };
         Object.keys(newState).forEach(key => {
@@ -769,16 +766,36 @@ const App = () => {
             if (res.booking && String(res.booking.rowId) === String(rowId)) {
                 newState[key] = {
                     ...res,
-                    booking: { ...res.booking, phase1_duration: newPhase1, phase2_duration: newPhase2 }
+                    booking: { 
+                        ...res.booking, 
+                        phase1_duration: p1, 
+                        phase2_duration: newPhase2,
+                        isManualLocked: true // Cờ quan trọng để báo cho UI biết đây là manual
+                    }
                 };
             }
         });
+
         setResourceState(newState);
+        setEditComboTarget(null); // Đóng modal ngay
+
+        // 3. SERVER PAYLOAD
+        // Gửi lệnh lên server ở background
         try {
-            await axios.post('/api/update-booking-details', { rowId, phase1_duration: newPhase1, phase2_duration: newPhase2, isManualLocked: true });
+            await axios.post('/api/update-booking-details', { 
+                rowId, 
+                phase1_duration: p1, 
+                phase2_duration: newPhase2, 
+                isManualLocked: true // Bắt buộc khoá để server không tự tính lại
+            });
+            // Gọi sync-resource để server biết trạng thái mới nhất (Optional nhưng an toàn)
             await updateResource(newState);
-        } catch(e) { console.error("Save Time Error", e); alert("⚠️ 儲存失敗 (Save Failed)"); }
-        setEditComboTarget(null);
+        } catch(e) { 
+            console.error("Save Time Error", e); 
+            alert("⚠️ 儲存失敗 (Save Failed)! Please refresh."); 
+            // Nếu lỗi, nên refresh lại data để đồng bộ
+            fetchData(true);
+        }
     };
 
     const executeStart = (id, comboSequence) => {
@@ -790,8 +807,7 @@ const App = () => {
         let currentId = id; let shouldMove = false; let targetMoveId = null;
         setSyncLock(true); setTimeout(() => setSyncLock(false), 5000);
         
-        // [V102.5] ACTION GUARD
-        // Nếu là Strict Single, cấm mọi hành vi tự động chuyển ghế
+        // ACTION GUARD FOR STRICT SINGLE
         const isStrict = current.booking.isForcedSingle === true;
         
         if (comboSequence && !isStrict) {
@@ -830,8 +846,7 @@ const App = () => {
         updateStaffStatus(newStatusData); 
         
         const grpIdx = getGroupMemberIndex(currentId, current.booking.rowId);
-        // [V102.5] Fix Combo Category Logic
-        // Nếu là Strict Single, Category chắc chắn là SINGLE
+        // Fix Combo Category Logic
         const isComboService = !isStrict && ((current.booking.serviceName && current.booking.serviceName.includes('套餐')) || comboSequence);
         const newBooking = { ...current.booking, category: isComboService ? 'COMBO' : 'SINGLE' };
 
@@ -858,7 +873,6 @@ const App = () => {
             if (!ghostTargetId) ghostTargetId = `${targetTypePrefix}-${index}`;
             comboMeta = { sequence: comboSequence, targetId: ghostTargetId, flex: (current.comboMeta && current.comboMeta.flex) || 0, phase: 1 };
         } else if (isStrict) {
-            // Double check to ensure meta is null
             comboMeta = null;
         }
         
@@ -909,7 +923,7 @@ const App = () => {
 
     const confirmComboStart = (sequence) => { if (comboStartData) { executeStart(comboStartData.id, sequence); setComboStartData(null); } };
     
-    // [V102.5] HANDLE SWITCH GUARD
+    // HANDLE SWITCH GUARD
     const handleSwitch = (fromId, toType) => { 
         const currentData = resourceState[fromId]; 
         if(!currentData) return; 
@@ -939,7 +953,7 @@ const App = () => {
 
     const handleToggleMax = async (resId) => { const res = resourceState[resId]; if (!res) return; updateResource({ ...resourceState, [resId]: { ...res, isMaxMode: !res.isMaxMode } }); };
     
-    // [V102.5] SEQUENCE TOGGLE GUARD
+    // SEQUENCE TOGGLE GUARD
     const handleToggleSequence = async (resId) => { 
         const res = resourceState[resId]; 
         if (!res || !res.comboMeta) return; 
@@ -1042,7 +1056,7 @@ const App = () => {
         <div className="min-h-screen flex flex-col bg-slate-50">
             <header className={`text-white p-3 shadow-md flex justify-between items-center sticky top-0 z-50 transition-colors ${quotaError ? 'bg-red-800' : 'bg-[#1e1b4b]'}`}>
                 <div className="flex items-center gap-3">
-                    <span className="bg-emerald-500 text-white px-2 py-1 rounded font-black text-sm shadow-sm">V102.5</span>
+                    <span className="bg-emerald-500 text-white px-2 py-1 rounded font-black text-sm shadow-sm">V102.6</span>
                     <span className="font-bold hidden md:inline tracking-wider">XinWuChan</span>
                     <div className="flex items-center gap-2 bg-white/10 rounded px-2 py-1 border border-white/20">
                         <button onClick={()=>{const d=new Date(viewDate); d.setDate(d.getDate()-1); setViewDate(d.toISOString().split('T')[0])}} className="text-white hover:text-amber-400 font-bold px-2">❯</button>

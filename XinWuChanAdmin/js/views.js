@@ -1,12 +1,12 @@
 /**
  * ============================================================================
  * FILE: js/views.js
- * PHIÊN BẢN: V5.4 (VISUAL ENHANCEMENT: FLOW ALERTS)
+ * PHIÊN BẢN: V5.5 (FEATURE: COMBO TIME EDITOR)
  * MÔ TẢ: CÁC COMPONENT HIỂN THỊ CHÍNH (TIMELINE, REPORT, CARD...)
  * CẬP NHẬT: 
- * 1. [TimelineView]: Highlight đậm các booking bị đảo chiều (BF - Body First).
- * 2. [ResourceCard]: Thêm thẻ cảnh báo nhấp nháy cho BF để nhân viên không nhầm.
- * 3. [UX]: Tối ưu hóa hiển thị text và icon để dễ nhìn hơn trên màn hình cảm ứng.
+ * 1. [TimelineView]: Thêm Modal chỉnh sửa thời gian Phase 1 / Phase 2 cho Combo.
+ * 2. [TimelineView]: Tự động tính toán thời gian còn lại khi nhập liệu.
+ * 3. [Core]: Giữ nguyên toàn bộ logic V5.4 (BF Indicators, Animations, Commission).
  * TÁC GIẢ: AI ASSISTANT & USER
  * ============================================================================
  */
@@ -14,9 +14,152 @@
 const { useState, useEffect, useMemo, useRef } = React;
 
 // ============================================================================
+// 0. MODAL COMPONENT (NEW IN V5.5)
+// Modal chỉnh sửa thời gian chia Phase cho Combo
+// ============================================================================
+const ComboTimeEditModal = ({ isOpen, onClose, onSave, booking, meta }) => {
+    if (!isOpen || !booking) return null;
+
+    // Tổng thời gian của gói (cố định)
+    const totalDuration = booking.duration || 0;
+    
+    // State lưu thời gian Phase 1 (mặc định lấy từ meta hoặc chia đôi)
+    // Nếu meta.phase1_duration chưa có, mặc định là 50%
+    const initialP1 = meta && meta.phase1_duration ? meta.phase1_duration : (totalDuration / 2);
+    const [phase1, setPhase1] = useState(initialP1);
+
+    useEffect(() => {
+        if (isOpen && booking) {
+            const currentP1 = meta && meta.phase1_duration ? meta.phase1_duration : (booking.duration / 2);
+            setPhase1(currentP1);
+        }
+    }, [isOpen, booking, meta]);
+
+    // Tính toán Phase 2 dựa trên Phase 1
+    const phase2 = totalDuration - phase1;
+
+    // Xử lý khi nhập Phase 1
+    const handleChangeP1 = (val) => {
+        let newP1 = parseInt(val) || 0;
+        if (newP1 < 0) newP1 = 0;
+        if (newP1 > totalDuration) newP1 = totalDuration;
+        setPhase1(newP1);
+    };
+
+    // Xử lý khi nhập Phase 2 (sẽ cập nhật ngược lại Phase 1)
+    const handleChangeP2 = (val) => {
+        let newP2 = parseInt(val) || 0;
+        if (newP2 < 0) newP2 = 0;
+        if (newP2 > totalDuration) newP2 = totalDuration;
+        setPhase1(totalDuration - newP2);
+    };
+
+    return (
+        <div className="fixed inset-0 z-[999] flex items-center justify-center bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+            <div className="bg-white rounded-xl shadow-2xl w-full max-w-md overflow-hidden border border-slate-200 transform scale-100 transition-all">
+                {/* Header */}
+                <div className="bg-gradient-to-r from-indigo-600 to-blue-600 p-4 flex justify-between items-center text-white">
+                    <h3 className="font-bold text-lg flex items-center gap-2">
+                        <i className="fas fa-clock"></i> Chỉnh sửa thời gian Combo
+                    </h3>
+                    <button onClick={onClose} className="hover:bg-white/20 rounded-full w-8 h-8 flex items-center justify-center transition-colors">
+                        <i className="fas fa-times"></i>
+                    </button>
+                </div>
+
+                {/* Body */}
+                <div className="p-6 space-y-6">
+                    <div className="bg-blue-50 p-3 rounded-lg border border-blue-100 text-center">
+                        <span className="text-sm text-blue-600 font-bold uppercase tracking-wider">Tổng thời gian dịch vụ</span>
+                        <div className="text-3xl font-black text-blue-800 mt-1">{totalDuration} <span className="text-base font-normal">phút</span></div>
+                        <div className="text-xs text-blue-500 mt-1">{booking.serviceName}</div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-6 relative">
+                        {/* Divider Arrow */}
+                        <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 text-gray-300 z-0">
+                            <i className="fas fa-exchange-alt text-xl"></i>
+                        </div>
+
+                        {/* Phase 1 Input */}
+                        <div className="relative z-10">
+                            <label className="block text-xs font-bold text-indigo-700 mb-1 uppercase">Phase 1 (Trước)</label>
+                            <div className="relative">
+                                <input 
+                                    type="number" 
+                                    value={phase1}
+                                    onChange={(e) => handleChangeP1(e.target.value)}
+                                    className="w-full text-center border-2 border-indigo-200 rounded-lg py-2 text-xl font-bold text-indigo-900 focus:border-indigo-500 focus:outline-none"
+                                />
+                                <span className="absolute right-2 top-3 text-xs text-gray-400">phút</span>
+                            </div>
+                            <div className="text-[10px] text-gray-500 mt-1 text-center">
+                                Thay đổi ô này sẽ tự tính Phase 2
+                            </div>
+                        </div>
+
+                        {/* Phase 2 Input */}
+                        <div className="relative z-10">
+                            <label className="block text-xs font-bold text-orange-700 mb-1 uppercase">Phase 2 (Sau)</label>
+                            <div className="relative">
+                                <input 
+                                    type="number" 
+                                    value={phase2}
+                                    onChange={(e) => handleChangeP2(e.target.value)}
+                                    className="w-full text-center border-2 border-orange-200 rounded-lg py-2 text-xl font-bold text-orange-900 focus:border-orange-500 focus:outline-none"
+                                />
+                                <span className="absolute right-2 top-3 text-xs text-gray-400">phút</span>
+                            </div>
+                            <div className="text-[10px] text-gray-500 mt-1 text-center">
+                                Thay đổi ô này sẽ tự tính Phase 1
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Visual Bar */}
+                    <div className="h-4 w-full bg-gray-200 rounded-full overflow-hidden flex shadow-inner">
+                        <div 
+                            className="h-full bg-indigo-500 transition-all duration-300"
+                            style={{ width: `${(phase1 / totalDuration) * 100}%` }}
+                            title={`Phase 1: ${phase1}p`}
+                        ></div>
+                        <div 
+                            className="h-full bg-orange-400 transition-all duration-300"
+                            style={{ width: `${(phase2 / totalDuration) * 100}%` }}
+                            title={`Phase 2: ${phase2}p`}
+                        ></div>
+                    </div>
+                </div>
+
+                {/* Footer */}
+                <div className="bg-gray-50 p-4 border-t border-gray-200 flex justify-end gap-3">
+                    <button 
+                        onClick={onClose}
+                        className="px-4 py-2 rounded-lg text-gray-600 font-bold hover:bg-gray-200 transition-colors text-sm"
+                    >
+                        Hủy bỏ
+                    </button>
+                    <button 
+                        onClick={() => onSave(booking, phase1)}
+                        className="px-6 py-2 rounded-lg bg-indigo-600 text-white font-bold shadow-lg hover:bg-indigo-700 transform active:scale-95 transition-all text-sm flex items-center gap-2"
+                    >
+                        <i className="fas fa-save"></i> Lưu Thay Đổi
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+// ============================================================================
 // 1. TIMELINE VIEW (Biểu đồ thời gian Gantt)
 // ============================================================================
 const TimelineView = ({ timelineData, onEditPhase }) => {
+    // State cho Modal chỉnh sửa
+    const [editModalOpen, setEditModalOpen] = useState(false);
+    const [selectedBooking, setSelectedBooking] = useState(null);
+    const [selectedMeta, setSelectedMeta] = useState(null);
+
     // Cấu hình thời gian hiển thị
     const startHour = 8;
     const endHour = 27; // 27 = 3h sáng hôm sau
@@ -85,6 +228,23 @@ const TimelineView = ({ timelineData, onEditPhase }) => {
         return last3 ? `${name} (${last3})` : name;
     };
 
+    // Hàm mở modal khi click vào nút bút chì
+    const handleOpenEdit = (booking, meta) => {
+        setSelectedBooking(booking);
+        setSelectedMeta(meta);
+        setEditModalOpen(true);
+    };
+
+    // Hàm lưu dữ liệu từ Modal
+    const handleSaveTime = (booking, newPhase1) => {
+        // Gọi callback onEditPhase truyền từ cha xuống (nếu có)
+        // Lưu ý: Ta truyền thêm tham số newPhase1 để App biết cần cập nhật
+        if (onEditPhase) {
+            onEditPhase(booking, { ...selectedMeta, newPhase1Duration: newPhase1 });
+        }
+        setEditModalOpen(false);
+    };
+
     const safeData = timelineData || {};
 
     return (
@@ -109,6 +269,15 @@ const TimelineView = ({ timelineData, onEditPhase }) => {
                     100% { border-color: #4f46e5; box-shadow: 0 0 0 0 rgba(79, 70, 229, 0); }
                 }
             `}</style>
+
+            {/* Render Modal if open */}
+            <ComboTimeEditModal 
+                isOpen={editModalOpen}
+                onClose={() => setEditModalOpen(false)}
+                onSave={handleSaveTime}
+                booking={selectedBooking}
+                meta={selectedMeta}
+            />
 
             <div style={{ width: `${TOTAL_WIDTH}px`, minWidth: '100%' }}>
                 {/* HEADER ROW */}
@@ -206,15 +375,16 @@ const TimelineView = ({ timelineData, onEditPhase }) => {
                                                     <span>{slot.booking.serviceName}</span>
                                                 </div>
 
-                                                {/* Edit Phase Button */}
+                                                {/* Edit Phase Button (Updated to Open Modal) */}
                                                 {slot.meta && slot.meta.isCombo && (
                                                     <button 
-                                                        className="edit-btn absolute top-0.5 right-0.5 w-5 h-5 bg-white text-gray-400 rounded-full flex items-center justify-center shadow-md border border-gray-200 z-50"
+                                                        className="edit-btn absolute top-0.5 right-0.5 w-5 h-5 bg-white text-gray-400 rounded-full flex items-center justify-center shadow-md border border-gray-200 z-50 hover:text-indigo-600 hover:border-indigo-300"
                                                         onClick={(e) => {
                                                             e.stopPropagation();
-                                                            if (onEditPhase) onEditPhase(slot.booking, slot.meta);
+                                                            // Mở Modal thay vì gọi trực tiếp callback
+                                                            handleOpenEdit(slot.booking, slot.meta);
                                                         }}
-                                                        title="Chỉnh sửa thời gian"
+                                                        title="Chỉnh sửa thời gian Phase"
                                                     >
                                                         <i className="fas fa-pencil-alt text-[10px]"></i>
                                                     </button>

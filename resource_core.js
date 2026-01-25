@@ -2,24 +2,23 @@
  * =================================================================================================
  * PROJECT: XINWUCHAN MASSAGE BOT - CORE LOGIC KERNEL (SERVER SIDE)
  * FILE: resource_core.js
- * PHIÊN BẢN: V114.0 (INTELLIGENT FLOW INFERENCE UPGRADE)
- * NGÀY CẬP NHẬT: 2026/01/24
+ * PHIÊN BẢN: V115.0 (PHASE DURATION LOCK & PRECISE TIMELINE)
+ * NGÀY CẬP NHẬT: 2026/01/25
  * TÁC GIẢ: AI ASSISTANT & USER
  *
- * * * * * CHANGE LOG V114.0 (BRAIN UPGRADE) * * * * *
- * 1. [CRITICAL] INTELLIGENT FLOW INFERENCE (Suy luận luồng thông minh):
- * - Trước đây: Server thụ động chờ Client gửi 'FOOTSINGLE'/'BODYSINGLE'.
- * - Bây giờ: Server tự động kiểm tra Service Type/Category. 
- * + Nếu là FOOT/CHAIR -> Tự động gán dòng chảy 'FOOTSINGLE'.
- * + Nếu là BODY/BED -> Tự động gán dòng chảy 'BODYSINGLE'.
- * - Loại bỏ hoàn toàn sự phụ thuộc vào Frontend trong việc định danh tài nguyên.
- * * 2. [BACKWARD COMPATIBILITY] AUTO-CORRECT EXISTING DATA:
- * - Khi đọc Booking cũ từ DB (Step B), nếu thấy flow='SINGLE', Server tự động
- * nâng cấp lên 'FOOTSINGLE' hoặc 'BODYSINGLE' để đồng bộ với logic mới.
- * * 3. [MAINTAIN] CORE FEATURES PRESERVED:
- * - Giữ nguyên Guardrail V113 (Kiểm tra tải trọng nghiêm ngặt).
- * - Giữ nguyên Matrix Couple Sync (Xếp cặp đôi).
- * - Giữ nguyên Universal Date Adapter.
+ * * * * * CHANGE LOG V115.0 (PRECISION UPGRADE) * * * * *
+ * 1. [CRITICAL] PRECISE PHASE TIMING (Đồng bộ thời gian pha):
+ * - Trước đây: Logic chia đôi (50/50) được dùng làm fallback quá thường xuyên.
+ * - Bây giờ: Hệ thống ưu tiên tuyệt đối `phase1_duration` từ Booking Data.
+ * Nếu quản lý sửa Phase 1 thành 40p (trong tổng 90p), hệ thống tính toán
+ * chính xác điểm chuyển giao tài nguyên tại phút thứ 40.
+ * * 2. [VISUAL] GHOST BLOCK ACCURACY:
+ * - Khi tính toán lại các booking cũ (Step B), các khối thời gian (Blocks)
+ * được tạo ra dựa trên tỷ lệ thực tế đã lưu, không phải tỷ lệ lý thuyết.
+ * * 3. [INHERITANCE] GIỮ NGUYÊN TÍNH NĂNG V114:
+ * - Intelligent Flow Inference (Tự suy luận dòng chảy).
+ * - Guardrail Capacity Check (Kiểm tra tải trọng).
+ * - Universal Date Adapter (Chuẩn hóa ngày tháng).
  * =================================================================================================
  */
 
@@ -72,11 +71,11 @@ function setDynamicServices(newServicesObj) {
     SERVICES = { ...newServicesObj, ...systemServices };
     
     // Log kiểm tra để đảm bảo Service Code được load đúng
-    // console.log(`[CORE V114.0] Services Database Synced. Total Items: ${Object.keys(SERVICES).length}`);
+    // console.log(`[CORE V115.0] Services Database Synced. Total Items: ${Object.keys(SERVICES).length}`);
 }
 
 /**
- * [HELPER V114] Lấy thông tin dịch vụ an toàn.
+ * [HELPER] Lấy thông tin dịch vụ an toàn.
  * Ưu tiên tìm theo CODE (Cột A), nếu không thấy tìm theo NAME (Cột B).
  * @param {string} code - Mã dịch vụ (VD: 'A6')
  * @param {string} name - Tên dịch vụ (VD: 'Foot Massage 60min')
@@ -104,14 +103,13 @@ function getServiceInfo(code, name) {
 
 // ============================================================================
 // PHẦN 2: UNIVERSAL DATE ADAPTER (CÔNG CỤ XỬ LÝ NGÀY TUYỆT ĐỐI)
-// Mô tả: Trái tim của bản cập nhật V112/V113/V114. Xử lý sự bất nhất về định dạng ngày.
+// Mô tả: Xử lý sự bất nhất về định dạng ngày.
 // ============================================================================
 
 /**
  * [CRITICAL] HÀM CHUẨN HÓA NGÀY TUYỆT ĐỐI.
  * Chuyển mọi định dạng (DD/MM/YYYY, YYYY-MM-DD, dấu chấm, dấu gạch) về YYYY/MM/DD.
- * Đảm bảo Server luôn hiểu đúng ngày mà Client gửi lên hoặc đọc từ Database.
- * * @param {string|Date} input - Chuỗi ngày đầu vào
+ * @param {string|Date} input - Chuỗi ngày đầu vào
  * @returns {string} - Chuỗi ngày chuẩn dạng "YYYY/MM/DD"
  */
 function normalizeDateStrict(input) {
@@ -148,10 +146,10 @@ function normalizeDateStrict(input) {
             return `${partC}/${partB.padStart(2, '0')}/${partA.padStart(2, '0')}`;
         }
 
-        // Mặc định trả về nguyên gốc nếu không nhận diện được (ví dụ năm 2 số)
+        // Mặc định trả về nguyên gốc nếu không nhận diện được
         return str;
     } catch (e) {
-        console.error("[CORE V114.0] Date Normalize Error:", e);
+        console.error("[CORE V115.0] Date Normalize Error:", e);
         return input;
     }
 }
@@ -172,7 +170,6 @@ function getTaipeiNow() {
 
 /**
  * Chuyển đổi chuỗi giờ "HH:mm" thành tổng số phút tính từ 00:00.
- * Hỗ trợ xử lý giờ qua đêm (VD: 01:00 sáng hôm sau = 25:00).
  */
 function getMinsFromTimeStr(timeStr) {
     if (!timeStr) return -1; 
@@ -213,7 +210,6 @@ function getTimeStrFromMins(mins) {
 
 /**
  * Kiểm tra sự trùng lặp thời gian (Overlap) giữa 2 khoảng [startA, endA] và [startB, endB].
- * Sử dụng CONFIG.TOLERANCE để tránh lỗi làm tròn số.
  */
 function isOverlap(startA, endA, startB, endB) {
     const safeEndA = endA - CONFIG.TOLERANCE; 
@@ -222,14 +218,13 @@ function isOverlap(startA, endA, startB, endB) {
 }
 
 /**
- * [V112 Synced] Normalize Booking Status
  * Kiểm tra xem trạng thái booking có đang chiếm chỗ (Active) hay không.
  */
 function isActiveBookingStatus(statusRaw) {
     if (!statusRaw) return false;
     const s = statusRaw.toString().toLowerCase().trim();
     
-    // Các trạng thái KHÔNG chiếm chỗ (Đã xong, Đã hủy, Checkout)
+    // Các trạng thái KHÔNG chiếm chỗ
     const inactiveKeywords = [
         'cancel', 'hủy', 'huỷ', 'finish', 'done', 'xong', 
         'check-out', 'checkout', '取消', '完成', '空'
@@ -237,22 +232,18 @@ function isActiveBookingStatus(statusRaw) {
     for (const kw of inactiveKeywords) {
         if (s.includes(kw)) return false;
     }
-
-    // Mặc định: Nếu không phải trạng thái Hủy/Xong thì là Active (Running, Waiting, Reserved...)
     return true; 
 }
 
 // ============================================================================
-// PHẦN 4: BỘ NHẬN DIỆN THÔNG MINH (SMART CLASSIFIER V114)
+// PHẦN 4: BỘ NHẬN DIỆN THÔNG MINH (SMART CLASSIFIER)
 // Mô tả: Phân loại dịch vụ Combo/Single và tự động suy luận Flow Code.
 // ============================================================================
 
 /**
  * Kiểm tra xem một dịch vụ có phải là COMBO (làm cả chân và mình) hay không.
- * Cập nhật V113+: Nhận thêm explicitFlow để loại trừ các mã Single mới.
  */
 function isComboService(serviceObj, serviceNameRaw = '', explicitFlow = null) {
-    // [V114.0] EXPLICIT FLOW CHECK
     // Nếu explicitFlow là các mã Single, return false ngay lập tức.
     if (explicitFlow) {
         const flowUpper = explicitFlow.toString().toUpperCase().trim();
@@ -261,10 +252,9 @@ function isComboService(serviceObj, serviceNameRaw = '', explicitFlow = null) {
         if (flowUpper === 'BF' || flowUpper === 'FB') return true;
     }
 
-    // Check nếu obj không tồn tại
     if (!serviceObj && !serviceNameRaw) return false;
 
-    // Ưu tiên check Category trong Database (Do Service Code đã map đúng)
+    // Ưu tiên check Category trong Database
     const cat = (serviceObj && serviceObj.category ? serviceObj.category : '').toString().toUpperCase().trim();
     if (cat === 'COMBO' || cat === 'MIXED') return true;
 
@@ -286,60 +276,44 @@ function isComboService(serviceObj, serviceNameRaw = '', explicitFlow = null) {
 }
 
 /**
- * [NEW V114.0] INTELLIGENT FLOW INFERENCE
+ * INTELLIGENT FLOW INFERENCE
  * Tự động suy luận Flow Code (FOOTSINGLE/BODYSINGLE) dựa trên thông tin dịch vụ.
- * Đây là chức năng cốt lõi mới giúp Server thông minh như Frontend.
- * @param {Object} serviceObj - Object dịch vụ từ DB
- * @param {string} fallbackFlow - Flow code hiện tại (nếu có)
- * @returns {string} - 'FOOTSINGLE' hoặc 'BODYSINGLE' hoặc 'SINGLE' (nếu bất lực)
  */
 function inferFlowFromService(serviceObj, fallbackFlow = null) {
-    // 1. Nếu đã có flow code cụ thể, dùng luôn
     if (fallbackFlow) {
         const f = fallbackFlow.toString().toUpperCase().trim();
         if (f === 'FOOTSINGLE' || f === 'BODYSINGLE') return f;
     }
 
-    if (!serviceObj) return 'BODYSINGLE'; // Default an toàn là Giường
+    if (!serviceObj) return 'BODYSINGLE'; 
 
     const type = (serviceObj.type || '').toUpperCase();
     const name = (serviceObj.name || '').toUpperCase();
 
-    // 2. Kiểm tra trường 'Type' trong DB (Độ ưu tiên cao nhất)
+    // Kiểm tra trường 'Type'
     if (type === 'FOOT' || type === 'CHAIR' || type === 'LEG') return 'FOOTSINGLE';
     if (type === 'BODY' || type === 'BED' || type === 'OIL' || type === 'SPA') return 'BODYSINGLE';
 
-    // 3. Kiểm tra Category
+    // Kiểm tra Category
     const cat = (serviceObj.category || '').toUpperCase();
     if (cat === 'FOOT') return 'FOOTSINGLE';
     if (cat === 'BODY') return 'BODYSINGLE';
 
-    // 4. Fallback: Kiểm tra tên (Regex)
+    // Fallback: Kiểm tra tên (Regex)
     if (name.match(/FOOT|CHAIR|腳|足|LEG/)) return 'FOOTSINGLE';
     if (name.match(/BODY|BED|指壓|油|全身|BACK/)) return 'BODYSINGLE';
 
-    // 5. Nếu vẫn không biết, mặc định trả về BODYSINGLE (Giường luôn thiếu hơn Ghế)
     return 'BODYSINGLE';
 }
 
-/**
- * [LEGACY] Xác định loại tài nguyên chính (BED hoặc CHAIR) dựa trên dịch vụ.
- * Chỉ dùng làm fallback cuối cùng.
- */
-function detectResourceType(serviceObj) {
-    const flow = inferFlowFromService(serviceObj);
-    if (flow === 'FOOTSINGLE') return 'CHAIR';
-    return 'BED';
-}
-
 // ============================================================================
-// PHẦN 5: HÀNG RÀO DUNG LƯỢNG & STRICT RESOURCE (GUARDRAIL V114.0)
-// Mô tả: Logic kiểm tra tải trọng toàn cục, tích hợp Flow Inference.
+// PHẦN 5: HÀNG RÀO DUNG LƯỢNG & STRICT RESOURCE (GUARDRAIL V115.0)
+// Mô tả: Logic kiểm tra tải trọng toàn cục, tôn trọng phase1_duration.
 // ============================================================================
 
 /**
- * [UPDATED V114.0] Suy luận loại tài nguyên đang bị chiếm dụng.
- * Tích hợp logic inferFlowFromService để tự động sửa lỗi Booking cũ (SINGLE).
+ * [UPDATED V115.0] Suy luận loại tài nguyên đang bị chiếm dụng.
+ * Đặc biệt chú trọng vào phase1_duration tùy chỉnh để xác định đúng thời điểm chuyển giao.
  */
 function inferResourceAtTime(booking, timeMins) {
     const bStart = getMinsFromTimeStr(booking.startTime);
@@ -351,23 +325,19 @@ function inferResourceAtTime(booking, timeMins) {
     // Nếu thời gian kiểm tra nằm ngoài phạm vi booking -> Không chiếm
     if (timeMins < bStart || timeMins >= bEnd) return null; 
 
-    // [V114.0] PRIORITY 1: AUTO-INFER SINGLE FLOW
     const storedFlow = booking.flow || booking.originalData?.flowCode;
     
     // Sử dụng hàm thông minh mới
     const smartFlow = inferFlowFromService(svcInfo, storedFlow);
 
-    // [V114.0] PRIORITY 2: CHECK SINGLE
-    // Vì inferFlowFromService luôn trả về FOOTSINGLE/BODYSINGLE cho dịch vụ đơn
-    // Nên ta check trực tiếp ở đây
     const isCombo = isComboService(svcInfo, booking.serviceName, storedFlow);
 
     if (!isCombo) {
         // Dịch vụ đơn -> Mapping trực tiếp
         if (smartFlow === 'FOOTSINGLE') return 'CHAIR';
-        return 'BED'; // BODYSINGLE -> BED
+        return 'BED'; 
     } else {
-        // [V114.0] PRIORITY 3: COMBO LOGIC (Giữ nguyên V113)
+        // [V115.0] COMBO LOGIC WITH PRECISE TIMING
         let isBodyFirst = false;
         
         // 1. Kiểm tra cột AA (Flow Code)
@@ -378,14 +348,15 @@ function inferResourceAtTime(booking, timeMins) {
         else if (noteContent.includes('BF') || noteContent.includes('BODY FIRST') || noteContent.includes('先做身體')) isBodyFirst = true;
         else if (booking.allocated_resource && (booking.allocated_resource.includes('BED') || booking.allocated_resource.includes('BODY'))) isBodyFirst = true;
 
-        // 2. Kiểm tra cột Y (Phase 1 Duration) - Nếu có thì dùng, nếu không chia đôi
+        // 2. [CRITICAL V115.0] Lấy chính xác Phase 1 Duration
+        // Ưu tiên: booking.phase1_duration > booking.originalData.phase1_duration > Default split
         let p1 = 0;
-        if (booking.originalData && booking.originalData.phase1_duration) {
-             p1 = parseInt(booking.originalData.phase1_duration);
-        } else if (booking.phase1_duration) {
-             p1 = parseInt(booking.phase1_duration);
+        const p1Raw = booking.phase1_duration || (booking.originalData ? booking.originalData.phase1_duration : null);
+        
+        if (p1Raw !== null && p1Raw !== undefined && p1Raw !== "") {
+            p1 = parseInt(p1Raw, 10);
         } else {
-             p1 = Math.floor(duration / 2);
+            p1 = Math.floor(duration / 2);
         }
         
         const splitTime = bStart + p1;
@@ -407,7 +378,6 @@ function inferResourceAtTime(booking, timeMins) {
 function getEligibleStaffCount(staffList, currentTimeMins, requiredEndTime) {
     let count = 0;
     for (const [staffName, info] of Object.entries(staffList)) {
-        // 1. Bỏ qua nếu OFF hoặc không hợp lệ
         if (!info || info.off) continue;
 
         const shiftStart = getMinsFromTimeStr(info.start);
@@ -415,17 +385,12 @@ function getEligibleStaffCount(staffList, currentTimeMins, requiredEndTime) {
 
         if (shiftStart === -1 || shiftEnd === -1) continue;
 
-        // 2. Kiểm tra xem thời điểm hiện tại t có nằm trong ca làm việc không
         if (currentTimeMins >= shiftStart && currentTimeMins < shiftEnd) {
-            
-            // 3. [STRICT TIME CHECK] - Nếu thợ về sớm, không tính là available cho ca này
             if (info.isStrictTime === true) {
                 if (shiftEnd < (requiredEndTime - CONFIG.TOLERANCE)) {
-                    continue; // Thợ này không đủ thời gian phục vụ
+                    continue; 
                 }
             }
-            
-            // Nếu qua hết các vòng kiểm tra -> Đếm
             count++;
         }
     }
@@ -433,7 +398,7 @@ function getEligibleStaffCount(staffList, currentTimeMins, requiredEndTime) {
 }
 
 /**
- * [GLOBAL SCANNER V114.0]
+ * [GLOBAL SCANNER]
  * Quét toàn bộ dòng thời gian để đảm bảo không lúc nào bị thiếu Giường, Ghế hoặc Thợ.
  */
 function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBookingsRaw, staffList, queryDateStr) {
@@ -447,17 +412,15 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
         if (!isActiveBookingStatus(b.status)) return false;
 
         const bEnd = bStart + (b.duration || 60) + CONFIG.CLEANUP_BUFFER;
-        
-        // Chỉ lấy những booking có giao thoa với khoảng thời gian khách mới yêu cầu
         return isOverlap(requestStart, requestEnd, bStart, bEnd);
     });
 
     let failureSnapshot = null;
 
-    // 2. QUÉT TỪNG LÁT CẮT THỜI GIAN (Time Slicing Loop)
+    // 2. QUÉT TỪNG LÁT CẮT THỜI GIAN
     for (let t = requestStart; t < requestEnd; t += CONFIG.CAPACITY_CHECK_STEP) {
         
-        // A. KIỂM TRA NHÂN VIÊN (STAFF SUPPLY vs DEMAND)
+        // A. KIỂM TRA NHÂN VIÊN
         const supplyCount = getEligibleStaffCount(staffList, t, requestEnd);
         
         let currentStaffLoad = 0;
@@ -471,13 +434,12 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
         
         const totalStaffDemand = currentStaffLoad + guestList.length;
 
-        // B. KIỂM TRA TÀI NGUYÊN VẬT LÝ (BEDS & CHAIRS)
+        // B. KIỂM TRA TÀI NGUYÊN VẬT LÝ
         let usedBeds = 0;
         let usedChairs = 0;
 
-        // Đếm tài nguyên bị khách cũ chiếm
+        // Đếm tài nguyên bị khách cũ chiếm (Sử dụng inferResourceAtTime V115.0)
         for (const b of activeExistingBookings) {
-            // [V114.0] inferResourceAtTime đã tích hợp Intelligent Flow
             const resType = inferResourceAtTime(b, t);
             if (resType === 'BED') usedBeds++;
             else if (resType === 'CHAIR') usedChairs++;
@@ -486,29 +448,22 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
         // Đếm tài nguyên khách mới cần
         let neededBeds = 0;
         let neededChairs = 0;
-        let neededFlexible = 0; // Dành cho Combo (chưa biết xếp vào đâu)
+        let neededFlexible = 0; 
 
         for (const g of guestList) {
             const svc = getServiceInfo(g.serviceCode, g.serviceName);
-            
-            // [V114.0] Explicit Flow Check
             const explicitFlow = g.flowCode || null;
             const isCombo = isComboService(svc, g.serviceCode, explicitFlow);
-            
             const gDuration = svc.duration || 60;
             const elapsed = t - requestStart; 
 
             if (elapsed >= gDuration + CONFIG.CLEANUP_BUFFER) continue; 
 
             if (!isCombo) {
-                // [V114.0] INTELLIGENT INFERENCE (Tự động suy luận nếu thiếu)
-                // Dùng inferFlowFromService để xác định chính xác tài nguyên
                 const smartFlow = inferFlowFromService(svc, explicitFlow);
-                
                 if (smartFlow === 'FOOTSINGLE') neededChairs++;
-                else neededBeds++; // Mặc định BODYSINGLE là giường
+                else neededBeds++; 
             } else {
-                // Combo: Tạm tính logic đơn giản cho Guardrail
                 neededFlexible++;
             }
         }
@@ -516,7 +471,6 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
         const availableBeds = CONFIG.MAX_BEDS - usedBeds;
         const availableChairs = CONFIG.MAX_CHAIRS - usedChairs;
 
-        // Tạo Snapshot cho thời điểm này
         const snapshot = {
             queryDate: queryDateStr,
             time: getTimeStrFromMins(t),
@@ -570,7 +524,6 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
             };
         }
         
-        // Lưu lại snapshot đầu tiên nếu chưa có
         if (!failureSnapshot) failureSnapshot = snapshot;
     }
 
@@ -584,16 +537,12 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
 
 class VirtualMatrix {
     constructor() {
-        // Khởi tạo các làn (Lanes) cho Ghế và Giường
         this.lanes = {
             'CHAIR': Array.from({ length: CONFIG.MAX_CHAIRS }, (_, i) => ({ id: `CHAIR-${i+1}`, occupied: [] })),
             'BED': Array.from({ length: CONFIG.MAX_BEDS }, (_, i) => ({ id: `BED-${i+1}`, occupied: [] }))
         };
     }
 
-    /**
-     * Kiểm tra xem một làn cụ thể có trống trong khoảng [start, end] không.
-     */
     checkLaneFree(lane, start, end) {
         for (let block of lane.occupied) {
             if (isOverlap(start, end, block.start, block.end)) return false; 
@@ -601,26 +550,16 @@ class VirtualMatrix {
         return true; 
     }
 
-    /**
-     * Đánh dấu chiếm chỗ trên một làn.
-     */
     allocateToLane(lane, start, end, ownerId) {
         lane.occupied.push({ start, end, ownerId });
-        // Sort lại để dễ debug/visualize
         lane.occupied.sort((a, b) => a.start - b.start);
         return lane.id;
     }
 
-    /**
-     * Cố gắng xếp một block vào nhóm tài nguyên (Bed/Chair).
-     * @param {string} type - 'BED' hoặc 'CHAIR'
-     * @param {number} preferredIndex - Ưu tiên xếp vào vị trí số mấy (1-based)
-     */
     tryAllocate(type, start, end, ownerId, preferredIndex = null) {
         const resourceGroup = this.lanes[type];
         if (!resourceGroup) return null; 
         
-        // Chiến thuật 1: Targeted Allocation (Ưu tiên vị trí cũ/yêu cầu)
         if (preferredIndex !== null && preferredIndex > 0 && preferredIndex <= resourceGroup.length) {
             const targetLane = resourceGroup[preferredIndex - 1]; 
             if (this.checkLaneFree(targetLane, start, end)) {
@@ -628,14 +567,12 @@ class VirtualMatrix {
             }
         }
 
-        // Chiến thuật 2: First-Fit (Tìm chỗ trống đầu tiên)
         for (let lane of resourceGroup) {
             if (this.checkLaneFree(lane, start, end)) {
                 return this.allocateToLane(lane, start, end, ownerId);
             }
         }
-        
-        return null; // Hết chỗ
+        return null; 
     }
 }
 
@@ -643,9 +580,6 @@ class VirtualMatrix {
 // PHẦN 7: LOGIC TÌM NHÂN VIÊN & CO GIÃN (STAFF & ELASTIC LOGIC)
 // ============================================================================
 
-/**
- * Tìm nhân viên phù hợp cho một booking cụ thể.
- */
 function findAvailableStaff(staffReq, start, end, staffListRef, busyList) {
     const checkOneStaff = (name) => {
         const staffInfo = staffListRef[name];
@@ -655,37 +589,28 @@ function findAvailableStaff(staffReq, start, end, staffListRef, busyList) {
         const shiftEnd = getMinsFromTimeStr(staffInfo.end);     
         if (shiftStart === -1 || shiftEnd === -1) return false; 
         
-        // Rule 1: Khách đến sau khi thợ đi làm
         if ((start + CONFIG.TOLERANCE) < shiftStart) return false;
         
-        // Rule 2: Strict Time Check (Đồng bộ với Guardrail)
         const isStrict = staffInfo.isStrictTime === true;
         if (isStrict) {
-            // Nghiêm ngặt: Phải làm xong TRƯỚC khi hết ca
             if ((end - CONFIG.TOLERANCE) > shiftEnd) return false; 
         } else {
-            // Không nghiêm ngặt: Chỉ cần nhận khách TRƯỚC khi hết ca
             if (start > shiftEnd) return false;
         }
 
-        // Rule 3: Kiểm tra trùng lịch (Collision Check)
         for (const b of busyList) {
-            // Nếu cùng tên nhân viên và thời gian chồng chéo -> Bận
             if (b.staffName === name && isOverlap(start, end, b.start, b.end)) return false; 
         }
 
-        // Rule 4: Kiểm tra giới tính
         if (staffReq === 'MALE' && staffInfo.gender !== 'M') return false;
         if ((staffReq === 'FEMALE' || staffReq === '女') && staffInfo.gender !== 'F') return false;
         
         return true; 
     };
 
-    // Nếu yêu cầu đích danh hoặc giới tính
     if (staffReq && !['RANDOM', 'MALE', 'FEMALE', '隨機', 'Any', 'undefined'].includes(staffReq)) {
         return checkOneStaff(staffReq) ? staffReq : null;
     } else {
-        // Nếu chọn ngẫu nhiên -> Tìm ai rảnh thì lấy
         const allStaffNames = Object.keys(staffListRef);
         for (const name of allStaffNames) {
             if (checkOneStaff(name)) return name;
@@ -694,9 +619,6 @@ function findAvailableStaff(staffReq, start, end, staffListRef, busyList) {
     }
 }
 
-/**
- * Sinh ra các phương án chia cắt thời gian (Split) cho dịch vụ Combo.
- */
 function generateElasticSplits(totalDuration, step = 0, limit = 0, customLockedPhase1 = null) {
     // Nếu đã bị khóa Phase 1 (do User chỉnh tay) -> Chỉ trả về 1 phương án duy nhất
     if (customLockedPhase1 !== null && customLockedPhase1 !== undefined && !isNaN(customLockedPhase1)) {
@@ -710,12 +632,10 @@ function generateElasticSplits(totalDuration, step = 0, limit = 0, customLockedP
 
     let currentDeviation = step;
     while (currentDeviation <= limit) {
-        // Lệch trái
         let p1_A = standardHalf - currentDeviation;
         let p2_A = totalDuration - p1_A;
         if (p1_A >= 15 && p2_A >= 15) options.push({ p1: p1_A, p2: p2_A, deviation: currentDeviation });
         
-        // Lệch phải
         let p1_B = standardHalf + currentDeviation;
         let p2_B = totalDuration - p1_B;
         if (p1_B >= 15 && p2_B >= 15) options.push({ p1: p1_B, p2: p2_B, deviation: currentDeviation });
@@ -723,14 +643,10 @@ function generateElasticSplits(totalDuration, step = 0, limit = 0, customLockedP
         currentDeviation += step;
     }
     
-    // Ưu tiên độ lệch thấp nhất (gần chuẩn nhất)
     options.sort((a, b) => Math.abs(a.deviation) - Math.abs(b.deviation));
     return options;
 }
 
-/**
- * Helper: Kiểm tra nhanh xem một bộ block có nhét vừa ma trận không (dùng cho Squeeze)
- */
 function isBlockSetAllocatable(blocks, matrix) {
     for (const b of blocks) {
         const laneGroup = matrix.lanes[b.type];
@@ -757,17 +673,17 @@ function isBlockSetAllocatable(blocks, matrix) {
 }
 
 // ============================================================================
-// PHẦN 8: CORE ENGINE V114.0 (INTELLIGENT INTEGRATED ENGINE)
+// PHẦN 8: CORE ENGINE V115.0 (INTELLIGENT INTEGRATED ENGINE)
 // Mô tả: Hàm chính xử lý logic.
 // ============================================================================
 
 /**
- * HÀM KIỂM TRA KHẢ DỤNG CHÍNH - PHIÊN BẢN V114.0
- * @param {string} dateStr - Ngày kiểm tra (Bất kỳ định dạng nào)
+ * HÀM KIỂM TRA KHẢ DỤNG CHÍNH - PHIÊN BẢN V115.0
+ * @param {string} dateStr - Ngày kiểm tra
  * @param {string} timeStr - Giờ kiểm tra "HH:mm"
- * @param {Array} guestList - Danh sách khách mới { serviceCode, serviceName, staffName, flowCode... }
- * @param {Array} currentBookingsRaw - Danh sách booking hiện tại từ DB (Raw)
- * @param {Object} staffList - Danh sách nhân viên và ca làm việc
+ * @param {Array} guestList - Danh sách khách mới
+ * @param {Array} currentBookingsRaw - Danh sách booking hiện tại từ DB
+ * @param {Object} staffList - Danh sách nhân viên
  */
 function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRaw, staffList) {
     // ------------------------------------------------------------------------
@@ -776,10 +692,8 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
     const requestStartMins = getMinsFromTimeStr(timeStr);
     if (requestStartMins === -1) return { feasible: false, reason: "Error: Invalid Time Format" };
 
-    // 1. Chuẩn hóa ngày yêu cầu về chuẩn duy nhất YYYY/MM/DD
     const normalizedQueryDate = normalizeDateStrict(dateStr);
 
-    // 2. Lọc và chuẩn hóa ngày của Booking từ Database
     const filteredBookings = currentBookingsRaw.filter(b => {
         if (!b || !b.startTimeString) return false;
         const rawDate = b.startTimeString.split(' ')[0];
@@ -787,7 +701,6 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
         return bDateNormalized === normalizedQueryDate;
     });
 
-    // Tìm duration lớn nhất của nhóm khách mới
     let maxGuestDuration = 0;
     guestList.forEach(g => {
         const s = getServiceInfo(g.serviceCode, g.serviceName);
@@ -796,10 +709,8 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
     });
 
     // ------------------------------------------------------------------------
-    // [V114.0] BƯỚC 0: STRICT GUARDRAIL CHECK (HÀNG RÀO BẢO VỆ)
+    // [V115.0] BƯỚC 0: STRICT GUARDRAIL CHECK
     // ------------------------------------------------------------------------
-    // Thực hiện quét toàn cục Demand/Supply trước khi chạy Matrix.
-    // V114.0 đã tích hợp inferFlowFromService để quét chính xác tuyệt đối.
     const guardrailCheck = validateGlobalCapacity(
         requestStartMins, 
         maxGuestDuration, 
@@ -824,7 +735,6 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
         return getMinsFromTimeStr(a.startTimeString || a.startTime) - getMinsFromTimeStr(b.startTimeString || b.startTime);
     });
 
-    // Gom nhóm các booking đi cùng nhau
     const bookingGroups = {};
     sortedRaw.forEach(b => {
         if (!isActiveBookingStatus(b.status)) return;
@@ -864,7 +774,7 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
     });
 
     // ------------------------------------------------------------------------
-    // BƯỚC B: XỬ LÝ CHI TIẾT BOOKING (BLOCK CREATION)
+    // BƯỚC B: XỬ LÝ CHI TIẾT BOOKING (BLOCK CREATION V115.0)
     // ------------------------------------------------------------------------
     let existingBookingsProcessed = [];
     remappedBookings.forEach(b => {
@@ -873,12 +783,9 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
 
         let svcInfo = getServiceInfo(b.serviceCode, b.serviceName);
         
-        // [V114.0] INTELLIGENT BACKWARD COMPATIBILITY
-        // Tự động nâng cấp SINGLE -> FOOTSINGLE/BODYSINGLE nếu DB cũ
         let storedFlow = b.flow || b.originalData?.flowCode || b.originalData?.flow || null;
         let isCombo = isComboService(svcInfo, b.serviceName, storedFlow);
         
-        // Nếu không phải Combo, dùng trí tuệ nhân tạo để đoán chính xác
         if (!isCombo) {
             storedFlow = inferFlowFromService(svcInfo, storedFlow);
         }
@@ -888,7 +795,6 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
         const statusLower = (b.status||'').toLowerCase();
         const isRunning = statusLower.includes('running');
 
-        // Logic giữ chỗ (Anchor)
         if (isRunning) {
              if (b.allocated_resource) {
                 const match = b.allocated_resource.toString().match(/(\d+)/);
@@ -917,12 +823,18 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
         };
 
         if (isCombo) {
+            // [CRITICAL V115.0] TÍNH TOÁN P1 DỰA TRÊN DỮ LIỆU CHỈNH SỬA
             let p1 = 0;
-            if (b.originalData && b.originalData.phase1_duration) {
-                p1 = parseInt(b.originalData.phase1_duration);
-            } else if (b.phase1_duration) {
-                p1 = parseInt(b.phase1_duration);
-            } else {
+            // 1. Kiểm tra trực tiếp trên object (nếu có)
+            if (b.phase1_duration !== undefined && b.phase1_duration !== null && b.phase1_duration !== "") {
+                p1 = parseInt(b.phase1_duration, 10);
+            } 
+            // 2. Kiểm tra trong originalData (Dữ liệu từ DB)
+            else if (b.originalData && b.originalData.phase1_duration !== undefined && b.originalData.phase1_duration !== null && b.originalData.phase1_duration !== "") {
+                p1 = parseInt(b.originalData.phase1_duration, 10);
+            } 
+            // 3. Fallback mặc định
+            else {
                 p1 = Math.floor(duration / 2);
             }
             
@@ -952,8 +864,7 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
             }
             processedB.p1_current = p1; processedB.p2_current = p2;
         } else {
-            // [V114.0] XỬ LÝ SINGLE FLOW (Tự tin dùng storedFlow vì đã infer ở trên)
-            processedB.flow = storedFlow; // FOOTSINGLE hoặc BODYSINGLE
+            processedB.flow = storedFlow; 
             let rType = (storedFlow === 'FOOTSINGLE') ? 'CHAIR' : 'BED';
             processedB.blocks.push({ start: bStart, end: bStart + duration, type: rType, forcedIndex: anchorIndex });
         }
@@ -961,7 +872,7 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
     });
 
     // ------------------------------------------------------------------------
-    // BƯỚC C: KỊCH BẢN KHÁCH MỚI (NEW GUESTS & INTELLIGENT INFERENCE)
+    // BƯỚC C: KỊCH BẢN KHÁCH MỚI
     // ------------------------------------------------------------------------
     const newGuests = guestList.map((g, idx) => ({ ...g, idx: idx }));
     const comboGuests = newGuests.filter(g => { 
@@ -972,7 +883,6 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
     const maxBF = comboGuests.length;
     let trySequence = [];
 
-    // Tạo kịch bản thử nghiệm cho Combo
     if (maxBF === 2) {
         trySequence = [0, 2, 1]; 
     } else if (maxBF > 0) {
@@ -1025,18 +935,13 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
             const svc = getServiceInfo(ng.serviceCode, ng.serviceName); 
             let flow = 'FB'; 
             
-            // [V114.0] LOGIC QUYẾT ĐỊNH FLOW THÔNG MINH
             let isThisGuestCombo = isComboService(svc, ng.serviceCode, ng.flowCode);
             
             if (isThisGuestCombo) {
                 const cIdx = comboGuests.findIndex(cg => cg.idx === ng.idx);
-                // Quyết định BF/FB cho khách mới dựa trên kịch bản vòng lặp
                 if (cIdx >= 0 && cIdx < numBF) { flow = 'BF'; }
             } else {
-                // [V114.0] CRITICAL: Tự động suy luận nếu khách gửi thiếu code
-                // Nếu khách gửi flowCode='SINGLE' hoặc null, hàm inferFlowFromService sẽ cứu
                 flow = inferFlowFromService(svc, ng.flowCode);
-                // Sau dòng này, flow chắc chắn là 'FOOTSINGLE' hoặc 'BODYSINGLE'
             }
 
             const duration = svc.duration || 60;
@@ -1058,9 +963,7 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
                     scenarioDetails.push({ guestIndex: ng.idx, service: svc.name, price: svc.price, phase1_duration: p1Standard, phase2_duration: p2Standard, flow: 'BF', timeStr: timeStr, allocated: [] });
                 }
             } else { 
-                // [V114.0] Xử lý Single với Flow Code đã suy luận chính xác
                 let rType = (flow === 'FOOTSINGLE') ? 'CHAIR' : 'BED';
-
                 blocks.push({ start: requestStartMins, end: requestStartMins + duration + CONFIG.CLEANUP_BUFFER, type: rType });
                 scenarioDetails.push({ guestIndex: ng.idx, service: svc.name, price: svc.price, flow: flow, timeStr: timeStr, allocated: [] });
             }
@@ -1091,13 +994,11 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
             let matrixSqueeze = new VirtualMatrix();
             let updatesProposed = [];
             
-            // Xếp lại khách cứng
             const hardBookings = existingBookingsProcessed.filter(b => !b.isElastic);
             hardBookings.forEach(hb => {
                 hb.blocks.forEach(blk => matrixSqueeze.tryAllocate(blk.type, blk.start, blk.end + CONFIG.CLEANUP_BUFFER, hb.id, blk.forcedIndex));
             });
 
-            // Thử xếp khách mới
             let squeezeScenarioPossible = true;
             for (const item of newGuestBlocksMap) {
                 let preferredIdxSqueeze = null;
@@ -1115,7 +1016,6 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
 
             if (!squeezeScenarioPossible) { scenarioFailed = true; continue; }
 
-            // Nhét khách mềm (Elastic)
             const softBookings = existingBookingsProcessed.filter(b => b.isElastic);
             for (const sb of softBookings) {
                 const splits = generateElasticSplits(sb.duration, sb.elasticStep, sb.elasticLimit, null);
@@ -1131,7 +1031,7 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
                     if (isBlockSetAllocatable(testBlocks, matrixSqueeze)) {
                         testBlocks.forEach(tb => matrixSqueeze.tryAllocate(tb.type, tb.start, tb.end, sb.id, tb.forcedIndex));
                         fit = true;
-                        if (split.deviation !== 0) updatesProposed.push({ rowId: sb.id, customerName: sb.originalData.customerName, newPhase1: split.p1, newPhase2: split.p2, reason: 'Matrix Squeeze V114.0' });
+                        if (split.deviation !== 0) updatesProposed.push({ rowId: sb.id, customerName: sb.originalData.customerName, newPhase1: split.p1, newPhase2: split.p2, reason: 'Matrix Squeeze V115.0' });
                         break; 
                     }
                 }
@@ -1173,7 +1073,7 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
         successfulScenario.details.sort((a,b) => a.guestIndex - b.guestIndex);
         return {
             feasible: true, 
-            strategy: 'MATRIX_COUPLE_SYNC_V114.0', 
+            strategy: 'MATRIX_COUPLE_SYNC_V115.0', 
             details: successfulScenario.details,
             proposedUpdates: successfulScenario.updates,
             totalPrice: successfulScenario.details.reduce((sum, item) => sum + (item.price||0), 0),
@@ -1189,7 +1089,7 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
 }
 
 // ============================================================================
-// PHẦN 9: MODULE EXPORT (NODE.JS & GOOGLE APPS SCRIPT COMPATIBLE)
+// PHẦN 9: MODULE EXPORT
 // ============================================================================
 const CoreAPI = {
     checkRequestAvailability,
@@ -1200,19 +1100,17 @@ const CoreAPI = {
     getTimeStrFromMins,
     getTaipeiNow,
     normalizeDateStrict,
-    inferFlowFromService // Export để test nếu cần
+    inferFlowFromService
 };
 
-// Môi trường Node.js (Cho Local Test hoặc Cloud Function)
 if (typeof module !== 'undefined' && module.exports) {
     module.exports = CoreAPI;
 }
 
-// Môi trường Browser (Nếu file này được nhúng trực tiếp vào HTML)
 if (typeof window !== 'undefined') {
     window.ResourceCore = CoreAPI;
     window.checkRequestAvailability = CoreAPI.checkRequestAvailability;
     window.setDynamicServices = CoreAPI.setDynamicServices;
     window.normalizeDateStrict = CoreAPI.normalizeDateStrict;
-    console.log("✅ Resource Core V114.0 Loaded: INTELLIGENT FLOW INFERENCE ACTIVE.");
+    console.log("✅ Resource Core V115.0 Loaded: PHASE DURATION LOCK ACTIVE.");
 }

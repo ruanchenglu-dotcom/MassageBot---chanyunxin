@@ -1,16 +1,19 @@
 /**
  * =================================================================================================
- * MODULE: SHEET SERVICE (DATA LAYER)
+ * MODULE: SHEET SERVICE (DATA LAYER) - REFACTORED V4
  * PROJECT: XINWUCHAN MASSAGE BOT
- * DESCRIPTION: Handles all Google Sheets interactions, data caching, and synchronization.
+ * DESCRIPTION: Handles Google Sheets interactions with Explicit Locking States.
+ * UPDATED FEATURES (V4): 
+ * - EXPLICIT "FALSE": Column AE (Lock) is now explicitly written as "FALSE" if not locked.
+ * - INHERITED V3 FEATURES: Bi-directional Phase Logic, Strict Integer Parsing, Auto-Lock on Manual Edit.
  * AUTHOR: AI ASSISTANT & USER
- * DATE: 2026/01/25 (REFACTORED)
+ * DATE: 2026/01/25
  * =================================================================================================
  */
 
 require('dotenv').config();
 const { google } = require('googleapis');
-const ResourceCore = require('./resource_core'); // Cần để tính Matrix khi Sync
+const ResourceCore = require('./resource_core'); // Cần để tính Matrix khi Sync và lấy logic Service
 
 // --- CONFIG ---
 const SHEET_ID = process.env.SHEET_ID;
@@ -40,13 +43,17 @@ let STATE = {
 };
 
 // =============================================================================
-// PHẦN 1: UTILITIES (Được Export để index.js dùng ké)
+// PHẦN 1: UTILITIES (CÁC HÀM HỖ TRỢ)
 // =============================================================================
 
 function getTaipeiNow() {
     return ResourceCore.getTaipeiNow ? ResourceCore.getTaipeiNow() : new Date(new Date().toLocaleString("en-US", {timeZone: "Asia/Taipei"}));
 }
 
+/**
+ * Chuẩn hóa ngày tháng chặt chẽ.
+ * Trả về định dạng YYYY/MM/DD hoặc null nếu lỗi.
+ */
 function normalizeDateStrict(inputDate) {
     if (!inputDate) return null;
     try {
@@ -54,6 +61,7 @@ function normalizeDateStrict(inputDate) {
         if (typeof inputDate === 'string' && inputDate.includes('T')) {
             dateObj = new Date(inputDate);
         } else if (typeof inputDate === 'number' && inputDate > 40000) {
+            // Xử lý Excel Serial Date
             dateObj = new Date(Math.round((inputDate - 25569) * 86400 * 1000));
         } else {
             const dateString = inputDate.toString().trim().replace(/-/g, '/');
@@ -88,6 +96,16 @@ function getCurrentDateTimeStr() {
 }
 
 /**
+ * [HELPER] Safe Integer Parser
+ * Đảm bảo giá trị trả về luôn là số nguyên hoặc null/0
+ */
+function safeParseInt(value, fallback = null) {
+    if (value === undefined || value === null || value === '') return fallback;
+    const parsed = parseInt(value, 10);
+    return isNaN(parsed) ? fallback : parsed;
+}
+
+/**
  * [HELPER] SMART SERVICE FINDER
  * Tìm mã dịch vụ từ tên hoặc mã, hỗ trợ fuzzy match.
  */
@@ -117,7 +135,7 @@ function smartFindServiceCode(inputName) {
 }
 
 // =============================================================================
-// PHẦN 2: SYNC ENGINE (ĐỒNG BỘ DỮ LIỆU)
+// PHẦN 2: SYNC ENGINE (ĐỌC VÀ ĐỒNG BỘ DỮ LIỆU)
 // =============================================================================
 
 async function syncMenuData() {
@@ -159,7 +177,7 @@ async function syncMenuData() {
             ResourceCore.setDynamicServices(newServices);
         }
         STATE.SERVICES = newServices; 
-        console.log(`[MENU V120] Updated: ${Object.keys(STATE.SERVICES).length} items.`);
+        console.log(`[MENU SYNC] Updated: ${Object.keys(STATE.SERVICES).length} items.`);
     } catch (e) { console.error('[MENU ERROR]', e); }
 }
 
@@ -169,7 +187,8 @@ async function syncData() {
     try {
         STATE.isSyncing = true; 
 
-        // --- ĐỌC BOOKING ---
+        // --- BƯỚC 1: ĐỌC BOOKING TỪ SHEET1 ---
+        // Range A:AE covers all needed columns including Locked status at AE
         const resBooking = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: `${BOOKING_SHEET}!A:AE` });
         const rowsBooking = resBooking.data.values;
         let tempBookings = [];
@@ -177,7 +196,7 @@ async function syncData() {
         if (rowsBooking && rowsBooking.length > 0) {
             for (let i = 1; i < rowsBooking.length; i++) {
                 const row = rowsBooking[i];
-                if (!row[0] || !row[1]) continue;
+                if (!row[0] || !row[1]) continue; // Bỏ qua nếu không có ngày/giờ
                 
                 const status = row[7] || '已預約';
                 if (status.includes('取消') || status.includes('Cancelled')) continue;
@@ -199,15 +218,16 @@ async function syncData() {
                         foundService = true; break;
                     }
                 }
+                // Fallback nếu không tìm thấy service trong Menu
                 if (!foundService) {
                     if (serviceStr.includes('套餐')) { category = 'COMBO'; duration = 100; }
                     else if (serviceStr.includes('足')) { type = 'CHAIR'; category = 'FOOT'; }
                 }
 
-                if (row[4] === "Yes") price += 200;
-                let pax = 1; if (row[5]) pax = parseInt(row[5]);
+                if (row[4] === "Yes") price += 200; // Phụ thu dầu
+                let pax = 1; if (row[5]) pax = safeParseInt(row[5], 1);
 
-                // Fields mapping
+                // Mapping fields
                 const staffId = row[8] || '隨機';
                 const serviceStaff1 = row[11]; 
                 const staffId2 = row[12];      
@@ -218,15 +238,22 @@ async function syncData() {
                      for(const key in STATE.SERVICES) { if(STATE.SERVICES[key].name === serviceStr) { serviceCode = key; break; } }
                 }
 
-                const rawPhase1 = row[24]; const phase1Duration = rawPhase1 ? parseInt(rawPhase1) : null;
-                const rawPhase2 = row[25]; const phase2Duration = rawPhase2 ? parseInt(rawPhase2) : null;
+                // --- [PHASE LOGIC UPDATE] ---
+                // Cột Y (Index 24) = Phase 1 Duration
+                // Cột Z (Index 25) = Phase 2 Duration
+                // Cột AA (Index 26) = Flow Code
+                // Cột AE (Index 30) = Manual Locked Flag
+                
+                const phase1Duration = safeParseInt(row[24], null);
+                const phase2Duration = safeParseInt(row[25], null);
                 
                 const rawFlow = row[26]; 
                 let flowCode = null;
                 if (rawFlow && ['BF','FB','FOOTSINGLE','BODYSINGLE'].includes(rawFlow)) { flowCode = rawFlow; }
                 
-                const rawLocked = row[30]; 
-                const isManualLocked = (rawLocked && (rawLocked.toUpperCase() === 'TRUE' || rawLocked === 'TRUE'));
+                const rawLocked = row[30]; // Cột AE
+                // Kiểm tra kỹ giá trị TRUE, các giá trị khác hoặc rỗng đều coi là false
+                const isManualLocked = (rawLocked && (rawLocked.toString().trim().toUpperCase() === 'TRUE'));
 
                 tempBookings.push({
                     rowId: i + 1, 
@@ -245,16 +272,17 @@ async function syncData() {
                     status: status, 
                     lineId: row[9], 
                     isOil: row[4] === "Yes",
+                    // Enhanced Phase Properties
                     phase1_duration: phase1Duration,
                     phase2_duration: phase2Duration,
-                    isManualLocked: isManualLocked,
+                    isManualLocked: isManualLocked, 
                     flow: flowCode, 
                     allocated_resource: null 
                 });
             }
         }
 
-        // --- ĐỌC SCHEDULE ---
+        // --- BƯỚC 2: ĐỌC SCHEDULE ---
         const resSchedule = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: `${SCHEDULE_SHEET}!A1:BG100` });
         const rows = resSchedule.data.values;
         let tempStaffList = []; let tempScheduleMap = {}; 
@@ -303,10 +331,11 @@ async function syncData() {
             STATE.STAFF_LIST = tempStaffList; STATE.scheduleMap = tempScheduleMap; STATE.isSystemHealthy = true;
         }
 
-        // --- TÍNH MATRIX (Integration with ResourceCore) ---
+        // --- BƯỚC 3: TÍNH TOÁN MATRIX (Resource Allocation) ---
         if (STATE.isSystemHealthy && tempBookings.length > 0) {
             try {
                 if (typeof ResourceCore.generateResourceMatrix === 'function') {
+                    // ResourceCore sẽ cần nhận biết isManualLocked để KHÔNG override các booking đó
                     const matrixAllocation = ResourceCore.generateResourceMatrix(tempBookings, STATE.STAFF_LIST);
                     tempBookings.forEach(booking => {
                         if (matrixAllocation[booking.rowId]) {
@@ -314,7 +343,7 @@ async function syncData() {
                         }
                     });
                     STATE.LAST_CALCULATED_MATRIX = matrixAllocation;
-                    console.log(`[MATRIX V120] Calculated allocations for ${Object.keys(matrixAllocation).length} bookings.`);
+                    console.log(`[MATRIX] Calculated allocations for ${Object.keys(matrixAllocation).length} bookings.`);
                 }
             } catch (err) {
                 console.error("[MATRIX ERROR] Calculation failed:", err);
@@ -332,16 +361,15 @@ async function syncData() {
 }
 
 async function syncDailySalary(dateStr, staffDataList) {
-    // Placeholder logic from original file
     try {
         const range = `${SALARY_SHEET}!A1:AZ100`; 
         await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: range });
-        // Logic ghi lương thực tế sẽ ở đây
+        // Logic ghi lương thực tế (Placeholder)
     } catch (e) { console.error('[SALARY ERROR]', e); }
 }
 
 // =============================================================================
-// PHẦN 3: WRITE & UPDATE LOGIC
+// PHẦN 3: WRITE & UPDATE LOGIC (CORE UPGRADE)
 // =============================================================================
 
 async function ghiVaoSheet(data, proposedUpdates = []) {
@@ -408,7 +436,7 @@ async function ghiVaoSheet(data, proposedUpdates = []) {
             }
             row[20] = sCode || "";
 
-            // [PHASE DURATION]
+            // [PHASE DURATION & LOCKING]
             let p1 = null; let p2 = null;
             if (guestDetail) { 
                 p1 = (guestDetail.phase1_duration !== undefined) ? guestDetail.phase1_duration : guestDetail.phase1;
@@ -424,6 +452,7 @@ async function ghiVaoSheet(data, proposedUpdates = []) {
             let flowVal = null;
             if (guestDetail && (guestDetail.flow || guestDetail.flowCode)) flowVal = guestDetail.flow || guestDetail.flowCode;
             if (!flowVal) flowVal = data.flow || data.flowCode;
+            // Auto detect flow if missing
             if (!flowVal && sCode && STATE.SERVICES[sCode]) {
                 const svcDef = STATE.SERVICES[sCode];
                 if (svcDef.category === 'FOOT') flowVal = "FOOTSINGLE";
@@ -432,30 +461,36 @@ async function ghiVaoSheet(data, proposedUpdates = []) {
             }
             row[26] = flowVal || "FB";
 
-            if (data.isManualLocked) row[30] = 'TRUE';
+            // [LOCKING UPDATE - EXPLICIT FALSE]
+            // Cập nhật V4: Nếu không phải TRUE thì ghi rõ "FALSE"
+            if (data.isManualLocked || (p1 !== null && p1 !== undefined)) {
+                row[30] = 'TRUE'; 
+            } else {
+                row[30] = 'FALSE'; // Ghi rõ FALSE thay vì để trống
+            }
 
             valuesToWrite.push(row);
         }
 
         if (valuesToWrite.length > 0) {
-            console.log(`[WRITE V120] Atomic Appending ${valuesToWrite.length} rows...`);
+            console.log(`[WRITE] Atomic Appending ${valuesToWrite.length} rows...`);
             await sheets.spreadsheets.values.append({ 
                 spreadsheetId: SHEET_ID, range: 'Sheet1!A:A', 
                 valueInputOption: 'USER_ENTERED', requestBody: { values: valuesToWrite } 
             });
-            console.log(`[WRITE V120] Success.`);
+            console.log(`[WRITE] Success.`);
         }
         
         setTimeout(() => syncData(), 500);
 
-    } catch (e) { console.error('[ERROR V120] One-Shot Write Failed:', e); }
+    } catch (e) { console.error('[WRITE ERROR] One-Shot Write Failed:', e); }
 }
 
 async function updateBookingStatus(rowId, newStatus) {
     try {
         await sheets.spreadsheets.values.update({ spreadsheetId: SHEET_ID, range: `${BOOKING_SHEET}!H${rowId}`, valueInputOption: 'USER_ENTERED', requestBody: { values: [[ newStatus ]] } });
         await syncData();
-    } catch (e) { console.error('Update Error:', e); }
+    } catch (e) { console.error('Update Status Error:', e); }
 }
 
 async function updateStaffConfig(staffId, isStrictTime) {
@@ -477,15 +512,27 @@ async function updateStaffConfig(staffId, isStrictTime) {
     } catch (e) { console.error(e); throw e; }
 }
 
+/**
+ * [CRITICAL FUNCTION] UPDATE BOOKING DETAILS
+ * Nâng cấp: Xử lý logic Phase 1 <-> Phase 2 2 chiều & Auto Lock
+ */
 async function updateBookingDetails(body) {
     const rowId = body.rowId;
     if (!rowId) throw new Error('Missing rowId');
     
-    // Helper để update nhanh
+    // Helper function để ghi vào 1 cell cụ thể
     const updateCell = async (col, val) => {
-        await sheets.spreadsheets.values.update({spreadsheetId: SHEET_ID, range: `${BOOKING_SHEET}!${col}${rowId}`, valueInputOption: 'USER_ENTERED', requestBody: { values: [[val]] }});
+        await sheets.spreadsheets.values.update({
+            spreadsheetId: SHEET_ID, 
+            range: `${BOOKING_SHEET}!${col}${rowId}`, 
+            valueInputOption: 'USER_ENTERED', 
+            requestBody: { values: [[val]] }
+        });
     };
 
+    console.log(`[UPDATE] Processing update for Row ${rowId}`, body);
+
+    // 1. Basic Field Updates
     if (body.date) {
         const formattedDate = normalizeDateStrict(body.date);
         await updateCell('A', formattedDate);
@@ -501,17 +548,65 @@ async function updateBookingDetails(body) {
     if (body.pax) await updateCell('F', body.pax);
     if (body.phone) await updateCell('G', body.phone);
     if (body.mainStatus) await updateCell('H', body.mainStatus);
+    
+    // Staff Updates
     if (body.staffId && body.staffId !== '随機') await updateCell('I', body.staffId);
     if (body.staffId2) await updateCell('M', body.staffId2);
     if (body.staffId3) await updateCell('N', body.staffId3);
     
-    if (body.phase1_duration !== undefined && body.phase1_duration !== null) await updateCell('Y', body.phase1_duration);
-    if (body.phase2_duration !== undefined && body.phase2_duration !== null) await updateCell('Z', body.phase2_duration);
+    // 2. [ADVANCED] PHASE & LOCK LOGIC
+    // Logic nâng cấp V3: Hỗ trợ tính xuôi (Update P1 -> Calc P2) và tính ngược (Update P2 -> Calc P1)
     
-    if (body.isManualLocked !== undefined) await updateCell('AE', body.isManualLocked ? 'TRUE' : 'FALSE');
-    if (body.flow) await updateCell('AA', body.flow);
+    // Lấy thông tin booking hiện tại để có Total Duration
+    let bookingData = STATE.cachedBookings.find(b => b.rowId == rowId);
+    let totalDuration = 60; // Mặc định nếu không tìm thấy (Fall-safe)
+    
+    if (bookingData) {
+        totalDuration = bookingData.duration;
+    } else {
+        console.warn(`[UPDATE WARNING] Row ${rowId} not found in cache during Phase Update. Using default duration (60).`);
+        // Nếu client gửi kèm duration trong body thì dùng tạm
+        if (body.duration) totalDuration = safeParseInt(body.duration, 60);
+    }
 
-    if (body.forceSync) await syncData(); else setTimeout(() => syncData(), 500); 
+    // CASE 1: Client update Phase 1 => Hệ thống tự tính Phase 2
+    if (body.phase1_duration !== undefined && body.phase1_duration !== null) {
+        const p1 = parseInt(body.phase1_duration); // Input từ Client
+        const p2 = totalDuration - p1;             // Derived value
+        
+        console.log(`[UPDATE LOGIC] Row ${rowId}: Phase 1 set to ${p1}. Auto-calc Phase 2 = ${p2}. Locking row.`);
+
+        await updateCell('Y', p1);       // Cập nhật Phase 1 (Cột Y)
+        await updateCell('Z', p2);       // Cập nhật Phase 2 (Cột Z)
+        await updateCell('AE', 'TRUE');  // Set isManualLocked = TRUE (Bắt buộc)
+    } 
+    // CASE 2: Client update Phase 2 => Hệ thống tự tính Phase 1 (NEW FEATURE)
+    else if (body.phase2_duration !== undefined && body.phase2_duration !== null) {
+        const p2 = parseInt(body.phase2_duration); // Input từ Client
+        const p1 = totalDuration - p2;             // Derived value
+
+        console.log(`[UPDATE LOGIC] Row ${rowId}: Phase 2 set to ${p2}. Auto-calc Phase 1 = ${p1}. Locking row.`);
+
+        await updateCell('Y', p1);       // Cập nhật Phase 1 (Cột Y)
+        await updateCell('Z', p2);       // Cập nhật Phase 2 (Cột Z)
+        await updateCell('AE', 'TRUE');  // Set isManualLocked = TRUE (Bắt buộc)
+    }
+
+    // 3. Flow & Lock Direct Updates
+    if (body.flow) await updateCell('AA', body.flow);
+    
+    // Cho phép force set Lock từ bên ngoài nếu cần (ghi đè logic trên nếu muốn unlock)
+    if (body.isManualLocked !== undefined) {
+        // [LOCKING UPDATE - EXPLICIT FALSE]
+        // Nếu giá trị là false, ghi rõ chuỗi "FALSE", ngược lại ghi "TRUE"
+        const lockValue = body.isManualLocked ? 'TRUE' : 'FALSE';
+        await updateCell('AE', lockValue);
+    }
+
+    // 4. Trigger Sync
+    if (body.forceSync) await syncData(); 
+    else setTimeout(() => syncData(), 500); 
+    
     return true;
 }
 
