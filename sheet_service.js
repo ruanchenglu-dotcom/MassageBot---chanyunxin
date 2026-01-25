@@ -1,11 +1,13 @@
 /**
  * =================================================================================================
- * MODULE: SHEET SERVICE (DATA LAYER) - REFACTORED V4
+ * MODULE: SHEET SERVICE (DATA LAYER) - REFACTORED V4.1 STRICT
  * PROJECT: XINWUCHAN MASSAGE BOT
- * DESCRIPTION: Handles Google Sheets interactions with Explicit Locking States.
- * UPDATED FEATURES (V4): 
- * - EXPLICIT "FALSE": Column AE (Lock) is now explicitly written as "FALSE" if not locked.
- * - INHERITED V3 FEATURES: Bi-directional Phase Logic, Strict Integer Parsing, Auto-Lock on Manual Edit.
+ * DESCRIPTION: Handles Google Sheets interactions with STRICT Locking States.
+ * UPDATED FEATURES (V4.1): 
+ * - STRICT COLUMN AE HANDLING: Column AE is NEVER left empty. It is always "TRUE" or "FALSE".
+ * - AUTO-LOCK LOGIC: Modifying Phase durations automatically forces Lock = "TRUE".
+ * - UNLOCK LOGIC: Explicitly setting isManualLocked = false writes "FALSE".
+ * - INHERITED FEATURES: Bi-directional Phase Logic, Matrix Sync, Robust Error Handling.
  * AUTHOR: AI ASSISTANT & USER
  * DATE: 2026/01/25
  * =================================================================================================
@@ -15,22 +17,23 @@ require('dotenv').config();
 const { google } = require('googleapis');
 const ResourceCore = require('./resource_core'); // Cần để tính Matrix khi Sync và lấy logic Service
 
-// --- CONFIG ---
+// --- CONFIGURATION ---
 const SHEET_ID = process.env.SHEET_ID;
+// Define Sheet Names
 const BOOKING_SHEET = 'Sheet1';
 const STAFF_SHEET = 'StaffLog';
 const SCHEDULE_SHEET = 'StaffSchedule';
 const SALARY_SHEET = 'SalaryLog';
 const MENU_SHEET = 'menu';
 
-// --- AUTHENTICATION ---
+// --- GOOGLE AUTHENTICATION ---
 const auth = new google.auth.GoogleAuth({
     keyFile: 'google-key.json',
     scopes: ['https://www.googleapis.com/auth/spreadsheets'],
 });
 const sheets = google.sheets({ version: 'v4', auth });
 
-// --- INTERNAL STATE (CACHE) ---
+// --- INTERNAL STATE (IN-MEMORY CACHE) ---
 let STATE = {
     STAFF_LIST: [],
     cachedBookings: [],
@@ -43,9 +46,12 @@ let STATE = {
 };
 
 // =============================================================================
-// PHẦN 1: UTILITIES (CÁC HÀM HỖ TRỢ)
+// PHẦN 1: UTILITIES (CÁC HÀM HỖ TRỢ & XỬ LÝ DỮ LIỆU)
 // =============================================================================
 
+/**
+ * Lấy thời gian hiện tại theo múi giờ Đài Bắc (Taipei)
+ */
 function getTaipeiNow() {
     return ResourceCore.getTaipeiNow ? ResourceCore.getTaipeiNow() : new Date(new Date().toLocaleString("en-US", {timeZone: "Asia/Taipei"}));
 }
@@ -53,6 +59,7 @@ function getTaipeiNow() {
 /**
  * Chuẩn hóa ngày tháng chặt chẽ.
  * Trả về định dạng YYYY/MM/DD hoặc null nếu lỗi.
+ * Hỗ trợ cả định dạng String và Excel Serial Date.
  */
 function normalizeDateStrict(inputDate) {
     if (!inputDate) return null;
@@ -61,7 +68,7 @@ function normalizeDateStrict(inputDate) {
         if (typeof inputDate === 'string' && inputDate.includes('T')) {
             dateObj = new Date(inputDate);
         } else if (typeof inputDate === 'number' && inputDate > 40000) {
-            // Xử lý Excel Serial Date
+            // Xử lý Excel Serial Date (ví dụ: 45000)
             dateObj = new Date(Math.round((inputDate - 25569) * 86400 * 1000));
         } else {
             const dateString = inputDate.toString().trim().replace(/-/g, '/');
@@ -82,6 +89,9 @@ function normalizeDateStrict(inputDate) {
     }
 }
 
+/**
+ * Format Date Object thành chuỗi YYYY/MM/DD HH:mm
+ */
 function formatDateTimeString(dateObj) {
     const y = dateObj.getFullYear();
     const m = String(dateObj.getMonth() + 1).padStart(2, '0');
@@ -97,7 +107,7 @@ function getCurrentDateTimeStr() {
 
 /**
  * [HELPER] Safe Integer Parser
- * Đảm bảo giá trị trả về luôn là số nguyên hoặc null/0
+ * Đảm bảo giá trị trả về luôn là số nguyên hoặc fallback (thường là null hoặc 0)
  */
 function safeParseInt(value, fallback = null) {
     if (value === undefined || value === null || value === '') return fallback;
@@ -106,15 +116,24 @@ function safeParseInt(value, fallback = null) {
 }
 
 /**
+ * [HELPER] Boolean String Checker
+ * Kiểm tra xem một giá trị có phải là TRUE (string hoặc boolean) hay không.
+ */
+function isTrueString(val) {
+    if (!val) return false;
+    return String(val).trim().toUpperCase() === 'TRUE';
+}
+
+/**
  * [HELPER] SMART SERVICE FINDER
- * Tìm mã dịch vụ từ tên hoặc mã, hỗ trợ fuzzy match.
+ * Tìm mã dịch vụ từ tên hoặc mã, hỗ trợ tìm kiếm mờ (fuzzy match).
  */
 function smartFindServiceCode(inputName) {
     if (!inputName) return null;
     const cleanInput = inputName.trim();
     const upperInput = cleanInput.toUpperCase();
 
-    // 1. Check Key (Code)
+    // 1. Check Key (Code) trực tiếp
     if (STATE.SERVICES[upperInput]) return upperInput;
 
     // 2. Check Exact Name
@@ -122,7 +141,7 @@ function smartFindServiceCode(inputName) {
         if (STATE.SERVICES[code].name === cleanInput) return code;
     }
 
-    // 3. Fuzzy Match
+    // 3. Fuzzy Match (Bỏ qua phần trong ngoặc, ví dụ: "Body Massage (60min)")
     const baseInput = upperInput.split('(')[0].trim();
     for (const code in STATE.SERVICES) {
         const dbName = STATE.SERVICES[code].name.toUpperCase();
@@ -135,9 +154,12 @@ function smartFindServiceCode(inputName) {
 }
 
 // =============================================================================
-// PHẦN 2: SYNC ENGINE (ĐỌC VÀ ĐỒNG BỘ DỮ LIỆU)
+// PHẦN 2: SYNC ENGINE (ĐỌC VÀ ĐỒNG BỘ DỮ LIỆU TỪ GOOGLE SHEETS)
 // =============================================================================
 
+/**
+ * Đồng bộ Menu/Services từ sheet 'menu'
+ */
 async function syncMenuData() {
     try {
         const res = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: `${MENU_SHEET}!A2:F50` });
@@ -157,10 +179,12 @@ async function syncMenuData() {
             if (timeMatch) duration = parseInt(timeMatch[1]);
             const price = parseInt(priceStr.replace(/\D/g, '')) || 0;
 
+            // Elastic Search parameters
             let elasticStep = 0; let elasticLimit = 0;
             if (row[4]) { const ps = parseInt(row[4].toString().replace(/\D/g, '')); if (!isNaN(ps)) elasticStep = ps; }
             if (row[5]) { const pl = parseInt(row[5].toString().replace(/\D/g, '')); if (!isNaN(pl)) elasticLimit = pl; }
 
+            // Categorization
             let type = 'BED'; let category = 'BODY';
             const prefix = code.charAt(0).toUpperCase();
             if (prefix === 'A') { type = 'BED'; category = 'COMBO'; } 
@@ -173,6 +197,7 @@ async function syncMenuData() {
             };
         });
         
+        // Update ResourceCore logic if needed
         if (ResourceCore.setDynamicServices) {
             ResourceCore.setDynamicServices(newServices);
         }
@@ -181,14 +206,18 @@ async function syncMenuData() {
     } catch (e) { console.error('[MENU ERROR]', e); }
 }
 
+/**
+ * Đồng bộ Dữ liệu chính (Bookings & Schedule)
+ * Hàm này đọc toàn bộ dữ liệu cần thiết để tái lập trạng thái hệ thống.
+ */
 async function syncData() {
-    if (STATE.isSyncing) { console.log("⚠️ Skip sync: Busy."); return; }
+    if (STATE.isSyncing) { console.log("⚠️ Skip sync: System is busy."); return; }
 
     try {
         STATE.isSyncing = true; 
 
         // --- BƯỚC 1: ĐỌC BOOKING TỪ SHEET1 ---
-        // Range A:AE covers all needed columns including Locked status at AE
+        // Range A:AE covers all needed columns including Locked status at AE (Column Index 30)
         const resBooking = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: `${BOOKING_SHEET}!A:AE` });
         const rowsBooking = resBooking.data.values;
         let tempBookings = [];
@@ -238,11 +267,11 @@ async function syncData() {
                      for(const key in STATE.SERVICES) { if(STATE.SERVICES[key].name === serviceStr) { serviceCode = key; break; } }
                 }
 
-                // --- [PHASE LOGIC UPDATE] ---
+                // --- [PHASE & LOCK LOGIC UPDATE] ---
                 // Cột Y (Index 24) = Phase 1 Duration
                 // Cột Z (Index 25) = Phase 2 Duration
                 // Cột AA (Index 26) = Flow Code
-                // Cột AE (Index 30) = Manual Locked Flag
+                // Cột AE (Index 30) = Manual Locked Flag (STRICT "TRUE" CHECK)
                 
                 const phase1Duration = safeParseInt(row[24], null);
                 const phase2Duration = safeParseInt(row[25], null);
@@ -251,9 +280,9 @@ async function syncData() {
                 let flowCode = null;
                 if (rawFlow && ['BF','FB','FOOTSINGLE','BODYSINGLE'].includes(rawFlow)) { flowCode = rawFlow; }
                 
-                const rawLocked = row[30]; // Cột AE
-                // Kiểm tra kỹ giá trị TRUE, các giá trị khác hoặc rỗng đều coi là false
-                const isManualLocked = (rawLocked && (rawLocked.toString().trim().toUpperCase() === 'TRUE'));
+                // Read Lock Status: Only "TRUE" is considered locked.
+                const rawLocked = row[30]; 
+                const isManualLocked = isTrueString(rawLocked);
 
                 tempBookings.push({
                     rowId: i + 1, 
@@ -335,7 +364,7 @@ async function syncData() {
         if (STATE.isSystemHealthy && tempBookings.length > 0) {
             try {
                 if (typeof ResourceCore.generateResourceMatrix === 'function') {
-                    // ResourceCore sẽ cần nhận biết isManualLocked để KHÔNG override các booking đó
+                    // ResourceCore sẽ nhận biết isManualLocked để giữ nguyên resource đã gán
                     const matrixAllocation = ResourceCore.generateResourceMatrix(tempBookings, STATE.STAFF_LIST);
                     tempBookings.forEach(booking => {
                         if (matrixAllocation[booking.rowId]) {
@@ -360,18 +389,14 @@ async function syncData() {
     }
 }
 
-async function syncDailySalary(dateStr, staffDataList) {
-    try {
-        const range = `${SALARY_SHEET}!A1:AZ100`; 
-        await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: range });
-        // Logic ghi lương thực tế (Placeholder)
-    } catch (e) { console.error('[SALARY ERROR]', e); }
-}
-
 // =============================================================================
-// PHẦN 3: WRITE & UPDATE LOGIC (CORE UPGRADE)
+// PHẦN 3: WRITE & UPDATE LOGIC (CORE UPGRADE V4.1 STRICT)
 // =============================================================================
 
+/**
+ * Ghi booking mới vào Google Sheets.
+ * V4.1: Đảm bảo cột AE (Lock) luôn được ghi là "TRUE" hoặc "FALSE", không bao giờ để trống.
+ */
 async function ghiVaoSheet(data, proposedUpdates = []) {
     try {
         const timeCreate = getCurrentDateTimeStr();
@@ -394,6 +419,7 @@ async function ghiVaoSheet(data, proposedUpdates = []) {
         }
 
         for (let i = 0; i < loopCount; i++) {
+            // Khởi tạo mảng với 31 phần tử (đến index 30 là cột AE)
             const row = new Array(31).fill("");
             let guestDetail = (data.guestDetails && data.guestDetails[i]) ? data.guestDetails[i] : null;
 
@@ -461,19 +487,23 @@ async function ghiVaoSheet(data, proposedUpdates = []) {
             }
             row[26] = flowVal || "FB";
 
-            // [LOCKING UPDATE - EXPLICIT FALSE]
-            // Cập nhật V4: Nếu không phải TRUE thì ghi rõ "FALSE"
-            if (data.isManualLocked || (p1 !== null && p1 !== undefined)) {
+            // [LOCKING LOGIC - STRICT V4.1]
+            // Nếu có Phase 1 tùy chỉnh (manual phase) HOẶC cờ isManualLocked bật -> TRUE
+            // Ngược lại -> FALSE (Tuyệt đối không để chuỗi rỗng)
+            const hasManualPhase = (p1 !== null && p1 !== undefined && p1 !== "");
+            const explicitLock = (data.isManualLocked === true);
+            
+            if (explicitLock || hasManualPhase) {
                 row[30] = 'TRUE'; 
             } else {
-                row[30] = 'FALSE'; // Ghi rõ FALSE thay vì để trống
+                row[30] = 'FALSE'; 
             }
 
             valuesToWrite.push(row);
         }
 
         if (valuesToWrite.length > 0) {
-            console.log(`[WRITE] Atomic Appending ${valuesToWrite.length} rows...`);
+            console.log(`[WRITE] Atomic Appending ${valuesToWrite.length} rows to Sheet1. Strict Lock logic applied.`);
             await sheets.spreadsheets.values.append({ 
                 spreadsheetId: SHEET_ID, range: 'Sheet1!A:A', 
                 valueInputOption: 'USER_ENTERED', requestBody: { values: valuesToWrite } 
@@ -491,6 +521,119 @@ async function updateBookingStatus(rowId, newStatus) {
         await sheets.spreadsheets.values.update({ spreadsheetId: SHEET_ID, range: `${BOOKING_SHEET}!H${rowId}`, valueInputOption: 'USER_ENTERED', requestBody: { values: [[ newStatus ]] } });
         await syncData();
     } catch (e) { console.error('Update Status Error:', e); }
+}
+
+/**
+ * [CRITICAL] UPDATE BOOKING DETAILS
+ * Nâng cấp V4.1: Xử lý logic 2 chiều cho Phase 1 <-> Phase 2 & Strict Locking.
+ * 1. Nếu sửa Phase 1 -> Tự tính Phase 2 -> Tự động LOCK ("TRUE").
+ * 2. Nếu sửa Phase 2 -> Tự tính Phase 1 -> Tự động LOCK ("TRUE").
+ * 3. Nếu gửi `isManualLocked: false` -> Ghi đè thành UNLOCK ("FALSE").
+ */
+async function updateBookingDetails(body) {
+    const rowId = body.rowId;
+    if (!rowId) throw new Error('Missing rowId');
+    
+    // Helper function để ghi vào 1 cell cụ thể
+    const updateCell = async (col, val) => {
+        await sheets.spreadsheets.values.update({
+            spreadsheetId: SHEET_ID, 
+            range: `${BOOKING_SHEET}!${col}${rowId}`, 
+            valueInputOption: 'USER_ENTERED', 
+            requestBody: { values: [[val]] }
+        });
+    };
+
+    console.log(`[UPDATE] Processing update for Row ${rowId}`, body);
+
+    // --- 1. Basic Field Updates ---
+    if (body.date) {
+        const formattedDate = normalizeDateStrict(body.date);
+        await updateCell('A', formattedDate);
+        await updateCell('S', formattedDate);
+    }
+    if (body.startTime) {
+        let timeVal = body.startTime; if (timeVal.length > 5) timeVal = timeVal.substring(0, 5);
+        await updateCell('B', timeVal);
+    }
+    if (body.customerName) await updateCell('C', body.customerName);
+    if (body.serviceName) await updateCell('D', body.serviceName);
+    if (body.isOil !== undefined) await updateCell('E', body.isOil ? "Yes" : "");
+    if (body.pax) await updateCell('F', body.pax);
+    if (body.phone) await updateCell('G', body.phone);
+    if (body.mainStatus) await updateCell('H', body.mainStatus);
+    
+    // Staff Updates
+    if (body.staffId && body.staffId !== '随機') await updateCell('I', body.staffId);
+    if (body.staffId2) await updateCell('M', body.staffId2);
+    if (body.staffId3) await updateCell('N', body.staffId3);
+    if (body.flow) await updateCell('AA', body.flow);
+
+    // --- 2. [ADVANCED] PHASE & LOCK LOGIC ---
+    
+    // Lấy thông tin booking hiện tại để có Total Duration
+    let bookingData = STATE.cachedBookings.find(b => b.rowId == rowId);
+    let totalDuration = 60; // Mặc định an toàn
+    
+    if (bookingData) {
+        totalDuration = bookingData.duration;
+    } else {
+        console.warn(`[UPDATE WARNING] Row ${rowId} not found in cache. Using default duration (60) or body duration.`);
+        if (body.duration) totalDuration = safeParseInt(body.duration, 60);
+    }
+
+    // Biến cờ xác định trạng thái Lock cuối cùng
+    // null = không thay đổi, "TRUE" = khóa, "FALSE" = mở khóa
+    let finalLockState = null; 
+
+    // CASE 1: Update Phase 1 => Auto Phase 2 => Force LOCK
+    if (body.phase1_duration !== undefined && body.phase1_duration !== null) {
+        const p1 = parseInt(body.phase1_duration); 
+        const p2 = totalDuration - p1;             
+        
+        console.log(`[UPDATE LOGIC] Row ${rowId}: Phase 1 set to ${p1}. Auto-calc Phase 2 = ${p2}. FORCING LOCK.`);
+
+        await updateCell('Y', p1);       // Cột Y
+        await updateCell('Z', p2);       // Cột Z
+        finalLockState = 'TRUE';         // Tác động vào biến cờ
+    } 
+    // CASE 2: Update Phase 2 => Auto Phase 1 => Force LOCK
+    else if (body.phase2_duration !== undefined && body.phase2_duration !== null) {
+        const p2 = parseInt(body.phase2_duration); 
+        const p1 = totalDuration - p2;             
+
+        console.log(`[UPDATE LOGIC] Row ${rowId}: Phase 2 set to ${p2}. Auto-calc Phase 1 = ${p1}. FORCING LOCK.`);
+
+        await updateCell('Y', p1);       // Cột Y
+        await updateCell('Z', p2);       // Cột Z
+        finalLockState = 'TRUE';         // Tác động vào biến cờ
+    }
+
+    // CASE 3: Explicit Manual Lock Override
+    // Nếu Client gửi yêu cầu Lock/Unlock cụ thể, nó sẽ ghi đè hoặc xác nhận trạng thái
+    if (body.isManualLocked !== undefined) {
+        if (body.isManualLocked === true) {
+            finalLockState = 'TRUE';
+        } else if (body.isManualLocked === false) {
+            finalLockState = 'FALSE';
+            console.log(`[UPDATE LOGIC] Row ${rowId}: Explicit UNLOCK requested.`);
+        }
+    }
+
+    // --- 3. FINAL EXECUTION OF LOCK STATE ---
+    // Chỉ update cột AE nếu có quyết định thay đổi trạng thái
+    if (finalLockState !== null) {
+        await updateCell('AE', finalLockState);
+    } else {
+        // Fallback: Nếu không có thay đổi Phase và không có lệnh Lock cụ thể, giữ nguyên.
+        // Tuy nhiên, nếu user update Staff hay Time, có thể ta muốn giữ nguyên trạng thái cũ.
+    }
+
+    // 4. Trigger Sync
+    if (body.forceSync) await syncData(); 
+    else setTimeout(() => syncData(), 500); 
+    
+    return true;
 }
 
 async function updateStaffConfig(staffId, isStrictTime) {
@@ -512,104 +655,6 @@ async function updateStaffConfig(staffId, isStrictTime) {
     } catch (e) { console.error(e); throw e; }
 }
 
-/**
- * [CRITICAL FUNCTION] UPDATE BOOKING DETAILS
- * Nâng cấp: Xử lý logic Phase 1 <-> Phase 2 2 chiều & Auto Lock
- */
-async function updateBookingDetails(body) {
-    const rowId = body.rowId;
-    if (!rowId) throw new Error('Missing rowId');
-    
-    // Helper function để ghi vào 1 cell cụ thể
-    const updateCell = async (col, val) => {
-        await sheets.spreadsheets.values.update({
-            spreadsheetId: SHEET_ID, 
-            range: `${BOOKING_SHEET}!${col}${rowId}`, 
-            valueInputOption: 'USER_ENTERED', 
-            requestBody: { values: [[val]] }
-        });
-    };
-
-    console.log(`[UPDATE] Processing update for Row ${rowId}`, body);
-
-    // 1. Basic Field Updates
-    if (body.date) {
-        const formattedDate = normalizeDateStrict(body.date);
-        await updateCell('A', formattedDate);
-        await updateCell('S', formattedDate);
-    }
-    if (body.startTime) {
-        let timeVal = body.startTime; if (timeVal.length > 5) timeVal = timeVal.substring(0, 5);
-        await updateCell('B', timeVal);
-    }
-    if (body.customerName) await updateCell('C', body.customerName);
-    if (body.serviceName) await updateCell('D', body.serviceName);
-    if (body.isOil !== undefined) await updateCell('E', body.isOil ? "Yes" : "");
-    if (body.pax) await updateCell('F', body.pax);
-    if (body.phone) await updateCell('G', body.phone);
-    if (body.mainStatus) await updateCell('H', body.mainStatus);
-    
-    // Staff Updates
-    if (body.staffId && body.staffId !== '随機') await updateCell('I', body.staffId);
-    if (body.staffId2) await updateCell('M', body.staffId2);
-    if (body.staffId3) await updateCell('N', body.staffId3);
-    
-    // 2. [ADVANCED] PHASE & LOCK LOGIC
-    // Logic nâng cấp V3: Hỗ trợ tính xuôi (Update P1 -> Calc P2) và tính ngược (Update P2 -> Calc P1)
-    
-    // Lấy thông tin booking hiện tại để có Total Duration
-    let bookingData = STATE.cachedBookings.find(b => b.rowId == rowId);
-    let totalDuration = 60; // Mặc định nếu không tìm thấy (Fall-safe)
-    
-    if (bookingData) {
-        totalDuration = bookingData.duration;
-    } else {
-        console.warn(`[UPDATE WARNING] Row ${rowId} not found in cache during Phase Update. Using default duration (60).`);
-        // Nếu client gửi kèm duration trong body thì dùng tạm
-        if (body.duration) totalDuration = safeParseInt(body.duration, 60);
-    }
-
-    // CASE 1: Client update Phase 1 => Hệ thống tự tính Phase 2
-    if (body.phase1_duration !== undefined && body.phase1_duration !== null) {
-        const p1 = parseInt(body.phase1_duration); // Input từ Client
-        const p2 = totalDuration - p1;             // Derived value
-        
-        console.log(`[UPDATE LOGIC] Row ${rowId}: Phase 1 set to ${p1}. Auto-calc Phase 2 = ${p2}. Locking row.`);
-
-        await updateCell('Y', p1);       // Cập nhật Phase 1 (Cột Y)
-        await updateCell('Z', p2);       // Cập nhật Phase 2 (Cột Z)
-        await updateCell('AE', 'TRUE');  // Set isManualLocked = TRUE (Bắt buộc)
-    } 
-    // CASE 2: Client update Phase 2 => Hệ thống tự tính Phase 1 (NEW FEATURE)
-    else if (body.phase2_duration !== undefined && body.phase2_duration !== null) {
-        const p2 = parseInt(body.phase2_duration); // Input từ Client
-        const p1 = totalDuration - p2;             // Derived value
-
-        console.log(`[UPDATE LOGIC] Row ${rowId}: Phase 2 set to ${p2}. Auto-calc Phase 1 = ${p1}. Locking row.`);
-
-        await updateCell('Y', p1);       // Cập nhật Phase 1 (Cột Y)
-        await updateCell('Z', p2);       // Cập nhật Phase 2 (Cột Z)
-        await updateCell('AE', 'TRUE');  // Set isManualLocked = TRUE (Bắt buộc)
-    }
-
-    // 3. Flow & Lock Direct Updates
-    if (body.flow) await updateCell('AA', body.flow);
-    
-    // Cho phép force set Lock từ bên ngoài nếu cần (ghi đè logic trên nếu muốn unlock)
-    if (body.isManualLocked !== undefined) {
-        // [LOCKING UPDATE - EXPLICIT FALSE]
-        // Nếu giá trị là false, ghi rõ chuỗi "FALSE", ngược lại ghi "TRUE"
-        const lockValue = body.isManualLocked ? 'TRUE' : 'FALSE';
-        await updateCell('AE', lockValue);
-    }
-
-    // 4. Trigger Sync
-    if (body.forceSync) await syncData(); 
-    else setTimeout(() => syncData(), 500); 
-    
-    return true;
-}
-
 async function layLichDatGanNhat(userId) {
     try {
         const res = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: `${BOOKING_SHEET}!A:K` });
@@ -625,6 +670,14 @@ async function layLichDatGanNhat(userId) {
         }
         return null;
     } catch (e) { console.error('Read Error:', e); return null; }
+}
+
+async function syncDailySalary(dateStr, staffDataList) {
+    try {
+        // Placeholder cho chức năng tính lương, sẽ mở rộng sau
+        const range = `${SALARY_SHEET}!A1:AZ100`; 
+        await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: range });
+    } catch (e) { console.error('[SALARY ERROR]', e); }
 }
 
 // =============================================================================

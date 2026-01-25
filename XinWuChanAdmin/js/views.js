@@ -1,12 +1,14 @@
 /**
  * ============================================================================
  * FILE: js/views.js
- * PHIÊN BẢN: V5.5 (FEATURE: COMBO TIME EDITOR)
+ * PHIÊN BẢN: V5.6 (LOCALIZATION: TRADITIONAL CHINESE UI)
  * MÔ TẢ: CÁC COMPONENT HIỂN THỊ CHÍNH (TIMELINE, REPORT, CARD...)
  * CẬP NHẬT: 
- * 1. [TimelineView]: Thêm Modal chỉnh sửa thời gian Phase 1 / Phase 2 cho Combo.
- * 2. [TimelineView]: Tự động tính toán thời gian còn lại khi nhập liệu.
- * 3. [Core]: Giữ nguyên toàn bộ logic V5.4 (BF Indicators, Animations, Commission).
+ * 1. [ComboTimeEditModal]: Dịch toàn bộ giao diện sang Tiếng Trung Phồn Thể.
+ * - Tiêu đề: 調整套餐時間 (Adjust Time)
+ * - Nhãn: 第一階段 (Phase 1), 第二階段 (Phase 2), 服務總時長...
+ * 2. [TimelineView]: Giữ nguyên logic tính toán Gantt Chart.
+ * 3. [Core]: Giữ nguyên logic V5.5 (BF Indicators, Animations, Commission).
  * TÁC GIẢ: AI ASSISTANT & USER
  * ============================================================================
  */
@@ -14,13 +16,14 @@
 const { useState, useEffect, useMemo, useRef } = React;
 
 // ============================================================================
-// 0. MODAL COMPONENT (NEW IN V5.5)
+// 0. MODAL COMPONENT (UPDATED V5.6 - CHINESE UI)
 // Modal chỉnh sửa thời gian chia Phase cho Combo
 // ============================================================================
 const ComboTimeEditModal = ({ isOpen, onClose, onSave, booking, meta }) => {
+    // Nếu modal không mở hoặc không có booking, không render gì cả
     if (!isOpen || !booking) return null;
 
-    // Tổng thời gian của gói (cố định)
+    // Tổng thời gian của gói (cố định, không sửa được ở đây)
     const totalDuration = booking.duration || 0;
     
     // State lưu thời gian Phase 1 (mặc định lấy từ meta hoặc chia đôi)
@@ -28,6 +31,7 @@ const ComboTimeEditModal = ({ isOpen, onClose, onSave, booking, meta }) => {
     const initialP1 = meta && meta.phase1_duration ? meta.phase1_duration : (totalDuration / 2);
     const [phase1, setPhase1] = useState(initialP1);
 
+    // Effect: Cập nhật state khi modal mở lại hoặc booking thay đổi
     useEffect(() => {
         if (isOpen && booking) {
             const currentP1 = meta && meta.phase1_duration ? meta.phase1_duration : (booking.duration / 2);
@@ -35,55 +39,62 @@ const ComboTimeEditModal = ({ isOpen, onClose, onSave, booking, meta }) => {
         }
     }, [isOpen, booking, meta]);
 
-    // Tính toán Phase 2 dựa trên Phase 1
+    // Tính toán Phase 2 dựa trên Phase 1 (Phase 2 = Tổng - Phase 1)
     const phase2 = totalDuration - phase1;
 
-    // Xử lý khi nhập Phase 1
+    // Handler: Xử lý khi nhập Phase 1
     const handleChangeP1 = (val) => {
         let newP1 = parseInt(val) || 0;
+        // Validate không được âm và không quá tổng thời gian
         if (newP1 < 0) newP1 = 0;
         if (newP1 > totalDuration) newP1 = totalDuration;
         setPhase1(newP1);
     };
 
-    // Xử lý khi nhập Phase 2 (sẽ cập nhật ngược lại Phase 1)
+    // Handler: Xử lý khi nhập Phase 2 (sẽ cập nhật ngược lại Phase 1)
     const handleChangeP2 = (val) => {
         let newP2 = parseInt(val) || 0;
+        // Validate không được âm và không quá tổng thời gian
         if (newP2 < 0) newP2 = 0;
         if (newP2 > totalDuration) newP2 = totalDuration;
+        // Cập nhật Phase 1 dựa trên Phase 2 vừa nhập
         setPhase1(totalDuration - newP2);
     };
 
     return (
         <div className="fixed inset-0 z-[999] flex items-center justify-center bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
             <div className="bg-white rounded-xl shadow-2xl w-full max-w-md overflow-hidden border border-slate-200 transform scale-100 transition-all">
-                {/* Header */}
+                {/* Header (Updated to Chinese) */}
                 <div className="bg-gradient-to-r from-indigo-600 to-blue-600 p-4 flex justify-between items-center text-white">
                     <h3 className="font-bold text-lg flex items-center gap-2">
-                        <i className="fas fa-clock"></i> Chỉnh sửa thời gian Combo
+                        <i className="fas fa-clock"></i> 調整套餐時間 (Adjust Time)
                     </h3>
                     <button onClick={onClose} className="hover:bg-white/20 rounded-full w-8 h-8 flex items-center justify-center transition-colors">
                         <i className="fas fa-times"></i>
                     </button>
                 </div>
 
-                {/* Body */}
+                {/* Body Content */}
                 <div className="p-6 space-y-6">
+                    {/* Total Duration Display */}
                     <div className="bg-blue-50 p-3 rounded-lg border border-blue-100 text-center">
-                        <span className="text-sm text-blue-600 font-bold uppercase tracking-wider">Tổng thời gian dịch vụ</span>
-                        <div className="text-3xl font-black text-blue-800 mt-1">{totalDuration} <span className="text-base font-normal">phút</span></div>
+                        <span className="text-sm text-blue-600 font-bold uppercase tracking-wider">服務總時長 (Total Duration)</span>
+                        <div className="text-3xl font-black text-blue-800 mt-1">
+                            {totalDuration} <span className="text-base font-normal">分</span>
+                        </div>
                         <div className="text-xs text-blue-500 mt-1">{booking.serviceName}</div>
                     </div>
 
+                    {/* Inputs Grid */}
                     <div className="grid grid-cols-2 gap-6 relative">
-                        {/* Divider Arrow */}
+                        {/* Divider Arrow Icon */}
                         <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 text-gray-300 z-0">
                             <i className="fas fa-exchange-alt text-xl"></i>
                         </div>
 
-                        {/* Phase 1 Input */}
+                        {/* Phase 1 Input (Updated Labels) */}
                         <div className="relative z-10">
-                            <label className="block text-xs font-bold text-indigo-700 mb-1 uppercase">Phase 1 (Trước)</label>
+                            <label className="block text-xs font-bold text-indigo-700 mb-1 uppercase">第一階段 (Phase 1)</label>
                             <div className="relative">
                                 <input 
                                     type="number" 
@@ -91,16 +102,16 @@ const ComboTimeEditModal = ({ isOpen, onClose, onSave, booking, meta }) => {
                                     onChange={(e) => handleChangeP1(e.target.value)}
                                     className="w-full text-center border-2 border-indigo-200 rounded-lg py-2 text-xl font-bold text-indigo-900 focus:border-indigo-500 focus:outline-none"
                                 />
-                                <span className="absolute right-2 top-3 text-xs text-gray-400">phút</span>
+                                <span className="absolute right-2 top-3 text-xs text-gray-400">分</span>
                             </div>
                             <div className="text-[10px] text-gray-500 mt-1 text-center">
-                                Thay đổi ô này sẽ tự tính Phase 2
+                                修改此欄位將自動計算另一階段
                             </div>
                         </div>
 
-                        {/* Phase 2 Input */}
+                        {/* Phase 2 Input (Updated Labels) */}
                         <div className="relative z-10">
-                            <label className="block text-xs font-bold text-orange-700 mb-1 uppercase">Phase 2 (Sau)</label>
+                            <label className="block text-xs font-bold text-orange-700 mb-1 uppercase">第二階段 (Phase 2)</label>
                             <div className="relative">
                                 <input 
                                     type="number" 
@@ -108,42 +119,42 @@ const ComboTimeEditModal = ({ isOpen, onClose, onSave, booking, meta }) => {
                                     onChange={(e) => handleChangeP2(e.target.value)}
                                     className="w-full text-center border-2 border-orange-200 rounded-lg py-2 text-xl font-bold text-orange-900 focus:border-orange-500 focus:outline-none"
                                 />
-                                <span className="absolute right-2 top-3 text-xs text-gray-400">phút</span>
+                                <span className="absolute right-2 top-3 text-xs text-gray-400">分</span>
                             </div>
                             <div className="text-[10px] text-gray-500 mt-1 text-center">
-                                Thay đổi ô này sẽ tự tính Phase 1
+                                修改此欄位將自動計算另一階段
                             </div>
                         </div>
                     </div>
 
-                    {/* Visual Bar */}
+                    {/* Visual Progress Bar (Ratio Visualization) */}
                     <div className="h-4 w-full bg-gray-200 rounded-full overflow-hidden flex shadow-inner">
                         <div 
                             className="h-full bg-indigo-500 transition-all duration-300"
                             style={{ width: `${(phase1 / totalDuration) * 100}%` }}
-                            title={`Phase 1: ${phase1}p`}
+                            title={`Phase 1: ${phase1}分`}
                         ></div>
                         <div 
                             className="h-full bg-orange-400 transition-all duration-300"
                             style={{ width: `${(phase2 / totalDuration) * 100}%` }}
-                            title={`Phase 2: ${phase2}p`}
+                            title={`Phase 2: ${phase2}分`}
                         ></div>
                     </div>
                 </div>
 
-                {/* Footer */}
+                {/* Footer Buttons (Updated Labels) */}
                 <div className="bg-gray-50 p-4 border-t border-gray-200 flex justify-end gap-3">
                     <button 
                         onClick={onClose}
                         className="px-4 py-2 rounded-lg text-gray-600 font-bold hover:bg-gray-200 transition-colors text-sm"
                     >
-                        Hủy bỏ
+                        取消 (Cancel)
                     </button>
                     <button 
                         onClick={() => onSave(booking, phase1)}
                         className="px-6 py-2 rounded-lg bg-indigo-600 text-white font-bold shadow-lg hover:bg-indigo-700 transform active:scale-95 transition-all text-sm flex items-center gap-2"
                     >
-                        <i className="fas fa-save"></i> Lưu Thay Đổi
+                        <i className="fas fa-save"></i> 儲存變更 (Save)
                     </button>
                 </div>
             </div>
@@ -155,17 +166,17 @@ const ComboTimeEditModal = ({ isOpen, onClose, onSave, booking, meta }) => {
 // 1. TIMELINE VIEW (Biểu đồ thời gian Gantt)
 // ============================================================================
 const TimelineView = ({ timelineData, onEditPhase }) => {
-    // State cho Modal chỉnh sửa
+    // State quản lý việc hiển thị Modal chỉnh sửa
     const [editModalOpen, setEditModalOpen] = useState(false);
     const [selectedBooking, setSelectedBooking] = useState(null);
     const [selectedMeta, setSelectedMeta] = useState(null);
 
-    // Cấu hình thời gian hiển thị
+    // Cấu hình thời gian hiển thị trên trục X
     const startHour = 8;
     const endHour = 27; // 27 = 3h sáng hôm sau
     const hours = Array.from({length: endHour - startHour + 1}, (_, i) => i + startHour);
 
-    // Cấu hình kích thước giao diện
+    // Cấu hình kích thước giao diện (Pixels)
     const PIXELS_PER_MIN = 2.2; 
     const HOUR_WIDTH = 60 * PIXELS_PER_MIN; // ~132px/giờ
     const HEADER_HEIGHT = 45;
@@ -174,7 +185,7 @@ const TimelineView = ({ timelineData, onEditPhase }) => {
 
     const TOTAL_WIDTH = LEFT_COL_WIDTH + (hours.length * HOUR_WIDTH);
 
-    // Bảng màu phân biệt khách hàng (Màu nền nhẹ nhàng)
+    // Bảng màu phân biệt khách hàng (Màu nền nhẹ nhàng để dễ nhìn chữ)
     const colorPalette = [
         "bg-red-100 text-red-900 border-red-200 hover:bg-red-200",
         "bg-orange-100 text-orange-900 border-orange-200 hover:bg-orange-200",
@@ -196,6 +207,7 @@ const TimelineView = ({ timelineData, onEditPhase }) => {
         "bg-slate-200 text-slate-900 border-slate-300 hover:bg-slate-300"
     ];
 
+    // Hàm tạo màu dựa trên ID hàng (để các hàng có màu nhất quán)
     const getRowIdColor = (rowId) => {
         if (!rowId) return colorPalette[0];
         let hash = 0;
@@ -205,16 +217,19 @@ const TimelineView = ({ timelineData, onEditPhase }) => {
         return colorPalette[index];
     };
 
+    // Format giờ hiển thị (ví dụ: 25:00 -> 01:00)
     const formatHour = (h) => {
         const displayH = h >= 24 ? h - 24 : h;
         return `${displayH}:00`;
     };
 
+    // Tạo danh sách các hàng (Rows): 6 Ghế (Chair) + 6 Giường (Bed)
     const rows = [
         ...Array.from({length:6}, (_,i) => ({id: `chair-${i+1}`, label: `足 ${i+1}`, type: 'chair'})),
         ...Array.from({length:6}, (_,i) => ({id: `bed-${i+1}`, label: `身 ${i+1}`, type: 'bed'}))
     ];
 
+    // Xử lý hiển thị tên khách hàng (cắt bớt số điện thoại nếu dài)
     const getDisplayLabel = (booking) => {
         let name = booking.customerName || '';
         let phone = booking.sdt || '';
@@ -228,17 +243,17 @@ const TimelineView = ({ timelineData, onEditPhase }) => {
         return last3 ? `${name} (${last3})` : name;
     };
 
-    // Hàm mở modal khi click vào nút bút chì
+    // Hàm mở modal khi click vào nút bút chì (Edit)
     const handleOpenEdit = (booking, meta) => {
         setSelectedBooking(booking);
         setSelectedMeta(meta);
         setEditModalOpen(true);
     };
 
-    // Hàm lưu dữ liệu từ Modal
+    // Hàm lưu dữ liệu từ Modal trả về
     const handleSaveTime = (booking, newPhase1) => {
         // Gọi callback onEditPhase truyền từ cha xuống (nếu có)
-        // Lưu ý: Ta truyền thêm tham số newPhase1 để App biết cần cập nhật
+        // Lưu ý: Ta truyền thêm tham số newPhase1 để App chính biết cần cập nhật logic chia giờ
         if (onEditPhase) {
             onEditPhase(booking, { ...selectedMeta, newPhase1Duration: newPhase1 });
         }
@@ -270,7 +285,7 @@ const TimelineView = ({ timelineData, onEditPhase }) => {
                 }
             `}</style>
 
-            {/* Render Modal if open */}
+            {/* Render Modal if open (Truyền các props cần thiết) */}
             <ComboTimeEditModal 
                 isOpen={editModalOpen}
                 onClose={() => setEditModalOpen(false)}
@@ -280,7 +295,7 @@ const TimelineView = ({ timelineData, onEditPhase }) => {
             />
 
             <div style={{ width: `${TOTAL_WIDTH}px`, minWidth: '100%' }}>
-                {/* HEADER ROW */}
+                {/* HEADER ROW (Trục thời gian) */}
                 <div className="flex sticky top-0 z-30 bg-slate-100 border-b border-slate-300 shadow-md h-[45px]">
                     <div className="sticky left-0 top-0 z-40 bg-[#e2e8f0] border-r border-slate-300 flex items-center justify-center font-extrabold text-slate-700 text-sm shadow-[2px_0_5px_rgba(0,0,0,0.1)]" 
                          style={{ width: `${LEFT_COL_WIDTH}px`, height: `${HEADER_HEIGHT}px` }}>
@@ -296,7 +311,7 @@ const TimelineView = ({ timelineData, onEditPhase }) => {
                     </div>
                 </div>
 
-                {/* BODY ROWS */}
+                {/* BODY ROWS (Các hàng ghế/giường) */}
                 <div className="relative bg-white pb-4">
                     {rows.map((row, index) => {
                         const isLastChairRow = index === 5;
@@ -304,21 +319,22 @@ const TimelineView = ({ timelineData, onEditPhase }) => {
 
                         return (
                             <div key={row.id} className={`flex relative transition-colors hover:bg-slate-50 ${rowStyleClass}`} style={{ height: `${ROW_HEIGHT}px` }}>
-                                {/* Label Column */}
+                                {/* Label Column (Tên ghế/giường) */}
                                 <div className={`sticky left-0 z-20 shrink-0 border-r border-slate-300 flex items-center justify-center font-bold text-sm shadow-[2px_0_5px_rgba(0,0,0,0.05)] ${row.type === 'chair' ? 'bg-teal-50 text-teal-800' : 'bg-purple-50 text-purple-800'}`}
                                      style={{ width: `${LEFT_COL_WIDTH}px` }}>
                                     {row.label}
                                 </div>
                                 
-                                {/* Content Area */}
+                                {/* Content Area (Vùng chứa các block timeline) */}
                                 <div className="relative flex-1 h-full">
+                                    {/* Grid Lines (Đường kẻ mờ phân chia giờ) */}
                                     <div className="absolute inset-0 flex pointer-events-none z-0">
                                         {hours.map(h => (
                                             <div key={h} className="shrink-0 border-r border-slate-200 h-full border-dashed" style={{width: `${HOUR_WIDTH}px`}}></div>
                                         ))}
                                     </div>
 
-                                    {/* Booking Blocks */}
+                                    {/* Booking Blocks (Các khối đặt lịch) */}
                                     {safeData[row.id] && safeData[row.id].map((slot, idx) => {
                                         let startMins = slot.start; 
                                         let duration = slot.end - slot.start;
@@ -332,15 +348,15 @@ const TimelineView = ({ timelineData, onEditPhase }) => {
                                         const startTimeStr = window.formatMinutesToTime(slot.start);
                                         const deadlineText = `⏳ ${duration}p ➔ ${endTimeStr}`;
 
-                                        // [V5.4] Check Flow Direction
+                                        // [V5.4] Check Flow Direction (Body First hay Foot First)
                                         const isBodyFirst = slot.meta && slot.meta.sequence === 'BF';
                                         
-                                        // Highlight class if Body First
+                                        // Highlight class nếu là Body First (viền đậm hơn)
                                         const specialBorderClass = isBodyFirst 
                                             ? "border-l-[6px] border-l-indigo-700 bf-indicator shadow-indigo-200" 
                                             : "border border-black/5";
 
-                                        // Icons
+                                        // Icons chỉ thị Phase
                                         let comboIcon = "";
                                         if (slot.meta && slot.meta.isCombo) {
                                             if (slot.meta.phase === 1) comboIcon = "❶";
@@ -353,7 +369,7 @@ const TimelineView = ({ timelineData, onEditPhase }) => {
                                                  style={{left: `${leftPos}px`, width: `${width}px`}}
                                                  title={`${slot.booking.serviceName}\n${isBodyFirst ? '⚠️ Quy trình đảo ngược: Body trước' : 'Quy trình chuẩn: Chân trước'}`}
                                             >
-                                                {/* Header Line */}
+                                                {/* Header Line (Tên khách + Icon) */}
                                                 <div className="font-bold truncate text-[11px] leading-tight flex justify-between items-center">
                                                     <span className="flex items-center gap-1">
                                                         {label} {comboIcon}
@@ -361,14 +377,14 @@ const TimelineView = ({ timelineData, onEditPhase }) => {
                                                     </span>
                                                 </div>
 
-                                                {/* Time Line */}
+                                                {/* Time Line (Giờ bắt đầu/kết thúc) */}
                                                 <div className="text-[10px] font-mono font-bold text-slate-700 bg-white/40 rounded px-1 mt-0.5 truncate border border-black/5">
                                                     {slot.meta && slot.meta.isCombo 
                                                         ? (slot.meta.phase === 1 ? deadlineText : `🏁 ${startTimeStr} ➔ (${duration}p)`) 
                                                         : deadlineText}
                                                 </div>
 
-                                                {/* Service Line */}
+                                                {/* Service Line (Tên dịch vụ) */}
                                                 <div className="truncate opacity-75 text-[9px] flex items-center gap-1 mt-0.5">
                                                     {(slot.booking.isOil || (slot.booking.serviceName && slot.booking.serviceName.includes('油'))) && <span title="Oil">💧</span>}
                                                     {(slot.booking.category === 'COMBO') && <span title="Combo">🔥</span>}
@@ -384,7 +400,7 @@ const TimelineView = ({ timelineData, onEditPhase }) => {
                                                             // Mở Modal thay vì gọi trực tiếp callback
                                                             handleOpenEdit(slot.booking, slot.meta);
                                                         }}
-                                                        title="Chỉnh sửa thời gian Phase"
+                                                        title="調整套餐時間 (Adjust Time)"
                                                     >
                                                         <i className="fas fa-pencil-alt text-[10px]"></i>
                                                     </button>
@@ -409,6 +425,8 @@ window.TimelineView = TimelineView;
 const CommissionView = ({ bookings, staffList }) => {
     const RATES = { JIE_PRICE: 250, OIL_BONUS: 80 };
     const normalize = (str) => String(str || '').trim().replace(/\s+/g, '');
+    
+    // Logic tính số "Tiết" (Jie) dựa trên loại dịch vụ và thời gian
     const getJieCount = (serviceName, duration) => {
         const name = (serviceName || "").toUpperCase();
         if (name.includes('190') || name.includes('帝王')) return 6;
@@ -432,6 +450,8 @@ const CommissionView = ({ bookings, staffList }) => {
         if (mins >= 15) return 1; 
         return 0; 
     };
+
+    // Kiểm tra xem dịch vụ có phải là dầu (Oil) không
     const isOilService = (b) => {
         if (b.isOil === true || b.isOil === 'true') return true;
         const name = (b.serviceName || "").toLowerCase();
@@ -439,6 +459,8 @@ const CommissionView = ({ bookings, staffList }) => {
         if (name.includes('帝王') || name.includes('a6')) return true;
         return false;
     };
+
+    // Tính toán thống kê hoa hồng
     const commissionData = useMemo(() => {
         const stats = {};
         const lookupMap = {}; 
@@ -449,6 +471,7 @@ const CommissionView = ({ bookings, staffList }) => {
             if (staff.name) lookupMap[normalize(staff.name)] = entry;
         });
         const safeBookings = Array.isArray(bookings) ? bookings : [];
+        
         safeBookings.forEach(b => {
             if (b.status && (b.status.includes('取消') || b.status.includes('Cancel') || b.status.includes('❌'))) return;
             const slots = [
@@ -460,6 +483,7 @@ const CommissionView = ({ bookings, staffList }) => {
                 { id: b.staffId6, status: b.Status6 },                  
             ];
             const mainStatusDone = b.status && (b.status.includes('完成') || b.status.includes('Done') || b.status.includes('✅'));
+            
             slots.forEach((slot) => {
                 if (!slot.id || slot.id === '隨機' || slot.id === 'undefined' || slot.id === 'null' || slot.id === '') return;
                 const isSlotDone = (slot.status && (slot.status.includes('完成') || slot.status.includes('Done'))) || mainStatusDone;
@@ -547,6 +571,8 @@ window.CommissionView = CommissionView;
 // ============================================================================
 const ReportView = ({ bookings }) => {
     const safeBookings = Array.isArray(bookings) ? bookings : [];
+    
+    // Tính toán tổng doanh thu và số khách
     const processedStats = useMemo(() => {
         let revenue = 0; let guests = 0;
         safeBookings.forEach(b => {
@@ -631,6 +657,7 @@ window.ReportView = ReportView;
 // 4. RESOURCE CARD (Thẻ đặt lịch - Trái tim hiển thị) - UPGRADED V5.4
 // ============================================================================
 const ResourceCard = ({ id, type, index, data, busyStaffIds, onAction, onSelect, onSwitch, onToggleMax, onToggleSequence, onServiceChange, onStaffChange, onSplit, staffList, getGroupMemberIndex }) => {
+    // State cục bộ để hiển thị thời gian trôi qua, phần trăm hoàn thành
     const [timeLeft, setTimeLeft] = useState(0); 
     const [percent, setPercent] = useState(0);
     const [phaseLabel, setPhaseLabel] = useState(null);
@@ -640,7 +667,7 @@ const ResourceCard = ({ id, type, index, data, busyStaffIds, onAction, onSelect,
     const isOccupied = data && data.booking;
     const isPreview = data && data.isPreview;
 
-    // [V5.4] Hook Animation
+    // [V5.4] Hook Animation & Timer logic
     useEffect(() => {
         if (isOccupied && data.isRunning && !data.isPaused && data.startTime) {
             const timer = setInterval(() => {
@@ -656,6 +683,7 @@ const ResourceCard = ({ id, type, index, data, busyStaffIds, onAction, onSelect,
                 const isComboName = data.booking.serviceName && (data.booking.serviceName.includes('套餐') || data.booking.serviceName.includes('Combo'));
                 const isCombo = data.booking.category === 'COMBO' || isComboName;
 
+                // Logic hiển thị Phase cho Combo
                 if (isCombo) {
                     const sequence = (data.comboMeta && data.comboMeta.sequence) || 'FB';
                     const customPhase1 = data.booking.phase1_duration; 
@@ -692,6 +720,7 @@ const ResourceCard = ({ id, type, index, data, busyStaffIds, onAction, onSelect,
         }
     }, [data, isOccupied]);
     
+    // Determine Card Color based on status
     let statusColor = 'bg-slate-50 border-slate-200 border-dashed';
     if (isOccupied) {
         if (isPreview) {
@@ -703,6 +732,7 @@ const ResourceCard = ({ id, type, index, data, busyStaffIds, onAction, onSelect,
         }
     }
     
+    // Determine Staff Display
     let staffDisplay = '';
     if (isOccupied) {
         const grpIdx = typeof getGroupMemberIndex === 'function' ? getGroupMemberIndex(id, data.booking.rowId) : 0;
@@ -723,6 +753,7 @@ const ResourceCard = ({ id, type, index, data, busyStaffIds, onAction, onSelect,
     const flexMinutes = isCombo && data.comboMeta && data.comboMeta.flex ? data.comboMeta.flex : 0;
     const formatTimeStr = (iso) => { if(!iso) return '--:--'; const d = new Date(iso); return `${d.getHours().toString().padStart(2,'0')}:${d.getMinutes().toString().padStart(2,'0')}`; }
     
+    // Logic tính toán hiển thị thời gian combo split
     let startObj = null, endObj = null, switchObj = null;
     let splitText = '';
     let isBodyFirst = false;
