@@ -1,17 +1,17 @@
 // TYPE: app.js
-// VERSION: V102.7 (TIMELINE INTEGRATION & OPTIMISTIC UI)
+// VERSION: V102.8 (ROBUST TIMELINE ADAPTER & FORCE SYNC)
 // UPDATE: 2026-01-25
 // AUTHOR: AI ASSISTANT & USER
 //
-// --- CHANGE LOG V102.7 ---
-// 1. [INTEGRATION] Kết nối TimelineView với logic handleSaveComboTime qua props onEditPhase.
-// 2. [REFACTOR] handleSaveComboTime: Hỗ trợ tham số (duration, bookingObj) để xử lý trực tiếp từ Timeline mà không cần mở Modal.
-// 3. [FIX] Đảm bảo logic đóng Modal chỉ chạy khi gọi từ Modal.
+// --- CHANGE LOG V102.8 ---
+// 1. [REFACTOR] handleSaveComboTime: Nâng cấp thành Adapter thông minh.
+//    - Tự động nhận diện input: (duration, booking) từ Timeline HOẶC (duration) từ Modal.
+//    - Thêm tham số 'forceSync: true' vào API payload để ép Google Sheet cập nhật ngay lập tức.
+//    - Validate chặt chẽ dữ liệu đầu vào (Integer check).
+// 2. [MAINTENANCE] Giữ nguyên toàn bộ logic Matrix và Smart Split của V102.7.
 //
-// --- CHANGE LOG V102.6 (RETAINED) ---
-// 1. [OPTIMISTIC UI] handleSaveComboTime: Cập nhật state cục bộ ngay lập tức trước khi gọi API.
-// 2. [LOGIC] getSmartSplit: Ưu tiên tuyệt đối dữ liệu phase1/phase2 từ Database nếu tồn tại.
-// 3. [VALIDATION] Thêm kiểm tra đầu vào khi chỉnh sửa thời gian Combo.
+// --- CHANGE LOG V102.7 (RETAINED) ---
+// 1. [INTEGRATION] Kết nối TimelineView với logic handleSaveComboTime.
 
 const { useState, useEffect, useMemo, useRef } = React;
 
@@ -738,30 +738,44 @@ const App = () => {
         setEditComboTarget({ id: resId, booking: current.booking });
     };
 
-    // --- HANDLE SAVE COMBO TIME (MAJOR UPDATE V102.7: SUPPORTS TIMELINE DIRECT EDIT) ---
-    // Added specificBooking param to allow calling from TimelineView directly
-    const handleSaveComboTime = async (newPhase1, specificBooking = null) => {
-        // Determine source: If called from Timeline, use passed booking. If from Modal, use state.
-        const booking = specificBooking || (editComboTarget ? editComboTarget.booking : null);
-        
-        if (!booking) {
-            console.error("handleSaveComboTime: No booking target found");
+    // --- HANDLE SAVE COMBO TIME (MAJOR REFACTOR V102.8) ---
+    // Flexible Adapter: Can be called with (duration) from Modal OR (duration, booking) from Timeline
+    const handleSaveComboTime = async (arg1, arg2 = null) => {
+        // 1. ARGUMENT RESOLUTION
+        // Logic tự động nhận diện tham số đầu vào
+        let newPhase1Duration = 0;
+        let targetBooking = null;
+
+        // Case A: Timeline view passes (Number/String, BookingObject)
+        if (typeof arg1 === 'number' || (typeof arg1 === 'string' && !isNaN(arg1))) {
+            newPhase1Duration = parseInt(arg1, 10);
+            // Nếu có arg2 (booking) thì dùng luôn, nếu không thì lấy từ state Modal (editComboTarget)
+            targetBooking = arg2 ? arg2 : (editComboTarget ? editComboTarget.booking : null);
+        }
+        // Case B: Future proofing - if booking is passed first
+        else if (typeof arg1 === 'object' && arg1 !== null) {
+            targetBooking = arg1;
+            newPhase1Duration = parseInt(arg2, 10);
+        }
+
+        // 2. VALIDATION
+        if (!targetBooking) {
+            console.error("handleSaveComboTime: Cannot determine target booking. Missing context.");
             return;
         }
-        
-        const rowId = booking.rowId;
-        const totalDuration = parseInt(booking.duration || 100);
 
-        // 1. VALIDATION
-        const p1 = parseInt(newPhase1);
-        if (isNaN(p1) || p1 <= 0 || p1 >= totalDuration) {
-            alert("⚠️ Invalid Phase 1 Duration (Thời gian không hợp lệ)!");
+        const rowId = String(targetBooking.rowId);
+        const totalDuration = parseInt(targetBooking.duration || 100);
+
+        // Ensure newPhase1 is a valid integer and within bounds
+        if (isNaN(newPhase1Duration) || newPhase1Duration <= 0 || newPhase1Duration >= totalDuration) {
+            alert(`⚠️ Thời gian Phase 1 không hợp lệ (Must be between 1 and ${totalDuration - 1})!`);
             return;
         }
 
-        const newPhase2 = totalDuration - p1;
+        const newPhase2Duration = totalDuration - newPhase1Duration;
 
-        // 2. OPTIMISTIC UI UPDATE
+        // 3. OPTIMISTIC UI UPDATE
         // Cập nhật State ngay lập tức không cần chờ Server
         setSyncLock(true); 
         setTimeout(() => setSyncLock(false), 5000);
@@ -774,8 +788,8 @@ const App = () => {
                     ...res,
                     booking: { 
                         ...res.booking, 
-                        phase1_duration: p1, 
-                        phase2_duration: newPhase2,
+                        phase1_duration: newPhase1Duration, 
+                        phase2_duration: newPhase2Duration,
                         isManualLocked: true // Cờ quan trọng để báo cho UI biết đây là manual
                     }
                 };
@@ -784,21 +798,22 @@ const App = () => {
 
         setResourceState(newState);
         
-        // Only clear the modal state if we were actually using the modal
-        if (!specificBooking && editComboTarget) {
+        // Clean up modal state if this was triggered via modal
+        if (!arg2 && editComboTarget) {
             setEditComboTarget(null);
         }
 
-        // 3. SERVER PAYLOAD
-        // Gửi lệnh lên server ở background
+        // 4. SERVER PAYLOAD & SYNC
         try {
             await axios.post('/api/update-booking-details', { 
                 rowId, 
-                phase1_duration: p1, 
-                phase2_duration: newPhase2, 
-                isManualLocked: true // Bắt buộc khoá để server không tự tính lại
+                phase1_duration: newPhase1Duration, 
+                phase2_duration: newPhase2Duration, 
+                isManualLocked: true, // Bắt buộc khoá để server không tự tính lại
+                forceSync: true // UPDATE V102.8: Force Google Sheet update immediately
             });
-            // Gọi sync-resource để server biết trạng thái mới nhất
+            
+            // Gọi sync-resource để server biết trạng thái resource mới nhất
             await updateResource(newState);
         } catch(e) { 
             console.error("Save Time Error", e); 
@@ -1066,7 +1081,7 @@ const App = () => {
         <div className="min-h-screen flex flex-col bg-slate-50">
             <header className={`text-white p-3 shadow-md flex justify-between items-center sticky top-0 z-50 transition-colors ${quotaError ? 'bg-red-800' : 'bg-[#1e1b4b]'}`}>
                 <div className="flex items-center gap-3">
-                    <span className="bg-emerald-500 text-white px-2 py-1 rounded font-black text-sm shadow-sm">V102.7</span>
+                    <span className="bg-emerald-500 text-white px-2 py-1 rounded font-black text-sm shadow-sm">V102.8</span>
                     <span className="font-bold hidden md:inline tracking-wider">XinWuChan</span>
                     <div className="flex items-center gap-2 bg-white/10 rounded px-2 py-1 border border-white/20">
                         <button onClick={()=>{const d=new Date(viewDate); d.setDate(d.getDate()-1); setViewDate(d.toISOString().split('T')[0])}} className="text-white hover:text-amber-400 font-bold px-2">❯</button>
@@ -1122,7 +1137,7 @@ const App = () => {
                 {activeTab === 'map' && (<div className="grid grid-cols-12 gap-6"><div className="col-span-9 space-y-6"><div><h3 className="font-bold text-emerald-600 mb-3 border-b pb-1">足底按摩區 (Foot)</h3><div className="grid grid-cols-6 gap-3">{[1,2,3,4,5,6].map(i => <window.ResourceCard key={`chair-${i}`} id={`chair-${i}`} type="FOOT" index={i} data={resourceState[`chair-${i}`]} busyStaffIds={busyStaffIds} staffList={staffList} onAction={handleResourceAction} onSelect={()=>setSelectedSlot(`chair-${i}`)} onSwitch={handleSwitch} onToggleMax={handleToggleMax} onToggleSequence={handleToggleSequence} onServiceChange={handleServiceChange} onStaffChange={handleStaffChange} onSplit={(rid)=>setSplitData({resourceId: rid})} getGroupMemberIndex={getGroupMemberIndex} onEdit={handleOpenEdit} />)}</div></div><div><h3 className="font-bold text-purple-600 mb-3 border-b pb-1">身體指壓區 (Body)</h3><div className="grid grid-cols-6 gap-3">{[1,2,3,4,5,6].map(i => <window.ResourceCard key={`bed-${i}`} id={`bed-${i}`} type="BODY" index={i} data={resourceState[`bed-${i}`]} busyStaffIds={busyStaffIds} staffList={staffList} onAction={handleResourceAction} onSelect={()=>setSelectedSlot(`bed-${i}`)} onSwitch={handleSwitch} onToggleMax={handleToggleMax} onToggleSequence={handleToggleSequence} onServiceChange={handleServiceChange} onStaffChange={handleStaffChange} onSplit={(rid)=>setSplitData({resourceId: rid})} getGroupMemberIndex={getGroupMemberIndex} onEdit={handleOpenEdit} />)}</div></div></div><div className="col-span-3 bg-white rounded-lg shadow p-4 h-fit sticky top-2"><h3 className="font-bold text-gray-700 mb-3">候位名單 ({waitingList.length})</h3><div className="space-y-2 max-h-[500px] overflow-y-auto">{waitingList.map(b => (<div key={b.rowId} className="border p-2 rounded hover:bg-slate-50 relative group bg-white shadow-sm"><div className="flex justify-between font-bold text-sm"><span>{b.customerName}</span><span className="text-indigo-600 font-mono">{(b.startTimeString||' ').split(' ')[1]}</span></div><div className="text-xs text-gray-500 font-bold">{b.serviceName}</div>{(b.isOil || (b.serviceName && b.serviceName.includes('油'))) && <div className="text-[10px] bg-purple-100 text-purple-700 inline-block px-1 rounded mt-1 font-bold border border-purple-200">💧 精油</div>}{b.pax > 1 && <div className="text-[10px] bg-orange-100 text-orange-600 inline-block px-1 rounded mt-1 ml-1 font-bold">{b.pax} 人</div>}{selectedSlot && <button onClick={()=>handleAssignBooking(b)} className="absolute inset-0 bg-green-500/90 text-white font-bold flex items-center justify-center rounded animate-pulse">排入 {selectedSlot}</button>}<button onClick={()=>handleManualUpdateStatus(b.rowId, '❌ Cancelled')} className="absolute top-1 right-1 text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100"><i className="fas fa-trash"></i></button></div>))}</div></div></div>)}
                 {activeTab === 'list' && ( <window.BookingListView bookings={todaysBookings} onCancelBooking={handleManualUpdateStatus} /> )}
                 
-                {/* TIMELINE INTEGRATION V102.7 */}
+                {/* TIMELINE INTEGRATION V102.8 - Uses updated Adapter Logic */}
                 {activeTab === 'timeline' && <TimelineView timelineData={timelineData} onEditPhase={handleSaveComboTime} />}
                 
                 {activeTab === 'report' && <window.ReportView bookings={todaysBookings} />}

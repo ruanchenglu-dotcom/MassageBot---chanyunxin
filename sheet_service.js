@@ -1,21 +1,23 @@
 /**
  * =================================================================================================
- * MODULE: SHEET SERVICE (DATA LAYER) - REFACTORED V4.1 STRICT
+ * MODULE: SHEET SERVICE (DATA LAYER) - REFACTORED V4.2 STRICT FAIL-SAFE
  * PROJECT: XINWUCHAN MASSAGE BOT
- * DESCRIPTION: Handles Google Sheets interactions with STRICT Locking States.
- * UPDATED FEATURES (V4.1): 
- * - STRICT COLUMN AE HANDLING: Column AE is NEVER left empty. It is always "TRUE" or "FALSE".
- * - AUTO-LOCK LOGIC: Modifying Phase durations automatically forces Lock = "TRUE".
- * - UNLOCK LOGIC: Explicitly setting isManualLocked = false writes "FALSE".
- * - INHERITED FEATURES: Bi-directional Phase Logic, Matrix Sync, Robust Error Handling.
- * AUTHOR: AI ASSISTANT & USER
+ * DESCRIPTION: Handles Google Sheets interactions with FAIL-SAFE Locking States.
+ * * UPDATED FEATURES (V4.2): 
+ * - [CRITICAL] FAIL-SAFE LOCKING: Column AE (Index 30) is GUARANTEED to be "TRUE" or "FALSE".
+ * - [WRITE LOGIC] Explicit boolean-to-string conversion prevents empty cells on creation.
+ * - [UPDATE LOGIC] "Dirty Check" added. If modifying Phases, Lock is forced "TRUE".
+ * If explicitly unlocking, Lock is forced "FALSE".
+ * If Lock state is undefined in cache, it defaults to "FALSE" on update.
+ * - [ROBUSTNESS] Added verbose logging for Lock State decisions for debugging traceability.
+ * * AUTHOR: AI ASSISTANT & USER
  * DATE: 2026/01/25
  * =================================================================================================
  */
 
 require('dotenv').config();
 const { google } = require('googleapis');
-const ResourceCore = require('./resource_core'); // Cần để tính Matrix khi Sync và lấy logic Service
+const ResourceCore = require('./resource_core'); // Core logic for Matrix & Rules
 
 // --- CONFIGURATION ---
 const SHEET_ID = process.env.SHEET_ID;
@@ -59,7 +61,6 @@ function getTaipeiNow() {
 /**
  * Chuẩn hóa ngày tháng chặt chẽ.
  * Trả về định dạng YYYY/MM/DD hoặc null nếu lỗi.
- * Hỗ trợ cả định dạng String và Excel Serial Date.
  */
 function normalizeDateStrict(inputDate) {
     if (!inputDate) return null;
@@ -107,7 +108,6 @@ function getCurrentDateTimeStr() {
 
 /**
  * [HELPER] Safe Integer Parser
- * Đảm bảo giá trị trả về luôn là số nguyên hoặc fallback (thường là null hoặc 0)
  */
 function safeParseInt(value, fallback = null) {
     if (value === undefined || value === null || value === '') return fallback;
@@ -116,11 +116,12 @@ function safeParseInt(value, fallback = null) {
 }
 
 /**
- * [HELPER] Boolean String Checker
+ * [HELPER] Boolean String Checker (Strict)
  * Kiểm tra xem một giá trị có phải là TRUE (string hoặc boolean) hay không.
  */
 function isTrueString(val) {
-    if (!val) return false;
+    if (val === undefined || val === null) return false;
+    if (val === true) return true;
     return String(val).trim().toUpperCase() === 'TRUE';
 }
 
@@ -141,7 +142,7 @@ function smartFindServiceCode(inputName) {
         if (STATE.SERVICES[code].name === cleanInput) return code;
     }
 
-    // 3. Fuzzy Match (Bỏ qua phần trong ngoặc, ví dụ: "Body Massage (60min)")
+    // 3. Fuzzy Match
     const baseInput = upperInput.split('(')[0].trim();
     for (const code in STATE.SERVICES) {
         const dbName = STATE.SERVICES[code].name.toUpperCase();
@@ -153,13 +154,34 @@ function smartFindServiceCode(inputName) {
     return null;
 }
 
+/**
+ * [HELPER NEW V4.2] Resolve Strict Lock State
+ * Centralized logic to determine the "TRUE" or "FALSE" string for Column AE.
+ * @param {boolean} explicitLock - User explicitly requested lock (true/false/undefined)
+ * @param {boolean} hasManualPhase - User modified phases manually
+ * @param {string} currentStatus - Existing status from cache (optional)
+ * @returns {string} "TRUE" or "FALSE" (Never returns null/undefined)
+ */
+function resolveStrictLockState(explicitLock, hasManualPhase, currentStatus = "FALSE") {
+    // Priority 1: Explicit Lock Request overrides everything
+    if (explicitLock === true) return "TRUE";
+    if (explicitLock === false) return "FALSE";
+
+    // Priority 2: Logic-based Lock (If Phases are manually set/edited -> Lock)
+    if (hasManualPhase === true) return "TRUE";
+
+    // Priority 3: Fallback / Maintain existing state
+    // Ensure existing state is strictly normalized
+    if (isTrueString(currentStatus)) return "TRUE";
+    
+    // Default safe state
+    return "FALSE";
+}
+
 // =============================================================================
 // PHẦN 2: SYNC ENGINE (ĐỌC VÀ ĐỒNG BỘ DỮ LIỆU TỪ GOOGLE SHEETS)
 // =============================================================================
 
-/**
- * Đồng bộ Menu/Services từ sheet 'menu'
- */
 async function syncMenuData() {
     try {
         const res = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: `${MENU_SHEET}!A2:F50` });
@@ -179,12 +201,10 @@ async function syncMenuData() {
             if (timeMatch) duration = parseInt(timeMatch[1]);
             const price = parseInt(priceStr.replace(/\D/g, '')) || 0;
 
-            // Elastic Search parameters
             let elasticStep = 0; let elasticLimit = 0;
             if (row[4]) { const ps = parseInt(row[4].toString().replace(/\D/g, '')); if (!isNaN(ps)) elasticStep = ps; }
             if (row[5]) { const pl = parseInt(row[5].toString().replace(/\D/g, '')); if (!isNaN(pl)) elasticLimit = pl; }
 
-            // Categorization
             let type = 'BED'; let category = 'BODY';
             const prefix = code.charAt(0).toUpperCase();
             if (prefix === 'A') { type = 'BED'; category = 'COMBO'; } 
@@ -197,7 +217,6 @@ async function syncMenuData() {
             };
         });
         
-        // Update ResourceCore logic if needed
         if (ResourceCore.setDynamicServices) {
             ResourceCore.setDynamicServices(newServices);
         }
@@ -206,10 +225,6 @@ async function syncMenuData() {
     } catch (e) { console.error('[MENU ERROR]', e); }
 }
 
-/**
- * Đồng bộ Dữ liệu chính (Bookings & Schedule)
- * Hàm này đọc toàn bộ dữ liệu cần thiết để tái lập trạng thái hệ thống.
- */
 async function syncData() {
     if (STATE.isSyncing) { console.log("⚠️ Skip sync: System is busy."); return; }
 
@@ -217,7 +232,7 @@ async function syncData() {
         STATE.isSyncing = true; 
 
         // --- BƯỚC 1: ĐỌC BOOKING TỪ SHEET1 ---
-        // Range A:AE covers all needed columns including Locked status at AE (Column Index 30)
+        // Range A:AE includes Locked status at AE (Column Index 30)
         const resBooking = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: `${BOOKING_SHEET}!A:AE` });
         const rowsBooking = resBooking.data.values;
         let tempBookings = [];
@@ -225,7 +240,7 @@ async function syncData() {
         if (rowsBooking && rowsBooking.length > 0) {
             for (let i = 1; i < rowsBooking.length; i++) {
                 const row = rowsBooking[i];
-                if (!row[0] || !row[1]) continue; // Bỏ qua nếu không có ngày/giờ
+                if (!row[0] || !row[1]) continue; 
                 
                 const status = row[7] || '已預約';
                 if (status.includes('取消') || status.includes('Cancelled')) continue;
@@ -237,7 +252,6 @@ async function syncData() {
                 let duration = 60; let type = 'BED'; let category = 'BODY'; let price = 0;
                 let foundService = false;
                 
-                // Lookup Service details
                 for (const key in STATE.SERVICES) {
                     if (serviceStr.includes(STATE.SERVICES[key].name.split('(')[0])) {
                         duration = STATE.SERVICES[key].duration; 
@@ -247,16 +261,14 @@ async function syncData() {
                         foundService = true; break;
                     }
                 }
-                // Fallback nếu không tìm thấy service trong Menu
                 if (!foundService) {
                     if (serviceStr.includes('套餐')) { category = 'COMBO'; duration = 100; }
                     else if (serviceStr.includes('足')) { type = 'CHAIR'; category = 'FOOT'; }
                 }
 
-                if (row[4] === "Yes") price += 200; // Phụ thu dầu
+                if (row[4] === "Yes") price += 200; 
                 let pax = 1; if (row[5]) pax = safeParseInt(row[5], 1);
 
-                // Mapping fields
                 const staffId = row[8] || '隨機';
                 const serviceStaff1 = row[11]; 
                 const staffId2 = row[12];      
@@ -267,12 +279,6 @@ async function syncData() {
                      for(const key in STATE.SERVICES) { if(STATE.SERVICES[key].name === serviceStr) { serviceCode = key; break; } }
                 }
 
-                // --- [PHASE & LOCK LOGIC UPDATE] ---
-                // Cột Y (Index 24) = Phase 1 Duration
-                // Cột Z (Index 25) = Phase 2 Duration
-                // Cột AA (Index 26) = Flow Code
-                // Cột AE (Index 30) = Manual Locked Flag (STRICT "TRUE" CHECK)
-                
                 const phase1Duration = safeParseInt(row[24], null);
                 const phase2Duration = safeParseInt(row[25], null);
                 
@@ -280,7 +286,7 @@ async function syncData() {
                 let flowCode = null;
                 if (rawFlow && ['BF','FB','FOOTSINGLE','BODYSINGLE'].includes(rawFlow)) { flowCode = rawFlow; }
                 
-                // Read Lock Status: Only "TRUE" is considered locked.
+                // Read Lock Status (Strictly Boolean)
                 const rawLocked = row[30]; 
                 const isManualLocked = isTrueString(rawLocked);
 
@@ -301,7 +307,6 @@ async function syncData() {
                     status: status, 
                     lineId: row[9], 
                     isOil: row[4] === "Yes",
-                    // Enhanced Phase Properties
                     phase1_duration: phase1Duration,
                     phase2_duration: phase2Duration,
                     isManualLocked: isManualLocked, 
@@ -364,7 +369,6 @@ async function syncData() {
         if (STATE.isSystemHealthy && tempBookings.length > 0) {
             try {
                 if (typeof ResourceCore.generateResourceMatrix === 'function') {
-                    // ResourceCore sẽ nhận biết isManualLocked để giữ nguyên resource đã gán
                     const matrixAllocation = ResourceCore.generateResourceMatrix(tempBookings, STATE.STAFF_LIST);
                     tempBookings.forEach(booking => {
                         if (matrixAllocation[booking.rowId]) {
@@ -390,12 +394,13 @@ async function syncData() {
 }
 
 // =============================================================================
-// PHẦN 3: WRITE & UPDATE LOGIC (CORE UPGRADE V4.1 STRICT)
+// PHẦN 3: WRITE & UPDATE LOGIC (CORE UPGRADE V4.2 STRICT)
 // =============================================================================
 
 /**
  * Ghi booking mới vào Google Sheets.
- * V4.1: Đảm bảo cột AE (Lock) luôn được ghi là "TRUE" hoặc "FALSE", không bao giờ để trống.
+ * V4.2 GIA CỐ: Cột AE luôn được gán giá trị chuỗi cứng ("TRUE" hoặc "FALSE").
+ * Đảm bảo không bao giờ để trống hoặc undefined.
  */
 async function ghiVaoSheet(data, proposedUpdates = []) {
     try {
@@ -419,7 +424,7 @@ async function ghiVaoSheet(data, proposedUpdates = []) {
         }
 
         for (let i = 0; i < loopCount; i++) {
-            // Khởi tạo mảng với 31 phần tử (đến index 30 là cột AE)
+            // Khởi tạo mảng với 31 phần tử (index 0 -> 30)
             const row = new Array(31).fill("");
             let guestDetail = (data.guestDetails && data.guestDetails[i]) ? data.guestDetails[i] : null;
 
@@ -462,7 +467,7 @@ async function ghiVaoSheet(data, proposedUpdates = []) {
             }
             row[20] = sCode || "";
 
-            // [PHASE DURATION & LOCKING]
+            // [PHASE DURATION CALCULATION]
             let p1 = null; let p2 = null;
             if (guestDetail) { 
                 p1 = (guestDetail.phase1_duration !== undefined) ? guestDetail.phase1_duration : guestDetail.phase1;
@@ -471,14 +476,13 @@ async function ghiVaoSheet(data, proposedUpdates = []) {
             if (p1 === null || p1 === undefined) p1 = data.phase1_duration;
             if (p2 === null || p2 === undefined) p2 = data.phase2_duration;
             
-            row[24] = (p1 !== null && p1 !== undefined) ? p1 : "";
-            row[25] = (p2 !== null && p2 !== undefined) ? p2 : "";
+            row[24] = (p1 !== null && p1 !== undefined && p1 !== "") ? p1 : "";
+            row[25] = (p2 !== null && p2 !== undefined && p2 !== "") ? p2 : "";
 
             // [FLOW LOGIC]
             let flowVal = null;
             if (guestDetail && (guestDetail.flow || guestDetail.flowCode)) flowVal = guestDetail.flow || guestDetail.flowCode;
             if (!flowVal) flowVal = data.flow || data.flowCode;
-            // Auto detect flow if missing
             if (!flowVal && sCode && STATE.SERVICES[sCode]) {
                 const svcDef = STATE.SERVICES[sCode];
                 if (svcDef.category === 'FOOT') flowVal = "FOOTSINGLE";
@@ -487,23 +491,26 @@ async function ghiVaoSheet(data, proposedUpdates = []) {
             }
             row[26] = flowVal || "FB";
 
-            // [LOCKING LOGIC - STRICT V4.1]
-            // Nếu có Phase 1 tùy chỉnh (manual phase) HOẶC cờ isManualLocked bật -> TRUE
-            // Ngược lại -> FALSE (Tuyệt đối không để chuỗi rỗng)
+            // [CRITICAL: STRICT LOCK LOGIC V4.2]
+            // Kiểm tra xem user có nhập tay Phase hay không
             const hasManualPhase = (p1 !== null && p1 !== undefined && p1 !== "");
-            const explicitLock = (data.isManualLocked === true);
             
-            if (explicitLock || hasManualPhase) {
-                row[30] = 'TRUE'; 
-            } else {
-                row[30] = 'FALSE'; 
-            }
+            // Explicit Lock từ request
+            const explicitLock = (data.isManualLocked === true);
+
+            // Resolve Final State: Always returns "TRUE" or "FALSE"
+            const finalLockVal = resolveStrictLockState(data.isManualLocked, hasManualPhase, "FALSE");
+            
+            row[30] = finalLockVal; 
+            
+            // Debug Log để kiểm chứng
+            console.log(`[WRITE DEBUG] Row AE set to: ${finalLockVal}. (Explicit: ${explicitLock}, ManualPhase: ${hasManualPhase})`);
 
             valuesToWrite.push(row);
         }
 
         if (valuesToWrite.length > 0) {
-            console.log(`[WRITE] Atomic Appending ${valuesToWrite.length} rows to Sheet1. Strict Lock logic applied.`);
+            console.log(`[WRITE] Atomic Appending ${valuesToWrite.length} rows to Sheet1.`);
             await sheets.spreadsheets.values.append({ 
                 spreadsheetId: SHEET_ID, range: 'Sheet1!A:A', 
                 valueInputOption: 'USER_ENTERED', requestBody: { values: valuesToWrite } 
@@ -524,17 +531,21 @@ async function updateBookingStatus(rowId, newStatus) {
 }
 
 /**
- * [CRITICAL] UPDATE BOOKING DETAILS
- * Nâng cấp V4.1: Xử lý logic 2 chiều cho Phase 1 <-> Phase 2 & Strict Locking.
- * 1. Nếu sửa Phase 1 -> Tự tính Phase 2 -> Tự động LOCK ("TRUE").
- * 2. Nếu sửa Phase 2 -> Tự tính Phase 1 -> Tự động LOCK ("TRUE").
- * 3. Nếu gửi `isManualLocked: false` -> Ghi đè thành UNLOCK ("FALSE").
+ * [CRITICAL] UPDATE BOOKING DETAILS (V4.2 FAIL-SAFE)
+ * Logic:
+ * 1. Fetch current booking to get Duration and Current Lock State.
+ * 2. Calculate New Phases (Auto-calc P2 if P1 changes, etc.).
+ * 3. Resolve Lock Status:
+ * - IF user explicitly sends isManualLocked = false -> Force "FALSE".
+ * - IF logic detects Phase change -> Force "TRUE".
+ * - IF no explicit change -> Keep current state.
+ * - FAIL-SAFE: If current state is undefined/null -> Force "FALSE".
  */
 async function updateBookingDetails(body) {
     const rowId = body.rowId;
     if (!rowId) throw new Error('Missing rowId');
     
-    // Helper function để ghi vào 1 cell cụ thể
+    // Helper write function
     const updateCell = async (col, val) => {
         await sheets.spreadsheets.values.update({
             spreadsheetId: SHEET_ID, 
@@ -569,64 +580,81 @@ async function updateBookingDetails(body) {
     if (body.staffId3) await updateCell('N', body.staffId3);
     if (body.flow) await updateCell('AA', body.flow);
 
-    // --- 2. [ADVANCED] PHASE & LOCK LOGIC ---
+    // --- 2. [ADVANCED] PHASE & LOCK LOGIC WITH FAIL-SAFE ---
     
-    // Lấy thông tin booking hiện tại để có Total Duration
+    // Step A: Get Context
     let bookingData = STATE.cachedBookings.find(b => b.rowId == rowId);
-    let totalDuration = 60; // Mặc định an toàn
-    
+    let totalDuration = 60; 
+    let currentLockState = false; // Default assumptions
+
     if (bookingData) {
         totalDuration = bookingData.duration;
+        currentLockState = bookingData.isManualLocked;
     } else {
-        console.warn(`[UPDATE WARNING] Row ${rowId} not found in cache. Using default duration (60) or body duration.`);
+        console.warn(`[UPDATE WARNING] Row ${rowId} missing in cache. Using defaults.`);
         if (body.duration) totalDuration = safeParseInt(body.duration, 60);
     }
 
-    // Biến cờ xác định trạng thái Lock cuối cùng
-    // null = không thay đổi, "TRUE" = khóa, "FALSE" = mở khóa
-    let finalLockState = null; 
+    // Step B: Calculate Phases & Detect Logic Changes
+    let hasManualPhaseChange = false;
 
-    // CASE 1: Update Phase 1 => Auto Phase 2 => Force LOCK
+    // CASE 1: Update Phase 1 => Auto Phase 2
     if (body.phase1_duration !== undefined && body.phase1_duration !== null) {
         const p1 = parseInt(body.phase1_duration); 
         const p2 = totalDuration - p1;             
         
-        console.log(`[UPDATE LOGIC] Row ${rowId}: Phase 1 set to ${p1}. Auto-calc Phase 2 = ${p2}. FORCING LOCK.`);
-
-        await updateCell('Y', p1);       // Cột Y
-        await updateCell('Z', p2);       // Cột Z
-        finalLockState = 'TRUE';         // Tác động vào biến cờ
+        console.log(`[UPDATE LOGIC] Row ${rowId}: Phase 1 set to ${p1}. Auto-calc Phase 2 = ${p2}.`);
+        await updateCell('Y', p1);       
+        await updateCell('Z', p2);       
+        hasManualPhaseChange = true;
     } 
-    // CASE 2: Update Phase 2 => Auto Phase 1 => Force LOCK
+    // CASE 2: Update Phase 2 => Auto Phase 1
     else if (body.phase2_duration !== undefined && body.phase2_duration !== null) {
         const p2 = parseInt(body.phase2_duration); 
         const p1 = totalDuration - p2;             
 
-        console.log(`[UPDATE LOGIC] Row ${rowId}: Phase 2 set to ${p2}. Auto-calc Phase 1 = ${p1}. FORCING LOCK.`);
-
-        await updateCell('Y', p1);       // Cột Y
-        await updateCell('Z', p2);       // Cột Z
-        finalLockState = 'TRUE';         // Tác động vào biến cờ
+        console.log(`[UPDATE LOGIC] Row ${rowId}: Phase 2 set to ${p2}. Auto-calc Phase 1 = ${p1}.`);
+        await updateCell('Y', p1);       
+        await updateCell('Z', p2);       
+        hasManualPhaseChange = true;
     }
 
-    // CASE 3: Explicit Manual Lock Override
-    // Nếu Client gửi yêu cầu Lock/Unlock cụ thể, nó sẽ ghi đè hoặc xác nhận trạng thái
-    if (body.isManualLocked !== undefined) {
-        if (body.isManualLocked === true) {
-            finalLockState = 'TRUE';
-        } else if (body.isManualLocked === false) {
-            finalLockState = 'FALSE';
-            console.log(`[UPDATE LOGIC] Row ${rowId}: Explicit UNLOCK requested.`);
-        }
-    }
+    // Step C: Resolve Strict Lock State (FAIL-SAFE)
+    // Convert current boolean state to string for safety comparison
+    const currentLockString = currentLockState ? "TRUE" : "FALSE";
+    
+    // Calculate what the lock state MUST be based on inputs
+    const finalLockString = resolveStrictLockState(
+        body.isManualLocked, // Explicit override provided?
+        hasManualPhaseChange, // Logic override?
+        currentLockString     // Fallback
+    );
 
-    // --- 3. FINAL EXECUTION OF LOCK STATE ---
-    // Chỉ update cột AE nếu có quyết định thay đổi trạng thái
-    if (finalLockState !== null) {
-        await updateCell('AE', finalLockState);
+    // Step D: Write Lock State (Optimize: only write if needed or if fail-safe triggers)
+    // "Fail-safe": If currentLockString is undefined or invalid, we MUST write.
+    // Or if the resolved state is different from current.
+    
+    let needsLockUpdate = false;
+    
+    // Check 1: Did logic or user change it?
+    if (finalLockString !== currentLockString) needsLockUpdate = true;
+    
+    // Check 2: Was the explicit instruction passed? (Even if same, reinforce it)
+    if (body.isManualLocked !== undefined) needsLockUpdate = true;
+    
+    // Check 3: Was Phase changed? (Always enforce lock)
+    if (hasManualPhaseChange) needsLockUpdate = true;
+
+    if (needsLockUpdate) {
+        console.log(`[UPDATE LOCK] Forcing AE to ${finalLockString} (Prev: ${currentLockString})`);
+        await updateCell('AE', finalLockString);
     } else {
-        // Fallback: Nếu không có thay đổi Phase và không có lệnh Lock cụ thể, giữ nguyên.
-        // Tuy nhiên, nếu user update Staff hay Time, có thể ta muốn giữ nguyên trạng thái cũ.
+        // [FAIL-SAFE EXTENSION]
+        // Even if no change requested, if the cache says it's unknown/null, fix it to FALSE.
+        if (bookingData && (bookingData.isManualLocked === null || bookingData.isManualLocked === undefined)) {
+             console.log(`[UPDATE FAIL-SAFE] AE was undefined. Healing to FALSE.`);
+             await updateCell('AE', 'FALSE');
+        }
     }
 
     // 4. Trigger Sync
@@ -674,7 +702,7 @@ async function layLichDatGanNhat(userId) {
 
 async function syncDailySalary(dateStr, staffDataList) {
     try {
-        // Placeholder cho chức năng tính lương, sẽ mở rộng sau
+        // Placeholder cho chức năng tính lương
         const range = `${SALARY_SHEET}!A1:AZ100`; 
         await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: range });
     } catch (e) { console.error('[SALARY ERROR]', e); }
