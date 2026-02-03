@@ -1,16 +1,16 @@
 // TYPE: app.js
-// VERSION: V105.0 (GROUP START & TIMELINE CONTROLS)
-// UPDATE: 2026-01-29
+// VERSION: V106.0 (LOCATION TRACKING & DATA SYNC)
+// UPDATE: 2026-02-03
 // AUTHOR: AI ASSISTANT & USER
 //
-// --- CHANGE LOG V105.0 ---
-// 1. [FEATURE] Group Start Logic:
-//    - Thêm helper findRelatedWaitingBookings.
-//    - Cập nhật handleControlAction xử lý scope 'GROUP'.
-// 2. [FEATURE] Timeline Shift:
-//    - Thêm case 'SHIFT_TIME' để điều chỉnh giờ Booking trực tiếp.
-// 3. [FIX] Z-Index Layering:
-//    - Đưa SplitStaffModal lên lớp cao nhất (z-[10005]).
+// --- CHANGE LOG V106.0 ---
+// 1. [DATA SYNC] Resource Location Tracking:
+//    - Đã thêm logic để gửi thông tin vị trí thực tế (Ghế/Giường) về Google Sheet.
+//    - Cập nhật cột AB (Phase 1 Index), AC (Phase 2 Index), AD (Resource Type).
+// 2. [LOGIC FIX] Handle Switch Sync:
+//    - Khi chuyển khách (Switch) sang Phase 2 (ví dụ: Chân -> Body), hệ thống tự động cập nhật cột AC.
+// 3. [CORE] Start Logic Upgrade:
+//    - Hàm executeStart giờ đây sẽ phân tích ID vị trí để gửi dữ liệu chính xác nhất.
 //
 
 const { useState, useEffect, useMemo, useRef } = React;
@@ -123,6 +123,22 @@ const getNormalizedPhone = (booking) => {
     const raw = booking.phone || booking.sdt || booking.custPhone || "";
     // Lấy 6 số cuối để so sánh (tránh format khác nhau)
     return raw.replace(/\D/g, '').slice(-6);
+};
+
+// --- HELPER: EXTRACT RESOURCE INFO (V106.0 NEW) ---
+// Chuyển đổi resourceId (chair-1) thành { type: 'CHAIR', idx: 1 } để gửi API
+const extractResourceInfo = (resourceId) => {
+    if (!resourceId || typeof resourceId !== 'string') return { type: '', idx: '' };
+    const parts = resourceId.split('-');
+    if (parts.length < 2) return { type: '', idx: '' };
+    
+    const rawType = parts[0].toLowerCase();
+    const idx = parts[1];
+    
+    // Mapping chuẩn theo Backend yêu cầu
+    const type = rawType === 'chair' ? 'CHAIR' : (rawType === 'bed' ? 'BED' : rawType.toUpperCase());
+    
+    return { type, idx };
 };
 
 // --- APP COMPONENT ---
@@ -241,13 +257,14 @@ const App = () => {
                 const otherBooking = item.booking;
                 const otherRowId = String(otherBooking.rowId);
                 const otherPhone = getNormalizedPhone(otherBooking);
+                
                 if (otherRowId === currentRowId) return true;
                 if (currentPhone.length >= 4 && currentPhone === otherPhone) return true;
                 return false;
             });
     };
 
-    // --- NEW HELPER: FIND WAITING GROUP MEMBERS (For Group Start) ---
+    // --- HELPER: FIND WAITING GROUP MEMBERS (For Group Start) ---
     const findRelatedWaitingBookings = (currentBooking, excludeResourceId) => {
         if (!currentBooking) return [];
         const currentRowId = String(currentBooking.rowId);
@@ -261,7 +278,6 @@ const App = () => {
                 const otherRowId = String(otherBooking.rowId);
                 const otherPhone = getNormalizedPhone(otherBooking);
                 
-                // Cùng RowID (Google Sheet) hoặc cùng SĐT
                 if (otherRowId === currentRowId) return true;
                 if (currentPhone.length >= 4 && currentPhone === otherPhone) return true;
                 return false;
@@ -818,7 +834,7 @@ const App = () => {
         }
     };
 
-    // --- UPDATED V103.1 START LOGIC (VERBOSE ALERTS) ---
+    // --- UPDATED V106.0 START LOGIC (LOCATION TRACKING) ---
     const executeStart = (id, comboSequence, silentMode = false) => {
         const current = resourceState[id];
         if (!current) { 
@@ -915,7 +931,7 @@ const App = () => {
             finalServiceStaff = candidates[0].id;
         }
 
-        // --- 3. EXECUTE UPDATE ---
+        // --- 3. EXECUTE UPDATE & LOCATION SYNC ---
         const newStatusData = { ...statusData, [finalServiceStaff]: { ...statusData[finalServiceStaff], status: 'BUSY' } };
         updateStaffStatus(newStatusData); 
         
@@ -954,7 +970,21 @@ const App = () => {
         if (grpIdx === 4) { primaryKey = "服務師傅5"; fallbackKey = "ServiceStaff5"; }
         if (grpIdx === 5) { primaryKey = "服務師傅6"; fallbackKey = "ServiceStaff6"; }
         
-        const payload = { rowId: current.booking.rowId, [primaryKey]: finalServiceStaff, [fallbackKey]: finalServiceStaff, [`staff${grpIdx + 1}`]: finalServiceStaff, staffId: designatedStaff };
+        // --- V106.0: EXTRACT LOCATION INFO ---
+        const locInfo = extractResourceInfo(currentId);
+
+        const payload = { 
+            rowId: current.booking.rowId, 
+            [primaryKey]: finalServiceStaff, 
+            [fallbackKey]: finalServiceStaff, 
+            [`staff${grpIdx + 1}`]: finalServiceStaff, 
+            staffId: designatedStaff,
+            // New Location Tracking Fields
+            phase1_res_idx: locInfo.idx,
+            resource_type: locInfo.type,
+            phase2_res_idx: "" // Reset Phase 2 khi bắt đầu mới
+        };
+        
         universalSend('/api/update-booking-details', payload);
     };
 
@@ -1003,6 +1033,7 @@ const App = () => {
 
     const confirmComboStart = (sequence) => { if (comboStartData) { executeStart(comboStartData.id, sequence); setComboStartData(null); } };
     
+    // --- V106.0: UPDATED HANDLE SWITCH (SYNC LOCATION) ---
     const handleSwitch = (fromId, toType) => { 
         const currentData = resourceState[fromId]; 
         if(!currentData) return; 
@@ -1016,7 +1047,17 @@ const App = () => {
             const targetId = `${toType}-${i}`; 
             if (!resourceState[targetId]) { 
                 const newState = { ...resourceState }; delete newState[fromId]; newState[targetId] = currentData; 
-                updateResource(newState); return; 
+                updateResource(newState); 
+                
+                // V106.0: Sync Phase 2 Location to Google Sheet (Cột AC)
+                const targetInfo = extractResourceInfo(targetId);
+                universalSend('/api/update-booking-details', {
+                    rowId: currentData.booking.rowId,
+                    phase2_res_idx: targetInfo.idx,
+                    forceSync: true
+                });
+
+                return; 
             } 
         } 
         alert(`該區域 (${toType === 'chair' ? '足底區' : '身體區'}) 已無空位!`); 
@@ -1120,7 +1161,7 @@ const App = () => {
         const targetResourceId = payload.resourceId || (controlCenterData ? controlCenterData.resourceId : null);
 
         // Debugging
-        console.log("App.handleControlAction V105:", actionType, payload);
+        console.log("App.handleControlAction V106.0:", actionType, payload);
 
         switch (actionType) {
             case 'START':
@@ -1159,13 +1200,19 @@ const App = () => {
                 break;
                 
             case 'FINISH':
-                // --- PHASE 2: Check logic giống hệt ResourceCard (RowID + Phone) ---
-                if (targetResourceId && targetBooking) {
-                    const related = findRelatedActiveBookings(targetBooking, targetResourceId);
-                    const scope = payload.scope || 'INDIVIDUAL';
+                // --- V105.1 UPDATE: GLOBAL GROUP GUARD ---
+                // Logic cũ: Phụ thuộc vào payload.scope từ View gửi lên.
+                // Logic mới: Luôn luôn kiểm tra quan hệ (findRelatedActiveBookings) bất kể scope là gì.
+                // Điều này giúp bắt được trường hợp View gửi 'INDIVIDUAL' (do pax=1) nhưng thực tế khách đi cùng bạn.
 
-                    if (related.length > 0 && scope !== 'INDIVIDUAL') {
-                        // Nếu có nhóm và chưa chọn explicit Individual -> Hiện bảng chọn
+                if (targetResourceId && targetBooking) {
+                    // 1. Luôn quét tìm nhóm trước
+                    const related = findRelatedActiveBookings(targetBooking, targetResourceId);
+                    
+                    // 2. Quyết định
+                    if (related.length > 0) {
+                        // Nếu tìm thấy nhóm -> Luôn hiện bảng chọn (bỏ qua scope từ payload)
+                        console.log("Guard: Found related bookings, forcing Choice Modal", related);
                         setPaymentChoiceData({
                             resourceId: targetResourceId,
                             booking: targetBooking,
@@ -1173,8 +1220,8 @@ const App = () => {
                             relatedDetails: related
                         });
                     } else {
-                        // Đi thẳng vào thanh toán (Single hoặc Explicit Individual)
-                        handleProcessPaymentChoice(scope);
+                        // Không tìm thấy nhóm -> Chấp nhận thanh toán lẻ
+                        handleProcessPaymentChoice('INDIVIDUAL');
                     }
                 }
                 setControlCenterData(null);
@@ -1316,7 +1363,7 @@ const App = () => {
         <div className="min-h-screen flex flex-col bg-slate-50">
             <header className={`text-white p-3 shadow-md flex justify-between items-center sticky top-0 z-50 transition-colors ${quotaError ? 'bg-red-800' : 'bg-[#1e1b4b]'}`}>
                 <div className="flex items-center gap-3">
-                    <span className="bg-emerald-500 text-white px-2 py-1 rounded font-black text-sm shadow-sm">V105.0</span>
+                    <span className="bg-emerald-500 text-white px-2 py-1 rounded font-black text-sm shadow-sm">V106.0</span>
                     <span className="font-bold hidden md:inline tracking-wider">XinWuChan</span>
                     <div className="flex items-center gap-2 bg-white/10 rounded px-2 py-1 border border-white/20">
                         <button onClick={()=>{const d=new Date(viewDate); d.setDate(d.getDate()-1); setViewDate(d.toISOString().split('T')[0])}} className="text-white hover:text-amber-400 font-bold px-2">❯</button>
@@ -1401,7 +1448,7 @@ const App = () => {
                 </div>
             )}
             
-            {/* V103.0 PAYMENT CHOICE MODAL - IMPROVED UI */}
+            {/* V103.0 PAYMENT CHOICE MODAL - IMPROVED UI & V105.1 LOCALIZATION */}
             {paymentChoiceData && (
                 <div className="fixed inset-0 bg-black/60 z-[60] flex items-center justify-center animate-fade-in">
                     <div className="bg-white rounded-xl shadow-2xl w-[450px] overflow-hidden animate-slide-up border border-slate-200">
@@ -1409,24 +1456,24 @@ const App = () => {
                         <div className="bg-gradient-to-r from-indigo-600 to-blue-600 p-4 text-white">
                             <h3 className="text-xl font-bold flex items-center">
                                 <i className="fas fa-cash-register mr-2"></i>
-                                Tùy chọn thanh toán
+                                結帳方式選擇
                             </h3>
-                            <p className="text-indigo-100 text-sm mt-1 opacity-90">Phát hiện nhóm khách hàng liên quan</p>
+                            <p className="text-indigo-100 text-sm mt-1 opacity-90">系統檢測到關聯訂單 (Group Detected)</p>
                         </div>
                         
                         <div className="p-6">
                             {/* Summary Box */}
                             <div className="bg-blue-50 p-4 rounded-lg border border-blue-100 mb-5">
                                 <div className="flex justify-between items-center mb-2">
-                                    <span className="font-bold text-blue-800 text-sm">Khách chính:</span>
+                                    <span className="font-bold text-blue-800 text-sm">主客 (Main Guest):</span>
                                     <span className="font-bold text-slate-800">{paymentChoiceData.booking.customerName}</span>
                                 </div>
                                 <div className="border-t border-blue-200 my-2"></div>
-                                <div className="text-xs text-blue-600 font-bold mb-2">Các ghế liên quan ({paymentChoiceData.relatedIds.length}):</div>
+                                <div className="text-xs text-blue-600 font-bold mb-2">關聯床位 (Related Seats) - {paymentChoiceData.relatedIds.length} 位:</div>
                                 <div className="flex flex-wrap gap-2">
                                     {paymentChoiceData.relatedIds.map(rid => (
                                         <span key={rid} className="bg-white border border-blue-200 text-blue-700 px-2 py-1 rounded text-xs font-mono font-bold shadow-sm">
-                                            {rid.replace('bed-', 'Giường ').replace('chair-', 'Ghế ')}
+                                            {rid.replace('bed-', '床 ').replace('chair-', '足 ')}
                                         </span>
                                     ))}
                                 </div>
@@ -1442,8 +1489,8 @@ const App = () => {
                                         <i className="fas fa-users"></i>
                                     </div>
                                     <div className="text-left">
-                                        <div className="text-sm leading-tight">Thanh toán GỘP</div>
-                                        <div className="text-[10px] opacity-80 font-normal">Tổng {paymentChoiceData.relatedIds.length + 1} người</div>
+                                        <div className="text-sm leading-tight">合併結帳 (Pay All)</div>
+                                        <div className="text-[10px] opacity-80 font-normal">總共 {paymentChoiceData.relatedIds.length + 1} 位</div>
                                     </div>
                                 </button>
                                 
@@ -1455,8 +1502,8 @@ const App = () => {
                                         <i className="fas fa-user"></i>
                                     </div>
                                     <div className="text-left">
-                                        <div className="text-sm leading-tight">Thanh toán RIÊNG</div>
-                                        <div className="text-[10px] opacity-80 font-normal">Chỉ khách này</div>
+                                        <div className="text-sm leading-tight">分開結帳 (Pay Individual)</div>
+                                        <div className="text-[10px] opacity-80 font-normal">僅結算此位</div>
                                     </div>
                                 </button>
                             </div>
@@ -1465,7 +1512,7 @@ const App = () => {
                                 onClick={() => setPaymentChoiceData(null)}
                                 className="w-full mt-6 text-gray-400 hover:text-gray-600 font-bold text-xs uppercase tracking-wider text-center"
                             >
-                                Đóng / Quay lại
+                                關閉 / 返回
                             </button>
                         </div>
                     </div>
