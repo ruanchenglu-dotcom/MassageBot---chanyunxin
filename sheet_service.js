@@ -1,17 +1,18 @@
 /**
  * =================================================================================================
- * MODULE: SHEET SERVICE (DATA LAYER) - REFACTORED V4.2 STRICT FAIL-SAFE
+ * MODULE: SHEET SERVICE (DATA LAYER) - REFACTORED V4.3 INFINITE HORIZON
  * PROJECT: XINWUCHAN MASSAGE BOT
- * DESCRIPTION: Handles Google Sheets interactions with FAIL-SAFE Locking States.
- * * UPDATED FEATURES (V4.2): 
- * - [CRITICAL] FAIL-SAFE LOCKING: Column AE (Index 30) is GUARANTEED to be "TRUE" or "FALSE".
- * - [WRITE LOGIC] Explicit boolean-to-string conversion prevents empty cells on creation.
- * - [UPDATE LOGIC] "Dirty Check" added. If modifying Phases, Lock is forced "TRUE".
- * If explicitly unlocking, Lock is forced "FALSE".
- * If Lock state is undefined in cache, it defaults to "FALSE" on update.
- * - [ROBUSTNESS] Added verbose logging for Lock State decisions for debugging traceability.
- * * AUTHOR: AI ASSISTANT & USER
- * DATE: 2026/01/25
+ * DESCRIPTION: Handles Google Sheets interactions with INFINITE COLUMN SUPPORT.
+ * * * VERSION HISTORY:
+ * - V4.2: Strict Fail-Safe Locking (Column AE), Dirty Check for Phases.
+ * - V4.3 [CURRENT]: 
+ * + [INFINITY SCOPE] Changed reading range from fixed (A1:BG100) to Dynamic (A1:150).
+ * System now automatically detects NEW DATES added horizontally forever.
+ * + [MEMORY OPTIMIZATION] Added "Time Window" logic. Even if Sheet has 3 years of history,
+ * RAM only loads schedules from (Today - 30 days) onwards to prevent memory leaks.
+ * + [ROBUST PARSING] Enhanced date header parsing to skip non-date columns without error.
+ * * * AUTHOR: AI ASSISTANT & USER
+ * DATE: 2026/02/03
  * =================================================================================================
  */
 
@@ -155,7 +156,7 @@ function smartFindServiceCode(inputName) {
 }
 
 /**
- * [HELPER NEW V4.2] Resolve Strict Lock State
+ * [HELPER V4.2] Resolve Strict Lock State
  * Centralized logic to determine the "TRUE" or "FALSE" string for Column AE.
  * @param {boolean} explicitLock - User explicitly requested lock (true/false/undefined)
  * @param {boolean} hasManualPhase - User modified phases manually
@@ -316,13 +317,31 @@ async function syncData() {
             }
         }
 
-        // --- BƯỚC 2: ĐỌC SCHEDULE ---
-        const resSchedule = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: `${SCHEDULE_SHEET}!A1:BG100` });
+        // --- BƯỚC 2: ĐỌC SCHEDULE VỚI INFINITE HORIZON (V4.3 UPGRADE) ---
+        // Thay đổi Range: A1:150 (Lấy toàn bộ cột từ A đến vô tận, cho 150 dòng đầu tiên)
+        // Điều này đảm bảo khi bạn thêm cột ngày mới bên phải, API sẽ tự lấy về mà không cần sửa code.
+        const resSchedule = await sheets.spreadsheets.values.get({ 
+            spreadsheetId: SHEET_ID, 
+            range: `${SCHEDULE_SHEET}!A1:150` // [V4.3] Dynamic Range Update
+        });
+        
         const rows = resSchedule.data.values;
         let tempStaffList = []; let tempScheduleMap = {}; 
+        
+        // Chuẩn bị mốc thời gian để tối ưu bộ nhớ (Memory Guardrail)
+        // Chỉ lưu lịch nghỉ từ 30 ngày trước. Lịch sử cũ hơn sẽ bỏ qua để không làm nặng RAM.
+        const today = getTaipeiNow();
+        const pastThreshold = new Date(today);
+        pastThreshold.setDate(today.getDate() - 30); // Giữ data từ 30 ngày trước
 
         if (rows && rows.length > 1) {
-            const headerRow = rows[0]; 
+            const headerRow = rows[0]; // Dòng 1 chứa ngày tháng
+            
+            // Log debug để bạn biết hệ thống đang nhìn thấy bao nhiêu cột
+            if (STATE.isSystemHealthy === false) { // Chỉ log khi mới khởi động hoặc phục hồi
+                console.log(`[SCHEDULE V4.3] Detected ${headerRow.length} columns in StaffSchedule.`);
+            }
+
             for (let i = 1; i < rows.length; i++) {
                 const row = rows[i];
                 const staffName = row[0]; if (!staffName) continue;
@@ -340,17 +359,33 @@ async function syncData() {
                     isStrictTime: isStrictTime, sheetRowIndex: i + 1, off: false, offDays: [] 
                 };
                 
-                const todayStr = normalizeDateStrict(getTaipeiNow()); 
+                const todayStr = normalizeDateStrict(today); 
+                
+                // --- LOOP VÔ TẬN (DYNAMIC COLUMNS) ---
                 for (let j = 5; j < headerRow.length; j++) {
-                    if (headerRow[j]) {
-                        const normalizedDate = normalizeDateStrict(headerRow[j]); 
-                        if (normalizedDate) {
-                            if (row[j] && row[j].trim().toUpperCase() === 'OFF') {
-                                if (!tempScheduleMap[normalizedDate]) tempScheduleMap[normalizedDate] = [];
-                                tempScheduleMap[normalizedDate].push(cleanName);
-                                staffObj.offDays.push(normalizedDate);
-                                if (normalizedDate === todayStr) { staffObj.off = true; }
-                            }
+                    // Kiểm tra tiêu đề cột có tồn tại không
+                    if (!headerRow[j]) continue;
+
+                    // Chuẩn hóa ngày trên tiêu đề
+                    const normalizedDate = normalizeDateStrict(headerRow[j]); 
+                    
+                    if (normalizedDate) {
+                        // [V4.3 PERFORMANCE GUARDRAIL]
+                        // Kiểm tra nếu ngày này quá cũ (>30 ngày trước), bỏ qua không lưu vào Map
+                        // Giúp hệ thống chạy nhanh kể cả khi file Excel dùng 10 năm.
+                        const dateObj = new Date(normalizedDate);
+                        if (dateObj < pastThreshold) continue; 
+
+                        // Kiểm tra xem ô này có đánh dấu "OFF" không
+                        // Lưu ý: row[j] có thể undefined nếu dòng này ngắn hơn header (Google Sheet API behavior)
+                        const cellValue = row[j] ? row[j].trim().toUpperCase() : "";
+                        
+                        if (cellValue === 'OFF') {
+                            if (!tempScheduleMap[normalizedDate]) tempScheduleMap[normalizedDate] = [];
+                            tempScheduleMap[normalizedDate].push(cleanName);
+                            staffObj.offDays.push(normalizedDate);
+                            
+                            if (normalizedDate === todayStr) { staffObj.off = true; }
                         }
                     }
                 }
@@ -394,7 +429,7 @@ async function syncData() {
 }
 
 // =============================================================================
-// PHẦN 3: WRITE & UPDATE LOGIC (CORE UPGRADE V4.2 STRICT)
+// PHẦN 3: WRITE & UPDATE LOGIC (CORE V4.2 FAIL-SAFE PRESERVED)
 // =============================================================================
 
 /**
@@ -531,7 +566,7 @@ async function updateBookingStatus(rowId, newStatus) {
 }
 
 /**
- * [CRITICAL] UPDATE BOOKING DETAILS (V4.2 FAIL-SAFE)
+ * [CRITICAL] UPDATE BOOKING DETAILS (V4.2 FAIL-SAFE PRESERVED)
  * Logic:
  * 1. Fetch current booking to get Duration and Current Lock State.
  * 2. Calculate New Phases (Auto-calc P2 if P1 changes, etc.).
