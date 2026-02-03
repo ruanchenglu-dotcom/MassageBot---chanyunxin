@@ -362,7 +362,7 @@ async function syncData() {
                 const todayStr = normalizeDateStrict(today); 
                 
                 // --- LOOP VÔ TẬN (DYNAMIC COLUMNS) ---
-                for (let j = 5; j < headerRow.length; j++) {
+                for (let j = 15; j < headerRow.length; j++) {
                     // Kiểm tra tiêu đề cột có tồn tại không
                     if (!headerRow[j]) continue;
 
