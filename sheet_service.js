@@ -1,18 +1,20 @@
 /**
  * =================================================================================================
- * MODULE: SHEET SERVICE (DATA LAYER) - REFACTORED V4.3 INFINITE HORIZON
+ * MODULE: SHEET SERVICE (DATA LAYER) - REFACTORED V4.4 RESOURCE AWARE
  * PROJECT: XINWUCHAN MASSAGE BOT
- * DESCRIPTION: Handles Google Sheets interactions with INFINITE COLUMN SUPPORT.
- * * * VERSION HISTORY:
+ * DESCRIPTION: Handles Google Sheets interactions with INFINITE COLUMN SUPPORT & RESOURCE LOGGING.
+ * * * * VERSION HISTORY:
  * - V4.2: Strict Fail-Safe Locking (Column AE), Dirty Check for Phases.
- * - V4.3 [CURRENT]: 
- * + [INFINITY SCOPE] Changed reading range from fixed (A1:BG100) to Dynamic (A1:150).
- * System now automatically detects NEW DATES added horizontally forever.
- * + [MEMORY OPTIMIZATION] Added "Time Window" logic. Even if Sheet has 3 years of history,
- * RAM only loads schedules from (Today - 30 days) onwards to prevent memory leaks.
- * + [ROBUST PARSING] Enhanced date header parsing to skip non-date columns without error.
- * * * AUTHOR: AI ASSISTANT & USER
- * DATE: 2026/02/03
+ * - V4.3: Infinite Horizon (Dynamic A1:150), Memory Optimization (Time Window), Robust Parsing.
+ * - V4.4 [CURRENT - RESOURCE UPGRADE]: 
+ * + [NEW COLUMNS SUPPORT] Added read/write support for Columns AB, AC, AD.
+ * > Col AB (Idx 27): Phase 1 Resource Name (e.g., "Bed 1").
+ * > Col AC (Idx 28): Phase 2 Resource Name (e.g., "Chair A").
+ * > Col AD (Idx 29): Resource Type (e.g., "BED", "CHAIR").
+ * + [WRITE LOGIC] Enhanced 'ghiVaoSheet' to populate these columns from guestDetails.
+ * + [UPDATE LOGIC] Enhanced 'updateBookingDetails' to allow individual updates to resources.
+ * * * * AUTHOR: AI ASSISTANT & USER
+ * DATE: 2026/02/03 (Updated V4.4)
  * =================================================================================================
  */
 
@@ -233,7 +235,12 @@ async function syncData() {
         STATE.isSyncing = true; 
 
         // --- BƯỚC 1: ĐỌC BOOKING TỪ SHEET1 ---
-        // Range A:AE includes Locked status at AE (Column Index 30)
+        // Range A:AE includes:
+        // AA (26) = Flow
+        // AB (27) = Phase 1 Resource
+        // AC (28) = Phase 2 Resource
+        // AD (29) = Resource Type
+        // AE (30) = Locked Status
         const resBooking = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: `${BOOKING_SHEET}!A:AE` });
         const rowsBooking = resBooking.data.values;
         let tempBookings = [];
@@ -280,6 +287,7 @@ async function syncData() {
                      for(const key in STATE.SERVICES) { if(STATE.SERVICES[key].name === serviceStr) { serviceCode = key; break; } }
                 }
 
+                // [V4.2] Phase & Flow Reading
                 const phase1Duration = safeParseInt(row[24], null);
                 const phase2Duration = safeParseInt(row[25], null);
                 
@@ -287,8 +295,14 @@ async function syncData() {
                 let flowCode = null;
                 if (rawFlow && ['BF','FB','FOOTSINGLE','BODYSINGLE'].includes(rawFlow)) { flowCode = rawFlow; }
                 
+                // [V4.4 NEW] RESOURCE READING (Columns AB, AC, AD)
+                // Đọc dữ liệu vị trí đã lưu để UI có thể hiển thị lại
+                const phase1Resource = row[27] || null; // Column AB
+                const phase2Resource = row[28] || null; // Column AC
+                const resourceType   = row[29] || null; // Column AD
+
                 // Read Lock Status (Strictly Boolean)
-                const rawLocked = row[30]; 
+                const rawLocked = row[30]; // Column AE
                 const isManualLocked = isTrueString(rawLocked);
 
                 tempBookings.push({
@@ -312,33 +326,34 @@ async function syncData() {
                     phase2_duration: phase2Duration,
                     isManualLocked: isManualLocked, 
                     flow: flowCode, 
+                    // [V4.4] Include explicit resource data in the object
+                    phase1_resource: phase1Resource,
+                    phase2_resource: phase2Resource,
+                    resource_type: resourceType,
                     allocated_resource: null 
                 });
             }
         }
 
         // --- BƯỚC 2: ĐỌC SCHEDULE VỚI INFINITE HORIZON (V4.3 UPGRADE) ---
-        // Thay đổi Range: A1:150 (Lấy toàn bộ cột từ A đến vô tận, cho 150 dòng đầu tiên)
-        // Điều này đảm bảo khi bạn thêm cột ngày mới bên phải, API sẽ tự lấy về mà không cần sửa code.
+        // Range: A1:150 (Lấy toàn bộ cột từ A đến vô tận)
         const resSchedule = await sheets.spreadsheets.values.get({ 
             spreadsheetId: SHEET_ID, 
-            range: `${SCHEDULE_SHEET}!A1:150` // [V4.3] Dynamic Range Update
+            range: `${SCHEDULE_SHEET}!A1:150` 
         });
         
         const rows = resSchedule.data.values;
         let tempStaffList = []; let tempScheduleMap = {}; 
         
-        // Chuẩn bị mốc thời gian để tối ưu bộ nhớ (Memory Guardrail)
-        // Chỉ lưu lịch nghỉ từ 30 ngày trước. Lịch sử cũ hơn sẽ bỏ qua để không làm nặng RAM.
+        // Memory Guardrail: Only load history from 30 days ago
         const today = getTaipeiNow();
         const pastThreshold = new Date(today);
-        pastThreshold.setDate(today.getDate() - 30); // Giữ data từ 30 ngày trước
+        pastThreshold.setDate(today.getDate() - 30); 
 
         if (rows && rows.length > 1) {
-            const headerRow = rows[0]; // Dòng 1 chứa ngày tháng
+            const headerRow = rows[0]; 
             
-            // Log debug để bạn biết hệ thống đang nhìn thấy bao nhiêu cột
-            if (STATE.isSystemHealthy === false) { // Chỉ log khi mới khởi động hoặc phục hồi
+            if (STATE.isSystemHealthy === false) { 
                 console.log(`[SCHEDULE V4.3] Detected ${headerRow.length} columns in StaffSchedule.`);
             }
 
@@ -363,21 +378,13 @@ async function syncData() {
                 
                 // --- LOOP VÔ TẬN (DYNAMIC COLUMNS) ---
                 for (let j = 15; j < headerRow.length; j++) {
-                    // Kiểm tra tiêu đề cột có tồn tại không
                     if (!headerRow[j]) continue;
-
-                    // Chuẩn hóa ngày trên tiêu đề
                     const normalizedDate = normalizeDateStrict(headerRow[j]); 
                     
                     if (normalizedDate) {
-                        // [V4.3 PERFORMANCE GUARDRAIL]
-                        // Kiểm tra nếu ngày này quá cũ (>30 ngày trước), bỏ qua không lưu vào Map
-                        // Giúp hệ thống chạy nhanh kể cả khi file Excel dùng 10 năm.
                         const dateObj = new Date(normalizedDate);
                         if (dateObj < pastThreshold) continue; 
 
-                        // Kiểm tra xem ô này có đánh dấu "OFF" không
-                        // Lưu ý: row[j] có thể undefined nếu dòng này ngắn hơn header (Google Sheet API behavior)
                         const cellValue = row[j] ? row[j].trim().toUpperCase() : "";
                         
                         if (cellValue === 'OFF') {
@@ -405,6 +412,7 @@ async function syncData() {
             try {
                 if (typeof ResourceCore.generateResourceMatrix === 'function') {
                     const matrixAllocation = ResourceCore.generateResourceMatrix(tempBookings, STATE.STAFF_LIST);
+                    // Merge allocation results
                     tempBookings.forEach(booking => {
                         if (matrixAllocation[booking.rowId]) {
                             booking.allocated_resource = matrixAllocation[booking.rowId];
@@ -429,13 +437,13 @@ async function syncData() {
 }
 
 // =============================================================================
-// PHẦN 3: WRITE & UPDATE LOGIC (CORE V4.2 FAIL-SAFE PRESERVED)
+// PHẦN 3: WRITE & UPDATE LOGIC (UPDATED V4.4 FOR RESOURCES)
 // =============================================================================
 
 /**
  * Ghi booking mới vào Google Sheets.
+ * V4.4 UPDATE: Map thêm dữ liệu Resource vào cột 27 (AB), 28 (AC), 29 (AD).
  * V4.2 GIA CỐ: Cột AE luôn được gán giá trị chuỗi cứng ("TRUE" hoặc "FALSE").
- * Đảm bảo không bao giờ để trống hoặc undefined.
  */
 async function ghiVaoSheet(data, proposedUpdates = []) {
     try {
@@ -460,6 +468,7 @@ async function ghiVaoSheet(data, proposedUpdates = []) {
 
         for (let i = 0; i < loopCount; i++) {
             // Khởi tạo mảng với 31 phần tử (index 0 -> 30)
+            // 0..25 (A..Z), 26 (AA), 27 (AB), 28 (AC), 29 (AD), 30 (AE)
             const row = new Array(31).fill("");
             let guestDetail = (data.guestDetails && data.guestDetails[i]) ? data.guestDetails[i] : null;
 
@@ -526,21 +535,32 @@ async function ghiVaoSheet(data, proposedUpdates = []) {
             }
             row[26] = flowVal || "FB";
 
-            // [CRITICAL: STRICT LOCK LOGIC V4.2]
-            // Kiểm tra xem user có nhập tay Phase hay không
-            const hasManualPhase = (p1 !== null && p1 !== undefined && p1 !== "");
-            
-            // Explicit Lock từ request
-            const explicitLock = (data.isManualLocked === true);
+            // [V4.4 NEW] RESOURCE COLUMNS WRITING (AB, AC, AD)
+            // Priority: Check guestDetail first, then root data
+            let r1 = null; let r2 = null; let rType = null;
 
-            // Resolve Final State: Always returns "TRUE" or "FALSE"
+            if (guestDetail) {
+                r1 = guestDetail.phase1Resource || guestDetail.phase1_resource;
+                r2 = guestDetail.phase2Resource || guestDetail.phase2_resource;
+                rType = guestDetail.resourceType || guestDetail.resource_type;
+            }
+            // Fallback to root data if not in guestDetail
+            if (!r1) r1 = data.phase1Resource || data.phase1_resource;
+            if (!r2) r2 = data.phase2Resource || data.phase2_resource;
+            if (!rType) rType = data.resourceType || data.resource_type;
+
+            row[27] = r1 || ""; // Column AB
+            row[28] = r2 || ""; // Column AC
+            row[29] = rType || ""; // Column AD
+
+            // [CRITICAL: STRICT LOCK LOGIC V4.2]
+            const hasManualPhase = (p1 !== null && p1 !== undefined && p1 !== "");
+            const explicitLock = (data.isManualLocked === true);
             const finalLockVal = resolveStrictLockState(data.isManualLocked, hasManualPhase, "FALSE");
             
             row[30] = finalLockVal; 
-            
-            // Debug Log để kiểm chứng
-            console.log(`[WRITE DEBUG] Row AE set to: ${finalLockVal}. (Explicit: ${explicitLock}, ManualPhase: ${hasManualPhase})`);
 
+            console.log(`[WRITE] Row generated. Phase1: ${p1}, Res1: ${r1}, Res2: ${r2}, Type: ${rType}, Lock: ${finalLockVal}`);
             valuesToWrite.push(row);
         }
 
@@ -566,15 +586,8 @@ async function updateBookingStatus(rowId, newStatus) {
 }
 
 /**
- * [CRITICAL] UPDATE BOOKING DETAILS (V4.2 FAIL-SAFE PRESERVED)
- * Logic:
- * 1. Fetch current booking to get Duration and Current Lock State.
- * 2. Calculate New Phases (Auto-calc P2 if P1 changes, etc.).
- * 3. Resolve Lock Status:
- * - IF user explicitly sends isManualLocked = false -> Force "FALSE".
- * - IF logic detects Phase change -> Force "TRUE".
- * - IF no explicit change -> Keep current state.
- * - FAIL-SAFE: If current state is undefined/null -> Force "FALSE".
+ * [CRITICAL] UPDATE BOOKING DETAILS (V4.4 RESOURCE AWARE)
+ * V4.4 Additions: Support updating Columns AB (Phase1Res), AC (Phase2Res), AD (Type).
  */
 async function updateBookingDetails(body) {
     const rowId = body.rowId;
@@ -615,12 +628,18 @@ async function updateBookingDetails(body) {
     if (body.staffId3) await updateCell('N', body.staffId3);
     if (body.flow) await updateCell('AA', body.flow);
 
-    // --- 2. [ADVANCED] PHASE & LOCK LOGIC WITH FAIL-SAFE ---
+    // --- 2. [V4.4 NEW] RESOURCE COLUMN UPDATES (AB, AC, AD) ---
+    // Cho phép cập nhật thủ công tài nguyên nếu UI gửi lên
+    if (body.phase1Resource !== undefined) await updateCell('AB', body.phase1Resource);
+    if (body.phase2Resource !== undefined) await updateCell('AC', body.phase2Resource);
+    if (body.resourceType !== undefined)   await updateCell('AD', body.resourceType);
+
+    // --- 3. [ADVANCED] PHASE & LOCK LOGIC WITH FAIL-SAFE ---
     
     // Step A: Get Context
     let bookingData = STATE.cachedBookings.find(b => b.rowId == rowId);
     let totalDuration = 60; 
-    let currentLockState = false; // Default assumptions
+    let currentLockState = false; 
 
     if (bookingData) {
         totalDuration = bookingData.duration;
@@ -655,29 +674,19 @@ async function updateBookingDetails(body) {
     }
 
     // Step C: Resolve Strict Lock State (FAIL-SAFE)
-    // Convert current boolean state to string for safety comparison
     const currentLockString = currentLockState ? "TRUE" : "FALSE";
     
-    // Calculate what the lock state MUST be based on inputs
     const finalLockString = resolveStrictLockState(
         body.isManualLocked, // Explicit override provided?
         hasManualPhaseChange, // Logic override?
         currentLockString     // Fallback
     );
 
-    // Step D: Write Lock State (Optimize: only write if needed or if fail-safe triggers)
-    // "Fail-safe": If currentLockString is undefined or invalid, we MUST write.
-    // Or if the resolved state is different from current.
-    
+    // Step D: Write Lock State
     let needsLockUpdate = false;
     
-    // Check 1: Did logic or user change it?
     if (finalLockString !== currentLockString) needsLockUpdate = true;
-    
-    // Check 2: Was the explicit instruction passed? (Even if same, reinforce it)
     if (body.isManualLocked !== undefined) needsLockUpdate = true;
-    
-    // Check 3: Was Phase changed? (Always enforce lock)
     if (hasManualPhaseChange) needsLockUpdate = true;
 
     if (needsLockUpdate) {
@@ -685,7 +694,6 @@ async function updateBookingDetails(body) {
         await updateCell('AE', finalLockString);
     } else {
         // [FAIL-SAFE EXTENSION]
-        // Even if no change requested, if the cache says it's unknown/null, fix it to FALSE.
         if (bookingData && (bookingData.isManualLocked === null || bookingData.isManualLocked === undefined)) {
              console.log(`[UPDATE FAIL-SAFE] AE was undefined. Healing to FALSE.`);
              await updateCell('AE', 'FALSE');

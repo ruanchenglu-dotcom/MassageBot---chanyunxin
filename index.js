@@ -1,10 +1,10 @@
 /**
  * =================================================================================================
  * PROJECT: XINWUCHAN MASSAGE BOT (BACKEND SERVER - MAIN ENTRY)
- * VERSION: V121-REFACTORED (SEPARATE SHEET SERVICE)
- * FEATURE: DUAL BOT (CUSTOMER + STAFF), ATOMIC WRITE, ZERO DATA LOSS
+ * VERSION: V122-ALLOCATION-UPDATE (CAPTURE RESOURCE LOCATION)
+ * FEATURE: DUAL BOT, ATOMIC WRITE, RECORD RESOURCE ALLOCATION (PHASE1_RES_IDX)
  * AUTHOR: AI ASSISTANT & USER
- * DATE: 2026/01/25
+ * DATE: 2026/02/06
  * =================================================================================================
  */
 
@@ -18,7 +18,7 @@ const path = require('path');
 // --- IMPORT MODULES ---
 const ResourceCore = require('./resource_core'); 
 const StaffBot = require('./staff_bot'); 
-const SheetService = require('./sheet_service'); // New Module
+const SheetService = require('./sheet_service'); // Module Sheet Service
 
 // --- 1. CẤU HÌNH HỆ THỐNG ---
 const config = {
@@ -230,7 +230,7 @@ app.post('/callback', line.middleware(config), (req, res) => {
   Promise.all(req.body.events.map(handleEvent)).then((r) => res.json(r)).catch((e) => { console.error('[LINE WEBHOOK ERROR]', e); res.status(500).end(); });
 });
 
-// ROUTE CHO BOT NHÂN VIÊN (Update with SheetService methods)
+// ROUTE CHO BOT NHÂN VIÊN
 app.post('/callback-staff', StaffBot.middleware(StaffBot.config), (req, res) => {
   Promise.all(req.body.events.map(event => {
       // TRUYỀN CÔNG CỤ TỪ SHEET SERVICE SANG STAFF BOT
@@ -239,7 +239,7 @@ app.post('/callback-staff', StaffBot.middleware(StaffBot.config), (req, res) => 
           normalizeDateStrict: SheetService.normalizeDateStrict,
           getTaipeiNow: SheetService.getTaipeiNow,
           formatDateTimeString: SheetService.formatDateTimeString,
-          STAFF_LIST: SheetService.getStaffList(), // Use Getter
+          STAFF_LIST: SheetService.getStaffList(),
           ID_BA_CHU: ID_BA_CHU,
           clientMain: client
       });
@@ -281,7 +281,7 @@ app.get('/api/info', async (req, res) => {
 app.post('/api/sync-resource', (req, res) => { SERVER_RESOURCE_STATE = req.body; res.json({ success: true }); });
 app.post('/api/sync-staff-status', (req, res) => { SERVER_STAFF_STATUS = req.body; res.json({ success: true }); });
 
-// --- API: ADMIN BOOKING ---
+// --- API: ADMIN BOOKING (UPDATED FOR RESOURCE ALLOCATION) ---
 app.post('/api/admin-booking', async (req, res) => { 
     const data = req.body; 
     const SERVICES = SheetService.getServices();
@@ -308,12 +308,40 @@ app.post('/api/admin-booking', async (req, res) => {
                      guestList.push({ serviceCode: serviceCode, staffName: sId, flow: null });
                 }
                 const checkResult = ResourceCore.checkRequestAvailability(data.ngayDen, data.gioDen, guestList, relevantBookings, staffListMap);
+                
+                // [UPDATED] XỬ LÝ KẾT QUẢ VÀ LẤY VỊ TRÍ (LOCATION)
                 if (checkResult.feasible && checkResult.details && checkResult.details.length > 0) {
-                    const optimalFlow = checkResult.details[0].flow;
+                    const optimalDetail = checkResult.details[0]; // Lấy detail của khách đầu tiên (hoặc duy nhất)
+                    const optimalFlow = optimalDetail.flow;
+
                     if (['BF','FB','FOOTSINGLE','BODYSINGLE'].includes(optimalFlow)) {
                         data.flow = optimalFlow; 
-                        if (data.phase1_duration === undefined) data.phase1_duration = checkResult.details[0].phase1_duration || checkResult.details[0].phase1;
-                        if (data.phase2_duration === undefined) data.phase2_duration = checkResult.details[0].phase2_duration || checkResult.details[0].phase2;
+                        if (data.phase1_duration === undefined) data.phase1_duration = optimalDetail.phase1_duration || optimalDetail.phase1;
+                        if (data.phase2_duration === undefined) data.phase2_duration = optimalDetail.phase2_duration || optimalDetail.phase2;
+                    }
+
+                    // [NEW] CẬP NHẬT GUEST DETAILS ĐỂ GHI NHẬN VỊ TRÍ
+                    // Nếu admin không truyền chi tiết, ta tự tạo dựa trên kết quả thuật toán
+                    if (!data.guestDetails) data.guestDetails = [];
+                    
+                    if (data.guestDetails.length === 0) {
+                        data.guestDetails.push({
+                            serviceCode: serviceCode,
+                            staff: data.nhanVien || 'RANDOM',
+                            flow: optimalFlow,
+                            phase1_duration: data.phase1_duration,
+                            phase2_duration: data.phase2_duration,
+                            // *** LẤY VỊ TRÍ TỪ ENGINE ***
+                            phase1_res_idx: optimalDetail.phase1_res_idx, 
+                            phase2_res_idx: optimalDetail.phase2_res_idx
+                        });
+                    } else {
+                        // Nếu đã có object (ví dụ từ frontend), cập nhật thêm vị trí vào đó
+                        if (data.guestDetails[0]) {
+                            data.guestDetails[0].phase1_res_idx = optimalDetail.phase1_res_idx;
+                            data.guestDetails[0].phase2_res_idx = optimalDetail.phase2_res_idx;
+                            if(!data.guestDetails[0].flow) data.guestDetails[0].flow = optimalFlow;
+                        }
                     }
                 }
             }
@@ -326,7 +354,7 @@ app.post('/api/admin-booking', async (req, res) => {
         ngayDen: data.ngayDen, gioDen: data.gioDen, dichVu: data.dichVu, nhanVien: data.nhanVien, 
         userId: 'ADMIN_WEB', sdt: data.sdt || '現場客', hoTen: data.hoTen || '現場客', 
         trangThai: '已預約', pax: data.pax || 1, isOil: data.isOil || false, 
-        guestDetails: data.guestDetails,
+        guestDetails: data.guestDetails, // Đã bao gồm phase1_res_idx
         phase1_duration: data.phase1_duration, phase2_duration: data.phase2_duration,
         isManualLocked: data.isManualLocked, flow: data.flow, serviceCode: data.serviceCode 
     }); 
@@ -560,7 +588,10 @@ async function handleEvent(event) {
               service: SERVICES[s.service].name, 
               staff: sId, isOil: s.isOil, flow: optimalFlow, 
               phase1_duration: p1, phase2_duration: p2, 
-              serviceCode: s.service       
+              serviceCode: s.service,
+              // [UPDATED] THÊM THÔNG TIN VỊ TRÍ VÀO BOOKING CỦA KHÁCH
+              phase1_res_idx: coreDetail ? coreDetail.phase1_res_idx : undefined,
+              phase2_res_idx: coreDetail ? coreDetail.phase2_res_idx : undefined
           });
       }
       
@@ -597,4 +628,4 @@ setInterval(() => { SheetService.syncData(); }, 10000);
 app.get('/ping', (req, res) => { res.status(200).send('Pong!'); });
 
 const port = process.env.PORT || 3000;
-app.listen(port, () => { console.log(`XinWuChan Bot V121-REFACTORED running on port ${port}`); });
+app.listen(port, () => { console.log(`XinWuChan Bot V122-ALLOCATION-UPDATE running on port ${port}`); });

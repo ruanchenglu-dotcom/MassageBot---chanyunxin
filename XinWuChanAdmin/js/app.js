@@ -1,16 +1,18 @@
 // TYPE: app.js
-// VERSION: V106.0 (LOCATION TRACKING & DATA SYNC)
-// UPDATE: 2026-02-03
+// VERSION: V105.4 (LOCATION TRACKING UPGRADE)
+// UPDATE: 2026-02-06
 // AUTHOR: AI ASSISTANT & USER
 //
-// --- CHANGE LOG V106.0 ---
-// 1. [DATA SYNC] Resource Location Tracking:
-//    - Đã thêm logic để gửi thông tin vị trí thực tế (Ghế/Giường) về Google Sheet.
-//    - Cập nhật cột AB (Phase 1 Index), AC (Phase 2 Index), AD (Resource Type).
-// 2. [LOGIC FIX] Handle Switch Sync:
-//    - Khi chuyển khách (Switch) sang Phase 2 (ví dụ: Chân -> Body), hệ thống tự động cập nhật cột AC.
-// 3. [CORE] Start Logic Upgrade:
-//    - Hàm executeStart giờ đây sẽ phân tích ID vị trí để gửi dữ liệu chính xác nhất.
+// --- CHANGE LOG V105.4 ---
+// 1. [FEATURE] Location Tracking (Start):
+//    - Hàm `executeStart` và `executeBatchStart` hiện gửi kèm `current_resource_id` (ví dụ: 'bed-3')
+//      trong payload API `update-booking-details`.
+//    - Mục tiêu: Giúp Backend ghi nhận chính xác khách đang ngồi ghế/giường số mấy vào Sheet.
+// 2. [FEATURE] Location Tracking (Switch):
+//    - Hàm `handleSwitch` nay gọi API `update-booking-details` ngay lập tức sau khi kéo thả thành công.
+//    - Mục tiêu: Cập nhật vị trí mới vào Sheet ngay khi người dùng thao tác chuyển chỗ.
+// 3. [MAINTENANCE] Code Stability:
+//    - Giữ nguyên toàn bộ logic V105.3 (Batch Start, Z-Index, Payment Groups).
 //
 
 const { useState, useEffect, useMemo, useRef } = React;
@@ -125,22 +127,6 @@ const getNormalizedPhone = (booking) => {
     return raw.replace(/\D/g, '').slice(-6);
 };
 
-// --- HELPER: EXTRACT RESOURCE INFO (V106.0 NEW) ---
-// Chuyển đổi resourceId (chair-1) thành { type: 'CHAIR', idx: 1 } để gửi API
-const extractResourceInfo = (resourceId) => {
-    if (!resourceId || typeof resourceId !== 'string') return { type: '', idx: '' };
-    const parts = resourceId.split('-');
-    if (parts.length < 2) return { type: '', idx: '' };
-    
-    const rawType = parts[0].toLowerCase();
-    const idx = parts[1];
-    
-    // Mapping chuẩn theo Backend yêu cầu
-    const type = rawType === 'chair' ? 'CHAIR' : (rawType === 'bed' ? 'BED' : rawType.toUpperCase());
-    
-    return { type, idx };
-};
-
 // --- APP COMPONENT ---
 const App = () => {
     // 1. STATE MANAGEMENT
@@ -164,6 +150,9 @@ const App = () => {
     
     // V103.0: Payment Branching State
     const [paymentChoiceData, setPaymentChoiceData] = useState(null);
+
+    // V105.2: Start Branching State (Smart Start)
+    const [startChoiceData, setStartChoiceData] = useState(null);
 
     // System States
     const [viewDate, setViewDate] = useState(window.getOperationalDateInputFormat());
@@ -258,13 +247,14 @@ const App = () => {
                 const otherRowId = String(otherBooking.rowId);
                 const otherPhone = getNormalizedPhone(otherBooking);
                 
+                // Logic ghép nhóm: Cùng RowID (khách đặt chung) HOẶC cùng 4 số cuối SĐT
                 if (otherRowId === currentRowId) return true;
                 if (currentPhone.length >= 4 && currentPhone === otherPhone) return true;
                 return false;
             });
     };
 
-    // --- HELPER: FIND WAITING GROUP MEMBERS (For Group Start) ---
+    // --- HELPER: FIND WAITING GROUP MEMBERS (For Smart Start) ---
     const findRelatedWaitingBookings = (currentBooking, excludeResourceId) => {
         if (!currentBooking) return [];
         const currentRowId = String(currentBooking.rowId);
@@ -278,6 +268,7 @@ const App = () => {
                 const otherRowId = String(otherBooking.rowId);
                 const otherPhone = getNormalizedPhone(otherBooking);
                 
+                // Cùng RowID (Google Sheet) hoặc cùng SĐT
                 if (otherRowId === currentRowId) return true;
                 if (currentPhone.length >= 4 && currentPhone === otherPhone) return true;
                 return false;
@@ -834,7 +825,8 @@ const App = () => {
         }
     };
 
-    // --- UPDATED V106.0 START LOGIC (LOCATION TRACKING) ---
+    // --- EXECUTE START (SINGLE MODE) ---
+    // V105.4 UPGRADE: Now sends `current_resource_id` to server
     const executeStart = (id, comboSequence, silentMode = false) => {
         const current = resourceState[id];
         if (!current) { 
@@ -931,7 +923,7 @@ const App = () => {
             finalServiceStaff = candidates[0].id;
         }
 
-        // --- 3. EXECUTE UPDATE & LOCATION SYNC ---
+        // --- 3. EXECUTE UPDATE ---
         const newStatusData = { ...statusData, [finalServiceStaff]: { ...statusData[finalServiceStaff], status: 'BUSY' } };
         updateStaffStatus(newStatusData); 
         
@@ -970,22 +962,148 @@ const App = () => {
         if (grpIdx === 4) { primaryKey = "服務師傅5"; fallbackKey = "ServiceStaff5"; }
         if (grpIdx === 5) { primaryKey = "服務師傅6"; fallbackKey = "ServiceStaff6"; }
         
-        // --- V106.0: EXTRACT LOCATION INFO ---
-        const locInfo = extractResourceInfo(currentId);
-
+        // V105.4 CHANGE: Added 'current_resource_id' to payload
         const payload = { 
             rowId: current.booking.rowId, 
             [primaryKey]: finalServiceStaff, 
             [fallbackKey]: finalServiceStaff, 
             [`staff${grpIdx + 1}`]: finalServiceStaff, 
             staffId: designatedStaff,
-            // New Location Tracking Fields
-            phase1_res_idx: locInfo.idx,
-            resource_type: locInfo.type,
-            phase2_res_idx: "" // Reset Phase 2 khi bắt đầu mới
+            current_resource_id: currentId, // Sends "bed-3" or "chair-1"
+            record_location: true
         };
-        
         universalSend('/api/update-booking-details', payload);
+    };
+
+    // --- V105.3 & V105.4: NEW BATCH EXECUTION LOGIC ---
+    // V105.4 UPGRADE: Now sends `current_resource_id` for every item in batch
+    const executeBatchStart = (mainResId, relatedItems) => {
+        // 1. Prepare data structures for batch update
+        const nextResourceState = { ...resourceState };
+        const nextStatusData = { ...statusData };
+        const apiPayloads = [];
+        
+        // 2. Combine all items to process (Main + Related)
+        const allItemsToStart = [
+            { resourceId: mainResId, booking: resourceState[mainResId].booking },
+            ...relatedItems // These are already { resourceId, booking }
+        ];
+
+        setSyncLock(true); 
+        setTimeout(() => setSyncLock(false), 5000);
+
+        // 3. Process loop (In Memory)
+        allItemsToStart.forEach(item => {
+            const { resourceId } = item;
+            const current = nextResourceState[resourceId];
+            
+            if (!current) return; // Skip if somehow missing
+            if (current.isRunning) return; // Skip if already running
+
+            let designatedStaff = current.booking.serviceStaff || current.booking.staffId || current.booking.ServiceStaff || '隨機';
+            if (designatedStaff === 'undefined' || designatedStaff === 'null') designatedStaff = '隨機';
+
+            let finalServiceStaff = designatedStaff;
+            
+            // --- Logic chọn thợ (Staff Selection) ---
+            if (['隨機', '男', '女', 'Oil'].some(k => designatedStaff.includes(k))) {
+                 // Tính toán Busy Ids dựa trên những người ĐANG chạy + những người VỪA được gán trong vòng lặp này
+                 const currentlyBusyIds = Object.values(nextResourceState)
+                    .filter(r => r.isRunning && !r.isPaused && r.isPreview !== true)
+                    .map(r => r.booking.serviceStaff || r.booking.staffId);
+                
+                 // Tìm thợ rảnh trong nextStatusData (đã cập nhật qua các vòng lặp trước)
+                 const readyCandidates = staffList.filter(s => {
+                     const stat = nextStatusData[s.id];
+                     if (!stat || stat.status !== 'READY') return false;
+                     if (currentlyBusyIds.includes(s.id)) return false;
+                     
+                     // Filter Gender
+                     if (designatedStaff.includes('男') || designatedStaff.includes('Male')) {
+                        if (s.gender !== 'M' && s.gender !== '男') return false;
+                     }
+                     if (designatedStaff.includes('女') || designatedStaff.includes('Female') || current.booking.isOil) {
+                        if (s.gender !== 'F' && s.gender !== '女') return false;
+                     }
+                     return true;
+                 });
+                 
+                 readyCandidates.sort((a,b) => (nextStatusData[a.id]?.checkInTime||0) - (nextStatusData[b.id]?.checkInTime||0));
+
+                 if (readyCandidates.length > 0) {
+                     finalServiceStaff = readyCandidates[0].id;
+                     // Cập nhật ngay lập tức vào nextStatusData để vòng lặp sau không chọn trúng người này
+                     nextStatusData[finalServiceStaff] = { ...nextStatusData[finalServiceStaff], status: 'BUSY' };
+                 } else {
+                     // Nếu không tìm thấy thợ, bỏ qua item này (không start), alert nhẹ hoặc log
+                     console.warn(`Skipping start for ${resourceId}: No staff available.`);
+                     return; 
+                 }
+            } else {
+                // Nếu là thợ chỉ định, đánh dấu bận
+                if (nextStatusData[finalServiceStaff]) {
+                     nextStatusData[finalServiceStaff] = { ...nextStatusData[finalServiceStaff], status: 'BUSY' };
+                }
+            }
+
+            // --- Cập nhật State cho Item này ---
+            const grpIdx = getGroupMemberIndex(resourceId, current.booking.rowId);
+            const isComboService = (current.booking.serviceName && current.booking.serviceName.includes('套餐'));
+            const newBooking = { 
+                ...current.booking, 
+                category: isComboService ? 'COMBO' : 'SINGLE' 
+            };
+            
+            // Assign staff to correct column
+            if (grpIdx === 0) newBooking.serviceStaff = finalServiceStaff;
+            else if (grpIdx === 1) newBooking.staffId2 = finalServiceStaff;
+            else if (grpIdx === 2) newBooking.staffId3 = finalServiceStaff;
+            else if (grpIdx === 3) newBooking.staffId4 = finalServiceStaff;
+            else if (grpIdx === 4) newBooking.staffId5 = finalServiceStaff;
+            else if (grpIdx === 5) newBooking.staffId6 = finalServiceStaff;
+
+            // Update Resource State Object
+            nextResourceState[resourceId] = {
+                ...current,
+                booking: newBooking,
+                startTime: new Date().toISOString(),
+                isRunning: true,
+                isPreview: false,
+                comboMeta: current.comboMeta // Keep existing meta if any
+            };
+
+            // Prepare API Payload
+            let primaryKey = "服務師傅1"; let fallbackKey = "ServiceStaff1";
+            if (grpIdx === 1) { primaryKey = "服務師傅2"; fallbackKey = "ServiceStaff2"; }
+            else if (grpIdx === 2) { primaryKey = "服務師傅3"; fallbackKey = "ServiceStaff3"; }
+            else if (grpIdx === 3) { primaryKey = "服務師傅4"; fallbackKey = "ServiceStaff4"; }
+            else if (grpIdx === 4) { primaryKey = "服務師傅5"; fallbackKey = "ServiceStaff5"; }
+            else if (grpIdx === 5) { primaryKey = "服務師傅6"; fallbackKey = "ServiceStaff6"; }
+
+            // V105.4 CHANGE: Added 'current_resource_id' to batch payload
+            apiPayloads.push({
+                endpoint: '/api/update-booking-details',
+                data: { 
+                    rowId: current.booking.rowId, 
+                    [primaryKey]: finalServiceStaff, 
+                    [fallbackKey]: finalServiceStaff, 
+                    [`staff${grpIdx + 1}`]: finalServiceStaff, 
+                    staffId: designatedStaff,
+                    current_resource_id: resourceId, // Sends the specific ID for this loop item
+                    record_location: true
+                }
+            });
+        });
+
+        // 4. Commit Single State Update
+        setResourceState(nextResourceState);
+        updateStaffStatus(nextStatusData); // Sync staff status to server
+
+        // 5. Fire API Syncs
+        apiPayloads.forEach(p => universalSend(p.endpoint, p.data));
+        
+        // 6. Sync Resource to Server
+        universalSend('/api/sync-resource', nextResourceState);
     };
 
     const handleResourceAction = async (id, action) => {
@@ -1033,7 +1151,7 @@ const App = () => {
 
     const confirmComboStart = (sequence) => { if (comboStartData) { executeStart(comboStartData.id, sequence); setComboStartData(null); } };
     
-    // --- V106.0: UPDATED HANDLE SWITCH (SYNC LOCATION) ---
+    // V105.4 UPGRADE: Now triggers API immediately on switch
     const handleSwitch = (fromId, toType) => { 
         const currentData = resourceState[fromId]; 
         if(!currentData) return; 
@@ -1047,13 +1165,15 @@ const App = () => {
             const targetId = `${toType}-${i}`; 
             if (!resourceState[targetId]) { 
                 const newState = { ...resourceState }; delete newState[fromId]; newState[targetId] = currentData; 
+                
+                // 1. Update UI first
                 updateResource(newState); 
                 
-                // V106.0: Sync Phase 2 Location to Google Sheet (Cột AC)
-                const targetInfo = extractResourceInfo(targetId);
+                // 2. V105.4: Trigger API to update Sheet immediately
                 universalSend('/api/update-booking-details', {
                     rowId: currentData.booking.rowId,
-                    phase2_res_idx: targetInfo.idx,
+                    current_resource_id: targetId, // e.g. "chair-2"
+                    record_location: true,
                     forceSync: true
                 });
 
@@ -1161,32 +1281,31 @@ const App = () => {
         const targetResourceId = payload.resourceId || (controlCenterData ? controlCenterData.resourceId : null);
 
         // Debugging
-        console.log("App.handleControlAction V106.0:", actionType, payload);
+        console.log("App.handleControlAction V105.1:", actionType, payload);
 
         switch (actionType) {
             case 'START':
-                // V105.0: NEW GROUP START LOGIC
+                // V105.2: SMART START GUARD (INTERCEPTION)
                 if (targetResourceId) {
                     if (resourceState[targetResourceId] && resourceState[targetResourceId].isRunning) {
                          alert(`⚠️ Vị trí ${targetResourceId} đang bận! Vui lòng chọn ghế khác.`);
                     } else {
-                         // CHECK SCOPE: GROUP vs INDIVIDUAL
-                         if (payload.scope === 'GROUP') {
-                             const waitingMembers = findRelatedWaitingBookings(targetBooking, null); // null to include self
-                             console.log("Starting Group Members:", waitingMembers);
-                             if (waitingMembers.length === 0) {
-                                 executeStart(targetResourceId, null); // Fallback to self
-                             } else {
-                                 // Execute start for ALL members found on the grid
-                                 waitingMembers.forEach(member => {
-                                     executeStart(member.resourceId, null, true); // Silent mode
-                                 });
-                                 alert(`🚀 Đã bắt đầu ${waitingMembers.length} khách!`);
-                             }
-                         } else {
-                             // INDIVIDUAL START (Default)
-                             executeStart(targetResourceId, null);
-                         }
+                        // 1. Quét tìm người thân đang chờ (Waiting/Preview)
+                        // Bỏ qua payload.scope từ View, tự quét lại cho chắc chắn.
+                        const relatedWaiters = findRelatedWaitingBookings(targetBooking, targetResourceId);
+
+                        if (relatedWaiters.length > 0) {
+                            // CÓ NGƯỜI THÂN -> HIỆN MODAL HỎI
+                            console.log("Smart Start Guard: Found related waiters", relatedWaiters);
+                            setStartChoiceData({
+                                resourceId: targetResourceId,
+                                booking: targetBooking,
+                                relatedDetails: relatedWaiters
+                            });
+                        } else {
+                            // KHÔNG CÓ AI -> CHẠY LUÔN
+                            executeStart(targetResourceId, null);
+                        }
                     }
                 } else {
                     alert("⚠️ Vui lòng kéo đơn này vào giường/ghế trước khi bắt đầu!");
@@ -1201,17 +1320,13 @@ const App = () => {
                 
             case 'FINISH':
                 // --- V105.1 UPDATE: GLOBAL GROUP GUARD ---
-                // Logic cũ: Phụ thuộc vào payload.scope từ View gửi lên.
-                // Logic mới: Luôn luôn kiểm tra quan hệ (findRelatedActiveBookings) bất kể scope là gì.
-                // Điều này giúp bắt được trường hợp View gửi 'INDIVIDUAL' (do pax=1) nhưng thực tế khách đi cùng bạn.
-
                 if (targetResourceId && targetBooking) {
                     // 1. Luôn quét tìm nhóm trước
                     const related = findRelatedActiveBookings(targetBooking, targetResourceId);
                     
                     // 2. Quyết định
                     if (related.length > 0) {
-                        // Nếu tìm thấy nhóm -> Luôn hiện bảng chọn (bỏ qua scope từ payload)
+                        // Nếu tìm thấy nhóm -> Luôn hiện bảng chọn
                         console.log("Guard: Found related bookings, forcing Choice Modal", related);
                         setPaymentChoiceData({
                             resourceId: targetResourceId,
@@ -1272,8 +1387,6 @@ const App = () => {
 
                     setSyncLock(true); setTimeout(() => setSyncLock(false), 3000);
                     
-                    // Optimistic UI Update (Optional but tricky with matrix)
-                    // Better to just call API and refresh
                     universalSend('/api/update-booking-details', {
                         rowId: targetBooking.rowId,
                         startTimeString: newTimeStr,
@@ -1283,7 +1396,6 @@ const App = () => {
                         handleForceRefresh(); // Reload timeline
                     });
                 }
-                // No setControlCenterData(null) needed if called from TimelineView directly
                 break;
 
             default:
@@ -1311,7 +1423,6 @@ const App = () => {
 
         if (mode === 'SEPARATE' || mode === 'INDIVIDUAL') {
             // Option 1: Pay ONLY this booking (Individual)
-            // Explicitly set relatedItems to empty to force individual bill
             setBillingData({ 
                 activeItem: { resourceId: activeResId, booking: activeBooking }, 
                 relatedItems: [] 
@@ -1327,6 +1438,23 @@ const App = () => {
             });
         }
         setPaymentChoiceData(null);
+    };
+
+    // V105.2 & V105.3: Handler for Start Choice Selection (UPDATED WITH BATCH EXECUTION)
+    const handleProcessStartChoice = (mode) => {
+        if (!startChoiceData) return;
+        const { resourceId, relatedDetails } = startChoiceData;
+
+        // 1. Handle Group Start (The Batch Way)
+        if (mode === 'GROUP') {
+            // Call the new Batch Function
+            executeBatchStart(resourceId, relatedDetails);
+        } else {
+            // 2. Handle Individual Start (The Classic Way)
+            executeStart(resourceId, null, false);
+        }
+
+        setStartChoiceData(null);
     };
 
     // --- END V103.0 INTEGRATION ---
@@ -1363,7 +1491,7 @@ const App = () => {
         <div className="min-h-screen flex flex-col bg-slate-50">
             <header className={`text-white p-3 shadow-md flex justify-between items-center sticky top-0 z-50 transition-colors ${quotaError ? 'bg-red-800' : 'bg-[#1e1b4b]'}`}>
                 <div className="flex items-center gap-3">
-                    <span className="bg-emerald-500 text-white px-2 py-1 rounded font-black text-sm shadow-sm">V106.0</span>
+                    <span className="bg-emerald-500 text-white px-2 py-1 rounded font-black text-sm shadow-sm">V105.4</span>
                     <span className="font-bold hidden md:inline tracking-wider">XinWuChan</span>
                     <div className="flex items-center gap-2 bg-white/10 rounded px-2 py-1 border border-white/20">
                         <button onClick={()=>{const d=new Date(viewDate); d.setDate(d.getDate()-1); setViewDate(d.toISOString().split('T')[0])}} className="text-white hover:text-amber-400 font-bold px-2">❯</button>
@@ -1513,6 +1641,82 @@ const App = () => {
                                 className="w-full mt-6 text-gray-400 hover:text-gray-600 font-bold text-xs uppercase tracking-wider text-center"
                             >
                                 關閉 / 返回
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* V105.2 SMART START MODAL (FIXED Z-INDEX & TEXT) */}
+            {startChoiceData && (
+                // V105.3 FIX: Changed z-[60] to z-[10000] to ensure it is above Control Modal (z-3000)
+                <div className="fixed inset-0 bg-black/60 z-[10000] flex items-center justify-center animate-fade-in">
+                    <div className="bg-white rounded-xl shadow-2xl w-[450px] overflow-hidden animate-slide-up border border-slate-200">
+                        {/* Header */}
+                        <div className="bg-gradient-to-r from-emerald-600 to-green-600 p-4 text-white">
+                            <h3 className="text-xl font-bold flex items-center">
+                                <i className="fas fa-play-circle mr-2"></i>
+                                啟動確認 (Start)
+                            </h3>
+                            <p className="text-emerald-100 text-sm mt-1 opacity-90">發現同組客人 (Group Detected)</p>
+                        </div>
+                        
+                        <div className="p-6">
+                            {/* Summary Box */}
+                            <div className="bg-emerald-50 p-4 rounded-lg border border-emerald-100 mb-5">
+                                <div className="flex justify-between items-center mb-2">
+                                    <span className="font-bold text-emerald-800 text-sm">主客 (Main):</span>
+                                    <span className="font-bold text-slate-800">{startChoiceData.booking.customerName}</span>
+                                </div>
+                                <div className="border-t border-emerald-200 my-2"></div>
+                                {/* V105.3 FIX: Better Label for count */}
+                                <div className="text-xs text-emerald-600 font-bold mb-2">
+                                    Tìm thấy {startChoiceData.relatedDetails.length} người đi cùng (Tổng nhóm: {startChoiceData.relatedDetails.length + 1} vị):
+                                </div>
+                                <div className="flex flex-wrap gap-2">
+                                    {startChoiceData.relatedDetails.map(item => (
+                                        <span key={item.resourceId} className="bg-white border border-emerald-200 text-emerald-700 px-2 py-1 rounded text-xs font-mono font-bold shadow-sm">
+                                            {item.resourceId.replace('bed-', '床 ').replace('chair-', '足 ')}
+                                        </span>
+                                    ))}
+                                </div>
+                            </div>
+
+                            {/* Actions */}
+                            <div className="space-y-3">
+                                <button 
+                                    onClick={() => handleProcessStartChoice('GROUP')}
+                                    className="w-full bg-emerald-600 hover:bg-emerald-700 text-white py-3.5 rounded-lg font-bold flex items-center justify-center gap-3 transition-colors shadow-lg shadow-emerald-200 group"
+                                >
+                                    <div className="bg-white/20 w-8 h-8 rounded-full flex items-center justify-center group-hover:scale-110 transition-transform">
+                                        <i className="fas fa-rocket"></i>
+                                    </div>
+                                    <div className="text-left">
+                                        <div className="text-sm leading-tight">全體開始 (Start All)</div>
+                                        {/* V105.3 FIX: Updated Description */}
+                                        <div className="text-[10px] opacity-80 font-normal">Chạy ngay {startChoiceData.relatedDetails.length + 1} người (Batch Execute)</div>
+                                    </div>
+                                </button>
+                                
+                                <button 
+                                    onClick={() => handleProcessStartChoice('INDIVIDUAL')}
+                                    className="w-full bg-white border-2 border-slate-200 hover:border-emerald-500 hover:bg-emerald-50 text-slate-700 hover:text-emerald-700 py-3.5 rounded-lg font-bold flex items-center justify-center gap-3 transition-all group"
+                                >
+                                    <div className="bg-slate-100 w-8 h-8 rounded-full flex items-center justify-center text-slate-500 group-hover:text-emerald-600 group-hover:bg-emerald-100 transition-colors">
+                                        <i className="fas fa-user"></i>
+                                    </div>
+                                    <div className="text-left">
+                                        <div className="text-sm leading-tight">僅開始此位 (Individual Only)</div>
+                                        <div className="text-[10px] opacity-80 font-normal">其他人繼續等待</div>
+                                    </div>
+                                </button>
+                            </div>
+
+                            <button 
+                                onClick={() => setStartChoiceData(null)}
+                                className="w-full mt-6 text-gray-400 hover:text-gray-600 font-bold text-xs uppercase tracking-wider text-center"
+                            >
+                                取消 (Cancel)
                             </button>
                         </div>
                     </div>

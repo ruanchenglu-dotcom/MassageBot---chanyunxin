@@ -1,17 +1,17 @@
 /**
  * ============================================================================
  * FILE: js/views.js
- * PHIÊN BẢN: V108.0 (CLEAN LOGIC & DELEGATION)
+ * PHIÊN BẢN: V107.0 (GROUP START & TIMELINE SHIFTER)
  * MÔ TẢ: CÁC COMPONENT HIỂN THỊ CHÍNH (VIEW LAYER)
- * * * LỊCH SỬ CẬP NHẬT V108.0:
- * 1. [BookingControlModal] - LOGIC CLEANUP:
- * - Xóa bỏ Popup thanh toán cục bộ (Local Payment Overlay).
- * - Chuyển toàn bộ quyền quyết định logic thanh toán (Gộp/Riêng) về App.js.
- * - Nút "Kết thúc" (Finish) giờ chỉ gửi tín hiệu trigger, không mang payload áp đặt.
- * 2. [TimelineView] - MAINTAINED:
- * - Giữ nguyên tính năng Manual Time Shift (+/- 5 phút).
- * 3. [System] - FULL INTEGRATION:
- * - Tương thích hoàn toàn với logic "Global Payment Modal" mới của App.js.
+ * * * LỊCH SỬ CẬP NHẬT V107.0:
+ * 1. [BookingControlModal] - GROUP START LOGIC:
+ * - Tự động phát hiện khách nhóm (Pax > 1).
+ * - Hiển thị 2 nút Start: "Cá nhân" (Individual) và "Toàn nhóm" (Group).
+ * 2. [TimelineView] - MANUAL TIME SHIFT:
+ * - Thêm nút mũi tên Trái/Phải trên block timeline.
+ * - Cho phép dịch chuyển thời gian nhanh (+/- 5 phút) mà không cần kéo thả.
+ * 3. [UI/UX] - Z-INDEX ADJUSTMENT:
+ * - Hạ Z-index Modal chính xuống 3000 để nhường chỗ cho các Alert/Modal phụ (4000+).
  * * * TÁC GIẢ: AI ASSISTANT & USER
  * ============================================================================
  */
@@ -19,8 +19,8 @@
 const { useState, useEffect, useMemo, useRef } = React;
 
 // ============================================================================
-// 0. BOOKING CONTROL MODAL (SUPER MODAL V108.0)
-// Chức năng: Quản lý vòng đời đơn hàng, Context vị trí, Group Start
+// 0. BOOKING CONTROL MODAL (SUPER MODAL V107.0)
+// Chức năng: Quản lý vòng đời đơn hàng, Context vị trí, Thanh toán & Group Start
 // ============================================================================
 const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveData, contextResourceId }) => {
     // Validation: Không render nếu thiếu data
@@ -43,6 +43,9 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
     // State chọn dịch vụ mới
     const [selectedService, setSelectedService] = useState(booking.serviceName);
 
+    // State cho Payment Popup (Popup Rẽ nhánh: Chung vs Riêng)
+    const [showPaymentOptions, setShowPaymentOptions] = useState(false);
+
     // --- EFFECTS ---
 
     // 1. Đồng bộ dữ liệu khi Modal mở ra
@@ -53,7 +56,7 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                 : (booking.duration / 2);
             setPhase1(currentP1);
             setSelectedService(booking.serviceName);
-            // UPDATE V108: Không còn reset showPaymentOptions vì đã xóa logic local
+            setShowPaymentOptions(false); // Luôn reset popup thanh toán
         }
     }, [isOpen, booking, meta]);
 
@@ -115,24 +118,30 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
         
         console.log(`[BookingControlModal] Triggering: ${actionType}`, fullPayload);
         onAction(actionType, fullPayload);
+        
+        if (showPaymentOptions) setShowPaymentOptions(false);
     };
 
-    // UPDATE V108: Xử lý nút "Kết thúc" - DELEGATION PATTERN
-    // Không tự kiểm tra pax > 1 tại đây nữa.
-    // Gửi tín hiệu FINISH thuần túy để App.js tự check toàn cục (Global Check).
+    // Xử lý nút "Kết thúc" (Check logic Nhóm)
     const handleFinishRequest = (e) => {
         if(e) e.stopPropagation();
-        triggerAction('FINISH'); 
+        const pax = parseInt(booking.pax) || 1;
+        if (pax > 1) {
+            setShowPaymentOptions(true);
+        } else {
+            triggerAction('FINISH', { scope: 'INDIVIDUAL' });
+        }
     };
 
     const isRunning = liveData && liveData.isRunning;
     const isPaused = liveData && liveData.isPaused;
     const isCombo = booking.category === 'COMBO' || (booking.serviceName && booking.serviceName.includes('Combo')) || (booking.serviceName && booking.serviceName.includes('套餐'));
     
-    // Kiểm tra xem đây có phải là khách nhóm không (Dùng để hiển thị nút Start Group)
+    // Kiểm tra xem đây có phải là khách nhóm không
     const isGroupBooking = (parseInt(booking.pax) || 1) > 1;
 
     // --- RENDER ---
+    // UPDATE V107.0: Hạ z-index xuống 3000 để các modal phụ (SplitStaff) có thể đè lên nếu đặt z-4000
     return (
         <div className="fixed inset-0 z-[3000] flex items-center justify-center bg-black/70 backdrop-blur-sm animate-in fade-in duration-200 p-4">
             {/* Main Modal Container */}
@@ -272,7 +281,7 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                     )}
                 </div>
 
-                {/* 3. ACTION FOOTER */}
+                {/* 3. ACTION FOOTER - MODIFIED FOR GROUP START LOGIC (V107.0) */}
                 <div className="p-4 bg-white border-t border-slate-200 shrink-0">
                     <div className="grid grid-cols-4 gap-3">
                         
@@ -313,7 +322,7 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                             </button>
                         )}
 
-                        {/* Nút Finish - Gửi tín hiệu chung để App quyết định logic Gộp/Riêng */}
+                        {/* Nút Finish */}
                         <button 
                             onClick={handleFinishRequest}
                             className="bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold shadow-lg shadow-blue-200 flex flex-col items-center justify-center transform active:scale-95 transition-all"
@@ -337,7 +346,49 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                     </div>
                 </div>
 
-                {/* NOTE: Đã loại bỏ Payment Overlay tại đây để sử dụng Modal Global của App.js */}
+                {/* PAYMENT OPTION OVERLAY (z-index 3010 to overlay the 3000 modal) */}
+                {showPaymentOptions && (
+                    <div className="absolute inset-0 z-[3010] bg-slate-900/95 flex flex-col items-center justify-center p-6 animate-in fade-in zoom-in duration-200">
+                        <div className="w-full max-w-sm bg-white rounded-2xl shadow-2xl overflow-hidden">
+                            <div className="bg-indigo-600 p-4 text-center">
+                                <h3 className="text-white font-bold text-xl">結帳方式選擇 (Payment Option)</h3>
+                                <p className="text-indigo-200 text-sm mt-1">{booking.customerName} ({booking.pax} Pax)</p>
+                            </div>
+                            <div className="p-6 space-y-4">
+                                <button 
+                                    onClick={() => triggerAction('FINISH', { scope: 'INDIVIDUAL' })}
+                                    className="w-full py-4 bg-white border-2 border-indigo-100 hover:border-indigo-500 hover:bg-indigo-50 rounded-xl flex items-center p-4 transition-all group transform active:scale-95"
+                                >
+                                    <div className="w-12 h-12 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center text-xl mr-4 group-hover:scale-110 transition-transform">
+                                        <i className="fas fa-user"></i>
+                                    </div>
+                                    <div className="text-left">
+                                        <div className="font-bold text-slate-800 text-lg">分開結帳 (Individual)</div>
+                                        <div className="text-xs text-slate-500">只結算此位客人的費用</div>
+                                    </div>
+                                </button>
+
+                                <button 
+                                    onClick={() => triggerAction('FINISH', { scope: 'GROUP' })}
+                                    className="w-full py-4 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-xl flex items-center p-4 shadow-lg hover:shadow-xl hover:from-blue-500 hover:to-indigo-500 transition-all group transform active:scale-95"
+                                >
+                                    <div className="w-12 h-12 rounded-full bg-white/20 flex items-center justify-center text-xl mr-4 group-hover:scale-110 transition-transform">
+                                        <i className="fas fa-users"></i>
+                                    </div>
+                                    <div className="text-left">
+                                        <div className="font-bold text-white text-lg">團體結帳 (Group Pay)</div>
+                                        <div className="text-xs text-blue-100">結算全體 {booking.pax} 位客人的總費用</div>
+                                    </div>
+                                </button>
+                            </div>
+                            <div className="bg-slate-50 p-3 text-center border-t border-slate-200">
+                                <button onClick={() => setShowPaymentOptions(false)} className="text-slate-500 hover:text-slate-700 text-sm font-bold underline">
+                                    取消 (Cancel / Back)
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
             </div>
         </div>
     );
