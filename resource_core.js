@@ -2,23 +2,24 @@
  * =================================================================================================
  * PROJECT: XINWUCHAN MASSAGE BOT - CORE LOGIC KERNEL (SERVER SIDE)
  * FILE: resource_core.js
- * PHIÊN BẢN: V115.0 (PHASE DURATION LOCK & PRECISE TIMELINE)
- * NGÀY CẬP NHẬT: 2026/01/25
+ * PHIÊN BẢN: V116.0 (DYNAMIC STAFF SCHEDULE COMPATIBILITY)
+ * NGÀY CẬP NHẬT: 2026/02/09
  * TÁC GIẢ: AI ASSISTANT & USER
  *
- * * * * * CHANGE LOG V115.0 (PRECISION UPGRADE) * * * * *
- * 1. [CRITICAL] PRECISE PHASE TIMING (Đồng bộ thời gian pha):
- * - Trước đây: Logic chia đôi (50/50) được dùng làm fallback quá thường xuyên.
- * - Bây giờ: Hệ thống ưu tiên tuyệt đối `phase1_duration` từ Booking Data.
- * Nếu quản lý sửa Phase 1 thành 40p (trong tổng 90p), hệ thống tính toán
- * chính xác điểm chuyển giao tài nguyên tại phút thứ 40.
- * * 2. [VISUAL] GHOST BLOCK ACCURACY:
- * - Khi tính toán lại các booking cũ (Step B), các khối thời gian (Blocks)
- * được tạo ra dựa trên tỷ lệ thực tế đã lưu, không phải tỷ lệ lý thuyết.
- * * 3. [INHERITANCE] GIỮ NGUYÊN TÍNH NĂNG V114:
- * - Intelligent Flow Inference (Tự suy luận dòng chảy).
- * - Guardrail Capacity Check (Kiểm tra tải trọng).
- * - Universal Date Adapter (Chuẩn hóa ngày tháng).
+ * * * * * CHANGE LOG V116.0 (STAFF LOGIC ENHANCEMENT) * * * * *
+ * 1. [COMPATIBILITY] DYNAMIC STAFF SCHEDULE (Tương thích lịch động):
+ * - Hệ thống Core V116.0 được gia cố để xử lý linh hoạt input từ Google Sheet StaffSchedule.
+ * - Tự động nhận diện trạng thái "OFF", "Nghỉ", "Xin phép" trong dữ liệu nhân viên.
+ * - Tự động nhận diện giờ bắt đầu thay đổi (VD: Bình thường 10:00, nay nhập "13:00").
+ * * 2. [ROBUSTNESS] STAFF PARSER (Bộ phân tích nhân viên):
+ * - Thêm các hàm helper để chuẩn hóa dữ liệu giờ làm việc của thợ trước khi đưa vào Matrix.
+ * - Đảm bảo logic tìm thợ (`findAvailableStaff`) không bao giờ điều phối nhầm thợ đang OFF
+ * hoặc chưa đến giờ làm.
+ *
+ * 3. [INHERITANCE] GIỮ NGUYÊN TOÀN BỘ TÍNH NĂNG V115.0:
+ * - Phase Duration Lock (Khóa thời gian pha).
+ * - Matrix Engine & Squeeze Logic (Thuật toán xếp chỗ & co giãn).
+ * - Global Guardrail (Hàng rào bảo vệ tải trọng).
  * =================================================================================================
  */
 
@@ -71,7 +72,7 @@ function setDynamicServices(newServicesObj) {
     SERVICES = { ...newServicesObj, ...systemServices };
     
     // Log kiểm tra để đảm bảo Service Code được load đúng
-    // console.log(`[CORE V115.0] Services Database Synced. Total Items: ${Object.keys(SERVICES).length}`);
+    // console.log(`[CORE V116.0] Services Database Synced. Total Items: ${Object.keys(SERVICES).length}`);
 }
 
 /**
@@ -149,7 +150,7 @@ function normalizeDateStrict(input) {
         // Mặc định trả về nguyên gốc nếu không nhận diện được
         return str;
     } catch (e) {
-        console.error("[CORE V115.0] Date Normalize Error:", e);
+        console.error("[CORE V116.0] Date Normalize Error:", e);
         return input;
     }
 }
@@ -307,8 +308,8 @@ function inferFlowFromService(serviceObj, fallbackFlow = null) {
 }
 
 // ============================================================================
-// PHẦN 5: HÀNG RÀO DUNG LƯỢNG & STRICT RESOURCE (GUARDRAIL V115.0)
-// Mô tả: Logic kiểm tra tải trọng toàn cục, tôn trọng phase1_duration.
+// PHẦN 5: HÀNG RÀO DUNG LƯỢNG & STAFF PARSER (GUARDRAIL V116.0)
+// Mô tả: Logic kiểm tra tải trọng toàn cục & Phân tích trạng thái nhân viên.
 // ============================================================================
 
 /**
@@ -372,21 +373,56 @@ function inferResourceAtTime(booking, timeMins) {
 }
 
 /**
- * [STRICT STAFF COUNTING]
- * Đếm số lượng nhân viên thực tế có thể phục vụ.
+ * [HELPER V116.0] Phân tích trạng thái sẵn sàng của nhân viên.
+ * Hàm này giúp "gỡ lỗi" các giá trị mập mờ từ Google Sheet (VD: "OFF", "Nghỉ").
+ */
+function parseStaffStatus(staffInfo) {
+    if (!staffInfo) return { isAvailable: false };
+
+    // 1. Kiểm tra cờ 'off' (Boolean hoặc String)
+    let isOff = false;
+    if (staffInfo.off === true) isOff = true;
+    if (typeof staffInfo.off === 'string' && ['TRUE', 'YES', 'OFF'].includes(staffInfo.off.toUpperCase())) isOff = true;
+    
+    // 2. Kiểm tra trường 'start' (Nơi có thể chứa chữ "OFF" hoặc "Nghỉ")
+    const startStr = (staffInfo.start || "").toString().toUpperCase();
+    if (startStr.includes('OFF') || startStr.includes('NGHỈ') || startStr.includes('CLOSE')) isOff = true;
+
+    if (isOff) return { isAvailable: false, reason: "MARKED_OFF" };
+
+    // 3. Parse giờ làm việc thực tế
+    const startMins = getMinsFromTimeStr(staffInfo.start);
+    const endMins = getMinsFromTimeStr(staffInfo.end);
+
+    if (startMins === -1 || endMins === -1) return { isAvailable: false, reason: "INVALID_TIME" };
+
+    return { 
+        isAvailable: true, 
+        startMins: startMins, 
+        endMins: endMins,
+        isStrict: staffInfo.isStrictTime === true 
+    };
+}
+
+/**
+ * [STRICT STAFF COUNTING - UPDATED V116.0]
+ * Đếm số lượng nhân viên thực tế có thể phục vụ, tương thích với lịch động.
  */
 function getEligibleStaffCount(staffList, currentTimeMins, requiredEndTime) {
     let count = 0;
     for (const [staffName, info] of Object.entries(staffList)) {
-        if (!info || info.off) continue;
+        // [V116.0] Sử dụng bộ parser mới để check trạng thái
+        const status = parseStaffStatus(info);
+        
+        if (!status.isAvailable) continue; // Bỏ qua nếu OFF hoặc lỗi giờ
 
-        const shiftStart = getMinsFromTimeStr(info.start);
-        const shiftEnd = getMinsFromTimeStr(info.end);
+        const shiftStart = status.startMins;
+        const shiftEnd = status.endMins;
 
-        if (shiftStart === -1 || shiftEnd === -1) continue;
-
+        // Logic kiểm tra giờ làm việc
         if (currentTimeMins >= shiftStart && currentTimeMins < shiftEnd) {
-            if (info.isStrictTime === true) {
+            if (status.isStrict) {
+                // Nếu chế độ nghiêm ngặt, phải làm đến khi khách xong
                 if (shiftEnd < (requiredEndTime - CONFIG.TOLERANCE)) {
                     continue; 
                 }
@@ -420,7 +456,7 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
     // 2. QUÉT TỪNG LÁT CẮT THỜI GIAN
     for (let t = requestStart; t < requestEnd; t += CONFIG.CAPACITY_CHECK_STEP) {
         
-        // A. KIỂM TRA NHÂN VIÊN
+        // A. KIỂM TRA NHÂN VIÊN (V116.0 Compatible)
         const supplyCount = getEligibleStaffCount(staffList, t, requestEnd);
         
         let currentStaffLoad = 0;
@@ -580,34 +616,46 @@ class VirtualMatrix {
 // PHẦN 7: LOGIC TÌM NHÂN VIÊN & CO GIÃN (STAFF & ELASTIC LOGIC)
 // ============================================================================
 
+/**
+ * [UPDATED V116.0] Tìm nhân viên phù hợp
+ * Hỗ trợ nhận diện lịch động, tránh điều phối vào giờ thợ xin đến muộn.
+ */
 function findAvailableStaff(staffReq, start, end, staffListRef, busyList) {
     const checkOneStaff = (name) => {
         const staffInfo = staffListRef[name];
-        if (!staffInfo || staffInfo.off) return false; 
         
-        const shiftStart = getMinsFromTimeStr(staffInfo.start); 
-        const shiftEnd = getMinsFromTimeStr(staffInfo.end);     
-        if (shiftStart === -1 || shiftEnd === -1) return false; 
+        // 1. [V116.0] Sử dụng parser để kiểm tra trạng thái OFF/LATE
+        const status = parseStaffStatus(staffInfo);
+        if (!status.isAvailable) return false; 
         
+        // 2. Kiểm tra khung giờ làm việc (Đã được parser tính toán theo giờ mới nhất)
+        const shiftStart = status.startMins; 
+        const shiftEnd = status.endMins;     
+        
+        // Nếu khách đến TRƯỚC khi thợ vào ca -> Không chọn
         if ((start + CONFIG.TOLERANCE) < shiftStart) return false;
         
-        const isStrict = staffInfo.isStrictTime === true;
-        if (isStrict) {
+        // Nếu khách làm xong SAU khi thợ hết ca (với Strict Mode) -> Không chọn
+        if (status.isStrict) {
             if ((end - CONFIG.TOLERANCE) > shiftEnd) return false; 
         } else {
+            // Mặc định: Chỉ cần khách đến trước giờ về là nhận (có thể làm lố giờ)
             if (start > shiftEnd) return false;
         }
 
+        // 3. Kiểm tra lịch bận (Busy List từ Matrix)
         for (const b of busyList) {
             if (b.staffName === name && isOverlap(start, end, b.start, b.end)) return false; 
         }
 
+        // 4. Kiểm tra giới tính
         if (staffReq === 'MALE' && staffInfo.gender !== 'M') return false;
         if ((staffReq === 'FEMALE' || staffReq === '女') && staffInfo.gender !== 'F') return false;
         
         return true; 
     };
 
+    // Logic điều phối: Chỉ định cụ thể hoặc Random
     if (staffReq && !['RANDOM', 'MALE', 'FEMALE', '隨機', 'Any', 'undefined'].includes(staffReq)) {
         return checkOneStaff(staffReq) ? staffReq : null;
     } else {
@@ -673,12 +721,12 @@ function isBlockSetAllocatable(blocks, matrix) {
 }
 
 // ============================================================================
-// PHẦN 8: CORE ENGINE V115.0 (INTELLIGENT INTEGRATED ENGINE)
+// PHẦN 8: CORE ENGINE V116.0 (INTELLIGENT INTEGRATED ENGINE)
 // Mô tả: Hàm chính xử lý logic.
 // ============================================================================
 
 /**
- * HÀM KIỂM TRA KHẢ DỤNG CHÍNH - PHIÊN BẢN V115.0
+ * HÀM KIỂM TRA KHẢ DỤNG CHÍNH - PHIÊN BẢN V116.0
  * @param {string} dateStr - Ngày kiểm tra
  * @param {string} timeStr - Giờ kiểm tra "HH:mm"
  * @param {Array} guestList - Danh sách khách mới
@@ -709,7 +757,8 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
     });
 
     // ------------------------------------------------------------------------
-    // [V115.0] BƯỚC 0: STRICT GUARDRAIL CHECK
+    // [V116.0] BƯỚC 0: STRICT GUARDRAIL CHECK (DYNAMIC STAFF)
+    // Hệ thống sẽ tự động đọc dữ liệu "OFF"/"13:00" từ staffList tại bước này
     // ------------------------------------------------------------------------
     const guardrailCheck = validateGlobalCapacity(
         requestStartMins, 
@@ -1031,7 +1080,7 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
                     if (isBlockSetAllocatable(testBlocks, matrixSqueeze)) {
                         testBlocks.forEach(tb => matrixSqueeze.tryAllocate(tb.type, tb.start, tb.end, sb.id, tb.forcedIndex));
                         fit = true;
-                        if (split.deviation !== 0) updatesProposed.push({ rowId: sb.id, customerName: sb.originalData.customerName, newPhase1: split.p1, newPhase2: split.p2, reason: 'Matrix Squeeze V115.0' });
+                        if (split.deviation !== 0) updatesProposed.push({ rowId: sb.id, customerName: sb.originalData.customerName, newPhase1: split.p1, newPhase2: split.p2, reason: 'Matrix Squeeze V116.0' });
                         break; 
                     }
                 }
@@ -1045,7 +1094,8 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
             }
         }
 
-        // --- 5. STAFF CHECK & ASSIGNMENT ---
+        // --- 5. STAFF CHECK & ASSIGNMENT (V116.0 ENHANCED) ---
+        // Tại bước này, findAvailableStaff đã được nâng cấp để hiểu Dynamic Schedule
         let flatTimeline = [];
         Object.values(matrix.lanes).forEach(group => group.forEach(lane => lane.occupied.forEach(occ => {
             const ex = existingBookingsProcessed.find(e => e.id === occ.ownerId);
@@ -1073,7 +1123,7 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
         successfulScenario.details.sort((a,b) => a.guestIndex - b.guestIndex);
         return {
             feasible: true, 
-            strategy: 'MATRIX_COUPLE_SYNC_V115.0', 
+            strategy: 'MATRIX_COUPLE_SYNC_V116.0', 
             details: successfulScenario.details,
             proposedUpdates: successfulScenario.updates,
             totalPrice: successfulScenario.details.reduce((sum, item) => sum + (item.price||0), 0),
@@ -1112,5 +1162,5 @@ if (typeof window !== 'undefined') {
     window.checkRequestAvailability = CoreAPI.checkRequestAvailability;
     window.setDynamicServices = CoreAPI.setDynamicServices;
     window.normalizeDateStrict = CoreAPI.normalizeDateStrict;
-    console.log("✅ Resource Core V115.0 Loaded: PHASE DURATION LOCK ACTIVE.");
+    console.log("✅ Resource Core V116.0 Loaded: DYNAMIC STAFF SCHEDULE ACTIVE.");
 }

@@ -1,13 +1,13 @@
 /**
  * =================================================================================================
  * PROJECT: XINWUCHAN MASSAGE BOT (BACKEND SERVER - MAIN ENTRY)
- * VERSION: V123-SINGLE-SOURCE-OF-TRUTH (STATE PERSISTENCE UPDATE)
- * FEATURE: 
- * 1. DUAL BOT (User & Staff)
- * 2. ATOMIC WRITE & RESOURCE ALLOCATION
- * 3. "RUNNING" STATE PERSISTENCE (Lưu trạng thái Running vào Sheet)
- * 4. REAL-TIME START TIME SYNC (Cập nhật giờ thực tế khi bấm Start)
- * AUTHOR: AI ASSISTANT & USER
+ * VERSION: V124-BRIDGE-UPDATE (FULL CONTEXT CONNECTIVITY)
+ * DESCRIPTION: MAIN CONTROLLER & ROUTER
+ * * UPDATES IN THIS VERSION:
+ * 1. FULL SHEET_SERVICE INJECTION: Truyền toàn bộ instance SheetService sang StaffBot.
+ * 2. STAFF CONTEXT EXPANSION: Cung cấp khả năng tìm dòng nhân viên (row finding) và cập nhật ô (cell update).
+ * 3. PRESERVED LOGIC: Giữ nguyên toàn bộ logic đặt lịch của khách và API Admin.
+ * * AUTHOR: AI ASSISTANT & USER
  * DATE: 2026/02/09
  * =================================================================================================
  */
@@ -22,9 +22,9 @@ const path = require('path');
 // --- IMPORT MODULES ---
 const ResourceCore = require('./resource_core'); 
 const StaffBot = require('./staff_bot'); 
-const SheetService = require('./sheet_service'); // Module Sheet Service
+const SheetService = require('./sheet_service'); // Module Sheet Service: Single Source of Truth
 
-// --- 1. CẤU HÌNH HỆ THỐNG ---
+// --- 1. CẤU HÌNH HỆ THỐNG (SYSTEM CONFIG) ---
 const config = {
   channelAccessToken: process.env.CHANNEL_ACCESS_TOKEN,
   channelSecret: process.env.CHANNEL_SECRET
@@ -32,19 +32,19 @@ const config = {
 
 const ID_BA_CHU = process.env.ID_BA_CHU;
 
-// Resource Config
+// Resource Config (Lấy từ ResourceCore hoặc Default)
 const MAX_CHAIRS = ResourceCore.CONFIG ? ResourceCore.CONFIG.MAX_CHAIRS : 6;
 const MAX_BEDS = ResourceCore.CONFIG ? ResourceCore.CONFIG.MAX_BEDS : 6;
 
-// --- 2. GLOBAL STATE (Session User) ---
-// Lưu ý: Với nâng cấp "Single Source of Truth", SERVER_RESOURCE_STATE chỉ dùng để cache nhanh.
-// Trạng thái gốc (Source of Truth) luôn là dữ liệu từ Google Sheet.
+// --- 2. GLOBAL STATE (CACHE ONLY) ---
+// Lưu ý: Với nâng cấp "Single Source of Truth", các biến này chỉ dùng để cache nhanh phục vụ UI.
+// Trạng thái gốc luôn được đọc/ghi trực tiếp từ Google Sheet thông qua SheetService.
 let SERVER_RESOURCE_STATE = {}; 
 let SERVER_STAFF_STATUS = {};   
 let userState = {};             
 
 // =============================================================================
-// PHẦN 3: CÁC HÀM TIỆN ÍCH BOT (Sử dụng dữ liệu từ SheetService)
+// PHẦN 3: CÁC HÀM TIỆN ÍCH BOT KHÁCH HÀNG (CUSTOMER BOT UTILS)
 // =============================================================================
 
 function normalizePhoneNumber(phone) {
@@ -56,6 +56,7 @@ function formatDateDisplay(dateInput) {
     return SheetService.normalizeDateStrict(dateInput);
 }
 
+// Tạo danh sách 15 ngày tới cho khách chọn
 function getNext15Days() {
     let days = [];
     const t = SheetService.getTaipeiNow();
@@ -90,6 +91,7 @@ function getNext15Days() {
     return days.reverse(); 
 }
 
+// Thuật toán tìm giờ trống tốt nhất (Sử dụng ResourceCore)
 function findBestSlots(selectedDate, serviceCode, pax = 1, requireFemale = false, requireMale = false) {
     const STAFF_LIST = SheetService.getStaffList();
     const isSystemHealthy = SheetService.getIsSystemHealthy();
@@ -134,6 +136,7 @@ function findBestSlots(selectedDate, serviceCode, pax = 1, requireFemale = false
     return candidates.slice(0, 6); 
 }
 
+// Tạo Bubble chọn giờ (Time Bubbles)
 function generateTimeBubbles(selectedDate, serviceCode, specificStaffIds = null, pax = 1, requireFemale = false, requireMale = false) {
     const STAFF_LIST = SheetService.getStaffList();
     const isSystemHealthy = SheetService.getIsSystemHealthy();
@@ -193,6 +196,7 @@ function generateTimeBubbles(selectedDate, serviceCode, specificStaffIds = null,
     return { type: 'carousel', contents: [...bubbles, ...timeBubbles] };
 }
 
+// Tạo Bubble chọn nhân viên (Staff Bubbles)
 function createStaffBubbles(filterFemale = false, excludedIds = []) {
     let list = SheetService.getStaffList();
     if (filterFemale) list = list.filter(s => s.gender === 'F' || s.gender === '女');
@@ -211,6 +215,7 @@ function createStaffBubbles(filterFemale = false, excludedIds = []) {
     return bubbles;
 }
 
+// Tạo Menu dịch vụ
 function createMenuFlexMessage() {
     const SERVICES = SheetService.getServices();
     const createRow = (serviceName, time, price) => ({ "type": "box", "layout": "horizontal", "contents": [ { "type": "text", "text": serviceName, "size": "sm", "color": "#555555", "flex": 5 }, { "type": "text", "text": `${time}分`, "size": "sm", "color": "#111111", "align": "end", "flex": 2 }, { "type": "text", "text": `$${price}`, "size": "sm", "color": "#E63946", "weight": "bold", "align": "end", "flex": 3 } ] });
@@ -224,35 +229,59 @@ function createMenuFlexMessage() {
 }
 
 // =============================================================================
-// PHẦN 4: SERVER & API INTEGRATION
+// PHẦN 4: SERVER & API INTEGRATION (CẦU NỐI CHÍNH)
 // =============================================================================
 
 const client = new line.Client(config); 
 const app = express();
 app.use(cors());
 
-// ROUTE CHO BOT KHÁCH HÀNG
+// --- ROUTE CHO BOT KHÁCH HÀNG (CUSTOMER BOT) ---
 app.post('/callback', line.middleware(config), (req, res) => {
-  Promise.all(req.body.events.map(handleEvent)).then((r) => res.json(r)).catch((e) => { console.error('[LINE WEBHOOK ERROR]', e); res.status(500).end(); });
+  Promise.all(req.body.events.map(handleEvent))
+    .then((r) => res.json(r))
+    .catch((e) => { 
+        console.error('[LINE CUSTOMER BOT ERROR]', e); 
+        res.status(500).end(); 
+    });
 });
 
-// ROUTE CHO BOT NHÂN VIÊN
+// --- ROUTE CHO BOT NHÂN VIÊN (STAFF BOT) - CRITICAL BRIDGE ---
+// Tại đây chúng ta thực hiện Injection (tiêm) toàn bộ SheetService vào StaffBot
 app.post('/callback-staff', StaffBot.middleware(StaffBot.config), (req, res) => {
   Promise.all(req.body.events.map(event => {
-      // TRUYỀN CÔNG CỤ TỪ SHEET SERVICE SANG STAFF BOT
-      return StaffBot.handleEvent(event, {
+      
+      // Tạo Context Object chứa toàn bộ công cụ cần thiết cho StaffBot
+      const staffBotContext = {
+          // 1. Các hàm cơ bản cũ (giữ tương thích)
           ghiVaoSheet: SheetService.ghiVaoSheet,
           normalizeDateStrict: SheetService.normalizeDateStrict,
           getTaipeiNow: SheetService.getTaipeiNow,
           formatDateTimeString: SheetService.formatDateTimeString,
           STAFF_LIST: SheetService.getStaffList(),
           ID_BA_CHU: ID_BA_CHU,
-          clientMain: client
-      });
+          clientMain: client,
+
+          // 2. [NEW] TRUYỀN TOÀN BỘ SHEET SERVICE ĐỂ SỬ DỤNG NÂNG CAO
+          SheetService: SheetService,
+
+          // 3. [NEW] MAP CÁC HÀM QUAN TRỌNG ĐỂ TIỆN GỌI TRỰC TIẾP
+          // Hàm tìm dòng của nhân viên dựa trên Line ID
+          findStaffRowByLineId: SheetService.findStaffRowByLineId,
+          // Hàm cập nhật trực tiếp vào ô (Update Cell) - Cực kỳ quan trọng cho tính năng Check-in
+          updateScheduleCell: SheetService.updateScheduleCell,
+          // Hàm kiểm tra và tạo Sheet nhân viên (nếu cần)
+          checkAndCreateStaffSheet: SheetService.checkAndCreateStaffSheet,
+          // Hàm lấy lịch làm việc cụ thể của nhân viên
+          getStaffSchedule: SheetService.getStaffSchedule
+      };
+
+      // Chuyển giao xử lý cho StaffBot với đầy đủ vũ khí
+      return StaffBot.handleEvent(event, staffBotContext);
   }))
   .then((r) => res.json(r))
   .catch((e) => {
-      console.error('[STAFF BOT ERROR]', e);
+      console.error('[STAFF BOT ERROR - BRIDGE]', e);
       res.status(500).end();
   });
 });
@@ -264,7 +293,7 @@ app.use('/admin2', express.static(path.join(__dirname, 'XinWuChanAdmin')));
 
 // --- API: INFO ---
 // API này Frontend sẽ gọi liên tục để cập nhật trạng thái.
-// Bây giờ trạng thái "Running" sẽ được lấy trực tiếp từ `SheetService.getBookings()`
+// Trạng thái "Running" sẽ được lấy trực tiếp từ `SheetService.getBookings()`
 app.get('/api/info', async (req, res) => { 
     try {
         const isForceRefresh = req.query.forceRefresh === 'true';
@@ -286,6 +315,7 @@ app.get('/api/info', async (req, res) => {
     } catch (error) { res.status(500).json({ error: "Internal Server Error" }); }
 });
 
+// Các API đồng bộ state tạm thời (Legacy/Cache)
 app.post('/api/sync-resource', (req, res) => { SERVER_RESOURCE_STATE = req.body; res.json({ success: true }); });
 app.post('/api/sync-staff-status', (req, res) => { SERVER_STAFF_STATUS = req.body; res.json({ success: true }); });
 
@@ -319,7 +349,7 @@ app.post('/api/admin-booking', async (req, res) => {
                 
                 // [UPDATED] XỬ LÝ KẾT QUẢ VÀ LẤY VỊ TRÍ (LOCATION)
                 if (checkResult.feasible && checkResult.details && checkResult.details.length > 0) {
-                    const optimalDetail = checkResult.details[0]; // Lấy detail của khách đầu tiên (hoặc duy nhất)
+                    const optimalDetail = checkResult.details[0]; 
                     const optimalFlow = optimalDetail.flow;
 
                     if (['BF','FB','FOOTSINGLE','BODYSINGLE'].includes(optimalFlow)) {
@@ -328,8 +358,7 @@ app.post('/api/admin-booking', async (req, res) => {
                         if (data.phase2_duration === undefined) data.phase2_duration = optimalDetail.phase2_duration || optimalDetail.phase2;
                     }
 
-                    // [NEW] CẬP NHẬT GUEST DETAILS ĐỂ GHI NHẬN VỊ TRÍ
-                    // Nếu admin không truyền chi tiết, ta tự tạo dựa trên kết quả thuật toán
+                    // CẬP NHẬT GUEST DETAILS ĐỂ GHI NHẬN VỊ TRÍ
                     if (!data.guestDetails) data.guestDetails = [];
                     
                     if (data.guestDetails.length === 0) {
@@ -369,32 +398,26 @@ app.post('/api/admin-booking', async (req, res) => {
     res.json({ success: true }); 
 });
 
-// --- API: UPDATE STATUS (CRITICAL UPDATE FOR SINGLE SOURCE OF TRUTH) ---
-// Đây là nơi xử lý logic "Start Service"
+// --- API: UPDATE STATUS (SINGLE SOURCE OF TRUTH) ---
+// Xử lý Start Service và cập nhật trạng thái vào Sheet
 app.post('/api/update-status', async (req, res) => { 
     try {
         const { rowId, status, syncStartTime } = req.body;
-        
         console.log(`[UPDATE STATUS] Row: ${rowId}, Status: ${status}, SyncTime: ${syncStartTime}`);
 
         let timeToUpdate = null;
         
         // LOGIC "START": Cập nhật giờ thực tế vào Cột B (Giờ Đến)
-        // Nếu Frontend gửi flag syncStartTime = true (thường là khi bấm Start)
         if (syncStartTime === true) {
              const now = SheetService.getTaipeiNow();
              const hours = now.getHours().toString().padStart(2, '0');
              const minutes = now.getMinutes().toString().padStart(2, '0');
              timeToUpdate = `${hours}:${minutes}`;
-             
              console.log(`[STATUS LOGIC] Auto-updating Start Time for Row ${rowId} to NOW: ${timeToUpdate}`);
         }
 
         // Gọi SheetService để cập nhật
-        // Lưu ý: Cần đảm bảo SheetService.updateBookingStatus hỗ trợ tham số thứ 3 là timeString
-        // Nếu không có timeToUpdate, nó sẽ chỉ cập nhật trạng thái
         await SheetService.updateBookingStatus(rowId, status, timeToUpdate); 
-        
         res.json({ success: true }); 
 
     } catch (e) {
@@ -420,7 +443,10 @@ app.post('/api/update-staff-config', async (req, res) => {
     } catch (e) { res.status(500).json({ success: false, error: e.message }); }
 });
 
-// --- LINE EVENT HANDLER (BOT KHÁCH) ---
+// =============================================================================
+// PHẦN 5: LINE EVENT HANDLER (BOT KHÁCH HÀNG)
+// =============================================================================
+
 async function handleEvent(event) {
   const isText = event.type === 'message' && event.message.type === 'text';
   const isPostback = event.type === 'postback';
@@ -436,6 +462,7 @@ async function handleEvent(event) {
       else text = event.postback.data;
   }
 
+  // --- 1. HEALTH CHECK & MAINTENANCE ---
   const isBookingAction = text === 'Action:Booking' || text.startsWith('Cat:') || text.startsWith('Svc:') || text.startsWith('Date:') || text.startsWith('Pref:') || text.startsWith('Pax:') || text.startsWith('Time:');
   if (isBookingAction && (!SheetService.getIsSystemHealthy() || STAFF_LIST.length === 0)) {
        return client.replyMessage(event.replyToken, { 
@@ -444,6 +471,7 @@ async function handleEvent(event) {
        });
   }
 
+  // --- 2. ENTRY POINT ---
   if (text === 'Action:Booking') {
       userState[userId] = {};
       return client.replyMessage(event.replyToken, { type: 'flex', altText: '選擇服務', contents: { "type": "bubble", "body": { "type": "box", "layout": "vertical", "contents": [ { "type": "text", "text": "請選擇服務類別 (Service)", "weight": "bold", "size": "lg", "align": "center", "color": "#1DB446" }, { "type": "separator", "margin": "md" }, { "type": "button", "style": "primary", "color": "#A17DF5", "margin": "md", "action": { "type": "message", "label": "🔥 套餐 (Combo)", "text": "Cat:COMBO" } }, { "type": "button", "style": "secondary", "margin": "sm", "action": { "type": "message", "label": "👣 足底按摩 (Foot)", "text": "Cat:FOOT" } }, { "type": "button", "style": "secondary", "margin": "sm", "action": { "type": "message", "label": "🛏️ 身體指壓 (Body)", "text": "Cat:BODY" } } ] } } });
@@ -454,7 +482,7 @@ async function handleEvent(event) {
       return client.replyMessage(event.replyToken, { type: 'flex', altText: '服務價目表', contents: createMenuFlexMessage() });
   }
 
-  // --- ADMIN LOGIC ---
+  // --- 3. ADMIN LOGIC (BOT KHÁCH - QUYỀN CHỦ) ---
   if (text === 'Admin') { return client.replyMessage(event.replyToken, { type: 'flex', altText: 'Admin', contents: { "type": "bubble", "body": { "type": "box", "layout": "vertical", "contents": [ { "type": "text", "text": "🛠️ 師傅管理 (Admin)", "weight": "bold", "color": "#E63946", "size": "lg" }, { "type": "separator", "margin": "md" }, { "type": "button", "style": "primary", "color": "#000000", "margin": "md", "action": { "type": "message", "label": "⛔ 全店店休", "text": "Admin:CloseShop" } }, { "type": "separator", "margin": "md" }, { "type": "button", "style": "secondary", "margin": "sm", "action": { "type": "message", "label": "🛌 請假", "text": "Admin:SetOff" } }, { "type": "button", "style": "secondary", "margin": "sm", "action": { "type": "message", "label": "🤒 早退", "text": "Admin:SetLeaveEarly" } }, { "type": "button", "style": "secondary", "margin": "sm", "action": { "type": "message", "label": "🍱 用餐", "text": "Admin:SetBreak" } } ] } } }); }
   if (text === 'Admin:CloseShop') { userState[userId] = { step: 'ADMIN_PICK_CLOSE_DATE' }; return client.replyMessage(event.replyToken, { type: 'template', altText: '選擇日期', template: { type: 'buttons', text: '請選擇店休日期:', actions: [ { type: 'datetimepicker', label: '🗓️ 點擊選擇', data: 'ShopClosePicked', mode: 'date' } ] } }); }
   if (text.startsWith('DatePick:') && userState[userId] && userState[userId].step === 'ADMIN_PICK_CLOSE_DATE') { 
@@ -472,7 +500,7 @@ async function handleEvent(event) {
       SERVER_STAFF_STATUS[staffId] = { status: currentState.action === 'SetOff' ? 'AWAY' : currentState.action === 'SetBreak' ? 'EAT' : 'OUT_SHORT', checkInTime: 0 }; delete userState[userId]; return client.replyMessage(event.replyToken, { type: 'text', text: `✅ 已登記: ${staffId} - ${logType}\n(${logNote})` });
   }
 
-  // --- BOOKING FLOW ---
+  // --- 4. BOOKING FLOW (STEP BY STEP) ---
   if (text.startsWith('Cat:')) {
       const category = text.split(':')[1];
       const buttons = Object.keys(SERVICES).filter(k => SERVICES[k].category === category).map(key => ({ "type": "button", "style": "primary", "margin": "sm", "height": "sm", "action": { "type": "message", "label": `${SERVICES[key].name} ($${SERVICES[key].price})`, "text": `Svc:${key}` } }));
@@ -649,7 +677,7 @@ async function handleEvent(event) {
       delete userState[userId]; return;
   }
 
-  // --- MY BOOKING & CANCELLATION ---
+  // --- 5. MY BOOKING & CANCELLATION ---
   if (text === 'Action:MyBooking') { const booking = await SheetService.layLichDatGanNhat(userId); if (!booking) return client.replyMessage(event.replyToken, { type: 'text', text: '查無預約 (No Booking)' }); return client.replyMessage(event.replyToken, { type: 'flex', altText: 'Booking', contents: { "type": "bubble", "body": { "type": "box", "layout": "vertical", "contents": [ { "type": "text", "text": "您的預約", "weight": "bold", "color": "#1DB446", "size": "lg" }, { "type": "separator", "margin": "md" }, { "type": "text", "text": booking.dichVu, "weight": "bold", "size": "md", "margin": "md" }, { "type": "text", "text": `🛠️ ${booking.nhanVien}`, "align": "center", "margin": "sm" }, { "type": "text", "text": `⏰ ${booking.thoiGian}`, "size": "xl", "weight": "bold", "color": "#555555", "margin": "sm" } ] }, "footer": { "type": "box", "layout": "vertical", "spacing": "sm", "contents": [ { "type": "button", "style": "primary", "color": "#ff9800", "action": { "type": "message", "label": "🏃 我會晚到 (Late)", "text": "Action:Late" } }, { type: "button", style: "secondary", color: "#ff3333", "action": { type: "message", "label": "❌ 取消預約 (Cancel)", "text": "Action:ConfirmCancel" } } ] } } }); }
   if (text === 'Action:Late') { return client.replyMessage(event.replyToken, { type: 'flex', altText: 'Late', contents: { "type": "bubble", "body": { "type": "box", "layout": "horizontal", "spacing": "sm", "contents": [ { "type": "button", "style": "secondary", "action": { "type": "message", "label": "5 分", "text": "Late:5p" } }, { type: "button", "style": "secondary", "action": { "type": "message", "label": "10 分", "text": "Late:10p" } }, { type: "button", "style": "secondary", "action": { "type": "message", "label": "15 分", "text": "Late:15p" } } ] } } }); }
   if (text.startsWith('Late:')) { const phut = text.split(':')[1].replace('p', '分'); const booking = await SheetService.layLichDatGanNhat(userId); if (booking) { await SheetService.updateBookingStatus(booking.rowId, `⚠️ 晚到 ${phut}`); } client.pushMessage(ID_BA_CHU, { type: 'text', text: `⚠️ 晚到通知!\nID: ${userId}\n預計晚: ${phut}` }); return client.replyMessage(event.replyToken, { type: 'text', text: '好的，我們會為您保留 (OK, Confirmed)。' }); }
@@ -659,7 +687,7 @@ async function handleEvent(event) {
   return client.replyMessage(event.replyToken, { type: 'flex', altText: '預約服務', contents: { "type": "bubble", "body": { "type": "box", "layout": "vertical", "contents": [ { "type": "text", "text": "您好 👋", "weight": "bold", "size": "lg", "align": "center" }, { "type": "text", "text": "請問您是要預約按摩服務嗎？", "wrap": true, "size": "sm", "color": "#555555", "align": "center", "margin": "md" } ] }, "footer": { "type": "box", "layout": "horizontal", "spacing": "sm", "contents": [ { "type": "button", "style": "primary", "action": { "type": "message", "label": "✅ 立即預約 (Book)", "text": "Action:Booking" } }, { "type": "button", "style": "secondary", "action": { "type": "message", "label": "📄 服務價目 (Menu)", "text": "Menu" } } ] } } });
 }
 
-// 1. Initial Sync
+// 1. Initial Sync (Khởi động đồng bộ)
 SheetService.syncMenuData().then(() => SheetService.syncData());
 
 // 2. Auto Sync Interval (10s)
@@ -669,4 +697,4 @@ setInterval(() => { SheetService.syncData(); }, 10000);
 app.get('/ping', (req, res) => { res.status(200).send('Pong!'); });
 
 const port = process.env.PORT || 3000;
-app.listen(port, () => { console.log(`XinWuChan Bot V123-ALLOCATION-UPDATE running on port ${port}`); });
+app.listen(port, () => { console.log(`XinWuChan Bot V124-BRIDGE-UPDATE running on port ${port}`); });

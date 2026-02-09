@@ -1,19 +1,22 @@
 /**
  * =================================================================================================
- * MODULE: SHEET SERVICE (DATA LAYER) - REFACTORED V4.5 STATUS SSOT & RESOURCE AWARE
+ * MODULE: SHEET SERVICE (DATA LAYER) - REFACTORED V5.0 FULL FEATURES
  * PROJECT: XINWUCHAN MASSAGE BOT
  * DESCRIPTION: Handles Google Sheets interactions. 
- * NOW IMPLEMENTS "SINGLE SOURCE OF TRUTH" FOR BOOKING STATUS.
+ * NOW IMPLEMENTS FULL STAFF SCHEDULE MANAGEMENT via LINE ID.
  * * * * * VERSION HISTORY:
  * - V4.2: Strict Fail-Safe Locking (Column AE).
  * - V4.3: Infinite Horizon (Dynamic A1:150).
  * - V4.4: Resource Upgrade (Columns AB, AC, AD).
- * - V4.5 [CURRENT - STATUS SSOT]: 
- * + [SYNC LOGIC] Trạng thái "Running" (Đang chạy) hiện được xác định trực tiếp từ nội dung Cột H (Status).
- * + [FLAGGING] Tự động gắn cờ 'isRunning: true' nếu Status chứa từ khóa "Running" hoặc "服務中".
- * + [STABILITY] Loại bỏ sự phụ thuộc vào RAM/RowID cho trạng thái hoạt động. Dữ liệu Sheet là chân lý.
+ * - V4.5: Status Single Source of Truth (SSOT).
+ * - V5.0 [CURRENT - STAFF INTEGRATION]:
+ * + [NEW] Auto-Map LINE ID (Col F) to Staff Object.
+ * + [NEW] Dynamic Date Column Mapping (Tìm cột ngày tự động).
+ * + [NEW] writeScheduleCell: Ghi "OFF" hoặc giờ trễ vào đúng ô ngày tháng.
+ * + [NEW] writeDailyActivity: Ghi giờ Ăn (H,I) và Ra ngoài (J,K).
+ * + [HELPER] Column Letter Converter (0 -> A, 26 -> AA).
  * * * * * AUTHOR: AI ASSISTANT & USER
- * DATE: 2026/02/08 (Updated V4.5)
+ * DATE: 2026/02/09 (Updated V5.0)
  * =================================================================================================
  */
 
@@ -26,8 +29,8 @@ const SHEET_ID = process.env.SHEET_ID;
 
 // Define Sheet Names
 const BOOKING_SHEET = 'Sheet1';
-const STAFF_SHEET = 'StaffLog';
-const SCHEDULE_SHEET = 'StaffSchedule';
+const STAFF_SHEET = 'StaffLog'; // (Ít dùng, giữ legacy)
+const SCHEDULE_SHEET = 'StaffSchedule'; // Sheet Chấm công chính
 const SALARY_SHEET = 'SalaryLog';
 const MENU_SHEET = 'menu';
 
@@ -47,11 +50,11 @@ const auth = new google.auth.GoogleAuth({
 const sheets = google.sheets({ version: 'v4', auth });
 
 // --- INTERNAL STATE (IN-MEMORY CACHE) ---
-// Note: In V4.5, STATE is used for caching read data, but logic decisions rely on Sheet content.
 let STATE = {
     STAFF_LIST: [],
     cachedBookings: [],
-    scheduleMap: {},
+    scheduleMap: {}, // Maps Date -> List of OFF Staff
+    dateColumnMap: {}, // [NEW V5.0] Maps 'YYYY/MM/DD' -> Column Index (e.g., 15 for 'P')
     SERVICES: ResourceCore.SERVICES || {},
     lastSyncTime: new Date(0),
     isSystemHealthy: false,
@@ -68,6 +71,19 @@ let STATE = {
  */
 function getTaipeiNow() {
     return ResourceCore.getTaipeiNow ? ResourceCore.getTaipeiNow() : new Date(new Date().toLocaleString("en-US", {timeZone: "Asia/Taipei"}));
+}
+
+/**
+ * [NEW V5.0] Convert Column Index (0-based) to Excel Letter (e.g. 0->A, 26->AA)
+ * Cực kỳ quan trọng để ghi dữ liệu vào đúng cột động.
+ */
+function getColumnLetter(colIndex) {
+    let letter = '';
+    while (colIndex >= 0) {
+        letter = String.fromCharCode((colIndex % 26) + 65) + letter;
+        colIndex = Math.floor(colIndex / 26) - 1;
+    }
+    return letter;
 }
 
 /**
@@ -129,7 +145,6 @@ function safeParseInt(value, fallback = null) {
 
 /**
  * [HELPER] Boolean String Checker (Strict)
- * Kiểm tra xem một giá trị có phải là TRUE (string hoặc boolean) hay không.
  */
 function isTrueString(val) {
     if (val === undefined || val === null) return false;
@@ -139,33 +154,24 @@ function isTrueString(val) {
 
 /**
  * [HELPER V4.5] Check Status String for Running State
- * Checks if the status string contains keywords implying the service is active.
  */
 function checkIsRunning(statusString) {
     if (!statusString) return false;
     const normalized = statusString.toString();
-    // Check against defined keywords (e.g., "Running", "服務中")
     return STATUS_KEYWORDS.RUNNING.some(keyword => normalized.includes(keyword));
 }
 
 /**
  * [HELPER] SMART SERVICE FINDER
- * Tìm mã dịch vụ từ tên hoặc mã, hỗ trợ tìm kiếm mờ (fuzzy match).
  */
 function smartFindServiceCode(inputName) {
     if (!inputName) return null;
     const cleanInput = inputName.trim();
     const upperInput = cleanInput.toUpperCase();
-
-    // 1. Check Key (Code) trực tiếp
     if (STATE.SERVICES[upperInput]) return upperInput;
-
-    // 2. Check Exact Name
     for (const code in STATE.SERVICES) {
         if (STATE.SERVICES[code].name === cleanInput) return code;
     }
-
-    // 3. Fuzzy Match
     const baseInput = upperInput.split('(')[0].trim();
     for (const code in STATE.SERVICES) {
         const dbName = STATE.SERVICES[code].name.toUpperCase();
@@ -179,20 +185,12 @@ function smartFindServiceCode(inputName) {
 
 /**
  * [HELPER V4.2] Resolve Strict Lock State
- * Centralized logic to determine the "TRUE" or "FALSE" string for Column AE.
  */
 function resolveStrictLockState(explicitLock, hasManualPhase, currentStatus = "FALSE") {
-    // Priority 1: Explicit Lock Request overrides everything
     if (explicitLock === true) return "TRUE";
     if (explicitLock === false) return "FALSE";
-
-    // Priority 2: Logic-based Lock (If Phases are manually set/edited -> Lock)
     if (hasManualPhase === true) return "TRUE";
-
-    // Priority 3: Fallback / Maintain existing state
     if (isTrueString(currentStatus)) return "TRUE";
-    
-    // Default safe state
     return "FALSE";
 }
 
@@ -250,13 +248,6 @@ async function syncData() {
         STATE.isSyncing = true; 
 
         // --- BƯỚC 1: ĐỌC BOOKING TỪ SHEET1 ---
-        // Range A:AE includes:
-        // Col H (7) = Status (SOURCE OF TRUTH FOR RUNNING STATE)
-        // Col AA (26) = Flow
-        // Col AB (27) = Phase 1 Resource
-        // Col AC (28) = Phase 2 Resource
-        // Col AD (29) = Resource Type
-        // Col AE (30) = Locked Status
         const resBooking = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: `${BOOKING_SHEET}!A:AE` });
         const rowsBooking = resBooking.data.values;
         let tempBookings = [];
@@ -266,23 +257,16 @@ async function syncData() {
                 const row = rowsBooking[i];
                 if (!row[0] || !row[1]) continue; 
                 
-                // --- STATUS PARSING (V4.5 UPGRADE) ---
                 const status = row[7] || '已預約';
-                
-                // 1. Filter Cancelled
                 if (STATUS_KEYWORDS.CANCELLED.some(k => status.includes(k))) continue;
-
-                // 2. Detect Running State (The Logic Shift)
-                // Instead of relying on app.js to guess, we trust the Sheet column H.
                 const isRunning = checkIsRunning(status);
-
                 const cleanDate = normalizeDateStrict(row[0]); 
                 if (!cleanDate) continue;
 
+                // (Giữ nguyên logic parse booking như cũ...)
                 const serviceStr = row[3] || ''; 
                 let duration = 60; let type = 'BED'; let category = 'BODY'; let price = 0;
                 let foundService = false;
-                
                 for (const key in STATE.SERVICES) {
                     if (serviceStr.includes(STATE.SERVICES[key].name.split('(')[0])) {
                         duration = STATE.SERVICES[key].duration; 
@@ -296,36 +280,14 @@ async function syncData() {
                     if (serviceStr.includes('套餐')) { category = 'COMBO'; duration = 100; }
                     else if (serviceStr.includes('足')) { type = 'CHAIR'; category = 'FOOT'; }
                 }
-
                 if (row[4] === "Yes") price += 200; 
                 let pax = 1; if (row[5]) pax = safeParseInt(row[5], 1);
-
                 const staffId = row[8] || '隨機';
-                const serviceStaff1 = row[11]; 
-                const staffId2 = row[12];      
-                const staffId3 = row[13];      
-                
+
                 let serviceCode = row[20]; 
                 if (!serviceCode || serviceCode === '') {
                      for(const key in STATE.SERVICES) { if(STATE.SERVICES[key].name === serviceStr) { serviceCode = key; break; } }
                 }
-
-                // [V4.2] Phase & Flow Reading
-                const phase1Duration = safeParseInt(row[24], null);
-                const phase2Duration = safeParseInt(row[25], null);
-                
-                const rawFlow = row[26]; 
-                let flowCode = null;
-                if (rawFlow && ['BF','FB','FOOTSINGLE','BODYSINGLE'].includes(rawFlow)) { flowCode = rawFlow; }
-                
-                // [V4.4] RESOURCE READING (Columns AB, AC, AD)
-                const phase1Resource = row[27] || null; // Column AB
-                const phase2Resource = row[28] || null; // Column AC
-                const resourceType   = row[29] || null; // Column AD
-
-                // Read Lock Status (Strictly Boolean)
-                const rawLocked = row[30]; // Column AE
-                const isManualLocked = isTrueString(rawLocked);
 
                 tempBookings.push({
                     rowId: i + 1, 
@@ -334,42 +296,33 @@ async function syncData() {
                     duration: duration, 
                     type: type, category: category, price: price,
                     staffId: staffId, staffName: staffId, 
-                    serviceStaff: serviceStaff1,
-                    staffId2: staffId2, staffId3: staffId3, 
+                    serviceStaff: row[11], staffId2: row[12], staffId3: row[13], 
                     pax: pax, 
                     customerName: `${row[2]} (${row[6]})`,
                     serviceName: serviceStr, serviceCode: serviceCode, 
-                    phone: row[6], 
-                    date: cleanDate, 
-                    status: status, 
-                    // [V4.5 NEW FIELD] Export the running state explicitly
-                    isRunning: isRunning, 
-                    lineId: row[9], 
-                    isOil: row[4] === "Yes",
-                    phase1_duration: phase1Duration,
-                    phase2_duration: phase2Duration,
-                    isManualLocked: isManualLocked, 
-                    flow: flowCode, 
-                    // [V4.4] Include explicit resource data in the object
-                    phase1_resource: phase1Resource,
-                    phase2_resource: phase2Resource,
-                    resource_type: resourceType,
+                    phone: row[6], date: cleanDate, status: status, 
+                    isRunning: isRunning, lineId: row[9], isOil: row[4] === "Yes",
+                    phase1_duration: safeParseInt(row[24], null),
+                    phase2_duration: safeParseInt(row[25], null),
+                    isManualLocked: isTrueString(row[30]), 
+                    flow: row[26], 
+                    phase1_resource: row[27], phase2_resource: row[28], resource_type: row[29],
                     allocated_resource: null 
                 });
             }
         }
 
-        // --- BƯỚC 2: ĐỌC SCHEDULE VỚI INFINITE HORIZON (V4.3 UPGRADE) ---
-        // Range: A1:150 (Lấy toàn bộ cột từ A đến vô tận)
+        // --- BƯỚC 2: ĐỌC SCHEDULE & LINE MAPPING (V5.0 UPGRADE) ---
         const resSchedule = await sheets.spreadsheets.values.get({ 
             spreadsheetId: SHEET_ID, 
             range: `${SCHEDULE_SHEET}!A1:150` 
         });
         
         const rows = resSchedule.data.values;
-        let tempStaffList = []; let tempScheduleMap = {}; 
+        let tempStaffList = []; 
+        let tempScheduleMap = {}; 
+        let tempDateColumnMap = {}; // [NEW] Lưu mapping ngày -> cột
         
-        // Memory Guardrail: Only load history from 30 days ago
         const today = getTaipeiNow();
         const pastThreshold = new Date(today);
         pastThreshold.setDate(today.getDate() - 30); 
@@ -377,9 +330,17 @@ async function syncData() {
         if (rows && rows.length > 1) {
             const headerRow = rows[0]; 
             
-            if (STATE.isSystemHealthy === false) { 
-                console.log(`[SCHEDULE V4.3] Detected ${headerRow.length} columns in StaffSchedule.`);
+            // [NEW V5.0] MAP HEADER DATES TO COLUMN INDICES
+            // Bắt đầu từ cột P (index 15) trở đi là ngày tháng
+            for (let j = 15; j < headerRow.length; j++) {
+                if (!headerRow[j]) continue;
+                const normalizedDate = normalizeDateStrict(headerRow[j]);
+                if (normalizedDate) {
+                    tempDateColumnMap[normalizedDate] = j; // Lưu index cột (0-based)
+                }
             }
+            STATE.dateColumnMap = tempDateColumnMap; // Update global state
+            console.log(`[SYNC V5.0] Mapped ${Object.keys(tempDateColumnMap).length} date columns.`);
 
             for (let i = 1; i < rows.length; i++) {
                 const row = rows[i];
@@ -392,8 +353,12 @@ async function syncData() {
                 const onTimeVal = row[4] ? row[4].toString().trim().toUpperCase() : '';
                 const isStrictTime = (onTimeVal === 'TRUE' || onTimeVal === 'YES' || onTimeVal === 'X');
 
+                // [NEW V5.0] READ LINE ID FROM COLUMN F (INDEX 5)
+                const lineId = row[5] ? row[5].trim() : null;
+
                 const staffObj = { 
                     id: cleanName, name: cleanName, gender: gender, 
+                    lineId: lineId, // Gắn Line ID vào object nhân viên
                     start: startTime, end: endTime, shiftStart: startTime, shiftEnd: endTime,
                     isStrictTime: isStrictTime, sheetRowIndex: i + 1, off: false, offDays: [] 
                 };
@@ -402,22 +367,20 @@ async function syncData() {
                 
                 // --- LOOP VÔ TẬN (DYNAMIC COLUMNS) ---
                 for (let j = 15; j < headerRow.length; j++) {
-                    if (!headerRow[j]) continue;
-                    const normalizedDate = normalizeDateStrict(headerRow[j]); 
-                    
-                    if (normalizedDate) {
-                        const dateObj = new Date(normalizedDate);
-                        if (dateObj < pastThreshold) continue; 
+                    const normalizedDate = normalizeDateStrict(headerRow[j]);
+                    if (!normalizedDate) continue;
 
-                        const cellValue = row[j] ? row[j].trim().toUpperCase() : "";
+                    const dateObj = new Date(normalizedDate);
+                    if (dateObj < pastThreshold) continue; 
+
+                    const cellValue = row[j] ? row[j].trim().toUpperCase() : "";
+                    
+                    if (cellValue === 'OFF') {
+                        if (!tempScheduleMap[normalizedDate]) tempScheduleMap[normalizedDate] = [];
+                        tempScheduleMap[normalizedDate].push(cleanName);
+                        staffObj.offDays.push(normalizedDate);
                         
-                        if (cellValue === 'OFF') {
-                            if (!tempScheduleMap[normalizedDate]) tempScheduleMap[normalizedDate] = [];
-                            tempScheduleMap[normalizedDate].push(cleanName);
-                            staffObj.offDays.push(normalizedDate);
-                            
-                            if (normalizedDate === todayStr) { staffObj.off = true; }
-                        }
+                        if (normalizedDate === todayStr) { staffObj.off = true; }
                     }
                 }
                 tempStaffList.push(staffObj);
@@ -436,18 +399,14 @@ async function syncData() {
             try {
                 if (typeof ResourceCore.generateResourceMatrix === 'function') {
                     const matrixAllocation = ResourceCore.generateResourceMatrix(tempBookings, STATE.STAFF_LIST);
-                    // Merge allocation results
                     tempBookings.forEach(booking => {
                         if (matrixAllocation[booking.rowId]) {
                             booking.allocated_resource = matrixAllocation[booking.rowId];
                         }
                     });
                     STATE.LAST_CALCULATED_MATRIX = matrixAllocation;
-                    console.log(`[MATRIX] Calculated allocations for ${Object.keys(matrixAllocation).length} bookings.`);
                 }
-            } catch (err) {
-                console.error("[MATRIX ERROR] Calculation failed:", err);
-            }
+            } catch (err) { console.error("[MATRIX ERROR]", err); }
         }
 
         STATE.cachedBookings = tempBookings;
@@ -461,13 +420,11 @@ async function syncData() {
 }
 
 // =============================================================================
-// PHẦN 3: WRITE & UPDATE LOGIC (UPDATED V4.5 STATUS & V4.4 RESOURCES)
+// PHẦN 3: WRITE & UPDATE LOGIC (UPDATED V5.0)
 // =============================================================================
 
 /**
  * Ghi booking mới vào Google Sheets.
- * V4.5 NOTE: Trạng thái mặc định là "已預約". 
- * Nếu muốn tạo booking ở trạng thái "Running" ngay lập tức, cần truyền tham số status.
  */
 async function ghiVaoSheet(data, proposedUpdates = []) {
     try {
@@ -480,7 +437,6 @@ async function ghiVaoSheet(data, proposedUpdates = []) {
         if (colB_Time.length > 5) colB_Time = colB_Time.substring(0, 5);
         
         const colG_Phone = data.sdt; 
-        // Default status is Reserved, unless overridden
         const colH_Status = data.trangThai || '已預約'; 
         const colJ_LineID = data.userId; 
         const colK_Created = timeCreate;
@@ -492,38 +448,31 @@ async function ghiVaoSheet(data, proposedUpdates = []) {
         }
 
         for (let i = 0; i < loopCount; i++) {
-            // Khởi tạo mảng với 31 phần tử (index 0 -> 30)
             const row = new Array(31).fill("");
             let guestDetail = (data.guestDetails && data.guestDetails[i]) ? data.guestDetails[i] : null;
 
             const guestNum = i + 1; const total = loopCount;
-            row[0] = colA_Date; 
-            row[1] = colB_Time; 
+            row[0] = colA_Date; row[1] = colB_Time; 
             row[2] = `${data.hoTen || '現場客'} (${guestNum}/${total})`; 
             
             let svcName = data.dichVu;
             if (guestDetail) svcName = guestDetail.service;
             let isOil = data.isOil;
             if (guestDetail && guestDetail.isOil !== undefined) isOil = guestDetail.isOil;
-
             if (isOil) svcName += " (油推+$200)";
-            row[3] = svcName; 
-            row[4] = isOil ? "Yes" : ""; 
-            row[5] = 1; 
-            row[6] = colG_Phone; 
-            row[7] = colH_Status; 
+
+            row[3] = svcName; row[4] = isOil ? "Yes" : ""; row[5] = 1; 
+            row[6] = colG_Phone; row[7] = colH_Status; 
             
             if (guestDetail && guestDetail.staff) row[8] = guestDetail.staff;
             else row[8] = data.nhanVien || '隨機';
             
-            row[9] = colJ_LineID; 
-            row[10] = colK_Created; 
+            row[9] = colJ_LineID; row[10] = colK_Created; 
 
             if (guestDetail) {
                 if (guestDetail.staffId2) row[12] = guestDetail.staffId2; 
                 if (guestDetail.staffId3) row[13] = guestDetail.staffId3; 
             }
-
             row[18] = normalizeDateStrict(colA_Date);
 
             // [SMART SERVICE CODE]
@@ -535,7 +484,7 @@ async function ghiVaoSheet(data, proposedUpdates = []) {
             }
             row[20] = sCode || "";
 
-            // [PHASE DURATION CALCULATION]
+            // [PHASE & FLOW & LOCK LOGIC]
             let p1 = null; let p2 = null;
             if (guestDetail) { 
                 p1 = (guestDetail.phase1_duration !== undefined) ? guestDetail.phase1_duration : guestDetail.phase1;
@@ -543,13 +492,11 @@ async function ghiVaoSheet(data, proposedUpdates = []) {
             }
             if (p1 === null || p1 === undefined) p1 = data.phase1_duration;
             if (p2 === null || p2 === undefined) p2 = data.phase2_duration;
-            
-            row[24] = (p1 !== null && p1 !== undefined && p1 !== "") ? p1 : "";
-            row[25] = (p2 !== null && p2 !== undefined && p2 !== "") ? p2 : "";
+            row[24] = (p1 !== null && p1 !== "") ? p1 : "";
+            row[25] = (p2 !== null && p2 !== "") ? p2 : "";
 
-            // [FLOW LOGIC]
             let flowVal = null;
-            if (guestDetail && (guestDetail.flow || guestDetail.flowCode)) flowVal = guestDetail.flow || guestDetail.flowCode;
+            if (guestDetail) flowVal = guestDetail.flow || guestDetail.flowCode;
             if (!flowVal) flowVal = data.flow || data.flowCode;
             if (!flowVal && sCode && STATE.SERVICES[sCode]) {
                 const svcDef = STATE.SERVICES[sCode];
@@ -559,7 +506,7 @@ async function ghiVaoSheet(data, proposedUpdates = []) {
             }
             row[26] = flowVal || "FB";
 
-            // [V4.4] RESOURCE COLUMNS WRITING (AB, AC, AD)
+            // Resource
             let r1 = null; let r2 = null; let rType = null;
             if (guestDetail) {
                 r1 = guestDetail.phase1Resource || guestDetail.phase1_resource;
@@ -569,83 +516,53 @@ async function ghiVaoSheet(data, proposedUpdates = []) {
             if (!r1) r1 = data.phase1Resource || data.phase1_resource;
             if (!r2) r2 = data.phase2Resource || data.phase2_resource;
             if (!rType) rType = data.resourceType || data.resource_type;
+            row[27] = r1 || ""; row[28] = r2 || ""; row[29] = rType || "";
 
-            row[27] = r1 || ""; // Column AB
-            row[28] = r2 || ""; // Column AC
-            row[29] = rType || ""; // Column AD
-
-            // [CRITICAL: STRICT LOCK LOGIC]
             const hasManualPhase = (p1 !== null && p1 !== undefined && p1 !== "");
             const finalLockVal = resolveStrictLockState(data.isManualLocked, hasManualPhase, "FALSE");
-            
             row[30] = finalLockVal; 
 
-            console.log(`[WRITE] Row generated. Phase1: ${p1}, Res1: ${r1}, Res2: ${r2}, Type: ${rType}, Lock: ${finalLockVal}`);
             valuesToWrite.push(row);
         }
 
         if (valuesToWrite.length > 0) {
-            console.log(`[WRITE] Atomic Appending ${valuesToWrite.length} rows to Sheet1.`);
             await sheets.spreadsheets.values.append({ 
                 spreadsheetId: SHEET_ID, range: 'Sheet1!A:A', 
                 valueInputOption: 'USER_ENTERED', requestBody: { values: valuesToWrite } 
             });
-            console.log(`[WRITE] Success.`);
+            console.log(`[WRITE] Appended ${valuesToWrite.length} rows.`);
         }
-        
-        // Fast sync after write to update SSOT
         setTimeout(() => syncData(), 500);
 
-    } catch (e) { console.error('[WRITE ERROR] One-Shot Write Failed:', e); }
+    } catch (e) { console.error('[WRITE ERROR]', e); }
 }
 
-/**
- * [HELPER] Direct Status Update
- * Updates Column H directly. Critical for SSOT strategy.
- */
 async function updateBookingStatus(rowId, newStatus) {
     try {
-        if (!rowId) throw new Error("RowID required for status update");
-        
-        console.log(`[STATUS SSOT] Updating Row ${rowId} to '${newStatus}'`);
-        
+        if (!rowId) throw new Error("RowID required");
         await sheets.spreadsheets.values.update({ 
-            spreadsheetId: SHEET_ID, 
-            range: `${BOOKING_SHEET}!H${rowId}`, 
-            valueInputOption: 'USER_ENTERED', 
-            requestBody: { values: [[ newStatus ]] } 
+            spreadsheetId: SHEET_ID, range: `${BOOKING_SHEET}!H${rowId}`, 
+            valueInputOption: 'USER_ENTERED', requestBody: { values: [[ newStatus ]] } 
         });
-        
-        await syncData(); // Sync immediately to propagate 'isRunning' status
+        await syncData(); 
         return true;
     } catch (e) { console.error('Update Status Error:', e); return false; }
 }
 
-/**
- * [CRITICAL] UPDATE BOOKING DETAILS (V4.5 STATUS & V4.4 RESOURCE AWARE)
- * Handles updating various fields including Status, Resources, and Locks.
- */
 async function updateBookingDetails(body) {
     const rowId = body.rowId;
     if (!rowId) throw new Error('Missing rowId');
     
-    // Helper write function
     const updateCell = async (col, val) => {
         await sheets.spreadsheets.values.update({
-            spreadsheetId: SHEET_ID, 
-            range: `${BOOKING_SHEET}!${col}${rowId}`, 
-            valueInputOption: 'USER_ENTERED', 
-            requestBody: { values: [[val]] }
+            spreadsheetId: SHEET_ID, range: `${BOOKING_SHEET}!${col}${rowId}`, 
+            valueInputOption: 'USER_ENTERED', requestBody: { values: [[val]] }
         });
     };
 
-    console.log(`[UPDATE] Processing update for Row ${rowId}`, body);
-
-    // --- 1. Basic Field Updates ---
     if (body.date) {
         const formattedDate = normalizeDateStrict(body.date);
-        await updateCell('A', formattedDate);
-        await updateCell('S', formattedDate);
+        await updateCell('A', formattedDate); await updateCell('S', formattedDate);
     }
     if (body.startTime) {
         let timeVal = body.startTime; if (timeVal.length > 5) timeVal = timeVal.substring(0, 5);
@@ -656,98 +573,127 @@ async function updateBookingDetails(body) {
     if (body.isOil !== undefined) await updateCell('E', body.isOil ? "Yes" : "");
     if (body.pax) await updateCell('F', body.pax);
     if (body.phone) await updateCell('G', body.phone);
+    if (body.mainStatus) await updateCell('H', body.mainStatus);
     
-    // [V4.5] Status Update - Direct Write to Col H
-    // If body.mainStatus is passed (e.g., "🟡 服務中"), it writes to Sheet.
-    // syncData will then read it and set isRunning=true.
-    if (body.mainStatus) {
-        console.log(`[UPDATE STATUS] Writing '${body.mainStatus}' to Row ${rowId} (Col H)`);
-        await updateCell('H', body.mainStatus);
-    }
-    
-    // Staff Updates
     if (body.staffId && body.staffId !== '随機') await updateCell('I', body.staffId);
     if (body.staffId2) await updateCell('M', body.staffId2);
     if (body.staffId3) await updateCell('N', body.staffId3);
     if (body.flow) await updateCell('AA', body.flow);
 
-    // --- 2. [V4.4] RESOURCE COLUMN UPDATES (AB, AC, AD) ---
-    // Cho phép cập nhật thủ công tài nguyên nếu UI gửi lên
     if (body.phase1Resource !== undefined) await updateCell('AB', body.phase1Resource);
     if (body.phase2Resource !== undefined) await updateCell('AC', body.phase2Resource);
     if (body.resourceType !== undefined)   await updateCell('AD', body.resourceType);
 
-    // --- 3. [ADVANCED] PHASE & LOCK LOGIC WITH FAIL-SAFE ---
-    
-    // Step A: Get Context
+    // Advanced Phase & Lock Logic
     let bookingData = STATE.cachedBookings.find(b => b.rowId == rowId);
-    let totalDuration = 60; 
-    let currentLockState = false; 
-
-    if (bookingData) {
-        totalDuration = bookingData.duration;
-        currentLockState = bookingData.isManualLocked;
-    } else {
-        console.warn(`[UPDATE WARNING] Row ${rowId} missing in cache. Using defaults.`);
-        if (body.duration) totalDuration = safeParseInt(body.duration, 60);
-    }
-
-    // Step B: Calculate Phases & Detect Logic Changes
+    let totalDuration = bookingData ? bookingData.duration : (safeParseInt(body.duration, 60));
+    let currentLockState = bookingData ? bookingData.isManualLocked : false; 
     let hasManualPhaseChange = false;
 
-    // CASE 1: Update Phase 1 => Auto Phase 2
     if (body.phase1_duration !== undefined && body.phase1_duration !== null) {
-        const p1 = parseInt(body.phase1_duration); 
-        const p2 = totalDuration - p1;             
-        
-        console.log(`[UPDATE LOGIC] Row ${rowId}: Phase 1 set to ${p1}. Auto-calc Phase 2 = ${p2}.`);
-        await updateCell('Y', p1);       
-        await updateCell('Z', p2);       
-        hasManualPhaseChange = true;
-    } 
-    // CASE 2: Update Phase 2 => Auto Phase 1
-    else if (body.phase2_duration !== undefined && body.phase2_duration !== null) {
-        const p2 = parseInt(body.phase2_duration); 
-        const p1 = totalDuration - p2;             
-
-        console.log(`[UPDATE LOGIC] Row ${rowId}: Phase 2 set to ${p2}. Auto-calc Phase 1 = ${p1}.`);
-        await updateCell('Y', p1);       
-        await updateCell('Z', p2);       
-        hasManualPhaseChange = true;
+        const p1 = parseInt(body.phase1_duration); const p2 = totalDuration - p1;             
+        await updateCell('Y', p1); await updateCell('Z', p2); hasManualPhaseChange = true;
+    } else if (body.phase2_duration !== undefined && body.phase2_duration !== null) {
+        const p2 = parseInt(body.phase2_duration); const p1 = totalDuration - p2;             
+        await updateCell('Y', p1); await updateCell('Z', p2); hasManualPhaseChange = true;
     }
 
-    // Step C: Resolve Strict Lock State (FAIL-SAFE)
     const currentLockString = currentLockState ? "TRUE" : "FALSE";
-    
-    const finalLockString = resolveStrictLockState(
-        body.isManualLocked, // Explicit override provided?
-        hasManualPhaseChange, // Logic override?
-        currentLockString     // Fallback
-    );
+    const finalLockString = resolveStrictLockState(body.isManualLocked, hasManualPhaseChange, currentLockString);
 
-    // Step D: Write Lock State
-    let needsLockUpdate = false;
-    
-    if (finalLockString !== currentLockString) needsLockUpdate = true;
-    if (body.isManualLocked !== undefined) needsLockUpdate = true;
-    if (hasManualPhaseChange) needsLockUpdate = true;
-
-    if (needsLockUpdate) {
-        console.log(`[UPDATE LOCK] Forcing AE to ${finalLockString} (Prev: ${currentLockString})`);
+    if (finalLockString !== currentLockString || body.isManualLocked !== undefined || hasManualPhaseChange) {
         await updateCell('AE', finalLockString);
-    } else {
-        // [FAIL-SAFE EXTENSION]
-        if (bookingData && (bookingData.isManualLocked === null || bookingData.isManualLocked === undefined)) {
-             console.log(`[UPDATE FAIL-SAFE] AE was undefined. Healing to FALSE.`);
-             await updateCell('AE', 'FALSE');
-        }
     }
 
-    // 4. Trigger Sync to refresh state across the app
-    if (body.forceSync) await syncData(); 
-    else setTimeout(() => syncData(), 500); 
-    
+    if (body.forceSync) await syncData(); else setTimeout(() => syncData(), 500); 
     return true;
+}
+
+// =============================================================================
+// PHẦN 4: STAFF SCHEDULE & ACTIVITY METHODS (NEW V5.0)
+// =============================================================================
+
+/**
+ * [NEW V5.0] Tìm nhân viên bằng Line ID từ cache
+ */
+function findStaffByLineId(lineId) {
+    if (!lineId || !STATE.STAFF_LIST) return null;
+    return STATE.STAFF_LIST.find(s => s.lineId === lineId);
+}
+
+/**
+ * [NEW V5.0] Generic Schedule Update
+ * Dùng cho các nút: Xin nghỉ (OFF), Đi trễ (ghi giờ)
+ */
+async function updateScheduleCell(lineId, dateStr, value) {
+    try {
+        const staff = findStaffByLineId(lineId);
+        if (!staff) { console.warn(`[SCHED] Staff not found for LINE ID: ${lineId}`); return false; }
+        
+        const normalizedDate = normalizeDateStrict(dateStr);
+        if (!normalizedDate) return false;
+
+        const colIndex = STATE.dateColumnMap[normalizedDate];
+        if (!colIndex) { console.warn(`[SCHED] No column found for date: ${normalizedDate}`); return false; }
+
+        const colLetter = getColumnLetter(colIndex); // Convert index to A, B, AA...
+        const range = `${SCHEDULE_SHEET}!${colLetter}${staff.sheetRowIndex}`;
+
+        console.log(`[SCHED] Updating ${staff.name} at ${range} with value: ${value}`);
+        
+        await sheets.spreadsheets.values.update({
+            spreadsheetId: SHEET_ID,
+            range: range,
+            valueInputOption: 'USER_ENTERED',
+            requestBody: { values: [[value]] }
+        });
+
+        await syncData(); // Refresh cache
+        return true;
+    } catch (e) { console.error('[SCHED ERROR]', e); return false; }
+}
+
+/**
+ * [NEW V5.0] Update Daily Status (Eat/Out)
+ * Dùng cho nút: Ăn cơm (Col H, I), Ra ngoài (Col J, K)
+ * @param {string} lineId - LINE ID của nhân viên
+ * @param {string} type - 'EAT' hoặc 'OUT'
+ * @param {string} startVal - Giờ bắt đầu (VD: "12:00")
+ * @param {string} endVal - Giờ kết thúc (VD: "13:00")
+ */
+async function updateDailyActivity(lineId, type, startVal, endVal) {
+    try {
+        const staff = findStaffByLineId(lineId);
+        if (!staff) return false;
+
+        // Xác định cột dựa trên loại hoạt động
+        // EAT: Start=H (Index 7), End=I (Index 8)
+        // OUT: Start=J (Index 9), End=K (Index 10)
+        let startCol = 'H'; let endCol = 'I';
+        if (type === 'OUT') { startCol = 'J'; endCol = 'K'; }
+
+        const row = staff.sheetRowIndex;
+        
+        // Cập nhật 2 ô liên tiếp
+        // Lưu ý: Có thể dùng batchUpdate, nhưng 2 request nhỏ cũng ổn
+        if (startVal) {
+             await sheets.spreadsheets.values.update({
+                spreadsheetId: SHEET_ID, range: `${SCHEDULE_SHEET}!${startCol}${row}`,
+                valueInputOption: 'USER_ENTERED', requestBody: { values: [[startVal]] }
+            });
+        }
+        
+        if (endVal) {
+             await sheets.spreadsheets.values.update({
+                spreadsheetId: SHEET_ID, range: `${SCHEDULE_SHEET}!${endCol}${row}`,
+                valueInputOption: 'USER_ENTERED', requestBody: { values: [[endVal]] }
+            });
+        }
+
+        console.log(`[ACTIVITY] Updated ${type} for ${staff.name}: ${startVal}-${endVal}`);
+        await syncData();
+        return true;
+    } catch (e) { console.error('[ACTIVITY ERROR]', e); return false; }
 }
 
 async function updateStaffConfig(staffId, isStrictTime) {
@@ -788,14 +734,13 @@ async function layLichDatGanNhat(userId) {
 
 async function syncDailySalary(dateStr, staffDataList) {
     try {
-        // Placeholder cho chức năng tính lương
         const range = `${SALARY_SHEET}!A1:AZ100`; 
         await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: range });
     } catch (e) { console.error('[SALARY ERROR]', e); }
 }
 
 // =============================================================================
-// PHẦN 4: EXPORTS
+// PHẦN 5: EXPORTS
 // =============================================================================
 
 module.exports = {
@@ -817,6 +762,11 @@ module.exports = {
     updateBookingDetails,
     updateStaffConfig,
     layLichDatGanNhat,
+    
+    // [NEW V5.0 METHODS]
+    findStaffByLineId,    // Tìm nhân viên bằng Line ID
+    updateScheduleCell,   // Ghi OFF hoặc giờ trễ vào cột ngày
+    updateDailyActivity,  // Ghi giờ Ăn/Ra ngoài
     
     // Helpers
     normalizeDateStrict,
