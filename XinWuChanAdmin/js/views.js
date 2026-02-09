@@ -1,17 +1,20 @@
 /**
  * ============================================================================
  * FILE: js/views.js
- * PHIÊN BẢN: V107.0 (GROUP START & TIMELINE SHIFTER)
+ * PHIÊN BẢN: V107.2 (CENTERED CONTROL BUTTON)
  * MÔ TẢ: CÁC COMPONENT HIỂN THỊ CHÍNH (VIEW LAYER)
- * * * LỊCH SỬ CẬP NHẬT V107.0:
- * 1. [BookingControlModal] - GROUP START LOGIC:
- * - Tự động phát hiện khách nhóm (Pax > 1).
- * - Hiển thị 2 nút Start: "Cá nhân" (Individual) và "Toàn nhóm" (Group).
- * 2. [TimelineView] - MANUAL TIME SHIFT:
- * - Thêm nút mũi tên Trái/Phải trên block timeline.
- * - Cho phép dịch chuyển thời gian nhanh (+/- 5 phút) mà không cần kéo thả.
- * 3. [UI/UX] - Z-INDEX ADJUSTMENT:
- * - Hạ Z-index Modal chính xuống 3000 để nhường chỗ cho các Alert/Modal phụ (4000+).
+ * * * LỊCH SỬ CẬP NHẬT V107.2:
+ * 1. [TimelineView] - UI UX UPDATE:
+ * - Dời nút Control (Bánh răng) từ góc phải vào CHÍNH GIỮA (Center) khối Booking.
+ * - Tăng kích thước nút Control để dễ thao tác hơn.
+ * * * LỊCH SỬ CẬP NHẬT V107.1:
+ * 1. [TimelineView] - VERTICAL RESOURCE SHIFT:
+ * - Thay thế nút dịch thời gian (Trái/Phải) bằng nút dịch chuyển tài nguyên (Lên/Xuống).
+ * - Logic thông minh: Tự động ẩn nút "Lên" ở dòng đầu và "Xuống" ở dòng cuối cùng của từng loại (Ghế/Giường).
+ * - Action: Gửi 'SHIFT_RESOURCE' với direction -1 (Lên) hoặc 1 (Xuống).
+ * 2. [BookingControlModal] - SEQUENCE TOGGLER:
+ * - Thêm nút "Đảo Chiều" (Swap) nằm giữa input Phase 1 và Phase 2.
+ * - Cho phép chuyển đổi nhanh giữa quy trình "Chân trước" (FB) và "Thân trước" (BF).
  * * * TÁC GIẢ: AI ASSISTANT & USER
  * ============================================================================
  */
@@ -19,7 +22,7 @@
 const { useState, useEffect, useMemo, useRef } = React;
 
 // ============================================================================
-// 0. BOOKING CONTROL MODAL (SUPER MODAL V107.0)
+// 0. BOOKING CONTROL MODAL (SUPER MODAL V107.1)
 // Chức năng: Quản lý vòng đời đơn hàng, Context vị trí, Thanh toán & Group Start
 // ============================================================================
 const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveData, contextResourceId }) => {
@@ -30,11 +33,18 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
     const totalDuration = booking.duration || 60;
     
     // State cho Phase (Dành cho Combo - Chia thời gian)
+    // Ưu tiên lấy từ meta (dữ liệu realtime) nếu có, sau đó mới đến booking gốc
     const initialP1 = meta && meta.phase1_duration !== undefined 
         ? meta.phase1_duration 
-        : (totalDuration / 2);
+        : (booking.phase1_duration !== undefined ? booking.phase1_duration : totalDuration / 2);
+
     const [phase1, setPhase1] = useState(initialP1);
     
+    // State xác định thứ tự combo (Sequence)
+    // Mặc định là FB (Foot Before - Chân trước) nếu không có dữ liệu
+    const currentSequence = (meta && meta.sequence) || 'FB';
+    const isBodyFirst = currentSequence === 'BF';
+
     // State cho Timer (Đếm ngược real-time)
     const [timeLeft, setTimeLeft] = useState(0);
     const [percent, setPercent] = useState(0);
@@ -48,12 +58,12 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
 
     // --- EFFECTS ---
 
-    // 1. Đồng bộ dữ liệu khi Modal mở ra
+    // 1. Đồng bộ dữ liệu khi Modal mở ra hoặc meta thay đổi
     useEffect(() => {
         if (isOpen && booking) {
             const currentP1 = meta && meta.phase1_duration !== undefined 
                 ? meta.phase1_duration 
-                : (booking.duration / 2);
+                : (booking.phase1_duration !== undefined ? booking.phase1_duration : booking.duration / 2);
             setPhase1(currentP1);
             setSelectedService(booking.serviceName);
             setShowPaymentOptions(false); // Luôn reset popup thanh toán
@@ -113,7 +123,8 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
             ...payload,
             bookingId: booking.rowId,
             currentBooking: booking,
-            resourceId: contextResourceId
+            resourceId: contextResourceId,
+            currentMeta: meta // Gửi kèm meta để App xử lý logic Sequence
         };
         
         console.log(`[BookingControlModal] Triggering: ${actionType}`, fullPayload);
@@ -141,7 +152,6 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
     const isGroupBooking = (parseInt(booking.pax) || 1) > 1;
 
     // --- RENDER ---
-    // UPDATE V107.0: Hạ z-index xuống 3000 để các modal phụ (SplitStaff) có thể đè lên nếu đặt z-4000
     return (
         <div className="fixed inset-0 z-[3000] flex items-center justify-center bg-black/70 backdrop-blur-sm animate-in fade-in duration-200 p-4">
             {/* Main Modal Container */}
@@ -235,9 +245,9 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                         </div>
                     </div>
 
-                    {/* SECTION: COMBO ADJUSTMENT */}
+                    {/* SECTION: COMBO ADJUSTMENT & SEQUENCE TOGGLER (UPDATE V107.1) */}
                     {isCombo && (
-                        <div className="bg-white p-5 rounded-xl border border-indigo-100 shadow-sm">
+                        <div className="bg-white p-5 rounded-xl border border-indigo-100 shadow-sm transition-all">
                             <div className="flex justify-between items-center mb-4">
                                 <h3 className="font-bold text-slate-700 flex items-center gap-2">
                                     <i className="fas fa-sliders-h text-indigo-500"></i> 套餐時間調整 (Combo Phase)
@@ -250,38 +260,70 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                                 </button>
                             </div>
                             
-                            <div className="grid grid-cols-2 gap-8 items-center">
-                                <div className="relative">
-                                    <label className="block text-xs font-bold text-indigo-600 mb-1 text-center">PHASE 1 (足/身)</label>
+                            {/* Flex Container for Phase Inputs and Toggle Button */}
+                            <div className="flex items-center justify-between gap-4">
+                                
+                                {/* Phase 1 Input */}
+                                <div className="flex-1 relative">
+                                    <label className={`block text-xs font-bold mb-1 text-center ${isBodyFirst ? 'text-orange-600' : 'text-indigo-600'}`}>
+                                        PHASE 1 ({isBodyFirst ? '身' : '足'})
+                                    </label>
                                     <input 
                                         type="number" 
                                         value={phase1}
                                         onChange={(e) => handleChangeP1(e.target.value)}
-                                        className="w-full text-center text-3xl font-black text-indigo-900 border-b-2 border-indigo-200 focus:border-indigo-600 focus:outline-none bg-transparent"
+                                        className={`w-full text-center text-3xl font-black border-b-2 focus:outline-none bg-transparent ${isBodyFirst ? 'text-orange-900 border-orange-200 focus:border-orange-600' : 'text-indigo-900 border-indigo-200 focus:border-indigo-600'}`}
                                     />
                                     <span className="block text-center text-xs text-gray-400 mt-1">Minutes</span>
                                 </div>
-                                <div className="relative">
-                                    <label className="block text-xs font-bold text-orange-600 mb-1 text-center">PHASE 2 (身/足)</label>
+
+                                {/* TOGGLE SEQUENCE BUTTON (NEW V107.1) */}
+                                <div className="shrink-0 flex flex-col items-center justify-center pt-4">
+                                    <button
+                                        onClick={() => triggerAction('TOGGLE_SEQUENCE')}
+                                        className={`w-12 h-12 rounded-full border-2 flex items-center justify-center text-lg shadow-md hover:scale-110 active:scale-95 transition-all group ${
+                                            isBodyFirst 
+                                                ? 'bg-orange-50 border-orange-200 text-orange-600 hover:bg-orange-100' 
+                                                : 'bg-indigo-50 border-indigo-200 text-indigo-600 hover:bg-indigo-100'
+                                        }`}
+                                        title={isBodyFirst ? "Đang: Thân trước (Bấm để đổi)" : "Đang: Chân trước (Bấm để đổi)"}
+                                    >
+                                        <i className={`fas fa-exchange-alt transition-transform duration-300 group-hover:rotate-180`}></i>
+                                    </button>
+                                    <span className="text-[10px] font-bold text-gray-400 mt-1 uppercase tracking-wide">Swap</span>
+                                </div>
+
+                                {/* Phase 2 Input */}
+                                <div className="flex-1 relative">
+                                    <label className={`block text-xs font-bold mb-1 text-center ${isBodyFirst ? 'text-indigo-600' : 'text-orange-600'}`}>
+                                        PHASE 2 ({isBodyFirst ? '足' : '身'})
+                                    </label>
                                     <input 
                                         type="number" 
                                         value={phase2}
                                         onChange={(e) => handleChangeP2(e.target.value)}
-                                        className="w-full text-center text-3xl font-black text-orange-900 border-b-2 border-orange-200 focus:border-orange-600 focus:outline-none bg-transparent"
+                                        className={`w-full text-center text-3xl font-black border-b-2 focus:outline-none bg-transparent ${isBodyFirst ? 'text-indigo-900 border-indigo-200 focus:border-indigo-600' : 'text-orange-900 border-orange-200 focus:border-orange-600'}`}
                                     />
                                     <span className="block text-center text-xs text-gray-400 mt-1">Minutes</span>
                                 </div>
                             </div>
                             
-                            <div className="h-3 w-full bg-gray-200 rounded-full mt-4 flex overflow-hidden">
-                                <div className="bg-indigo-500 h-full transition-all" style={{ width: `${(phase1/totalDuration)*100}%` }}></div>
-                                <div className="bg-orange-400 h-full transition-all" style={{ width: `${(phase2/totalDuration)*100}%` }}></div>
+                            {/* Visual Progress Bar */}
+                            <div className="h-3 w-full bg-gray-200 rounded-full mt-6 flex overflow-hidden border border-gray-300">
+                                <div 
+                                    className={`h-full transition-all flex items-center justify-center text-[8px] text-white/50 font-bold ${isBodyFirst ? 'bg-orange-500' : 'bg-indigo-500'}`} 
+                                    style={{ width: `${(phase1/totalDuration)*100}%` }}
+                                >1</div>
+                                <div 
+                                    className={`h-full transition-all flex items-center justify-center text-[8px] text-white/50 font-bold ${isBodyFirst ? 'bg-indigo-500' : 'bg-orange-400'}`} 
+                                    style={{ width: `${(phase2/totalDuration)*100}%` }}
+                                >2</div>
                             </div>
                         </div>
                     )}
                 </div>
 
-                {/* 3. ACTION FOOTER - MODIFIED FOR GROUP START LOGIC (V107.0) */}
+                {/* 3. ACTION FOOTER */}
                 <div className="p-4 bg-white border-t border-slate-200 shrink-0">
                     <div className="grid grid-cols-4 gap-3">
                         
@@ -346,7 +388,7 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                     </div>
                 </div>
 
-                {/* PAYMENT OPTION OVERLAY (z-index 3010 to overlay the 3000 modal) */}
+                {/* PAYMENT OPTION OVERLAY */}
                 {showPaymentOptions && (
                     <div className="absolute inset-0 z-[3010] bg-slate-900/95 flex flex-col items-center justify-center p-6 animate-in fade-in zoom-in duration-200">
                         <div className="w-full max-w-sm bg-white rounded-2xl shadow-2xl overflow-hidden">
@@ -396,8 +438,8 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
 
 
 // ============================================================================
-// 1. TIMELINE VIEW (Biểu đồ Gantt) - UPDATE V107.0 (SHIFT BUTTONS)
-// Chức năng: Hiển thị và điều chỉnh lịch
+// 1. TIMELINE VIEW (Biểu đồ Gantt) - UPDATE V107.1 (VERTICAL RESOURCE SHIFT)
+// Chức năng: Hiển thị và điều chỉnh lịch, Hỗ trợ dịch chuyển tài nguyên lên/xuống
 // ============================================================================
 const TimelineView = ({ timelineData, onEditPhase, liveStatusData }) => { 
     const [controlModalOpen, setControlModalOpen] = useState(false);
@@ -466,6 +508,7 @@ const TimelineView = ({ timelineData, onEditPhase, liveStatusData }) => {
         return `${displayH}:00`;
     };
 
+    // Định nghĩa danh sách hàng
     const rows = [
         ...Array.from({length:6}, (_,i) => ({id: `chair-${i+1}`, label: `足 ${i+1}`, type: 'chair'})),
         ...Array.from({length:6}, (_,i) => ({id: `bed-${i+1}`, label: `身 ${i+1}`, type: 'bed'}))
@@ -510,19 +553,17 @@ const TimelineView = ({ timelineData, onEditPhase, liveStatusData }) => {
         }
     };
 
-    // HANDLER: MANUAL TIME SHIFT (NEW V107.0)
-    // Dịch thời gian +/- 5 phút
-    const handleShiftTime = (e, booking, resourceId, direction) => {
-        e.stopPropagation(); // QUAN TRỌNG: Chặn mở modal
+    // HANDLER: RESOURCE SHIFT (NEW V107.1)
+    // Thay thế logic Time Shift bằng logic Resource Shift
+    // direction: -1 (Lên trên), +1 (Xuống dưới)
+    const handleShiftResource = (e, booking, resourceId, direction) => {
+        e.stopPropagation(); // Chặn mở modal
         if (onEditPhase) {
-            // Gửi action SHIFT_TIME với direction (-1 là sớm hơn, 1 là trễ hơn)
-            // Trong App.js bạn cần xử lý case 'SHIFT_TIME':
-            // newStart = currentStart + (direction * 5 phút)
-            onEditPhase('SHIFT_TIME', { 
+            onEditPhase('SHIFT_RESOURCE', { 
                 bookingId: booking.rowId, 
                 currentBooking: booking,
                 resourceId: resourceId,
-                direction: direction * 5 
+                direction: direction // -1 hoặc 1
             });
         }
     };
@@ -542,12 +583,13 @@ const TimelineView = ({ timelineData, onEditPhase, liveStatusData }) => {
                 
                 .edit-btn { opacity: 0; transition: opacity 0.2s, transform 0.1s; }
                 .timeline-block:hover .edit-btn { opacity: 1; }
-                .edit-btn:hover { transform: scale(1.1); background-color: rgba(255,255,255,0.9) !important; color: #4f46e5 !important; border-color: #6366f1; }
+                /* Updated Hover for Centered Button */
+                .edit-btn:hover { transform: translate(-50%, -50%) scale(1.1); background-color: rgba(255,255,255,1) !important; color: #4f46e5 !important; border-color: #6366f1; }
                 
-                /* New Shift Buttons Style */
+                /* New Shift Buttons Style (Vertical) */
                 .shift-controls { opacity: 0; transition: opacity 0.2s; }
                 .timeline-block:hover .shift-controls { opacity: 1; }
-                .shift-btn:hover { background-color: rgba(255,255,255,0.9); color: #000; transform: scale(1.2); }
+                .shift-btn:hover { background-color: rgba(255,255,255,1); color: #4f46e5; transform: scale(1.1); box-shadow: 0 2px 4px rgba(0,0,0,0.2); }
 
                 .bf-indicator { animation: pulse-border 2s infinite; }
                 @keyframes pulse-border {
@@ -589,6 +631,11 @@ const TimelineView = ({ timelineData, onEditPhase, liveStatusData }) => {
                     {rows.map((row, index) => {
                         const isLastChairRow = index === 5;
                         const rowStyleClass = isLastChairRow ? "border-b-4 border-red-500" : "border-b border-slate-100"; 
+                        
+                        // LOGIC KIỂM TRA CHO NÚT ĐIỀU HƯỚNG
+                        // Chỉ cho phép di chuyển nếu dòng đích cùng loại (type) với dòng hiện tại
+                        const canMoveUp = index > 0 && rows[index - 1].type === row.type;
+                        const canMoveDown = index < rows.length - 1 && rows[index + 1].type === row.type;
 
                         return (
                             <div key={row.id} className={`flex relative transition-colors hover:bg-slate-50 ${rowStyleClass}`} style={{ height: `${ROW_HEIGHT}px` }}>
@@ -661,37 +708,41 @@ const TimelineView = ({ timelineData, onEditPhase, liveStatusData }) => {
                                                     <span>{slot.booking.serviceName}</span>
                                                 </div>
 
-                                                {/* Button Open Modal */}
+                                                {/* Button Open Modal - CENTERED (UPDATED V107.2) */}
                                                 {showControlBtn && (
                                                     <button 
-                                                        className="edit-btn absolute top-0.5 right-0.5 w-6 h-6 bg-white text-gray-400 rounded-full flex items-center justify-center shadow-md border border-gray-200 z-50 hover:text-indigo-600 hover:border-indigo-300 transform active:scale-95"
+                                                        className="edit-btn absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-8 h-8 bg-white/95 backdrop-blur-sm text-slate-500 rounded-full flex items-center justify-center shadow-lg border border-slate-200 z-50 hover:text-indigo-600 hover:border-indigo-400 hover:bg-white transition-all"
                                                         onClick={(e) => {
                                                             e.stopPropagation();
                                                             handleOpenControl(slot.booking, slot.meta, row.id); 
                                                         }}
-                                                        title="Control Center"
+                                                        title="Control Center (Click to Edit)"
                                                     >
-                                                        <i className="fas fa-cog text-[12px] animate-spin-hover"></i>
+                                                        <i className="fas fa-cog text-sm animate-spin-hover"></i>
                                                     </button>
                                                 )}
 
-                                                {/* NEW V107.0: TIMELINE SHIFT ARROWS (Left/Right) */}
-                                                {/* Chỉ hiện khi Hover */}
-                                                <div className="shift-controls absolute bottom-0.5 right-0.5 flex gap-1 z-[60]">
-                                                    <button 
-                                                        onClick={(e) => handleShiftTime(e, slot.booking, row.id, -1)}
-                                                        className="shift-btn w-5 h-5 rounded bg-black/20 text-white flex items-center justify-center text-[10px] backdrop-blur-sm"
-                                                        title="Sớm 5 phút (-5m)"
-                                                    >
-                                                        <i className="fas fa-chevron-left"></i>
-                                                    </button>
-                                                    <button 
-                                                        onClick={(e) => handleShiftTime(e, slot.booking, row.id, 1)}
-                                                        className="shift-btn w-5 h-5 rounded bg-black/20 text-white flex items-center justify-center text-[10px] backdrop-blur-sm"
-                                                        title="Trễ 5 phút (+5m)"
-                                                    >
-                                                        <i className="fas fa-chevron-right"></i>
-                                                    </button>
+                                                {/* NEW V107.1: VERTICAL RESOURCE SHIFT CONTROLS */}
+                                                {/* Chỉ hiện khi Hover, và nút sẽ ẩn nếu ở biên giới hạn loại tài nguyên */}
+                                                <div className="shift-controls absolute bottom-0.5 right-0.5 flex flex-col gap-0.5 z-[60]">
+                                                    {canMoveUp && (
+                                                        <button 
+                                                            onClick={(e) => handleShiftResource(e, slot.booking, row.id, -1)}
+                                                            className="shift-btn w-5 h-4 rounded-sm bg-black/20 text-white flex items-center justify-center text-[10px] backdrop-blur-sm hover:bg-white hover:text-indigo-600"
+                                                            title="Chuyển lên ghế trên (Move Up)"
+                                                        >
+                                                            <i className="fas fa-chevron-up"></i>
+                                                        </button>
+                                                    )}
+                                                    {canMoveDown && (
+                                                        <button 
+                                                            onClick={(e) => handleShiftResource(e, slot.booking, row.id, 1)}
+                                                            className="shift-btn w-5 h-4 rounded-sm bg-black/20 text-white flex items-center justify-center text-[10px] backdrop-blur-sm hover:bg-white hover:text-indigo-600"
+                                                            title="Chuyển xuống ghế dưới (Move Down)"
+                                                        >
+                                                            <i className="fas fa-chevron-down"></i>
+                                                        </button>
+                                                    )}
                                                 </div>
                                             </div>
                                         );

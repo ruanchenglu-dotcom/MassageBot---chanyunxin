@@ -1,10 +1,14 @@
 /**
  * =================================================================================================
  * PROJECT: XINWUCHAN MASSAGE BOT (BACKEND SERVER - MAIN ENTRY)
- * VERSION: V122-ALLOCATION-UPDATE (CAPTURE RESOURCE LOCATION)
- * FEATURE: DUAL BOT, ATOMIC WRITE, RECORD RESOURCE ALLOCATION (PHASE1_RES_IDX)
+ * VERSION: V123-SINGLE-SOURCE-OF-TRUTH (STATE PERSISTENCE UPDATE)
+ * FEATURE: 
+ * 1. DUAL BOT (User & Staff)
+ * 2. ATOMIC WRITE & RESOURCE ALLOCATION
+ * 3. "RUNNING" STATE PERSISTENCE (Lưu trạng thái Running vào Sheet)
+ * 4. REAL-TIME START TIME SYNC (Cập nhật giờ thực tế khi bấm Start)
  * AUTHOR: AI ASSISTANT & USER
- * DATE: 2026/02/06
+ * DATE: 2026/02/09
  * =================================================================================================
  */
 
@@ -33,6 +37,8 @@ const MAX_CHAIRS = ResourceCore.CONFIG ? ResourceCore.CONFIG.MAX_CHAIRS : 6;
 const MAX_BEDS = ResourceCore.CONFIG ? ResourceCore.CONFIG.MAX_BEDS : 6;
 
 // --- 2. GLOBAL STATE (Session User) ---
+// Lưu ý: Với nâng cấp "Single Source of Truth", SERVER_RESOURCE_STATE chỉ dùng để cache nhanh.
+// Trạng thái gốc (Source of Truth) luôn là dữ liệu từ Google Sheet.
 let SERVER_RESOURCE_STATE = {}; 
 let SERVER_STAFF_STATUS = {};   
 let userState = {};             
@@ -257,6 +263,8 @@ app.use(express.static(path.join(__dirname, 'public')));
 app.use('/admin2', express.static(path.join(__dirname, 'XinWuChanAdmin')));
 
 // --- API: INFO ---
+// API này Frontend sẽ gọi liên tục để cập nhật trạng thái.
+// Bây giờ trạng thái "Running" sẽ được lấy trực tiếp từ `SheetService.getBookings()`
 app.get('/api/info', async (req, res) => { 
     try {
         const isForceRefresh = req.query.forceRefresh === 'true';
@@ -361,7 +369,40 @@ app.post('/api/admin-booking', async (req, res) => {
     res.json({ success: true }); 
 });
 
-app.post('/api/update-status', async (req, res) => { await SheetService.updateBookingStatus(req.body.rowId, req.body.status); res.json({ success: true }); });
+// --- API: UPDATE STATUS (CRITICAL UPDATE FOR SINGLE SOURCE OF TRUTH) ---
+// Đây là nơi xử lý logic "Start Service"
+app.post('/api/update-status', async (req, res) => { 
+    try {
+        const { rowId, status, syncStartTime } = req.body;
+        
+        console.log(`[UPDATE STATUS] Row: ${rowId}, Status: ${status}, SyncTime: ${syncStartTime}`);
+
+        let timeToUpdate = null;
+        
+        // LOGIC "START": Cập nhật giờ thực tế vào Cột B (Giờ Đến)
+        // Nếu Frontend gửi flag syncStartTime = true (thường là khi bấm Start)
+        if (syncStartTime === true) {
+             const now = SheetService.getTaipeiNow();
+             const hours = now.getHours().toString().padStart(2, '0');
+             const minutes = now.getMinutes().toString().padStart(2, '0');
+             timeToUpdate = `${hours}:${minutes}`;
+             
+             console.log(`[STATUS LOGIC] Auto-updating Start Time for Row ${rowId} to NOW: ${timeToUpdate}`);
+        }
+
+        // Gọi SheetService để cập nhật
+        // Lưu ý: Cần đảm bảo SheetService.updateBookingStatus hỗ trợ tham số thứ 3 là timeString
+        // Nếu không có timeToUpdate, nó sẽ chỉ cập nhật trạng thái
+        await SheetService.updateBookingStatus(rowId, status, timeToUpdate); 
+        
+        res.json({ success: true }); 
+
+    } catch (e) {
+        console.error('[UPDATE STATUS ERROR]', e);
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
 app.post('/api/save-salary', async (req, res) => { await SheetService.syncDailySalary(req.body.date, req.body.staffData); res.json({ success: true }); });
 
 // --- API: UPDATE BOOKING DETAILS ---
@@ -628,4 +669,4 @@ setInterval(() => { SheetService.syncData(); }, 10000);
 app.get('/ping', (req, res) => { res.status(200).send('Pong!'); });
 
 const port = process.env.PORT || 3000;
-app.listen(port, () => { console.log(`XinWuChan Bot V122-ALLOCATION-UPDATE running on port ${port}`); });
+app.listen(port, () => { console.log(`XinWuChan Bot V123-ALLOCATION-UPDATE running on port ${port}`); });

@@ -1,20 +1,19 @@
 /**
  * =================================================================================================
- * MODULE: SHEET SERVICE (DATA LAYER) - REFACTORED V4.4 RESOURCE AWARE
+ * MODULE: SHEET SERVICE (DATA LAYER) - REFACTORED V4.5 STATUS SSOT & RESOURCE AWARE
  * PROJECT: XINWUCHAN MASSAGE BOT
- * DESCRIPTION: Handles Google Sheets interactions with INFINITE COLUMN SUPPORT & RESOURCE LOGGING.
- * * * * VERSION HISTORY:
- * - V4.2: Strict Fail-Safe Locking (Column AE), Dirty Check for Phases.
- * - V4.3: Infinite Horizon (Dynamic A1:150), Memory Optimization (Time Window), Robust Parsing.
- * - V4.4 [CURRENT - RESOURCE UPGRADE]: 
- * + [NEW COLUMNS SUPPORT] Added read/write support for Columns AB, AC, AD.
- * > Col AB (Idx 27): Phase 1 Resource Name (e.g., "Bed 1").
- * > Col AC (Idx 28): Phase 2 Resource Name (e.g., "Chair A").
- * > Col AD (Idx 29): Resource Type (e.g., "BED", "CHAIR").
- * + [WRITE LOGIC] Enhanced 'ghiVaoSheet' to populate these columns from guestDetails.
- * + [UPDATE LOGIC] Enhanced 'updateBookingDetails' to allow individual updates to resources.
- * * * * AUTHOR: AI ASSISTANT & USER
- * DATE: 2026/02/03 (Updated V4.4)
+ * DESCRIPTION: Handles Google Sheets interactions. 
+ * NOW IMPLEMENTS "SINGLE SOURCE OF TRUTH" FOR BOOKING STATUS.
+ * * * * * VERSION HISTORY:
+ * - V4.2: Strict Fail-Safe Locking (Column AE).
+ * - V4.3: Infinite Horizon (Dynamic A1:150).
+ * - V4.4: Resource Upgrade (Columns AB, AC, AD).
+ * - V4.5 [CURRENT - STATUS SSOT]: 
+ * + [SYNC LOGIC] Trạng thái "Running" (Đang chạy) hiện được xác định trực tiếp từ nội dung Cột H (Status).
+ * + [FLAGGING] Tự động gắn cờ 'isRunning: true' nếu Status chứa từ khóa "Running" hoặc "服務中".
+ * + [STABILITY] Loại bỏ sự phụ thuộc vào RAM/RowID cho trạng thái hoạt động. Dữ liệu Sheet là chân lý.
+ * * * * * AUTHOR: AI ASSISTANT & USER
+ * DATE: 2026/02/08 (Updated V4.5)
  * =================================================================================================
  */
 
@@ -24,12 +23,21 @@ const ResourceCore = require('./resource_core'); // Core logic for Matrix & Rule
 
 // --- CONFIGURATION ---
 const SHEET_ID = process.env.SHEET_ID;
+
 // Define Sheet Names
 const BOOKING_SHEET = 'Sheet1';
 const STAFF_SHEET = 'StaffLog';
 const SCHEDULE_SHEET = 'StaffSchedule';
 const SALARY_SHEET = 'SalaryLog';
 const MENU_SHEET = 'menu';
+
+// Define Status Keywords (The Source of Truth)
+const STATUS_KEYWORDS = {
+    RUNNING: ['Running', '服務中', 'Serving', '🟡'],
+    CANCELLED: ['取消', 'Cancelled', 'Cancel', '❌'],
+    WAITING: ['Waiting', 'chờ', 'waiting'],
+    DONE: ['Done', 'hoàn thành', 'Completed']
+};
 
 // --- GOOGLE AUTHENTICATION ---
 const auth = new google.auth.GoogleAuth({
@@ -39,6 +47,7 @@ const auth = new google.auth.GoogleAuth({
 const sheets = google.sheets({ version: 'v4', auth });
 
 // --- INTERNAL STATE (IN-MEMORY CACHE) ---
+// Note: In V4.5, STATE is used for caching read data, but logic decisions rely on Sheet content.
 let STATE = {
     STAFF_LIST: [],
     cachedBookings: [],
@@ -129,6 +138,17 @@ function isTrueString(val) {
 }
 
 /**
+ * [HELPER V4.5] Check Status String for Running State
+ * Checks if the status string contains keywords implying the service is active.
+ */
+function checkIsRunning(statusString) {
+    if (!statusString) return false;
+    const normalized = statusString.toString();
+    // Check against defined keywords (e.g., "Running", "服務中")
+    return STATUS_KEYWORDS.RUNNING.some(keyword => normalized.includes(keyword));
+}
+
+/**
  * [HELPER] SMART SERVICE FINDER
  * Tìm mã dịch vụ từ tên hoặc mã, hỗ trợ tìm kiếm mờ (fuzzy match).
  */
@@ -160,10 +180,6 @@ function smartFindServiceCode(inputName) {
 /**
  * [HELPER V4.2] Resolve Strict Lock State
  * Centralized logic to determine the "TRUE" or "FALSE" string for Column AE.
- * @param {boolean} explicitLock - User explicitly requested lock (true/false/undefined)
- * @param {boolean} hasManualPhase - User modified phases manually
- * @param {string} currentStatus - Existing status from cache (optional)
- * @returns {string} "TRUE" or "FALSE" (Never returns null/undefined)
  */
 function resolveStrictLockState(explicitLock, hasManualPhase, currentStatus = "FALSE") {
     // Priority 1: Explicit Lock Request overrides everything
@@ -174,7 +190,6 @@ function resolveStrictLockState(explicitLock, hasManualPhase, currentStatus = "F
     if (hasManualPhase === true) return "TRUE";
 
     // Priority 3: Fallback / Maintain existing state
-    // Ensure existing state is strictly normalized
     if (isTrueString(currentStatus)) return "TRUE";
     
     // Default safe state
@@ -236,11 +251,12 @@ async function syncData() {
 
         // --- BƯỚC 1: ĐỌC BOOKING TỪ SHEET1 ---
         // Range A:AE includes:
-        // AA (26) = Flow
-        // AB (27) = Phase 1 Resource
-        // AC (28) = Phase 2 Resource
-        // AD (29) = Resource Type
-        // AE (30) = Locked Status
+        // Col H (7) = Status (SOURCE OF TRUTH FOR RUNNING STATE)
+        // Col AA (26) = Flow
+        // Col AB (27) = Phase 1 Resource
+        // Col AC (28) = Phase 2 Resource
+        // Col AD (29) = Resource Type
+        // Col AE (30) = Locked Status
         const resBooking = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: `${BOOKING_SHEET}!A:AE` });
         const rowsBooking = resBooking.data.values;
         let tempBookings = [];
@@ -250,8 +266,15 @@ async function syncData() {
                 const row = rowsBooking[i];
                 if (!row[0] || !row[1]) continue; 
                 
+                // --- STATUS PARSING (V4.5 UPGRADE) ---
                 const status = row[7] || '已預約';
-                if (status.includes('取消') || status.includes('Cancelled')) continue;
+                
+                // 1. Filter Cancelled
+                if (STATUS_KEYWORDS.CANCELLED.some(k => status.includes(k))) continue;
+
+                // 2. Detect Running State (The Logic Shift)
+                // Instead of relying on app.js to guess, we trust the Sheet column H.
+                const isRunning = checkIsRunning(status);
 
                 const cleanDate = normalizeDateStrict(row[0]); 
                 if (!cleanDate) continue;
@@ -295,8 +318,7 @@ async function syncData() {
                 let flowCode = null;
                 if (rawFlow && ['BF','FB','FOOTSINGLE','BODYSINGLE'].includes(rawFlow)) { flowCode = rawFlow; }
                 
-                // [V4.4 NEW] RESOURCE READING (Columns AB, AC, AD)
-                // Đọc dữ liệu vị trí đã lưu để UI có thể hiển thị lại
+                // [V4.4] RESOURCE READING (Columns AB, AC, AD)
                 const phase1Resource = row[27] || null; // Column AB
                 const phase2Resource = row[28] || null; // Column AC
                 const resourceType   = row[29] || null; // Column AD
@@ -320,6 +342,8 @@ async function syncData() {
                     phone: row[6], 
                     date: cleanDate, 
                     status: status, 
+                    // [V4.5 NEW FIELD] Export the running state explicitly
+                    isRunning: isRunning, 
                     lineId: row[9], 
                     isOil: row[4] === "Yes",
                     phase1_duration: phase1Duration,
@@ -437,13 +461,13 @@ async function syncData() {
 }
 
 // =============================================================================
-// PHẦN 3: WRITE & UPDATE LOGIC (UPDATED V4.4 FOR RESOURCES)
+// PHẦN 3: WRITE & UPDATE LOGIC (UPDATED V4.5 STATUS & V4.4 RESOURCES)
 // =============================================================================
 
 /**
  * Ghi booking mới vào Google Sheets.
- * V4.4 UPDATE: Map thêm dữ liệu Resource vào cột 27 (AB), 28 (AC), 29 (AD).
- * V4.2 GIA CỐ: Cột AE luôn được gán giá trị chuỗi cứng ("TRUE" hoặc "FALSE").
+ * V4.5 NOTE: Trạng thái mặc định là "已預約". 
+ * Nếu muốn tạo booking ở trạng thái "Running" ngay lập tức, cần truyền tham số status.
  */
 async function ghiVaoSheet(data, proposedUpdates = []) {
     try {
@@ -456,6 +480,7 @@ async function ghiVaoSheet(data, proposedUpdates = []) {
         if (colB_Time.length > 5) colB_Time = colB_Time.substring(0, 5);
         
         const colG_Phone = data.sdt; 
+        // Default status is Reserved, unless overridden
         const colH_Status = data.trangThai || '已預約'; 
         const colJ_LineID = data.userId; 
         const colK_Created = timeCreate;
@@ -468,7 +493,6 @@ async function ghiVaoSheet(data, proposedUpdates = []) {
 
         for (let i = 0; i < loopCount; i++) {
             // Khởi tạo mảng với 31 phần tử (index 0 -> 30)
-            // 0..25 (A..Z), 26 (AA), 27 (AB), 28 (AC), 29 (AD), 30 (AE)
             const row = new Array(31).fill("");
             let guestDetail = (data.guestDetails && data.guestDetails[i]) ? data.guestDetails[i] : null;
 
@@ -535,16 +559,13 @@ async function ghiVaoSheet(data, proposedUpdates = []) {
             }
             row[26] = flowVal || "FB";
 
-            // [V4.4 NEW] RESOURCE COLUMNS WRITING (AB, AC, AD)
-            // Priority: Check guestDetail first, then root data
+            // [V4.4] RESOURCE COLUMNS WRITING (AB, AC, AD)
             let r1 = null; let r2 = null; let rType = null;
-
             if (guestDetail) {
                 r1 = guestDetail.phase1Resource || guestDetail.phase1_resource;
                 r2 = guestDetail.phase2Resource || guestDetail.phase2_resource;
                 rType = guestDetail.resourceType || guestDetail.resource_type;
             }
-            // Fallback to root data if not in guestDetail
             if (!r1) r1 = data.phase1Resource || data.phase1_resource;
             if (!r2) r2 = data.phase2Resource || data.phase2_resource;
             if (!rType) rType = data.resourceType || data.resource_type;
@@ -553,9 +574,8 @@ async function ghiVaoSheet(data, proposedUpdates = []) {
             row[28] = r2 || ""; // Column AC
             row[29] = rType || ""; // Column AD
 
-            // [CRITICAL: STRICT LOCK LOGIC V4.2]
+            // [CRITICAL: STRICT LOCK LOGIC]
             const hasManualPhase = (p1 !== null && p1 !== undefined && p1 !== "");
-            const explicitLock = (data.isManualLocked === true);
             const finalLockVal = resolveStrictLockState(data.isManualLocked, hasManualPhase, "FALSE");
             
             row[30] = finalLockVal; 
@@ -573,21 +593,37 @@ async function ghiVaoSheet(data, proposedUpdates = []) {
             console.log(`[WRITE] Success.`);
         }
         
+        // Fast sync after write to update SSOT
         setTimeout(() => syncData(), 500);
 
     } catch (e) { console.error('[WRITE ERROR] One-Shot Write Failed:', e); }
 }
 
+/**
+ * [HELPER] Direct Status Update
+ * Updates Column H directly. Critical for SSOT strategy.
+ */
 async function updateBookingStatus(rowId, newStatus) {
     try {
-        await sheets.spreadsheets.values.update({ spreadsheetId: SHEET_ID, range: `${BOOKING_SHEET}!H${rowId}`, valueInputOption: 'USER_ENTERED', requestBody: { values: [[ newStatus ]] } });
-        await syncData();
-    } catch (e) { console.error('Update Status Error:', e); }
+        if (!rowId) throw new Error("RowID required for status update");
+        
+        console.log(`[STATUS SSOT] Updating Row ${rowId} to '${newStatus}'`);
+        
+        await sheets.spreadsheets.values.update({ 
+            spreadsheetId: SHEET_ID, 
+            range: `${BOOKING_SHEET}!H${rowId}`, 
+            valueInputOption: 'USER_ENTERED', 
+            requestBody: { values: [[ newStatus ]] } 
+        });
+        
+        await syncData(); // Sync immediately to propagate 'isRunning' status
+        return true;
+    } catch (e) { console.error('Update Status Error:', e); return false; }
 }
 
 /**
- * [CRITICAL] UPDATE BOOKING DETAILS (V4.4 RESOURCE AWARE)
- * V4.4 Additions: Support updating Columns AB (Phase1Res), AC (Phase2Res), AD (Type).
+ * [CRITICAL] UPDATE BOOKING DETAILS (V4.5 STATUS & V4.4 RESOURCE AWARE)
+ * Handles updating various fields including Status, Resources, and Locks.
  */
 async function updateBookingDetails(body) {
     const rowId = body.rowId;
@@ -620,7 +656,14 @@ async function updateBookingDetails(body) {
     if (body.isOil !== undefined) await updateCell('E', body.isOil ? "Yes" : "");
     if (body.pax) await updateCell('F', body.pax);
     if (body.phone) await updateCell('G', body.phone);
-    if (body.mainStatus) await updateCell('H', body.mainStatus);
+    
+    // [V4.5] Status Update - Direct Write to Col H
+    // If body.mainStatus is passed (e.g., "🟡 服務中"), it writes to Sheet.
+    // syncData will then read it and set isRunning=true.
+    if (body.mainStatus) {
+        console.log(`[UPDATE STATUS] Writing '${body.mainStatus}' to Row ${rowId} (Col H)`);
+        await updateCell('H', body.mainStatus);
+    }
     
     // Staff Updates
     if (body.staffId && body.staffId !== '随機') await updateCell('I', body.staffId);
@@ -628,7 +671,7 @@ async function updateBookingDetails(body) {
     if (body.staffId3) await updateCell('N', body.staffId3);
     if (body.flow) await updateCell('AA', body.flow);
 
-    // --- 2. [V4.4 NEW] RESOURCE COLUMN UPDATES (AB, AC, AD) ---
+    // --- 2. [V4.4] RESOURCE COLUMN UPDATES (AB, AC, AD) ---
     // Cho phép cập nhật thủ công tài nguyên nếu UI gửi lên
     if (body.phase1Resource !== undefined) await updateCell('AB', body.phase1Resource);
     if (body.phase2Resource !== undefined) await updateCell('AC', body.phase2Resource);
@@ -700,7 +743,7 @@ async function updateBookingDetails(body) {
         }
     }
 
-    // 4. Trigger Sync
+    // 4. Trigger Sync to refresh state across the app
     if (body.forceSync) await syncData(); 
     else setTimeout(() => syncData(), 500); 
     
