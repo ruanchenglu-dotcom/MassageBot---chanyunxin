@@ -16,9 +16,6 @@ const client = new line.Client(config);
  */
 let USER_SESSIONS = {};
 
-// Bộ nhớ tạm xác thực cũ (Fallback nếu không tìm thấy trong DB)
-let STAFF_BINDING_FALLBACK = {};
-
 // Các hằng số trạng thái
 const STEPS = {
     IDLE: 'IDLE',
@@ -34,13 +31,12 @@ const STEPS = {
 // 2. HÀM XỬ LÝ CHÍNH (Được gọi từ index.js)
 async function handleEvent(event, context) {
     // Giải nén context để lấy các hàm Service cần thiết
-    // LƯU Ý: index.js cần truyền thêm các hàm: findStaffRowByLineId, updateScheduleCell, updateDailyStatus
-    const { 
-        ghiVaoSheet, normalizeDateStrict, getTaipeiNow, formatDateTimeString, 
+    const {
+        ghiVaoSheet, normalizeDateStrict, getTaipeiNow, formatDateTimeString,
         STAFF_LIST, ID_BA_CHU, clientMain,
-        findStaffRowByLineId, updateScheduleCell, updateDailyStatus // Các hàm mới cần có
+        findStaffRowByLineId, updateScheduleCell, updateDailyStatus
     } = context;
-    
+
     const userId = event.source.userId;
     const isText = event.type === 'message' && event.message.type === 'text';
     const isPostback = event.type === 'postback';
@@ -56,44 +52,23 @@ async function handleEvent(event, context) {
         postbackParams = event.postback.params; // Chứa time/date từ picker
     }
 
-    // --- LOGIC 1: XÁC THỰC DANH TÍNH (Authentication) ---
-    // Ưu tiên 1: Tìm trong Database/Sheet qua hàm findStaffRowByLineId (New Logic)
+    // --- LOGIC 1: XÁC THỰC DANH TÍNH (Authentication) BẰNG LINE ID ---
+    // Tìm trong Database/Sheet qua hàm findStaffRowByLineId (Dựa vào cột F)
     let staffInfo = null;
     if (findStaffRowByLineId) {
         staffInfo = await findStaffRowByLineId(userId);
     }
 
-    // Ưu tiên 2: Nếu chưa có trong DB, kiểm tra bộ nhớ tạm (Old Logic - Fallback)
-    if (!staffInfo && STAFF_BINDING_FALLBACK[userId]) {
-        staffInfo = { name: STAFF_BINDING_FALLBACK[userId], id: 'TEMP_BINDING' };
-    }
-
-    // Nếu hoàn toàn chưa xác thực -> Yêu cầu Bind hoặc Báo lỗi
+    // Nếu không tìm thấy LINE ID trong Sheet -> Chặn luôn, không cho chọn tên
     if (!staffInfo) {
-        // Hỗ trợ lệnh Bind thủ công (Legacy)
-        if (input.startsWith('Bind:')) {
-            const staffName = input.split(':')[1];
-            STAFF_BINDING_FALLBACK[userId] = staffName;
-            return client.replyMessage(event.replyToken, { type: 'text', text: `✅ Xác nhận tạm: Bạn là ${staffName}.\nMenu đã sẵn sàng.` });
-        }
-
-        // Nếu không bind, hiển thị danh sách chọn (Legacy) hoặc thông báo ID (New)
-        if (STAFF_LIST && STAFF_LIST.length > 0) {
-            const bubbles = createStaffBubblesForAuth(STAFF_LIST);
-            return client.replyMessage(event.replyToken, {
-                type: 'flex', altText: 'Vui lòng xác nhận danh tính',
-                contents: { type: 'carousel', contents: bubbles }
-            });
-        } else {
-            return client.replyMessage(event.replyToken, { 
-                type: 'text', 
-                text: `⛔ Tài khoản chưa liên kết.\nVui lòng gửi ID này cho quản lý:\n${userId}` 
-            });
-        }
+        return client.replyMessage(event.replyToken, {
+            type: 'text',
+            text: `⛔ Tài khoản chưa được liên kết.\n\nVui lòng copy và gửi ID này cho quản lý để thêm vào hệ thống:\n\n${userId}`
+        });
     }
 
     const myName = staffInfo.name;
-    
+
     // Khởi tạo session nếu chưa có
     if (!USER_SESSIONS[userId]) USER_SESSIONS[userId] = { step: STEPS.IDLE, data: {} };
     const session = USER_SESSIONS[userId];
@@ -142,10 +117,10 @@ async function handleEvent(event, context) {
     // B. XỬ LÝ FLOW: XIN NGHỈ (Request Off)
     if (session.step === STEPS.SELECT_DATE_OFF && input.startsWith('PICK_DATE_OFF:')) {
         const dateOff = input.split(':')[1]; // Format: YYYY-MM-DD
-        
+
         // Gọi hàm update (ưu tiên hàm mới, fallback hàm cũ)
         if (updateScheduleCell) {
-            await updateScheduleCell(dateOff, myName, "OFF"); 
+            await updateScheduleCell(dateOff, myName, "OFF");
         } else {
             // Fallback logic cũ
             await ghiVaoSheet({
@@ -156,8 +131,8 @@ async function handleEvent(event, context) {
         }
 
         // Notify Boss
-        if(clientMain) clientMain.pushMessage(ID_BA_CHU, { type: 'text', text: `📩 [ĐƠN XIN NGHỈ]\nNV: ${myName}\nNgày: ${dateOff}` });
-        
+        if (clientMain) clientMain.pushMessage(ID_BA_CHU, { type: 'text', text: `📩 [ĐƠN XIN NGHỈ]\nNV: ${myName}\nNgày: ${dateOff}` });
+
         USER_SESSIONS[userId] = { step: STEPS.IDLE, data: {} }; // Reset
         return client.replyMessage(event.replyToken, { type: 'text', text: `✅ Đã đăng ký nghỉ ngày ${dateOff}.` });
     }
@@ -167,7 +142,7 @@ async function handleEvent(event, context) {
         const dateLate = input.split(':')[1];
         USER_SESSIONS[userId].step = STEPS.SELECT_TIME_LATE;
         USER_SESSIONS[userId].data.date = dateLate;
-        
+
         // Hiển thị các mốc giờ để chọn (Giả sử ca từ 10:00 - 20:00, tạo slot mỗi 30p)
         return showTimeSlots(event.replyToken, dateLate, "PICK_TIME_LATE");
     }
@@ -180,16 +155,16 @@ async function handleEvent(event, context) {
             // Ghi giờ vào ô tương ứng trên Sheet
             await updateScheduleCell(dateLate, myName, timeLate);
         } else {
-             // Fallback logic cũ (chỉ hoạt động cho ngày hôm nay)
-             await ghiVaoSheet({
+            // Fallback logic cũ (chỉ hoạt động cho ngày hôm nay)
+            await ghiVaoSheet({
                 ngayDen: dateLate, gioDen: timeLate, dichVu: `LATE_VAR`,
                 nhanVien: myName, userId: userId,
                 hoTen: `${myName} (Muộn ${timeLate})`, trangThai: '⚠️ Báo muộn', flow: 'FB'
             });
         }
 
-        if(clientMain) clientMain.pushMessage(ID_BA_CHU, { type: 'text', text: `🏃 [BÁO MUỘN]\nNV: ${myName}\nNgày: ${dateLate}\nGiờ đến: ${timeLate}` });
-        
+        if (clientMain) clientMain.pushMessage(ID_BA_CHU, { type: 'text', text: `🏃 [BÁO MUỘN]\nNV: ${myName}\nNgày: ${dateLate}\nGiờ đến: ${timeLate}` });
+
         USER_SESSIONS[userId] = { step: STEPS.IDLE, data: {} };
         return client.replyMessage(event.replyToken, { type: 'text', text: `👌 Đã báo sẽ đến lúc ${timeLate} ngày ${dateLate}.` });
     }
@@ -253,14 +228,14 @@ async function handleEvent(event, context) {
 
         // Validate cơ bản
         if (endTime <= startTime) {
-             return client.replyMessage(event.replyToken, { type: 'text', text: `⚠️ Giờ về phải lớn hơn giờ đi (${startTime}). Vui lòng chọn lại.` });
+            return client.replyMessage(event.replyToken, { type: 'text', text: `⚠️ Giờ về phải lớn hơn giờ đi (${startTime}). Vui lòng chọn lại.` });
         }
 
         if (updateDailyStatus) {
             await updateDailyStatus(myName, todayStr, 'OUT', startTime, endTime); // Type 'OUT' -> Col J, K
-            
+
             // Notify Boss
-            if(clientMain) clientMain.pushMessage(ID_BA_CHU, { type: 'text', text: `🚪 [RA NGOÀI]\nNV: ${myName}\n${startTime} - ${endTime}` });
+            if (clientMain) clientMain.pushMessage(ID_BA_CHU, { type: 'text', text: `🚪 [RA NGOÀI]\nNV: ${myName}\n${startTime} - ${endTime}` });
 
             USER_SESSIONS[userId] = { step: STEPS.IDLE, data: {} };
             return client.replyMessage(event.replyToken, { type: 'text', text: `✅ Đã ghi nhận ra ngoài:\n${startTime} - ${endTime}` });
@@ -279,25 +254,27 @@ function showMainMenu(replyToken, name) {
         contents: {
             "type": "bubble",
             "body": {
-                "type": "box", "layout": "vertical", "backgroundColor": "#F9FAFB", 
+                "type": "box", "layout": "vertical", "backgroundColor": "#F9FAFB",
                 "contents": [
                     { "type": "text", "text": `Xin chào, ${name} 👋`, "weight": "bold", "size": "lg", "color": "#1DB446", "align": "center" },
                     { "type": "text", "text": "Chọn thao tác bên dưới:", "size": "xs", "color": "#aaaaaa", "align": "center", "margin": "sm" },
                     { "type": "separator", "margin": "md" },
-                    { "type": "box", "layout": "vertical", "margin": "lg", "spacing": "md", "contents": [
-                        { 
-                            "type": "box", "layout": "horizontal", "spacing": "sm", "contents": [
-                                { "type": "button", "style": "primary", "color": "#E63946", "height": "sm", "action": { "type": "postback", "label": "⛔ Xin Nghỉ", "data": "CMD:RequestOff" } },
-                                { "type": "button", "style": "primary", "color": "#F48FB1", "height": "sm", "action": { "type": "postback", "label": "🏃 Đi Trễ", "data": "CMD:LateOptions" } }
-                            ]
-                        },
-                        { 
-                            "type": "box", "layout": "horizontal", "spacing": "sm", "contents": [
-                                { "type": "button", "style": "secondary", "height": "sm", "action": { "type": "postback", "label": "🍱 Ăn Cơm", "data": "CMD:MealBreak" } },
-                                { "type": "button", "style": "secondary", "height": "sm", "action": { "type": "postback", "label": "🚪 Ra Ngoài", "data": "CMD:GoOut" } }
-                            ]
-                        }
-                    ]}
+                    {
+                        "type": "box", "layout": "vertical", "margin": "lg", "spacing": "md", "contents": [
+                            {
+                                "type": "box", "layout": "horizontal", "spacing": "sm", "contents": [
+                                    { "type": "button", "style": "primary", "color": "#E63946", "height": "sm", "action": { "type": "postback", "label": "⛔ Xin Nghỉ", "data": "CMD:RequestOff" } },
+                                    { "type": "button", "style": "primary", "color": "#F48FB1", "height": "sm", "action": { "type": "postback", "label": "🏃 Đi Trễ", "data": "CMD:LateOptions" } }
+                                ]
+                            },
+                            {
+                                "type": "box", "layout": "horizontal", "spacing": "sm", "contents": [
+                                    { "type": "button", "style": "secondary", "height": "sm", "action": { "type": "postback", "label": "🍱 Ăn Cơm", "data": "CMD:MealBreak" } },
+                                    { "type": "button", "style": "secondary", "height": "sm", "action": { "type": "postback", "label": "🚪 Ra Ngoài", "data": "CMD:GoOut" } }
+                                ]
+                            }
+                        ]
+                    }
                 ]
             }
         }
@@ -315,8 +292,8 @@ function showCalendar(replyToken, title, actionPrefix) {
         d.setDate(today.getDate() + i);
         const dateStr = d.toISOString().split('T')[0]; // YYYY-MM-DD
         const dayLabel = `${d.getDate()}/${d.getMonth() + 1}`;
-        const weekday = ['CN','T2','T3','T4','T5','T6','T7'][d.getDay()];
-        
+        const weekday = ['CN', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7'][d.getDay()];
+
         days.push({
             "type": "button",
             "style": "secondary",
@@ -338,7 +315,7 @@ function showCalendar(replyToken, title, actionPrefix) {
                 "contents": chunk.slice(j, j + 3)
             });
         }
-        
+
         bubbles.push({
             "type": "bubble",
             "header": { "type": "box", "layout": "vertical", "contents": [{ "type": "text", "text": title, "weight": "bold", "color": "#ffffff" }], "backgroundColor": "#007BFF" },
@@ -357,8 +334,8 @@ function showTimeSlots(replyToken, dateStr, actionPrefix) {
     const times = [];
     // Tạo slot 10h -> 20h
     for (let h = 10; h <= 20; h++) {
-        times.push(`${h < 10 ? '0'+h : h}:00`);
-        times.push(`${h < 10 ? '0'+h : h}:30`);
+        times.push(`${h < 10 ? '0' + h : h}:00`);
+        times.push(`${h < 10 ? '0' + h : h}:30`);
     }
 
     const buttons = times.map(t => ({
@@ -389,36 +366,7 @@ function showTimeSlots(replyToken, dateStr, actionPrefix) {
 function formatTime(h, m) {
     if (m >= 60) { h += Math.floor(m / 60); m = m % 60; }
     if (h >= 24) h = h % 24;
-    return `${h < 10 ? '0'+h : h}:${m < 10 ? '0'+m : m}`;
-}
-
-// Helper: Tạo bong bóng chọn tên (Giữ lại từ code cũ cho Auth)
-function createStaffBubblesForAuth(staffList) {
-    if (!staffList || staffList.length === 0) return [{ "type": "bubble", "body": { "type": "box", "layout": "vertical", "contents": [{ "type": "text", "text": "No Data", "align": "center" }] } }];
-    
-    const bubbles = []; const chunkSize = 12;
-    const cleanList = staffList.filter(s => s.id && s.id !== '随機'); // Lọc bỏ dữ liệu rác
-
-    for (let i = 0; i < cleanList.length; i += chunkSize) {
-        const chunk = cleanList.slice(i, i + chunkSize); const rows = [];
-        for (let j = 0; j < chunk.length; j += 3) {
-            const rowItems = chunk.slice(j, j + 3);
-            const rowButtons = rowItems.map(s => ({
-                "type": "button", "style": "secondary", "height": "sm", "margin": "xs", "flex": 1,
-                "action": { "type": "message", "label": s.name, "text": `Bind:${s.id}` }
-            }));
-            rows.push({ "type": "box", "layout": "horizontal", "spacing": "xs", "contents": rowButtons });
-        }
-        bubbles.push({
-            "type": "bubble", "body": {
-                "type": "box", "layout": "vertical", "contents": [
-                    { "type": "text", "text": "🔐 XÁC THỰC", "weight": "bold", "align": "center", "color": "#E63946" },
-                    { "type": "separator", "margin": "md" }, ...rows
-                ]
-            }
-        });
-    }
-    return bubbles;
+    return `${h < 10 ? '0' + h : h}:${m < 10 ? '0' + m : m}`;
 }
 
 // Xuất module
