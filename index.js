@@ -1,14 +1,12 @@
 /**
  * =================================================================================================
  * PROJECT: XINWUCHAN MASSAGE BOT (BACKEND SERVER - MAIN ENTRY)
- * VERSION: V124-BRIDGE-UPDATE (FULL CONTEXT CONNECTIVITY)
+ * VERSION: V125-INLINE-EDIT-UPDATE (Thêm API chỉnh sửa trực tiếp)
  * DESCRIPTION: MAIN CONTROLLER & ROUTER
  * * UPDATES IN THIS VERSION:
- * 1. FULL SHEET_SERVICE INJECTION: Truyền toàn bộ instance SheetService sang StaffBot.
- * 2. STAFF CONTEXT EXPANSION: Cung cấp khả năng tìm dòng nhân viên (row finding) và cập nhật ô (cell update).
- * 3. PRESERVED LOGIC: Giữ nguyên toàn bộ logic đặt lịch của khách và API Admin.
+ * 1. Thêm API /api/inline-update-booking hỗ trợ tính năng Inline Editing từ Frontend.
+ * 2. Giữ nguyên toàn bộ logic StaffBot, CustomerBot và ResourceCore.
  * * AUTHOR: AI ASSISTANT & USER
- * DATE: 2026/02/09
  * =================================================================================================
  */
 
@@ -406,6 +404,29 @@ app.post('/api/admin-booking', async (req, res) => {
     res.json({ success: true });
 });
 
+// --- API: INLINE UPDATE BOOKING ROW (NEW) ---
+// Thêm mới: API dành riêng cho tính năng chỉnh sửa trực tiếp trên bảng danh sách
+app.post('/api/inline-update-booking', async (req, res) => {
+    try {
+        const { rowId, updatedData } = req.body;
+
+        if (!rowId || !updatedData) {
+            return res.status(400).json({ success: false, error: 'Thiếu thông tin rowId hoặc updatedData' });
+        }
+
+        console.log(`[INLINE UPDATE] Request cho Row ID: ${rowId}`);
+
+        // Gọi hàm xử lý cập nhật dòng trong SheetService
+        // (Hàm này sẽ được bổ sung vào sheet_service.js ở bước tiếp theo)
+        await SheetService.updateInlineBooking(rowId, updatedData);
+
+        res.json({ success: true, message: 'Cập nhật thành công (Update Success)' });
+    } catch (e) {
+        console.error('[INLINE UPDATE ERROR]', e);
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
 // --- API: UPDATE STATUS (SINGLE SOURCE OF TRUTH) ---
 // Xử lý Start Service và cập nhật trạng thái vào Sheet
 app.post('/api/update-status', async (req, res) => {
@@ -705,4 +726,4 @@ setInterval(() => { SheetService.syncData(); }, 10000);
 app.get('/ping', (req, res) => { res.status(200).send('Pong!'); });
 
 const port = process.env.PORT || 3000;
-app.listen(port, () => { console.log(`XinWuChan Bot V124-BRIDGE-UPDATE running on port ${port}`); });
+app.listen(port, () => { console.log(`XinWuChan Bot V125-INLINE-EDIT-UPDATE running on port ${port}`); });

@@ -1,22 +1,12 @@
 // TYPE: app.js
-// VERSION: V107.0 (SINGLE SOURCE OF TRUTH - SHEET MASTER)
-// UPDATE: 2026-02-09
-// AUTHOR: AI ASSISTANT & USER
+// VERSION: V108.03 (FULL STAFFTIME INTEGRATION & INLINE EDITING)
+// UPDATE: 2026-03-25
 //
-// --- CHANGE LOG V107.0 ---
-// 1. [CORE] SINGLE SOURCE OF TRUTH (CỘI NGUỒN SỰ THẬT):
-//    - Logic cũ: App tin vào ResourceState (RAM) trước, Sheet sau.
-//    - Logic mới: App tin tuyệt đối vào trạng thái "Status" trên Google Sheet.
-//      + Nếu Sheet ghi "Running" -> App bắt buộc phải vẽ block đỏ (Ngay cả khi server mới khởi động lại).
-//      + Nếu Sheet ghi "Done/Cancel" -> App bắt buộc phải xóa block đỏ (Dù RAM đang nhớ là chạy).
-//
-// 2. [CORE] AUTO-RESURRECTION (CƠ CHẾ HỒI SINH):
-//    - Tự động khôi phục các block "Running" bị mất khi tải lại trang dựa trên cột "Location" (Vị trí) đã lưu trong Sheet.
-//
-// 3. [UPDATE] STATUS SYNC:
-//    - Khi bấm Start: Cập nhật ngay Status = "🟡 Running" lên Sheet.
-//    - Khi bấm Finish: Cập nhật ngay Status = "✅ Done" lên Sheet.
-//
+// --- CHANGE LOG V108.03 ---
+// 1. [UI]: Pass statusData xuống TimelineView và BookingControlModal để Dropdown nhận diện đúng thứ tự ưu tiên.
+// 2. [LOGIC C]: executeStart & executeBatchStart bốc thợ Random dựa trên stafftime nhỏ nhất.
+// 3. [LOGIC D]: handleConfirmPayment tích hợp toàn bộ quy tắc trả thợ D1, D2, D3, D4 sau khi thanh toán.
+// 4. [NEW]: Thêm handleInlineUpdate để hỗ trợ tính năng chỉnh sửa trực tiếp trên bảng (Inline Editing).
 
 const { useState, useEffect, useMemo, useRef } = React;
 
@@ -25,6 +15,27 @@ const CommissionView = window.CommissionView;
 const TimelineView = window.TimelineView;
 const BookingListView = window.BookingListView;
 const BookingControlModal = window.BookingControlModal || window.ComboTimeEditModal;
+
+// --- HÀM TRỢ GIÚP TÍNH "節數" (BLOCKS) CHO QUY TẮC D ---
+const getServiceBlocks = (serviceName) => {
+    if (!serviceName) return 0;
+    const name = serviceName.toUpperCase();
+    // Khách chọn theo mã
+    if (name.includes('A6') || name.includes('B6')) return 6;
+    if (name.includes('A4') || name.includes('B4') || name.includes('F4')) return 4;
+    if (name.includes('A3') || name.includes('B3') || name.includes('F3')) return 3;
+    if (name.includes('A2') || name.includes('B2') || name.includes('F2')) return 2;
+    if (name.includes('B1') || name.includes('F1')) return 1;
+
+    // Phân tích theo số phút và tên (dựa trên bảng ảnh)
+    if (name.includes('190') || name.includes('180') || name.includes('帝王')) return 6;
+    if (name.includes('130') || name.includes('120') || name.includes('豪華')) return 4;
+    if (name.includes('100') || name.includes('90') || name.includes('招牌')) return 3;
+    if (name.includes('70') || name.includes('精選')) return 2;
+    if (name.includes('40') || name.includes('35')) return 1;
+
+    return 2; // Mặc định nếu không nhận dạng được
+};
 
 // --- MATRIX HELPER ---
 const MatrixHelper = {
@@ -49,22 +60,31 @@ const MatrixHelper = {
         }
         return count;
     },
-    findBestSlot: (type, start, end, gridState, reservedTimes, preferredIndex = null) => {
+    findBestSlot: (type, start, end, gridState, reservedTimes, preferredIndexOrId = null) => {
         const limit = 6;
-        if (preferredIndex) {
-            const id = `${type}-${preferredIndex}`;
-            let valid = true;
-            if (reservedTimes[id] && start < reservedTimes[id]) valid = false;
-            if (valid && gridState[id]) {
-                for (const slot of gridState[id]) {
-                    if (MatrixHelper.isOverlap(start, end, slot.start, slot.end)) {
-                        valid = false;
-                        break;
+        if (preferredIndexOrId) {
+            let id;
+            if (typeof preferredIndexOrId === 'string' && preferredIndexOrId.includes('-')) {
+                id = preferredIndexOrId;
+            } else {
+                id = `${type}-${preferredIndexOrId}`;
+            }
+
+            if (id.startsWith(type)) {
+                let valid = true;
+                if (reservedTimes[id] && start < reservedTimes[id]) valid = false;
+                if (valid && gridState[id]) {
+                    for (const slot of gridState[id]) {
+                        if (MatrixHelper.isOverlap(start, end, slot.start, slot.end)) {
+                            valid = false;
+                            break;
+                        }
                     }
                 }
+                if (valid) return id;
             }
-            if (valid) return id;
         }
+
         for (let i = 1; i <= limit; i++) {
             const id = `${type}-${i}`;
             if (reservedTimes[id] && start < reservedTimes[id]) continue;
@@ -79,7 +99,7 @@ const MatrixHelper = {
             }
             if (!isClash) return id;
         }
-        return null; 
+        return null;
     }
 };
 
@@ -88,7 +108,7 @@ const detectFlowFromNote = (note, guestIndex) => {
     if (!note) return null;
     const rawStr = note.toString().toUpperCase();
     const cleanNote = rawStr.replace(/：/g, ':').replace(/，/g, ',').replace(/;/g, ',').replace(/\(/g, ',').replace(/\)/g, ',').replace(/\s+/g, '');
-    const kTag = `K${guestIndex + 1}`; 
+    const kTag = `K${guestIndex + 1}`;
     const hasAnyKTag = /K\d/.test(cleanNote);
 
     if (hasAnyKTag) {
@@ -99,7 +119,7 @@ const detectFlowFromNote = (note, guestIndex) => {
                 if (part.match(/FOOT|FB|先做腳|先做脚|先足|先做足|腳|脚|足|CHÂN|CHAN|FUT/)) return 'FB';
             }
         }
-        return null; 
+        return null;
     }
     if (cleanNote.match(/BODYFIRST|BF|先做身體|先身/)) return 'BF';
     if (cleanNote.match(/FOOTFIRST|FB|先做腳|先足/)) return 'FB';
@@ -110,9 +130,9 @@ const detectFlowFromNote = (note, guestIndex) => {
 const getSmartSplit = (booking, totalDuration, isMaxMode, sequence) => {
     if (booking.phase1_duration !== undefined && booking.phase1_duration !== null && booking.phase1_duration > 0 &&
         booking.phase2_duration !== undefined && booking.phase2_duration !== null) {
-        return { 
-            phase1: parseInt(booking.phase1_duration), 
-            phase2: parseInt(booking.phase2_duration) 
+        return {
+            phase1: parseInt(booking.phase1_duration),
+            phase2: parseInt(booking.phase2_duration)
         };
     }
     if (booking.phase1_duration && booking.phase1_duration > 0) {
@@ -122,19 +142,19 @@ const getSmartSplit = (booking, totalDuration, isMaxMode, sequence) => {
     return window.getComboSplit(totalDuration, isMaxMode, sequence, null);
 };
 
-// --- HELPER: NORMALIZE PHONE (For Group Detection) ---
+// --- HELPER: NORMALIZE PHONE ---
 const getNormalizedPhone = (booking) => {
     if (!booking) return "";
     const raw = booking.phone || booking.sdt || booking.custPhone || "";
     return raw.replace(/\D/g, '').slice(-6);
 };
 
-// --- V106.2 NEW HELPER: BOOKING SIGNATURE (For Fuzzy Matching) ---
+// --- HELPER: BOOKING SIGNATURE ---
 const getBookingSignature = (booking) => {
     if (!booking) return "null";
     const time = (booking.startTimeString || "").split(' ')[1] || "00:00";
     const name = (booking.customerName || "").trim().toLowerCase().replace(/\s+/g, '');
-    const phone = getNormalizedPhone(booking).slice(-4); 
+    const phone = getNormalizedPhone(booking).slice(-4);
     const service = (booking.serviceName || "").substring(0, 3);
     return `${time}_${name}_${phone}`;
 };
@@ -142,36 +162,32 @@ const getBookingSignature = (booking) => {
 // --- APP COMPONENT ---
 const App = () => {
     // 1. STATE MANAGEMENT
-    const [activeTab, setActiveTab] = useState('timeline'); 
-    
+    const [activeTab, setActiveTab] = useState('timeline');
+
     const [staffList, setStaffList] = useState([]);
-    const [bookings, setBookings] = useState([]); 
-    const [resourceState, setResourceState] = useState({}); 
+    const [bookings, setBookings] = useState([]);
+    const [resourceState, setResourceState] = useState({});
     const [statusData, setStatusData] = useState({});
-    const [timelineData, setTimelineData] = useState({}); 
-    
+    const [timelineData, setTimelineData] = useState({});
+
     // Modal States
     const [showCheckIn, setShowCheckIn] = useState(false);
-    const [showAvailability, setShowAvailability] = useState(false); 
+    const [showAvailability, setShowAvailability] = useState(false);
     const [selectedSlot, setSelectedSlot] = useState(null);
     const [billingData, setBillingData] = useState(null);
     const [comboStartData, setComboStartData] = useState(null);
     const [splitData, setSplitData] = useState(null);
-    
-    // V102.9: Booking Control Center State
     const [controlCenterData, setControlCenterData] = useState(null);
-    
-    // V103.0: Payment Branching State
     const [paymentChoiceData, setPaymentChoiceData] = useState(null);
-
-    // V105.2: Start Branching State (Smart Start)
     const [startChoiceData, setStartChoiceData] = useState(null);
 
     // System States
     const [viewDate, setViewDate] = useState(window.getOperationalDateInputFormat());
-    const [syncLock, setSyncLock] = useState(false); 
-    const [quotaError, setQuotaError] = useState(false); 
+    const [syncLock, setSyncLock] = useState(false);
+    const [quotaError, setQuotaError] = useState(false);
     const [isManualRefreshing, setIsManualRefreshing] = useState(false);
+
+    const localOverridesRef = useRef({});
 
     // 2. HELPER FUNCTIONS
     const isActuallyBusy = (staffId) => {
@@ -196,38 +212,38 @@ const App = () => {
         Object.values(resourceState).forEach(r => {
             if (r.isRunning && !r.isPaused && r.isPreview !== true) {
                 const b = r.booking || {};
-                if(b.serviceStaff) ids.add(b.serviceStaff);
-                if(b.staffId) ids.add(b.staffId);
-                if(b.staffId2) ids.add(b.staffId2);
-                if(b.staffId3) ids.add(b.staffId3);
-                if(b.staffId4) ids.add(b.staffId4);
-                if(b.staffId5) ids.add(b.staffId5);
-                if(b.staffId6) ids.add(b.staffId6);
+                if (b.serviceStaff) ids.add(b.serviceStaff);
+                if (b.staffId) ids.add(b.staffId);
+                if (b.staffId2) ids.add(b.staffId2);
+                if (b.staffId3) ids.add(b.staffId3);
+                if (b.staffId4) ids.add(b.staffId4);
+                if (b.staffId5) ids.add(b.staffId5);
+                if (b.staffId6) ids.add(b.staffId6);
             }
         });
         return Array.from(ids);
     }, [resourceState]);
 
-    const updateResource = async (newState) => { 
-        setResourceState(newState); 
-        await axios.post('/api/sync-resource', newState); 
+    const updateResource = async (newState) => {
+        setResourceState(newState);
+        await axios.post('/api/sync-resource', newState);
     };
-    
-    const updateStaffStatus = async (newStatus) => { 
-        setStatusData(newStatus); 
-        await axios.post('/api/sync-staff-status', newStatus); 
+
+    const updateStaffStatus = async (newStatus) => {
+        setStatusData(newStatus);
+        await axios.post('/api/sync-staff-status', newStatus);
     }
 
     const getGroupMemberIndex = (targetResId, targetRowId) => {
         const allSlots = [];
-        for(let i=1; i<=6; i++) allSlots.push(`chair-${i}`);
-        for(let i=1; i<=6; i++) allSlots.push(`bed-${i}`);
+        for (let i = 1; i <= 6; i++) allSlots.push(`chair-${i}`);
+        for (let i = 1; i <= 6; i++) allSlots.push(`bed-${i}`);
         const groupSlots = allSlots.filter(slotId => {
             const res = resourceState[slotId];
             return res && res.booking && String(res.booking.rowId) === String(targetRowId);
         });
         groupSlots.sort((a, b) => window.getWeight(a) - window.getWeight(b));
-        return groupSlots.indexOf(targetResId); 
+        return groupSlots.indexOf(targetResId);
     };
 
     const getLiveResourceByBooking = (rowId) => {
@@ -258,7 +274,6 @@ const App = () => {
                 const otherBooking = item.booking;
                 const otherRowId = String(otherBooking.rowId);
                 const otherPhone = getNormalizedPhone(otherBooking);
-                
                 if (otherRowId === currentRowId) return true;
                 if (currentPhone.length >= 4 && currentPhone === otherPhone) return true;
                 return false;
@@ -277,7 +292,6 @@ const App = () => {
                 const otherBooking = item.booking;
                 const otherRowId = String(otherBooking.rowId);
                 const otherPhone = getNormalizedPhone(otherBooking);
-                
                 if (otherRowId === currentRowId) return true;
                 if (currentPhone.length >= 4 && currentPhone === otherPhone) return true;
                 return false;
@@ -285,31 +299,77 @@ const App = () => {
     };
 
     const universalSend = async (endpoint, payload) => {
-        try { await axios.post(endpoint, payload); } catch(e) { console.log("Universal send check (ignore):", e); }
+        try { await axios.post(endpoint, payload); } catch (e) { console.log("Universal send check (ignore):", e); }
     };
 
-    // 3. CORE LOGIC (FETCH & RENDER) - REWRITTEN FOR V107.0
+    // 3. CORE LOGIC (FETCH & RENDER) 
     const fetchData = async (isManual = false) => {
-        if (syncLock && !isManual) return; 
+        if (syncLock && !isManual) return;
         if (quotaError && !isManual) return;
         if (isManual) setIsManualRefreshing(true);
 
         try {
             const endpoint = isManual ? '/api/info?forceRefresh=true' : '/api/info';
             const res = await axios.get(endpoint);
-            setQuotaError(false); 
-            
+            setQuotaError(false);
+
             const { bookings: apiBookings, staffList: apiStaff, resourceState: serverRes, staffStatus: serverStaff } = res.data;
-            
-            // --- A. CLEAN BOOKINGS ---
+
+            let nextResourceState = { ...(serverRes || {}) };
+
+            Object.keys(localOverridesRef.current).forEach(rowId => {
+                const override = localOverridesRef.current[rowId];
+                if (override && override.storedLocation) {
+                    const targetResId = override.storedLocation;
+                    let currentResId = null;
+
+                    Object.keys(nextResourceState).forEach(key => {
+                        if (nextResourceState[key] && nextResourceState[key].booking && String(nextResourceState[key].booking.rowId) === rowId) {
+                            currentResId = key;
+                        }
+                    });
+
+                    if (currentResId && currentResId !== targetResId) {
+                        nextResourceState[targetResId] = nextResourceState[currentResId];
+                        delete nextResourceState[currentResId];
+                    }
+                }
+            });
+
             const cleanBookings = (apiBookings || []).map(b => {
-                let rawFlow = b.flow || null;
+                let targetB = { ...b };
+
+                const override = localOverridesRef.current[String(targetB.rowId)];
+                if (override) {
+                    let isSynced = true;
+                    if (override.startTimeString && targetB.startTimeString !== override.startTimeString) isSynced = false;
+                    if (override.phase1_duration !== undefined && parseInt(targetB.phase1_duration) !== override.phase1_duration) isSynced = false;
+                    if (override.phase2_duration !== undefined && parseInt(targetB.phase2_duration) !== override.phase2_duration) isSynced = false;
+                    if (override.storedLocation && targetB.location !== override.storedLocation && targetB.current_resource_id !== override.storedLocation) isSynced = false;
+                    if (override.flow && targetB.flow !== override.flow) isSynced = false;
+
+                    if (isSynced) {
+                        delete localOverridesRef.current[String(targetB.rowId)];
+                    } else {
+                        if (override.startTimeString) targetB.startTimeString = override.startTimeString;
+                        if (override.phase1_duration !== undefined) targetB.phase1_duration = override.phase1_duration;
+                        if (override.phase2_duration !== undefined) targetB.phase2_duration = override.phase2_duration;
+                        if (override.storedLocation) {
+                            targetB.location = override.storedLocation;
+                            targetB.current_resource_id = override.storedLocation;
+                        }
+                        if (override.flow) targetB.flow = override.flow;
+                        targetB.isManualLocked = true;
+                    }
+                }
+
+                let rawFlow = targetB.flow || null;
                 if (rawFlow === 'null' || rawFlow === 'undefined' || rawFlow === '') rawFlow = null;
                 if (rawFlow) rawFlow = rawFlow.toUpperCase();
 
-                const p1 = b.phase1_duration ? parseInt(b.phase1_duration) : null;
-                const p2 = b.phase2_duration ? parseInt(b.phase2_duration) : null;
-                const isLocked = (b.isManualLocked === true || String(b.isManualLocked) === 'TRUE');
+                const p1 = targetB.phase1_duration ? parseInt(targetB.phase1_duration) : null;
+                const p2 = targetB.phase2_duration ? parseInt(targetB.phase2_duration) : null;
+                const isLocked = (targetB.isManualLocked === true || String(targetB.isManualLocked) === 'TRUE');
 
                 let forceResourceType = null;
                 let isForcedSingle = false;
@@ -322,67 +382,55 @@ const App = () => {
                     isForcedSingle = true;
                 }
 
-                return { 
-                    ...b, 
-                    duration: window.getSafeDuration(b.serviceName, b.duration),
-                    pax: parseInt(b.pax, 10) || 1,
-                    rowId: String(b.rowId), 
+                return {
+                    ...targetB,
+                    duration: window.getSafeDuration(targetB.serviceName, targetB.duration),
+                    pax: parseInt(targetB.pax, 10) || 1,
+                    rowId: String(targetB.rowId),
                     phase1_duration: p1,
                     phase2_duration: p2,
                     flow: rawFlow,
                     isManualLocked: isLocked,
-                    originalNote: b.ghiChu || b.note || "",
+                    originalNote: targetB.ghiChu || targetB.note || "",
                     forceResourceType: forceResourceType,
                     isForcedSingle: isForcedSingle,
-                    // V107.0: Parse Status for Logic
-                    isRunningStatus: (b.status && (b.status.includes('Running') || b.status.includes('服務中') || b.status.includes('running'))),
-                    isDoneStatus: (b.status && (b.status.includes('完成') || b.status.includes('Done') || b.status.includes('✅') || b.status.includes('Cancel') || b.status.includes('取消'))),
-                    storedLocation: b.location || b.current_resource_id // Assume Backend sends this column now
+                    isRunningStatus: (targetB.status && (targetB.status.includes('Running') || targetB.status.includes('服務中') || targetB.status.includes('running'))),
+                    isDoneStatus: (targetB.status && (targetB.status.includes('完成') || targetB.status.includes('Done') || targetB.status.includes('✅') || targetB.status.includes('Cancel') || targetB.status.includes('取消'))),
+                    storedLocation: targetB.location || targetB.current_resource_id
                 };
             });
 
-            // Maps for O(1) Lookup
             const bookingMap = new Map();
             cleanBookings.forEach(b => bookingMap.set(String(b.rowId), b));
 
             const signatureMap = new Map();
             cleanBookings.forEach(b => signatureMap.set(getBookingSignature(b), b));
 
-            const relevantBookings = cleanBookings.filter(b => 
-                window.isWithinOperationalDay(b.startTimeString.split(' ')[0], b.startTimeString.split(' ')[1], viewDate) && 
+            const relevantBookings = cleanBookings.filter(b =>
+                window.isWithinOperationalDay(b.startTimeString.split(' ')[0], b.startTimeString.split(' ')[1], viewDate) &&
                 !b.status.includes('Cancel') && !b.status.includes('取消')
             );
-            
+
             setStaffList(apiStaff || []);
             setStatusData(serverStaff || {});
 
-            // --- V107.0: STATE RECONCILIATION ENGINE (TRUTH MACHINE) ---
-            let nextResourceState = { ...(serverRes || {}) };
             const activeRowIds = new Set();
-            const activeSignatures = new Set(); 
+            const activeSignatures = new Set();
 
-            // STEP 1: PURGE (Xóa những cái đã Done/Cancel trên Sheet nhưng vẫn chạy trên RAM)
             Object.keys(nextResourceState).forEach(key => {
                 const res = nextResourceState[key];
                 if (res.isRunning && res.booking) {
                     const rowId = String(res.booking.rowId);
-                    
-                    // Case 1: Booking not found in daily list (Deleted?)
-                    // V107.0 Change: If not found, keep it temporarily to avoid flicker, unless explicitly cancelled
-                    
-                    // Case 2: Booking found, but Status is Done/Cancel
                     if (bookingMap.has(rowId)) {
                         const freshBooking = bookingMap.get(rowId);
                         if (freshBooking.isDoneStatus) {
-                            console.log(`[V107.0 PURGE] Removing ${key} because Sheet says DONE`);
                             delete nextResourceState[key];
-                            return; // Stop processing this key
+                            return;
                         }
                     }
                 }
             });
 
-            // STEP 2: HEAL & UPDATE (Cập nhật thông tin mới nhất cho những cái đang chạy)
             Object.keys(nextResourceState).forEach(key => {
                 const res = nextResourceState[key];
                 if (res.booking && res.isRunning) {
@@ -395,80 +443,61 @@ const App = () => {
                         activeRowIds.add(oldRowId);
                     } else if (signatureMap.has(signature)) {
                         freshData = signatureMap.get(signature);
-                        console.log(`[V107.0 HEAL] ID Shifted: ${oldRowId} -> ${freshData.rowId}`);
-                        res.booking.rowId = String(freshData.rowId); // Update ID
+                        res.booking.rowId = String(freshData.rowId);
                         activeRowIds.add(String(freshData.rowId));
                     } else {
-                        // Orphaned running booking
                         activeRowIds.add(oldRowId);
                         freshData = res.booking;
                     }
 
                     if (freshData) {
-                        res.booking = { ...res.booking, ...freshData }; // Merge fresh data
+                        res.booking = { ...res.booking, ...freshData };
                         activeSignatures.add(getBookingSignature(freshData));
                     }
                 }
             });
 
-            // STEP 3: RESURRECTION (Hồi sinh những cái Sheet "Running" mà RAM quên)
             relevantBookings.forEach(b => {
                 if (b.isRunningStatus) {
-                    // Check if already running in RAM
                     if (activeRowIds.has(String(b.rowId)) || activeSignatures.has(getBookingSignature(b))) {
-                        return; // Already handled
+                        return;
                     }
 
-                    console.log(`[V107.0 RESURRECT] Found orphaned Running booking: ${b.customerName} (ID: ${b.rowId})`);
-                    
-                    // Attempt to find location
                     let targetResId = null;
-                    
-                    // Priority 1: Stored Location from Sheet
                     if (b.storedLocation && !nextResourceState[b.storedLocation]) {
-                        // Check if valid format (chair-x, bed-x)
                         if (/^(chair|bed)-\d$/.test(b.storedLocation)) {
                             targetResId = b.storedLocation;
                         }
                     }
 
-                    // Priority 2: Auto-allocate if stored location failed
                     if (!targetResId) {
-                         const type = (b.forceResourceType === 'BED' || b.flow === 'BODYSINGLE') ? 'bed' : 'chair';
-                         // Simple find first free
-                         for(let i=1; i<=6; i++) {
-                             const tid = `${type}-${i}`;
-                             if (!nextResourceState[tid]) { targetResId = tid; break; }
-                         }
+                        const type = (b.forceResourceType === 'BED' || b.flow === 'BODYSINGLE') ? 'bed' : 'chair';
+                        for (let i = 1; i <= 6; i++) {
+                            const tid = `${type}-${i}`;
+                            if (!nextResourceState[tid]) { targetResId = tid; break; }
+                        }
                     }
 
                     if (targetResId) {
-                        console.log(`[V107.0 RESURRECT] Placing at ${targetResId}`);
-                        
-                        // Construct the Running State object
                         nextResourceState[targetResId] = {
                             booking: b,
                             isRunning: true,
                             isPaused: false,
-                            startTime: new Date().toISOString(), // Approximate start time if missing
+                            startTime: new Date().toISOString(),
                             isPreview: false,
                             isMaxMode: true,
-                            comboMeta: null // Can't reconstruct perfectly without more data, assume simple
+                            comboMeta: null
                         };
                         activeRowIds.add(String(b.rowId));
                         activeSignatures.add(getBookingSignature(b));
-                    } else {
-                        console.warn(`[V107.0 RESURRECT] Failed to place ${b.customerName} - No slots!`);
                     }
                 }
             });
 
-            // --- END V107.0 LOGIC ---
-
             const nowObj = window.getTaipeiDate();
             const nowMins = nowObj.getHours() * 60 + nowObj.getMinutes() + (nowObj.getHours() < 8 ? 1440 : 0);
-            
-            let tempState = {}; 
+
+            let tempState = {};
             const activeEndTimes = {};
             const timelineGrid = {};
 
@@ -477,17 +506,16 @@ const App = () => {
                 timelineGrid[resId].push({ start, end, booking, meta });
             };
 
-            // Process Running Blocks
             Object.keys(nextResourceState).forEach(key => {
-                if(nextResourceState[key].isRunning) {
+                if (nextResourceState[key].isRunning) {
                     tempState[key] = nextResourceState[key];
                     const startTime = new Date(nextResourceState[key].startTime);
                     const startMins = startTime.getHours() * 60 + startTime.getMinutes() + (startTime.getHours() < 8 ? 1440 : 0);
-                    
+
                     const b = nextResourceState[key].booking;
                     let durationUsed = b.duration;
                     let isPhase1 = false;
-                    const isStrictSingle = b.isForcedSingle === true; 
+                    const isStrictSingle = b.isForcedSingle === true;
 
                     if (nextResourceState[key].comboMeta && !isStrictSingle) {
                         const seq = nextResourceState[key].comboMeta.sequence || 'FB';
@@ -495,14 +523,14 @@ const App = () => {
                         const split = getSmartSplit(b, b.duration, isMax, seq);
                         isPhase1 = (seq === 'FB' && key.includes('chair')) || (seq === 'BF' && key.includes('bed'));
                         if (isPhase1) durationUsed = split.phase1 + (nextResourceState[key].comboMeta.flex || 0);
-                        else durationUsed = split.phase2; 
+                        else durationUsed = split.phase2;
                     } else {
-                         tempState[key].comboMeta = null;
+                        tempState[key].comboMeta = null;
                     }
 
                     const endMins = startMins + durationUsed;
                     activeEndTimes[key] = endMins;
-                    
+
                     addToGrid(key, startMins, endMins, b, {
                         isCombo: !!tempState[key].comboMeta,
                         phase: isPhase1 ? 1 : 2,
@@ -513,55 +541,53 @@ const App = () => {
                 }
             });
 
-            // Process Predictions (Combo Phase 2)
             Object.keys(tempState).forEach(key => {
                 const item = tempState[key];
                 if (item.comboMeta && !item.booking.isForcedSingle) {
                     const seq = item.comboMeta.sequence || 'FB';
                     const isChair = key.includes('chair');
                     const isPhase1 = (seq === 'FB' && isChair) || (seq === 'BF' && !isChair);
-                    
+
                     if (isPhase1) {
-                        const finishTimeMins = activeEndTimes[key]; 
-                        const p2Start = finishTimeMins + 5; 
+                        const finishTimeMins = activeEndTimes[key];
+                        const p2Start = finishTimeMins + 5;
                         const split = getSmartSplit(item.booking, item.booking.duration, item.isMaxMode, seq);
                         const p2End = p2Start + split.phase2;
-                        
+
                         let finalTargetId = item.comboMeta.targetId;
                         const targetType = key.includes('chair') ? 'bed' : 'chair';
-                        
+
                         if (!finalTargetId || (activeEndTimes[finalTargetId] && p2Start < activeEndTimes[finalTargetId])) {
-                             finalTargetId = MatrixHelper.findBestSlot(targetType, p2Start, p2End, timelineGrid, activeEndTimes);
+                            finalTargetId = MatrixHelper.findBestSlot(targetType, p2Start, p2End, timelineGrid, activeEndTimes);
                         }
                         if (finalTargetId) {
-                            addToGrid(finalTargetId, p2Start, p2End, item.booking, { 
-                                isCombo: true, phase: 2, sequence: seq, originId: key, isPrediction: true, priority: 2 
+                            addToGrid(finalTargetId, p2Start, p2End, item.booking, {
+                                isCombo: true, phase: 2, sequence: seq, originId: key, isPrediction: true, priority: 2
                             });
                         }
                     }
                 }
             });
 
-            // Process Pending (Waiting)
             const pendingBookings = relevantBookings.filter(b => {
-                if (b.isDoneStatus) return false; // Check Done
-                if (b.isRunningStatus) return false; // Check Running (Should be in RAM now)
-                if (activeRowIds.has(String(b.rowId))) return false; // Safety Check
+                if (b.isDoneStatus) return false;
+                if (b.isRunningStatus) return false;
+                if (activeRowIds.has(String(b.rowId))) return false;
                 if (activeSignatures.has(getBookingSignature(b))) return false;
                 return true;
             });
-            
+
             const groupedPending = {};
             pendingBookings.forEach(b => {
                 const timeKey = (b.startTimeString || "").split(' ')[1] || '00:00';
-                const phoneRaw = b.phone || b.sdt || b.custPhone || ""; 
-                const phoneKey = phoneRaw.replace(/\D/g, '').slice(-6); 
+                const phoneRaw = b.phone || b.sdt || b.custPhone || "";
+                const phoneKey = phoneRaw.replace(/\D/g, '').slice(-6);
                 const nameKey = (b.customerName || "Guest").trim();
                 let groupKey;
                 if (phoneKey.length >= 3) groupKey = `${timeKey}_P_${phoneKey}`;
                 else if (nameKey.length > 0 && nameKey !== 'Guest') groupKey = `${timeKey}_N_${nameKey}`;
                 else groupKey = `ROW_${b.rowId}`;
-                if(!groupedPending[groupKey]) groupedPending[groupKey] = [];
+                if (!groupedPending[groupKey]) groupedPending[groupKey] = [];
                 groupedPending[groupKey].push(b);
             });
 
@@ -576,12 +602,11 @@ const App = () => {
                 if (isCombo) listCombosGroups.push(group);
                 else group.forEach(b => listSingles.push(b));
             });
-            
-            const sortFn = (a,b) => window.normalizeToTimelineMins(a.startTimeString.split(' ')[1]) - window.normalizeToTimelineMins(b.startTimeString.split(' ')[1]);
-            listSingles.sort(sortFn);
-            listCombosGroups.sort((a,b) => sortFn(a[0], b[0]));
 
-            // Add Pending Singles
+            const sortFn = (a, b) => window.normalizeToTimelineMins(a.startTimeString.split(' ')[1]) - window.normalizeToTimelineMins(b.startTimeString.split(' ')[1]);
+            listSingles.sort(sortFn);
+            listCombosGroups.sort((a, b) => sortFn(a[0], b[0]));
+
             listSingles.forEach(b => {
                 if (activeRowIds.has(String(b.rowId))) return;
                 const originalStart = window.normalizeToTimelineMins(b.startTimeString.split(' ')[1]);
@@ -591,57 +616,59 @@ const App = () => {
                 } else {
                     type = b.type === 'CHAIR' ? 'chair' : 'bed';
                 }
-                let searchOffsets = [0]; for(let i=1; i<=120; i++) searchOffsets.push(i);
-                for(let delay of searchOffsets) {
+
+                const targetPref = b.storedLocation || null;
+
+                let searchOffsets = [0]; for (let i = 1; i <= 120; i++) searchOffsets.push(i);
+                for (let delay of searchOffsets) {
                     let tryStart = originalStart + delay;
                     let tryEnd = tryStart + b.duration;
-                    const slotId = MatrixHelper.findBestSlot(type, tryStart, tryEnd, timelineGrid, activeEndTimes);
-                    if (slotId) { 
-                        addToGrid(slotId, tryStart, tryEnd, b, { isCombo: false, isPending: true, priority: 3 }); 
-                        break; 
+                    const slotId = MatrixHelper.findBestSlot(type, tryStart, tryEnd, timelineGrid, activeEndTimes, targetPref);
+                    if (slotId) {
+                        addToGrid(slotId, tryStart, tryEnd, b, { isCombo: false, isPending: true, priority: 3 });
+                        break;
                     }
                 }
             });
 
-            // Add Pending Combos
             listCombosGroups.forEach(group => {
-                const firstBooking = group[0]; 
+                const firstBooking = group[0];
                 const originalStart = window.normalizeToTimelineMins(firstBooking.startTimeString.split(' ')[1]);
                 const groupSize = group.length;
-                const masterNote = firstBooking.originalNote || ""; 
+                const masterNote = firstBooking.originalNote || "";
 
                 let coupleStrategyOverride = null;
                 const hasAnyExplicitFlowInData = group.some(g => g.flow === 'BF' || g.flow === 'FB');
-                
+
                 if (!hasAnyExplicitFlowInData && groupSize === 2) {
                     const explicitFlow1 = detectFlowFromNote(group[0].originalNote || masterNote, 0);
                     const explicitFlow2 = detectFlowFromNote(group[1].originalNote || masterNote, 1);
                     if (!explicitFlow1 && !explicitFlow2) {
-                         const cDur = firstBooking.duration || 100;
-                         const cSplit = getSmartSplit(firstBooking, cDur, true, 'FB');
-                         const scanOffsets = [0, 10, 20];
-                         for (let delay of scanOffsets) {
-                             const tStart = originalStart + delay;
-                             const tP1End = tStart + cSplit.phase1;
-                             const tP2Start = tP1End + 5;
-                             const tP2End = tP2Start + cSplit.phase2;
-                             const freeChairsP1 = MatrixHelper.countAvailableResources('chair', tStart, tP1End, timelineGrid, activeEndTimes);
-                             const freeBedsP2 = MatrixHelper.countAvailableResources('bed', tP2Start, tP2End, timelineGrid, activeEndTimes);
-                             if (freeChairsP1 >= 2 && freeBedsP2 >= 2) { coupleStrategyOverride = 'FB'; break; }
-                             const freeBedsP1 = MatrixHelper.countAvailableResources('bed', tStart, tP1End, timelineGrid, activeEndTimes);
-                             const freeChairsP2 = MatrixHelper.countAvailableResources('chair', tP2Start, tP2End, timelineGrid, activeEndTimes);
-                             if (freeBedsP1 >= 2 && freeChairsP2 >= 2) { coupleStrategyOverride = 'BF'; break; }
-                         }
+                        const cDur = firstBooking.duration || 100;
+                        const cSplit = getSmartSplit(firstBooking, cDur, true, 'FB');
+                        const scanOffsets = [0, 10, 20];
+                        for (let delay of scanOffsets) {
+                            const tStart = originalStart + delay;
+                            const tP1End = tStart + cSplit.phase1;
+                            const tP2Start = tP1End + 5;
+                            const tP2End = tP2Start + cSplit.phase2;
+                            const freeChairsP1 = MatrixHelper.countAvailableResources('chair', tStart, tP1End, timelineGrid, activeEndTimes);
+                            const freeBedsP2 = MatrixHelper.countAvailableResources('bed', tP2Start, tP2End, timelineGrid, activeEndTimes);
+                            if (freeChairsP1 >= 2 && freeBedsP2 >= 2) { coupleStrategyOverride = 'FB'; break; }
+                            const freeBedsP1 = MatrixHelper.countAvailableResources('bed', tStart, tP1End, timelineGrid, activeEndTimes);
+                            const freeChairsP2 = MatrixHelper.countAvailableResources('chair', tP2Start, tP2End, timelineGrid, activeEndTimes);
+                            if (freeBedsP1 >= 2 && freeChairsP2 >= 2) { coupleStrategyOverride = 'BF'; break; }
+                        }
                     }
                 }
 
-                const idealNumBF = Math.ceil(groupSize / 2); 
+                const idealNumBF = Math.ceil(groupSize / 2);
 
                 group.forEach((bookingItem, idx) => {
-                    if (bookingItem.forceResourceType) return; 
+                    if (bookingItem.forceResourceType) return;
                     if (activeRowIds.has(String(bookingItem.rowId))) return;
 
-                    const dataFlow = bookingItem.flow; 
+                    const dataFlow = bookingItem.flow;
                     const noteFlow = detectFlowFromNote(bookingItem.originalNote || masterNote, idx);
                     let preferredSeq = null;
 
@@ -653,25 +680,25 @@ const App = () => {
                             if (idx < idealNumBF) preferredSeq = 'BF';
                             else preferredSeq = 'FB';
                         } else {
-                            preferredSeq = null; 
+                            preferredSeq = null;
                         }
                     }
-                    
-                    let searchOffsets = [0]; for(let i=1; i<=120; i++) searchOffsets.push(i);
-                    for(let delay of searchOffsets) {
+
+                    let searchOffsets = [0]; for (let i = 1; i <= 120; i++) searchOffsets.push(i);
+                    for (let delay of searchOffsets) {
                         let tryStart = originalStart + delay;
                         const trySequence = (seq) => {
                             const split = getSmartSplit(bookingItem, bookingItem.duration, true, seq);
                             const p1End = tryStart + split.phase1;
-                            const p2Start = p1End + 5; 
+                            const p2Start = p1End + 5;
                             const p2End = p2Start + split.phase2;
                             const type1 = seq === 'FB' ? 'chair' : 'bed';
                             const type2 = seq === 'FB' ? 'bed' : 'chair';
-                            
+
                             let preferredSlotIndex;
                             if (groupSize === 2) {
                                 if (coupleStrategyOverride) preferredSlotIndex = idx + 1;
-                                else preferredSlotIndex = 1; 
+                                else preferredSlotIndex = 1;
                             } else if (groupSize >= 4) {
                                 const normalizedIdx = idx % Math.ceil(groupSize / 2);
                                 preferredSlotIndex = normalizedIdx + 1;
@@ -679,9 +706,16 @@ const App = () => {
                                 preferredSlotIndex = idx + 1;
                             }
 
-                            const s1 = MatrixHelper.findBestSlot(type1, tryStart, p1End, timelineGrid, activeEndTimes, preferredSlotIndex);
-                            const s2 = MatrixHelper.findBestSlot(type2, p2Start, p2End, timelineGrid, activeEndTimes, preferredSlotIndex);
-                            
+                            const targetPref = bookingItem.storedLocation || null;
+                            let pref1 = null, pref2 = null;
+                            if (targetPref) {
+                                if (targetPref.startsWith(type1)) pref1 = targetPref;
+                                if (targetPref.startsWith(type2)) pref2 = targetPref;
+                            }
+
+                            const s1 = MatrixHelper.findBestSlot(type1, tryStart, p1End, timelineGrid, activeEndTimes, pref1 || preferredSlotIndex);
+                            const s2 = MatrixHelper.findBestSlot(type2, p2Start, p2End, timelineGrid, activeEndTimes, pref2 || preferredSlotIndex);
+
                             if (s1 && s2) {
                                 addToGrid(s1, tryStart, p1End, bookingItem, { isCombo: true, phase: 1, sequence: seq, targetId: s2, isPending: true, priority: 3 });
                                 addToGrid(s2, p2Start, p2End, bookingItem, { isCombo: true, phase: 2, sequence: seq, isPending: true, priority: 3 });
@@ -704,32 +738,31 @@ const App = () => {
 
             setTimelineData(timelineGrid);
 
-            // Populate Preview/Ghosts
             const allSlots = [];
-            for(let i=1; i<=6; i++) allSlots.push(`chair-${i}`);
-            for(let i=1; i<=6; i++) allSlots.push(`bed-${i}`);
+            for (let i = 1; i <= 6; i++) allSlots.push(`chair-${i}`);
+            for (let i = 1; i <= 6; i++) allSlots.push(`bed-${i}`);
 
             allSlots.forEach(resId => {
                 if (tempState[resId]) return;
                 const slots = timelineGrid[resId] || [];
                 const currentSlot = slots.find(s => (nowMins >= s.start && nowMins < s.end));
-                
+
                 if (currentSlot) {
                     const nameLabel = currentSlot.booking.pax > 1 ? `${currentSlot.booking.customerName} (Grp)` : currentSlot.booking.customerName;
                     const isStrict = currentSlot.booking.isForcedSingle === true;
-                    
-                    tempState[resId] = { 
-                        booking: { ...currentSlot.booking, customerName: nameLabel, serviceStaff: null }, 
-                        startTime: null, isRunning: false, 
-                        isPreview: true, previewType: 'NOW', 
-                        comboMeta: (currentSlot.meta.isCombo && !isStrict) ? { sequence: currentSlot.meta.sequence, phase: currentSlot.meta.phase, targetId: currentSlot.meta.targetId } : null, 
-                        isMaxMode: true 
+
+                    tempState[resId] = {
+                        booking: { ...currentSlot.booking, customerName: nameLabel, serviceStaff: null },
+                        startTime: null, isRunning: false,
+                        isPreview: true, previewType: 'NOW',
+                        comboMeta: (currentSlot.meta.isCombo && !isStrict) ? { sequence: currentSlot.meta.sequence, phase: currentSlot.meta.phase, targetId: currentSlot.meta.targetId } : null,
+                        isMaxMode: true
                     };
                 } else {
                     const upcomingSlot = slots.find(s => s.start > nowMins && s.start - nowMins <= 30);
                     if (upcomingSlot) {
-                         const isStrict = upcomingSlot.booking.isForcedSingle === true;
-                         tempState[resId] = {
+                        const isStrict = upcomingSlot.booking.isForcedSingle === true;
+                        tempState[resId] = {
                             booking: { ...upcomingSlot.booking, serviceStaff: null },
                             startTime: null, isRunning: false,
                             isPreview: true, previewType: 'SOON',
@@ -739,14 +772,13 @@ const App = () => {
                     }
                 }
             });
-            
-            // --- SYNC RESULT ---
+
             if (!syncLock) {
                 setResourceState(tempState);
-                setBookings(cleanBookings); // Keep filtered list for View but we need clean bookings for logic
+                setBookings(cleanBookings);
             }
-            
-        } catch(e) { 
+
+        } catch (e) {
             console.error("API Error", e);
             if (e.response && e.response.status === 429) setQuotaError(true);
         } finally {
@@ -754,41 +786,63 @@ const App = () => {
         }
     };
 
-    useEffect(() => { 
-        fetchData(false); 
-        const t = setInterval(() => fetchData(false), 2000); 
-        return () => clearInterval(t); 
-    }, [viewDate, syncLock, quotaError]); 
+    useEffect(() => {
+        fetchData(false);
+        const t = setInterval(() => fetchData(false), 2000);
+        return () => clearInterval(t);
+    }, [viewDate, syncLock, quotaError]);
 
     const handleForceRefresh = () => {
-        if (isManualRefreshing) return; 
-        fetchData(true); 
+        if (isManualRefreshing) return;
+        fetchData(true);
     };
 
-    // 4. ACTION HANDLERS
+    // --- HÀM XỬ LÝ CHỈNH SỬA TRỰC TIẾP TRÊN BẢNG (INLINE EDITING) ---
+    const handleInlineUpdate = async (rowId, updatedData) => {
+        try {
+            setSyncLock(true);
+            setTimeout(() => setSyncLock(false), 3000); // Khóa đồng bộ trong 3s để tránh giật hình
+
+            // Gửi dữ liệu lên API vừa tạo ở Backend
+            await axios.post('/api/inline-update-booking', {
+                rowId: rowId,
+                updatedData: updatedData
+            });
+
+            // Tải lại dữ liệu mới ngay lập tức
+            fetchData(true);
+
+            // Thông báo thành công mượt mà (Có thể bỏ alert nếu muốn làm UI đẹp hơn)
+            // alert("✅ 儲存成功 (Update Success)");
+        } catch (e) {
+            console.error("Inline update failed:", e);
+            alert("⚠️ 儲存失敗，請檢查網路連線。 (Update Failed)");
+        }
+    };
+
     const handleSplitConfirm = async (staffId2) => {
         if (!splitData) return;
         const { resourceId } = splitData;
         const current = resourceState[resourceId];
         if (!current) return;
         setSyncLock(true); setTimeout(() => setSyncLock(false), 5000);
-        
+
         const newStatusData = { ...statusData, [staffId2]: { ...statusData[staffId2], status: 'BUSY' } };
         updateStaffStatus(newStatusData);
-        
+
         const grpIdx = getGroupMemberIndex(resourceId, current.booking.rowId);
-        let primaryKey = "服務師傅1"; let targetProp = "serviceStaff"; 
+        let primaryKey = "服務師傅1"; let targetProp = "serviceStaff";
         if (grpIdx === 1) { primaryKey = "服務師傅2"; targetProp = "staffId2"; }
         else if (grpIdx === 2) { primaryKey = "服務師傅3"; targetProp = "staffId3"; }
         else if (grpIdx === 3) { primaryKey = "服務師傅4"; targetProp = "staffId4"; }
         else if (grpIdx === 4) { primaryKey = "服務師傅5"; targetProp = "staffId5"; }
         else if (grpIdx === 5) { primaryKey = "服務師傅6"; targetProp = "staffId6"; }
-        
+
         const currentName = current.booking[targetProp] || "";
         const newNameCombined = currentName ? `${currentName}, ${staffId2}` : staffId2;
         const newBooking = { ...current.booking, [targetProp]: newNameCombined };
         const newState = { ...resourceState, [resourceId]: { ...current, booking: newBooking } };
-        
+
         setResourceState(newState);
         const payload = { rowId: current.booking.rowId, [primaryKey]: newNameCombined, forceSync: true };
         await universalSend('/api/update-booking-details', payload);
@@ -799,35 +853,37 @@ const App = () => {
     const handleStaffChange = async (resId, newStaffId) => {
         const current = resourceState[resId]; if (!current) return;
         setSyncLock(true); setTimeout(() => setSyncLock(false), 5000);
-        
-        const oldServiceStaff = current.booking.serviceStaff || current.booking.staffId; 
+
+        const oldServiceStaff = current.booking.serviceStaff || current.booking.staffId;
         const grpIdx = getGroupMemberIndex(resId, current.booking.rowId);
         const newBooking = { ...current.booking };
-        
+
         if (grpIdx === 0) newBooking.serviceStaff = newStaffId;
         else if (grpIdx === 1) newBooking.staffId2 = newStaffId;
         else if (grpIdx === 2) newBooking.staffId3 = newStaffId;
         else if (grpIdx === 3) newBooking.staffId4 = newStaffId;
         else if (grpIdx === 4) newBooking.staffId5 = newStaffId;
         else if (grpIdx === 5) newBooking.staffId6 = newStaffId;
-        
+
         const newState = { ...resourceState, [resId]: { ...current, booking: newBooking } };
         setResourceState(newState);
-        
+
         const newStatusData = { ...statusData };
-        if (oldServiceStaff !== '隨機' && oldServiceStaff !== newStaffId) { newStatusData[oldServiceStaff] = { status: 'READY', checkInTime: Date.now() }; }
+        if (oldServiceStaff !== '隨機' && oldServiceStaff !== newStaffId) {
+            newStatusData[oldServiceStaff] = { status: 'READY', checkInTime: Date.now(), stafftime: Date.now() };
+        }
         if (newStaffId !== '隨機') { newStatusData[newStaffId] = { status: 'BUSY' }; }
         updateStaffStatus(newStatusData);
-        
+
         let primaryKey = "服務師傅1"; let fallbackKey = "ServiceStaff1";
         if (grpIdx === 1) { primaryKey = "服務師傅2"; fallbackKey = "ServiceStaff2"; }
         if (grpIdx === 2) { primaryKey = "服務師傅3"; fallbackKey = "ServiceStaff3"; }
         if (grpIdx === 3) { primaryKey = "服務師傅4"; fallbackKey = "ServiceStaff4"; }
         if (grpIdx === 4) { primaryKey = "服務師傅5"; fallbackKey = "ServiceStaff5"; }
         if (grpIdx === 5) { primaryKey = "服務師傅6"; fallbackKey = "ServiceStaff6"; }
-        
+
         const payload = { rowId: current.booking.rowId, [primaryKey]: newStaffId, [fallbackKey]: newStaffId, [`staff${grpIdx + 1}`]: newStaffId, technician: newStaffId, forceSync: true };
-        try { await universalSend('/api/update-booking-details', payload); await updateResource(newState); } catch(e) { console.error("Sync Failed", e); alert("⚠️ Staff Sync Failed! Please check internet."); }
+        try { await universalSend('/api/update-booking-details', payload); await updateResource(newState); } catch (e) { alert("⚠️ 同步失敗！請檢查網路連線。"); }
     };
 
     const handleServiceChange = async (resId, newServiceName) => {
@@ -846,7 +902,7 @@ const App = () => {
         handleOpenControlCenter(current.booking);
     };
 
-    const handleSaveComboTime = async (arg1, arg2 = null) => {
+    const handleSaveComboTime = async (arg1, arg2 = null, startTimeStr = null, switchTimeStr = null) => {
         let newPhase1Duration = 0;
         let targetBooking = null;
 
@@ -859,20 +915,51 @@ const App = () => {
             newPhase1Duration = parseInt(arg2, 10);
         }
 
-        if (!targetBooking) { console.error("Missing booking context"); return; }
+        if (!targetBooking) return;
 
         const rowId = String(targetBooking.rowId);
         const totalDuration = parseInt(targetBooking.duration || 100);
 
-        if (isNaN(newPhase1Duration) || newPhase1Duration <= 0 || newPhase1Duration >= totalDuration) {
-            alert(`⚠️ Thời gian Phase 1 không hợp lệ!`);
+        if (isNaN(newPhase1Duration) || newPhase1Duration < 0 || newPhase1Duration > totalDuration) {
+            alert(`⚠️ 第一階段時間無效！(Phase 1 Time Invalid)`);
             return;
         }
 
         const newPhase2Duration = totalDuration - newPhase1Duration;
 
-        setSyncLock(true); 
+        setSyncLock(true);
         setTimeout(() => setSyncLock(false), 5000);
+
+        let newStartTimeIso = null;
+        let newStartTimeStringForSheet = null;
+
+        if (startTimeStr) {
+            const originalStartStr = targetBooking.startTimeString || "";
+            let datePart = originalStartStr.split(' ')[0];
+
+            if (!datePart) {
+                const now = new Date();
+                datePart = `${now.getFullYear()}/${String(now.getMonth() + 1).padStart(2, '0')}/${String(now.getDate()).padStart(2, '0')}`;
+            }
+            datePart = datePart.replace(/-/g, '/');
+
+            newStartTimeStringForSheet = `${datePart} ${startTimeStr}`;
+
+            const parts = startTimeStr.split(':');
+            const h = parseInt(parts[0], 10);
+            const m = parseInt(parts[1], 10);
+            const dObj = new Date(datePart);
+            if (!isNaN(dObj.getTime())) {
+                dObj.setHours(h, m, 0, 0);
+                newStartTimeIso = dObj.toISOString();
+            }
+        }
+
+        if (!localOverridesRef.current[rowId]) localOverridesRef.current[rowId] = {};
+
+        localOverridesRef.current[rowId].startTimeString = newStartTimeStringForSheet;
+        localOverridesRef.current[rowId].phase1_duration = newPhase1Duration;
+        localOverridesRef.current[rowId].phase2_duration = newPhase2Duration;
 
         const newState = { ...resourceState };
         Object.keys(newState).forEach(key => {
@@ -880,12 +967,14 @@ const App = () => {
             if (res.booking && String(res.booking.rowId) === String(rowId)) {
                 newState[key] = {
                     ...res,
-                    booking: { 
-                        ...res.booking, 
-                        phase1_duration: newPhase1Duration, 
-                        phase2_duration: newPhase2Duration, 
-                        isManualLocked: true 
-                    }
+                    booking: {
+                        ...res.booking,
+                        phase1_duration: newPhase1Duration,
+                        phase2_duration: newPhase2Duration,
+                        isManualLocked: true,
+                        ...(newStartTimeStringForSheet && { startTimeString: newStartTimeStringForSheet })
+                    },
+                    ...(newStartTimeIso && { startTime: newStartTimeIso })
                 };
             }
         });
@@ -893,25 +982,98 @@ const App = () => {
         setResourceState(newState);
         if (!arg2 && controlCenterData) setControlCenterData(null);
 
+        fetchData(true);
+
+        const payload = {
+            rowId,
+            phase1_duration: newPhase1Duration,
+            phase2_duration: newPhase2Duration,
+            isManualLocked: true,
+            forceSync: true
+        };
+
+        if (newStartTimeStringForSheet) {
+            payload.startTimeString = newStartTimeStringForSheet;
+            payload.gioDen = startTimeStr;
+        }
+
         try {
-            await axios.post('/api/update-booking-details', { 
-                rowId, 
-                phase1_duration: newPhase1Duration, 
-                phase2_duration: newPhase2Duration, 
-                isManualLocked: true, 
-                forceSync: true 
-            });
+            await axios.post('/api/update-booking-details', payload);
             await updateResource(newState);
-        } catch(e) { 
-            console.error("Save Time Error", e); 
-            alert("⚠️ 儲存失敗 (Save Failed)!"); 
-            fetchData(true);
+        } catch (e) {
+            alert("⚠️ 儲存失敗！請檢查網路連線。");
         }
     };
 
-    // --- V106.1 NEW FEATURE: VERTICAL RESOURCE SHIFT ---
-    const handleVerticalResourceShift = async (currentResId, direction) => {
-        if (!currentResId) return;
+    const handleToggleSequence = async (resIdOrBooking, newFlow = null) => {
+        let booking = null;
+        let targetFlow = newFlow;
+
+        if (typeof resIdOrBooking === 'string' && resourceState[resIdOrBooking]) {
+            booking = resourceState[resIdOrBooking].booking;
+            if (!targetFlow) {
+                const currentSeq = resourceState[resIdOrBooking].comboMeta?.sequence || 'FB';
+                targetFlow = currentSeq === 'FB' ? 'BF' : 'FB';
+            }
+        } else if (typeof resIdOrBooking === 'object') {
+            booking = resIdOrBooking;
+        }
+
+        if (!booking || !targetFlow) return;
+
+        const rowId = String(booking.rowId);
+
+        setSyncLock(true);
+        setTimeout(() => setSyncLock(false), 5000);
+
+        if (!localOverridesRef.current[rowId]) localOverridesRef.current[rowId] = {};
+        localOverridesRef.current[rowId].flow = targetFlow;
+
+        const newState = { ...resourceState };
+        let hasRunningChanges = false;
+        Object.keys(newState).forEach(key => {
+            const res = newState[key];
+            if (res.booking && String(res.booking.rowId) === rowId) {
+                res.booking.flow = targetFlow;
+                if (res.comboMeta) {
+                    res.comboMeta.sequence = targetFlow;
+                }
+                hasRunningChanges = true;
+            }
+        });
+
+        if (hasRunningChanges) {
+            setResourceState(newState);
+        }
+
+        if (controlCenterData && controlCenterData.booking && String(controlCenterData.booking.rowId) === rowId) {
+            setControlCenterData(prev => {
+                const newPrev = { ...prev, booking: { ...prev.booking, flow: targetFlow } };
+                if (newPrev.liveState && newPrev.liveState.comboMeta) {
+                    newPrev.liveState.comboMeta.sequence = targetFlow;
+                }
+                return newPrev;
+            });
+        }
+
+        fetchData(true);
+
+        try {
+            await universalSend('/api/update-booking-details', {
+                rowId: rowId,
+                flow: targetFlow,
+                forceSync: true
+            });
+            if (hasRunningChanges) {
+                await updateResource(newState);
+            }
+        } catch (e) {
+            console.error("Sync flow error", e);
+        }
+    };
+
+    const handleVerticalResourceShift = async (currentResId, direction, targetBooking) => {
+        if (!currentResId || !targetBooking) return;
 
         const parts = currentResId.split('-');
         const type = parts[0];
@@ -919,128 +1081,183 @@ const App = () => {
         if (isNaN(index)) return;
 
         const newIndex = index + direction;
-        if (newIndex < 1 || newIndex > 6) { console.warn("Shift blocked: Out of boundary"); return; }
+        if (newIndex < 1 || newIndex > 6) return;
 
         const targetId = `${type}-${newIndex}`;
-        const targetSlot = resourceState[targetId];
-        if (targetSlot && (targetSlot.isRunning || (targetSlot.booking && !targetSlot.isPreview))) {
-            alert(`⚠️ Vị trí ${type === 'chair' ? 'Ghế' : 'Giường'} số ${newIndex} đang bận! Không thể chuyển.`);
+        const rowId = String(targetBooking.rowId);
+
+        const gridSlots = timelineData[currentResId] || [];
+        const slotToMove = gridSlots.find(s => String(s.booking.rowId) === rowId);
+
+        if (!slotToMove) return;
+
+        const { start, end, meta } = slotToMove;
+
+        const targetSlots = timelineData[targetId] || [];
+        let isClash = false;
+        for (let slot of targetSlots) {
+            if (String(slot.booking.rowId) !== rowId) {
+                if (MatrixHelper.isOverlap(start, end, slot.start, slot.end)) {
+                    isClash = true;
+                    break;
+                }
+            }
+        }
+
+        if (isClash) {
+            alert(`⚠️ 目標位置在該時段已有其他預約！無法移動。`);
             return;
         }
 
         setSyncLock(true);
         setTimeout(() => setSyncLock(false), 4000);
 
-        const currentSlotData = resourceState[currentResId];
-        if (!currentSlotData) return;
+        const isRunning = meta && meta.isRunning;
+        const isPrediction = meta && meta.isPrediction;
 
-        const newState = { ...resourceState };
-        delete newState[currentResId];
-        newState[targetId] = currentSlotData;
+        if (isRunning) {
+            const currentSlotData = resourceState[currentResId];
+            if (currentSlotData) {
+                if (!localOverridesRef.current[rowId]) localOverridesRef.current[rowId] = {};
+                localOverridesRef.current[rowId].storedLocation = targetId;
 
-        setResourceState(newState);
+                const newState = { ...resourceState };
+                delete newState[currentResId];
+                newState[targetId] = currentSlotData;
 
-        try {
-            await universalSend('/api/update-booking-details', {
-                rowId: currentSlotData.booking.rowId,
-                current_resource_id: targetId,
-                record_location: true,
-                forceSync: true
+                setResourceState(newState);
+                fetchData(true);
+
+                try {
+                    await universalSend('/api/update-booking-details', {
+                        rowId: rowId,
+                        current_resource_id: targetId,
+                        record_location: true,
+                        forceSync: true
+                    });
+                    await updateResource(newState);
+                } catch (e) {
+                    alert("⚠️ 轉換位置時發生連線錯誤！");
+                }
+            }
+        } else if (isPrediction) {
+            const newState = { ...resourceState };
+            let found = false;
+
+            Object.keys(newState).forEach(key => {
+                const res = newState[key];
+                if (res.isRunning && res.booking && String(res.booking.rowId) === rowId) {
+                    res.comboMeta = { ...(res.comboMeta || {}), targetId: targetId };
+                    found = true;
+                }
             });
-            await updateResource(newState);
-        } catch (e) {
-            console.error("Vertical Shift Error:", e);
-            alert("⚠️ Lỗi kết nối khi chuyển vị trí!");
-            fetchData(true); 
+
+            if (found) {
+                setResourceState(newState);
+                fetchData(true);
+                updateResource(newState).catch(() => console.error('Sync failed'));
+            }
+        } else {
+            if (!localOverridesRef.current[rowId]) localOverridesRef.current[rowId] = {};
+            localOverridesRef.current[rowId].storedLocation = targetId;
+
+            fetchData(true);
+
+            try {
+                await universalSend('/api/update-booking-details', {
+                    rowId: rowId,
+                    current_resource_id: targetId,
+                    location: targetId,
+                    forceSync: true
+                });
+            } catch (e) {
+                alert("⚠️ 轉換位置時發生連線錯誤！");
+            }
         }
     };
 
-    // --- EXECUTE START (SINGLE MODE) - V107.0 UPDATED ---
     const executeStart = (id, comboSequence, silentMode = false, fallbackBooking = null) => {
         let current = resourceState[id];
 
         if (!current && fallbackBooking) {
-            console.log(`[HOT START] Injecting Mock Object for ${id}`);
             current = {
                 booking: fallbackBooking,
                 isRunning: false,
                 isPaused: false,
                 startTime: null,
-                isPreview: true, 
+                isPreview: true,
                 isMaxMode: true,
                 comboMeta: null
             };
         }
 
-        if (!current) { 
-            if(!silentMode) alert("⚠️ Lỗi hệ thống: Không tìm thấy dữ liệu vị trí."); 
-            return; 
+        if (!current) {
+            if (!silentMode) alert("⚠️ 系統錯誤：找不到位置資料。");
+            return;
         }
 
         if (current.isRunning) {
-             if(!silentMode) alert(`⚠️ Vị trí ${id} đang bận (Running)!`);
-             return;
+            if (!silentMode) alert(`⚠️ 位置 ${id} 忙碌中 (Running)!`);
+            return;
         }
 
-        let designatedStaff = current.booking.serviceStaff || current.booking.staffId || current.booking.ServiceStaff || current.booking.technician; 
+        let designatedStaff = current.booking.serviceStaff || current.booking.staffId || current.booking.ServiceStaff || current.booking.technician;
         if (!designatedStaff || designatedStaff === 'undefined' || designatedStaff === 'null') designatedStaff = '隨機';
 
-        let finalServiceStaff = designatedStaff; 
-        let currentId = id; 
-        let shouldMove = false; 
+        let finalServiceStaff = designatedStaff;
+        let currentId = id;
+        let shouldMove = false;
         let targetMoveId = null;
-        
-        setSyncLock(true); 
+
+        setSyncLock(true);
         setTimeout(() => setSyncLock(false), 5000);
-        
+
         const isStrict = current.booking.isForcedSingle === true;
-        
-        // Move Logic
+
         if (comboSequence && !isStrict) {
             const currentType = id.split('-')[0];
-            if (comboSequence === 'BF' && currentType === 'chair') { 
-                shouldMove = true; 
-                for(let i=1; i<=6; i++) { 
-                    if(!resourceState[`bed-${i}`] || !resourceState[`bed-${i}`].isRunning) { targetMoveId = `bed-${i}`; break; } 
-                } 
-            } 
-            else if (comboSequence === 'FB' && currentType === 'bed') { 
-                shouldMove = true; 
-                for(let i=1; i<=6; i++) { 
-                    if(!resourceState[`chair-${i}`] || !resourceState[`chair-${i}`].isRunning) { targetMoveId = `chair-${i}`; break; } 
-                } 
+            if (comboSequence === 'BF' && currentType === 'chair') {
+                shouldMove = true;
+                for (let i = 1; i <= 6; i++) {
+                    if (!resourceState[`bed-${i}`] || !resourceState[`bed-${i}`].isRunning) { targetMoveId = `bed-${i}`; break; }
+                }
+            }
+            else if (comboSequence === 'FB' && currentType === 'bed') {
+                shouldMove = true;
+                for (let i = 1; i <= 6; i++) {
+                    if (!resourceState[`chair-${i}`] || !resourceState[`chair-${i}`].isRunning) { targetMoveId = `chair-${i}`; break; }
+                }
             }
         } else if (isStrict) {
             const type = id.split('-')[0];
             const force = current.booking.forceResourceType === 'CHAIR' ? 'chair' : 'bed';
             if (type !== force) {
-                if(!silentMode) alert(`⚠️ Lỗi vị trí: Khách này bắt buộc phải nằm ở ${force === 'chair' ? 'Ghế' : 'Giường'}!`);
+                if (!silentMode) alert(`⚠️ 位置錯誤：此顧客必須安排在 ${force === 'chair' ? '足部區' : '身體區'}!`);
                 setSyncLock(false);
                 return;
             }
         }
-        
-        if (shouldMove) { 
-            if (!targetMoveId) { 
-                if(!silentMode) alert("⚠️ Không thể bắt đầu: Khu vực đích đã hết chỗ trống!"); 
-                setSyncLock(false); return; 
-            } 
-            currentId = targetMoveId; 
+
+        if (shouldMove) {
+            if (!targetMoveId) {
+                if (!silentMode) alert("⚠️ 無法開始：目標區域已無空位！");
+                setSyncLock(false); return;
+            }
+            currentId = targetMoveId;
         }
-        
-        // Staff Selection
+
         if (['隨機', '男', '女', 'Oil'].some(k => designatedStaff.includes(k))) {
             if (!staffList || staffList.length === 0) {
-                 if(!silentMode) alert("⚠️ Dữ liệu nhân viên trống. Vui lòng thử lại sau vài giây!");
-                 setSyncLock(false); return;
+                if (!silentMode) alert("⚠️ 員工資料為空，請稍後再試！");
+                setSyncLock(false); return;
             }
 
             const liveBusyStaffIds = Object.values(resourceState)
                 .filter(r => r.isRunning && !r.isPaused && r.isPreview !== true)
                 .map(r => r.booking.serviceStaff || r.booking.staffId || r.booking.ServiceStaff);
-                
-            const readyStaff = staffList.filter(s => { 
-                const stat = statusData ? statusData[s.id] : null; 
+
+            const readyStaff = staffList.filter(s => {
+                const stat = statusData ? statusData[s.id] : null;
                 if (!stat || stat.status !== 'READY') return false;
                 if (liveBusyStaffIds.includes(s.id)) return false;
                 return true;
@@ -1052,20 +1269,25 @@ const App = () => {
             } else if (designatedStaff.includes('女') || designatedStaff.includes('Female') || current.booking.isOil) {
                 candidates = candidates.filter(s => s.gender === 'F' || s.gender === '女');
             }
-            candidates.sort((a,b) => (statusData[a.id]?.checkInTime||0) - (statusData[b.id]?.checkInTime||0));
-            
-            if (candidates.length === 0) { 
-                const genderMsg = designatedStaff.includes('男') ? " (NAM)" : designatedStaff.includes('女') ? " (NỮ)" : "";
-                if(!silentMode) alert(`⚠️ Không có kỹ thuật viên${genderMsg} nào đang rảnh (READY)!`); 
-                setSyncLock(false); return; 
+
+            // BƯỚC 4: THUẬT TOÁN AUTO-ASSIGN BẰNG STAFFTIME CHO KHÁCH LẺ
+            candidates.sort((a, b) => {
+                const timeA = statusData[a.id]?.stafftime || Number.MAX_SAFE_INTEGER;
+                const timeB = statusData[b.id]?.stafftime || Number.MAX_SAFE_INTEGER;
+                return timeA - timeB;
+            });
+
+            if (candidates.length === 0) {
+                const genderMsg = designatedStaff.includes('男') ? " (男)" : designatedStaff.includes('女') ? " (女)" : "";
+                if (!silentMode) alert(`⚠️ 目前沒有空閒的技師${genderMsg} (READY)!`);
+                setSyncLock(false); return;
             }
             finalServiceStaff = candidates[0].id;
         }
 
-        // Update Status
         const newStatusData = { ...statusData, [finalServiceStaff]: { ...statusData[finalServiceStaff], status: 'BUSY' } };
-        updateStaffStatus(newStatusData); 
-        
+        updateStaffStatus(newStatusData);
+
         const grpIdx = getGroupMemberIndex(currentId, current.booking.rowId);
         const isComboService = !isStrict && ((current.booking.serviceName && current.booking.serviceName.includes('套餐')) || comboSequence);
         const newBooking = { ...current.booking, category: isComboService ? 'COMBO' : 'SINGLE' };
@@ -1076,59 +1298,56 @@ const App = () => {
         else if (grpIdx === 3) newBooking.staffId4 = finalServiceStaff;
         else if (grpIdx === 4) newBooking.staffId5 = finalServiceStaff;
         else if (grpIdx === 5) newBooking.staffId6 = finalServiceStaff;
-        
+
         let comboMeta = current.comboMeta || null;
         if (comboSequence && !isStrict) {
             const currentType = currentId.split('-')[0]; const index = currentId.split('-')[1];
             let ghostTargetId = null; const targetTypePrefix = currentType === 'chair' ? 'bed' : 'chair';
             const sameIndex = `${targetTypePrefix}-${index}`;
-            if (!resourceState[sameIndex] && sameIndex !== id) { ghostTargetId = sameIndex; } 
-            else { for(let i=1; i<=6; i++) { const tid = `${targetTypePrefix}-${i}`; if(!resourceState[tid] && tid !== id) { ghostTargetId = tid; break; } } }
+            if (!resourceState[sameIndex] && sameIndex !== id) { ghostTargetId = sameIndex; }
+            else { for (let i = 1; i <= 6; i++) { const tid = `${targetTypePrefix}-${i}`; if (!resourceState[tid] && tid !== id) { ghostTargetId = tid; break; } } }
             if (!ghostTargetId) ghostTargetId = `${targetTypePrefix}-${index}`;
             comboMeta = { sequence: comboSequence, targetId: ghostTargetId, flex: (current.comboMeta && current.comboMeta.flex) || 0, phase: 1 };
         } else if (isStrict) {
             comboMeta = null;
         }
-        
+
         const newState = { ...resourceState }; if (shouldMove) delete newState[id];
         newState[currentId] = { ...current, booking: newBooking, startTime: new Date().toISOString(), isRunning: true, isPreview: false, comboMeta };
         updateResource(newState);
-        
+
         let primaryKey = "服務師傅1"; let fallbackKey = "ServiceStaff1";
         if (grpIdx === 1) { primaryKey = "服務師傅2"; fallbackKey = "ServiceStaff2"; }
         if (grpIdx === 2) { primaryKey = "服務師傅3"; fallbackKey = "ServiceStaff3"; }
         if (grpIdx === 3) { primaryKey = "服務師傅4"; fallbackKey = "ServiceStaff4"; }
         if (grpIdx === 4) { primaryKey = "服務師傅5"; fallbackKey = "ServiceStaff5"; }
         if (grpIdx === 5) { primaryKey = "服務師傅6"; fallbackKey = "ServiceStaff6"; }
-        
-        // V107.0: Send Status 'Running' explicit via payload
-        const payload = { 
-            rowId: current.booking.rowId, 
-            [primaryKey]: finalServiceStaff, 
-            [fallbackKey]: finalServiceStaff, 
-            [`staff${grpIdx + 1}`]: finalServiceStaff, 
+
+        const payload = {
+            rowId: current.booking.rowId,
+            [primaryKey]: finalServiceStaff,
+            [fallbackKey]: finalServiceStaff,
+            [`staff${grpIdx + 1}`]: finalServiceStaff,
             staffId: designatedStaff,
             current_resource_id: currentId,
             record_location: true,
-            status: '🟡 Running' // V107.0: Force Status Update in Sheet
+            status: '🟡 Running'
         };
         universalSend('/api/update-booking-details', payload);
-        // Backup call just in case
         axios.post('/api/update-status', { rowId: current.booking.rowId, status: '🟡 Running' });
     };
 
-    // --- V105.3: BATCH EXECUTION LOGIC (UPDATED V107.0) ---
     const executeBatchStart = (mainResId, relatedItems) => {
         const nextResourceState = { ...resourceState };
         const nextStatusData = { ...statusData };
         const apiPayloads = [];
-        
+
         const allItemsToStart = [
-            { resourceId: mainResId, booking: resourceState[mainResId] ? resourceState[mainResId].booking : null }, 
-            ...relatedItems 
+            { resourceId: mainResId, booking: resourceState[mainResId] ? resourceState[mainResId].booking : null },
+            ...relatedItems
         ];
 
-        setSyncLock(true); 
+        setSyncLock(true);
         setTimeout(() => setSyncLock(false), 5000);
 
         allItemsToStart.forEach(item => {
@@ -1145,54 +1364,59 @@ const App = () => {
                         isMaxMode: true,
                         comboMeta: null
                     };
-                    nextResourceState[resourceId] = current; 
+                    nextResourceState[resourceId] = current;
                 } else { return; }
             }
-            
-            if (current.isRunning) return; 
+
+            if (current.isRunning) return;
 
             let designatedStaff = current.booking.serviceStaff || current.booking.staffId || current.booking.ServiceStaff || '隨機';
             if (designatedStaff === 'undefined' || designatedStaff === 'null') designatedStaff = '隨機';
 
             let finalServiceStaff = designatedStaff;
-            
+
             if (['隨機', '男', '女', 'Oil'].some(k => designatedStaff.includes(k))) {
-                 const currentlyBusyIds = Object.values(nextResourceState)
+                const currentlyBusyIds = Object.values(nextResourceState)
                     .filter(r => r.isRunning && !r.isPaused && r.isPreview !== true)
                     .map(r => r.booking.serviceStaff || r.booking.staffId);
-                
-                 const readyCandidates = staffList.filter(s => {
-                     const stat = nextStatusData[s.id];
-                     if (!stat || stat.status !== 'READY') return false;
-                     if (currentlyBusyIds.includes(s.id)) return false;
-                     
-                     if (designatedStaff.includes('男') || designatedStaff.includes('Male')) {
-                        if (s.gender !== 'M' && s.gender !== '男') return false;
-                     }
-                     if (designatedStaff.includes('女') || designatedStaff.includes('Female') || current.booking.isOil) {
-                        if (s.gender !== 'F' && s.gender !== '女') return false;
-                     }
-                     return true;
-                 });
-                 
-                 readyCandidates.sort((a,b) => (nextStatusData[a.id]?.checkInTime||0) - (nextStatusData[b.id]?.checkInTime||0));
 
-                 if (readyCandidates.length > 0) {
-                     finalServiceStaff = readyCandidates[0].id;
-                     nextStatusData[finalServiceStaff] = { ...nextStatusData[finalServiceStaff], status: 'BUSY' };
-                 } else {
-                     return; 
-                 }
+                const readyCandidates = staffList.filter(s => {
+                    const stat = nextStatusData[s.id];
+                    if (!stat || stat.status !== 'READY') return false;
+                    if (currentlyBusyIds.includes(s.id)) return false;
+
+                    if (designatedStaff.includes('男') || designatedStaff.includes('Male')) {
+                        if (s.gender !== 'M' && s.gender !== '男') return false;
+                    }
+                    if (designatedStaff.includes('女') || designatedStaff.includes('Female') || current.booking.isOil) {
+                        if (s.gender !== 'F' && s.gender !== '女') return false;
+                    }
+                    return true;
+                });
+
+                // BƯỚC 4: AUTO ASSIGN NHÓM BẰNG STAFFTIME
+                readyCandidates.sort((a, b) => {
+                    const timeA = nextStatusData[a.id]?.stafftime || Number.MAX_SAFE_INTEGER;
+                    const timeB = nextStatusData[b.id]?.stafftime || Number.MAX_SAFE_INTEGER;
+                    return timeA - timeB;
+                });
+
+                if (readyCandidates.length > 0) {
+                    finalServiceStaff = readyCandidates[0].id;
+                    nextStatusData[finalServiceStaff] = { ...nextStatusData[finalServiceStaff], status: 'BUSY' };
+                } else {
+                    return;
+                }
             } else {
                 if (nextStatusData[finalServiceStaff]) {
-                     nextStatusData[finalServiceStaff] = { ...nextStatusData[finalServiceStaff], status: 'BUSY' };
+                    nextStatusData[finalServiceStaff] = { ...nextStatusData[finalServiceStaff], status: 'BUSY' };
                 }
             }
 
             const grpIdx = getGroupMemberIndex(resourceId, current.booking.rowId);
             const isComboService = (current.booking.serviceName && current.booking.serviceName.includes('套餐'));
             const newBooking = { ...current.booking, category: isComboService ? 'COMBO' : 'SINGLE' };
-            
+
             if (grpIdx === 0) newBooking.serviceStaff = finalServiceStaff;
             else if (grpIdx === 1) newBooking.staffId2 = finalServiceStaff;
             else if (grpIdx === 2) newBooking.staffId3 = finalServiceStaff;
@@ -1206,7 +1430,7 @@ const App = () => {
                 startTime: new Date().toISOString(),
                 isRunning: true,
                 isPreview: false,
-                comboMeta: current.comboMeta 
+                comboMeta: current.comboMeta
             };
 
             let primaryKey = "服務師傅1"; let fallbackKey = "ServiceStaff1";
@@ -1218,26 +1442,25 @@ const App = () => {
 
             apiPayloads.push({
                 endpoint: '/api/update-booking-details',
-                data: { 
-                    rowId: current.booking.rowId, 
-                    [primaryKey]: finalServiceStaff, 
-                    [fallbackKey]: finalServiceStaff, 
-                    [`staff${grpIdx + 1}`]: finalServiceStaff, 
+                data: {
+                    rowId: current.booking.rowId,
+                    [primaryKey]: finalServiceStaff,
+                    [fallbackKey]: finalServiceStaff,
+                    [`staff${grpIdx + 1}`]: finalServiceStaff,
                     staffId: designatedStaff,
-                    current_resource_id: resourceId, 
+                    current_resource_id: resourceId,
                     record_location: true,
-                    status: '🟡 Running' // V107.0
+                    status: '🟡 Running'
                 }
             });
-            // Backup
             apiPayloads.push({
-                 endpoint: '/api/update-status',
-                 data: { rowId: current.booking.rowId, status: '🟡 Running' }
+                endpoint: '/api/update-status',
+                data: { rowId: current.booking.rowId, status: '🟡 Running' }
             });
         });
 
         setResourceState(nextResourceState);
-        updateStaffStatus(nextStatusData); 
+        updateStaffStatus(nextStatusData);
         apiPayloads.forEach(p => universalSend(p.endpoint, p.data));
         universalSend('/api/sync-resource', nextResourceState);
     };
@@ -1247,32 +1470,33 @@ const App = () => {
         if (action === 'start') {
             const isStrict = current.booking.isForcedSingle === true;
             const isCombo = !isStrict && (current.booking.category === 'COMBO' || (current.booking.serviceName && current.booking.serviceName.includes('套餐')));
-            
+
             if (isCombo && !current.isRunning) { setComboStartData({ id, booking: current.booking }); return; }
-            executeStart(id, null); 
+            executeStart(id, null);
         }
         else if (action === 'pause') { updateResource({ ...resourceState, [id]: { ...current, isPaused: !current.isPaused } }); }
-        else if (action === 'cancel') { if (confirm('確認將顧客從床位移除?')) { const n = { ...resourceState }; delete n[id]; updateResource(n); } }
+        else if (action === 'cancel') { if (confirm('確定將顧客從此位置移除？')) { const n = { ...resourceState }; delete n[id]; updateResource(n); } }
         else if (action === 'cancel_midway') {
-            if (confirm('確定要棄單 (Drop)?\n此操作將標記為「取消」並釋放床位。')) {
+            if (confirm('確定要棄單 (Drop)？\n此操作將標記為「取消」並釋放此位置。')) {
                 await axios.post('/api/update-status', { rowId: current.booking.rowId, status: '❌ Cancelled' });
                 const n = { ...resourceState };
                 const staffId = current.booking.serviceStaff || current.booking.staffId;
-                if(staffId !== '隨機' && statusData[staffId]) { const newStatus = { ...statusData, [staffId]: { status: 'READY', checkInTime: Date.now() } }; updateStaffStatus(newStatus); }
+                if (staffId !== '隨機' && statusData[staffId]) {
+                    // Hủy ngang => Trả lại stafftime = hiện tại (reset lại đầu hàng đợi)
+                    const newStatus = { ...statusData, [staffId]: { status: 'READY', checkInTime: Date.now(), stafftime: Date.now() } };
+                    updateStaffStatus(newStatus);
+                }
                 delete n[id]; updateResource(n); fetchData();
             }
         }
         else if (action === 'finish') {
-            const currentRowId = current.booking.rowId;
             const related = findRelatedActiveBookings(current.booking, id);
-            
             if (related.length > 0) {
-                console.log("Group detected:", related);
                 setPaymentChoiceData({
                     resourceId: id,
                     booking: current.booking,
                     relatedIds: related.map(r => r.resourceId),
-                    relatedDetails: related 
+                    relatedDetails: related
                 });
             } else {
                 setBillingData({ activeItem: { resourceId: id, booking: current.booking }, relatedItems: [] });
@@ -1281,68 +1505,77 @@ const App = () => {
     };
 
     const confirmComboStart = (sequence) => { if (comboStartData) { executeStart(comboStartData.id, sequence); setComboStartData(null); } };
-    
-    const handleSwitch = (fromId, toType) => { 
-        const currentData = resourceState[fromId]; 
-        if(!currentData) return; 
+
+    const handleSwitch = (fromId, toType) => {
+        const currentData = resourceState[fromId];
+        if (!currentData) return;
         const isStrict = currentData.booking.isForcedSingle === true;
         const requiredType = currentData.booking.forceResourceType;
         const targetTypeString = toType === 'chair' ? 'CHAIR' : 'BED';
 
-        if (isStrict && requiredType !== targetTypeString) { alert(`⛔️ CHẶN: Dịch vụ này là ${requiredType}, không thể chuyển sang ${targetTypeString}!`); return; }
+        if (isStrict && requiredType !== targetTypeString) {
+            alert(`⛔️ 阻擋：此服務限定為 ${requiredType === 'CHAIR' ? '足部' : '身體'}，無法轉場至 ${targetTypeString === 'CHAIR' ? '足部' : '身體'}！`);
+            return;
+        }
 
-        for(let i=1; i<=6; i++) { 
-            const targetId = `${toType}-${i}`; 
-            if (!resourceState[targetId]) { 
-                const newState = { ...resourceState }; delete newState[fromId]; newState[targetId] = currentData; 
-                updateResource(newState); 
+        for (let i = 1; i <= 6; i++) {
+            const targetId = `${toType}-${i}`;
+            if (!resourceState[targetId]) {
+                const newState = { ...resourceState }; delete newState[fromId]; newState[targetId] = currentData;
+                updateResource(newState);
                 universalSend('/api/update-booking-details', {
                     rowId: currentData.booking.rowId,
-                    current_resource_id: targetId, 
+                    current_resource_id: targetId,
                     record_location: true,
                     forceSync: true
                 });
-                return; 
-            } 
-        } 
-        alert(`該區域 (${toType === 'chair' ? '足底區' : '身體區'}) 已無空位!`); 
+                return;
+            }
+        }
+        alert(`該區域 (${toType === 'chair' ? '足部區' : '身體區'}) 已無空位！`);
     };
 
     const handleToggleMax = async (resId) => { const res = resourceState[resId]; if (!res) return; updateResource({ ...resourceState, [resId]: { ...res, isMaxMode: !res.isMaxMode } }); };
-    
-    const handleToggleSequence = async (resId) => { 
-        const res = resourceState[resId]; 
-        if (!res || !res.comboMeta) return; 
-        if (res.booking.isForcedSingle) return; 
-        const newSeq = res.comboMeta.sequence === 'FB' ? 'BF' : 'FB'; 
-        updateResource({ ...resourceState, [resId]: { ...res, comboMeta: { ...res.comboMeta, sequence: newSeq } } }); 
-    }
-    
-    // --- V107.0: PAYMENT & STATUS UPDATE ---
+
     const handleConfirmPayment = async (itemsToPay, totalAmount) => {
         try {
-            setSyncLock(true); setTimeout(() => setSyncLock(false), 5000); 
-            const newState = { ...resourceState }; const newStatusData = { ...statusData }; const updatesByRow = {}; 
+            setSyncLock(true); setTimeout(() => setSyncLock(false), 5000);
+            const newState = { ...resourceState };
+            const newStatusData = { ...statusData };
+            const updatesByRow = {};
             const baseTime = Date.now();
 
+            // ======================================================================
+            // BƯỚC 5: THUẬT TOÁN TÍNH TOÁN STAFFTIME (TRẢ THỢ CHECKOUT - QUY TẮC D)
+            // ======================================================================
+
+            // 5.1 Thu thập thông tin tất cả thợ đang thanh toán
+            const checkoutStaffInfo = [];
+
             for (let i = 0; i < itemsToPay.length; i++) {
-                const item = itemsToPay[i]; const b = item.booking; const rid = String(b.rowId); const resId = item.resourceId;
-                let targetIndex = -1; const currentStaff = b.serviceStaff || b.staffId; 
-                
+                const item = itemsToPay[i];
+                const b = item.booking;
+                const rid = String(b.rowId);
+                const resId = item.resourceId;
+
+                let targetIndex = -1;
+                const currentStaff = b.serviceStaff || b.staffId;
+
                 if (currentStaff && currentStaff !== '隨機' && currentStaff !== 'undefined') {
-                    const staffCols = [ b.serviceStaff || b.staffId, b.staffId2, b.staffId3, b.staffId4, b.staffId5, b.staffId6 ];
+                    const staffCols = [b.serviceStaff || b.staffId, b.staffId2, b.staffId3, b.staffId4, b.staffId5, b.staffId6];
                     targetIndex = staffCols.findIndex(s => s && s.trim() === currentStaff.trim());
                 }
                 if (targetIndex === -1) {
                     const seatNum = parseInt(resId.replace(/\D/g, ''));
-                    if (!isNaN(seatNum) && seatNum > 0) targetIndex = Math.min(seatNum - 1, 5); 
+                    if (!isNaN(seatNum) && seatNum > 0) targetIndex = Math.min(seatNum - 1, 5);
                     else targetIndex = 0;
                 }
 
-                const statusNum = targetIndex + 1; const statusColEnglish = `Status${statusNum}`; 
+                const statusNum = targetIndex + 1;
+                const statusColEnglish = `Status${statusNum}`;
                 if (!updatesByRow[rid]) { updatesByRow[rid] = { rowId: rid, forceSync: true, originalBooking: b }; }
                 updatesByRow[rid][statusColEnglish] = '✅ 完成';
-                
+
                 let staffId = null;
                 if (targetIndex === 0) staffId = b.serviceStaff || b.staffId;
                 else if (targetIndex === 1) staffId = b.staffId2;
@@ -1351,12 +1584,56 @@ const App = () => {
                 else if (targetIndex === 4) staffId = b.staffId5;
                 else if (targetIndex === 5) staffId = b.staffId6;
 
-                if (staffId && staffId !== '隨機' && staffId !== 'undefined') { newStatusData[staffId] = { status: 'READY', checkInTime: baseTime + (i * 1000) }; }
-                
-                // V107.0: Remove from local state
+                if (staffId && staffId !== '隨機' && staffId !== 'undefined') {
+                    const duration = window.getSafeDuration(b.serviceName, b.duration);
+                    const blocks = getServiceBlocks(b.serviceName);
+                    checkoutStaffInfo.push({ staffId, duration, blocks });
+                }
+
+                // Gỡ thẻ ra khỏi bàn
                 delete newState[resId];
             }
 
+            // 5.2 Xử lý phân nhóm (Khách lẻ / Khách đoàn)
+            // Lấy từ dữ liệu booking pax hoặc số thẻ checkout
+            const isGroup = checkoutStaffInfo.length >= 2 || (itemsToPay.length > 0 && parseInt(itemsToPay[0].booking.pax) >= 2);
+            const uniqueBlocks = [...new Set(checkoutStaffInfo.map(i => i.blocks))];
+            const minGroupDuration = checkoutStaffInfo.length > 0 ? Math.min(...checkoutStaffInfo.map(i => i.duration)) : 0;
+
+            // 5.3 Áp dụng quy tắc D1, D2, D3, D4 cho từng thợ
+            checkoutStaffInfo.forEach(info => {
+                const currentStaffTime = statusData[info.staffId]?.stafftime || baseTime;
+                let newStaffTime = currentStaffTime;
+
+                if (info.blocks === 1) {
+                    // D4: Nếu làm gói 1 tiết (Chữa cháy) -> Trả về đầu bảng (giữ nguyên stafftime cũ nhỏ nhất)
+                    newStaffTime = currentStaffTime;
+                    console.log(`[Quy tắc D4] Thợ ${info.staffId} làm gói 1 tiết, ưu tiên xếp đầu.`);
+                }
+                else if (!isGroup) {
+                    // D1: Khách lẻ -> stafftime + thời gian gói
+                    newStaffTime = currentStaffTime + (info.duration * 60000);
+                    console.log(`[Quy tắc D1] Thợ ${info.staffId} (Lẻ). Time + ${info.duration}p`);
+                }
+                else if (isGroup && uniqueBlocks.length === 1) {
+                    // D2: Khách nhóm CÙNG số tiết -> stafftime + thời gian ngắn nhất (Giữ nguyên thứ tự ưu tiên trong nhóm)
+                    newStaffTime = currentStaffTime + (minGroupDuration * 60000);
+                    console.log(`[Quy tắc D2] Thợ ${info.staffId} (Nhóm Cùng Tiết). Time + Min(${minGroupDuration}p)`);
+                }
+                else if (isGroup && uniqueBlocks.length > 1) {
+                    // D3: Khách nhóm KHÁC số tiết -> stafftime + thời gian độc lập của người đó
+                    newStaffTime = currentStaffTime + (info.duration * 60000);
+                    console.log(`[Quy tắc D3] Thợ ${info.staffId} (Nhóm Khác Tiết). Time + ${info.duration}p`);
+                }
+
+                newStatusData[info.staffId] = {
+                    status: 'READY',
+                    checkInTime: baseTime,
+                    stafftime: newStaffTime
+                };
+            });
+
+            // 5.4 Cập nhật Status Master
             Object.values(updatesByRow).forEach(updatePayload => {
                 const booking = updatePayload.originalBooking;
                 const staffCols = [booking.serviceStaff || booking.staffId, booking.staffId2, booking.staffId3, booking.staffId4, booking.staffId5, booking.staffId6];
@@ -1370,26 +1647,22 @@ const App = () => {
                         if (isNewCompletion || wasAlreadyDone) finishedSlotsCount++;
                     }
                 });
-                // V107.0: If all done, update MAIN STATUS to DONE
-                if (activeSlotsCount > 0 && finishedSlotsCount >= activeSlotsCount) { 
-                    updatePayload.mainStatus = '✅ 完成'; 
-                    // Explicitly update status for Sheet Truth
+                if (activeSlotsCount > 0 && finishedSlotsCount >= activeSlotsCount) {
+                    updatePayload.mainStatus = '✅ 完成';
                     updatePayload.status = '✅ Done';
                 }
                 delete updatePayload.originalBooking;
             });
-            
-            updateResource(newState); updateStaffStatus(newStatusData); setBillingData(null); 
+
+            updateResource(newState); updateStaffStatus(newStatusData); setBillingData(null);
             const apiCalls = Object.values(updatesByRow).map(payload => axios.post('/api/update-booking-details', payload));
-            // Backup
             Object.values(updatesByRow).forEach(p => {
-                 if (p.status) axios.post('/api/update-status', { rowId: p.rowId, status: p.status });
+                if (p.status) axios.post('/api/update-status', { rowId: p.rowId, status: p.status });
             });
             await Promise.all(apiCalls); alert(`✅ 結帳成功: $${totalAmount}`);
-        } catch(e) { console.error("Payment Sync Error:", e); alert("⚠️ Lỗi kết nối. Vui lòng kiểm tra mạng!"); }
+        } catch (e) { alert("⚠️ 連線錯誤，請檢查網路！"); }
     };
 
-    // --- V103.0: BOOKING CONTROL CENTER & PAYMENT BRANCHING ---
     const handleOpenControlCenter = (bookingOrId, suggestedResourceId = null) => {
         let bookingObj = bookingOrId;
         if (typeof bookingOrId === 'string' || typeof bookingOrId === 'number') {
@@ -1399,7 +1672,7 @@ const App = () => {
         }
 
         const liveContext = getLiveResourceByBooking(bookingObj.rowId);
-        
+
         setControlCenterData({
             booking: bookingObj,
             liveState: liveContext ? liveContext.data : null,
@@ -1413,18 +1686,15 @@ const App = () => {
         const targetBooking = payload.currentBooking || (controlCenterData ? controlCenterData.booking : null);
         const targetResourceId = payload.resourceId || (controlCenterData ? controlCenterData.resourceId : null);
 
-        console.log("App.handleControlAction V107.0:", actionType, payload);
-
         switch (actionType) {
             case 'START':
                 if (targetResourceId) {
                     if (resourceState[targetResourceId] && resourceState[targetResourceId].isRunning) {
-                         alert(`⚠️ Vị trí ${targetResourceId} đang bận! Vui lòng chọn ghế khác.`);
+                        alert(`⚠️ 位置 ${targetResourceId} 忙碌中！請選擇其他座位。`);
                     } else {
                         const relatedWaiters = findRelatedWaitingBookings(targetBooking, targetResourceId);
 
                         if (relatedWaiters.length > 0) {
-                            console.log("Smart Start Guard: Found related waiters", relatedWaiters);
                             setStartChoiceData({
                                 resourceId: targetResourceId,
                                 booking: targetBooking,
@@ -1435,16 +1705,16 @@ const App = () => {
                         }
                     }
                 } else {
-                    alert("⚠️ Vui lòng kéo đơn này vào giường/ghế trước khi bắt đầu!");
+                    alert("⚠️ 請先將此訂單拖入座位/床位再開始！");
                 }
-                setControlCenterData(null); 
+                setControlCenterData(null);
                 break;
-            
+
             case 'PAUSE':
                 if (targetResourceId) handleResourceAction(targetResourceId, 'pause');
                 setControlCenterData(null);
                 break;
-                
+
             case 'FINISH':
                 if (targetResourceId && targetBooking) {
                     const related = findRelatedActiveBookings(targetBooking, targetResourceId);
@@ -1461,13 +1731,13 @@ const App = () => {
                 }
                 setControlCenterData(null);
                 break;
-                
+
             case 'CANCEL':
                 if (targetResourceId) handleResourceAction(targetResourceId, 'cancel_midway');
                 else if (targetBooking) handleManualUpdateStatus(targetBooking.rowId, '❌ Cancelled');
                 setControlCenterData(null);
                 break;
-                
+
             case 'SPLIT':
                 if (targetResourceId) setSplitData({ resourceId: targetResourceId });
                 setControlCenterData(null);
@@ -1480,40 +1750,70 @@ const App = () => {
                 setControlCenterData(null);
                 break;
 
+            case 'CHANGE_STAFF':
+                if (targetBooking && payload.newStaff) {
+                    if (targetResourceId && resourceState[targetResourceId]) {
+                        // Đang phục vụ trên ghế -> Dùng hàm thay đổi nhân viên hiện tại
+                        handleStaffChange(targetResourceId, payload.newStaff);
+                    } else {
+                        // Khách đang chờ (Waiting) -> Cập nhật trực tiếp booking
+                        const rowId = String(targetBooking.rowId);
+                        setSyncLock(true); setTimeout(() => setSyncLock(false), 3000);
+
+                        // Cập nhật UI Modal ngay lập tức
+                        if (controlCenterData && String(controlCenterData.booking.rowId) === rowId) {
+                            setControlCenterData(prev => ({
+                                ...prev,
+                                booking: { ...prev.booking, serviceStaff: payload.newStaff, staffId: payload.newStaff }
+                            }));
+                        }
+
+                        // Gửi API
+                        universalSend('/api/update-booking-details', {
+                            rowId: rowId,
+                            服務師傅1: payload.newStaff,
+                            ServiceStaff1: payload.newStaff,
+                            technician: payload.newStaff,
+                            staff1: payload.newStaff,
+                            forceSync: true
+                        });
+                        fetchData(true);
+                    }
+                }
+                break;
+
             case 'UPDATE_PHASE':
-                if (targetBooking && payload.phase1) {
-                    handleSaveComboTime(payload.phase1, targetBooking);
+                if (targetBooking && payload.phase1 !== undefined) {
+                    handleSaveComboTime(payload.phase1, targetBooking, payload.startTimeStr, payload.switchTimeStr);
                 }
                 setControlCenterData(null);
                 break;
-            
+
             case 'TOGGLE_SEQUENCE':
-                if (targetResourceId) {
+                if (targetBooking && payload.newFlow) {
+                    handleToggleSequence(targetBooking, payload.newFlow);
+                } else if (targetResourceId) {
                     handleToggleSequence(targetResourceId);
                 }
-                setControlCenterData(null);
                 break;
 
             case 'SHIFT_RESOURCE':
-            case 'SHIFT_TIME': 
-                const direction = payload.direction || 1; 
+            case 'SHIFT_TIME':
+                const direction = payload.direction || 1;
                 if (targetResourceId) {
-                    handleVerticalResourceShift(targetResourceId, direction);
+                    handleVerticalResourceShift(targetResourceId, direction, targetBooking);
                 }
                 break;
-
-            default:
-                console.warn("Unknown Control Action:", actionType);
         }
     };
 
     const handleProcessPaymentChoice = (mode) => {
         let activeResId, activeBooking;
-        
+
         if (paymentChoiceData) {
             activeResId = paymentChoiceData.resourceId;
             activeBooking = paymentChoiceData.booking;
-        } 
+        }
         else if (controlCenterData) {
             activeResId = controlCenterData.resourceId;
             activeBooking = controlCenterData.booking;
@@ -1522,15 +1822,15 @@ const App = () => {
         if (!activeResId || !activeBooking) return;
 
         if (mode === 'SEPARATE' || mode === 'INDIVIDUAL') {
-            setBillingData({ 
-                activeItem: { resourceId: activeResId, booking: activeBooking }, 
-                relatedItems: [] 
+            setBillingData({
+                activeItem: { resourceId: activeResId, booking: activeBooking },
+                relatedItems: []
             });
         } else {
             const related = findRelatedActiveBookings(activeBooking, activeResId);
-            setBillingData({ 
-                activeItem: { resourceId: activeResId, booking: activeBooking }, 
-                relatedItems: related 
+            setBillingData({
+                activeItem: { resourceId: activeResId, booking: activeBooking },
+                relatedItems: related
             });
         }
         setPaymentChoiceData(null);
@@ -1549,28 +1849,38 @@ const App = () => {
         setStartChoiceData(null);
     };
 
-    const handleWalkInSave = async (data) => { await axios.post('/api/admin-booking', data);  setShowAvailability(false); fetchData(); };
-    const handleAssignBooking = (booking) => { if (!selectedSlot) return; updateResource({ ...resourceState, [selectedSlot]: { booking, startTime: null, isRunning: false } }); setSelectedSlot(null); };
-    const handleManualUpdateStatus = async (rowId, status) => { if(confirm('確認更新狀態?')) { await axios.post('/api/update-status', { rowId, status }); fetchData(); } };
+    const handleWalkInSave = async (data) => { await axios.post('/api/admin-booking', data); setShowAvailability(false); fetchData(); };
+    const handleManualUpdateStatus = async (rowId, status) => { if (confirm('確認更新狀態?')) { await axios.post('/api/update-status', { rowId, status }); fetchData(); } };
     const handleRetryConnection = () => { setQuotaError(false); fetchData(true); };
 
     const getStatus = (id) => statusData[id] ? statusData[id].status : 'AWAY';
-    
+
     const safeStaffList = staffList || [];
     const awayStaff = safeStaffList.filter(s => { const st = getStatus(s.id); return st === 'AWAY' || st === 'OFF'; }).sort(window.sortIdAsc);
-    
-    const busyStaff = safeStaffList.filter(s => isActuallyBusy(s.id)).sort((a,b) => { 
-        const findRes = (sid) => Object.values(resourceState).find(r => r.isRunning && !r.isPaused && r.booking && ( r.booking.serviceStaff === sid || r.booking.staffId === sid || r.booking.staffId2 === sid || r.booking.staffId3 === sid || r.booking.staffId4 === sid || r.booking.staffId5 === sid || r.booking.staffId6 === sid ) );
+
+    const busyStaff = safeStaffList.filter(s => isActuallyBusy(s.id)).sort((a, b) => {
+        const findRes = (sid) => Object.values(resourceState).find(r => r.isRunning && !r.isPaused && r.booking && (r.booking.serviceStaff === sid || r.booking.staffId === sid || r.booking.staffId2 === sid || r.booking.staffId3 === sid || r.booking.staffId4 === sid || r.booking.staffId5 === sid || r.booking.staffId6 === sid));
         const resA = findRes(a.id); const resB = findRes(b.id);
         const timeA = resA?.startTime ? new Date(resA.startTime).getTime() : 0; const timeB = resB?.startTime ? new Date(resB.startTime).getTime() : 0;
         return timeA !== timeB ? timeA - timeB : window.sortIdAsc(a, b);
     });
-    
-    const readyStaff = safeStaffList.filter(s => { if (isActuallyBusy(s.id)) return false; const st = getStatus(s.id); return st === 'READY' || st === 'EAT' || st === 'OUT_SHORT'; }).sort((a,b) => { const timeA = statusData[a.id]?.checkInTime || 0; const timeB = statusData[b.id]?.checkInTime || 0; return timeA !== timeB ? timeA - timeB : window.sortIdAsc(a, b); });
-    
+
+    const readyStaff = safeStaffList.filter(s => {
+        if (isActuallyBusy(s.id)) return false;
+        const st = getStatus(s.id);
+        return st === 'READY' || st === 'EAT' || st === 'OUT_SHORT';
+    }).sort((a, b) => {
+        // [BƯỚC 4]: SẮP XẾP DANH SÁCH THỢ DƯỚI FOOTER THEO STAFFTIME
+        const timeA = statusData[a.id]?.stafftime || Number.MAX_SAFE_INTEGER;
+        const timeB = statusData[b.id]?.stafftime || Number.MAX_SAFE_INTEGER;
+        if (timeA !== timeB) return timeA - timeB; // Ai thời gian bé nhất (đợi lâu nhất) lên đầu
+
+        return window.sortIdAsc(a, b);
+    });
+
     const readyQueue = readyStaff.filter(s => getStatus(s.id) === 'READY').map(s => s.id);
     const safeBookings = Array.isArray(bookings) ? bookings : [];
-    
+
     const todaysBookings = useMemo(() => {
         return safeBookings.filter(b => window.isWithinOperationalDay(b.startTimeString.split(' ')[0], b.startTimeString.split(' ')[1], viewDate));
     }, [bookings, viewDate]);
@@ -1581,23 +1891,23 @@ const App = () => {
         <div className="min-h-screen flex flex-col bg-slate-50">
             <header className={`text-white p-3 shadow-md flex justify-between items-center sticky top-0 z-50 transition-colors ${quotaError ? 'bg-red-800' : 'bg-[#1e1b4b]'}`}>
                 <div className="flex items-center gap-3">
-                    <span className="bg-emerald-500 text-white px-2 py-1 rounded font-black text-sm shadow-sm">V107.0</span>
+                    <span className="bg-emerald-500 text-white px-2 py-1 rounded font-black text-sm shadow-sm">V108.03</span>
                     <span className="font-bold hidden md:inline tracking-wider">XinWuChan</span>
                     <div className="flex items-center gap-2 bg-white/10 rounded px-2 py-1 border border-white/20">
-                        <button onClick={()=>{const d=new Date(viewDate); d.setDate(d.getDate()-1); setViewDate(d.toISOString().split('T')[0])}} className="text-white hover:text-amber-400 font-bold px-2">❯</button>
-                        <input type="date" value={viewDate} onChange={(e) => setViewDate(e.target.value)} className="bg-transparent text-white font-bold outline-none cursor-pointer text-center" style={{colorScheme: 'dark'}} />
-                        <button onClick={()=>{const d=new Date(viewDate); d.setDate(d.getDate()+1); setViewDate(d.toISOString().split('T')[0])}} className="text-white hover:text-amber-400 font-bold px-2">❯</button>
+                        <button onClick={() => { const d = new Date(viewDate); d.setDate(d.getDate() - 1); setViewDate(d.toISOString().split('T')[0]) }} className="text-white hover:text-amber-400 font-bold px-2">❯</button>
+                        <input type="date" value={viewDate} onChange={(e) => setViewDate(e.target.value)} className="bg-transparent text-white font-bold outline-none cursor-pointer text-center" style={{ colorScheme: 'dark' }} />
+                        <button onClick={() => { const d = new Date(viewDate); d.setDate(d.getDate() + 1); setViewDate(d.toISOString().split('T')[0]) }} className="text-white hover:text-amber-400 font-bold px-2">❯</button>
                     </div>
                 </div>
 
                 <div className="flex gap-3">
-                    <button onClick={()=>setActiveTab('timeline')} className={`px-3 py-1.5 rounded-lg font-bold text-sm flex gap-2 items-center transition-all shadow-lg ${activeTab==='timeline' ? 'bg-purple-600 text-white ring-2 ring-white scale-105 opacity-100' : 'bg-purple-600 text-white/90 opacity-60 hover:opacity-100 hover:scale-105'}`}><i className="fas fa-stream"></i> <span className="hidden md:inline">時間軸 (Timeline)</span></button>
-                    <button onClick={()=>setActiveTab('list')} className={`px-3 py-1.5 rounded-lg font-bold text-sm flex gap-2 items-center transition-all shadow-lg ${activeTab==='list' ? 'bg-cyan-600 text-white ring-2 ring-white scale-105 opacity-100' : 'bg-cyan-600 text-white/90 opacity-60 hover:opacity-100 hover:scale-105'}`}><i className="fas fa-list"></i> <span className="hidden md:inline">列表 (List)</span></button>
+                    <button onClick={() => setActiveTab('timeline')} className={`px-3 py-1.5 rounded-lg font-bold text-sm flex gap-2 items-center transition-all shadow-lg ${activeTab === 'timeline' ? 'bg-purple-600 text-white ring-2 ring-white scale-105 opacity-100' : 'bg-purple-600 text-white/90 opacity-60 hover:opacity-100 hover:scale-105'}`}><i className="fas fa-stream"></i> <span className="hidden md:inline">時間軸 (Timeline)</span></button>
+                    <button onClick={() => setActiveTab('list')} className={`px-3 py-1.5 rounded-lg font-bold text-sm flex gap-2 items-center transition-all shadow-lg ${activeTab === 'list' ? 'bg-cyan-600 text-white ring-2 ring-white scale-105 opacity-100' : 'bg-cyan-600 text-white/90 opacity-60 hover:opacity-100 hover:scale-105'}`}><i className="fas fa-list"></i> <span className="hidden md:inline">列表 (List)</span></button>
                 </div>
 
                 <div className="flex gap-2 items-center">
-                    <button 
-                        onClick={handleForceRefresh} 
+                    <button
+                        onClick={handleForceRefresh}
                         disabled={isManualRefreshing}
                         className={`px-3 py-1.5 rounded font-bold text-sm flex gap-2 items-center shadow-md transition-all border border-white/20 ${isManualRefreshing ? 'bg-gray-500 cursor-wait opacity-80' : 'bg-teal-600 hover:bg-teal-500 text-white'}`}
                         title="立即從 Google Sheet 重新載入 (Force Refresh)"
@@ -1607,13 +1917,13 @@ const App = () => {
                     </button>
 
                     {quotaError && <button onClick={handleRetryConnection} className="bg-white text-red-600 px-4 py-1.5 rounded font-bold text-sm animate-pulse ml-2"><i className="fas fa-exclamation-triangle"></i> Retry</button>}
-                    
-                    <button onClick={()=>setShowAvailability(true)} className="bg-emerald-500 hover:bg-emerald-400 text-white px-3 py-1.5 rounded font-bold text-sm flex gap-1 items-center shadow-md animate-pulse ml-2"><i className="fas fa-phone-volume"></i> <span className="hidden lg:inline">電話預約</span></button>
-                    
-                    <button onClick={()=>setShowCheckIn(true)} className="bg-indigo-600 hover:bg-indigo-500 text-white px-3 py-1.5 rounded font-bold text-sm flex gap-1 items-center"><i className="fas fa-user-clock"></i> <span className="hidden lg:inline">技師報到</span></button>
+
+                    <button onClick={() => setShowAvailability(true)} className="bg-emerald-500 hover:bg-emerald-400 text-white px-3 py-1.5 rounded font-bold text-sm flex gap-1 items-center shadow-md animate-pulse ml-2"><i className="fas fa-phone-volume"></i> <span className="hidden lg:inline">電話預約</span></button>
+
+                    <button onClick={() => setShowCheckIn(true)} className="bg-indigo-600 hover:bg-indigo-500 text-white px-3 py-1.5 rounded font-bold text-sm flex gap-1 items-center"><i className="fas fa-user-clock"></i> <span className="hidden lg:inline">技師報到</span></button>
                 </div>
             </header>
-            
+
             <div className="bg-white border-b shadow-sm p-2 overflow-x-auto whitespace-nowrap staff-scroll">
                 <div className="flex w-full justify-between items-center min-w-max">
                     <div className="flex gap-1 opacity-30 scale-95 border-r-2 pr-2 mr-1 border-dashed border-slate-300">
@@ -1631,33 +1941,41 @@ const App = () => {
             </div>
 
             <main className="flex-1 p-4 overflow-y-auto">
-                {activeTab === 'list' && ( <window.BookingListView bookings={todaysBookings} onCancelBooking={handleManualUpdateStatus} /> )}
-                
+                {activeTab === 'list' && (
+                    <window.BookingListView
+                        bookings={todaysBookings}
+                        onCancelBooking={handleManualUpdateStatus}
+                        onInlineUpdate={handleInlineUpdate}
+                    />
+                )}
+
                 {activeTab === 'timeline' && (
-                    <TimelineView 
-                        timelineData={timelineData} 
+                    <TimelineView
+                        timelineData={timelineData}
                         liveStatusData={resourceState}
                         onEditPhase={handleControlAction}
+                        staffList={staffList}
+                        statusData={statusData}
                     />
                 )}
             </main>
-            
-            {showCheckIn && <window.CheckInBoard staffList={staffList} statusData={statusData} onUpdateStatus={updateStaffStatus} onClose={()=>setShowCheckIn(false)} bookings={todaysBookings} />}
-            {showAvailability && <window.AvailabilityCheckModal onClose={()=>setShowAvailability(false)} onSave={handleWalkInSave} staffList={staffList} bookings={bookings} initialDate={viewDate} />}
-            {comboStartData && <window.ComboStartModal onConfirm={confirmComboStart} onCancel={()=>setComboStartData(null)} bookingName={comboStartData.booking.serviceName} />}
-            
-            {selectedSlot && waitingList.length === 0 && <div className="fixed inset-0 bg-black/30 z-50 flex items-center justify-center text-white font-bold" onClick={()=>setSelectedSlot(null)}>目前無候位! (No Waiting)</div>}
-            
+
+            {showCheckIn && <window.CheckInBoard staffList={staffList} statusData={statusData} onUpdateStatus={updateStaffStatus} onClose={() => setShowCheckIn(false)} bookings={todaysBookings} />}
+            {showAvailability && <window.AvailabilityCheckModal onClose={() => setShowAvailability(false)} onSave={handleWalkInSave} staffList={staffList} bookings={bookings} initialDate={viewDate} />}
+            {comboStartData && <window.ComboStartModal onConfirm={confirmComboStart} onCancel={() => setComboStartData(null)} bookingName={comboStartData.booking.serviceName} />}
+
+            {selectedSlot && waitingList.length === 0 && <div className="fixed inset-0 bg-black/30 z-50 flex items-center justify-center text-white font-bold" onClick={() => setSelectedSlot(null)}>目前無候位! (No Waiting)</div>}
+
             {billingData && <window.BillingModal activeItem={billingData.activeItem} relatedItems={billingData.relatedItems} onConfirm={handleConfirmPayment} onCancel={() => setBillingData(null)} />}
-            
+
             {splitData && (
                 <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 10005, pointerEvents: 'none' }}>
                     <div style={{ pointerEvents: 'auto', width: '100%', height: '100%' }}>
-                        <window.SplitStaffModal staffList={staffList} statusData={statusData} onCancel={()=>setSplitData(null)} onConfirm={handleSplitConfirm} />
+                        <window.SplitStaffModal staffList={staffList} statusData={statusData} onCancel={() => setSplitData(null)} onConfirm={handleSplitConfirm} />
                     </div>
                 </div>
             )}
-            
+
             {paymentChoiceData && (
                 <div className="fixed inset-0 bg-black/60 z-[60] flex items-center justify-center animate-fade-in">
                     <div className="bg-white rounded-xl shadow-2xl w-[450px] overflow-hidden animate-slide-up border border-slate-200">
@@ -1685,7 +2003,7 @@ const App = () => {
                                 </div>
                             </div>
                             <div className="space-y-3">
-                                <button 
+                                <button
                                     onClick={() => handleProcessPaymentChoice('COMBINED')}
                                     className="w-full bg-indigo-600 hover:bg-indigo-700 text-white py-3.5 rounded-lg font-bold flex items-center justify-center gap-3 transition-colors shadow-lg shadow-indigo-200 group"
                                 >
@@ -1695,7 +2013,7 @@ const App = () => {
                                         <div className="text-[10px] opacity-80 font-normal">總共 {paymentChoiceData.relatedIds.length + 1} 位</div>
                                     </div>
                                 </button>
-                                <button 
+                                <button
                                     onClick={() => handleProcessPaymentChoice('SEPARATE')}
                                     className="w-full bg-white border-2 border-slate-200 hover:border-indigo-500 hover:bg-indigo-50 text-slate-700 hover:text-indigo-700 py-3.5 rounded-lg font-bold flex items-center justify-center gap-3 transition-all group"
                                 >
@@ -1706,7 +2024,7 @@ const App = () => {
                                     </div>
                                 </button>
                             </div>
-                            <button onClick={() => setPaymentChoiceData(null)} className="w-full mt-6 text-gray-400 hover:text-gray-600 font-bold text-xs uppercase tracking-wider text-center">關閉 / 返回</button>
+                            <button onClick={() => setPaymentChoiceData(null)} className="w-full mt-6 text-gray-400 hover:text-gray-600 font-bold text-xs uppercase tracking-wider text-center">關閉 / 返回 (Cancel)</button>
                         </div>
                     </div>
                 </div>
@@ -1730,7 +2048,7 @@ const App = () => {
                                 </div>
                                 <div className="border-t border-emerald-200 my-2"></div>
                                 <div className="text-xs text-emerald-600 font-bold mb-2">
-                                    Tìm thấy {startChoiceData.relatedDetails.length} người đi cùng (Tổng nhóm: {startChoiceData.relatedDetails.length + 1} vị):
+                                    找到 {startChoiceData.relatedDetails.length} 位同行者 (總人數: {startChoiceData.relatedDetails.length + 1} 位):
                                 </div>
                                 <div className="flex flex-wrap gap-2">
                                     {startChoiceData.relatedDetails.map(item => (
@@ -1741,17 +2059,17 @@ const App = () => {
                                 </div>
                             </div>
                             <div className="space-y-3">
-                                <button 
+                                <button
                                     onClick={() => handleProcessStartChoice('GROUP')}
                                     className="w-full bg-emerald-600 hover:bg-emerald-700 text-white py-3.5 rounded-lg font-bold flex items-center justify-center gap-3 transition-colors shadow-lg shadow-emerald-200 group"
                                 >
                                     <div className="bg-white/20 w-8 h-8 rounded-full flex items-center justify-center group-hover:scale-110 transition-transform"><i className="fas fa-rocket"></i></div>
                                     <div className="text-left">
                                         <div className="text-sm leading-tight">全體開始 (Start All)</div>
-                                        <div className="text-[10px] opacity-80 font-normal">Chạy ngay {startChoiceData.relatedDetails.length + 1} người (Batch Execute)</div>
+                                        <div className="text-[10px] opacity-80 font-normal">立即啟動 {startChoiceData.relatedDetails.length + 1} 人 (Batch Execute)</div>
                                     </div>
                                 </button>
-                                <button 
+                                <button
                                     onClick={() => handleProcessStartChoice('INDIVIDUAL')}
                                     className="w-full bg-white border-2 border-slate-200 hover:border-emerald-500 hover:bg-emerald-50 text-slate-700 hover:text-emerald-700 py-3.5 rounded-lg font-bold flex items-center justify-center gap-3 transition-all group"
                                 >
@@ -1769,13 +2087,15 @@ const App = () => {
             )}
 
             {controlCenterData && BookingControlModal && (
-                <BookingControlModal 
+                <BookingControlModal
                     isOpen={true}
                     onClose={() => setControlCenterData(null)}
-                    onAction={handleControlAction} 
+                    onAction={handleControlAction}
                     booking={controlCenterData.booking}
                     liveData={controlCenterData.liveState}
                     contextResourceId={controlCenterData.resourceId}
+                    staffList={staffList}
+                    statusData={statusData}
                 />
             )}
         </div>
@@ -1783,4 +2103,4 @@ const App = () => {
 };
 
 const root = ReactDOM.createRoot(document.getElementById('root'));
-root.render( <window.ErrorBoundary><App /></window.ErrorBoundary> );
+root.render(<window.ErrorBoundary><App /></window.ErrorBoundary>);
