@@ -2,23 +2,23 @@
  * =================================================================================================
  * PROJECT: XINWUCHAN MASSAGE BOT - FRONTEND CONTROLLER & LOGIC BRIDGE
  * FILE: js/bookingHandler.js
- * PHIÊN BẢN: V113.6 (TC LOCALIZATION, ALLOCATION CAPTURE & TITLE BUTTONS)
- * NGÀY CẬP NHẬT: 2026/03/24
+ * PHIÊN BẢN: V113.7 (STANDALONE OIL TOGGLE + TITLE BUTTONS)
+ * NGÀY CẬP NHẬT: 2026/03/26
  * TÁC GIẢ: AI ASSISTANT & USER
  *
- * * * * * CHANGE LOG V113.6 * * * * *
- * 1. [UI] Added "先生" (Mr.) and "小姐" (Ms.) toggle buttons next to Surname Picker.
- * 2. [LOGIC] Separated custName and custTitle in state, merged on submit.
- * 3. [CORE] Retained V113.5 features: Allocation Binding, Matrix Logic, Surname Picker, TC UI.
+ * * * * * CHANGE LOG V113.7 * * * * *
+ * 1. [UI] Separated "Oil" option from Staff Dropdown into a standalone toggle button (💧 精油).
+ * 2. [LOGIC] Cleaned up staff selection logic, removing FEMALE_OIL dependency.
+ * 3. [CORE] Retained V113.6 features: Title Buttons, Allocation Capture, Matrix Logic, Surname Picker.
  * =================================================================================================
  */
 
 (function () {
-    console.log("🚀 BookingHandler V113.6: Title Buttons Added + Allocation Capture + TC UI.");
+    console.log("🚀 BookingHandler V113.7: Standalone Oil Toggle Added + Title Buttons.");
 
     // Kiểm tra môi trường React
     if (typeof React === 'undefined') {
-        console.error("❌ CRITICAL ERROR: React not found. Cannot start BookingHandler V113.6.");
+        console.error("❌ CRITICAL ERROR: React not found. Cannot start BookingHandler V113.7.");
         return;
     }
 
@@ -882,7 +882,7 @@
             }
             return {
                 serviceCode: foundCode || g.service,
-                staffName: g.staff === '隨機' ? 'RANDOM' : (g.staff === '女' || g.staff === 'FEMALE_OIL') ? 'FEMALE' : (g.staff === '男') ? 'MALE' : g.staff,
+                staffName: g.staff === '隨機' ? 'RANDOM' : (g.staff === '女') ? 'FEMALE' : (g.staff === '男') ? 'MALE' : g.staff,
                 flowCode: impliedFlow
             };
         });
@@ -937,7 +937,7 @@
     const forceGlobalRefresh = () => { if (typeof window.fetchDataAndRender === 'function') window.fetchDataAndRender(); else window.location.reload(); };
 
     // ==================================================================================
-    // 4. COMPONENT: PHONE BOOKING MODAL (UPDATED V113.6)
+    // 4. COMPONENT: PHONE BOOKING MODAL (UPDATED V113.7)
     // ==================================================================================
     const NewAvailabilityCheckModal = ({ onClose, onSave, staffList, bookings, initialDate, editingBooking }) => {
         const safeStaffList = useMemo(() => staffList || [], [staffList]);
@@ -955,7 +955,7 @@
 
         const defaultService = (window.SERVICES_LIST && window.SERVICES_LIST.length > 0) ? window.SERVICES_LIST[2] : "Body Massage";
 
-        // --- ADDED: custTitle cho các nút danh xưng ---
+        // --- TITLE STATE ---
         const [form, setForm] = useState({
             date: initialDate || new Date().toISOString().slice(0, 10),
             time: "12:00", pax: 1, custName: '', custTitle: '', custPhone: ''
@@ -1019,11 +1019,17 @@
             setCheckResult(null); setSuggestions([]);
             setGuestDetails(prev => {
                 const c = [...prev]; c[idx] = { ...c[idx] };
-                if (field === 'service') { c[idx].service = val; if (val && (val.includes('足') || val.includes('Foot'))) c[idx].isOil = false; }
+                if (field === 'service') {
+                    c[idx].service = val;
+                    if (val && (val.includes('足') || val.includes('Foot'))) c[idx].isOil = false;
+                }
                 else if (field === 'staff') {
-                    if (val === 'FEMALE_OIL') { c[idx].staff = '女'; c[idx].isOil = true; }
-                    else if (val === '女') { c[idx].staff = '女'; c[idx].isOil = false; }
-                    else { c[idx].staff = val; c[idx].isOil = false; }
+                    // Logic mới: Đơn giản hóa, không còn FEMALE_OIL
+                    c[idx].staff = val;
+                }
+                else if (field === 'toggleOil') {
+                    // Chuyển đổi trạng thái Oil riêng biệt
+                    c[idx].isOil = !c[idx].isOil;
                 }
                 return c;
             });
@@ -1186,7 +1192,7 @@
             <div className="fixed inset-0 bg-slate-900/90 z-[100] flex items-center justify-center p-4">
                 <div className="bg-white w-full max-w-xl rounded-xl shadow-2xl flex flex-col max-h-[95vh] overflow-hidden animate-fadeIn">
                     <div className={`${editingBooking ? 'bg-orange-600' : 'bg-[#0891b2]'} p-4 text-white flex justify-between items-center shrink-0`}>
-                        <h3 className="font-bold text-lg">{editingBooking ? "✏️ 修改預約 (Edit)" : "📅 電話預約 (V113.6)"}</h3>
+                        <h3 className="font-bold text-lg">{editingBooking ? "✏️ 修改預約 (Edit)" : "📅 電話預約 (V113.7)"}</h3>
                         <button onClick={onClose} className="text-2xl hover:text-red-100">&times;</button>
                     </div>
                     <div className="p-5 space-y-4 overflow-y-auto flex-1 custom-scrollbar">
@@ -1200,9 +1206,24 @@
                                 <div><label className="text-xs font-bold text-gray-500">人數 (Pax)</label><select className="w-full border p-2 rounded font-bold text-center h-[42px]" value={form.pax} onChange={e => handlePaxChange(e.target.value)}>{paxOptions.map(n => <option key={n} value={n}>{n} 位</option>)}</select></div>
                                 <div className="bg-slate-50 p-3 rounded border space-y-2"><div className="text-xs font-bold text-gray-400">詳細需求 (Details)</div>
                                     {guestDetails.map((g, i) => (
-                                        <div key={i} className="flex gap-2 items-center"><div className="w-6 h-10 rounded bg-gray-200 flex items-center justify-center font-bold text-sm">#{i + 1}</div>
-                                            <select className="flex-[2] border p-2 rounded font-bold text-sm h-10" value={g.service} onChange={e => handleGuestUpdate(i, 'service', e.target.value)}>{(window.SERVICES_LIST || []).map(s => <option key={s} value={s}>{s}</option>)}</select>
-                                            <select className="flex-1 border p-2 rounded font-bold text-sm h-10" value={(g.staff === '女' && g.isOil) ? 'FEMALE_OIL' : g.staff} onChange={e => handleGuestUpdate(i, 'staff', e.target.value)}><option value="隨機">🎲 隨機</option><option value="女">🚺 女師</option><option value="FEMALE_OIL">🚺+油</option><option value="男">🚹 男師</option><optgroup label="技師">{safeStaffList.map(s => <option key={s.id} value={s.id}>{s.id}</option>)}</optgroup></select></div>
+                                        <div key={i} className="flex gap-1 sm:gap-2 items-center">
+                                            <div className="w-6 shrink-0 h-10 rounded bg-gray-200 flex items-center justify-center font-bold text-sm">#{i + 1}</div>
+                                            <select className="flex-[2] min-w-0 border p-1 sm:p-2 rounded font-bold text-sm h-10" value={g.service} onChange={e => handleGuestUpdate(i, 'service', e.target.value)}>
+                                                {(window.SERVICES_LIST || []).map(s => <option key={s} value={s}>{s}</option>)}
+                                            </select>
+                                            <select className="flex-[1.2] min-w-0 border p-1 sm:p-2 rounded font-bold text-sm h-10" value={g.staff} onChange={e => handleGuestUpdate(i, 'staff', e.target.value)}>
+                                                <option value="隨機">🎲 隨機</option>
+                                                <option value="女">🚺 女師</option>
+                                                <option value="男">🚹 男師</option>
+                                                <optgroup label="技師">{safeStaffList.map(s => <option key={s.id} value={s.id}>{s.id}</option>)}</optgroup>
+                                            </select>
+                                            <button
+                                                onClick={(e) => { e.preventDefault(); handleGuestUpdate(i, 'toggleOil'); }}
+                                                className={`flex-[0.8] min-w-[55px] px-1 shrink-0 border rounded font-bold text-xs h-10 transition-colors whitespace-nowrap flex items-center justify-center gap-1 ${g.isOil ? 'bg-orange-100 text-orange-700 border-orange-400 shadow-sm' : 'bg-slate-50 text-slate-400 border-slate-200 hover:bg-slate-100'}`}
+                                            >
+                                                <span className={g.isOil ? "opacity-100" : "opacity-50"}>💧</span>精油
+                                            </button>
+                                        </div>
                                     ))}
                                 </div>
                                 <div>
@@ -1311,7 +1332,7 @@
     const overrideInterval = setInterval(() => {
         if (window.AvailabilityCheckModal !== NewAvailabilityCheckModal) {
             window.AvailabilityCheckModal = NewAvailabilityCheckModal;
-            console.log("♻️ AvailabilityModal Injected (V113.6 - Title Buttons Added)");
+            console.log("♻️ AvailabilityModal Injected (V113.7 - Standalone Oil Toggle Added)");
         }
     }, 200);
     setTimeout(() => { clearInterval(overrideInterval); }, 5000);

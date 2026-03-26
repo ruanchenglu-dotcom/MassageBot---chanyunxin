@@ -1,10 +1,11 @@
 /**
  * =================================================================================================
- * MODULE: SHEET SERVICE (DATA LAYER) - REFACTORED V5.1 (INLINE EDITING)
+ * MODULE: SHEET SERVICE (DATA LAYER) - REFACTORED V5.2 (SEPARATE REQUESTED VS ACTUAL STAFF)
  * PROJECT: XINWUCHAN MASSAGE BOT
  * DESCRIPTION: Handles Google Sheets interactions. 
- * * * * * UPDATE V5.1:
- * + [NEW] Thêm hàm updateInlineBooking để hỗ trợ tính năng sửa trực tiếp trên bảng.
+ * * * * * UPDATE V5.2:
+ * + [ENHANCEMENT] Tách bạch Cột I (指定師傅) và Cột L, M, N (服務師傅). Không cho phép ghi đè cột I khi bắt đầu làm.
+ * + [COMPATIBILITY] Hỗ trợ các key tiếng Trung Phồn Thể (服務師傅1, 2, 3) từ frontend.
  * =================================================================================================
  */
 
@@ -236,7 +237,9 @@ async function syncData() {
                 }
                 if (row[4] === "Yes") price += 200;
                 let pax = 1; if (row[5]) pax = safeParseInt(row[5], 1);
-                const staffId = row[8] || '隨機';
+
+                // Cột I: Thợ được yêu cầu ban đầu (Requested Staff)
+                const requestedStaff = row[8] || '隨機';
 
                 let serviceCode = row[20];
                 if (!serviceCode || serviceCode === '') {
@@ -249,8 +252,12 @@ async function syncData() {
                     startTime: row[1],
                     duration: duration,
                     type: type, category: category, price: price,
-                    staffId: staffId, staffName: staffId,
-                    serviceStaff: row[11], staffId2: row[12], staffId3: row[13],
+                    staffId: requestedStaff, // Giữ tương thích ngược với frontend cũ
+                    requestedStaff: requestedStaff, // Explicit field cho Cột I
+                    staffName: requestedStaff,
+                    serviceStaff: row[11], // Cột L: 服務師傅1
+                    staffId2: row[12],     // Cột M: 服務師傅2
+                    staffId3: row[13],     // Cột N: 服務師傅3
                     pax: pax,
                     customerName: `${row[2]} (${row[6]})`,
                     serviceName: serviceStr, serviceCode: serviceCode,
@@ -266,7 +273,7 @@ async function syncData() {
             }
         }
 
-        // --- BƯỚC 2: ĐỌC SCHEDULE & LINE MAPPING (V5.0 UPGRADE) ---
+        // --- BƯỚC 2: ĐỌC SCHEDULE & LINE MAPPING ---
         const resSchedule = await sheets.spreadsheets.values.get({
             spreadsheetId: SHEET_ID,
             range: `${SCHEDULE_SHEET}!A1:150`
@@ -408,11 +415,13 @@ async function ghiVaoSheet(data, proposedUpdates = []) {
             row[3] = svcName; row[4] = isOil ? "Yes" : ""; row[5] = 1;
             row[6] = colG_Phone; row[7] = colH_Status;
 
+            // Cột I: Ghi nhận yêu cầu ban đầu (Requested Staff)
             if (guestDetail && guestDetail.staff) row[8] = guestDetail.staff;
             else row[8] = data.nhanVien || '隨機';
 
             row[9] = colJ_LineID; row[10] = colK_Created;
 
+            // Cột M, N: Có thể ghi chú thêm nếu khách yêu cầu ngay từ đầu
             if (guestDetail) {
                 if (guestDetail.staffId2) row[12] = guestDetail.staffId2;
                 if (guestDetail.staffId3) row[13] = guestDetail.staffId3;
@@ -515,9 +524,29 @@ async function updateBookingDetails(body) {
     if (body.phone) await updateCell('G', body.phone);
     if (body.mainStatus) await updateCell('H', body.mainStatus);
 
-    if (body.staffId && body.staffId !== '随機') await updateCell('I', body.staffId);
-    if (body.staffId2) await updateCell('M', body.staffId2);
-    if (body.staffId3) await updateCell('N', body.staffId3);
+    // --- CỘT I (指定師傅 - Requested Staff) ---
+    // Chỉ cập nhật Cột I nếu Frontend chủ động gửi request đổi người được chỉ định
+    if (body.requestedStaff !== undefined) {
+        await updateCell('I', body.requestedStaff);
+    }
+
+    // --- CỘT L, M, N (服務師傅 1, 2, 3 - Actual Service Staff) ---
+    // Mapping L: Ưu tiên lấy theo key tiếng Trung, fallback sang staffId để tương thích ngược
+    const staff1 = body['服務師傅1'] || body.ServiceStaff1 || body.staff1 || body.serviceStaff || body.staffId;
+    if (staff1 !== undefined && staff1 !== '隨機') {
+        await updateCell('L', staff1);
+    }
+
+    const staff2 = body['服務師傅2'] || body.ServiceStaff2 || body.staff2 || body.staffId2;
+    if (staff2 !== undefined) {
+        await updateCell('M', staff2);
+    }
+
+    const staff3 = body['服務師傅3'] || body.ServiceStaff3 || body.staff3 || body.staffId3;
+    if (staff3 !== undefined) {
+        await updateCell('N', staff3);
+    }
+
     if (body.flow) await updateCell('AA', body.flow);
 
     if (body.phase1Resource !== undefined) await updateCell('AB', body.phase1Resource);
@@ -594,6 +623,7 @@ async function updateInlineBooking(rowId, updatedData) {
             dataToUpdate.push({ range: `${BOOKING_SHEET}!H${rowId}`, values: [[updatedData.trangThai]] });
         }
         if (updatedData.nhanVien !== undefined) {
+            // Cập nhật Cột I khi sửa inline (chỉnh sửa yêu cầu ban đầu)
             dataToUpdate.push({ range: `${BOOKING_SHEET}!I${rowId}`, values: [[updatedData.nhanVien]] });
         }
 
@@ -742,7 +772,7 @@ module.exports = {
     ghiVaoSheet,
     updateBookingStatus,
     updateBookingDetails,
-    updateInlineBooking, // <--- ĐÃ XUẤT HÀM MỚI Ở ĐÂY
+    updateInlineBooking,
     updateStaffConfig,
     layLichDatGanNhat,
 

@@ -1,12 +1,11 @@
 // TYPE: app.js
-// VERSION: V108.03 (FULL STAFFTIME INTEGRATION & INLINE EDITING)
+// VERSION: V108.06 (UPGRADE: DATA NORMALIZATION FOR SERVICE NAME & OIL FLAG)
 // UPDATE: 2026-03-25
 //
-// --- CHANGE LOG V108.03 ---
-// 1. [UI]: Pass statusData xuống TimelineView và BookingControlModal để Dropdown nhận diện đúng thứ tự ưu tiên.
-// 2. [LOGIC C]: executeStart & executeBatchStart bốc thợ Random dựa trên stafftime nhỏ nhất.
-// 3. [LOGIC D]: handleConfirmPayment tích hợp toàn bộ quy tắc trả thợ D1, D2, D3, D4 sau khi thanh toán.
-// 4. [NEW]: Thêm handleInlineUpdate để hỗ trợ tính năng chỉnh sửa trực tiếp trên bảng (Inline Editing).
+// --- CHANGE LOG V108.06 ---
+// 1. [ENHANCEMENT]: Thêm getCleanServiceName để xử lý dữ liệu ảo (phụ phí, đẩy dầu) ngay từ Data Layer.
+// 2. [BUGFIX]: Cập nhật logic fetchData tự động sinh cleanServiceName và isOil.
+// 3. [MAINTENANCE]: Giữ nguyên toàn bộ logic đồng bộ, xếp lịch và kết nối Sheet.
 
 const { useState, useEffect, useMemo, useRef } = React;
 
@@ -35,6 +34,23 @@ const getServiceBlocks = (serviceName) => {
     if (name.includes('40') || name.includes('35')) return 1;
 
     return 2; // Mặc định nếu không nhận dạng được
+};
+
+// --- HÀM LÀM SẠCH TÊN DỊCH VỤ (DATA NORMALIZATION) ---
+const getCleanServiceName = (rawName) => {
+    if (!rawName) return window.SERVICES_LIST ? window.SERVICES_LIST[0] : '';
+    // Nếu trùng khớp 100% với danh sách chuẩn thì trả về luôn
+    if (window.SERVICES_LIST && window.SERVICES_LIST.includes(rawName)) return rawName;
+
+    if (window.SERVICES_LIST) {
+        // Sắp xếp theo độ dài giảm dần để ưu tiên match chuỗi dài nhất trước
+        const sortedList = [...window.SERVICES_LIST].sort((a, b) => b.length - a.length);
+        const match = sortedList.find(s => rawName.includes(s));
+        if (match) return match;
+    }
+
+    // Fallback: Tự động xóa các phần ghi chú trong ngoặc như (油推...)
+    return String(rawName).replace(/\s*\([^)]*油推[^)]*\)/g, '').trim();
 };
 
 // --- MATRIX HELPER ---
@@ -298,6 +314,24 @@ const App = () => {
             });
     };
 
+    const findRelatedForCheckout = (currentBooking, excludeResourceId) => {
+        if (!currentBooking) return [];
+        const currentRowId = String(currentBooking.rowId);
+        const currentPhone = getNormalizedPhone(currentBooking);
+
+        return Object.keys(resourceState)
+            .filter(k => k !== excludeResourceId && (resourceState[k].isRunning || resourceState[k].isPreview === true))
+            .map(k => ({ resourceId: k, booking: resourceState[k].booking }))
+            .filter(item => {
+                const otherBooking = item.booking;
+                const otherRowId = String(otherBooking.rowId);
+                const otherPhone = getNormalizedPhone(otherBooking);
+                if (otherRowId === currentRowId) return true;
+                if (currentPhone.length >= 4 && currentPhone === otherPhone) return true;
+                return false;
+            });
+    };
+
     const universalSend = async (endpoint, payload) => {
         try { await axios.post(endpoint, payload); } catch (e) { console.log("Universal send check (ignore):", e); }
     };
@@ -382,8 +416,11 @@ const App = () => {
                     isForcedSingle = true;
                 }
 
+                // [BUGFIX] Sinh dữ liệu sạch ngay tại Data Layer
                 return {
                     ...targetB,
+                    cleanServiceName: getCleanServiceName(targetB.serviceName),
+                    isOil: targetB.isOil || (targetB.serviceName && targetB.serviceName.includes('油')),
                     duration: window.getSafeDuration(targetB.serviceName, targetB.duration),
                     pax: parseInt(targetB.pax, 10) || 1,
                     rowId: String(targetB.rowId),
@@ -801,19 +838,15 @@ const App = () => {
     const handleInlineUpdate = async (rowId, updatedData) => {
         try {
             setSyncLock(true);
-            setTimeout(() => setSyncLock(false), 3000); // Khóa đồng bộ trong 3s để tránh giật hình
+            setTimeout(() => setSyncLock(false), 3000);
 
-            // Gửi dữ liệu lên API vừa tạo ở Backend
             await axios.post('/api/inline-update-booking', {
                 rowId: rowId,
                 updatedData: updatedData
             });
 
-            // Tải lại dữ liệu mới ngay lập tức
             fetchData(true);
 
-            // Thông báo thành công mượt mà (Có thể bỏ alert nếu muốn làm UI đẹp hơn)
-            // alert("✅ 儲存成功 (Update Success)");
         } catch (e) {
             console.error("Inline update failed:", e);
             alert("⚠️ 儲存失敗，請檢查網路連線。 (Update Failed)");
@@ -1270,7 +1303,6 @@ const App = () => {
                 candidates = candidates.filter(s => s.gender === 'F' || s.gender === '女');
             }
 
-            // BƯỚC 4: THUẬT TOÁN AUTO-ASSIGN BẰNG STAFFTIME CHO KHÁCH LẺ
             candidates.sort((a, b) => {
                 const timeA = statusData[a.id]?.stafftime || Number.MAX_SAFE_INTEGER;
                 const timeB = statusData[b.id]?.stafftime || Number.MAX_SAFE_INTEGER;
@@ -1328,7 +1360,7 @@ const App = () => {
             [primaryKey]: finalServiceStaff,
             [fallbackKey]: finalServiceStaff,
             [`staff${grpIdx + 1}`]: finalServiceStaff,
-            staffId: designatedStaff,
+            staffId: finalServiceStaff,
             current_resource_id: currentId,
             record_location: true,
             status: '🟡 Running'
@@ -1394,7 +1426,6 @@ const App = () => {
                     return true;
                 });
 
-                // BƯỚC 4: AUTO ASSIGN NHÓM BẰNG STAFFTIME
                 readyCandidates.sort((a, b) => {
                     const timeA = nextStatusData[a.id]?.stafftime || Number.MAX_SAFE_INTEGER;
                     const timeB = nextStatusData[b.id]?.stafftime || Number.MAX_SAFE_INTEGER;
@@ -1447,7 +1478,7 @@ const App = () => {
                     [primaryKey]: finalServiceStaff,
                     [fallbackKey]: finalServiceStaff,
                     [`staff${grpIdx + 1}`]: finalServiceStaff,
-                    staffId: designatedStaff,
+                    staffId: finalServiceStaff,
                     current_resource_id: resourceId,
                     record_location: true,
                     status: '🟡 Running'
@@ -1482,7 +1513,6 @@ const App = () => {
                 const n = { ...resourceState };
                 const staffId = current.booking.serviceStaff || current.booking.staffId;
                 if (staffId !== '隨機' && statusData[staffId]) {
-                    // Hủy ngang => Trả lại stafftime = hiện tại (reset lại đầu hàng đợi)
                     const newStatus = { ...statusData, [staffId]: { status: 'READY', checkInTime: Date.now(), stafftime: Date.now() } };
                     updateStaffStatus(newStatus);
                 }
@@ -1490,7 +1520,7 @@ const App = () => {
             }
         }
         else if (action === 'finish') {
-            const related = findRelatedActiveBookings(current.booking, id);
+            const related = findRelatedForCheckout(current.booking, id);
             if (related.length > 0) {
                 setPaymentChoiceData({
                     resourceId: id,
@@ -1545,11 +1575,6 @@ const App = () => {
             const updatesByRow = {};
             const baseTime = Date.now();
 
-            // ======================================================================
-            // BƯỚC 5: THUẬT TOÁN TÍNH TOÁN STAFFTIME (TRẢ THỢ CHECKOUT - QUY TẮC D)
-            // ======================================================================
-
-            // 5.1 Thu thập thông tin tất cả thợ đang thanh toán
             const checkoutStaffInfo = [];
 
             for (let i = 0; i < itemsToPay.length; i++) {
@@ -1566,9 +1591,13 @@ const App = () => {
                     targetIndex = staffCols.findIndex(s => s && s.trim() === currentStaff.trim());
                 }
                 if (targetIndex === -1) {
-                    const seatNum = parseInt(resId.replace(/\D/g, ''));
-                    if (!isNaN(seatNum) && seatNum > 0) targetIndex = Math.min(seatNum - 1, 5);
-                    else targetIndex = 0;
+                    if (resId) {
+                        const seatNum = parseInt(resId.replace(/\D/g, ''));
+                        if (!isNaN(seatNum) && seatNum > 0) targetIndex = Math.min(seatNum - 1, 5);
+                        else targetIndex = 0;
+                    } else {
+                        targetIndex = 0;
+                    }
                 }
 
                 const statusNum = targetIndex + 1;
@@ -1590,38 +1619,32 @@ const App = () => {
                     checkoutStaffInfo.push({ staffId, duration, blocks });
                 }
 
-                // Gỡ thẻ ra khỏi bàn
-                delete newState[resId];
+                if (resId && newState[resId]) {
+                    delete newState[resId];
+                }
             }
 
-            // 5.2 Xử lý phân nhóm (Khách lẻ / Khách đoàn)
-            // Lấy từ dữ liệu booking pax hoặc số thẻ checkout
             const isGroup = checkoutStaffInfo.length >= 2 || (itemsToPay.length > 0 && parseInt(itemsToPay[0].booking.pax) >= 2);
             const uniqueBlocks = [...new Set(checkoutStaffInfo.map(i => i.blocks))];
             const minGroupDuration = checkoutStaffInfo.length > 0 ? Math.min(...checkoutStaffInfo.map(i => i.duration)) : 0;
 
-            // 5.3 Áp dụng quy tắc D1, D2, D3, D4 cho từng thợ
             checkoutStaffInfo.forEach(info => {
                 const currentStaffTime = statusData[info.staffId]?.stafftime || baseTime;
                 let newStaffTime = currentStaffTime;
 
                 if (info.blocks === 1) {
-                    // D4: Nếu làm gói 1 tiết (Chữa cháy) -> Trả về đầu bảng (giữ nguyên stafftime cũ nhỏ nhất)
                     newStaffTime = currentStaffTime;
                     console.log(`[Quy tắc D4] Thợ ${info.staffId} làm gói 1 tiết, ưu tiên xếp đầu.`);
                 }
                 else if (!isGroup) {
-                    // D1: Khách lẻ -> stafftime + thời gian gói
                     newStaffTime = currentStaffTime + (info.duration * 60000);
                     console.log(`[Quy tắc D1] Thợ ${info.staffId} (Lẻ). Time + ${info.duration}p`);
                 }
                 else if (isGroup && uniqueBlocks.length === 1) {
-                    // D2: Khách nhóm CÙNG số tiết -> stafftime + thời gian ngắn nhất (Giữ nguyên thứ tự ưu tiên trong nhóm)
                     newStaffTime = currentStaffTime + (minGroupDuration * 60000);
                     console.log(`[Quy tắc D2] Thợ ${info.staffId} (Nhóm Cùng Tiết). Time + Min(${minGroupDuration}p)`);
                 }
                 else if (isGroup && uniqueBlocks.length > 1) {
-                    // D3: Khách nhóm KHÁC số tiết -> stafftime + thời gian độc lập của người đó
                     newStaffTime = currentStaffTime + (info.duration * 60000);
                     console.log(`[Quy tắc D3] Thợ ${info.staffId} (Nhóm Khác Tiết). Time + ${info.duration}p`);
                 }
@@ -1633,7 +1656,6 @@ const App = () => {
                 };
             });
 
-            // 5.4 Cập nhật Status Master
             Object.values(updatesByRow).forEach(updatePayload => {
                 const booking = updatePayload.originalBooking;
                 const staffCols = [booking.serviceStaff || booking.staffId, booking.staffId2, booking.staffId3, booking.staffId4, booking.staffId5, booking.staffId6];
@@ -1687,6 +1709,10 @@ const App = () => {
         const targetResourceId = payload.resourceId || (controlCenterData ? controlCenterData.resourceId : null);
 
         switch (actionType) {
+            case 'OPEN_CONTROL_CENTER':
+                handleOpenControlCenter(targetBooking, targetResourceId);
+                break;
+
             case 'START':
                 if (targetResourceId) {
                     if (resourceState[targetResourceId] && resourceState[targetResourceId].isRunning) {
@@ -1717,7 +1743,7 @@ const App = () => {
 
             case 'FINISH':
                 if (targetResourceId && targetBooking) {
-                    const related = findRelatedActiveBookings(targetBooking, targetResourceId);
+                    const related = findRelatedForCheckout(targetBooking, targetResourceId);
                     if (related.length > 0) {
                         setPaymentChoiceData({
                             resourceId: targetResourceId,
@@ -1726,8 +1752,16 @@ const App = () => {
                             relatedDetails: related
                         });
                     } else {
-                        handleProcessPaymentChoice('INDIVIDUAL');
+                        setBillingData({
+                            activeItem: { resourceId: targetResourceId, booking: targetBooking },
+                            relatedItems: []
+                        });
                     }
+                } else if (targetBooking) {
+                    setBillingData({
+                        activeItem: { resourceId: null, booking: targetBooking },
+                        relatedItems: []
+                    });
                 }
                 setControlCenterData(null);
                 break;
@@ -1753,14 +1787,11 @@ const App = () => {
             case 'CHANGE_STAFF':
                 if (targetBooking && payload.newStaff) {
                     if (targetResourceId && resourceState[targetResourceId]) {
-                        // Đang phục vụ trên ghế -> Dùng hàm thay đổi nhân viên hiện tại
                         handleStaffChange(targetResourceId, payload.newStaff);
                     } else {
-                        // Khách đang chờ (Waiting) -> Cập nhật trực tiếp booking
                         const rowId = String(targetBooking.rowId);
                         setSyncLock(true); setTimeout(() => setSyncLock(false), 3000);
 
-                        // Cập nhật UI Modal ngay lập tức
                         if (controlCenterData && String(controlCenterData.booking.rowId) === rowId) {
                             setControlCenterData(prev => ({
                                 ...prev,
@@ -1768,7 +1799,6 @@ const App = () => {
                             }));
                         }
 
-                        // Gửi API
                         universalSend('/api/update-booking-details', {
                             rowId: rowId,
                             服務師傅1: payload.newStaff,
@@ -1819,7 +1849,7 @@ const App = () => {
             activeBooking = controlCenterData.booking;
         }
 
-        if (!activeResId || !activeBooking) return;
+        if (!activeBooking) return;
 
         if (mode === 'SEPARATE' || mode === 'INDIVIDUAL') {
             setBillingData({
@@ -1827,7 +1857,7 @@ const App = () => {
                 relatedItems: []
             });
         } else {
-            const related = findRelatedActiveBookings(activeBooking, activeResId);
+            const related = activeResId ? findRelatedForCheckout(activeBooking, activeResId) : [];
             setBillingData({
                 activeItem: { resourceId: activeResId, booking: activeBooking },
                 relatedItems: related
@@ -1870,10 +1900,9 @@ const App = () => {
         const st = getStatus(s.id);
         return st === 'READY' || st === 'EAT' || st === 'OUT_SHORT';
     }).sort((a, b) => {
-        // [BƯỚC 4]: SẮP XẾP DANH SÁCH THỢ DƯỚI FOOTER THEO STAFFTIME
         const timeA = statusData[a.id]?.stafftime || Number.MAX_SAFE_INTEGER;
         const timeB = statusData[b.id]?.stafftime || Number.MAX_SAFE_INTEGER;
-        if (timeA !== timeB) return timeA - timeB; // Ai thời gian bé nhất (đợi lâu nhất) lên đầu
+        if (timeA !== timeB) return timeA - timeB;
 
         return window.sortIdAsc(a, b);
     });
@@ -1891,7 +1920,7 @@ const App = () => {
         <div className="min-h-screen flex flex-col bg-slate-50">
             <header className={`text-white p-3 shadow-md flex justify-between items-center sticky top-0 z-50 transition-colors ${quotaError ? 'bg-red-800' : 'bg-[#1e1b4b]'}`}>
                 <div className="flex items-center gap-3">
-                    <span className="bg-emerald-500 text-white px-2 py-1 rounded font-black text-sm shadow-sm">V108.03</span>
+                    <span className="bg-emerald-500 text-white px-2 py-1 rounded font-black text-sm shadow-sm">V108.06</span>
                     <span className="font-bold hidden md:inline tracking-wider">XinWuChan</span>
                     <div className="flex items-center gap-2 bg-white/10 rounded px-2 py-1 border border-white/20">
                         <button onClick={() => { const d = new Date(viewDate); d.setDate(d.getDate() - 1); setViewDate(d.toISOString().split('T')[0]) }} className="text-white hover:text-amber-400 font-bold px-2">❯</button>
@@ -1954,6 +1983,7 @@ const App = () => {
                         timelineData={timelineData}
                         liveStatusData={resourceState}
                         onEditPhase={handleControlAction}
+                        onOpenControlCenter={handleOpenControlCenter}
                         staffList={staffList}
                         statusData={statusData}
                     />

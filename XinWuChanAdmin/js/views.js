@@ -1,37 +1,29 @@
 /**
  * ============================================================================
  * FILE: js/views.js
- * PHIÊN BẢN: V108.01 (NÂNG CẤP LÕI SẮP XẾP NHÂN VIÊN THEO STAFFTIME & GIAO DIỆN DROPDOWN)
- * MÔ TẢ: CÁC COMPONENT HIỂN THỊ CHÍNH (VIEW LAYER)
+ * PHIÊN BẢN: V108.06 (NÂNG CẤP: CHUẨN HÓA TÊN DỊCH VỤ, FIX LỖI SELECT DROPDOWN)
  * ============================================================================
  */
 
 const { useState, useEffect, useMemo, useRef } = React;
 
-// --- HÀM TIỆN ÍCH LỌC VÀ SẮP XẾP NHÂN VIÊN (ĐÃ NÂNG CẤP BƯỚC 2: CHÍNH XÁC MILLISECOND) ---
+// --- HÀM TIỆN ÍCH LỌC VÀ SẮP XẾP NHÂN VIÊN ---
 const getProcessedStaffList = (rawList, statusData, currentSelected) => {
     if (!rawList || !Array.isArray(rawList)) return [];
     const safeStatus = statusData || {};
 
-    // 1. Lọc và sắp xếp
     let available = rawList.filter(s => {
         if (typeof s !== 'object') return true;
         const st = safeStatus[s.id]?.status;
-        // Nếu không có statusData thì fallback lại hiển thị tất cả
         if (!st) return true;
-        // Chỉ lấy những thợ thuộc nhóm sẵn sàng nhận khách
         return ['READY', 'EAT', 'OUT_SHORT'].includes(st);
     }).sort((a, b) => {
         if (typeof a !== 'object' || typeof b !== 'object') return 0;
-
-        // THUẬT TOÁN MỚI: Sắp xếp dựa trên stafftime (Thời gian xếp hàng chính xác đến millisecond)
         const timeA = safeStatus[a.id]?.stafftime !== undefined ? Number(safeStatus[a.id].stafftime) : Number.MAX_SAFE_INTEGER;
         const timeB = safeStatus[b.id]?.stafftime !== undefined ? Number(safeStatus[b.id].stafftime) : Number.MAX_SAFE_INTEGER;
-
         return timeA - timeB;
     });
 
-    // 2. Đảm bảo nhân viên hiện tại đang được chọn (nếu có) luôn hiển thị trong danh sách, dù họ đang BUSY
     if (currentSelected && currentSelected !== '隨機') {
         const isPresent = available.find(s => (typeof s === 'object' ? s.id : s) === currentSelected);
         if (!isPresent) {
@@ -44,6 +36,23 @@ const getProcessedStaffList = (rawList, statusData, currentSelected) => {
         }
     }
     return available;
+};
+
+// --- HÀM LÀM SẠCH TÊN DỊCH VỤ (CHUẨN HÓA CHO MODAL) ---
+const getCleanServiceName = (rawName) => {
+    if (!rawName) return window.SERVICES_LIST ? window.SERVICES_LIST[0] : '';
+    // Nếu trùng khớp 100% với danh sách chuẩn thì trả về luôn
+    if (window.SERVICES_LIST && window.SERVICES_LIST.includes(rawName)) return rawName;
+
+    if (window.SERVICES_LIST) {
+        // Sắp xếp theo độ dài giảm dần để ưu tiên match chuỗi dài nhất trước
+        const sortedList = [...window.SERVICES_LIST].sort((a, b) => b.length - a.length);
+        const match = sortedList.find(s => rawName.includes(s));
+        if (match) return match;
+    }
+
+    // Fallback: Tự động xóa các phần ghi chú trong ngoặc như (油推...)
+    return rawName.replace(/\s*\([^)]*油推[^)]*\)/g, '').trim();
 };
 
 
@@ -67,9 +76,13 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
     const [timeLeft, setTimeLeft] = useState(0);
     const [percent, setPercent] = useState(0);
     const [timerString, setTimerString] = useState("--:--");
-    const [selectedService, setSelectedService] = useState(booking.serviceName);
 
-    const [selectedStaff, setSelectedStaff] = useState(booking.serviceStaff || booking.staffId || '隨機');
+    // [BUGFIX] Khởi tạo state bằng tên dịch vụ đã được chuẩn hóa
+    const initCleanService = booking.cleanServiceName || getCleanServiceName(booking.serviceName);
+    const [selectedService, setSelectedService] = useState(initCleanService);
+
+    // [BUGFIX] State được quản lý linh hoạt hơn thông qua useEffect bên dưới
+    const [selectedStaff, setSelectedStaff] = useState('隨機');
 
     // Nạp danh sách thợ với thuật toán stafftime
     const processedStaffList = useMemo(() => {
@@ -100,12 +113,24 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                 ? meta.phase1_duration
                 : (booking.phase1_duration !== undefined ? booking.phase1_duration : booking.duration / 2);
             setPhase1(currentP1);
-            setSelectedService(booking.serviceName);
-            setSelectedStaff(booking.serviceStaff || booking.staffId || '隨機');
+
+            // [BUGFIX] Cập nhật lại tên dịch vụ đã được chuẩn hóa khi booking thay đổi
+            setSelectedService(booking.cleanServiceName || getCleanServiceName(booking.serviceName));
+
+            // [BUGFIX] Ưu tiên lấy serviceStaff từ liveData (nếu có) để tránh hiện tượng dính "男"/"女" cũ
+            let activeStaff = booking.serviceStaff || booking.staffId || '隨機';
+            if (liveData && liveData.booking) {
+                const liveStaff = liveData.booking.serviceStaff || liveData.booking.staffId;
+                if (liveStaff && liveStaff !== 'undefined' && liveStaff !== 'null') {
+                    activeStaff = liveStaff;
+                }
+            }
+            setSelectedStaff(activeStaff);
+
             setShowPaymentOptions(false);
             setLocalFlow((meta && meta.sequence) ? meta.sequence : (booking.flow || 'FB'));
         }
-    }, [isOpen, booking, meta]);
+    }, [isOpen, booking, meta, liveData]);
 
     useEffect(() => {
         if (isOpen && booking) {
@@ -264,7 +289,8 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                                     </div>
                                 </div>
 
-                                {selectedStaff !== (booking.serviceStaff || booking.staffId || '隨機') && (
+                                {/* [BUGFIX] So sánh với logic mới để hiện nút Xác nhận */}
+                                {selectedStaff !== ((liveData?.booking?.serviceStaff || liveData?.booking?.staffId) || booking.serviceStaff || booking.staffId || '隨機') && (
                                     <button onClick={() => triggerAction('CHANGE_STAFF', { newStaff: selectedStaff })} className="absolute right-[85px] bg-indigo-600 text-white text-xs font-bold px-3 py-1 rounded shadow hover:bg-indigo-700 animate-pulse transition-colors z-10">
                                         確認
                                     </button>
@@ -284,7 +310,8 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                                 <div className="pointer-events-none absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400">
                                     <i className="fas fa-chevron-down"></i>
                                 </div>
-                                {selectedService !== booking.serviceName && (
+                                {/* [BUGFIX] So sánh selectedService với tên đã được chuẩn hóa để hiển thị nút Xác nhận hợp lý */}
+                                {selectedService !== (booking.cleanServiceName || getCleanServiceName(booking.serviceName)) && (
                                     <button onClick={() => triggerAction('CHANGE_SERVICE', { newService: selectedService })} className="absolute right-8 top-1.5 bottom-1.5 bg-indigo-600 text-white text-xs font-bold px-3 rounded hover:bg-indigo-700 animate-pulse">
                                         確認
                                     </button>
@@ -423,21 +450,7 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
 // ============================================================================
 // 1. TIMELINE VIEW
 // ============================================================================
-const TimelineView = ({ timelineData, onEditPhase, liveStatusData, staffList, statusData }) => {
-    const [controlModalOpen, setControlModalOpen] = useState(false);
-    const [selectedBooking, setSelectedBooking] = useState(null);
-    const [selectedMeta, setSelectedMeta] = useState(null);
-    const [selectedLiveData, setSelectedLiveData] = useState(null);
-    const [selectedResourceId, setSelectedResourceId] = useState(null);
-
-    useEffect(() => {
-        if (controlModalOpen && selectedResourceId && liveStatusData) {
-            const currentSlotData = liveStatusData[selectedResourceId];
-            if (currentSlotData && selectedBooking && currentSlotData.booking && String(currentSlotData.booking.rowId) === String(selectedBooking.rowId)) {
-                setSelectedLiveData({ ...currentSlotData, resourceId: selectedResourceId });
-            }
-        }
-    }, [liveStatusData, controlModalOpen, selectedResourceId, selectedBooking]);
+const TimelineView = ({ timelineData, onEditPhase, liveStatusData, staffList, statusData, onOpenControlCenter }) => {
 
     const startHour = 8;
     const endHour = 27;
@@ -503,23 +516,11 @@ const TimelineView = ({ timelineData, onEditPhase, liveStatusData, staffList, st
     };
 
     const handleOpenControl = (booking, meta, resourceId) => {
-        let liveInfo = null;
-        if (liveStatusData && resourceId && liveStatusData[resourceId]) {
-            const slotData = liveStatusData[resourceId];
-            if (slotData.booking && String(slotData.booking.rowId) === String(booking.rowId)) {
-                liveInfo = { ...slotData, resourceId: resourceId };
-            }
+        if (onOpenControlCenter) {
+            onOpenControlCenter(booking, resourceId);
+        } else if (onEditPhase) {
+            onEditPhase('OPEN_CONTROL_CENTER', { currentBooking: booking, resourceId: resourceId });
         }
-        setSelectedBooking(booking);
-        setSelectedMeta(meta);
-        setSelectedLiveData(liveInfo);
-        setSelectedResourceId(resourceId);
-        setControlModalOpen(true);
-    };
-
-    const handleControlAction = (actionType, payload) => {
-        if (onEditPhase) onEditPhase(actionType, payload);
-        if (['CANCEL', 'FINISH', 'UPDATE_PHASE'].includes(actionType)) setControlModalOpen(false);
     };
 
     const handleShiftResource = (e, booking, resourceId, direction) => {
@@ -550,18 +551,6 @@ const TimelineView = ({ timelineData, onEditPhase, liveStatusData, staffList, st
                 .bf-indicator { animation: pulse-border 2s infinite; }
                 @keyframes pulse-border { 0% { border-color: #4f46e5; box-shadow: 0 0 0 0 rgba(79, 70, 229, 0.4); } 70% { border-color: #818cf8; box-shadow: 0 0 0 4px rgba(79, 70, 229, 0); } 100% { border-color: #4f46e5; box-shadow: 0 0 0 0 rgba(79, 70, 229, 0); } }
             `}</style>
-
-            <BookingControlModal
-                isOpen={controlModalOpen}
-                onClose={() => setControlModalOpen(false)}
-                onAction={handleControlAction}
-                booking={selectedBooking}
-                meta={selectedMeta}
-                liveData={selectedLiveData}
-                contextResourceId={selectedResourceId}
-                staffList={staffList}
-                statusData={statusData}
-            />
 
             <div style={{ width: `${TOTAL_WIDTH}px`, minWidth: '100%' }}>
                 {/* HEADER */}
@@ -999,7 +988,6 @@ const ResourceCard = ({ id, type, index, data, busyStaffIds, onAction, onSelect,
         staffDisplay = String(myStaff);
     }
 
-    // Nạp danh sách thợ với thuật toán stafftime
     const processedStaffList = useMemo(() => {
         return getProcessedStaffList(staffList, statusData, staffDisplay);
     }, [staffList, statusData, staffDisplay]);
@@ -1061,8 +1049,6 @@ const ResourceCard = ({ id, type, index, data, busyStaffIds, onAction, onSelect,
                 )}
 
                 <div className="z-10 relative flex flex-col gap-2">
-
-                    {/* BẢNG CHỌN SƯ PHỤ NGOÀI MÀN HÌNH CHÍNH */}
                     <div className="absolute -top-12 right-0 z-40 bg-white border-2 border-slate-200 rounded-lg shadow-sm px-2 py-1 flex items-center gap-1">
                         <div className="relative flex items-center">
                             <select
@@ -1128,9 +1114,10 @@ const ResourceCard = ({ id, type, index, data, busyStaffIds, onAction, onSelect,
 
                     <div className="font-bold text-slate-800 text-2xl truncate mt-4">{(data.booking.customerName || 'Unknown').split('(')[0]}{(data.booking.pax > 1) && <span className="text-sm text-gray-400 ml-1">(Grp)</span>}</div>
 
+                    {/* [BUGFIX] Bọc hàm getCleanServiceName() để tránh lỗi select cho thẻ Resource Card */}
                     <select
                         className="text-sm font-bold text-gray-500 text-center bg-transparent border-b border-dashed border-gray-300 focus:outline-none w-full truncate cursor-pointer hover:bg-gray-50 appearance-none"
-                        value={data.booking.serviceName || ''}
+                        value={data.booking.cleanServiceName || getCleanServiceName(data.booking.serviceName || '')}
                         onChange={(e) => { e.stopPropagation(); onServiceChange(id, e.target.value); }}
                         onClick={(e) => e.stopPropagation()}
                     >
@@ -1149,15 +1136,22 @@ const ResourceCard = ({ id, type, index, data, busyStaffIds, onAction, onSelect,
                     {isOilJob && <div className="text-xs text-purple-600 font-bold border border-purple-200 bg-purple-50 rounded px-2 py-1 inline-block">💧 精油 (Oil)</div>}
 
                     {data.isRunning && !isPreview && startObj && (<div className="bg-slate-50 rounded p-2 text-xs text-left space-y-1 mt-2 border border-slate-200 shadow-inner opacity-90"><div className="text-slate-600 font-bold flex justify-between"><span>🕒 開始:</span> <span className="font-mono text-blue-600">{formatTimeStr(startObj)}</span></div>{isCombo && switchObj && <div className="text-slate-500 flex justify-between"><span>⇄ 轉場:</span> <span className="font-mono text-orange-500">{formatTimeStr(switchObj)}</span></div>}<div className="text-slate-600 font-bold flex justify-between"><span>🏁 結束:</span> <span className="font-mono text-green-600">{formatTimeStr(endObj)}</span></div></div>)}
-                    {isPreview && (<div className="mt-2 text-xs font-bold text-center">{data.previewType === 'NOW' && <span className="text-red-500 animate-pulse">🔴 該上鐘了 (Start Now)</span>}{data.previewType === 'SOON' && <span className="text-blue-500">🔵 預約即將到來</span>}{data.previewType === 'PHASE2' && <span className="text-orange-500">🟠 轉場準備</span>}</div>)}
+                    {isPreview && (<div className="mt-2 text-xs font-bold text-center">{data.previewType === 'NOW' && <span className="text-red-500 animate-pulse">🔴 該上鐘了 (Start Now)</span>}{data.previewType === 'SOON' && <span className="text-blue-500">🔵 預約即滿到來</span>}{data.previewType === 'PHASE2' && <span className="text-orange-500">🟠 轉場準備</span>}</div>)}
                 </div>
             </div>
 
             <div className="absolute bottom-0 left-0 w-full p-2 bg-white z-50 border-t">
                 {!data.isRunning || isPreview ? (
-                    <div className="grid grid-cols-2 gap-2">
-                        <button onClick={(e) => { e.stopPropagation(); onAction(id, 'start'); }} className={`py-2 rounded font-bold text-white text-sm shadow-md transform active:scale-95 transition-all ${isPreview && data.previewType === 'NOW' ? 'bg-red-600 hover:bg-red-700 animate-pulse' : 'bg-green-600 hover:bg-green-700'}`}>開始 (Start)</button>
-                        <button onClick={(e) => { e.stopPropagation(); onAction(id, 'cancel'); }} className="py-2 rounded font-bold text-red-600 bg-red-50 border border-red-200 text-sm shadow-sm transform active:scale-95 transition-all">取消 (Cancel)</button>
+                    <div className="grid grid-cols-3 gap-2">
+                        <button onClick={(e) => { e.stopPropagation(); onAction(id, 'start'); }} className={`py-2 rounded font-bold text-white text-xs shadow-md transform active:scale-95 transition-all flex flex-col items-center justify-center ${isPreview && data.previewType === 'NOW' ? 'bg-red-600 hover:bg-red-700 animate-pulse' : 'bg-green-600 hover:bg-green-700'}`}>
+                            <i className="fas fa-play mb-0.5"></i>開始
+                        </button>
+                        <button onClick={(e) => { e.stopPropagation(); onAction(id, 'finish'); }} className="py-2 rounded font-bold text-white bg-blue-600 hover:bg-blue-700 text-xs shadow-md transform active:scale-95 transition-all flex flex-col items-center justify-center">
+                            <i className="fas fa-check-square mb-0.5"></i>結帳
+                        </button>
+                        <button onClick={(e) => { e.stopPropagation(); onAction(id, 'cancel'); }} className="py-2 rounded font-bold text-red-600 bg-red-50 border border-red-200 text-xs shadow-sm transform active:scale-95 transition-all flex flex-col items-center justify-center">
+                            <i className="fas fa-trash-alt mb-0.5"></i>取消
+                        </button>
                     </div>
                 ) : (
                     <div className="grid grid-cols-2 gap-2">
