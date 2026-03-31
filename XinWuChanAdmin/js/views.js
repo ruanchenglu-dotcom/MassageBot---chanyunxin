@@ -1,11 +1,57 @@
 /**
  * ============================================================================
  * FILE: js/views.js
- * PHIÊN BẢN: V108.06 (NÂNG CẤP: CHUẨN HÓA TÊN DỊCH VỤ, FIX LỖI SELECT DROPDOWN)
+ * PHIÊN BẢN: V108.16 (FEATURE: DYNAMIC PRICING INTEGRATION)
  * ============================================================================
+ * CHANGE LOG V108.16:
+ * - [FEATURE]: Bổ sung Dynamic Pricing Shims (window.getPrice, window.getOilPrice).
+ * Đọc trực tiếp dữ liệu giá từ Google Sheets (Menu) để cung cấp cho toàn bộ UI.
+ * - [FEATURE]: Cập nhật ReportView ưu tiên sử dụng `b.price` để báo cáo doanh thu
+ * động chính xác.
+ * * CHANGE LOG V108.15:
+ * - [UI UPGRADE]: Khóa cứng nút "轉場" (Transfer) đối với dịch vụ Combo ở ResourceCard. 
+ * Thay bằng nút "禁止轉場" (Cấm chuyển) kèm cảnh báo. 
  */
 
 const { useState, useEffect, useMemo, useRef } = React;
+
+// --- COMPONENT CHỌN GIỜ 24H TÙY CHỈNH (V108.13) ---
+const CustomTimePicker24h = ({ value, onChange, disabled }) => {
+    const [hour, min] = (value || "12:00").split(':');
+
+    const handleHourChange = (e) => {
+        if (onChange) onChange({ target: { value: `${e.target.value}:${min}` } });
+    };
+
+    const handleMinChange = (e) => {
+        if (onChange) onChange({ target: { value: `${hour}:${e.target.value}` } });
+    };
+
+    const hours = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, '0'));
+    const mins = Array.from({ length: 60 }, (_, i) => String(i).padStart(2, '0'));
+
+    return (
+        <div className={`flex items-center justify-center ${disabled ? 'opacity-70 pointer-events-none' : ''}`}>
+            <select
+                value={hour}
+                onChange={handleHourChange}
+                disabled={disabled}
+                className={`bg-transparent font-mono text-sm font-bold outline-none cursor-pointer appearance-none text-right hover:text-indigo-600 transition-colors ${disabled ? 'text-slate-500' : 'text-slate-800'}`}
+            >
+                {hours.map(h => <option key={`h-${h}`} value={h}>{h}時</option>)}
+            </select>
+            <span className="text-slate-400 font-bold mx-0.5">:</span>
+            <select
+                value={min}
+                onChange={handleMinChange}
+                disabled={disabled}
+                className={`bg-transparent font-mono text-sm font-bold outline-none cursor-pointer appearance-none text-left hover:text-indigo-600 transition-colors ${disabled ? 'text-slate-500' : 'text-slate-800'}`}
+            >
+                {mins.map(m => <option key={`m-${m}`} value={m}>{m}分</option>)}
+            </select>
+        </div>
+    );
+};
 
 // --- HÀM TIỆN ÍCH LỌC VÀ SẮP XẾP NHÂN VIÊN ---
 const getProcessedStaffList = (rawList, statusData, currentSelected) => {
@@ -38,21 +84,41 @@ const getProcessedStaffList = (rawList, statusData, currentSelected) => {
     return available;
 };
 
-// --- HÀM LÀM SẠCH TÊN DỊCH VỤ (CHUẨN HÓA CHO MODAL) ---
+// --- HÀM LÀM SẠCH TÊN DỊCH VỤ ---
 const getCleanServiceName = (rawName) => {
-    if (!rawName) return window.SERVICES_LIST ? window.SERVICES_LIST[0] : '';
-    // Nếu trùng khớp 100% với danh sách chuẩn thì trả về luôn
+    if (!rawName) return window.SERVICES_LIST && window.SERVICES_LIST.length > 0 ? window.SERVICES_LIST[0] : '';
     if (window.SERVICES_LIST && window.SERVICES_LIST.includes(rawName)) return rawName;
 
     if (window.SERVICES_LIST) {
-        // Sắp xếp theo độ dài giảm dần để ưu tiên match chuỗi dài nhất trước
         const sortedList = [...window.SERVICES_LIST].sort((a, b) => b.length - a.length);
         const match = sortedList.find(s => rawName.includes(s));
         if (match) return match;
     }
+    return String(rawName).replace(/\s*\([^)]*油推[^)]*\)/g, '').trim();
+};
+window.getCleanServiceName = getCleanServiceName;
 
-    // Fallback: Tự động xóa các phần ghi chú trong ngoặc như (油推...)
-    return rawName.replace(/\s*\([^)]*油推[^)]*\)/g, '').trim();
+// ============================================================================
+// [V108.16] DYNAMIC PRICING SHIMS (BỘ LỌC GIÁ ĐỘNG TOÀN CỤC)
+// Cung cấp giá cho BillingModal và các module khác không nằm trong file này
+// ============================================================================
+window.getPrice = (serviceName) => {
+    const cleanName = getCleanServiceName(serviceName);
+    if (window.DYNAMIC_PRICES_MAP) {
+        // Tìm kiếm theo tên dịch vụ trong bảng giá động
+        const found = Object.values(window.DYNAMIC_PRICES_MAP).find(s => s.name === cleanName);
+        if (found && typeof found.price === 'number') {
+            return found.price;
+        }
+    }
+    return 0; // Fallback an toàn
+};
+
+window.getOilPrice = (isOilFlagOrString) => {
+    let isOil = false;
+    if (typeof isOilFlagOrString === 'boolean') isOil = isOilFlagOrString;
+    else if (typeof isOilFlagOrString === 'string' && (isOilFlagOrString.includes('油') || isOilFlagOrString.includes('Oil'))) isOil = true;
+    return isOil ? 200 : 0; // Phụ phí tinh dầu mặc định $200
 };
 
 
@@ -77,14 +143,13 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
     const [percent, setPercent] = useState(0);
     const [timerString, setTimerString] = useState("--:--");
 
-    // [BUGFIX] Khởi tạo state bằng tên dịch vụ đã được chuẩn hóa
     const initCleanService = booking.cleanServiceName || getCleanServiceName(booking.serviceName);
     const [selectedService, setSelectedService] = useState(initCleanService);
 
-    // [BUGFIX] State được quản lý linh hoạt hơn thông qua useEffect bên dưới
     const [selectedStaff, setSelectedStaff] = useState('隨機');
 
-    // Nạp danh sách thợ với thuật toán stafftime
+    const requestedStaff = booking.requestedStaff || booking.staffId || '隨機';
+
     const processedStaffList = useMemo(() => {
         const activeStaffList = staffList || window.STAFF_LIST || [];
         return getProcessedStaffList(activeStaffList, statusData, selectedStaff);
@@ -114,13 +179,11 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                 : (booking.phase1_duration !== undefined ? booking.phase1_duration : booking.duration / 2);
             setPhase1(currentP1);
 
-            // [BUGFIX] Cập nhật lại tên dịch vụ đã được chuẩn hóa khi booking thay đổi
             setSelectedService(booking.cleanServiceName || getCleanServiceName(booking.serviceName));
 
-            // [BUGFIX] Ưu tiên lấy serviceStaff từ liveData (nếu có) để tránh hiện tượng dính "男"/"女" cũ
-            let activeStaff = booking.serviceStaff || booking.staffId || '隨機';
+            let activeStaff = booking.serviceStaff || '隨機';
             if (liveData && liveData.booking) {
-                const liveStaff = liveData.booking.serviceStaff || liveData.booking.staffId;
+                const liveStaff = liveData.booking.serviceStaff;
                 if (liveStaff && liveStaff !== 'undefined' && liveStaff !== 'null') {
                     activeStaff = liveStaff;
                 }
@@ -200,7 +263,6 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
 
     const triggerAction = (actionType, payload = {}) => {
         const fullPayload = { ...payload, bookingId: booking.rowId, currentBooking: booking, resourceId: contextResourceId, currentMeta: meta };
-        console.log(`[BookingControlModal] Triggering: ${actionType}`, fullPayload);
         onAction(actionType, fullPayload);
         if (showPaymentOptions) setShowPaymentOptions(false);
     };
@@ -217,6 +279,8 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
     const isCombo = booking.category === 'COMBO' || (booking.serviceName && booking.serviceName.includes('Combo')) || (booking.serviceName && booking.serviceName.includes('套餐'));
     const isGroupBooking = (parseInt(booking.pax) || 1) > 1;
 
+    const isSyncPending = booking && booking.isManualLocked;
+
     return (
         <div className="fixed inset-0 z-[3000] flex items-center justify-center bg-black/70 backdrop-blur-sm animate-in fade-in duration-200 p-4">
             <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden border border-slate-300 flex flex-col max-h-[90vh] relative">
@@ -228,11 +292,19 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                             <div className="flex items-center gap-2">
                                 <span className="bg-white/20 text-xs px-2 py-0.5 rounded uppercase font-mono tracking-wider">#{booking.rowId}</span>
                                 {contextResourceId && <span className="bg-orange-500 text-white text-xs px-2 py-0.5 rounded uppercase font-bold shadow-sm"><i className="fas fa-map-marker-alt mr-1"></i>{contextResourceId.replace('bed-', '床 ').replace('chair-', '足 ')}</span>}
-                                {isRunning && !isPaused && <span className="bg-green-500 text-xs font-bold px-2 py-0.5 rounded animate-pulse">進行中 (RUNNING)</span>}
+                                {isSyncPending && <span className="bg-blue-500 text-white text-xs font-bold px-2 py-0.5 rounded animate-pulse shadow-sm"><i className="fas fa-sync-alt animate-spin mr-1"></i>同步中 (SYNCING)</span>}
+                                {isRunning && !isPaused && !isSyncPending && <span className="bg-green-500 text-xs font-bold px-2 py-0.5 rounded animate-pulse">進行中 (RUNNING)</span>}
                                 {isPaused && <span className="bg-yellow-500 text-xs font-bold px-2 py-0.5 rounded">暫停 (PAUSED)</span>}
-                                {!isRunning && <span className="bg-gray-500 text-xs font-bold px-2 py-0.5 rounded">等待中 (WAITING)</span>}
+                                {!isRunning && !isSyncPending && <span className="bg-gray-500 text-xs font-bold px-2 py-0.5 rounded">等待中 (WAITING)</span>}
                             </div>
-                            <h2 className="text-2xl font-black mt-1">{booking.customerName}</h2>
+                            <h2 className="text-2xl font-black mt-1 flex items-center flex-wrap gap-2">
+                                {booking.customerName}
+                                {requestedStaff !== '隨機' && (
+                                    <span className="text-sm bg-pink-100 text-pink-700 px-2.5 py-0.5 rounded-full border border-pink-200 shadow-sm whitespace-nowrap">
+                                        <i className="fas fa-heart mr-1"></i>客人指定: {requestedStaff}
+                                    </span>
+                                )}
+                            </h2>
                             <div className="text-white/70 text-sm flex items-center gap-3 mt-1">
                                 <span><i className="fas fa-phone-alt mr-1"></i> {booking.sdt || '---'}</span>
                                 <span><i className="fas fa-users mr-1"></i> {booking.pax} 人 (Pax)</span>
@@ -245,10 +317,9 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                 {/* 2. BODY CONTENT */}
                 <div className="p-6 overflow-y-auto custom-scrollbar space-y-6 bg-slate-50 flex-1">
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200">
+                        <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 relative">
 
-                            {/* KHU VỰC CHỌN NHÂN VIÊN */}
-                            <label className="text-xs font-bold text-slate-400 uppercase mb-1 block">選擇師傅 (Staff)</label>
+                            <label className="text-xs font-bold text-slate-400 uppercase mb-1 block">選擇服務師傅 (Actual Staff)</label>
                             <div className="flex items-center justify-between mb-4 relative">
                                 <div className="relative flex-1 mr-2 bg-slate-50 border border-slate-200 rounded-lg">
                                     <select
@@ -289,8 +360,7 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                                     </div>
                                 </div>
 
-                                {/* [BUGFIX] So sánh với logic mới để hiện nút Xác nhận */}
-                                {selectedStaff !== ((liveData?.booking?.serviceStaff || liveData?.booking?.staffId) || booking.serviceStaff || booking.staffId || '隨機') && (
+                                {selectedStaff !== ((liveData?.booking?.serviceStaff) || booking.serviceStaff || '隨機') && (
                                     <button onClick={() => triggerAction('CHANGE_STAFF', { newStaff: selectedStaff })} className="absolute right-[85px] bg-indigo-600 text-white text-xs font-bold px-3 py-1 rounded shadow hover:bg-indigo-700 animate-pulse transition-colors z-10">
                                         確認
                                     </button>
@@ -301,16 +371,24 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                                 </button>
                             </div>
 
-                            {/* KHU VỰC DỊCH VỤ */}
                             <label className="text-xs font-bold text-slate-400 uppercase mb-1 block">服務項目 (Service)</label>
                             <div className="relative">
-                                <select value={selectedService} onChange={(e) => setSelectedService(e.target.value)} className="w-full text-lg font-bold text-slate-700 bg-slate-50 border border-slate-200 rounded-lg py-2 pl-3 pr-8 focus:outline-none focus:border-indigo-500 appearance-none">
+                                <select
+                                    value={selectedService}
+                                    onChange={(e) => {
+                                        const newSvc = e.target.value;
+                                        setSelectedService(newSvc);
+                                        if (newSvc.includes('油推') && selectedStaff === '隨機') {
+                                            setSelectedStaff('女');
+                                        }
+                                    }}
+                                    className="w-full text-lg font-bold text-slate-700 bg-slate-50 border border-slate-200 rounded-lg py-2 pl-3 pr-8 focus:outline-none focus:border-indigo-500 appearance-none"
+                                >
                                     {window.SERVICES_LIST.map(s => <option key={s} value={s}>{s}</option>)}
                                 </select>
                                 <div className="pointer-events-none absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400">
                                     <i className="fas fa-chevron-down"></i>
                                 </div>
-                                {/* [BUGFIX] So sánh selectedService với tên đã được chuẩn hóa để hiển thị nút Xác nhận hợp lý */}
                                 {selectedService !== (booking.cleanServiceName || getCleanServiceName(booking.serviceName)) && (
                                     <button onClick={() => triggerAction('CHANGE_SERVICE', { newService: selectedService })} className="absolute right-8 top-1.5 bottom-1.5 bg-indigo-600 text-white text-xs font-bold px-3 rounded hover:bg-indigo-700 animate-pulse">
                                         確認
@@ -348,7 +426,7 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                                     <div className="mt-3 flex flex-col items-center animate-in fade-in">
                                         <div className={`flex items-center gap-1.5 px-2 py-1 rounded-md border shadow-inner transition-colors ${isBodyFirstLocal ? 'bg-orange-50 border-orange-200' : 'bg-indigo-50 border-indigo-200'}`}>
                                             <i className={`fas fa-play-circle text-xs ${isBodyFirstLocal ? 'text-orange-500' : 'text-indigo-500'}`}></i>
-                                            <input type="time" value={startTimeStr} onChange={handleStartTimeChange} className="bg-transparent font-mono text-sm font-bold text-slate-700 outline-none cursor-pointer w-[70px] text-center" required />
+                                            <CustomTimePicker24h value={startTimeStr} onChange={handleStartTimeChange} />
                                         </div>
                                     </div>
                                 </div>
@@ -372,7 +450,7 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                                     <div className="mt-4 flex flex-col items-center animate-in fade-in">
                                         <div className="flex items-center gap-1.5 px-2 py-1 rounded-md border shadow-inner bg-slate-100 border-slate-300">
                                             <i className="fas fa-sync-alt text-xs text-slate-500"></i>
-                                            <input type="time" value={switchTimeStr} onChange={handleSwitchTimeChange} className="bg-transparent font-mono text-sm font-bold text-slate-700 outline-none cursor-pointer w-[70px] text-center" required />
+                                            <CustomTimePicker24h value={switchTimeStr} onChange={handleSwitchTimeChange} />
                                         </div>
                                     </div>
                                 </div>
@@ -383,7 +461,7 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                                     <div className="mt-3 flex flex-col items-center animate-in fade-in">
                                         <div className={`flex items-center gap-1.5 px-2 py-1 rounded-md border shadow-inner opacity-80 cursor-not-allowed transition-colors ${isBodyFirstLocal ? 'bg-indigo-50 border-indigo-200' : 'bg-orange-50 border-orange-200'}`}>
                                             <i className={`fas fa-flag-checkered text-xs ${isBodyFirstLocal ? 'text-indigo-500' : 'text-orange-500'}`}></i>
-                                            <input type="time" value={endTimeStr} readOnly className="bg-transparent font-mono text-sm font-bold text-slate-500 outline-none pointer-events-none w-[70px] text-center" />
+                                            <CustomTimePicker24h value={endTimeStr} disabled={true} />
                                         </div>
                                     </div>
                                 </div>
@@ -530,6 +608,18 @@ const TimelineView = ({ timelineData, onEditPhase, liveStatusData, staffList, st
         }
     };
 
+    const liveRunningRowIds = useMemo(() => {
+        const ids = new Set();
+        if (liveStatusData) {
+            Object.values(liveStatusData).forEach(res => {
+                if (res.isRunning && !res.isPaused && res.booking && res.booking.rowId) {
+                    ids.add(String(res.booking.rowId));
+                }
+            });
+        }
+        return ids;
+    }, [liveStatusData]);
+
     const safeData = timelineData || {};
 
     return (
@@ -590,8 +680,17 @@ const TimelineView = ({ timelineData, onEditPhase, liveStatusData, staffList, st
                                         const endTimeStr = window.formatMinutesToTime(slot.end);
                                         const startTimeStr = window.formatMinutesToTime(slot.start);
                                         const deadlineText = `⏳ ${duration}分 ➔ ${endTimeStr}`;
-                                        const isRunning = slot.meta && slot.meta.isRunning;
+
+                                        const rawStatus = slot.booking?.status || '';
+                                        const isStatusRunning = rawStatus.includes('Running') || rawStatus.includes('服務中') || rawStatus.includes('running');
+                                        const isMetaRunning = slot.meta?.isRunning === true;
+                                        const isPropRunning = slot.booking?.isRunningStatus === true;
+                                        const isLiveRunning = slot.booking && liveRunningRowIds.has(String(slot.booking.rowId));
+
+                                        const isRunning = isStatusRunning || isMetaRunning || isPropRunning || isLiveRunning;
+                                        const isSyncPending = slot.booking && slot.booking.isManualLocked;
                                         const isBodyFirst = slot.meta && slot.meta.sequence === 'BF';
+
                                         let specialBorderClass = "border border-black/5";
                                         if (isRunning) specialBorderClass = "border-2 border-red-600 shadow-md shadow-red-200 z-20";
                                         else if (isBodyFirst) specialBorderClass = "border-l-[6px] border-l-indigo-700 bf-indicator shadow-indigo-200";
@@ -609,12 +708,13 @@ const TimelineView = ({ timelineData, onEditPhase, liveStatusData, staffList, st
                                             <div key={idx}
                                                 className={`absolute top-1 bottom-1 rounded px-2 flex flex-col justify-center text-xs overflow-hidden shadow-sm z-10 cursor-pointer transition-all timeline-block group ${bgClass} ${specialBorderClass}`}
                                                 style={{ left: `${leftPos}px`, width: `${width}px` }}
-                                                title={`${slot.booking.serviceName}\n${isRunning ? '🔥 進行中 (Running)' : ''}`}
+                                                title={`${slot.booking.serviceName}\n${isRunning ? '🔥 進行中 (Running)' : ''}${isSyncPending && !isRunning ? '\n⏳ 同步中 (Syncing...)' : ''}`}
                                             >
                                                 <div className="font-bold truncate text-[11px] leading-tight flex justify-between items-center">
                                                     <span className="flex items-center gap-1">
                                                         {label} {comboIcon}
                                                         {isBodyFirst && <span className="text-[10px] bg-indigo-600 text-white px-1 rounded-sm animate-pulse" title="Body First">🔀BF</span>}
+                                                        {isSyncPending && !isRunning && <span className="text-[10px] text-blue-500 animate-spin" title="Syncing..."><i className="fas fa-sync-alt"></i></span>}
                                                     </span>
                                                 </div>
                                                 <div className={`text-[10px] font-mono font-bold text-slate-700 bg-white/40 rounded px-1 mt-0.5 truncate border border-black/5 ${isRunning ? 'bg-red-50 text-red-700 border-red-100' : ''}`}>
@@ -704,7 +804,7 @@ const CommissionView = ({ bookings, staffList }) => {
             if (b.status && (b.status.includes('取消') || b.status.includes('Cancel') || b.status.includes('❌'))) return;
 
             const slots = [
-                { id: b.serviceStaff || b.staffId, status: b.Status1 },
+                { id: b.serviceStaff, status: b.Status1 },
                 { id: b.staffId2, status: b.Status2 },
                 { id: b.staffId3, status: b.Status3 },
                 { id: b.staffId4, status: b.Status4 },
@@ -803,7 +903,7 @@ const CommissionView = ({ bookings, staffList }) => {
 window.CommissionView = CommissionView;
 
 // ============================================================================
-// 3. REPORT VIEW 
+// 3. REPORT VIEW  (V108.16 DYNAMIC PRICING ENABLED)
 // ============================================================================
 const ReportView = ({ bookings }) => {
     const safeBookings = Array.isArray(bookings) ? bookings : [];
@@ -820,9 +920,14 @@ const ReportView = ({ bookings }) => {
 
                 if (isItemDone || (isAllDone && i < pax)) {
                     guests++;
-                    const unitPrice = window.getPrice(b.serviceName);
-                    const oilPrice = window.getOilPrice(b.isOil || (b.serviceName && b.serviceName.includes('油')));
-                    revenue += (unitPrice + oilPrice);
+                    // [V108.16] Lấy giá động từ Backend (nếu có b.price), nếu không fallback về tính toán tĩnh
+                    if (b.price !== undefined && b.price > 0 && pax === 1) {
+                        revenue += b.price;
+                    } else {
+                        const unitPrice = window.getPrice(b.serviceName);
+                        const oilPrice = window.getOilPrice(b.isOil || (b.serviceName && b.serviceName.includes('油')));
+                        revenue += (unitPrice + oilPrice);
+                    }
                 }
             }
         });
@@ -868,10 +973,17 @@ const ReportView = ({ bookings }) => {
                                     const isAllDone = (b.status && (b.status.includes('完成') || b.status.includes('Done') || b.status.includes('✅')));
 
                                     if (isSingleDone || (isAllDone && k < pax)) {
-                                        const unitPrice = window.getPrice(b.serviceName);
-                                        const oilPrice = window.getOilPrice(b.isOil || (b.serviceName && b.serviceName.includes('油')));
-                                        const singlePrice = unitPrice + oilPrice;
-                                        let staffName = staffList[k] || b.serviceStaff || b.staffId || '隨機';
+                                        // [V108.16] Logic giá động
+                                        let singlePrice = 0;
+                                        if (b.price !== undefined && b.price > 0 && pax === 1) {
+                                            singlePrice = b.price;
+                                        } else {
+                                            const unitPrice = window.getPrice(b.serviceName);
+                                            const oilPrice = window.getOilPrice(b.isOil || (b.serviceName && b.serviceName.includes('油')));
+                                            singlePrice = unitPrice + oilPrice;
+                                        }
+
+                                        let staffName = staffList[k] || (k === 0 ? b.serviceStaff : null) || '隨機';
 
                                         rows.push(
                                             <tr key={`${b.rowId}-${k}`}>
@@ -978,7 +1090,7 @@ const ResourceCard = ({ id, type, index, data, busyStaffIds, onAction, onSelect,
         const grpIdx = typeof getGroupMemberIndex === 'function' ? getGroupMemberIndex(id, data.booking.rowId) : 0;
         let myStaff = '';
         const b = data.booking || {};
-        if (grpIdx === 0) myStaff = b.serviceStaff || b.staffId || b.ServiceStaff;
+        if (grpIdx === 0) myStaff = b.serviceStaff || b.ServiceStaff;
         else if (grpIdx === 1) myStaff = b.staffId2 || b.StaffId2;
         else if (grpIdx === 2) myStaff = b.staffId3 || b.StaffId3;
         else if (grpIdx === 3) myStaff = b.staffId4 || b.StaffId4;
@@ -1030,6 +1142,8 @@ const ResourceCard = ({ id, type, index, data, busyStaffIds, onAction, onSelect,
 
     const bfBadgeStyle = isBodyFirst ? "bg-indigo-600 text-white animate-pulse shadow-lg ring-2 ring-indigo-300" : "hidden";
 
+    const requestedStaffLabel = data.booking.requestedStaff || data.booking.staffId || '隨機';
+
     return (
         <div className={`res-card h-72 flex flex-col border-2 ${statusColor} relative`}>
             <div className="flex justify-between items-center p-2 border-b border-black/5 bg-black/5">
@@ -1048,8 +1162,16 @@ const ResourceCard = ({ id, type, index, data, busyStaffIds, onAction, onSelect,
                     </>
                 )}
 
-                <div className="z-10 relative flex flex-col gap-2">
-                    <div className="absolute -top-12 right-0 z-40 bg-white border-2 border-slate-200 rounded-lg shadow-sm px-2 py-1 flex items-center gap-1">
+                <div className="z-10 relative flex flex-col gap-2 mt-4">
+                    {requestedStaffLabel !== '隨機' && (
+                        <div className="absolute -top-3 left-0 z-50 pointer-events-none">
+                            <div className="text-[10px] text-pink-600 font-bold border border-pink-200 bg-pink-50 rounded shadow-sm px-1.5 py-0.5 inline-block whitespace-nowrap">
+                                <i className="fas fa-thumbtack mr-1"></i>指定: {requestedStaffLabel}
+                            </div>
+                        </div>
+                    )}
+
+                    <div className="absolute -top-10 right-0 z-40 bg-white border-2 border-slate-200 rounded-lg shadow-sm px-2 py-1 flex items-center gap-1">
                         <div className="relative flex items-center">
                             <select
                                 className={`text-xl font-black text-center bg-transparent focus:outline-none cursor-pointer hover:bg-slate-50 appearance-none pl-2 pr-5 ${staffDisplay === '隨機' ? 'text-gray-400' : 'text-slate-800'}`}
@@ -1114,11 +1236,17 @@ const ResourceCard = ({ id, type, index, data, busyStaffIds, onAction, onSelect,
 
                     <div className="font-bold text-slate-800 text-2xl truncate mt-4">{(data.booking.customerName || 'Unknown').split('(')[0]}{(data.booking.pax > 1) && <span className="text-sm text-gray-400 ml-1">(Grp)</span>}</div>
 
-                    {/* [BUGFIX] Bọc hàm getCleanServiceName() để tránh lỗi select cho thẻ Resource Card */}
                     <select
                         className="text-sm font-bold text-gray-500 text-center bg-transparent border-b border-dashed border-gray-300 focus:outline-none w-full truncate cursor-pointer hover:bg-gray-50 appearance-none"
                         value={data.booking.cleanServiceName || getCleanServiceName(data.booking.serviceName || '')}
-                        onChange={(e) => { e.stopPropagation(); onServiceChange(id, e.target.value); }}
+                        onChange={(e) => {
+                            e.stopPropagation();
+                            const newSvc = e.target.value;
+                            onServiceChange(id, newSvc);
+                            if (newSvc.includes('油推') && staffDisplay === '隨機') {
+                                onStaffChange(id, '女');
+                            }
+                        }}
                         onClick={(e) => e.stopPropagation()}
                     >
                         {window.SERVICES_LIST.map(svc => <option key={svc} value={svc}>{svc}</option>)}
@@ -1158,9 +1286,21 @@ const ResourceCard = ({ id, type, index, data, busyStaffIds, onAction, onSelect,
                         <button onClick={(e) => { e.stopPropagation(); onAction(id, 'pause'); }} className={`py-1.5 rounded font-bold text-white text-xs shadow flex items-center justify-center transform active:scale-95 ${data.isPaused ? 'bg-green-500 hover:bg-green-600' : 'bg-yellow-500 hover:bg-yellow-600'}`}>
                             {data.isPaused ? '▶ 繼續 (Resume)' : '⏸ 暫停 (Pause)'}
                         </button>
+
+                        {/* --- [V108.15]: KHÓA NÚT CHUYỂN KHU VỰC ĐỂ CHỐNG LỖI LOGIC COMBO --- */}
                         {isCombo ? (
-                            <button onClick={(e) => { e.stopPropagation(); onSwitch(id, type === 'chair' ? 'bed' : 'chair'); }} className="py-1.5 rounded font-bold text-white bg-orange-500 hover:bg-orange-600 flex items-center justify-center text-xs shadow transform active:scale-95"><i className="fas fa-exchange-alt mr-1"></i> 轉場</button>
+                            <button
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    alert("⛔️ 系統提示：\n\n套餐 (Combo) 會自動安排轉場，不支援手動跨區轉場，以免破壞時程邏輯與造成錯誤！\n\n(若需更換同區座位，請在時間軸使用上下箭頭移動)");
+                                }}
+                                className="py-1.5 rounded font-bold text-slate-500 bg-slate-200 cursor-not-allowed flex items-center justify-center text-xs shadow"
+                            >
+                                <i className="fas fa-ban mr-1"></i> 禁止轉場
+                            </button>
                         ) : (<div className="hidden"></div>)}
+                        {/* ------------------------------------------------------------- */}
+
                         <button onClick={(e) => { e.stopPropagation(); onAction(id, 'finish'); }} className="py-1.5 rounded font-bold text-white bg-blue-600 hover:bg-blue-700 text-xs shadow flex items-center justify-center transform active:scale-95"><i className="fas fa-check-square mr-1"></i> 結帳</button>
                         <button onClick={(e) => { e.stopPropagation(); onAction(id, 'cancel_midway'); }} className="py-1.5 rounded font-bold text-white bg-red-500 hover:bg-red-600 text-xs shadow flex items-center justify-center transform active:scale-95"><i className="fas fa-times-circle mr-1"></i> 棄单</button>
                     </div>

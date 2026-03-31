@@ -1,11 +1,14 @@
 /**
  * =================================================================================================
- * MODULE: SHEET SERVICE (DATA LAYER) - REFACTORED V5.2 (SEPARATE REQUESTED VS ACTUAL STAFF)
+ * MODULE: SHEET SERVICE (DATA LAYER) - REFACTORED V5.6 (DYNAMIC PRICING SUPPORT)
  * PROJECT: XINWUCHAN MASSAGE BOT
  * DESCRIPTION: Handles Google Sheets interactions. 
- * * * * * UPDATE V5.2:
- * + [ENHANCEMENT] Tách bạch Cột I (指定師傅) và Cột L, M, N (服務師傅). Không cho phép ghi đè cột I khi bắt đầu làm.
- * + [COMPATIBILITY] Hỗ trợ các key tiếng Trung Phồn Thể (服務師傅1, 2, 3) từ frontend.
+ * * * * * UPDATE V5.6:
+ * + [FEATURE] Củng cố logic đọc Giá tiền (Cột D - Menu) làm nền tảng Single Source of Truth cho Frontend.
+ * + Tự động cộng phụ thu tinh dầu (+$200) trực tiếp vào object booking.
+ * + Mở rộng dải đọc Menu để tránh rớt dữ liệu khi quán thêm dịch vụ mới.
+ * * * * * UPDATE V5.5:
+ * + [BUGFIX] Bổ sung màng lưới hứng dữ liệu (Data Catching) trong hàm updateBookingDetails.
  * =================================================================================================
  */
 
@@ -28,7 +31,7 @@ const STATUS_KEYWORDS = {
     RUNNING: ['Running', '服務中', 'Serving', '🟡'],
     CANCELLED: ['取消', 'Cancelled', 'Cancel', '❌'],
     WAITING: ['Waiting', 'chờ', 'waiting'],
-    DONE: ['Done', 'hoàn thành', 'Completed']
+    DONE: ['Done', 'hoàn thành', 'Completed', '✅']
 };
 
 // --- GOOGLE AUTHENTICATION ---
@@ -157,27 +160,32 @@ function resolveStrictLockState(explicitLock, hasManualPhase, currentStatus = "F
 
 async function syncMenuData() {
     try {
-        const res = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: `${MENU_SHEET}!A2:F50` });
+        // [V5.6] Mở rộng dải đọc Menu lên dòng 150 để dự phòng thêm dịch vụ
+        const res = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: `${MENU_SHEET}!A2:Z150` });
         const rows = res.data.values;
         if (!rows || rows.length === 0) return;
 
         let newServices = {};
         rows.forEach(row => {
-            const code = row[0] ? row[0].trim() : null;
-            const name = row[1] ? row[1].trim() : '';
-            const priceStr = row[3] ? row[3].trim() : '0';
+            const code = row[0] ? row[0].toString().trim() : null; // Cột A: Mã dịch vụ
+            const name = row[1] ? row[1].toString().trim() : '';   // Cột B: Tên dịch vụ
+            const priceStr = row[3] ? row[3].toString().trim() : '0'; // Cột D (Index 3): Giá tiền
 
             if (!code || !name) return;
 
+            // Xử lý thời gian từ tên dịch vụ
             let duration = 60;
             const timeMatch = name.match(/(\d+)分/);
             if (timeMatch) duration = parseInt(timeMatch[1]);
+
+            // Xử lý giá tiền (Lọc bỏ các ký tự không phải số như $, phẩy, khoảng trắng)
             const price = parseInt(priceStr.replace(/\D/g, '')) || 0;
 
             let elasticStep = 0; let elasticLimit = 0;
             if (row[4]) { const ps = parseInt(row[4].toString().replace(/\D/g, '')); if (!isNaN(ps)) elasticStep = ps; }
             if (row[5]) { const pl = parseInt(row[5].toString().replace(/\D/g, '')); if (!isNaN(pl)) elasticLimit = pl; }
 
+            // Phân loại logic
             let type = 'BED'; let category = 'BODY';
             const prefix = code.charAt(0).toUpperCase();
             if (prefix === 'A') { type = 'BED'; category = 'COMBO'; }
@@ -185,8 +193,13 @@ async function syncMenuData() {
             else if (prefix === 'B') { type = 'BED'; category = 'BODY'; }
 
             newServices[code] = {
-                name: name, duration: duration, type: type, category: category, price: price,
-                elasticStep: elasticStep, elasticLimit: elasticLimit
+                name: name,
+                duration: duration,
+                type: type,
+                category: category,
+                price: price, // [V5.6] Nền tảng cho Dynamic Pricing Frontend
+                elasticStep: elasticStep,
+                elasticLimit: elasticLimit
             };
         });
 
@@ -222,20 +235,29 @@ async function syncData() {
                 const serviceStr = row[3] || '';
                 let duration = 60; let type = 'BED'; let category = 'BODY'; let price = 0;
                 let foundService = false;
+
+                // [V5.6] Đồng bộ giá từ Menu và áp dụng luật cộng dồn phụ phí tinh dầu
                 for (const key in STATE.SERVICES) {
                     if (serviceStr.includes(STATE.SERVICES[key].name.split('(')[0])) {
                         duration = STATE.SERVICES[key].duration;
                         type = STATE.SERVICES[key].type;
                         category = STATE.SERVICES[key].category;
-                        price = STATE.SERVICES[key].price;
+                        price = STATE.SERVICES[key].price; // Lấy giá gốc từ cột D
                         foundService = true; break;
                     }
                 }
+
                 if (!foundService) {
                     if (serviceStr.includes('套餐')) { category = 'COMBO'; duration = 100; }
                     else if (serviceStr.includes('足')) { type = 'CHAIR'; category = 'FOOT'; }
                 }
-                if (row[4] === "Yes") price += 200;
+
+                // Mặc định phụ phí tinh dầu là +$200
+                const isOilService = (row[4] === "Yes");
+                if (isOilService) {
+                    price += 200;
+                }
+
                 let pax = 1; if (row[5]) pax = safeParseInt(row[5], 1);
 
                 // Cột I: Thợ được yêu cầu ban đầu (Requested Staff)
@@ -251,18 +273,20 @@ async function syncData() {
                     startTimeString: `${cleanDate} ${row[1]}`,
                     startTime: row[1],
                     duration: duration,
-                    type: type, category: category, price: price,
-                    staffId: requestedStaff, // Giữ tương thích ngược với frontend cũ
-                    requestedStaff: requestedStaff, // Explicit field cho Cột I
+                    type: type, category: category,
+                    price: price, // Đã bao gồm phụ phí nếu có
+                    staffId: requestedStaff,
+                    requestedStaff: requestedStaff,
                     staffName: requestedStaff,
-                    serviceStaff: row[11], // Cột L: 服務師傅1
-                    staffId2: row[12],     // Cột M: 服務師傅2
-                    staffId3: row[13],     // Cột N: 服務師傅3
+                    serviceStaff: row[11],
+                    staffId2: row[12],
+                    staffId3: row[13],
                     pax: pax,
                     customerName: `${row[2]} (${row[6]})`,
                     serviceName: serviceStr, serviceCode: serviceCode,
                     phone: row[6], date: cleanDate, status: status,
-                    isRunning: isRunning, lineId: row[9], isOil: row[4] === "Yes",
+                    isRunning: isRunning, lineId: row[9],
+                    isOil: isOilService,
                     phase1_duration: safeParseInt(row[24], null),
                     phase2_duration: safeParseInt(row[25], null),
                     isManualLocked: isTrueString(row[30]),
@@ -415,13 +439,15 @@ async function ghiVaoSheet(data, proposedUpdates = []) {
             row[3] = svcName; row[4] = isOil ? "Yes" : ""; row[5] = 1;
             row[6] = colG_Phone; row[7] = colH_Status;
 
-            // Cột I: Ghi nhận yêu cầu ban đầu (Requested Staff)
-            if (guestDetail && guestDetail.staff) row[8] = guestDetail.staff;
-            else row[8] = data.nhanVien || '隨機';
+            let defaultRequestedStaff = isOil ? '女' : '隨機';
+            if (guestDetail && guestDetail.staff) {
+                row[8] = guestDetail.staff;
+            } else {
+                row[8] = data.nhanVien || defaultRequestedStaff;
+            }
 
             row[9] = colJ_LineID; row[10] = colK_Created;
 
-            // Cột M, N: Có thể ghi chú thêm nếu khách yêu cầu ngay từ đầu
             if (guestDetail) {
                 if (guestDetail.staffId2) row[12] = guestDetail.staffId2;
                 if (guestDetail.staffId3) row[13] = guestDetail.staffId3;
@@ -524,14 +550,10 @@ async function updateBookingDetails(body) {
     if (body.phone) await updateCell('G', body.phone);
     if (body.mainStatus) await updateCell('H', body.mainStatus);
 
-    // --- CỘT I (指定師傅 - Requested Staff) ---
-    // Chỉ cập nhật Cột I nếu Frontend chủ động gửi request đổi người được chỉ định
     if (body.requestedStaff !== undefined) {
         await updateCell('I', body.requestedStaff);
     }
 
-    // --- CỘT L, M, N (服務師傅 1, 2, 3 - Actual Service Staff) ---
-    // Mapping L: Ưu tiên lấy theo key tiếng Trung, fallback sang staffId để tương thích ngược
     const staff1 = body['服務師傅1'] || body.ServiceStaff1 || body.staff1 || body.serviceStaff || body.staffId;
     if (staff1 !== undefined && staff1 !== '隨機') {
         await updateCell('L', staff1);
@@ -547,11 +569,26 @@ async function updateBookingDetails(body) {
         await updateCell('N', staff3);
     }
 
-    if (body.flow) await updateCell('AA', body.flow);
+    // --- FIX AUTO-SYNC (V5.5): DATA CATCHING FOR ALL SCENARIOS ---
+    const flowVal = body.flow || body.flow_code;
+    if (flowVal !== undefined) await updateCell('AA', flowVal);
 
-    if (body.phase1Resource !== undefined) await updateCell('AB', body.phase1Resource);
-    if (body.phase2Resource !== undefined) await updateCell('AC', body.phase2Resource);
-    if (body.resourceType !== undefined) await updateCell('AD', body.resourceType);
+    let phase1Res = body.phase1_res_idx !== undefined ? body.phase1_res_idx : (body.phase1_resource !== undefined ? body.phase1_resource : body.phase1Resource);
+
+    // [V5.5 NÂNG CẤP]: Màng lưới dự phòng (Fallback Backup). 
+    // Nếu Frontend không gửi phase1_res_idx, thử bắt tọa độ từ current_resource_id hoặc location.
+    if (phase1Res === undefined && (body.location !== undefined || body.current_resource_id !== undefined)) {
+        phase1Res = body.location !== undefined ? body.location : body.current_resource_id;
+    }
+
+    if (phase1Res !== undefined) await updateCell('AB', phase1Res);
+
+    const phase2Res = body.phase2_res_idx !== undefined ? body.phase2_res_idx : (body.phase2_resource !== undefined ? body.phase2_resource : body.phase2Resource);
+    if (phase2Res !== undefined) await updateCell('AC', phase2Res);
+
+    const resourceType = body.resource_type !== undefined ? body.resource_type : body.resourceType;
+    if (resourceType !== undefined) await updateCell('AD', resourceType);
+    // ----------------------------------------------------------------------
 
     let bookingData = STATE.cachedBookings.find(b => b.rowId == rowId);
     let totalDuration = bookingData ? bookingData.duration : (safeParseInt(body.duration, 60));
@@ -577,7 +614,6 @@ async function updateBookingDetails(body) {
     return true;
 }
 
-// --- NEW FUNCTION: INLINE EDITING (BATCH UPDATE) ---
 async function updateInlineBooking(rowId, updatedData) {
     try {
         if (!rowId) throw new Error("RowID is required");
@@ -588,7 +624,6 @@ async function updateInlineBooking(rowId, updatedData) {
 
         let sCode = smartFindServiceCode(updatedData.dichVu) || "";
 
-        // Dùng Batch Update để ghi 1 lần xuống Sheets thay vì gọi nhiều lệnh
         const dataToUpdate = [];
 
         if (formattedDate) {
@@ -599,7 +634,6 @@ async function updateInlineBooking(rowId, updatedData) {
             dataToUpdate.push({ range: `${BOOKING_SHEET}!B${rowId}`, values: [[timeVal]] });
         }
         if (updatedData.hoTen !== undefined) {
-            // Giữ lại số (1/2) nếu có trong bảng cũ, hoặc cập nhật thẳng tên mới
             dataToUpdate.push({ range: `${BOOKING_SHEET}!C${rowId}`, values: [[updatedData.hoTen]] });
         }
         if (updatedData.dichVu !== undefined) {
@@ -623,7 +657,6 @@ async function updateInlineBooking(rowId, updatedData) {
             dataToUpdate.push({ range: `${BOOKING_SHEET}!H${rowId}`, values: [[updatedData.trangThai]] });
         }
         if (updatedData.nhanVien !== undefined) {
-            // Cập nhật Cột I khi sửa inline (chỉnh sửa yêu cầu ban đầu)
             dataToUpdate.push({ range: `${BOOKING_SHEET}!I${rowId}`, values: [[updatedData.nhanVien]] });
         }
 

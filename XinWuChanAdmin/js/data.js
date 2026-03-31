@@ -1,4 +1,20 @@
-// Dữ liệu dịch vụ - Đã cập nhật thêm thuộc tính blocks (節數)
+/**
+ * ============================================================================
+ * FILE: js/data.js
+ * PHIÊN BẢN: V108.19 (DYNAMIC PRICING FALLBACK)
+ * ============================================================================
+ * LƯU Ý QUAN TRỌNG: 
+ * Kể từ phiên bản này, giá tiền (price) ở file này CHỈ LÀ DỮ LIỆU DỰ PHÒNG (Fallback).
+ * Mục đích của nó là tạo bộ khung (Skeleton) giúp giao diện không bị lỗi trắng trang 
+ * trong 1-2 giây đầu tiên khởi động hệ thống.
+ * * Ngay khi app.js kết nối API Google Sheets thành công, toàn bộ bảng giá này sẽ 
+ * BỊ GHI ĐÈ HOÀN TOÀN bởi giá trị thực tế (Cột D) lấy từ Sheet Menu.
+ */
+
+// Khởi tạo trạm trung chuyển để views.js và app.js giao tiếp giá động
+window.DYNAMIC_PRICES_MAP = null;
+
+// Dữ liệu dịch vụ tĩnh dự phòng (Sẽ được cập nhật động bởi app.js)
 window.SERVICES_DATA = {
     '👑 帝王套餐 (190分)': { duration: 190, price: 2000, type: 'BED', category: 'COMBO', blocks: 6 },
     '💎 豪華套餐 (130分)': { duration: 130, price: 1500, type: 'BED', category: 'COMBO', blocks: 4 },

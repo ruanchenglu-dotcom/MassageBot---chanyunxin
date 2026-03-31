@@ -1,11 +1,17 @@
 // TYPE: app.js
-// VERSION: V108.06 (UPGRADE: DATA NORMALIZATION FOR SERVICE NAME & OIL FLAG)
-// UPDATE: 2026-03-25
+// VERSION: V108.19 (FEATURE: DYNAMIC PRICING INTEGRATION)
+// UPDATE: 2026-03-31
 //
-// --- CHANGE LOG V108.06 ---
-// 1. [ENHANCEMENT]: Thêm getCleanServiceName để xử lý dữ liệu ảo (phụ phí, đẩy dầu) ngay từ Data Layer.
-// 2. [BUGFIX]: Cập nhật logic fetchData tự động sinh cleanServiceName và isOil.
-// 3. [MAINTENANCE]: Giữ nguyên toàn bộ logic đồng bộ, xếp lịch và kết nối Sheet.
+// --- CHANGE LOG V108.19 ---
+// 1. [FEATURE]: Tích hợp hệ thống "Dynamic Pricing". Hứng dữ liệu bảng giá (services) từ Backend và thiết lập làm Single Source of Truth (`window.DYNAMIC_PRICES_MAP`).
+// 2. [FEATURE]: Tự động cập nhật danh sách dịch vụ cho dropdown (`window.SERVICES_LIST`) trực tiếp từ Google Sheets Menu.
+// --- CHANGE LOG V108.18 ---
+// 1. [BUGFIX]: Khắc phục lỗi hiển thị 2 trạng thái "Done/完成" khi thanh toán. Đồng nhất dùng "✅ 完成".
+// 2. [BUGFIX]: Xóa bỏ Local Override (forceRunning) khi thanh toán (finish) hoặc hủy ngang (cancel_midway) để tránh hiện tượng "bóng ma" kẹt trên Timeline.
+// --- CHANGE LOG V108.17 ---
+// 1. [BUGFIX]: Bổ sung các fallback keys (phase1Resource, phase2Resource, resourceType) vào toàn bộ các payload 
+// API (/api/update-booking-details) để đảm bảo Backend (sheet_service) ghi nhận chính xác 100% toạ độ Cột AB, AC 
+// khi thao tác đổi Flow (FB/BF), thay đổi thời gian Phase, hoặc Auto-Sync.
 
 const { useState, useEffect, useMemo, useRef } = React;
 
@@ -19,37 +25,31 @@ const BookingControlModal = window.BookingControlModal || window.ComboTimeEditMo
 const getServiceBlocks = (serviceName) => {
     if (!serviceName) return 0;
     const name = serviceName.toUpperCase();
-    // Khách chọn theo mã
     if (name.includes('A6') || name.includes('B6')) return 6;
     if (name.includes('A4') || name.includes('B4') || name.includes('F4')) return 4;
     if (name.includes('A3') || name.includes('B3') || name.includes('F3')) return 3;
     if (name.includes('A2') || name.includes('B2') || name.includes('F2')) return 2;
     if (name.includes('B1') || name.includes('F1')) return 1;
 
-    // Phân tích theo số phút và tên (dựa trên bảng ảnh)
     if (name.includes('190') || name.includes('180') || name.includes('帝王')) return 6;
     if (name.includes('130') || name.includes('120') || name.includes('豪華')) return 4;
     if (name.includes('100') || name.includes('90') || name.includes('招牌')) return 3;
     if (name.includes('70') || name.includes('精選')) return 2;
     if (name.includes('40') || name.includes('35')) return 1;
 
-    return 2; // Mặc định nếu không nhận dạng được
+    return 2;
 };
 
 // --- HÀM LÀM SẠCH TÊN DỊCH VỤ (DATA NORMALIZATION) ---
 const getCleanServiceName = (rawName) => {
-    if (!rawName) return window.SERVICES_LIST ? window.SERVICES_LIST[0] : '';
-    // Nếu trùng khớp 100% với danh sách chuẩn thì trả về luôn
+    if (!rawName) return window.SERVICES_LIST && window.SERVICES_LIST.length > 0 ? window.SERVICES_LIST[0] : '';
     if (window.SERVICES_LIST && window.SERVICES_LIST.includes(rawName)) return rawName;
 
     if (window.SERVICES_LIST) {
-        // Sắp xếp theo độ dài giảm dần để ưu tiên match chuỗi dài nhất trước
         const sortedList = [...window.SERVICES_LIST].sort((a, b) => b.length - a.length);
         const match = sortedList.find(s => rawName.includes(s));
         if (match) return match;
     }
-
-    // Fallback: Tự động xóa các phần ghi chú trong ngoặc như (油推...)
     return String(rawName).replace(/\s*\([^)]*油推[^)]*\)/g, '').trim();
 };
 
@@ -204,15 +204,42 @@ const App = () => {
     const [isManualRefreshing, setIsManualRefreshing] = useState(false);
 
     const localOverridesRef = useRef({});
+    const lastSyncedPositionsRef = useRef({}); // V108.16 Auto-sync Tracker
 
     // 2. HELPER FUNCTIONS
+    const getScheduledStartTimeISO = (booking) => {
+        try {
+            if (!booking || !booking.startTimeString) return new Date().toISOString();
+            let timeStr = booking.startTimeString;
+            let datePart = viewDate;
+
+            if (timeStr.includes(' ')) {
+                const parts = timeStr.split(' ');
+                datePart = parts[0].replace(/\//g, '-');
+                timeStr = parts[1];
+            }
+
+            const [hours, minutes] = timeStr.split(':').map(Number);
+            const dObj = new Date(datePart);
+
+            if (!isNaN(dObj.getTime())) {
+                dObj.setHours(hours || 0, minutes || 0, 0, 0);
+                return dObj.toISOString();
+            }
+            return new Date().toISOString();
+        } catch (e) {
+            console.error("Error parsing scheduled time:", e);
+            return new Date().toISOString();
+        }
+    };
+
     const isActuallyBusy = (staffId) => {
         if (!resourceState) return false;
         return Object.values(resourceState).some(r => {
             if (!r.isRunning || r.isPaused || r.isPreview === true) return false;
             const b = r.booking || {};
             const possibleKeys = [
-                b.serviceStaff, b.staffId, b.ServiceStaff, b.technician, b.Technician,
+                b.serviceStaff, b.ServiceStaff, b.technician, b.Technician,
                 b.staffId2, b.StaffId2, b.staff2, b.Staff2,
                 b.staffId3, b.StaffId3, b.staff3, b.Staff3,
                 b.staffId4, b.StaffId4, b.staff4, b.Staff4,
@@ -229,7 +256,6 @@ const App = () => {
             if (r.isRunning && !r.isPaused && r.isPreview !== true) {
                 const b = r.booking || {};
                 if (b.serviceStaff) ids.add(b.serviceStaff);
-                if (b.staffId) ids.add(b.staffId);
                 if (b.staffId2) ids.add(b.staffId2);
                 if (b.staffId3) ids.add(b.staffId3);
                 if (b.staffId4) ids.add(b.staffId4);
@@ -301,17 +327,49 @@ const App = () => {
         const currentRowId = String(currentBooking.rowId);
         const currentPhone = getNormalizedPhone(currentBooking);
 
-        return Object.keys(resourceState)
+        const mappedFromResource = Object.keys(resourceState)
             .filter(k => k !== excludeResourceId && !resourceState[k].isRunning && resourceState[k].isPreview === true)
             .map(k => ({ resourceId: k, booking: resourceState[k].booking }))
             .filter(item => {
                 const otherBooking = item.booking;
-                const otherRowId = String(otherBooking.rowId);
-                const otherPhone = getNormalizedPhone(otherBooking);
-                if (otherRowId === currentRowId) return true;
-                if (currentPhone.length >= 4 && currentPhone === otherPhone) return true;
+                if (String(otherBooking.rowId) === currentRowId) return true;
+                if (currentPhone.length >= 4 && currentPhone === getNormalizedPhone(otherBooking)) return true;
                 return false;
             });
+
+        const mappedRowIds = new Set(mappedFromResource.map(m => String(m.booking.rowId)));
+        mappedRowIds.add(currentRowId);
+
+        const unmappedBookings = bookings.filter(b => {
+            if (b.isDoneStatus || b.isRunningStatus) return false;
+            if (mappedRowIds.has(String(b.rowId))) return false;
+
+            const otherPhone = getNormalizedPhone(b);
+            if (currentPhone.length >= 4 && currentPhone === otherPhone) {
+                const t1 = (currentBooking.startTimeString || "00:00").split(' ')[1];
+                const t2 = (b.startTimeString || "00:00").split(' ')[1];
+                if (t1 === t2) return true;
+            }
+            return false;
+        });
+
+        const unmappedItems = unmappedBookings.map(b => {
+            let foundResId = null;
+            if (timelineData) {
+                for (const [resId, slots] of Object.entries(timelineData)) {
+                    if (slots.some(s => String(s.booking.rowId) === String(b.rowId))) {
+                        foundResId = resId;
+                        break;
+                    }
+                }
+            }
+            return {
+                resourceId: foundResId,
+                booking: b
+            };
+        });
+
+        return [...mappedFromResource, ...unmappedItems];
     };
 
     const findRelatedForCheckout = (currentBooking, excludeResourceId) => {
@@ -346,6 +404,15 @@ const App = () => {
             const endpoint = isManual ? '/api/info?forceRefresh=true' : '/api/info';
             const res = await axios.get(endpoint);
             setQuotaError(false);
+
+            // [V108.19] LẤY VÀ LƯU DỮ LIỆU BẢNG GIÁ ĐỘNG (SINGLE SOURCE OF TRUTH)
+            if (res.data.services) {
+                window.DYNAMIC_PRICES_MAP = res.data.services;
+                window.SERVICES_DATA = res.data.services;
+                // Cập nhật lại danh sách dropdown động theo Sheet Menu
+                const uniqueNames = [...new Set(Object.values(res.data.services).map(s => s.name))];
+                window.SERVICES_LIST = uniqueNames;
+            }
 
             const { bookings: apiBookings, staffList: apiStaff, resourceState: serverRes, staffStatus: serverStaff } = res.data;
 
@@ -382,6 +449,11 @@ const App = () => {
                     if (override.storedLocation && targetB.location !== override.storedLocation && targetB.current_resource_id !== override.storedLocation) isSynced = false;
                     if (override.flow && targetB.flow !== override.flow) isSynced = false;
 
+                    if (override.phase1_res_idx && targetB.phase1_res_idx !== override.phase1_res_idx) isSynced = false;
+                    if (override.phase2_res_idx && targetB.phase2_res_idx !== override.phase2_res_idx) isSynced = false;
+
+                    if (override.forceRunning && (!targetB.status || !targetB.status.includes('Running'))) isSynced = false;
+
                     if (isSynced) {
                         delete localOverridesRef.current[String(targetB.rowId)];
                     } else {
@@ -392,7 +464,13 @@ const App = () => {
                             targetB.location = override.storedLocation;
                             targetB.current_resource_id = override.storedLocation;
                         }
+                        if (override.phase1_res_idx) targetB.phase1_res_idx = override.phase1_res_idx;
+                        if (override.phase2_res_idx) targetB.phase2_res_idx = override.phase2_res_idx;
                         if (override.flow) targetB.flow = override.flow;
+
+                        if (override.forceRunning) {
+                            targetB.status = '🟡 Running';
+                        }
                         targetB.isManualLocked = true;
                     }
                 }
@@ -416,24 +494,26 @@ const App = () => {
                     isForcedSingle = true;
                 }
 
-                // [BUGFIX] Sinh dữ liệu sạch ngay tại Data Layer
                 return {
                     ...targetB,
                     cleanServiceName: getCleanServiceName(targetB.serviceName),
                     isOil: targetB.isOil || (targetB.serviceName && targetB.serviceName.includes('油')),
                     duration: window.getSafeDuration(targetB.serviceName, targetB.duration),
+                    price: targetB.price || 0, // [V108.19] Chuyển giá từ Backend sang UI
                     pax: parseInt(targetB.pax, 10) || 1,
                     rowId: String(targetB.rowId),
                     phase1_duration: p1,
                     phase2_duration: p2,
                     flow: rawFlow,
+                    phase1_res_idx: targetB.phase1_res_idx,
+                    phase2_res_idx: targetB.phase2_res_idx,
                     isManualLocked: isLocked,
                     originalNote: targetB.ghiChu || targetB.note || "",
                     forceResourceType: forceResourceType,
                     isForcedSingle: isForcedSingle,
                     isRunningStatus: (targetB.status && (targetB.status.includes('Running') || targetB.status.includes('服務中') || targetB.status.includes('running'))),
                     isDoneStatus: (targetB.status && (targetB.status.includes('完成') || targetB.status.includes('Done') || targetB.status.includes('✅') || targetB.status.includes('Cancel') || targetB.status.includes('取消'))),
-                    storedLocation: targetB.location || targetB.current_resource_id
+                    storedLocation: targetB.location || targetB.current_resource_id || (targetB.phase1_res_idx ? targetB.phase1_res_idx.toLowerCase() : null)
                 };
             });
 
@@ -520,7 +600,7 @@ const App = () => {
                             booking: b,
                             isRunning: true,
                             isPaused: false,
-                            startTime: new Date().toISOString(),
+                            startTime: getScheduledStartTimeISO(b),
                             isPreview: false,
                             isMaxMode: true,
                             comboMeta: null
@@ -558,7 +638,13 @@ const App = () => {
                         const seq = nextResourceState[key].comboMeta.sequence || 'FB';
                         const isMax = nextResourceState[key].isMaxMode;
                         const split = getSmartSplit(b, b.duration, isMax, seq);
-                        isPhase1 = (seq === 'FB' && key.includes('chair')) || (seq === 'BF' && key.includes('bed'));
+
+                        if (nextResourceState[key].comboMeta.phase !== undefined) {
+                            isPhase1 = (nextResourceState[key].comboMeta.phase === 1);
+                        } else {
+                            isPhase1 = (seq === 'FB' && key.includes('chair')) || (seq === 'BF' && key.includes('bed'));
+                        }
+
                         if (isPhase1) durationUsed = split.phase1 + (nextResourceState[key].comboMeta.flex || 0);
                         else durationUsed = split.phase2;
                     } else {
@@ -583,12 +669,19 @@ const App = () => {
                 if (item.comboMeta && !item.booking.isForcedSingle) {
                     const seq = item.comboMeta.sequence || 'FB';
                     const isChair = key.includes('chair');
-                    const isPhase1 = (seq === 'FB' && isChair) || (seq === 'BF' && !isChair);
+
+                    let isPhase1 = false;
+                    if (item.comboMeta.phase !== undefined) {
+                        isPhase1 = (item.comboMeta.phase === 1);
+                    } else {
+                        isPhase1 = (seq === 'FB' && isChair) || (seq === 'BF' && !isChair);
+                    }
+
+                    const split = getSmartSplit(item.booking, item.booking.duration, item.isMaxMode, seq);
 
                     if (isPhase1) {
                         const finishTimeMins = activeEndTimes[key];
                         const p2Start = finishTimeMins + 5;
-                        const split = getSmartSplit(item.booking, item.booking.duration, item.isMaxMode, seq);
                         const p2End = p2Start + split.phase2;
 
                         let finalTargetId = item.comboMeta.targetId;
@@ -599,16 +692,34 @@ const App = () => {
                         }
                         if (finalTargetId) {
                             addToGrid(finalTargetId, p2Start, p2End, item.booking, {
-                                isCombo: true, phase: 2, sequence: seq, originId: key, isPrediction: true, priority: 2
+                                isCombo: true, phase: 2, sequence: seq, originId: key, isPrediction: true, priority: 2,
+                                isRunning: true
                             });
                         }
+                    } else {
+                        const startTime = new Date(item.startTime);
+                        const p2StartMins = startTime.getHours() * 60 + startTime.getMinutes() + (startTime.getHours() < 8 ? 1440 : 0);
+
+                        const p1End = p2StartMins - 5;
+                        const p1Start = p1End - split.phase1;
+
+                        const targetType = key.includes('chair') ? 'bed' : 'chair';
+
+                        let reconstructedId = MatrixHelper.findBestSlot(targetType, p1Start, p1End, timelineGrid, activeEndTimes);
+                        if (!reconstructedId) {
+                            reconstructedId = `${targetType}-1`;
+                        }
+
+                        addToGrid(reconstructedId, p1Start, p1End, item.booking, {
+                            isCombo: true, phase: 1, sequence: seq, targetId: key, isPrediction: false, priority: 2, isPastReconstruct: true,
+                            isRunning: true
+                        });
                     }
                 }
             });
 
             const pendingBookings = relevantBookings.filter(b => {
                 if (b.isDoneStatus) return false;
-                if (b.isRunningStatus) return false;
                 if (activeRowIds.has(String(b.rowId))) return false;
                 if (activeSignatures.has(getBookingSignature(b))) return false;
                 return true;
@@ -654,7 +765,7 @@ const App = () => {
                     type = b.type === 'CHAIR' ? 'chair' : 'bed';
                 }
 
-                const targetPref = b.storedLocation || null;
+                const targetPref = b.current_resource_id ? b.current_resource_id.toLowerCase() : (b.storedLocation || null);
 
                 let searchOffsets = [0]; for (let i = 1; i <= 120; i++) searchOffsets.push(i);
                 for (let delay of searchOffsets) {
@@ -662,7 +773,7 @@ const App = () => {
                     let tryEnd = tryStart + b.duration;
                     const slotId = MatrixHelper.findBestSlot(type, tryStart, tryEnd, timelineGrid, activeEndTimes, targetPref);
                     if (slotId) {
-                        addToGrid(slotId, tryStart, tryEnd, b, { isCombo: false, isPending: true, priority: 3 });
+                        addToGrid(slotId, tryStart, tryEnd, b, { isCombo: false, isPending: true, priority: 3, isRunning: b.isRunningStatus });
                         break;
                     }
                 }
@@ -743,19 +854,20 @@ const App = () => {
                                 preferredSlotIndex = idx + 1;
                             }
 
+                            // [V108.16] Ép Timeline ưu tiên vẽ đúng Phase 1 & Phase 2 đã ghi nhận trên Sheet
+                            let pref1 = bookingItem.phase1_res_idx ? bookingItem.phase1_res_idx.toLowerCase() : null;
+                            let pref2 = bookingItem.phase2_res_idx ? bookingItem.phase2_res_idx.toLowerCase() : null;
                             const targetPref = bookingItem.storedLocation || null;
-                            let pref1 = null, pref2 = null;
-                            if (targetPref) {
-                                if (targetPref.startsWith(type1)) pref1 = targetPref;
-                                if (targetPref.startsWith(type2)) pref2 = targetPref;
-                            }
+
+                            if (!pref1 && targetPref && targetPref.startsWith(type1)) pref1 = targetPref;
+                            if (!pref2 && targetPref && targetPref.startsWith(type2)) pref2 = targetPref;
 
                             const s1 = MatrixHelper.findBestSlot(type1, tryStart, p1End, timelineGrid, activeEndTimes, pref1 || preferredSlotIndex);
                             const s2 = MatrixHelper.findBestSlot(type2, p2Start, p2End, timelineGrid, activeEndTimes, pref2 || preferredSlotIndex);
 
                             if (s1 && s2) {
-                                addToGrid(s1, tryStart, p1End, bookingItem, { isCombo: true, phase: 1, sequence: seq, targetId: s2, isPending: true, priority: 3 });
-                                addToGrid(s2, p2Start, p2End, bookingItem, { isCombo: true, phase: 2, sequence: seq, isPending: true, priority: 3 });
+                                addToGrid(s1, tryStart, p1End, bookingItem, { isCombo: true, phase: 1, sequence: seq, targetId: s2, isPending: true, priority: 3, isRunning: bookingItem.isRunningStatus });
+                                addToGrid(s2, p2Start, p2End, bookingItem, { isCombo: true, phase: 2, sequence: seq, isPending: true, priority: 3, isRunning: bookingItem.isRunningStatus });
                                 return true;
                             }
                             return false;
@@ -815,6 +927,86 @@ const App = () => {
                 setBookings(cleanBookings);
             }
 
+            // --- BẮT ĐẦU V108.17: AUTO-SYNC TỌA ĐỘ KÈM FALLBACK KEYS XUỐNG SHEET ---
+            try {
+                const activeGridPositions = {};
+                Object.keys(timelineGrid).forEach(resId => {
+                    timelineGrid[resId].forEach(slot => {
+                        const rId = String(slot.booking.rowId);
+                        if (!activeGridPositions[rId]) activeGridPositions[rId] = {};
+                        if (slot.meta && slot.meta.isCombo) {
+                            if (slot.meta.phase === 1) activeGridPositions[rId].p1 = resId.toUpperCase();
+                            if (slot.meta.phase === 2) activeGridPositions[rId].p2 = resId.toUpperCase();
+                        } else if (!slot.meta || !slot.meta.isCombo) {
+                            activeGridPositions[rId].single = resId.toUpperCase();
+                        }
+                    });
+                });
+
+                const syncPayloads = [];
+                cleanBookings.forEach(b => {
+                    if (b.isDoneStatus) return; // Bỏ qua nếu đã xong
+                    const rId = String(b.rowId);
+                    const pos = activeGridPositions[rId];
+                    if (!pos) return;
+
+                    const isCombo = b.category === 'COMBO' || (b.serviceName && b.serviceName.includes('套餐'));
+
+                    if (isCombo && pos.p1 && pos.p2) {
+                        const sheetP1 = (b.phase1_res_idx || '').toUpperCase();
+                        const sheetP2 = (b.phase2_res_idx || '').toUpperCase();
+
+                        const flow = (b.flow || 'FB').toUpperCase();
+
+                        // Quét xem vị trí vẽ thực tế có khớp với dữ liệu trên Sheet không
+                        if (sheetP1 !== pos.p1 || sheetP2 !== pos.p2) {
+                            const posStr = `${pos.p1}_${pos.p2}`;
+                            // Tránh Spam API (Chỉ gửi 1 lần khi có sự thay đổi mới)
+                            if (lastSyncedPositionsRef.current[rId] !== posStr) {
+                                lastSyncedPositionsRef.current[rId] = posStr;
+                                const expectedType = (flow === 'BF') ? 'BED' : 'CHAIR';
+                                syncPayloads.push({
+                                    rowId: rId,
+                                    phase1_res_idx: pos.p1,
+                                    phase2_res_idx: pos.p2,
+                                    phase1Resource: pos.p1, // fallback
+                                    phase2Resource: pos.p2, // fallback
+                                    resource_type: expectedType,
+                                    resourceType: expectedType, // fallback
+                                    is_locked: "TRUE",
+                                    forceSync: true
+                                });
+                            }
+                        } else {
+                            lastSyncedPositionsRef.current[rId] = `${pos.p1}_${pos.p2}`;
+                        }
+                    } else if (!isCombo && pos.single) {
+                        const sheetLoc = (b.location || b.current_resource_id || '').toUpperCase();
+                        if (sheetLoc !== pos.single && sheetLoc !== '') {
+                            if (lastSyncedPositionsRef.current[rId] !== pos.single) {
+                                lastSyncedPositionsRef.current[rId] = pos.single;
+                                syncPayloads.push({
+                                    rowId: rId,
+                                    current_resource_id: pos.single,
+                                    location: pos.single,
+                                    forceSync: true
+                                });
+                            }
+                        } else {
+                            lastSyncedPositionsRef.current[rId] = pos.single;
+                        }
+                    }
+                });
+
+                if (syncPayloads.length > 0) {
+                    console.log("🛠️ Auto-Syncing Actual Positions to Sheet (V108.17):", syncPayloads);
+                    syncPayloads.forEach(p => universalSend('/api/update-booking-details', p));
+                }
+            } catch (err) {
+                console.error("Auto sync error:", err);
+            }
+            // --- KẾT THÚC AUTO-SYNC ---
+
         } catch (e) {
             console.error("API Error", e);
             if (e.response && e.response.status === 429) setQuotaError(true);
@@ -834,9 +1026,22 @@ const App = () => {
         fetchData(true);
     };
 
-    // --- HÀM XỬ LÝ CHỈNH SỬA TRỰC TIẾP TRÊN BẢNG (INLINE EDITING) ---
     const handleInlineUpdate = async (rowId, updatedData) => {
         try {
+            const currentBooking = bookings.find(b => String(b.rowId) === String(rowId));
+            if (currentBooking) {
+                const isOilToggledOn = updatedData.isOil === true && !currentBooking.isOil;
+                const isServiceOilAdded = updatedData.dichVu && updatedData.dichVu.includes('油推') && !(currentBooking.serviceName || '').includes('油推');
+
+                if (isOilToggledOn || isServiceOilAdded) {
+                    const currentReqStaff = updatedData.nhanVien !== undefined ? updatedData.nhanVien : (currentBooking.requestedStaff || currentBooking.staffId || '隨機');
+                    if (currentReqStaff === '隨機') {
+                        updatedData.nhanVien = '女';
+                        updatedData.requestedStaff = '女';
+                    }
+                }
+            }
+
             setSyncLock(true);
             setTimeout(() => setSyncLock(false), 3000);
 
@@ -965,6 +1170,7 @@ const App = () => {
 
         let newStartTimeIso = null;
         let newStartTimeStringForSheet = null;
+        let effectiveStartTimeStr = startTimeStr;
 
         if (startTimeStr) {
             const originalStartStr = targetBooking.startTimeString || "";
@@ -986,13 +1192,52 @@ const App = () => {
                 dObj.setHours(h, m, 0, 0);
                 newStartTimeIso = dObj.toISOString();
             }
+        } else {
+            effectiveStartTimeStr = targetBooking.startTimeString ? targetBooking.startTimeString.split(' ')[1] : "12:00";
         }
+
+        const currentFlow = targetBooking.flow || 'FB';
+        const p1Type = currentFlow === 'BF' ? 'bed' : 'chair';
+        const p2Type = currentFlow === 'BF' ? 'chair' : 'bed';
+        const resourceTypeForSheet = currentFlow === 'BF' ? 'BED' : 'CHAIR';
+
+        let tryStart = 720;
+        if (effectiveStartTimeStr) {
+            try {
+                if (window.normalizeToTimelineMins) {
+                    tryStart = window.normalizeToTimelineMins(effectiveStartTimeStr);
+                } else {
+                    const [h, m] = effectiveStartTimeStr.split(':').map(Number);
+                    tryStart = (h * 60) + (m || 0);
+                    if (h < 8) tryStart += 1440;
+                }
+            } catch (e) { }
+        }
+
+        const mockActiveEndTimes = {};
+        Object.keys(resourceState).forEach(k => {
+            if (resourceState[k].isRunning && resourceState[k].booking) {
+                const b = resourceState[k];
+                try {
+                    const startObj = new Date(b.startTime);
+                    const startMins = startObj.getHours() * 60 + startObj.getMinutes() + (startObj.getHours() < 8 ? 1440 : 0);
+                    mockActiveEndTimes[k] = startMins + (b.booking.duration || 60);
+                } catch (e) { }
+            }
+        });
+
+        const s1 = MatrixHelper.findBestSlot(p1Type, tryStart, tryStart + newPhase1Duration, timelineData, mockActiveEndTimes) || `${p1Type}-1`;
+        const p2Start = tryStart + newPhase1Duration + 5;
+        const s2 = MatrixHelper.findBestSlot(p2Type, p2Start, p2Start + newPhase2Duration, timelineData, mockActiveEndTimes) || `${p2Type}-1`;
 
         if (!localOverridesRef.current[rowId]) localOverridesRef.current[rowId] = {};
 
         localOverridesRef.current[rowId].startTimeString = newStartTimeStringForSheet;
         localOverridesRef.current[rowId].phase1_duration = newPhase1Duration;
         localOverridesRef.current[rowId].phase2_duration = newPhase2Duration;
+        localOverridesRef.current[rowId].storedLocation = s1;
+        localOverridesRef.current[rowId].phase1_res_idx = s1.toUpperCase();
+        localOverridesRef.current[rowId].phase2_res_idx = s2.toUpperCase();
 
         const newState = { ...resourceState };
         Object.keys(newState).forEach(key => {
@@ -1021,6 +1266,13 @@ const App = () => {
             rowId,
             phase1_duration: newPhase1Duration,
             phase2_duration: newPhase2Duration,
+            phase1_res_idx: s1.toUpperCase(),
+            phase2_res_idx: s2.toUpperCase(),
+            phase1Resource: s1.toUpperCase(), // Fallback (V108.17)
+            phase2Resource: s2.toUpperCase(), // Fallback (V108.17)
+            resource_type: resourceTypeForSheet,
+            resourceType: resourceTypeForSheet, // Fallback (V108.17)
+            is_locked: "TRUE",
             isManualLocked: true,
             forceSync: true
         };
@@ -1031,7 +1283,7 @@ const App = () => {
         }
 
         try {
-            await axios.post('/api/update-booking-details', payload);
+            await universalSend('/api/update-booking-details', payload);
             await updateResource(newState);
         } catch (e) {
             alert("⚠️ 儲存失敗！請檢查網路連線。");
@@ -1059,8 +1311,55 @@ const App = () => {
         setSyncLock(true);
         setTimeout(() => setSyncLock(false), 5000);
 
+        const totalDuration = parseInt(booking.duration || 100);
+        const split = getSmartSplit(booking, totalDuration, true, targetFlow);
+
+        const p1Type = targetFlow === 'BF' ? 'bed' : 'chair';
+        const p2Type = targetFlow === 'BF' ? 'chair' : 'bed';
+        const resourceTypeForSheet = targetFlow === 'BF' ? 'BED' : 'CHAIR';
+
+        let tryStart = 720;
+        if (booking.startTimeString) {
+            const timePart = booking.startTimeString.split(' ')[1];
+            if (timePart) {
+                try {
+                    if (window.normalizeToTimelineMins) {
+                        tryStart = window.normalizeToTimelineMins(timePart);
+                    } else {
+                        const [h, m] = timePart.split(':').map(Number);
+                        tryStart = (h * 60) + (m || 0);
+                        if (h < 8) tryStart += 1440;
+                    }
+                } catch (e) { }
+            }
+        }
+
+        const mockActiveEndTimes = {};
+        Object.keys(resourceState).forEach(k => {
+            if (resourceState[k].isRunning && resourceState[k].booking) {
+                const b = resourceState[k];
+                try {
+                    const startObj = new Date(b.startTime);
+                    const startMins = startObj.getHours() * 60 + startObj.getMinutes() + (startObj.getHours() < 8 ? 1440 : 0);
+                    mockActiveEndTimes[k] = startMins + (b.booking.duration || 60);
+                } catch (e) { }
+            }
+        });
+
+        const s1 = MatrixHelper.findBestSlot(p1Type, tryStart, tryStart + split.phase1, timelineData, mockActiveEndTimes) || `${p1Type}-1`;
+        const p2Start = tryStart + split.phase1 + 5;
+        const s2 = MatrixHelper.findBestSlot(p2Type, p2Start, p2Start + split.phase2, timelineData, mockActiveEndTimes) || `${p2Type}-1`;
+
+        const phase1_res_idx = s1.toUpperCase();
+        const phase2_res_idx = s2.toUpperCase();
+
         if (!localOverridesRef.current[rowId]) localOverridesRef.current[rowId] = {};
         localOverridesRef.current[rowId].flow = targetFlow;
+        localOverridesRef.current[rowId].phase1_duration = split.phase1;
+        localOverridesRef.current[rowId].phase2_duration = split.phase2;
+        localOverridesRef.current[rowId].storedLocation = s1;
+        localOverridesRef.current[rowId].phase1_res_idx = phase1_res_idx;
+        localOverridesRef.current[rowId].phase2_res_idx = phase2_res_idx;
 
         const newState = { ...resourceState };
         let hasRunningChanges = false;
@@ -1068,8 +1367,15 @@ const App = () => {
             const res = newState[key];
             if (res.booking && String(res.booking.rowId) === rowId) {
                 res.booking.flow = targetFlow;
+                res.booking.phase1_duration = split.phase1;
+                res.booking.phase2_duration = split.phase2;
+                res.booking.isManualLocked = true;
+
                 if (res.comboMeta) {
                     res.comboMeta.sequence = targetFlow;
+                    if (res.comboMeta.phase === 1) {
+                        res.comboMeta.targetId = s2;
+                    }
                 }
                 hasRunningChanges = true;
             }
@@ -1081,9 +1387,12 @@ const App = () => {
 
         if (controlCenterData && controlCenterData.booking && String(controlCenterData.booking.rowId) === rowId) {
             setControlCenterData(prev => {
-                const newPrev = { ...prev, booking: { ...prev.booking, flow: targetFlow } };
+                const newPrev = { ...prev, booking: { ...prev.booking, flow: targetFlow, phase1_duration: split.phase1, phase2_duration: split.phase2, isManualLocked: true } };
                 if (newPrev.liveState && newPrev.liveState.comboMeta) {
                     newPrev.liveState.comboMeta.sequence = targetFlow;
+                    if (newPrev.liveState.comboMeta.phase === 1) {
+                        newPrev.liveState.comboMeta.targetId = s2;
+                    }
                 }
                 return newPrev;
             });
@@ -1095,6 +1404,17 @@ const App = () => {
             await universalSend('/api/update-booking-details', {
                 rowId: rowId,
                 flow: targetFlow,
+                flow_code: targetFlow,
+                phase1_duration: split.phase1,
+                phase2_duration: split.phase2,
+                phase1_res_idx: phase1_res_idx,
+                phase2_res_idx: phase2_res_idx,
+                phase1Resource: phase1_res_idx, // Fallback (V108.17)
+                phase2Resource: phase2_res_idx, // Fallback (V108.17)
+                resource_type: resourceTypeForSheet,
+                resourceType: resourceTypeForSheet, // Fallback (V108.17)
+                is_locked: "TRUE",
+                isManualLocked: true,
                 forceSync: true
             });
             if (hasRunningChanges) {
@@ -1147,6 +1467,8 @@ const App = () => {
 
         const isRunning = meta && meta.isRunning;
         const isPrediction = meta && meta.isPrediction;
+        const isPhase1 = meta && meta.phase === 1;
+        const isPhase2 = meta && meta.phase === 2;
 
         if (isRunning) {
             const currentSlotData = resourceState[currentResId];
@@ -1166,6 +1488,8 @@ const App = () => {
                         rowId: rowId,
                         current_resource_id: targetId,
                         record_location: true,
+                        ...(isPhase1 && { phase1_res_idx: targetId.toUpperCase(), phase1Resource: targetId.toUpperCase() }),
+                        ...(isPhase2 && { phase2_res_idx: targetId.toUpperCase(), phase2Resource: targetId.toUpperCase() }),
                         forceSync: true
                     });
                     await updateResource(newState);
@@ -1193,6 +1517,8 @@ const App = () => {
         } else {
             if (!localOverridesRef.current[rowId]) localOverridesRef.current[rowId] = {};
             localOverridesRef.current[rowId].storedLocation = targetId;
+            if (isPhase1) localOverridesRef.current[rowId].phase1_res_idx = targetId.toUpperCase();
+            if (isPhase2) localOverridesRef.current[rowId].phase2_res_idx = targetId.toUpperCase();
 
             fetchData(true);
 
@@ -1201,6 +1527,8 @@ const App = () => {
                     rowId: rowId,
                     current_resource_id: targetId,
                     location: targetId,
+                    ...(isPhase1 && { phase1_res_idx: targetId.toUpperCase(), phase1Resource: targetId.toUpperCase() }),
+                    ...(isPhase2 && { phase2_res_idx: targetId.toUpperCase(), phase2Resource: targetId.toUpperCase() }),
                     forceSync: true
                 });
             } catch (e) {
@@ -1249,16 +1577,29 @@ const App = () => {
 
         if (comboSequence && !isStrict) {
             const currentType = id.split('-')[0];
-            if (comboSequence === 'BF' && currentType === 'chair') {
+            const targetType = comboSequence === 'BF' ? 'bed' : 'chair';
+
+            if ((comboSequence === 'BF' && currentType === 'chair') ||
+                (comboSequence === 'FB' && currentType === 'bed')) {
                 shouldMove = true;
-                for (let i = 1; i <= 6; i++) {
-                    if (!resourceState[`bed-${i}`] || !resourceState[`bed-${i}`].isRunning) { targetMoveId = `bed-${i}`; break; }
+
+                let projectedId = null;
+                if (timelineData) {
+                    for (const [resId, slots] of Object.entries(timelineData)) {
+                        if (resId.startsWith(targetType) && slots.some(s => String(s.booking.rowId) === String(current.booking.rowId))) {
+                            projectedId = resId;
+                            break;
+                        }
+                    }
                 }
-            }
-            else if (comboSequence === 'FB' && currentType === 'bed') {
-                shouldMove = true;
-                for (let i = 1; i <= 6; i++) {
-                    if (!resourceState[`chair-${i}`] || !resourceState[`chair-${i}`].isRunning) { targetMoveId = `chair-${i}`; break; }
+
+                if (projectedId && (!resourceState[projectedId] || !resourceState[projectedId].isRunning)) {
+                    targetMoveId = projectedId;
+                } else {
+                    for (let i = 1; i <= 6; i++) {
+                        const tid = `${targetType}-${i}`;
+                        if (!resourceState[tid] || !resourceState[tid].isRunning) { targetMoveId = tid; break; }
+                    }
                 }
             }
         } else if (isStrict) {
@@ -1335,17 +1676,45 @@ const App = () => {
         if (comboSequence && !isStrict) {
             const currentType = currentId.split('-')[0]; const index = currentId.split('-')[1];
             let ghostTargetId = null; const targetTypePrefix = currentType === 'chair' ? 'bed' : 'chair';
-            const sameIndex = `${targetTypePrefix}-${index}`;
-            if (!resourceState[sameIndex] && sameIndex !== id) { ghostTargetId = sameIndex; }
-            else { for (let i = 1; i <= 6; i++) { const tid = `${targetTypePrefix}-${i}`; if (!resourceState[tid] && tid !== id) { ghostTargetId = tid; break; } } }
-            if (!ghostTargetId) ghostTargetId = `${targetTypePrefix}-${index}`;
+
+            if (timelineData) {
+                for (const [resId, slots] of Object.entries(timelineData)) {
+                    if (resId.startsWith(targetTypePrefix) && slots.some(s => String(s.booking.rowId) === String(current.booking.rowId))) {
+                        ghostTargetId = resId;
+                        break;
+                    }
+                }
+            }
+
+            if (!ghostTargetId) {
+                const sameIndex = `${targetTypePrefix}-${index}`;
+                if (!resourceState[sameIndex] && sameIndex !== id) { ghostTargetId = sameIndex; }
+                else { for (let i = 1; i <= 6; i++) { const tid = `${targetTypePrefix}-${i}`; if (!resourceState[tid] && tid !== id) { ghostTargetId = tid; break; } } }
+                if (!ghostTargetId) ghostTargetId = `${targetTypePrefix}-${index}`;
+            }
+
             comboMeta = { sequence: comboSequence, targetId: ghostTargetId, flex: (current.comboMeta && current.comboMeta.flex) || 0, phase: 1 };
         } else if (isStrict) {
             comboMeta = null;
+        } else if (comboMeta) {
+            comboMeta.phase = 1;
         }
 
+        const rowIdStr = String(current.booking.rowId);
+        if (!localOverridesRef.current[rowIdStr]) localOverridesRef.current[rowIdStr] = {};
+        localOverridesRef.current[rowIdStr].forceRunning = true;
+        localOverridesRef.current[rowIdStr].storedLocation = currentId;
+
         const newState = { ...resourceState }; if (shouldMove) delete newState[id];
-        newState[currentId] = { ...current, booking: newBooking, startTime: new Date().toISOString(), isRunning: true, isPreview: false, comboMeta };
+
+        newState[currentId] = {
+            ...current,
+            booking: newBooking,
+            startTime: getScheduledStartTimeISO(current.booking),
+            isRunning: true,
+            isPreview: false,
+            comboMeta
+        };
         updateResource(newState);
 
         let primaryKey = "服務師傅1"; let fallbackKey = "ServiceStaff1";
@@ -1360,7 +1729,6 @@ const App = () => {
             [primaryKey]: finalServiceStaff,
             [fallbackKey]: finalServiceStaff,
             [`staff${grpIdx + 1}`]: finalServiceStaff,
-            staffId: finalServiceStaff,
             current_resource_id: currentId,
             record_location: true,
             status: '🟡 Running'
@@ -1383,24 +1751,61 @@ const App = () => {
         setTimeout(() => setSyncLock(false), 5000);
 
         allItemsToStart.forEach(item => {
+            if (!item.resourceId && item.booking && timelineData) {
+                for (const [resId, slots] of Object.entries(timelineData)) {
+                    if (slots.some(s => String(s.booking.rowId) === String(item.booking.rowId))) {
+                        if (!nextResourceState[resId] || !nextResourceState[resId].isRunning) {
+                            item.resourceId = resId;
+                            nextResourceState[resId] = { isPlaceholder: true };
+                            break;
+                        }
+                    }
+                }
+            }
+
+            if (!item.resourceId && item.booking) {
+                const isBed = item.booking.forceResourceType === 'BED' || item.booking.flow === 'BODYSINGLE';
+                const prefTypes = isBed ? ['bed', 'chair'] : ['chair', 'bed'];
+
+                for (const type of prefTypes) {
+                    for (let i = 1; i <= 6; i++) {
+                        const tid = `${type}-${i}`;
+                        if (!nextResourceState[tid] || (!nextResourceState[tid].isRunning && !nextResourceState[tid].isPlaceholder)) {
+                            item.resourceId = tid;
+                            nextResourceState[tid] = { isPlaceholder: true };
+                            break;
+                        }
+                    }
+                    if (item.resourceId) break;
+                }
+            }
+        });
+
+        const validItems = allItemsToStart.filter(item => item.resourceId && item.booking);
+
+        validItems.forEach(item => {
             const { resourceId } = item;
             let current = nextResourceState[resourceId];
-            if (!current) {
-                if (item.booking) {
-                    current = {
-                        booking: item.booking,
-                        isRunning: false,
-                        isPaused: false,
-                        startTime: null,
-                        isPreview: true,
-                        isMaxMode: true,
-                        comboMeta: null
-                    };
-                    nextResourceState[resourceId] = current;
-                } else { return; }
+
+            if (!current || current.isPlaceholder) {
+                current = {
+                    booking: item.booking,
+                    isRunning: false,
+                    isPaused: false,
+                    startTime: null,
+                    isPreview: true,
+                    isMaxMode: true,
+                    comboMeta: null
+                };
+                nextResourceState[resourceId] = current;
             }
 
             if (current.isRunning) return;
+
+            const rowIdStr = String(item.booking.rowId);
+            if (!localOverridesRef.current[rowIdStr]) localOverridesRef.current[rowIdStr] = {};
+            localOverridesRef.current[rowIdStr].forceRunning = true;
+            localOverridesRef.current[rowIdStr].storedLocation = resourceId;
 
             let designatedStaff = current.booking.serviceStaff || current.booking.staffId || current.booking.ServiceStaff || '隨機';
             if (designatedStaff === 'undefined' || designatedStaff === 'null') designatedStaff = '隨機';
@@ -1455,13 +1860,32 @@ const App = () => {
             else if (grpIdx === 4) newBooking.staffId5 = finalServiceStaff;
             else if (grpIdx === 5) newBooking.staffId6 = finalServiceStaff;
 
+            let newComboMeta = current.comboMeta;
+            if (isComboService) {
+                if (!newComboMeta) {
+                    let projectedTargetId = null;
+                    const targetTypePrefix = resourceId.split('-')[0] === 'chair' ? 'bed' : 'chair';
+                    if (timelineData) {
+                        for (const [rId, slots] of Object.entries(timelineData)) {
+                            if (rId.startsWith(targetTypePrefix) && slots.some(s => String(s.booking.rowId) === String(current.booking.rowId))) {
+                                projectedTargetId = rId;
+                                break;
+                            }
+                        }
+                    }
+                    newComboMeta = { sequence: 'FB', phase: 1, flex: 0, targetId: projectedTargetId };
+                } else {
+                    newComboMeta = { ...newComboMeta, phase: 1 };
+                }
+            }
+
             nextResourceState[resourceId] = {
                 ...current,
                 booking: newBooking,
-                startTime: new Date().toISOString(),
+                startTime: getScheduledStartTimeISO(item.booking),
                 isRunning: true,
                 isPreview: false,
-                comboMeta: current.comboMeta
+                comboMeta: newComboMeta
             };
 
             let primaryKey = "服務師傅1"; let fallbackKey = "ServiceStaff1";
@@ -1478,7 +1902,6 @@ const App = () => {
                     [primaryKey]: finalServiceStaff,
                     [fallbackKey]: finalServiceStaff,
                     [`staff${grpIdx + 1}`]: finalServiceStaff,
-                    staffId: finalServiceStaff,
                     current_resource_id: resourceId,
                     record_location: true,
                     status: '🟡 Running'
@@ -1509,7 +1932,13 @@ const App = () => {
         else if (action === 'cancel') { if (confirm('確定將顧客從此位置移除？')) { const n = { ...resourceState }; delete n[id]; updateResource(n); } }
         else if (action === 'cancel_midway') {
             if (confirm('確定要棄單 (Drop)？\n此操作將標記為「取消」並釋放此位置。')) {
-                await axios.post('/api/update-status', { rowId: current.booking.rowId, status: '❌ Cancelled' });
+                const ridStr = String(current.booking.rowId);
+                // [V108.18] Xóa override để chống kẹt bóng ma
+                if (localOverridesRef.current[ridStr]) {
+                    delete localOverridesRef.current[ridStr];
+                }
+
+                await axios.post('/api/update-status', { rowId: current.booking.rowId, status: '❌ 取消' });
                 const n = { ...resourceState };
                 const staffId = current.booking.serviceStaff || current.booking.staffId;
                 if (staffId !== '隨機' && statusData[staffId]) {
@@ -1583,6 +2012,11 @@ const App = () => {
                 const rid = String(b.rowId);
                 const resId = item.resourceId;
 
+                // [V108.18] Xoá Local Override để dọn dẹp bóng ma
+                if (localOverridesRef.current[rid]) {
+                    delete localOverridesRef.current[rid];
+                }
+
                 let targetIndex = -1;
                 const currentStaff = b.serviceStaff || b.staffId;
 
@@ -1634,19 +2068,15 @@ const App = () => {
 
                 if (info.blocks === 1) {
                     newStaffTime = currentStaffTime;
-                    console.log(`[Quy tắc D4] Thợ ${info.staffId} làm gói 1 tiết, ưu tiên xếp đầu.`);
                 }
                 else if (!isGroup) {
                     newStaffTime = currentStaffTime + (info.duration * 60000);
-                    console.log(`[Quy tắc D1] Thợ ${info.staffId} (Lẻ). Time + ${info.duration}p`);
                 }
                 else if (isGroup && uniqueBlocks.length === 1) {
                     newStaffTime = currentStaffTime + (minGroupDuration * 60000);
-                    console.log(`[Quy tắc D2] Thợ ${info.staffId} (Nhóm Cùng Tiết). Time + Min(${minGroupDuration}p)`);
                 }
                 else if (isGroup && uniqueBlocks.length > 1) {
                     newStaffTime = currentStaffTime + (info.duration * 60000);
-                    console.log(`[Quy tắc D3] Thợ ${info.staffId} (Nhóm Khác Tiết). Time + ${info.duration}p`);
                 }
 
                 newStatusData[info.staffId] = {
@@ -1671,16 +2101,13 @@ const App = () => {
                 });
                 if (activeSlotsCount > 0 && finishedSlotsCount >= activeSlotsCount) {
                     updatePayload.mainStatus = '✅ 完成';
-                    updatePayload.status = '✅ Done';
                 }
                 delete updatePayload.originalBooking;
             });
 
             updateResource(newState); updateStaffStatus(newStatusData); setBillingData(null);
             const apiCalls = Object.values(updatesByRow).map(payload => axios.post('/api/update-booking-details', payload));
-            Object.values(updatesByRow).forEach(p => {
-                if (p.status) axios.post('/api/update-status', { rowId: p.rowId, status: p.status });
-            });
+
             await Promise.all(apiCalls); alert(`✅ 結帳成功: $${totalAmount}`);
         } catch (e) { alert("⚠️ 連線錯誤，請檢查網路！"); }
     };
@@ -1768,7 +2195,7 @@ const App = () => {
 
             case 'CANCEL':
                 if (targetResourceId) handleResourceAction(targetResourceId, 'cancel_midway');
-                else if (targetBooking) handleManualUpdateStatus(targetBooking.rowId, '❌ Cancelled');
+                else if (targetBooking) handleManualUpdateStatus(targetBooking.rowId, '❌ 取消');
                 setControlCenterData(null);
                 break;
 
@@ -1795,7 +2222,7 @@ const App = () => {
                         if (controlCenterData && String(controlCenterData.booking.rowId) === rowId) {
                             setControlCenterData(prev => ({
                                 ...prev,
-                                booking: { ...prev.booking, serviceStaff: payload.newStaff, staffId: payload.newStaff }
+                                booking: { ...prev.booking, serviceStaff: payload.newStaff }
                             }));
                         }
 
@@ -1920,7 +2347,7 @@ const App = () => {
         <div className="min-h-screen flex flex-col bg-slate-50">
             <header className={`text-white p-3 shadow-md flex justify-between items-center sticky top-0 z-50 transition-colors ${quotaError ? 'bg-red-800' : 'bg-[#1e1b4b]'}`}>
                 <div className="flex items-center gap-3">
-                    <span className="bg-emerald-500 text-white px-2 py-1 rounded font-black text-sm shadow-sm">V108.06</span>
+                    <span className="bg-emerald-500 text-white px-2 py-1 rounded font-black text-sm shadow-sm">V108.19</span>
                     <span className="font-bold hidden md:inline tracking-wider">XinWuChan</span>
                     <div className="flex items-center gap-2 bg-white/10 rounded px-2 py-1 border border-white/20">
                         <button onClick={() => { const d = new Date(viewDate); d.setDate(d.getDate() - 1); setViewDate(d.toISOString().split('T')[0]) }} className="text-white hover:text-amber-400 font-bold px-2">❯</button>
@@ -2082,8 +2509,8 @@ const App = () => {
                                 </div>
                                 <div className="flex flex-wrap gap-2">
                                     {startChoiceData.relatedDetails.map(item => (
-                                        <span key={item.resourceId} className="bg-white border border-emerald-200 text-emerald-700 px-2 py-1 rounded text-xs font-mono font-bold shadow-sm">
-                                            {item.resourceId.replace('bed-', '床 ').replace('chair-', '足 ')}
+                                        <span key={item.resourceId || Math.random()} className="bg-white border border-emerald-200 text-emerald-700 px-2 py-1 rounded text-xs font-mono font-bold shadow-sm">
+                                            {item.resourceId ? item.resourceId.replace('bed-', '床 ').replace('chair-', '足 ') : '已鎖定預測位置'}
                                         </span>
                                     ))}
                                 </div>
