@@ -1,14 +1,14 @@
 /**
  * =================================================================================================
- * MODULE: SHEET SERVICE (DATA LAYER) - REFACTORED V5.6 (DYNAMIC PRICING SUPPORT)
+ * MODULE: SHEET SERVICE (DATA LAYER) - REFACTORED V5.7
  * PROJECT: XINWUCHAN MASSAGE BOT
  * DESCRIPTION: Handles Google Sheets interactions. 
+ * * * * * UPDATE V5.7:
+ * + [FEATURE] Củng cố đồng bộ dữ liệu Vị trí thủ công (Manual Resource Selection) cho Combo.
+ * + Đảm bảo map chính xác Cột AB và AC vào `phase1_res_idx` và `phase2_res_idx` để App.js hiểu.
  * * * * * UPDATE V5.6:
  * + [FEATURE] Củng cố logic đọc Giá tiền (Cột D - Menu) làm nền tảng Single Source of Truth cho Frontend.
  * + Tự động cộng phụ thu tinh dầu (+$200) trực tiếp vào object booking.
- * + Mở rộng dải đọc Menu để tránh rớt dữ liệu khi quán thêm dịch vụ mới.
- * * * * * UPDATE V5.5:
- * + [BUGFIX] Bổ sung màng lưới hứng dữ liệu (Data Catching) trong hàm updateBookingDetails.
  * =================================================================================================
  */
 
@@ -160,32 +160,28 @@ function resolveStrictLockState(explicitLock, hasManualPhase, currentStatus = "F
 
 async function syncMenuData() {
     try {
-        // [V5.6] Mở rộng dải đọc Menu lên dòng 150 để dự phòng thêm dịch vụ
         const res = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: `${MENU_SHEET}!A2:Z150` });
         const rows = res.data.values;
         if (!rows || rows.length === 0) return;
 
         let newServices = {};
         rows.forEach(row => {
-            const code = row[0] ? row[0].toString().trim() : null; // Cột A: Mã dịch vụ
-            const name = row[1] ? row[1].toString().trim() : '';   // Cột B: Tên dịch vụ
-            const priceStr = row[3] ? row[3].toString().trim() : '0'; // Cột D (Index 3): Giá tiền
+            const code = row[0] ? row[0].toString().trim() : null;
+            const name = row[1] ? row[1].toString().trim() : '';
+            const priceStr = row[3] ? row[3].toString().trim() : '0';
 
             if (!code || !name) return;
 
-            // Xử lý thời gian từ tên dịch vụ
             let duration = 60;
             const timeMatch = name.match(/(\d+)分/);
             if (timeMatch) duration = parseInt(timeMatch[1]);
 
-            // Xử lý giá tiền (Lọc bỏ các ký tự không phải số như $, phẩy, khoảng trắng)
             const price = parseInt(priceStr.replace(/\D/g, '')) || 0;
 
             let elasticStep = 0; let elasticLimit = 0;
             if (row[4]) { const ps = parseInt(row[4].toString().replace(/\D/g, '')); if (!isNaN(ps)) elasticStep = ps; }
             if (row[5]) { const pl = parseInt(row[5].toString().replace(/\D/g, '')); if (!isNaN(pl)) elasticLimit = pl; }
 
-            // Phân loại logic
             let type = 'BED'; let category = 'BODY';
             const prefix = code.charAt(0).toUpperCase();
             if (prefix === 'A') { type = 'BED'; category = 'COMBO'; }
@@ -197,7 +193,7 @@ async function syncMenuData() {
                 duration: duration,
                 type: type,
                 category: category,
-                price: price, // [V5.6] Nền tảng cho Dynamic Pricing Frontend
+                price: price,
                 elasticStep: elasticStep,
                 elasticLimit: elasticLimit
             };
@@ -236,13 +232,12 @@ async function syncData() {
                 let duration = 60; let type = 'BED'; let category = 'BODY'; let price = 0;
                 let foundService = false;
 
-                // [V5.6] Đồng bộ giá từ Menu và áp dụng luật cộng dồn phụ phí tinh dầu
                 for (const key in STATE.SERVICES) {
                     if (serviceStr.includes(STATE.SERVICES[key].name.split('(')[0])) {
                         duration = STATE.SERVICES[key].duration;
                         type = STATE.SERVICES[key].type;
                         category = STATE.SERVICES[key].category;
-                        price = STATE.SERVICES[key].price; // Lấy giá gốc từ cột D
+                        price = STATE.SERVICES[key].price;
                         foundService = true; break;
                     }
                 }
@@ -252,7 +247,6 @@ async function syncData() {
                     else if (serviceStr.includes('足')) { type = 'CHAIR'; category = 'FOOT'; }
                 }
 
-                // Mặc định phụ phí tinh dầu là +$200
                 const isOilService = (row[4] === "Yes");
                 if (isOilService) {
                     price += 200;
@@ -260,7 +254,6 @@ async function syncData() {
 
                 let pax = 1; if (row[5]) pax = safeParseInt(row[5], 1);
 
-                // Cột I: Thợ được yêu cầu ban đầu (Requested Staff)
                 const requestedStaff = row[8] || '隨機';
 
                 let serviceCode = row[20];
@@ -274,7 +267,7 @@ async function syncData() {
                     startTime: row[1],
                     duration: duration,
                     type: type, category: category,
-                    price: price, // Đã bao gồm phụ phí nếu có
+                    price: price,
                     staffId: requestedStaff,
                     requestedStaff: requestedStaff,
                     staffName: requestedStaff,
@@ -291,7 +284,12 @@ async function syncData() {
                     phase2_duration: safeParseInt(row[25], null),
                     isManualLocked: isTrueString(row[30]),
                     flow: row[26],
-                    phase1_resource: row[27], phase2_resource: row[28], resource_type: row[29],
+                    // [V5.7 NÂNG CẤP]: Map trực tiếp vào đúng key phase1_res_idx để App.js dùng
+                    phase1_res_idx: row[27] || null,
+                    phase2_res_idx: row[28] || null,
+                    phase1_resource: row[27],
+                    phase2_resource: row[28],
+                    resource_type: row[29],
                     allocated_resource: null
                 });
             }
@@ -485,12 +483,13 @@ async function ghiVaoSheet(data, proposedUpdates = []) {
 
             let r1 = null; let r2 = null; let rType = null;
             if (guestDetail) {
-                r1 = guestDetail.phase1Resource || guestDetail.phase1_resource;
-                r2 = guestDetail.phase2Resource || guestDetail.phase2_resource;
+                r1 = guestDetail.phase1_res_idx || guestDetail.phase1Resource || guestDetail.phase1_resource;
+                r2 = guestDetail.phase2_res_idx || guestDetail.phase2Resource || guestDetail.phase2_resource;
                 rType = guestDetail.resourceType || guestDetail.resource_type;
             }
-            if (!r1) r1 = data.phase1Resource || data.phase1_resource;
-            if (!r2) r2 = data.phase2Resource || data.phase2_resource;
+            // [V5.7 NÂNG CẤP]: Bổ sung data.phase1_res_idx để nhận diện đúng key từ frontend mới
+            if (!r1) r1 = data.phase1_res_idx || data.phase1Resource || data.phase1_resource;
+            if (!r2) r2 = data.phase2_res_idx || data.phase2Resource || data.phase2_resource;
             if (!rType) rType = data.resourceType || data.resource_type;
             row[27] = r1 || ""; row[28] = r2 || ""; row[29] = rType || "";
 
@@ -569,18 +568,15 @@ async function updateBookingDetails(body) {
         await updateCell('N', staff3);
     }
 
-    // --- FIX AUTO-SYNC (V5.5): DATA CATCHING FOR ALL SCENARIOS ---
     const flowVal = body.flow || body.flow_code;
     if (flowVal !== undefined) await updateCell('AA', flowVal);
 
+    // --- [V5.7 NÂNG CẤP] BẮT TỌA ĐỘ VỊ TRÍ THỦ CÔNG ---
     let phase1Res = body.phase1_res_idx !== undefined ? body.phase1_res_idx : (body.phase1_resource !== undefined ? body.phase1_resource : body.phase1Resource);
-
-    // [V5.5 NÂNG CẤP]: Màng lưới dự phòng (Fallback Backup). 
-    // Nếu Frontend không gửi phase1_res_idx, thử bắt tọa độ từ current_resource_id hoặc location.
+    // Nếu Frontend không gửi phase1_res_idx (ví dụ Single service), thử bắt tọa độ từ current_resource_id hoặc location.
     if (phase1Res === undefined && (body.location !== undefined || body.current_resource_id !== undefined)) {
         phase1Res = body.location !== undefined ? body.location : body.current_resource_id;
     }
-
     if (phase1Res !== undefined) await updateCell('AB', phase1Res);
 
     const phase2Res = body.phase2_res_idx !== undefined ? body.phase2_res_idx : (body.phase2_resource !== undefined ? body.phase2_resource : body.phase2Resource);
@@ -588,7 +584,7 @@ async function updateBookingDetails(body) {
 
     const resourceType = body.resource_type !== undefined ? body.resource_type : body.resourceType;
     if (resourceType !== undefined) await updateCell('AD', resourceType);
-    // ----------------------------------------------------------------------
+    // ------------------------------------------------
 
     let bookingData = STATE.cachedBookings.find(b => b.rowId == rowId);
     let totalDuration = bookingData ? bookingData.duration : (safeParseInt(body.duration, 60));

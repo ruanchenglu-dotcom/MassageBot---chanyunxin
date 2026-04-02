@@ -1,19 +1,17 @@
 // TYPE: app.js
-// VERSION: V108.19 (FEATURE: DYNAMIC PRICING INTEGRATION)
-// UPDATE: 2026-03-31
+// VERSION: V108.26 (FEATURE: MANUAL LOCATION SELECTION FOR COMBOS)
+// UPDATE: 2026-04-02
 //
-// --- CHANGE LOG V108.19 ---
-// 1. [FEATURE]: Tích hợp hệ thống "Dynamic Pricing". Hứng dữ liệu bảng giá (services) từ Backend và thiết lập làm Single Source of Truth (`window.DYNAMIC_PRICES_MAP`).
-// 2. [FEATURE]: Tự động cập nhật danh sách dịch vụ cho dropdown (`window.SERVICES_LIST`) trực tiếp từ Google Sheets Menu.
-// --- CHANGE LOG V108.18 ---
-// 1. [BUGFIX]: Khắc phục lỗi hiển thị 2 trạng thái "Done/完成" khi thanh toán. Đồng nhất dùng "✅ 完成".
-// 2. [BUGFIX]: Xóa bỏ Local Override (forceRunning) khi thanh toán (finish) hoặc hủy ngang (cancel_midway) để tránh hiện tượng "bóng ma" kẹt trên Timeline.
-// --- CHANGE LOG V108.17 ---
-// 1. [BUGFIX]: Bổ sung các fallback keys (phase1Resource, phase2Resource, resourceType) vào toàn bộ các payload 
-// API (/api/update-booking-details) để đảm bảo Backend (sheet_service) ghi nhận chính xác 100% toạ độ Cột AB, AC 
-// khi thao tác đổi Flow (FB/BF), thay đổi thời gian Phase, hoặc Auto-Sync.
+// --- CHANGE LOG V108.26 ---
+// 1. [FEATURE]: Bổ sung truyền `timelineData` & `resourceState` vào BookingControlModal để hỗ trợ chọn vị trí thủ công (tránh kẹt lịch).
+// 2. [LOGIC]: Nâng cấp hàm `handleSaveComboTime` để ưu tiên vị trí người dùng chọn (Custom Resource). Chỉ dùng Auto-Assign khi người dùng chọn chế độ "Auto".
+// --- CHANGE LOG V108.25 ---
+// 1. [BUGFIX]: Đồng bộ state Flow giữa Auto-Scheduler và UI. Khi thuật toán ép luồng (BF/FB) cho nhóm khách (Couple), cập nhật trực tiếp biến flow vào bookingItem.
+// 2. [UI/UX]: Truyền tham số `meta` từ Timeline (chứa luồng thực tế) vào BookingControlModal để Modal hiển thị chính xác luồng đang chạy, khắc phục lỗi báo đỏ nhầm.
+// --- CHANGE LOG V108.24 ---
+// 1. [BUGFIX]: Khắc phục triệt để lỗi xung đột vị trí Combo. Khi bấm "Start", hệ thống sẽ ép luồng (FB/BF) tuân theo vị trí vật lý thực tế (Ghế/Giường) thay vì mù quáng theo cấu hình flow cũ.
 
-const { useState, useEffect, useMemo, useRef } = React;
+const { useState, useEffect, useMemo, useRef, useCallback } = React;
 
 // --- 1. COMPONENT IMPORTS ---
 const CommissionView = window.CommissionView;
@@ -38,6 +36,16 @@ const getServiceBlocks = (serviceName) => {
     if (name.includes('40') || name.includes('35')) return 1;
 
     return 2;
+};
+
+// --- [V108.20] HELPER: BÓC TÁCH THỜI GIAN CHUẨN TỪ TÊN DỊCH VỤ ---
+const extractStandardDuration = (serviceName) => {
+    if (!serviceName) return null;
+    const match = serviceName.match(/(190|180|130|120|100|90|70|60|50|45|40|30)/);
+    if (match) {
+        return parseInt(match[0], 10);
+    }
+    return null;
 };
 
 // --- HÀM LÀM SẠCH TÊN DỊCH VỤ (DATA NORMALIZATION) ---
@@ -204,7 +212,7 @@ const App = () => {
     const [isManualRefreshing, setIsManualRefreshing] = useState(false);
 
     const localOverridesRef = useRef({});
-    const lastSyncedPositionsRef = useRef({}); // V108.16 Auto-sync Tracker
+    const lastSyncedPositionsRef = useRef({});
 
     // 2. HELPER FUNCTIONS
     const getScheduledStartTimeISO = (booking) => {
@@ -233,7 +241,7 @@ const App = () => {
         }
     };
 
-    const isActuallyBusy = (staffId) => {
+    const isActuallyBusy = useCallback((staffId) => {
         if (!resourceState) return false;
         return Object.values(resourceState).some(r => {
             if (!r.isRunning || r.isPaused || r.isPreview === true) return false;
@@ -248,7 +256,7 @@ const App = () => {
             ];
             return possibleKeys.includes(staffId);
         });
-    };
+    }, [resourceState]);
 
     const busyStaffIds = useMemo(() => {
         const ids = new Set();
@@ -394,6 +402,67 @@ const App = () => {
         try { await axios.post(endpoint, payload); } catch (e) { console.log("Universal send check (ignore):", e); }
     };
 
+    // --- [V108.20] HÀM ĐỒNG BỘ ÉP THỜI GIAN (FORCE FIX) ---
+    const handleForceFixDuration = async (booking, standardDuration) => {
+        if (!booking || !standardDuration) return;
+        const rowId = String(booking.rowId);
+        const newDuration = parseInt(standardDuration, 10);
+
+        if (confirm(`⚠️ 確定將時長強制同步為標準時間 (${newDuration} 分鐘) 嗎？\n(Sync to standard time)`)) {
+            setSyncLock(true);
+            setTimeout(() => setSyncLock(false), 3000);
+
+            let newP1 = booking.phase1_duration;
+            let newP2 = booking.phase2_duration;
+            if (booking.category === 'COMBO' || (booking.serviceName && booking.serviceName.includes('套餐'))) {
+                const split = getSmartSplit(booking, newDuration, true, booking.flow || 'FB');
+                newP1 = split.phase1;
+                newP2 = split.phase2;
+            } else {
+                newP1 = null;
+                newP2 = null;
+            }
+
+            if (!localOverridesRef.current[rowId]) localOverridesRef.current[rowId] = {};
+            localOverridesRef.current[rowId].duration = newDuration;
+            if (newP1 !== null) localOverridesRef.current[rowId].phase1_duration = newP1;
+            if (newP2 !== null) localOverridesRef.current[rowId].phase2_duration = newP2;
+
+            const newState = { ...resourceState };
+            let updated = false;
+            Object.keys(newState).forEach(key => {
+                const res = newState[key];
+                if (res.booking && String(res.booking.rowId) === rowId) {
+                    res.booking.duration = newDuration;
+                    res.booking.isTimeAnomaly = false;
+                    res.booking.anomalyDiff = 0;
+                    if (newP1 !== null) res.booking.phase1_duration = newP1;
+                    if (newP2 !== null) res.booking.phase2_duration = newP2;
+                    updated = true;
+                }
+            });
+            if (updated) setResourceState(newState);
+            fetchData(true);
+
+            try {
+                const updatePayload = {
+                    rowId: rowId,
+                    duration: newDuration,
+                    is_locked: "TRUE",
+                    forceSync: true
+                };
+                if (newP1 !== null) {
+                    updatePayload.phase1_duration = newP1;
+                    updatePayload.phase2_duration = newP2;
+                }
+                await universalSend('/api/update-booking-details', updatePayload);
+            } catch (e) {
+                alert("⚠️ 同步失敗！請檢查網路連線。");
+            }
+        }
+    };
+
+
     // 3. CORE LOGIC (FETCH & RENDER) 
     const fetchData = async (isManual = false) => {
         if (syncLock && !isManual) return;
@@ -405,11 +474,9 @@ const App = () => {
             const res = await axios.get(endpoint);
             setQuotaError(false);
 
-            // [V108.19] LẤY VÀ LƯU DỮ LIỆU BẢNG GIÁ ĐỘNG (SINGLE SOURCE OF TRUTH)
             if (res.data.services) {
                 window.DYNAMIC_PRICES_MAP = res.data.services;
                 window.SERVICES_DATA = res.data.services;
-                // Cập nhật lại danh sách dropdown động theo Sheet Menu
                 const uniqueNames = [...new Set(Object.values(res.data.services).map(s => s.name))];
                 window.SERVICES_LIST = uniqueNames;
             }
@@ -444,6 +511,7 @@ const App = () => {
                 if (override) {
                     let isSynced = true;
                     if (override.startTimeString && targetB.startTimeString !== override.startTimeString) isSynced = false;
+                    if (override.duration !== undefined && parseInt(targetB.duration) !== override.duration) isSynced = false;
                     if (override.phase1_duration !== undefined && parseInt(targetB.phase1_duration) !== override.phase1_duration) isSynced = false;
                     if (override.phase2_duration !== undefined && parseInt(targetB.phase2_duration) !== override.phase2_duration) isSynced = false;
                     if (override.storedLocation && targetB.location !== override.storedLocation && targetB.current_resource_id !== override.storedLocation) isSynced = false;
@@ -458,6 +526,7 @@ const App = () => {
                         delete localOverridesRef.current[String(targetB.rowId)];
                     } else {
                         if (override.startTimeString) targetB.startTimeString = override.startTimeString;
+                        if (override.duration !== undefined) targetB.duration = override.duration;
                         if (override.phase1_duration !== undefined) targetB.phase1_duration = override.phase1_duration;
                         if (override.phase2_duration !== undefined) targetB.phase2_duration = override.phase2_duration;
                         if (override.storedLocation) {
@@ -479,6 +548,14 @@ const App = () => {
                 if (rawFlow === 'null' || rawFlow === 'undefined' || rawFlow === '') rawFlow = null;
                 if (rawFlow) rawFlow = rawFlow.toUpperCase();
 
+                if (rawFlow === 'FB' && targetB.phase1_res_idx && targetB.phase1_res_idx.toUpperCase().includes('BED')) {
+                    rawFlow = 'BF';
+                    targetB.flow = 'BF';
+                } else if (rawFlow === 'BF' && targetB.phase1_res_idx && targetB.phase1_res_idx.toUpperCase().includes('CHAIR')) {
+                    rawFlow = 'FB';
+                    targetB.flow = 'FB';
+                }
+
                 const p1 = targetB.phase1_duration ? parseInt(targetB.phase1_duration) : null;
                 const p2 = targetB.phase2_duration ? parseInt(targetB.phase2_duration) : null;
                 const isLocked = (targetB.isManualLocked === true || String(targetB.isManualLocked) === 'TRUE');
@@ -494,13 +571,37 @@ const App = () => {
                     isForcedSingle = true;
                 }
 
+                const cleanName = getCleanServiceName(targetB.serviceName);
+                const safeDur = window.getSafeDuration(targetB.serviceName, targetB.duration);
+
+                let standardDur = extractStandardDuration(targetB.serviceName) || safeDur;
+                if (window.DYNAMIC_PRICES_MAP) {
+                    const found = Object.values(window.DYNAMIC_PRICES_MAP).find(s => s.name === cleanName);
+                    if (found && found.duration) standardDur = parseInt(found.duration, 10);
+                }
+
+                let finalDur = override && override.duration ? override.duration : safeDur;
+                const paxNum = parseInt(targetB.pax, 10) || 1;
+                const isComboSvc = targetB.category === 'COMBO' || (targetB.serviceName && targetB.serviceName.includes('套餐'));
+
+                let isAutoFixed = false;
+                if (paxNum === 1 && !isComboSvc && standardDur > 0 && finalDur > standardDur) {
+                    finalDur = standardDur;
+                    isAutoFixed = true;
+                    if (override) override.duration = standardDur;
+                }
+
+                const isTimeAnomaly = !isAutoFixed && standardDur > 0 && finalDur > standardDur;
+                const anomalyDiff = isTimeAnomaly ? (finalDur - standardDur) : 0;
+
                 return {
                     ...targetB,
-                    cleanServiceName: getCleanServiceName(targetB.serviceName),
+                    cleanServiceName: cleanName,
                     isOil: targetB.isOil || (targetB.serviceName && targetB.serviceName.includes('油')),
-                    duration: window.getSafeDuration(targetB.serviceName, targetB.duration),
-                    price: targetB.price || 0, // [V108.19] Chuyển giá từ Backend sang UI
-                    pax: parseInt(targetB.pax, 10) || 1,
+                    duration: finalDur,
+                    _needsAutoSyncDur: isAutoFixed,
+                    price: targetB.price || 0,
+                    pax: paxNum,
                     rowId: String(targetB.rowId),
                     phase1_duration: p1,
                     phase2_duration: p2,
@@ -513,7 +614,11 @@ const App = () => {
                     isForcedSingle: isForcedSingle,
                     isRunningStatus: (targetB.status && (targetB.status.includes('Running') || targetB.status.includes('服務中') || targetB.status.includes('running'))),
                     isDoneStatus: (targetB.status && (targetB.status.includes('完成') || targetB.status.includes('Done') || targetB.status.includes('✅') || targetB.status.includes('Cancel') || targetB.status.includes('取消'))),
-                    storedLocation: targetB.location || targetB.current_resource_id || (targetB.phase1_res_idx ? targetB.phase1_res_idx.toLowerCase() : null)
+                    storedLocation: targetB.location || targetB.current_resource_id || (targetB.phase1_res_idx ? targetB.phase1_res_idx.toLowerCase() : null),
+
+                    standardDuration: standardDur,
+                    isTimeAnomaly: isTimeAnomaly,
+                    anomalyDiff: anomalyDiff
                 };
             });
 
@@ -528,8 +633,17 @@ const App = () => {
                 !b.status.includes('Cancel') && !b.status.includes('取消')
             );
 
-            setStaffList(apiStaff || []);
-            setStatusData(serverStaff || {});
+            if (apiStaff && apiStaff.length > 0) {
+                setStaffList(apiStaff);
+            } else if (!staffList || staffList.length === 0) {
+                setStaffList([]);
+            }
+
+            if (serverStaff && Object.keys(serverStaff).length > 0) {
+                setStatusData(serverStaff);
+            } else if (!statusData || Object.keys(statusData).length === 0) {
+                setStatusData({});
+            }
 
             const activeRowIds = new Set();
             const activeSignatures = new Set();
@@ -633,19 +747,38 @@ const App = () => {
                     let durationUsed = b.duration;
                     let isPhase1 = false;
                     const isStrictSingle = b.isForcedSingle === true;
+                    const isComboSvc = b.category === 'COMBO' || (b.serviceName && b.serviceName.includes('套餐'));
 
-                    if (nextResourceState[key].comboMeta && !isStrictSingle) {
-                        const seq = nextResourceState[key].comboMeta.sequence || 'FB';
-                        const isMax = nextResourceState[key].isMaxMode;
+                    if (isComboSvc && !isStrictSingle && !tempState[key].comboMeta) {
+                        const seq = b.flow || 'FB';
+                        let determinedPhase = 1;
+                        const isChair = key.includes('chair');
+                        if ((seq === 'FB' && isChair) || (seq === 'BF' && !isChair)) {
+                            determinedPhase = 1;
+                        } else {
+                            determinedPhase = 2;
+                        }
+                        tempState[key].comboMeta = {
+                            sequence: seq,
+                            phase: determinedPhase,
+                            flex: 0,
+                            targetId: determinedPhase === 1 && b.phase2_res_idx ? b.phase2_res_idx.toLowerCase() : null
+                        };
+                    }
+
+                    if (tempState[key].comboMeta && !isStrictSingle) {
+                        const seq = tempState[key].comboMeta.sequence || 'FB';
+                        const isMax = tempState[key].isMaxMode !== undefined ? tempState[key].isMaxMode : true;
                         const split = getSmartSplit(b, b.duration, isMax, seq);
 
-                        if (nextResourceState[key].comboMeta.phase !== undefined) {
-                            isPhase1 = (nextResourceState[key].comboMeta.phase === 1);
+                        if (tempState[key].comboMeta.phase !== undefined) {
+                            isPhase1 = (tempState[key].comboMeta.phase === 1);
                         } else {
                             isPhase1 = (seq === 'FB' && key.includes('chair')) || (seq === 'BF' && key.includes('bed'));
+                            tempState[key].comboMeta.phase = isPhase1 ? 1 : 2;
                         }
 
-                        if (isPhase1) durationUsed = split.phase1 + (nextResourceState[key].comboMeta.flex || 0);
+                        if (isPhase1) durationUsed = split.phase1 + (tempState[key].comboMeta.flex || 0);
                         else durationUsed = split.phase2;
                     } else {
                         tempState[key].comboMeta = null;
@@ -854,7 +987,6 @@ const App = () => {
                                 preferredSlotIndex = idx + 1;
                             }
 
-                            // [V108.16] Ép Timeline ưu tiên vẽ đúng Phase 1 & Phase 2 đã ghi nhận trên Sheet
                             let pref1 = bookingItem.phase1_res_idx ? bookingItem.phase1_res_idx.toLowerCase() : null;
                             let pref2 = bookingItem.phase2_res_idx ? bookingItem.phase2_res_idx.toLowerCase() : null;
                             const targetPref = bookingItem.storedLocation || null;
@@ -874,11 +1006,16 @@ const App = () => {
                         };
 
                         if (preferredSeq) {
+                            bookingItem.flow = preferredSeq;
                             if (trySequence(preferredSeq)) break;
                         } else {
                             const primary = (idx < idealNumBF) ? 'BF' : 'FB';
                             const secondary = (primary === 'BF') ? 'FB' : 'BF';
+
+                            bookingItem.flow = primary;
                             if (trySequence(primary)) break;
+
+                            bookingItem.flow = secondary;
                             if (trySequence(secondary)) break;
                         }
                     }
@@ -927,7 +1064,6 @@ const App = () => {
                 setBookings(cleanBookings);
             }
 
-            // --- BẮT ĐẦU V108.17: AUTO-SYNC TỌA ĐỘ KÈM FALLBACK KEYS XUỐNG SHEET ---
             try {
                 const activeGridPositions = {};
                 Object.keys(timelineGrid).forEach(resId => {
@@ -945,7 +1081,17 @@ const App = () => {
 
                 const syncPayloads = [];
                 cleanBookings.forEach(b => {
-                    if (b.isDoneStatus) return; // Bỏ qua nếu đã xong
+                    if (b.isDoneStatus) return;
+
+                    if (b._needsAutoSyncDur) {
+                        syncPayloads.push({
+                            rowId: String(b.rowId),
+                            duration: b.duration,
+                            is_locked: "TRUE",
+                            forceSync: true
+                        });
+                    }
+
                     const rId = String(b.rowId);
                     const pos = activeGridPositions[rId];
                     if (!pos) return;
@@ -955,13 +1101,10 @@ const App = () => {
                     if (isCombo && pos.p1 && pos.p2) {
                         const sheetP1 = (b.phase1_res_idx || '').toUpperCase();
                         const sheetP2 = (b.phase2_res_idx || '').toUpperCase();
-
                         const flow = (b.flow || 'FB').toUpperCase();
 
-                        // Quét xem vị trí vẽ thực tế có khớp với dữ liệu trên Sheet không
                         if (sheetP1 !== pos.p1 || sheetP2 !== pos.p2) {
                             const posStr = `${pos.p1}_${pos.p2}`;
-                            // Tránh Spam API (Chỉ gửi 1 lần khi có sự thay đổi mới)
                             if (lastSyncedPositionsRef.current[rId] !== posStr) {
                                 lastSyncedPositionsRef.current[rId] = posStr;
                                 const expectedType = (flow === 'BF') ? 'BED' : 'CHAIR';
@@ -969,10 +1112,10 @@ const App = () => {
                                     rowId: rId,
                                     phase1_res_idx: pos.p1,
                                     phase2_res_idx: pos.p2,
-                                    phase1Resource: pos.p1, // fallback
-                                    phase2Resource: pos.p2, // fallback
+                                    phase1Resource: pos.p1,
+                                    phase2Resource: pos.p2,
                                     resource_type: expectedType,
-                                    resourceType: expectedType, // fallback
+                                    resourceType: expectedType,
                                     is_locked: "TRUE",
                                     forceSync: true
                                 });
@@ -999,13 +1142,11 @@ const App = () => {
                 });
 
                 if (syncPayloads.length > 0) {
-                    console.log("🛠️ Auto-Syncing Actual Positions to Sheet (V108.17):", syncPayloads);
                     syncPayloads.forEach(p => universalSend('/api/update-booking-details', p));
                 }
             } catch (err) {
                 console.error("Auto sync error:", err);
             }
-            // --- KẾT THÚC AUTO-SYNC ---
 
         } catch (e) {
             console.error("API Error", e);
@@ -1038,6 +1179,13 @@ const App = () => {
                     if (currentReqStaff === '隨機') {
                         updatedData.nhanVien = '女';
                         updatedData.requestedStaff = '女';
+                    }
+                }
+
+                if (updatedData.dichVu && updatedData.dichVu !== currentBooking.serviceName) {
+                    const newStandardDur = extractStandardDuration(updatedData.dichVu) || window.getSafeDuration(updatedData.dichVu, currentBooking.duration);
+                    if (newStandardDur > 0) {
+                        updatedData.duration = newStandardDur;
                     }
                 }
             }
@@ -1140,7 +1288,8 @@ const App = () => {
         handleOpenControlCenter(current.booking);
     };
 
-    const handleSaveComboTime = async (arg1, arg2 = null, startTimeStr = null, switchTimeStr = null) => {
+    // ---> [V108.26] BỔ SUNG NHẬN THAM SỐ VỊ TRÍ TỪ MODAL <---
+    const handleSaveComboTime = async (arg1, arg2 = null, startTimeStr = null, switchTimeStr = null, customP1Res = null, customP2Res = null) => {
         let newPhase1Duration = 0;
         let targetBooking = null;
 
@@ -1226,9 +1375,13 @@ const App = () => {
             }
         });
 
-        const s1 = MatrixHelper.findBestSlot(p1Type, tryStart, tryStart + newPhase1Duration, timelineData, mockActiveEndTimes) || `${p1Type}-1`;
+        // Tự động tìm vị trí NẾU người dùng KHÔNG chọn (Auto)
+        let s1 = customP1Res ? customP1Res.toLowerCase() : null;
+        if (!s1) s1 = MatrixHelper.findBestSlot(p1Type, tryStart, tryStart + newPhase1Duration, timelineData, mockActiveEndTimes) || `${p1Type}-1`;
+
         const p2Start = tryStart + newPhase1Duration + 5;
-        const s2 = MatrixHelper.findBestSlot(p2Type, p2Start, p2Start + newPhase2Duration, timelineData, mockActiveEndTimes) || `${p2Type}-1`;
+        let s2 = customP2Res ? customP2Res.toLowerCase() : null;
+        if (!s2) s2 = MatrixHelper.findBestSlot(p2Type, p2Start, p2Start + newPhase2Duration, timelineData, mockActiveEndTimes) || `${p2Type}-1`;
 
         if (!localOverridesRef.current[rowId]) localOverridesRef.current[rowId] = {};
 
@@ -1268,10 +1421,10 @@ const App = () => {
             phase2_duration: newPhase2Duration,
             phase1_res_idx: s1.toUpperCase(),
             phase2_res_idx: s2.toUpperCase(),
-            phase1Resource: s1.toUpperCase(), // Fallback (V108.17)
-            phase2Resource: s2.toUpperCase(), // Fallback (V108.17)
+            phase1Resource: s1.toUpperCase(),
+            phase2Resource: s2.toUpperCase(),
             resource_type: resourceTypeForSheet,
-            resourceType: resourceTypeForSheet, // Fallback (V108.17)
+            resourceType: resourceTypeForSheet,
             is_locked: "TRUE",
             isManualLocked: true,
             forceSync: true
@@ -1409,10 +1562,10 @@ const App = () => {
                 phase2_duration: split.phase2,
                 phase1_res_idx: phase1_res_idx,
                 phase2_res_idx: phase2_res_idx,
-                phase1Resource: phase1_res_idx, // Fallback (V108.17)
-                phase2Resource: phase2_res_idx, // Fallback (V108.17)
+                phase1Resource: phase1_res_idx,
+                phase2Resource: phase2_res_idx,
                 resource_type: resourceTypeForSheet,
-                resourceType: resourceTypeForSheet, // Fallback (V108.17)
+                resourceType: resourceTypeForSheet,
                 is_locked: "TRUE",
                 isManualLocked: true,
                 forceSync: true
@@ -1537,6 +1690,26 @@ const App = () => {
         }
     };
 
+    const handleOpenControlCenter = (bookingOrId, suggestedResourceId = null, meta = null) => {
+        let bookingObj = bookingOrId;
+        if (typeof bookingOrId === 'string' || typeof bookingOrId === 'number') {
+            const found = bookings.find(b => String(b.rowId) === String(bookingOrId));
+            if (!found) return;
+            bookingObj = found;
+        }
+
+        const liveContext = getLiveResourceByBooking(bookingObj.rowId);
+
+        setControlCenterData({
+            booking: bookingObj,
+            liveState: liveContext ? liveContext.data : null,
+            resourceId: liveContext ? liveContext.resourceId : suggestedResourceId,
+            isRunning: liveContext ? liveContext.isRunning : false,
+            isPaused: liveContext ? liveContext.isPaused : false,
+            meta: meta // Ghi nhận luồng thực tế trên Timeline
+        });
+    };
+
     const executeStart = (id, comboSequence, silentMode = false, fallbackBooking = null) => {
         let current = resourceState[id];
 
@@ -1574,6 +1747,47 @@ const App = () => {
         setTimeout(() => setSyncLock(false), 5000);
 
         const isStrict = current.booking.isForcedSingle === true;
+
+        const isComboService = !isStrict && ((current.booking.serviceName && current.booking.serviceName.includes('套餐')) || current.booking.category === 'COMBO' || comboSequence);
+        let comboMeta = current.comboMeta || null;
+        let actualSeq = comboSequence || current.booking.flow || 'FB';
+
+        if (isComboService) {
+            if (!comboSequence) {
+                const physicalType = currentId.split('-')[0];
+                if (physicalType === 'bed') actualSeq = 'BF';
+                else if (physicalType === 'chair') actualSeq = 'FB';
+            }
+
+            if (!comboMeta) {
+                const currentType = currentId.split('-')[0];
+                const index = currentId.split('-')[1];
+                let ghostTargetId = null;
+                const targetTypePrefix = currentType === 'chair' ? 'bed' : 'chair';
+
+                if (timelineData) {
+                    for (const [resId, slots] of Object.entries(timelineData)) {
+                        if (resId.startsWith(targetTypePrefix) && slots.some(s => String(s.booking.rowId) === String(current.booking.rowId))) {
+                            ghostTargetId = resId;
+                            break;
+                        }
+                    }
+                }
+
+                if (!ghostTargetId) {
+                    const sameIndex = `${targetTypePrefix}-${index}`;
+                    if (!resourceState[sameIndex] && sameIndex !== id) { ghostTargetId = sameIndex; }
+                    else { for (let i = 1; i <= 6; i++) { const tid = `${targetTypePrefix}-${i}`; if (!resourceState[tid] && tid !== id) { ghostTargetId = tid; break; } } }
+                    if (!ghostTargetId) ghostTargetId = `${targetTypePrefix}-${index}`;
+                }
+                comboMeta = { sequence: actualSeq, targetId: ghostTargetId, flex: (current.comboMeta && current.comboMeta.flex) || 0, phase: 1 };
+            } else {
+                comboMeta.phase = 1;
+                comboMeta.sequence = actualSeq;
+            }
+        } else {
+            comboMeta = null;
+        }
 
         if (comboSequence && !isStrict) {
             const currentType = id.split('-')[0];
@@ -1662,8 +1876,7 @@ const App = () => {
         updateStaffStatus(newStatusData);
 
         const grpIdx = getGroupMemberIndex(currentId, current.booking.rowId);
-        const isComboService = !isStrict && ((current.booking.serviceName && current.booking.serviceName.includes('套餐')) || comboSequence);
-        const newBooking = { ...current.booking, category: isComboService ? 'COMBO' : 'SINGLE' };
+        const newBooking = { ...current.booking, category: isComboService ? 'COMBO' : 'SINGLE', flow: actualSeq };
 
         if (grpIdx === 0) newBooking.serviceStaff = finalServiceStaff;
         else if (grpIdx === 1) newBooking.staffId2 = finalServiceStaff;
@@ -1672,38 +1885,20 @@ const App = () => {
         else if (grpIdx === 4) newBooking.staffId5 = finalServiceStaff;
         else if (grpIdx === 5) newBooking.staffId6 = finalServiceStaff;
 
-        let comboMeta = current.comboMeta || null;
-        if (comboSequence && !isStrict) {
-            const currentType = currentId.split('-')[0]; const index = currentId.split('-')[1];
-            let ghostTargetId = null; const targetTypePrefix = currentType === 'chair' ? 'bed' : 'chair';
-
-            if (timelineData) {
-                for (const [resId, slots] of Object.entries(timelineData)) {
-                    if (resId.startsWith(targetTypePrefix) && slots.some(s => String(s.booking.rowId) === String(current.booking.rowId))) {
-                        ghostTargetId = resId;
-                        break;
-                    }
-                }
-            }
-
-            if (!ghostTargetId) {
-                const sameIndex = `${targetTypePrefix}-${index}`;
-                if (!resourceState[sameIndex] && sameIndex !== id) { ghostTargetId = sameIndex; }
-                else { for (let i = 1; i <= 6; i++) { const tid = `${targetTypePrefix}-${i}`; if (!resourceState[tid] && tid !== id) { ghostTargetId = tid; break; } } }
-                if (!ghostTargetId) ghostTargetId = `${targetTypePrefix}-${index}`;
-            }
-
-            comboMeta = { sequence: comboSequence, targetId: ghostTargetId, flex: (current.comboMeta && current.comboMeta.flex) || 0, phase: 1 };
-        } else if (isStrict) {
-            comboMeta = null;
-        } else if (comboMeta) {
-            comboMeta.phase = 1;
-        }
-
         const rowIdStr = String(current.booking.rowId);
         if (!localOverridesRef.current[rowIdStr]) localOverridesRef.current[rowIdStr] = {};
         localOverridesRef.current[rowIdStr].forceRunning = true;
         localOverridesRef.current[rowIdStr].storedLocation = currentId;
+
+        if (isComboService && comboMeta) {
+            const totalDur = current.booking.duration || 100;
+            const split = getSmartSplit(current.booking, totalDur, true, comboMeta.sequence);
+            localOverridesRef.current[rowIdStr].flow = comboMeta.sequence;
+            localOverridesRef.current[rowIdStr].phase1_duration = split.phase1;
+            localOverridesRef.current[rowIdStr].phase2_duration = split.phase2;
+            localOverridesRef.current[rowIdStr].phase1_res_idx = currentId.toUpperCase();
+            if (comboMeta.targetId) localOverridesRef.current[rowIdStr].phase2_res_idx = comboMeta.targetId.toUpperCase();
+        }
 
         const newState = { ...resourceState }; if (shouldMove) delete newState[id];
 
@@ -1733,6 +1928,18 @@ const App = () => {
             record_location: true,
             status: '🟡 Running'
         };
+
+        if (isComboService && comboMeta) {
+            const totalDur = current.booking.duration || 100;
+            const split = getSmartSplit(current.booking, totalDur, true, comboMeta.sequence);
+            payload.flow = comboMeta.sequence;
+            payload.flow_code = comboMeta.sequence;
+            payload.phase1_duration = split.phase1;
+            payload.phase2_duration = split.phase2;
+            payload.phase1_res_idx = currentId.toUpperCase();
+            if (comboMeta.targetId) payload.phase2_res_idx = comboMeta.targetId.toUpperCase();
+        }
+
         universalSend('/api/update-booking-details', payload);
         axios.post('/api/update-status', { rowId: current.booking.rowId, status: '🟡 Running' });
     };
@@ -1850,21 +2057,19 @@ const App = () => {
             }
 
             const grpIdx = getGroupMemberIndex(resourceId, current.booking.rowId);
-            const isComboService = (current.booking.serviceName && current.booking.serviceName.includes('套餐'));
-            const newBooking = { ...current.booking, category: isComboService ? 'COMBO' : 'SINGLE' };
-
-            if (grpIdx === 0) newBooking.serviceStaff = finalServiceStaff;
-            else if (grpIdx === 1) newBooking.staffId2 = finalServiceStaff;
-            else if (grpIdx === 2) newBooking.staffId3 = finalServiceStaff;
-            else if (grpIdx === 3) newBooking.staffId4 = finalServiceStaff;
-            else if (grpIdx === 4) newBooking.staffId5 = finalServiceStaff;
-            else if (grpIdx === 5) newBooking.staffId6 = finalServiceStaff;
+            const isComboService = (current.booking.serviceName && current.booking.serviceName.includes('套餐')) || current.booking.category === 'COMBO';
 
             let newComboMeta = current.comboMeta;
+            let actualSeq = current.booking.flow || 'FB';
+
             if (isComboService) {
+                const physicalType = resourceId.split('-')[0];
+                if (physicalType === 'bed') actualSeq = 'BF';
+                else if (physicalType === 'chair') actualSeq = 'FB';
+
                 if (!newComboMeta) {
                     let projectedTargetId = null;
-                    const targetTypePrefix = resourceId.split('-')[0] === 'chair' ? 'bed' : 'chair';
+                    const targetTypePrefix = physicalType === 'chair' ? 'bed' : 'chair';
                     if (timelineData) {
                         for (const [rId, slots] of Object.entries(timelineData)) {
                             if (rId.startsWith(targetTypePrefix) && slots.some(s => String(s.booking.rowId) === String(current.booking.rowId))) {
@@ -1873,10 +2078,30 @@ const App = () => {
                             }
                         }
                     }
-                    newComboMeta = { sequence: 'FB', phase: 1, flex: 0, targetId: projectedTargetId };
+                    newComboMeta = { sequence: actualSeq, phase: 1, flex: 0, targetId: projectedTargetId };
                 } else {
-                    newComboMeta = { ...newComboMeta, phase: 1 };
+                    newComboMeta = { ...newComboMeta, phase: 1, sequence: actualSeq };
                 }
+            } else {
+                newComboMeta = null;
+            }
+
+            const newBooking = { ...current.booking, category: isComboService ? 'COMBO' : 'SINGLE', flow: actualSeq };
+
+            if (grpIdx === 0) newBooking.serviceStaff = finalServiceStaff;
+            else if (grpIdx === 1) newBooking.staffId2 = finalServiceStaff;
+            else if (grpIdx === 2) newBooking.staffId3 = finalServiceStaff;
+            else if (grpIdx === 3) newBooking.staffId4 = finalServiceStaff;
+            else if (grpIdx === 4) newBooking.staffId5 = finalServiceStaff;
+            else if (grpIdx === 5) newBooking.staffId6 = finalServiceStaff;
+
+            if (isComboService && newComboMeta) {
+                const split = getSmartSplit(current.booking, current.booking.duration || 100, true, newComboMeta.sequence);
+                localOverridesRef.current[rowIdStr].flow = newComboMeta.sequence;
+                localOverridesRef.current[rowIdStr].phase1_duration = split.phase1;
+                localOverridesRef.current[rowIdStr].phase2_duration = split.phase2;
+                localOverridesRef.current[rowIdStr].phase1_res_idx = resourceId.toUpperCase();
+                if (newComboMeta.targetId) localOverridesRef.current[rowIdStr].phase2_res_idx = newComboMeta.targetId.toUpperCase();
             }
 
             nextResourceState[resourceId] = {
@@ -1895,6 +2120,19 @@ const App = () => {
             else if (grpIdx === 4) { primaryKey = "服務師傅5"; fallbackKey = "ServiceStaff5"; }
             else if (grpIdx === 5) { primaryKey = "服務師傅6"; fallbackKey = "ServiceStaff6"; }
 
+            let comboPayloadAdditions = {};
+            if (isComboService && newComboMeta) {
+                const split = getSmartSplit(current.booking, current.booking.duration || 100, true, newComboMeta.sequence);
+                comboPayloadAdditions = {
+                    flow: newComboMeta.sequence,
+                    flow_code: newComboMeta.sequence,
+                    phase1_duration: split.phase1,
+                    phase2_duration: split.phase2,
+                    phase1_res_idx: resourceId.toUpperCase(),
+                    ...(newComboMeta.targetId && { phase2_res_idx: newComboMeta.targetId.toUpperCase() })
+                };
+            }
+
             apiPayloads.push({
                 endpoint: '/api/update-booking-details',
                 data: {
@@ -1904,9 +2142,11 @@ const App = () => {
                     [`staff${grpIdx + 1}`]: finalServiceStaff,
                     current_resource_id: resourceId,
                     record_location: true,
-                    status: '🟡 Running'
+                    status: '🟡 Running',
+                    ...comboPayloadAdditions
                 }
             });
+
             apiPayloads.push({
                 endpoint: '/api/update-status',
                 data: { rowId: current.booking.rowId, status: '🟡 Running' }
@@ -1933,7 +2173,6 @@ const App = () => {
         else if (action === 'cancel_midway') {
             if (confirm('確定要棄單 (Drop)？\n此操作將標記為「取消」並釋放此位置。')) {
                 const ridStr = String(current.booking.rowId);
-                // [V108.18] Xóa override để chống kẹt bóng ma
                 if (localOverridesRef.current[ridStr]) {
                     delete localOverridesRef.current[ridStr];
                 }
@@ -2012,7 +2251,6 @@ const App = () => {
                 const rid = String(b.rowId);
                 const resId = item.resourceId;
 
-                // [V108.18] Xoá Local Override để dọn dẹp bóng ma
                 if (localOverridesRef.current[rid]) {
                     delete localOverridesRef.current[rid];
                 }
@@ -2112,32 +2350,21 @@ const App = () => {
         } catch (e) { alert("⚠️ 連線錯誤，請檢查網路！"); }
     };
 
-    const handleOpenControlCenter = (bookingOrId, suggestedResourceId = null) => {
-        let bookingObj = bookingOrId;
-        if (typeof bookingOrId === 'string' || typeof bookingOrId === 'number') {
-            const found = bookings.find(b => String(b.rowId) === String(bookingOrId));
-            if (!found) return;
-            bookingObj = found;
-        }
-
-        const liveContext = getLiveResourceByBooking(bookingObj.rowId);
-
-        setControlCenterData({
-            booking: bookingObj,
-            liveState: liveContext ? liveContext.data : null,
-            resourceId: liveContext ? liveContext.resourceId : suggestedResourceId,
-            isRunning: liveContext ? liveContext.isRunning : false,
-            isPaused: liveContext ? liveContext.isPaused : false
-        });
-    };
-
+    // ---> [V108.26] BỔ SUNG XỬ LÝ PAYLOAD CHO UPDATE_PHASE <---
     const handleControlAction = (actionType, payload) => {
         const targetBooking = payload.currentBooking || (controlCenterData ? controlCenterData.booking : null);
         const targetResourceId = payload.resourceId || (controlCenterData ? controlCenterData.resourceId : null);
 
         switch (actionType) {
             case 'OPEN_CONTROL_CENTER':
-                handleOpenControlCenter(targetBooking, targetResourceId);
+                handleOpenControlCenter(targetBooking, targetResourceId, payload.currentMeta);
+                break;
+
+            case 'FORCE_FIX_DURATION':
+                if (targetBooking && payload.standardDuration) {
+                    handleForceFixDuration(targetBooking, payload.standardDuration);
+                }
+                setControlCenterData(null);
                 break;
 
             case 'START':
@@ -2241,7 +2468,14 @@ const App = () => {
 
             case 'UPDATE_PHASE':
                 if (targetBooking && payload.phase1 !== undefined) {
-                    handleSaveComboTime(payload.phase1, targetBooking, payload.startTimeStr, payload.switchTimeStr);
+                    handleSaveComboTime(
+                        payload.phase1,
+                        targetBooking,
+                        payload.startTimeStr,
+                        payload.switchTimeStr,
+                        payload.phase1_res_idx, // Truyền vị trí Phase 1
+                        payload.phase2_res_idx  // Truyền vị trí Phase 2
+                    );
                 }
                 setControlCenterData(null);
                 break;
@@ -2310,31 +2544,43 @@ const App = () => {
     const handleManualUpdateStatus = async (rowId, status) => { if (confirm('確認更新狀態?')) { await axios.post('/api/update-status', { rowId, status }); fetchData(); } };
     const handleRetryConnection = () => { setQuotaError(false); fetchData(true); };
 
-    const getStatus = (id) => statusData[id] ? statusData[id].status : 'AWAY';
+    const getStatus = useCallback((id) => statusData[id] ? statusData[id].status : 'AWAY', [statusData]);
 
-    const safeStaffList = staffList || [];
-    const awayStaff = safeStaffList.filter(s => { const st = getStatus(s.id); return st === 'AWAY' || st === 'OFF'; }).sort(window.sortIdAsc);
+    const safeStaffList = useMemo(() => staffList || [], [staffList]);
 
-    const busyStaff = safeStaffList.filter(s => isActuallyBusy(s.id)).sort((a, b) => {
-        const findRes = (sid) => Object.values(resourceState).find(r => r.isRunning && !r.isPaused && r.booking && (r.booking.serviceStaff === sid || r.booking.staffId === sid || r.booking.staffId2 === sid || r.booking.staffId3 === sid || r.booking.staffId4 === sid || r.booking.staffId5 === sid || r.booking.staffId6 === sid));
-        const resA = findRes(a.id); const resB = findRes(b.id);
-        const timeA = resA?.startTime ? new Date(resA.startTime).getTime() : 0; const timeB = resB?.startTime ? new Date(resB.startTime).getTime() : 0;
-        return timeA !== timeB ? timeA - timeB : window.sortIdAsc(a, b);
-    });
+    const awayStaff = useMemo(() => {
+        return safeStaffList.filter(s => {
+            const st = getStatus(s.id);
+            return st === 'AWAY' || st === 'OFF';
+        }).sort(window.sortIdAsc);
+    }, [safeStaffList, getStatus]);
 
-    const readyStaff = safeStaffList.filter(s => {
-        if (isActuallyBusy(s.id)) return false;
-        const st = getStatus(s.id);
-        return st === 'READY' || st === 'EAT' || st === 'OUT_SHORT';
-    }).sort((a, b) => {
-        const timeA = statusData[a.id]?.stafftime || Number.MAX_SAFE_INTEGER;
-        const timeB = statusData[b.id]?.stafftime || Number.MAX_SAFE_INTEGER;
-        if (timeA !== timeB) return timeA - timeB;
+    const busyStaff = useMemo(() => {
+        return safeStaffList.filter(s => isActuallyBusy(s.id)).sort((a, b) => {
+            const findRes = (sid) => Object.values(resourceState).find(r => r.isRunning && !r.isPaused && r.booking && (r.booking.serviceStaff === sid || r.booking.staffId === sid || r.booking.staffId2 === sid || r.booking.staffId3 === sid || r.booking.staffId4 === sid || r.booking.staffId5 === sid || r.booking.staffId6 === sid));
+            const resA = findRes(a.id); const resB = findRes(b.id);
+            const timeA = resA?.startTime ? new Date(resA.startTime).getTime() : 0; const timeB = resB?.startTime ? new Date(resB.startTime).getTime() : 0;
+            return timeA !== timeB ? timeA - timeB : window.sortIdAsc(a, b);
+        });
+    }, [safeStaffList, isActuallyBusy, resourceState]);
 
-        return window.sortIdAsc(a, b);
-    });
+    const readyStaff = useMemo(() => {
+        return safeStaffList.filter(s => {
+            if (isActuallyBusy(s.id)) return false;
+            const st = getStatus(s.id);
+            return st === 'READY' || st === 'EAT' || st === 'OUT_SHORT';
+        }).sort((a, b) => {
+            const timeA = statusData[a.id]?.stafftime || Number.MAX_SAFE_INTEGER;
+            const timeB = statusData[b.id]?.stafftime || Number.MAX_SAFE_INTEGER;
+            if (timeA !== timeB) return timeA - timeB;
+            return window.sortIdAsc(a, b);
+        });
+    }, [safeStaffList, isActuallyBusy, getStatus, statusData]);
 
-    const readyQueue = readyStaff.filter(s => getStatus(s.id) === 'READY').map(s => s.id);
+    const readyQueue = useMemo(() => {
+        return readyStaff.filter(s => getStatus(s.id) === 'READY').map(s => s.id);
+    }, [readyStaff, getStatus]);
+
     const safeBookings = Array.isArray(bookings) ? bookings : [];
 
     const todaysBookings = useMemo(() => {
@@ -2347,7 +2593,7 @@ const App = () => {
         <div className="min-h-screen flex flex-col bg-slate-50">
             <header className={`text-white p-3 shadow-md flex justify-between items-center sticky top-0 z-50 transition-colors ${quotaError ? 'bg-red-800' : 'bg-[#1e1b4b]'}`}>
                 <div className="flex items-center gap-3">
-                    <span className="bg-emerald-500 text-white px-2 py-1 rounded font-black text-sm shadow-sm">V108.19</span>
+                    <span className="bg-emerald-500 text-white px-2 py-1 rounded font-black text-sm shadow-sm">V108.26</span>
                     <span className="font-bold hidden md:inline tracking-wider">XinWuChan</span>
                     <div className="flex items-center gap-2 bg-white/10 rounded px-2 py-1 border border-white/20">
                         <button onClick={() => { const d = new Date(viewDate); d.setDate(d.getDate() - 1); setViewDate(d.toISOString().split('T')[0]) }} className="text-white hover:text-amber-400 font-bold px-2">❯</button>
@@ -2543,16 +2789,20 @@ const App = () => {
                 </div>
             )}
 
+            {/* ---> [V108.26] TRUYỀN DỮ LIỆU TÍNH TOÁN CHO MODAL <--- */}
             {controlCenterData && BookingControlModal && (
                 <BookingControlModal
                     isOpen={true}
                     onClose={() => setControlCenterData(null)}
                     onAction={handleControlAction}
                     booking={controlCenterData.booking}
+                    meta={controlCenterData.meta}
                     liveData={controlCenterData.liveState}
                     contextResourceId={controlCenterData.resourceId}
                     staffList={staffList}
                     statusData={statusData}
+                    timelineData={timelineData} // [NEW] Dữ liệu lịch trình
+                    resourceState={resourceState} // [NEW] Trạng thái hiện tại
                 />
             )}
         </div>

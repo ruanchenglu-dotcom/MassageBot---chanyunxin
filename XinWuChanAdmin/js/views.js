@@ -1,16 +1,15 @@
 /**
  * ============================================================================
  * FILE: js/views.js
- * PHIÊN BẢN: V108.16 (FEATURE: DYNAMIC PRICING INTEGRATION)
+ * PHIÊN BẢN: V108.26 (UI/UX: FLOW SYNC & MANUAL LOCATION SELECTION)
  * ============================================================================
- * CHANGE LOG V108.16:
- * - [FEATURE]: Bổ sung Dynamic Pricing Shims (window.getPrice, window.getOilPrice).
- * Đọc trực tiếp dữ liệu giá từ Google Sheets (Menu) để cung cấp cho toàn bộ UI.
- * - [FEATURE]: Cập nhật ReportView ưu tiên sử dụng `b.price` để báo cáo doanh thu
- * động chính xác.
- * * CHANGE LOG V108.15:
- * - [UI UPGRADE]: Khóa cứng nút "轉場" (Transfer) đối với dịch vụ Combo ở ResourceCard. 
- * Thay bằng nút "禁止轉場" (Cấm chuyển) kèm cảnh báo. 
+ * CHANGE LOG V108.26:
+ * - [FEATURE]: Bổ sung 2 ô chọn vị trí (Giường/Ghế) thủ công cho Phase 1 & Phase 2 trong BookingControlModal.
+ * - [LOGIC]: Tự động lọc danh sách giường/ghế trống theo thời gian thực (Real-time availability check) dựa trên timelineData.
+ * - [UI/UX]: Thêm Dropdown chọn vị trí tại màn hình điều chỉnh Combo.
+ * * CHANGE LOG V108.25:
+ * - [BUGFIX]: Cập nhật hàm `handleOpenControl` trong TimelineView để truyền tham số `meta`.
+ * - [UI/UX]: Thêm nút thao tác nhanh (Quick Action) "自動依座位修正流程".
  */
 
 const { useState, useEffect, useMemo, useRef } = React;
@@ -98,37 +97,35 @@ const getCleanServiceName = (rawName) => {
 };
 window.getCleanServiceName = getCleanServiceName;
 
-// ============================================================================
-// [V108.16] DYNAMIC PRICING SHIMS (BỘ LỌC GIÁ ĐỘNG TOÀN CỤC)
-// Cung cấp giá cho BillingModal và các module khác không nằm trong file này
-// ============================================================================
 window.getPrice = (serviceName) => {
     const cleanName = getCleanServiceName(serviceName);
     if (window.DYNAMIC_PRICES_MAP) {
-        // Tìm kiếm theo tên dịch vụ trong bảng giá động
         const found = Object.values(window.DYNAMIC_PRICES_MAP).find(s => s.name === cleanName);
         if (found && typeof found.price === 'number') {
             return found.price;
         }
     }
-    return 0; // Fallback an toàn
+    return 0;
 };
 
 window.getOilPrice = (isOilFlagOrString) => {
     let isOil = false;
     if (typeof isOilFlagOrString === 'boolean') isOil = isOilFlagOrString;
     else if (typeof isOilFlagOrString === 'string' && (isOilFlagOrString.includes('油') || isOilFlagOrString.includes('Oil'))) isOil = true;
-    return isOil ? 200 : 0; // Phụ phí tinh dầu mặc định $200
+    return isOil ? 200 : 0;
 };
 
 
 // ============================================================================
 // 0. BOOKING CONTROL MODAL (SUPER MODAL)
 // ============================================================================
-const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveData, contextResourceId, staffList, statusData }) => {
+// [V108.26] Bổ sung timelineData và resourceState vào tham số
+const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveData, contextResourceId, staffList, statusData, timelineData, resourceState }) => {
     if (!isOpen || !booking) return null;
 
-    const totalDuration = booking.duration || 60;
+    const effectiveDuration = (booking.isTimeAnomaly && booking.standardDuration) ? booking.standardDuration : (booking.duration || 60);
+    const totalDuration = effectiveDuration;
+
     const initialP1 = meta && meta.phase1_duration !== undefined
         ? meta.phase1_duration
         : (booking.phase1_duration !== undefined ? booking.phase1_duration : totalDuration / 2);
@@ -138,6 +135,10 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
     const currentSequence = (meta && meta.sequence) ? meta.sequence : (booking.flow || 'FB');
     const [localFlow, setLocalFlow] = useState(currentSequence);
     const isBodyFirstLocal = localFlow === 'BF';
+
+    // [V108.26] State chọn vị trí thủ công
+    const [selectedPhase1Res, setSelectedPhase1Res] = useState('auto');
+    const [selectedPhase2Res, setSelectedPhase2Res] = useState('auto');
 
     const [timeLeft, setTimeLeft] = useState(0);
     const [percent, setPercent] = useState(0);
@@ -158,6 +159,12 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
     const [showPaymentOptions, setShowPaymentOptions] = useState(false);
     const [startTimeStr, setStartTimeStr] = useState("12:00");
 
+    const currentResType = contextResourceId ? contextResourceId.split('-')[0].toLowerCase() : null;
+    const isFlowConflict = currentResType && (
+        (localFlow === 'FB' && currentResType === 'bed') ||
+        (localFlow === 'BF' && currentResType === 'chair')
+    );
+
     const timeStrToMins = (timeStr) => {
         if (!timeStr) return 0;
         const [h, m] = timeStr.split(':').map(Number);
@@ -176,7 +183,7 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
         if (isOpen && booking) {
             const currentP1 = meta && meta.phase1_duration !== undefined
                 ? meta.phase1_duration
-                : (booking.phase1_duration !== undefined ? booking.phase1_duration : booking.duration / 2);
+                : (booking.phase1_duration !== undefined ? booking.phase1_duration : totalDuration / 2);
             setPhase1(currentP1);
 
             setSelectedService(booking.cleanServiceName || getCleanServiceName(booking.serviceName));
@@ -192,8 +199,16 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
 
             setShowPaymentOptions(false);
             setLocalFlow((meta && meta.sequence) ? meta.sequence : (booking.flow || 'FB'));
+
+            // [V108.26] Khởi tạo vị trí đã lưu nếu có
+            let initP1Res = 'auto';
+            let initP2Res = 'auto';
+            if (booking.phase1_res_idx) initP1Res = booking.phase1_res_idx.toLowerCase();
+            if (booking.phase2_res_idx) initP2Res = booking.phase2_res_idx.toLowerCase();
+            setSelectedPhase1Res(initP1Res);
+            setSelectedPhase2Res(initP2Res);
         }
-    }, [isOpen, booking, meta, liveData]);
+    }, [isOpen, booking, meta, liveData, totalDuration]);
 
     useEffect(() => {
         if (isOpen && booking) {
@@ -238,20 +253,80 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
     }, [liveData, totalDuration]);
 
     const phase2 = totalDuration - phase1;
-    const startMins = timeStrToMins(startTimeStr);
+    let startMins = timeStrToMins(startTimeStr);
+
+    // Xử lý logic qua ngày (nếu startMins < 8 sáng thì cộng thêm 1440 phút)
+    if (startMins < 480) startMins += 1440;
+
     const switchMins = startMins + phase1;
     const endMins = startMins + totalDuration;
+
+    // Hiển thị thì convert ngược lại chuẩn
     const switchTimeStr = minsToTimeStr(switchMins);
     const endTimeStr = minsToTimeStr(endMins);
+
+    // --- [V108.26] THUẬT TOÁN TÌM GIƯỜNG/GHẾ TRỐNG ---
+    const checkOverlap = (resId, checkStart, checkEnd, excludeRowId) => {
+        if (timelineData && timelineData[resId]) {
+            for (let slot of timelineData[resId]) {
+                if (String(slot.booking.rowId) !== String(excludeRowId)) {
+                    // Logic Overlap: Start A < End B VÀ Start B < End A
+                    if (checkStart < slot.end && slot.start < checkEnd) return true;
+                }
+            }
+        }
+        return false;
+    };
+
+    const availableP1Resources = useMemo(() => {
+        const type = isBodyFirstLocal ? 'bed' : 'chair';
+        const list = [];
+        for (let i = 1; i <= 6; i++) {
+            const resId = `${type}-${i}`;
+            const isOverlap = checkOverlap(resId, startMins, switchMins, booking?.rowId);
+            if (!isOverlap) list.push(resId);
+        }
+        return list;
+    }, [isBodyFirstLocal, startMins, switchMins, timelineData, booking?.rowId]);
+
+    const availableP2Resources = useMemo(() => {
+        const type = isBodyFirstLocal ? 'chair' : 'bed';
+        const p2Start = switchMins + 5; // Cổng chuyển tiếp 5 phút
+        const list = [];
+        for (let i = 1; i <= 6; i++) {
+            const resId = `${type}-${i}`;
+            const isOverlap = checkOverlap(resId, p2Start, endMins, booking?.rowId);
+            if (!isOverlap) list.push(resId);
+        }
+        return list;
+    }, [isBodyFirstLocal, switchMins, endMins, timelineData, booking?.rowId]);
+
+    // Reset lựa chọn về auto nếu do chỉnh giờ làm vị trí cũ bị mất
+    useEffect(() => {
+        if (selectedPhase1Res !== 'auto' && !availableP1Resources.includes(selectedPhase1Res)) {
+            setSelectedPhase1Res('auto');
+        }
+    }, [availableP1Resources, selectedPhase1Res]);
+
+    useEffect(() => {
+        if (selectedPhase2Res !== 'auto' && !availableP2Resources.includes(selectedPhase2Res)) {
+            setSelectedPhase2Res('auto');
+        }
+    }, [availableP2Resources, selectedPhase2Res]);
+    // ------------------------------------------------
 
     const handleStartTimeChange = (e) => setStartTimeStr(e.target.value);
     const handleSwitchTimeChange = (e) => {
         const newSwitchStr = e.target.value;
         if (!newSwitchStr) return;
         let newSwitchMins = timeStrToMins(newSwitchStr);
+        if (newSwitchMins < 480) newSwitchMins += 1440; // Xử lý qua ngày
+
         let diff = newSwitchMins - startMins;
-        while (diff < -720) diff += 1440;
-        while (diff > 720) diff -= 1440;
+        if (diff < 0 && (newSwitchMins + 1440) - startMins <= totalDuration) {
+            diff = (newSwitchMins + 1440) - startMins;
+        }
+
         let newPhase1 = diff;
         if (newPhase1 < 0) newPhase1 = 0;
         if (newPhase1 > totalDuration) newPhase1 = totalDuration;
@@ -278,7 +353,6 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
     const isPaused = liveData && liveData.isPaused;
     const isCombo = booking.category === 'COMBO' || (booking.serviceName && booking.serviceName.includes('Combo')) || (booking.serviceName && booking.serviceName.includes('套餐'));
     const isGroupBooking = (parseInt(booking.pax) || 1) > 1;
-
     const isSyncPending = booking && booking.isManualLocked;
 
     return (
@@ -314,12 +388,32 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                     </div>
                 </div>
 
+                {booking.isTimeAnomaly && (
+                    <div className="bg-orange-50/80 border border-orange-200 px-4 py-2 mx-6 mt-4 rounded-lg flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                            <i className="fas fa-exclamation-triangle text-orange-500"></i>
+                            <span className="text-orange-800 text-sm font-bold">時長異常 (Time Anomaly):</span>
+                            <span className="text-slate-600 text-sm">
+                                紀錄 <span className="line-through opacity-70">{booking.duration}分</span>
+                                <i className="fas fa-arrow-right mx-1 text-xs text-slate-400"></i>
+                                標準 <span className="font-bold text-red-500">{booking.standardDuration}分</span>
+                            </span>
+                        </div>
+                        <button
+                            onClick={() => triggerAction('FORCE_FIX_DURATION', { standardDuration: booking.standardDuration })}
+                            className="bg-orange-100 hover:bg-orange-500 hover:text-white text-orange-700 text-xs font-bold px-3 py-1.5 rounded shadow-sm transition-colors whitespace-nowrap border border-orange-200"
+                        >
+                            <i className="fas fa-wrench mr-1"></i>一鍵修復
+                        </button>
+                    </div>
+                )}
+
                 {/* 2. BODY CONTENT */}
                 <div className="p-6 overflow-y-auto custom-scrollbar space-y-6 bg-slate-50 flex-1">
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 relative">
 
-                            <label className="text-xs font-bold text-slate-400 uppercase mb-1 block">選擇服務師傅 (Actual Staff)</label>
+                            <label className="text-xs font-bold text-slate-400 uppercase mb-1 block">選擇服務師傅 (ACTUAL STAFF)</label>
                             <div className="flex items-center justify-between mb-4 relative">
                                 <div className="relative flex-1 mr-2 bg-slate-50 border border-slate-200 rounded-lg">
                                     <select
@@ -371,7 +465,7 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                                 </button>
                             </div>
 
-                            <label className="text-xs font-bold text-slate-400 uppercase mb-1 block">服務項目 (Service)</label>
+                            <label className="text-xs font-bold text-slate-400 uppercase mb-1 block">服務項目 (SERVICE)</label>
                             <div className="relative">
                                 <select
                                     value={selectedService}
@@ -402,34 +496,100 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                             <div className="z-10 text-center">
                                 <div className="text-xs text-slate-400 font-bold uppercase tracking-widest mb-1">剩餘時間 (REMAINING TIME)</div>
                                 <div className={`text-5xl font-mono font-bold tracking-tighter ${timeLeft < 5 && isRunning ? 'text-red-400 animate-pulse' : 'text-white'}`}>{timerString}</div>
-                                <div className="text-xs text-slate-400 mt-2 font-mono">總共 (TOTAL): {totalDuration} 分鐘</div>
+
+                                <div className="text-xs text-slate-400 mt-2 font-mono flex items-center justify-center gap-1">
+                                    總共 (TOTAL):
+                                    {booking.isTimeAnomaly ? (
+                                        <>
+                                            <span className="line-through opacity-50">{booking.duration}</span>
+                                            <span className="text-red-400 font-bold">{totalDuration}</span>
+                                        </>
+                                    ) : (
+                                        <span>{totalDuration}</span>
+                                    )}
+                                    分鐘
+                                </div>
                             </div>
                         </div>
                     </div>
 
                     {isCombo && (
-                        <div className="bg-white p-5 rounded-xl border border-indigo-100 shadow-sm transition-all">
+                        <div className={`bg-white p-5 rounded-xl border shadow-sm transition-all ${isFlowConflict ? 'border-red-400 shadow-red-100' : 'border-indigo-100'}`}>
+
+                            {isFlowConflict && (
+                                <div className="bg-red-50 border border-red-200 text-red-700 px-3 py-2 rounded-lg text-xs font-bold mb-3 flex flex-col gap-2">
+                                    <div className="flex items-start gap-2">
+                                        <i className="fas fa-exclamation-triangle mt-0.5 text-red-500 animate-pulse"></i>
+                                        <div>
+                                            ⚠️ 警告 (Warning)：目前選擇的流程 ({localFlow === 'FB' ? '先足後身' : '先身後足'}) 與客人實際座位 ({currentResType === 'bed' ? '床位' : '足部區'}) 不符！<br />
+                                            <span className="opacity-80 font-normal">請先在時間軸上移動客人至正確區域，或點擊下方按鈕自動修正。</span>
+                                        </div>
+                                    </div>
+                                    <button
+                                        onClick={(e) => {
+                                            e.preventDefault();
+                                            const correctFlow = currentResType === 'bed' ? 'BF' : 'FB';
+                                            setLocalFlow(correctFlow);
+                                            triggerAction('TOGGLE_SEQUENCE', { newFlow: correctFlow });
+                                        }}
+                                        className="bg-red-100 hover:bg-red-600 hover:text-white text-red-700 border border-red-200 py-1.5 px-3 rounded shadow-sm self-start transition-colors flex items-center"
+                                    >
+                                        <i className="fas fa-magic mr-1"></i> 自動依座位修正流程 (Auto Sync Flow)
+                                    </button>
+                                </div>
+                            )}
+
                             <div className="flex justify-between items-center mb-4">
                                 <h3 className="font-bold text-slate-700 flex items-center gap-2"><i className="fas fa-sliders-h text-indigo-500"></i> 套餐時間調整 (Combo Phase)</h3>
+
+                                {/* [V108.26] Bổ sung truyền payload vị trí thủ công */}
                                 <button
-                                    onClick={() => triggerAction('UPDATE_PHASE', { phase1, startTimeStr, switchTimeStr })}
-                                    className="text-xs bg-indigo-50 text-indigo-700 px-3 py-1.5 rounded font-bold hover:bg-indigo-100 border border-indigo-300 shadow-sm transition-all"
+                                    onClick={() => triggerAction('UPDATE_PHASE', {
+                                        phase1,
+                                        startTimeStr,
+                                        switchTimeStr,
+                                        phase1_res_idx: selectedPhase1Res === 'auto' ? null : selectedPhase1Res.toUpperCase(),
+                                        phase2_res_idx: selectedPhase2Res === 'auto' ? null : selectedPhase2Res.toUpperCase()
+                                    })}
+                                    disabled={isFlowConflict}
+                                    className={`text-xs px-3 py-1.5 rounded font-bold border shadow-sm transition-all flex items-center ${isFlowConflict ? 'bg-gray-200 text-gray-400 border-gray-300 cursor-not-allowed' : 'bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border-indigo-300'}`}
                                 >
                                     <i className="fas fa-save mr-1"></i> 保存同步 (Save Sync)
                                 </button>
                             </div>
                             <div className="flex items-start justify-between gap-4">
-                                <div className="flex-1 relative">
-                                    <label className={`block text-xs font-bold mb-1 text-center transition-colors ${isBodyFirstLocal ? 'text-orange-600' : 'text-indigo-600'}`}>PHASE 1 ({isBodyFirstLocal ? '身' : '足'})</label>
+                                <div className="flex-1 relative flex flex-col items-center">
+                                    <label className={`block w-full text-xs font-bold mb-1 text-center transition-colors ${isBodyFirstLocal ? 'text-orange-600' : 'text-indigo-600'}`}>PHASE 1 ({isBodyFirstLocal ? '身' : '足'})</label>
                                     <input type="number" value={phase1} onChange={(e) => handleChangeP1(e.target.value)} className={`w-full text-center text-3xl font-black border-b-2 focus:outline-none bg-transparent transition-colors ${isBodyFirstLocal ? 'text-orange-900 border-orange-200 focus:border-orange-600' : 'text-indigo-900 border-indigo-200 focus:border-indigo-600'}`} />
                                     <span className="block text-center text-xs text-gray-400 mt-1">分鐘 (Minutes)</span>
-                                    <div className="mt-3 flex flex-col items-center animate-in fade-in">
-                                        <div className={`flex items-center gap-1.5 px-2 py-1 rounded-md border shadow-inner transition-colors ${isBodyFirstLocal ? 'bg-orange-50 border-orange-200' : 'bg-indigo-50 border-indigo-200'}`}>
+
+                                    <div className="mt-3 flex flex-col items-center animate-in fade-in w-full max-w-[140px]">
+                                        <div className={`flex w-full justify-center items-center gap-1.5 px-2 py-1 rounded-md border shadow-inner transition-colors ${isBodyFirstLocal ? 'bg-orange-50 border-orange-200' : 'bg-indigo-50 border-indigo-200'}`}>
                                             <i className={`fas fa-play-circle text-xs ${isBodyFirstLocal ? 'text-orange-500' : 'text-indigo-500'}`}></i>
                                             <CustomTimePicker24h value={startTimeStr} onChange={handleStartTimeChange} />
                                         </div>
                                     </div>
+
+                                    {/* [V108.26] Dropdown Chọn Vị Trí Phase 1 */}
+                                    <div className="mt-2 w-full max-w-[140px] relative">
+                                        <select
+                                            value={selectedPhase1Res}
+                                            onChange={(e) => setSelectedPhase1Res(e.target.value)}
+                                            className={`w-full text-xs font-bold appearance-none bg-slate-50 border border-slate-200 rounded-md py-1.5 pl-2 pr-6 focus:outline-none focus:border-indigo-400 cursor-pointer text-slate-700 shadow-sm ${selectedPhase1Res !== 'auto' ? 'border-indigo-300 bg-indigo-50' : ''}`}
+                                        >
+                                            <option value="auto">🤖 自動安排 (Auto)</option>
+                                            {availableP1Resources.map(resId => (
+                                                <option key={resId} value={resId}>
+                                                    {resId.replace('bed-', '🛏️ 床 ').replace('chair-', '👣 足 ')}
+                                                </option>
+                                            ))}
+                                        </select>
+                                        <div className="pointer-events-none absolute right-2 top-1/2 transform -translate-y-1/2 text-gray-400 text-[10px]">
+                                            <i className="fas fa-chevron-down"></i>
+                                        </div>
+                                    </div>
                                 </div>
+
                                 <div className="shrink-0 flex flex-col items-center justify-start pt-2">
                                     <button
                                         onClick={() => {
@@ -454,14 +614,35 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                                         </div>
                                     </div>
                                 </div>
-                                <div className="flex-1 relative">
-                                    <label className={`block text-xs font-bold mb-1 text-center transition-colors ${isBodyFirstLocal ? 'text-indigo-600' : 'text-orange-600'}`}>PHASE 2 ({isBodyFirstLocal ? '足' : '身'})</label>
+
+                                <div className="flex-1 relative flex flex-col items-center">
+                                    <label className={`block w-full text-xs font-bold mb-1 text-center transition-colors ${isBodyFirstLocal ? 'text-indigo-600' : 'text-orange-600'}`}>PHASE 2 ({isBodyFirstLocal ? '足' : '身'})</label>
                                     <input type="number" value={phase2} onChange={(e) => handleChangeP2(e.target.value)} className={`w-full text-center text-3xl font-black border-b-2 focus:outline-none bg-transparent transition-colors ${isBodyFirstLocal ? 'text-indigo-900 border-indigo-200 focus:border-indigo-600' : 'text-orange-900 border-orange-200 focus:border-orange-600'}`} />
                                     <span className="block text-center text-xs text-gray-400 mt-1">分鐘 (Minutes)</span>
-                                    <div className="mt-3 flex flex-col items-center animate-in fade-in">
-                                        <div className={`flex items-center gap-1.5 px-2 py-1 rounded-md border shadow-inner opacity-80 cursor-not-allowed transition-colors ${isBodyFirstLocal ? 'bg-indigo-50 border-indigo-200' : 'bg-orange-50 border-orange-200'}`}>
+
+                                    <div className="mt-3 flex flex-col items-center animate-in fade-in w-full max-w-[140px]">
+                                        <div className={`flex w-full justify-center items-center gap-1.5 px-2 py-1 rounded-md border shadow-inner opacity-80 cursor-not-allowed transition-colors ${isBodyFirstLocal ? 'bg-indigo-50 border-indigo-200' : 'bg-orange-50 border-orange-200'}`}>
                                             <i className={`fas fa-flag-checkered text-xs ${isBodyFirstLocal ? 'text-indigo-500' : 'text-orange-500'}`}></i>
                                             <CustomTimePicker24h value={endTimeStr} disabled={true} />
+                                        </div>
+                                    </div>
+
+                                    {/* [V108.26] Dropdown Chọn Vị Trí Phase 2 */}
+                                    <div className="mt-2 w-full max-w-[140px] relative">
+                                        <select
+                                            value={selectedPhase2Res}
+                                            onChange={(e) => setSelectedPhase2Res(e.target.value)}
+                                            className={`w-full text-xs font-bold appearance-none bg-slate-50 border border-slate-200 rounded-md py-1.5 pl-2 pr-6 focus:outline-none focus:border-indigo-400 cursor-pointer text-slate-700 shadow-sm ${selectedPhase2Res !== 'auto' ? 'border-indigo-300 bg-indigo-50' : ''}`}
+                                        >
+                                            <option value="auto">🤖 自動安排 (Auto)</option>
+                                            {availableP2Resources.map(resId => (
+                                                <option key={resId} value={resId}>
+                                                    {resId.replace('bed-', '🛏️ 床 ').replace('chair-', '👣 足 ')}
+                                                </option>
+                                            ))}
+                                        </select>
+                                        <div className="pointer-events-none absolute right-2 top-1/2 transform -translate-y-1/2 text-gray-400 text-[10px]">
+                                            <i className="fas fa-chevron-down"></i>
                                         </div>
                                     </div>
                                 </div>
@@ -595,9 +776,9 @@ const TimelineView = ({ timelineData, onEditPhase, liveStatusData, staffList, st
 
     const handleOpenControl = (booking, meta, resourceId) => {
         if (onOpenControlCenter) {
-            onOpenControlCenter(booking, resourceId);
+            onOpenControlCenter(booking, resourceId, meta);
         } else if (onEditPhase) {
-            onEditPhase('OPEN_CONTROL_CENTER', { currentBooking: booking, resourceId: resourceId });
+            onEditPhase('OPEN_CONTROL_CENTER', { currentBooking: booking, resourceId: resourceId, currentMeta: meta });
         }
     };
 
@@ -679,7 +860,6 @@ const TimelineView = ({ timelineData, onEditPhase, liveStatusData, staffList, st
                                         const label = getDisplayLabel(slot.booking);
                                         const endTimeStr = window.formatMinutesToTime(slot.end);
                                         const startTimeStr = window.formatMinutesToTime(slot.start);
-                                        const deadlineText = `⏳ ${duration}分 ➔ ${endTimeStr}`;
 
                                         const rawStatus = slot.booking?.status || '';
                                         const isStatusRunning = rawStatus.includes('Running') || rawStatus.includes('服務中') || rawStatus.includes('running');
@@ -691,14 +871,52 @@ const TimelineView = ({ timelineData, onEditPhase, liveStatusData, staffList, st
                                         const isSyncPending = slot.booking && slot.booking.isManualLocked;
                                         const isBodyFirst = slot.meta && slot.meta.sequence === 'BF';
 
+                                        const isTimeAnomaly = slot.booking?.isTimeAnomaly === true;
+                                        const anomalyDiff = slot.booking?.anomalyDiff || 0;
+
+                                        let isFlowConflict = false;
+                                        if (slot.meta && slot.meta.isCombo && slot.meta.sequence && slot.meta.phase) {
+                                            const expectedType = (slot.meta.sequence === 'FB')
+                                                ? (slot.meta.phase === 1 ? 'chair' : 'bed')
+                                                : (slot.meta.phase === 1 ? 'bed' : 'chair');
+                                            if (row.type !== expectedType) isFlowConflict = true;
+                                        } else if (slot.booking && slot.booking.forceResourceType) {
+                                            const expectedType = slot.booking.forceResourceType === 'CHAIR' ? 'chair' : 'bed';
+                                            if (row.type !== expectedType) isFlowConflict = true;
+                                        }
+
                                         let specialBorderClass = "border border-black/5";
-                                        if (isRunning) specialBorderClass = "border-2 border-red-600 shadow-md shadow-red-200 z-20";
+
+                                        if (isRunning) specialBorderClass = "border border-slate-300 shadow-md shadow-slate-200 z-20";
                                         else if (isBodyFirst) specialBorderClass = "border-l-[6px] border-l-indigo-700 bf-indicator shadow-indigo-200";
 
+                                        if (isTimeAnomaly) {
+                                            if (!isRunning) {
+                                                specialBorderClass = "border-2 border-dashed border-orange-500 shadow-md shadow-orange-200 z-20";
+                                            } else {
+                                                specialBorderClass += " border-orange-400 border-dashed";
+                                            }
+                                        }
+
+                                        if (isFlowConflict) {
+                                            specialBorderClass = "border-[3px] border-red-500 shadow-lg shadow-red-300 animate-pulse z-30";
+                                        }
+
                                         let comboIcon = "";
+                                        let phaseLabelStr = "";
                                         if (slot.meta && slot.meta.isCombo) {
-                                            if (slot.meta.phase === 1) comboIcon = "❶";
-                                            else if (slot.meta.phase === 2) comboIcon = "❷";
+                                            if (slot.meta.phase === 1) { comboIcon = "❶"; phaseLabelStr = "第一階段"; }
+                                            else if (slot.meta.phase === 2) { comboIcon = "❷"; phaseLabelStr = "第二階段"; }
+                                        }
+
+                                        let deadlineText = `⏳ ${duration}分 ➔ ${endTimeStr}`;
+
+                                        if (isTimeAnomaly) {
+                                            deadlineText = `⏳ ${duration}分 (⚠️異常 +${anomalyDiff}分) ➔ ${endTimeStr}`;
+                                        }
+
+                                        if (slot.meta && slot.meta.isCombo) {
+                                            deadlineText = `⏳ ${duration}分 (${phaseLabelStr}) ➔ ${endTimeStr}`;
                                         }
 
                                         const isComboPhase2 = slot.meta && slot.meta.isCombo && slot.meta.phase === 2;
@@ -708,17 +926,19 @@ const TimelineView = ({ timelineData, onEditPhase, liveStatusData, staffList, st
                                             <div key={idx}
                                                 className={`absolute top-1 bottom-1 rounded px-2 flex flex-col justify-center text-xs overflow-hidden shadow-sm z-10 cursor-pointer transition-all timeline-block group ${bgClass} ${specialBorderClass}`}
                                                 style={{ left: `${leftPos}px`, width: `${width}px` }}
-                                                title={`${slot.booking.serviceName}\n${isRunning ? '🔥 進行中 (Running)' : ''}${isSyncPending && !isRunning ? '\n⏳ 同步中 (Syncing...)' : ''}`}
+                                                title={`${slot.booking.serviceName}\n${isRunning ? '🔥 進行中 (Running)' : ''}${isSyncPending && !isRunning ? '\n⏳ 同步中 (Syncing...)' : ''}${isTimeAnomaly ? '\n⚠️ 時長異常 (Time Anomaly)' : ''}${isFlowConflict ? '\n❌ 位置與流程衝突 (Location/Flow Conflict)' : ''}`}
                                             >
                                                 <div className="font-bold truncate text-[11px] leading-tight flex justify-between items-center">
                                                     <span className="flex items-center gap-1">
                                                         {label} {comboIcon}
                                                         {isBodyFirst && <span className="text-[10px] bg-indigo-600 text-white px-1 rounded-sm animate-pulse" title="Body First">🔀BF</span>}
                                                         {isSyncPending && !isRunning && <span className="text-[10px] text-blue-500 animate-spin" title="Syncing..."><i className="fas fa-sync-alt"></i></span>}
+
+                                                        {isFlowConflict && <span className="text-red-600 ml-0.5 animate-bounce" title="位置與流程衝突 (Location/Flow Conflict)"><i className="fas fa-exclamation-triangle"></i></span>}
                                                     </span>
                                                 </div>
-                                                <div className={`text-[10px] font-mono font-bold text-slate-700 bg-white/40 rounded px-1 mt-0.5 truncate border border-black/5 ${isRunning ? 'bg-red-50 text-red-700 border-red-100' : ''}`}>
-                                                    {slot.meta && slot.meta.isCombo ? (slot.meta.phase === 1 ? deadlineText : `🏁 ${startTimeStr} ➔ (${duration}分)`) : deadlineText}
+                                                <div className={`text-[10px] font-mono font-bold text-slate-700 bg-white/40 rounded px-1 mt-0.5 truncate border border-black/5 ${isRunning ? 'bg-red-50 text-red-700 border-red-100' : ''} ${isTimeAnomaly ? 'bg-orange-100 text-orange-800 border-orange-300 animate-pulse' : ''} ${isFlowConflict ? 'bg-red-100 text-red-800' : ''}`}>
+                                                    {slot.meta && slot.meta.isCombo ? (slot.meta.phase === 1 ? deadlineText : `🏁 ${startTimeStr} ➔ ${deadlineText}`) : deadlineText}
                                                 </div>
                                                 <div className="truncate opacity-75 text-[9px] flex items-center gap-1 mt-0.5">
                                                     {(slot.booking.isOil || (slot.booking.serviceName && slot.booking.serviceName.includes('油'))) && <span title="Oil">💧</span>}
@@ -920,7 +1140,6 @@ const ReportView = ({ bookings }) => {
 
                 if (isItemDone || (isAllDone && i < pax)) {
                     guests++;
-                    // [V108.16] Lấy giá động từ Backend (nếu có b.price), nếu không fallback về tính toán tĩnh
                     if (b.price !== undefined && b.price > 0 && pax === 1) {
                         revenue += b.price;
                     } else {
@@ -973,7 +1192,6 @@ const ReportView = ({ bookings }) => {
                                     const isAllDone = (b.status && (b.status.includes('完成') || b.status.includes('Done') || b.status.includes('✅')));
 
                                     if (isSingleDone || (isAllDone && k < pax)) {
-                                        // [V108.16] Logic giá động
                                         let singlePrice = 0;
                                         if (b.price !== undefined && b.price > 0 && pax === 1) {
                                             singlePrice = b.price;
@@ -1287,7 +1505,6 @@ const ResourceCard = ({ id, type, index, data, busyStaffIds, onAction, onSelect,
                             {data.isPaused ? '▶ 繼續 (Resume)' : '⏸ 暫停 (Pause)'}
                         </button>
 
-                        {/* --- [V108.15]: KHÓA NÚT CHUYỂN KHU VỰC ĐỂ CHỐNG LỖI LOGIC COMBO --- */}
                         {isCombo ? (
                             <button
                                 onClick={(e) => {
@@ -1299,7 +1516,6 @@ const ResourceCard = ({ id, type, index, data, busyStaffIds, onAction, onSelect,
                                 <i className="fas fa-ban mr-1"></i> 禁止轉場
                             </button>
                         ) : (<div className="hidden"></div>)}
-                        {/* ------------------------------------------------------------- */}
 
                         <button onClick={(e) => { e.stopPropagation(); onAction(id, 'finish'); }} className="py-1.5 rounded font-bold text-white bg-blue-600 hover:bg-blue-700 text-xs shadow flex items-center justify-center transform active:scale-95"><i className="fas fa-check-square mr-1"></i> 結帳</button>
                         <button onClick={(e) => { e.stopPropagation(); onAction(id, 'cancel_midway'); }} className="py-1.5 rounded font-bold text-white bg-red-500 hover:bg-red-600 text-xs shadow flex items-center justify-center transform active:scale-95"><i className="fas fa-times-circle mr-1"></i> 棄单</button>
