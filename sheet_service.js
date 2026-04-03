@@ -1,8 +1,11 @@
 /**
  * =================================================================================================
- * MODULE: SHEET SERVICE (DATA LAYER) - REFACTORED V5.7
+ * MODULE: SHEET SERVICE (DATA LAYER) - REFACTORED V5.8
  * PROJECT: XINWUCHAN MASSAGE BOT
  * DESCRIPTION: Handles Google Sheets interactions. 
+ * * * * * UPDATE V5.8 (RESOURCE DATA SYNC):
+ * + [FIX] Gia cố ghi dữ liệu vào Cột AD (resource_type) bằng cách ép kiểu String in hoa.
+ * + [FIX] Đồng bộ chuẩn xác cờ `isManualLocked` (FALSE) cho Cột AE từ luồng tự động của Bot.
  * * * * * UPDATE V5.7:
  * + [FEATURE] Củng cố đồng bộ dữ liệu Vị trí thủ công (Manual Resource Selection) cho Combo.
  * + Đảm bảo map chính xác Cột AB và AC vào `phase1_res_idx` và `phase2_res_idx` để App.js hiểu.
@@ -147,9 +150,14 @@ function smartFindServiceCode(inputName) {
 }
 
 function resolveStrictLockState(explicitLock, hasManualPhase, currentStatus = "FALSE") {
+    // Ưu tiên cao nhất: Lệnh lock/unlock rõ ràng từ object ghi
     if (explicitLock === true) return "TRUE";
     if (explicitLock === false) return "FALSE";
+
+    // Nếu không có lệnh rõ ràng, check xem có chỉnh thời gian thủ công không
     if (hasManualPhase === true) return "TRUE";
+
+    // Mặc định giữ nguyên trạng thái cũ
     if (isTrueString(currentStatus)) return "TRUE";
     return "FALSE";
 }
@@ -284,7 +292,6 @@ async function syncData() {
                     phase2_duration: safeParseInt(row[25], null),
                     isManualLocked: isTrueString(row[30]),
                     flow: row[26],
-                    // [V5.7 NÂNG CẤP]: Map trực tiếp vào đúng key phase1_res_idx để App.js dùng
                     phase1_res_idx: row[27] || null,
                     phase2_res_idx: row[28] || null,
                     phase1_resource: row[27],
@@ -485,15 +492,20 @@ async function ghiVaoSheet(data, proposedUpdates = []) {
             if (guestDetail) {
                 r1 = guestDetail.phase1_res_idx || guestDetail.phase1Resource || guestDetail.phase1_resource;
                 r2 = guestDetail.phase2_res_idx || guestDetail.phase2Resource || guestDetail.phase2_resource;
-                rType = guestDetail.resourceType || guestDetail.resource_type;
+                rType = guestDetail.resource_type || guestDetail.resourceType;
             }
-            // [V5.7 NÂNG CẤP]: Bổ sung data.phase1_res_idx để nhận diện đúng key từ frontend mới
+            // [V5.8 NÂNG CẤP]: Đảm bảo nhận chuẩn xác dữ liệu
             if (!r1) r1 = data.phase1_res_idx || data.phase1Resource || data.phase1_resource;
             if (!r2) r2 = data.phase2_res_idx || data.phase2Resource || data.phase2_resource;
-            if (!rType) rType = data.resourceType || data.resource_type;
-            row[27] = r1 || ""; row[28] = r2 || ""; row[29] = rType || "";
+            if (!rType) rType = data.resource_type || data.resourceType;
+
+            row[27] = r1 || "";
+            row[28] = r2 || "";
+            // [V5.8] Gia cố ghi cột AD (resource_type) bằng cách ép kiểu chuỗi in hoa
+            row[29] = rType ? String(rType).toUpperCase() : "";
 
             const hasManualPhase = (p1 !== null && p1 !== undefined && p1 !== "");
+            // [V5.8] Hàm này sẽ trả về "FALSE" nếu index.js truyền vào data.isManualLocked = false
             const finalLockVal = resolveStrictLockState(data.isManualLocked, hasManualPhase, "FALSE");
             row[30] = finalLockVal;
 
@@ -571,9 +583,8 @@ async function updateBookingDetails(body) {
     const flowVal = body.flow || body.flow_code;
     if (flowVal !== undefined) await updateCell('AA', flowVal);
 
-    // --- [V5.7 NÂNG CẤP] BẮT TỌA ĐỘ VỊ TRÍ THỦ CÔNG ---
+    // --- BẮT TỌA ĐỘ VỊ TRÍ THỦ CÔNG ---
     let phase1Res = body.phase1_res_idx !== undefined ? body.phase1_res_idx : (body.phase1_resource !== undefined ? body.phase1_resource : body.phase1Resource);
-    // Nếu Frontend không gửi phase1_res_idx (ví dụ Single service), thử bắt tọa độ từ current_resource_id hoặc location.
     if (phase1Res === undefined && (body.location !== undefined || body.current_resource_id !== undefined)) {
         phase1Res = body.location !== undefined ? body.location : body.current_resource_id;
     }
@@ -583,7 +594,7 @@ async function updateBookingDetails(body) {
     if (phase2Res !== undefined) await updateCell('AC', phase2Res);
 
     const resourceType = body.resource_type !== undefined ? body.resource_type : body.resourceType;
-    if (resourceType !== undefined) await updateCell('AD', resourceType);
+    if (resourceType !== undefined) await updateCell('AD', resourceType ? String(resourceType).toUpperCase() : "");
     // ------------------------------------------------
 
     let bookingData = STATE.cachedBookings.find(b => b.rowId == rowId);

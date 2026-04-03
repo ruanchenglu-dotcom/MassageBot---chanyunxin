@@ -1,11 +1,12 @@
 /**
  * =================================================================================================
  * PROJECT: XINWUCHAN MASSAGE BOT (BACKEND SERVER - MAIN ENTRY)
- * VERSION: V125-INLINE-EDIT-UPDATE (Thêm API chỉnh sửa trực tiếp)
+ * VERSION: V126-RESOURCE-SYNC (Nâng cấp đồng bộ Tọa độ Vị trí & Khóa thủ công)
  * DESCRIPTION: MAIN CONTROLLER & ROUTER
  * * UPDATES IN THIS VERSION:
- * 1. Thêm API /api/inline-update-booking hỗ trợ tính năng Inline Editing từ Frontend.
- * 2. Giữ nguyên toàn bộ logic StaffBot, CustomerBot và ResourceCore.
+ * 1. [FIX] Khớp nối `phase1_res_idx`, `phase2_res_idx` từ ResourceCore vào `guestDetails`.
+ * 2. [FEATURE] Tự động suy luận `resource_type` (CHAIR/BED/COMBO) ghi xuống Sheet.
+ * 3. [FEATURE] Đặt mặc định `isManualLocked: false` cho các lịch do Bot tự động xếp.
  * * AUTHOR: AI ASSISTANT & USER
  * =================================================================================================
  */
@@ -376,7 +377,8 @@ app.post('/api/admin-booking', async (req, res) => {
                             phase2_duration: data.phase2_duration,
                             // *** LẤY VỊ TRÍ TỪ ENGINE ***
                             phase1_res_idx: optimalDetail.phase1_res_idx,
-                            phase2_res_idx: optimalDetail.phase2_res_idx
+                            phase2_res_idx: optimalDetail.phase2_res_idx,
+                            resource_type: optimalFlow === 'FOOTSINGLE' ? 'CHAIR' : (optimalFlow === 'BODYSINGLE' ? 'BED' : 'COMBO')
                         });
                     } else {
                         // Nếu đã có object (ví dụ từ frontend), cập nhật thêm vị trí vào đó
@@ -384,6 +386,9 @@ app.post('/api/admin-booking', async (req, res) => {
                             data.guestDetails[0].phase1_res_idx = optimalDetail.phase1_res_idx;
                             data.guestDetails[0].phase2_res_idx = optimalDetail.phase2_res_idx;
                             if (!data.guestDetails[0].flow) data.guestDetails[0].flow = optimalFlow;
+                            if (!data.guestDetails[0].resource_type) {
+                                data.guestDetails[0].resource_type = optimalFlow === 'FOOTSINGLE' ? 'CHAIR' : (optimalFlow === 'BODYSINGLE' ? 'BED' : 'COMBO');
+                            }
                         }
                     }
                 }
@@ -397,7 +402,7 @@ app.post('/api/admin-booking', async (req, res) => {
         ngayDen: data.ngayDen, gioDen: data.gioDen, dichVu: data.dichVu, nhanVien: data.nhanVien,
         userId: 'ADMIN_WEB', sdt: data.sdt || '現場客', hoTen: data.hoTen || '現場客',
         trangThai: '已預約', pax: data.pax || 1, isOil: data.isOil || false,
-        guestDetails: data.guestDetails, // Đã bao gồm phase1_res_idx
+        guestDetails: data.guestDetails, // Đã bao gồm phase1_res_idx, resource_type
         phase1_duration: data.phase1_duration, phase2_duration: data.phase2_duration,
         isManualLocked: data.isManualLocked, flow: data.flow, serviceCode: data.serviceCode
     });
@@ -682,14 +687,21 @@ async function handleEvent(event) {
             const p1 = coreDetail ? (coreDetail.phase1_duration !== undefined ? coreDetail.phase1_duration : coreDetail.phase1) : null;
             const p2 = coreDetail ? (coreDetail.phase2_duration !== undefined ? coreDetail.phase2_duration : coreDetail.phase2) : null;
 
+            // Xác định resource_type (Loại tài nguyên)
+            let resType = '';
+            if (optimalFlow === 'FOOTSINGLE') resType = 'CHAIR';
+            else if (optimalFlow === 'BODYSINGLE') resType = 'BED';
+            else resType = 'COMBO';
+
             guestDetails.push({
                 service: SERVICES[s.service].name,
                 staff: sId, isOil: s.isOil, flow: optimalFlow,
                 phase1_duration: p1, phase2_duration: p2,
                 serviceCode: s.service,
-                // [UPDATED] THÊM THÔNG TIN VỊ TRÍ VÀO BOOKING CỦA KHÁCH
+                // [UPDATED] THÊM THÔNG TIN VỊ TRÍ & LOẠI TÀI NGUYÊN VÀO BOOKING CỦA KHÁCH
                 phase1_res_idx: coreDetail ? coreDetail.phase1_res_idx : undefined,
-                phase2_res_idx: coreDetail ? coreDetail.phase2_res_idx : undefined
+                phase2_res_idx: coreDetail ? coreDetail.phase2_res_idx : undefined,
+                resource_type: resType
             });
         }
 
@@ -698,7 +710,9 @@ async function handleEvent(event) {
                 gioDen: s.time, ngayDen: finalDate, dichVu: SERVICES[s.service].name,
                 nhanVien: staffDisplay, userId: userId, sdt: sdt, hoTen: s.surname,
                 trangThai: '已預約', pax: s.pax, isOil: s.isOil,
-                guestDetails: guestDetails, serviceCode: s.service
+                guestDetails: guestDetails, serviceCode: s.service,
+                // [UPDATED] BÁO CHO SHEET BIẾT ĐÂY LÀ BOT ĐẶT (KHÔNG KHÓA THỦ CÔNG)
+                isManualLocked: false
             },
             checkResult.proposedUpdates
         );
@@ -726,4 +740,4 @@ setInterval(() => { SheetService.syncData(); }, 10000);
 app.get('/ping', (req, res) => { res.status(200).send('Pong!'); });
 
 const port = process.env.PORT || 3000;
-app.listen(port, () => { console.log(`XinWuChan Bot V125-INLINE-EDIT-UPDATE running on port ${port}`); });
+app.listen(port, () => { console.log(`XinWuChan Bot V126-RESOURCE-SYNC running on port ${port}`); });

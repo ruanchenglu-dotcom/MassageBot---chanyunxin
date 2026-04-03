@@ -1,15 +1,16 @@
 // TYPE: app.js
-// VERSION: V108.26 (FEATURE: MANUAL LOCATION SELECTION FOR COMBOS)
-// UPDATE: 2026-04-02
+// VERSION: V108.34 (FIX: BATCH START GHOST CARD & SILENT ABORT BUG)
+// UPDATE: 2026-04-03
 //
-// --- CHANGE LOG V108.26 ---
-// 1. [FEATURE]: Bổ sung truyền `timelineData` & `resourceState` vào BookingControlModal để hỗ trợ chọn vị trí thủ công (tránh kẹt lịch).
-// 2. [LOGIC]: Nâng cấp hàm `handleSaveComboTime` để ưu tiên vị trí người dùng chọn (Custom Resource). Chỉ dùng Auto-Assign khi người dùng chọn chế độ "Auto".
-// --- CHANGE LOG V108.25 ---
-// 1. [BUGFIX]: Đồng bộ state Flow giữa Auto-Scheduler và UI. Khi thuật toán ép luồng (BF/FB) cho nhóm khách (Couple), cập nhật trực tiếp biến flow vào bookingItem.
-// 2. [UI/UX]: Truyền tham số `meta` từ Timeline (chứa luồng thực tế) vào BookingControlModal để Modal hiển thị chính xác luồng đang chạy, khắc phục lỗi báo đỏ nhầm.
-// --- CHANGE LOG V108.24 ---
-// 1. [BUGFIX]: Khắc phục triệt để lỗi xung đột vị trí Combo. Khi bấm "Start", hệ thống sẽ ép luồng (FB/BF) tuân theo vị trí vật lý thực tế (Ghế/Giường) thay vì mù quáng theo cấu hình flow cũ.
+// --- CHANGE LOG V108.34 ---
+// 1. [FIX]: Sửa lỗi "Thẻ ma" (Ghost Card) khi ấn Start All cho nhóm khách nhưng không đủ kỹ thuật viên. 
+//           - Ngăn chặn hệ thống ghi đè state `isPreview` nếu không tìm được thợ.
+//           - Khách không có thợ sẽ được giữ nguyên ở danh sách chờ (Pending).
+// 2. [UI/UX]: Thêm lại cảnh báo thông minh khi có khách bị rớt lại trong nhóm (部分客人無法自動開始).
+// --- CHANGE LOG V108.30 ---
+// 1. [ALGORITHM]: Xóa bỏ Alert cảnh báo khi không đủ thợ trong chức năng Start All (toàn thể bắt đầu) theo yêu cầu.
+// --- CHANGE LOG V108.29 ---
+// 1. [ALGORITHM]: Thay đổi lõi phân bổ thợ (executeStart & executeBatchStart) sang phương pháp "Staff-Centric" (Nhân viên tìm Khách).
 
 const { useState, useEffect, useMemo, useRef, useCallback } = React;
 
@@ -38,7 +39,7 @@ const getServiceBlocks = (serviceName) => {
     return 2;
 };
 
-// --- [V108.20] HELPER: BÓC TÁCH THỜI GIAN CHUẨN TỪ TÊN DỊCH VỤ ---
+// --- HELPER: BÓC TÁCH THỜI GIAN CHUẨN TỪ TÊN DỊCH VỤ ---
 const extractStandardDuration = (serviceName) => {
     if (!serviceName) return null;
     const match = serviceName.match(/(190|180|130|120|100|90|70|60|50|45|40|30)/);
@@ -182,6 +183,31 @@ const getBookingSignature = (booking) => {
     const service = (booking.serviceName || "").substring(0, 3);
     return `${time}_${name}_${phone}`;
 };
+
+// --- [V108.29] HELPER: KIỂM TRA ĐỘ PHÙ HỢP CỦA NHÂN VIÊN VÀ KHÁCH ---
+const checkStaffCompatibility = (staff, booking, designatedStaffReq) => {
+    const reqStr = designatedStaffReq || '隨機';
+
+    // Nếu là chỉ định đích danh (Specific ID)
+    if (!['隨機', '男', '女', 'Oil', 'undefined', 'null', ''].includes(reqStr)) {
+        return staff.id === reqStr;
+    }
+
+    // Nếu là yêu cầu ngẫu nhiên kèm điều kiện Giới tính / Tinh dầu
+    const needsMale = reqStr.includes('男') || reqStr.includes('Male');
+    const needsFemale = reqStr.includes('女') || reqStr.includes('Female') || (booking && booking.isOil);
+
+    if (needsMale) {
+        return staff.gender === 'M' || staff.gender === '男';
+    }
+    if (needsFemale) {
+        return staff.gender === 'F' || staff.gender === '女';
+    }
+
+    // Nếu "隨機" (Không yêu cầu gì) -> Ai cũng được
+    return true;
+};
+
 
 // --- APP COMPONENT ---
 const App = () => {
@@ -402,7 +428,6 @@ const App = () => {
         try { await axios.post(endpoint, payload); } catch (e) { console.log("Universal send check (ignore):", e); }
     };
 
-    // --- [V108.20] HÀM ĐỒNG BỘ ÉP THỜI GIAN (FORCE FIX) ---
     const handleForceFixDuration = async (booking, standardDuration) => {
         if (!booking || !standardDuration) return;
         const rowId = String(booking.rowId);
@@ -594,9 +619,21 @@ const App = () => {
                 const isTimeAnomaly = !isAutoFixed && standardDur > 0 && finalDur > standardDur;
                 const anomalyDiff = isTimeAnomaly ? (finalDur - standardDur) : 0;
 
+                let serviceCode = targetB.serviceCode;
+                if (!serviceCode || serviceCode.trim() === '') {
+                    serviceCode = targetB.serviceName ? targetB.serviceName.replace(/\s*\([^)]*油推[^)]*\)/g, '').substring(0, 3).trim() : '---';
+                }
+
+                let displayStaff = targetB.serviceStaff || targetB.staffId || targetB.ServiceStaff || targetB.technician || '隨機';
+                if (!displayStaff || displayStaff === 'undefined' || displayStaff === 'null' || displayStaff === '') {
+                    displayStaff = '隨機';
+                }
+
                 return {
                     ...targetB,
                     cleanServiceName: cleanName,
+                    serviceCode: serviceCode,
+                    displayStaff: displayStaff,
                     isOil: targetB.isOil || (targetB.serviceName && targetB.serviceName.includes('油')),
                     duration: finalDur,
                     _needsAutoSyncDur: isAutoFixed,
@@ -762,7 +799,7 @@ const App = () => {
                             sequence: seq,
                             phase: determinedPhase,
                             flex: 0,
-                            targetId: determinedPhase === 1 && b.phase2_res_idx ? b.phase2_res_idx.toLowerCase() : null
+                            targetId: b.phase2_res_idx ? b.phase2_res_idx.toLowerCase() : null
                         };
                     }
 
@@ -817,36 +854,28 @@ const App = () => {
                         const p2Start = finishTimeMins + 5;
                         const p2End = p2Start + split.phase2;
 
-                        let finalTargetId = item.comboMeta.targetId;
-                        const targetType = key.includes('chair') ? 'bed' : 'chair';
+                        let finalTargetId = item.booking.phase2_res_idx ? item.booking.phase2_res_idx.toLowerCase() : null;
 
-                        if (!finalTargetId || (activeEndTimes[finalTargetId] && p2Start < activeEndTimes[finalTargetId])) {
-                            finalTargetId = MatrixHelper.findBestSlot(targetType, p2Start, p2End, timelineGrid, activeEndTimes);
-                        }
                         if (finalTargetId) {
                             addToGrid(finalTargetId, p2Start, p2End, item.booking, {
-                                isCombo: true, phase: 2, sequence: seq, originId: key, isPrediction: true, priority: 2,
-                                isRunning: true
+                                isCombo: true, phase: 2, sequence: seq, originId: key, isPrediction: false, priority: 2,
+                                isRunning: false
                             });
                         }
                     } else {
                         const startTime = new Date(item.startTime);
                         const p2StartMins = startTime.getHours() * 60 + startTime.getMinutes() + (startTime.getHours() < 8 ? 1440 : 0);
-
                         const p1End = p2StartMins - 5;
                         const p1Start = p1End - split.phase1;
 
-                        const targetType = key.includes('chair') ? 'bed' : 'chair';
+                        let reconstructedId = item.booking.phase1_res_idx ? item.booking.phase1_res_idx.toLowerCase() : null;
 
-                        let reconstructedId = MatrixHelper.findBestSlot(targetType, p1Start, p1End, timelineGrid, activeEndTimes);
-                        if (!reconstructedId) {
-                            reconstructedId = `${targetType}-1`;
+                        if (reconstructedId) {
+                            addToGrid(reconstructedId, p1Start, p1End, item.booking, {
+                                isCombo: true, phase: 1, sequence: seq, targetId: key, isPrediction: false, priority: 2, isPastReconstruct: true,
+                                isRunning: false
+                            });
                         }
-
-                        addToGrid(reconstructedId, p1Start, p1End, item.booking, {
-                            isCombo: true, phase: 1, sequence: seq, targetId: key, isPrediction: false, priority: 2, isPastReconstruct: true,
-                            isRunning: true
-                        });
                     }
                 }
             });
@@ -891,132 +920,36 @@ const App = () => {
             listSingles.forEach(b => {
                 if (activeRowIds.has(String(b.rowId))) return;
                 const originalStart = window.normalizeToTimelineMins(b.startTimeString.split(' ')[1]);
-                let type = 'chair';
-                if (b.forceResourceType) {
-                    type = b.forceResourceType === 'CHAIR' ? 'chair' : 'bed';
-                } else {
-                    type = b.type === 'CHAIR' ? 'chair' : 'bed';
-                }
+                let targetId = b.current_resource_id ? b.current_resource_id.toLowerCase() : (b.storedLocation ? b.storedLocation.toLowerCase() : null);
 
-                const targetPref = b.current_resource_id ? b.current_resource_id.toLowerCase() : (b.storedLocation || null);
-
-                let searchOffsets = [0]; for (let i = 1; i <= 120; i++) searchOffsets.push(i);
-                for (let delay of searchOffsets) {
-                    let tryStart = originalStart + delay;
-                    let tryEnd = tryStart + b.duration;
-                    const slotId = MatrixHelper.findBestSlot(type, tryStart, tryEnd, timelineGrid, activeEndTimes, targetPref);
-                    if (slotId) {
-                        addToGrid(slotId, tryStart, tryEnd, b, { isCombo: false, isPending: true, priority: 3, isRunning: b.isRunningStatus });
-                        break;
-                    }
+                if (targetId) {
+                    addToGrid(targetId, originalStart, originalStart + b.duration, b, { isCombo: false, isPending: true, priority: 3, isRunning: b.isRunningStatus });
                 }
             });
 
             listCombosGroups.forEach(group => {
                 const firstBooking = group[0];
                 const originalStart = window.normalizeToTimelineMins(firstBooking.startTimeString.split(' ')[1]);
-                const groupSize = group.length;
-                const masterNote = firstBooking.originalNote || "";
 
-                let coupleStrategyOverride = null;
-                const hasAnyExplicitFlowInData = group.some(g => g.flow === 'BF' || g.flow === 'FB');
-
-                if (!hasAnyExplicitFlowInData && groupSize === 2) {
-                    const explicitFlow1 = detectFlowFromNote(group[0].originalNote || masterNote, 0);
-                    const explicitFlow2 = detectFlowFromNote(group[1].originalNote || masterNote, 1);
-                    if (!explicitFlow1 && !explicitFlow2) {
-                        const cDur = firstBooking.duration || 100;
-                        const cSplit = getSmartSplit(firstBooking, cDur, true, 'FB');
-                        const scanOffsets = [0, 10, 20];
-                        for (let delay of scanOffsets) {
-                            const tStart = originalStart + delay;
-                            const tP1End = tStart + cSplit.phase1;
-                            const tP2Start = tP1End + 5;
-                            const tP2End = tP2Start + cSplit.phase2;
-                            const freeChairsP1 = MatrixHelper.countAvailableResources('chair', tStart, tP1End, timelineGrid, activeEndTimes);
-                            const freeBedsP2 = MatrixHelper.countAvailableResources('bed', tP2Start, tP2End, timelineGrid, activeEndTimes);
-                            if (freeChairsP1 >= 2 && freeBedsP2 >= 2) { coupleStrategyOverride = 'FB'; break; }
-                            const freeBedsP1 = MatrixHelper.countAvailableResources('bed', tStart, tP1End, timelineGrid, activeEndTimes);
-                            const freeChairsP2 = MatrixHelper.countAvailableResources('chair', tP2Start, tP2End, timelineGrid, activeEndTimes);
-                            if (freeBedsP1 >= 2 && freeChairsP2 >= 2) { coupleStrategyOverride = 'BF'; break; }
-                        }
-                    }
-                }
-
-                const idealNumBF = Math.ceil(groupSize / 2);
-
-                group.forEach((bookingItem, idx) => {
+                group.forEach((bookingItem) => {
                     if (bookingItem.forceResourceType) return;
                     if (activeRowIds.has(String(bookingItem.rowId))) return;
 
-                    const dataFlow = bookingItem.flow;
-                    const noteFlow = detectFlowFromNote(bookingItem.originalNote || masterNote, idx);
-                    let preferredSeq = null;
+                    let pref1 = bookingItem.phase1_res_idx ? bookingItem.phase1_res_idx.toLowerCase() : null;
+                    let pref2 = bookingItem.phase2_res_idx ? bookingItem.phase2_res_idx.toLowerCase() : null;
+                    const seq = bookingItem.flow || 'FB';
 
-                    if (dataFlow === 'BF' || dataFlow === 'FB') preferredSeq = dataFlow;
-                    else if (noteFlow) preferredSeq = noteFlow;
-                    else if (coupleStrategyOverride) preferredSeq = coupleStrategyOverride;
-                    else {
-                        if (groupSize >= 2) {
-                            if (idx < idealNumBF) preferredSeq = 'BF';
-                            else preferredSeq = 'FB';
-                        } else {
-                            preferredSeq = null;
+                    if (pref1 || pref2) {
+                        const split = getSmartSplit(bookingItem, bookingItem.duration, true, seq);
+                        const p1End = originalStart + split.phase1;
+                        const p2Start = p1End + 5;
+                        const p2End = p2Start + split.phase2;
+
+                        if (pref1) {
+                            addToGrid(pref1, originalStart, p1End, bookingItem, { isCombo: true, phase: 1, sequence: seq, targetId: pref2, isPending: true, priority: 3, isRunning: bookingItem.isRunningStatus });
                         }
-                    }
-
-                    let searchOffsets = [0]; for (let i = 1; i <= 120; i++) searchOffsets.push(i);
-                    for (let delay of searchOffsets) {
-                        let tryStart = originalStart + delay;
-                        const trySequence = (seq) => {
-                            const split = getSmartSplit(bookingItem, bookingItem.duration, true, seq);
-                            const p1End = tryStart + split.phase1;
-                            const p2Start = p1End + 5;
-                            const p2End = p2Start + split.phase2;
-                            const type1 = seq === 'FB' ? 'chair' : 'bed';
-                            const type2 = seq === 'FB' ? 'bed' : 'chair';
-
-                            let preferredSlotIndex;
-                            if (groupSize === 2) {
-                                if (coupleStrategyOverride) preferredSlotIndex = idx + 1;
-                                else preferredSlotIndex = 1;
-                            } else if (groupSize >= 4) {
-                                const normalizedIdx = idx % Math.ceil(groupSize / 2);
-                                preferredSlotIndex = normalizedIdx + 1;
-                            } else {
-                                preferredSlotIndex = idx + 1;
-                            }
-
-                            let pref1 = bookingItem.phase1_res_idx ? bookingItem.phase1_res_idx.toLowerCase() : null;
-                            let pref2 = bookingItem.phase2_res_idx ? bookingItem.phase2_res_idx.toLowerCase() : null;
-                            const targetPref = bookingItem.storedLocation || null;
-
-                            if (!pref1 && targetPref && targetPref.startsWith(type1)) pref1 = targetPref;
-                            if (!pref2 && targetPref && targetPref.startsWith(type2)) pref2 = targetPref;
-
-                            const s1 = MatrixHelper.findBestSlot(type1, tryStart, p1End, timelineGrid, activeEndTimes, pref1 || preferredSlotIndex);
-                            const s2 = MatrixHelper.findBestSlot(type2, p2Start, p2End, timelineGrid, activeEndTimes, pref2 || preferredSlotIndex);
-
-                            if (s1 && s2) {
-                                addToGrid(s1, tryStart, p1End, bookingItem, { isCombo: true, phase: 1, sequence: seq, targetId: s2, isPending: true, priority: 3, isRunning: bookingItem.isRunningStatus });
-                                addToGrid(s2, p2Start, p2End, bookingItem, { isCombo: true, phase: 2, sequence: seq, isPending: true, priority: 3, isRunning: bookingItem.isRunningStatus });
-                                return true;
-                            }
-                            return false;
-                        };
-
-                        if (preferredSeq) {
-                            bookingItem.flow = preferredSeq;
-                            if (trySequence(preferredSeq)) break;
-                        } else {
-                            const primary = (idx < idealNumBF) ? 'BF' : 'FB';
-                            const secondary = (primary === 'BF') ? 'FB' : 'BF';
-
-                            bookingItem.flow = primary;
-                            if (trySequence(primary)) break;
-
-                            bookingItem.flow = secondary;
-                            if (trySequence(secondary)) break;
+                        if (pref2) {
+                            addToGrid(pref2, p2Start, p2End, bookingItem, { isCombo: true, phase: 2, sequence: seq, isPending: true, priority: 3, isRunning: bookingItem.isRunningStatus });
                         }
                     }
                 });
@@ -1282,13 +1215,6 @@ const App = () => {
         await updateResource(newState);
     };
 
-    const handleOpenEdit = (resId) => {
-        const current = resourceState[resId];
-        if (!current || !current.booking) return;
-        handleOpenControlCenter(current.booking);
-    };
-
-    // ---> [V108.26] BỔ SUNG NHẬN THAM SỐ VỊ TRÍ TỪ MODAL <---
     const handleSaveComboTime = async (arg1, arg2 = null, startTimeStr = null, switchTimeStr = null, customP1Res = null, customP2Res = null) => {
         let newPhase1Duration = 0;
         let targetBooking = null;
@@ -1375,12 +1301,11 @@ const App = () => {
             }
         });
 
-        // Tự động tìm vị trí NẾU người dùng KHÔNG chọn (Auto)
-        let s1 = customP1Res ? customP1Res.toLowerCase() : null;
+        let s1 = customP1Res && customP1Res !== 'auto' ? customP1Res.toLowerCase() : null;
         if (!s1) s1 = MatrixHelper.findBestSlot(p1Type, tryStart, tryStart + newPhase1Duration, timelineData, mockActiveEndTimes) || `${p1Type}-1`;
 
         const p2Start = tryStart + newPhase1Duration + 5;
-        let s2 = customP2Res ? customP2Res.toLowerCase() : null;
+        let s2 = customP2Res && customP2Res !== 'auto' ? customP2Res.toLowerCase() : null;
         if (!s2) s2 = MatrixHelper.findBestSlot(p2Type, p2Start, p2Start + newPhase2Duration, timelineData, mockActiveEndTimes) || `${p2Type}-1`;
 
         if (!localOverridesRef.current[rowId]) localOverridesRef.current[rowId] = {};
@@ -1402,9 +1327,12 @@ const App = () => {
                         ...res.booking,
                         phase1_duration: newPhase1Duration,
                         phase2_duration: newPhase2Duration,
+                        phase1_res_idx: s1.toUpperCase(),
+                        phase2_res_idx: s2.toUpperCase(),
                         isManualLocked: true,
                         ...(newStartTimeStringForSheet && { startTimeString: newStartTimeStringForSheet })
                     },
+                    comboMeta: res.comboMeta ? { ...res.comboMeta, targetId: s2.toLowerCase() } : null,
                     ...(newStartTimeIso && { startTime: newStartTimeIso })
                 };
             }
@@ -1706,10 +1634,11 @@ const App = () => {
             resourceId: liveContext ? liveContext.resourceId : suggestedResourceId,
             isRunning: liveContext ? liveContext.isRunning : false,
             isPaused: liveContext ? liveContext.isPaused : false,
-            meta: meta // Ghi nhận luồng thực tế trên Timeline
+            meta: meta
         });
     };
 
+    // --- [V108.34] START LOGIC WITH STAFF-CENTRIC ALGORITHM ---
     const executeStart = (id, comboSequence, silentMode = false, fallbackBooking = null) => {
         let current = resourceState[id];
 
@@ -1760,26 +1689,7 @@ const App = () => {
             }
 
             if (!comboMeta) {
-                const currentType = currentId.split('-')[0];
-                const index = currentId.split('-')[1];
-                let ghostTargetId = null;
-                const targetTypePrefix = currentType === 'chair' ? 'bed' : 'chair';
-
-                if (timelineData) {
-                    for (const [resId, slots] of Object.entries(timelineData)) {
-                        if (resId.startsWith(targetTypePrefix) && slots.some(s => String(s.booking.rowId) === String(current.booking.rowId))) {
-                            ghostTargetId = resId;
-                            break;
-                        }
-                    }
-                }
-
-                if (!ghostTargetId) {
-                    const sameIndex = `${targetTypePrefix}-${index}`;
-                    if (!resourceState[sameIndex] && sameIndex !== id) { ghostTargetId = sameIndex; }
-                    else { for (let i = 1; i <= 6; i++) { const tid = `${targetTypePrefix}-${i}`; if (!resourceState[tid] && tid !== id) { ghostTargetId = tid; break; } } }
-                    if (!ghostTargetId) ghostTargetId = `${targetTypePrefix}-${index}`;
-                }
+                let ghostTargetId = current.booking.phase2_res_idx ? current.booking.phase2_res_idx.toLowerCase() : null;
                 comboMeta = { sequence: actualSeq, targetId: ghostTargetId, flex: (current.comboMeta && current.comboMeta.flex) || 0, phase: 1 };
             } else {
                 comboMeta.phase = 1;
@@ -1826,14 +1736,7 @@ const App = () => {
             }
         }
 
-        if (shouldMove) {
-            if (!targetMoveId) {
-                if (!silentMode) alert("⚠️ 無法開始：目標區域已無空位！");
-                setSyncLock(false); return;
-            }
-            currentId = targetMoveId;
-        }
-
+        // TÌM NHÂN VIÊN (STAFF-CENTRIC)
         if (['隨機', '男', '女', 'Oil'].some(k => designatedStaff.includes(k))) {
             if (!staffList || staffList.length === 0) {
                 if (!silentMode) alert("⚠️ 員工資料為空，請稍後再試！");
@@ -1851,25 +1754,36 @@ const App = () => {
                 return true;
             });
 
-            let candidates = readyStaff;
-            if (designatedStaff.includes('男') || designatedStaff.includes('Male')) {
-                candidates = candidates.filter(s => s.gender === 'M' || s.gender === '男');
-            } else if (designatedStaff.includes('女') || designatedStaff.includes('Female') || current.booking.isOil) {
-                candidates = candidates.filter(s => s.gender === 'F' || s.gender === '女');
-            }
-
-            candidates.sort((a, b) => {
+            // Xếp hàng thợ rảnh từ phải qua trái (StaffTime Tăng Dần)
+            const readyCandidates = readyStaff.sort((a, b) => {
                 const timeA = statusData[a.id]?.stafftime || Number.MAX_SAFE_INTEGER;
                 const timeB = statusData[b.id]?.stafftime || Number.MAX_SAFE_INTEGER;
                 return timeA - timeB;
             });
 
-            if (candidates.length === 0) {
+            let foundStaff = null;
+            // Thợ đi thử Khách
+            for (let i = 0; i < readyCandidates.length; i++) {
+                if (checkStaffCompatibility(readyCandidates[i], current.booking, designatedStaff)) {
+                    foundStaff = readyCandidates[i];
+                    break;
+                }
+            }
+
+            if (!foundStaff) {
                 const genderMsg = designatedStaff.includes('男') ? " (男)" : designatedStaff.includes('女') ? " (女)" : "";
-                if (!silentMode) alert(`⚠️ 目前沒有空閒的技師${genderMsg} (READY)!`);
+                if (!silentMode) alert(`⚠️ 找不到符合條件的技師${genderMsg}！(No staff matches criteria)`);
                 setSyncLock(false); return;
             }
-            finalServiceStaff = candidates[0].id;
+            finalServiceStaff = foundStaff.id;
+        }
+
+        if (shouldMove) {
+            if (!targetMoveId) {
+                if (!silentMode) alert("⚠️ 無法開始：目標區域已無空位！");
+                setSyncLock(false); return;
+            }
+            currentId = targetMoveId;
         }
 
         const newStatusData = { ...statusData, [finalServiceStaff]: { ...statusData[finalServiceStaff], status: 'BUSY' } };
@@ -1944,6 +1858,7 @@ const App = () => {
         axios.post('/api/update-status', { rowId: current.booking.rowId, status: '🟡 Running' });
     };
 
+    // --- [V108.34] BATCH START WITH FIXED STATE MUTATION BUG ---
     const executeBatchStart = (mainResId, relatedItems) => {
         const nextResourceState = { ...resourceState };
         const nextStatusData = { ...statusData };
@@ -1990,17 +1905,90 @@ const App = () => {
 
         const validItems = allItemsToStart.filter(item => item.resourceId && item.booking);
 
+        // --- CORE ALGORITHM: STAFF-CENTRIC ASSIGNMENT ---
+        const assignments = {}; // Map: resourceId -> staffId
+        let unassignedItems = [...validItems];
+
+        // Bước 1: Trích xuất các khách "Chỉ định thợ" (指定) ra ghép trước
+        unassignedItems = unassignedItems.filter(item => {
+            let req = item.booking.serviceStaff || item.booking.staffId || '隨機';
+            if (req === 'undefined' || req === 'null') req = '隨機';
+
+            const isRandom = ['隨機', '男', '女', 'Oil'].some(k => req.includes(k));
+
+            if (!isRandom) {
+                assignments[item.resourceId] = req;
+                return false;
+            }
+            return true;
+        });
+
+        // Bước 2: Liệt kê toàn bộ Thợ rảnh và Sắp xếp chuẩn xác theo thời gian chờ (Mili-giây)
+        const currentlyBusyIds = Object.values(nextResourceState)
+            .filter(r => r.isRunning && !r.isPaused && r.isPreview !== true)
+            .map(r => r.booking.serviceStaff || r.booking.staffId);
+
+        let readyCandidates = staffList.filter(s => {
+            const stat = nextStatusData[s.id];
+            const isSpecificRequested = Object.values(assignments).includes(s.id);
+            return stat && stat.status === 'READY' && !currentlyBusyIds.includes(s.id) && !isSpecificRequested;
+        });
+
+        readyCandidates.sort((a, b) => {
+            const timeA = nextStatusData[a.id]?.stafftime || Number.MAX_SAFE_INTEGER;
+            const timeB = nextStatusData[b.id]?.stafftime || Number.MAX_SAFE_INTEGER;
+            return timeA - timeB; // Lấy từ Nhỏ đến Lớn (Nằm ngoài cùng bên phải UI)
+        });
+
+        // Bước 3: Thợ đi tìm Khách (Thử nghiệm)
+        for (let i = 0; i < readyCandidates.length; i++) {
+            if (unassignedItems.length === 0) break; // Khách đã có thợ hết thì dừng
+
+            const staff = readyCandidates[i];
+
+            // Mang thợ này đi "thử việc" lần lượt với từng khách chưa có thợ
+            for (let j = 0; j < unassignedItems.length; j++) {
+                const item = unassignedItems[j];
+                let req = item.booking.serviceStaff || item.booking.staffId || '隨機';
+
+                if (checkStaffCompatibility(staff, item.booking, req)) {
+                    // Trúng! Xếp ngay.
+                    assignments[item.resourceId] = staff.id;
+                    unassignedItems.splice(j, 1); // Rút khách này khỏi hàng đợi
+                    break; // Ngừng vòng thử khách, chuyển sang nhân viên tiếp theo ở mảng readyCandidates
+                }
+            }
+        }
+
+        let failedToStartCount = 0; // Đếm số khách bị rớt lại
+
+        // Tiến hành ghi nhận thông tin đã Assign
         validItems.forEach(item => {
             const { resourceId } = item;
-            let current = nextResourceState[resourceId];
 
+            // [V108.34 FIX] Lấy thông tin thợ đã match, KIỂM TRA TRƯỚC KHI TẠO STATE
+            let finalServiceStaff = assignments[resourceId];
+            let req = item.booking.serviceStaff || item.booking.staffId || '隨機';
+            const isRandom = ['隨機', '男', '女', 'Oil'].some(k => req.includes(k));
+
+            if (!finalServiceStaff) {
+                if (isRandom) {
+                    failedToStartCount++; // Đánh dấu thất bại
+                    return; // QUAN TRỌNG: Lệnh return này sẽ bỏ qua toàn bộ logic bên dưới cho khách này. Không tạo State rác.
+                } else {
+                    finalServiceStaff = req; // Fallback cho trường hợp thợ được yêu cầu chưa bấm CheckIn
+                }
+            }
+
+            // NẾU TÌM ĐƯỢC THỢ -> CHÍNH THỨC GHI VÀO STATE
+            let current = nextResourceState[resourceId];
             if (!current || current.isPlaceholder) {
                 current = {
                     booking: item.booking,
                     isRunning: false,
                     isPaused: false,
                     startTime: null,
-                    isPreview: true,
+                    isPreview: true, // Sẽ được cập nhật thành false ngay bên dưới
                     isMaxMode: true,
                     comboMeta: null
                 };
@@ -2009,52 +1997,13 @@ const App = () => {
 
             if (current.isRunning) return;
 
+            // Gán BUSY
+            nextStatusData[finalServiceStaff] = { ...nextStatusData[finalServiceStaff], status: 'BUSY' };
+
             const rowIdStr = String(item.booking.rowId);
             if (!localOverridesRef.current[rowIdStr]) localOverridesRef.current[rowIdStr] = {};
             localOverridesRef.current[rowIdStr].forceRunning = true;
             localOverridesRef.current[rowIdStr].storedLocation = resourceId;
-
-            let designatedStaff = current.booking.serviceStaff || current.booking.staffId || current.booking.ServiceStaff || '隨機';
-            if (designatedStaff === 'undefined' || designatedStaff === 'null') designatedStaff = '隨機';
-
-            let finalServiceStaff = designatedStaff;
-
-            if (['隨機', '男', '女', 'Oil'].some(k => designatedStaff.includes(k))) {
-                const currentlyBusyIds = Object.values(nextResourceState)
-                    .filter(r => r.isRunning && !r.isPaused && r.isPreview !== true)
-                    .map(r => r.booking.serviceStaff || r.booking.staffId);
-
-                const readyCandidates = staffList.filter(s => {
-                    const stat = nextStatusData[s.id];
-                    if (!stat || stat.status !== 'READY') return false;
-                    if (currentlyBusyIds.includes(s.id)) return false;
-
-                    if (designatedStaff.includes('男') || designatedStaff.includes('Male')) {
-                        if (s.gender !== 'M' && s.gender !== '男') return false;
-                    }
-                    if (designatedStaff.includes('女') || designatedStaff.includes('Female') || current.booking.isOil) {
-                        if (s.gender !== 'F' && s.gender !== '女') return false;
-                    }
-                    return true;
-                });
-
-                readyCandidates.sort((a, b) => {
-                    const timeA = nextStatusData[a.id]?.stafftime || Number.MAX_SAFE_INTEGER;
-                    const timeB = nextStatusData[b.id]?.stafftime || Number.MAX_SAFE_INTEGER;
-                    return timeA - timeB;
-                });
-
-                if (readyCandidates.length > 0) {
-                    finalServiceStaff = readyCandidates[0].id;
-                    nextStatusData[finalServiceStaff] = { ...nextStatusData[finalServiceStaff], status: 'BUSY' };
-                } else {
-                    return;
-                }
-            } else {
-                if (nextStatusData[finalServiceStaff]) {
-                    nextStatusData[finalServiceStaff] = { ...nextStatusData[finalServiceStaff], status: 'BUSY' };
-                }
-            }
 
             const grpIdx = getGroupMemberIndex(resourceId, current.booking.rowId);
             const isComboService = (current.booking.serviceName && current.booking.serviceName.includes('套餐')) || current.booking.category === 'COMBO';
@@ -2068,16 +2017,7 @@ const App = () => {
                 else if (physicalType === 'chair') actualSeq = 'FB';
 
                 if (!newComboMeta) {
-                    let projectedTargetId = null;
-                    const targetTypePrefix = physicalType === 'chair' ? 'bed' : 'chair';
-                    if (timelineData) {
-                        for (const [rId, slots] of Object.entries(timelineData)) {
-                            if (rId.startsWith(targetTypePrefix) && slots.some(s => String(s.booking.rowId) === String(current.booking.rowId))) {
-                                projectedTargetId = rId;
-                                break;
-                            }
-                        }
-                    }
+                    let projectedTargetId = current.booking.phase2_res_idx ? current.booking.phase2_res_idx.toLowerCase() : null;
                     newComboMeta = { sequence: actualSeq, phase: 1, flex: 0, targetId: projectedTargetId };
                 } else {
                     newComboMeta = { ...newComboMeta, phase: 1, sequence: actualSeq };
@@ -2152,6 +2092,18 @@ const App = () => {
                 data: { rowId: current.booking.rowId, status: '🟡 Running' }
             });
         });
+
+        // [V108.34 FIX] Dọn dẹp rác (Placeholder) khỏi State để không render thẻ trống ra Timeline
+        Object.keys(nextResourceState).forEach(key => {
+            if (nextResourceState[key].isPlaceholder) {
+                delete nextResourceState[key];
+            }
+        });
+
+        // [V108.34 FIX] Khôi phục hiển thị cảnh báo một cách tinh tế
+        if (failedToStartCount > 0) {
+            alert(`⚠️ 部分客人 (${failedToStartCount}位) 因無符合條件的技師而無法自動開始，已保留在等待區。\n\n(Một số khách không thể tự động bắt đầu do thiếu kỹ thuật viên phù hợp, đã được giữ lại khu vực chờ)`);
+        }
 
         setResourceState(nextResourceState);
         updateStaffStatus(nextStatusData);
@@ -2350,7 +2302,6 @@ const App = () => {
         } catch (e) { alert("⚠️ 連線錯誤，請檢查網路！"); }
     };
 
-    // ---> [V108.26] BỔ SUNG XỬ LÝ PAYLOAD CHO UPDATE_PHASE <---
     const handleControlAction = (actionType, payload) => {
         const targetBooking = payload.currentBooking || (controlCenterData ? controlCenterData.booking : null);
         const targetResourceId = payload.resourceId || (controlCenterData ? controlCenterData.resourceId : null);
@@ -2473,8 +2424,8 @@ const App = () => {
                         targetBooking,
                         payload.startTimeStr,
                         payload.switchTimeStr,
-                        payload.phase1_res_idx, // Truyền vị trí Phase 1
-                        payload.phase2_res_idx  // Truyền vị trí Phase 2
+                        payload.phase1_res_idx,
+                        payload.phase2_res_idx
                     );
                 }
                 setControlCenterData(null);
@@ -2593,7 +2544,7 @@ const App = () => {
         <div className="min-h-screen flex flex-col bg-slate-50">
             <header className={`text-white p-3 shadow-md flex justify-between items-center sticky top-0 z-50 transition-colors ${quotaError ? 'bg-red-800' : 'bg-[#1e1b4b]'}`}>
                 <div className="flex items-center gap-3">
-                    <span className="bg-emerald-500 text-white px-2 py-1 rounded font-black text-sm shadow-sm">V108.26</span>
+                    <span className="bg-emerald-500 text-white px-2 py-1 rounded font-black text-sm shadow-sm">V108.34</span>
                     <span className="font-bold hidden md:inline tracking-wider">XinWuChan</span>
                     <div className="flex items-center gap-2 bg-white/10 rounded px-2 py-1 border border-white/20">
                         <button onClick={() => { const d = new Date(viewDate); d.setDate(d.getDate() - 1); setViewDate(d.toISOString().split('T')[0]) }} className="text-white hover:text-amber-400 font-bold px-2">❯</button>
@@ -2789,7 +2740,6 @@ const App = () => {
                 </div>
             )}
 
-            {/* ---> [V108.26] TRUYỀN DỮ LIỆU TÍNH TOÁN CHO MODAL <--- */}
             {controlCenterData && BookingControlModal && (
                 <BookingControlModal
                     isOpen={true}
@@ -2801,8 +2751,8 @@ const App = () => {
                     contextResourceId={controlCenterData.resourceId}
                     staffList={staffList}
                     statusData={statusData}
-                    timelineData={timelineData} // [NEW] Dữ liệu lịch trình
-                    resourceState={resourceState} // [NEW] Trạng thái hiện tại
+                    timelineData={timelineData}
+                    resourceState={resourceState}
                 />
             )}
         </div>

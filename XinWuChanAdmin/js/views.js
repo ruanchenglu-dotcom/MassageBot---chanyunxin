@@ -1,15 +1,18 @@
 /**
  * ============================================================================
  * FILE: js/views.js
- * PHIÊN BẢN: V108.26 (UI/UX: FLOW SYNC & MANUAL LOCATION SELECTION)
+ * PHIÊN BẢN: V108.33 (UI/UX: REMOVE SERVICE CODE ON TIMELINE)
  * ============================================================================
- * CHANGE LOG V108.26:
- * - [FEATURE]: Bổ sung 2 ô chọn vị trí (Giường/Ghế) thủ công cho Phase 1 & Phase 2 trong BookingControlModal.
- * - [LOGIC]: Tự động lọc danh sách giường/ghế trống theo thời gian thực (Real-time availability check) dựa trên timelineData.
- * - [UI/UX]: Thêm Dropdown chọn vị trí tại màn hình điều chỉnh Combo.
- * * CHANGE LOG V108.25:
- * - [BUGFIX]: Cập nhật hàm `handleOpenControl` trong TimelineView để truyền tham số `meta`.
- * - [UI/UX]: Thêm nút thao tác nhanh (Quick Action) "自動依座位修正流程".
+ * CHANGE LOG V108.33:
+ * - [UI/UX]: Gỡ bỏ hiển thị mã dịch vụ (VD: A3) trên dòng 1 của thẻ Timeline để giao diện gọn gàng hơn và có thêm không gian cho tên khách.
+ * * CHANGE LOG V108.32:
+ * - [UI/UX]: Dời biểu tượng giọt nước (💧) từ dòng 1 xuống dòng 2 (kế bên tên nhân viên/BF) trên Timeline.
+ * * CHANGE LOG V108.31:
+ * - [FIX]: Sửa lỗi hàm getDisplayLabel nhận diện nhầm tag nhóm (1/2, 2/3) thành số điện thoại. Format chuẩn: [Họ]([Nhóm])([3 số ĐT]).
+ * - [UI/UX]: Ẩn biểu tượng xoay tròn đồng bộ (Syncing) trên thẻ Timeline để giao diện gọn hơn.
+ * * CHANGE LOG V108.30:
+ * - [UI/UX]: Rút gọn tên khách hàng trên Timeline (xóa 先生, 小姐, 女士, 太太, chỉ giữ Họ + 3 số cuối).
+ * - [UI/UX]: Dời biểu tượng BF (Body First) từ dòng tên khách xuống dòng tên nhân viên để tối ưu không gian.
  */
 
 const { useState, useEffect, useMemo, useRef } = React;
@@ -119,7 +122,6 @@ window.getOilPrice = (isOilFlagOrString) => {
 // ============================================================================
 // 0. BOOKING CONTROL MODAL (SUPER MODAL)
 // ============================================================================
-// [V108.26] Bổ sung timelineData và resourceState vào tham số
 const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveData, contextResourceId, staffList, statusData, timelineData, resourceState }) => {
     if (!isOpen || !booking) return null;
 
@@ -136,7 +138,6 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
     const [localFlow, setLocalFlow] = useState(currentSequence);
     const isBodyFirstLocal = localFlow === 'BF';
 
-    // [V108.26] State chọn vị trí thủ công
     const [selectedPhase1Res, setSelectedPhase1Res] = useState('auto');
     const [selectedPhase2Res, setSelectedPhase2Res] = useState('auto');
 
@@ -200,7 +201,6 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
             setShowPaymentOptions(false);
             setLocalFlow((meta && meta.sequence) ? meta.sequence : (booking.flow || 'FB'));
 
-            // [V108.26] Khởi tạo vị trí đã lưu nếu có
             let initP1Res = 'auto';
             let initP2Res = 'auto';
             if (booking.phase1_res_idx) initP1Res = booking.phase1_res_idx.toLowerCase();
@@ -255,17 +255,15 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
     const phase2 = totalDuration - phase1;
     let startMins = timeStrToMins(startTimeStr);
 
-    // Xử lý logic qua ngày (nếu startMins < 8 sáng thì cộng thêm 1440 phút)
-    if (startMins < 480) startMins += 1440;
+    if (startMins < 480) startMins += 1440; // Xử lý qua ngày
 
     const switchMins = startMins + phase1;
     const endMins = startMins + totalDuration;
 
-    // Hiển thị thì convert ngược lại chuẩn
     const switchTimeStr = minsToTimeStr(switchMins);
     const endTimeStr = minsToTimeStr(endMins);
 
-    // --- [V108.26] THUẬT TOÁN TÌM GIƯỜNG/GHẾ TRỐNG ---
+    // --- [V108.27] THUẬT TOÁN TÌM GIƯỜNG/GHẾ TRỐNG (LOẠI TRỪ TRIỆT ĐỂ KHÁCH ĐANG BẬN) ---
     const checkOverlap = (resId, checkStart, checkEnd, excludeRowId) => {
         if (timelineData && timelineData[resId]) {
             for (let slot of timelineData[resId]) {
@@ -301,15 +299,15 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
         return list;
     }, [isBodyFirstLocal, switchMins, endMins, timelineData, booking?.rowId]);
 
-    // Reset lựa chọn về auto nếu do chỉnh giờ làm vị trí cũ bị mất
+    // Reset lựa chọn về auto nếu do chỉnh giờ làm vị trí cũ bị mất (tức là bị trùng lịch với khách khác)
     useEffect(() => {
-        if (selectedPhase1Res !== 'auto' && !availableP1Resources.includes(selectedPhase1Res)) {
+        if (selectedPhase1Res !== 'auto' && selectedPhase1Res !== 'full' && !availableP1Resources.includes(selectedPhase1Res)) {
             setSelectedPhase1Res('auto');
         }
     }, [availableP1Resources, selectedPhase1Res]);
 
     useEffect(() => {
-        if (selectedPhase2Res !== 'auto' && !availableP2Resources.includes(selectedPhase2Res)) {
+        if (selectedPhase2Res !== 'auto' && selectedPhase2Res !== 'full' && !availableP2Resources.includes(selectedPhase2Res)) {
             setSelectedPhase2Res('auto');
         }
     }, [availableP2Resources, selectedPhase2Res]);
@@ -320,7 +318,7 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
         const newSwitchStr = e.target.value;
         if (!newSwitchStr) return;
         let newSwitchMins = timeStrToMins(newSwitchStr);
-        if (newSwitchMins < 480) newSwitchMins += 1440; // Xử lý qua ngày
+        if (newSwitchMins < 480) newSwitchMins += 1440;
 
         let diff = newSwitchMins - startMins;
         if (diff < 0 && (newSwitchMins + 1440) - startMins <= totalDuration) {
@@ -354,6 +352,11 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
     const isCombo = booking.category === 'COMBO' || (booking.serviceName && booking.serviceName.includes('Combo')) || (booking.serviceName && booking.serviceName.includes('套餐'));
     const isGroupBooking = (parseInt(booking.pax) || 1) > 1;
     const isSyncPending = booking && booking.isManualLocked;
+
+    // Các biến cờ kiểm tra full chỗ để khóa giao diện
+    const isP1Full = availableP1Resources.length === 0;
+    const isP2Full = availableP2Resources.length === 0;
+    const isSaveDisabled = isFlowConflict || isP1Full || isP2Full;
 
     return (
         <div className="fixed inset-0 z-[3000] flex items-center justify-center bg-black/70 backdrop-blur-sm animate-in fade-in duration-200 p-4">
@@ -542,7 +545,6 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                             <div className="flex justify-between items-center mb-4">
                                 <h3 className="font-bold text-slate-700 flex items-center gap-2"><i className="fas fa-sliders-h text-indigo-500"></i> 套餐時間調整 (Combo Phase)</h3>
 
-                                {/* [V108.26] Bổ sung truyền payload vị trí thủ công */}
                                 <button
                                     onClick={() => triggerAction('UPDATE_PHASE', {
                                         phase1,
@@ -551,8 +553,8 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                                         phase1_res_idx: selectedPhase1Res === 'auto' ? null : selectedPhase1Res.toUpperCase(),
                                         phase2_res_idx: selectedPhase2Res === 'auto' ? null : selectedPhase2Res.toUpperCase()
                                     })}
-                                    disabled={isFlowConflict}
-                                    className={`text-xs px-3 py-1.5 rounded font-bold border shadow-sm transition-all flex items-center ${isFlowConflict ? 'bg-gray-200 text-gray-400 border-gray-300 cursor-not-allowed' : 'bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border-indigo-300'}`}
+                                    disabled={isSaveDisabled}
+                                    className={`text-xs px-3 py-1.5 rounded font-bold border shadow-sm transition-all flex items-center ${isSaveDisabled ? 'bg-gray-200 text-gray-400 border-gray-300 cursor-not-allowed' : 'bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border-indigo-300'}`}
                                 >
                                     <i className="fas fa-save mr-1"></i> 保存同步 (Save Sync)
                                 </button>
@@ -570,19 +572,26 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                                         </div>
                                     </div>
 
-                                    {/* [V108.26] Dropdown Chọn Vị Trí Phase 1 */}
+                                    {/* Dropdown Chọn Vị Trí Phase 1 */}
                                     <div className="mt-2 w-full max-w-[140px] relative">
                                         <select
-                                            value={selectedPhase1Res}
+                                            value={isP1Full ? 'full' : selectedPhase1Res}
                                             onChange={(e) => setSelectedPhase1Res(e.target.value)}
-                                            className={`w-full text-xs font-bold appearance-none bg-slate-50 border border-slate-200 rounded-md py-1.5 pl-2 pr-6 focus:outline-none focus:border-indigo-400 cursor-pointer text-slate-700 shadow-sm ${selectedPhase1Res !== 'auto' ? 'border-indigo-300 bg-indigo-50' : ''}`}
+                                            disabled={isP1Full}
+                                            className={`w-full text-xs font-bold appearance-none bg-slate-50 border rounded-md py-1.5 pl-2 pr-6 focus:outline-none focus:border-indigo-400 cursor-pointer shadow-sm transition-colors ${isP1Full ? 'bg-red-50 border-red-300 text-red-600 cursor-not-allowed' : (selectedPhase1Res !== 'auto' ? 'border-indigo-300 bg-indigo-50 text-indigo-700' : 'border-slate-200 text-slate-700')}`}
                                         >
-                                            <option value="auto">🤖 自動安排 (Auto)</option>
-                                            {availableP1Resources.map(resId => (
-                                                <option key={resId} value={resId}>
-                                                    {resId.replace('bed-', '🛏️ 床 ').replace('chair-', '👣 足 ')}
-                                                </option>
-                                            ))}
+                                            {isP1Full ? (
+                                                <option value="full">⛔️ 該時段已滿</option>
+                                            ) : (
+                                                <>
+                                                    <option value="auto">🤖 自動安排 (Auto)</option>
+                                                    {availableP1Resources.map(resId => (
+                                                        <option key={resId} value={resId}>
+                                                            {resId.replace('bed-', '🛏️ 床 ').replace('chair-', '👣 足 ')}
+                                                        </option>
+                                                    ))}
+                                                </>
+                                            )}
                                         </select>
                                         <div className="pointer-events-none absolute right-2 top-1/2 transform -translate-y-1/2 text-gray-400 text-[10px]">
                                             <i className="fas fa-chevron-down"></i>
@@ -627,19 +636,26 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                                         </div>
                                     </div>
 
-                                    {/* [V108.26] Dropdown Chọn Vị Trí Phase 2 */}
+                                    {/* Dropdown Chọn Vị Trí Phase 2 */}
                                     <div className="mt-2 w-full max-w-[140px] relative">
                                         <select
-                                            value={selectedPhase2Res}
+                                            value={isP2Full ? 'full' : selectedPhase2Res}
                                             onChange={(e) => setSelectedPhase2Res(e.target.value)}
-                                            className={`w-full text-xs font-bold appearance-none bg-slate-50 border border-slate-200 rounded-md py-1.5 pl-2 pr-6 focus:outline-none focus:border-indigo-400 cursor-pointer text-slate-700 shadow-sm ${selectedPhase2Res !== 'auto' ? 'border-indigo-300 bg-indigo-50' : ''}`}
+                                            disabled={isP2Full}
+                                            className={`w-full text-xs font-bold appearance-none bg-slate-50 border rounded-md py-1.5 pl-2 pr-6 focus:outline-none focus:border-indigo-400 cursor-pointer shadow-sm transition-colors ${isP2Full ? 'bg-red-50 border-red-300 text-red-600 cursor-not-allowed' : (selectedPhase2Res !== 'auto' ? 'border-indigo-300 bg-indigo-50 text-indigo-700' : 'border-slate-200 text-slate-700')}`}
                                         >
-                                            <option value="auto">🤖 自動安排 (Auto)</option>
-                                            {availableP2Resources.map(resId => (
-                                                <option key={resId} value={resId}>
-                                                    {resId.replace('bed-', '🛏️ 床 ').replace('chair-', '👣 足 ')}
-                                                </option>
-                                            ))}
+                                            {isP2Full ? (
+                                                <option value="full">⛔️ 該時段已滿</option>
+                                            ) : (
+                                                <>
+                                                    <option value="auto">🤖 自動安排 (Auto)</option>
+                                                    {availableP2Resources.map(resId => (
+                                                        <option key={resId} value={resId}>
+                                                            {resId.replace('bed-', '🛏️ 床 ').replace('chair-', '👣 足 ')}
+                                                        </option>
+                                                    ))}
+                                                </>
+                                            )}
                                         </select>
                                         <div className="pointer-events-none absolute right-2 top-1/2 transform -translate-y-1/2 text-gray-400 text-[10px]">
                                             <i className="fas fa-chevron-down"></i>
@@ -761,17 +777,57 @@ const TimelineView = ({ timelineData, onEditPhase, liveStatusData, staffList, st
         ...Array.from({ length: 6 }, (_, i) => ({ id: `bed-${i + 1}`, label: `床 ${i + 1}`, type: 'bed' }))
     ];
 
+    // --- [V108.31] SỬA LỖI NHẬN DIỆN NHẦM TAG NHÓM THÀNH SỐ ĐIỆN THOẠI ---
     const getDisplayLabel = (booking) => {
-        let name = booking.customerName || '';
-        let phone = booking.sdt || '';
-        if (name.includes('(')) {
-            const parts = name.split('(');
-            name = parts[0].trim();
-            const phonePart = parts[1].replace(')', '').trim();
-            if (!phone) phone = phonePart;
+        let rawName = booking.customerName || '';
+        let sdt = booking.sdt || '';
+
+        let name = rawName;
+        let groupTag = '';
+        let phoneExtract = '';
+
+        // Trích xuất các thẻ nằm trong ngoặc đơn
+        const matches = rawName.match(/\(([^)]+)\)/g);
+        if (matches) {
+            matches.forEach(match => {
+                const innerText = match.replace(/[()]/g, '').trim();
+                // Nếu chứa dấu '/', đây là tag nhóm (VD: 1/2, 2/3)
+                if (innerText.includes('/')) {
+                    groupTag = `(${innerText})`;
+                }
+                // Nếu chứa chữ số, có khả năng là số điện thoại được ghi tay vào
+                else if (/\d/.test(innerText)) {
+                    phoneExtract = innerText;
+                }
+            });
+            // Xóa tất cả ngoặc đơn khỏi tên gốc
+            name = rawName.replace(/\([^)]*\)/g, '').trim();
         }
-        const last3 = phone && phone.length >= 3 ? phone.slice(-3) : '';
-        return last3 ? `${name} (${last3})` : name;
+
+        // Loại bỏ các danh xưng phổ biến
+        name = name.replace(/\s*(先生|小姐|女士|太太)\s*/g, '').trim();
+
+        // Chỉ lấy ký tự đầu tiên (thường là Họ)
+        if (name.length > 0) {
+            name = name.charAt(0);
+        }
+
+        // Quyết định số điện thoại sẽ hiển thị (ưu tiên field sdt)
+        let finalPhone = sdt || phoneExtract;
+        let phoneDisplay = '';
+
+        if (finalPhone) {
+            // Chỉ giữ lại các chữ số
+            const digitOnly = finalPhone.replace(/\D/g, '');
+            if (digitOnly.length >= 3) {
+                phoneDisplay = `(${digitOnly.slice(-3)})`;
+            } else if (digitOnly.length > 0) {
+                phoneDisplay = `(${digitOnly})`;
+            }
+        }
+
+        // Format chuẩn: [Họ]([Nhóm])([3 số ĐT]) -> VD: 李(2/3)(623)
+        return `${name}${groupTag}${phoneDisplay}`;
     };
 
     const handleOpenControl = (booking, meta, resourceId) => {
@@ -779,13 +835,6 @@ const TimelineView = ({ timelineData, onEditPhase, liveStatusData, staffList, st
             onOpenControlCenter(booking, resourceId, meta);
         } else if (onEditPhase) {
             onEditPhase('OPEN_CONTROL_CENTER', { currentBooking: booking, resourceId: resourceId, currentMeta: meta });
-        }
-    };
-
-    const handleShiftResource = (e, booking, resourceId, direction) => {
-        e.stopPropagation();
-        if (onEditPhase) {
-            onEditPhase('SHIFT_RESOURCE', { bookingId: booking.rowId, currentBooking: booking, resourceId: resourceId, direction: direction });
         }
     };
 
@@ -815,10 +864,6 @@ const TimelineView = ({ timelineData, onEditPhase, liveStatusData, staffList, st
                 .edit-btn { opacity: 0; transition: opacity 0.2s, transform 0.1s; }
                 .timeline-block:hover .edit-btn { opacity: 1; }
                 .edit-btn:hover { transform: translate(-50%, -50%) scale(1.1); background-color: rgba(255,255,255,1) !important; color: #4f46e5 !important; border-color: #6366f1; }
-                .shift-controls { opacity: 0; transition: opacity 0.2s; }
-                .timeline-block:hover .shift-controls { opacity: 1; }
-                .shift-btn:hover { background-color: rgba(255,255,255,1); color: #4f46e5; transform: scale(1.1); box-shadow: 0 2px 4px rgba(0,0,0,0.2); }
-                .shift-btn:active { transform: scale(0.9); background-color: #e0e7ff; }
                 .bf-indicator { animation: pulse-border 2s infinite; }
                 @keyframes pulse-border { 0% { border-color: #4f46e5; box-shadow: 0 0 0 0 rgba(79, 70, 229, 0.4); } 70% { border-color: #818cf8; box-shadow: 0 0 0 4px rgba(79, 70, 229, 0); } 100% { border-color: #4f46e5; box-shadow: 0 0 0 0 rgba(79, 70, 229, 0); } }
             `}</style>
@@ -842,8 +887,6 @@ const TimelineView = ({ timelineData, onEditPhase, liveStatusData, staffList, st
                     {rows.map((row, index) => {
                         const isLastChairRow = index === 5;
                         const rowStyleClass = isLastChairRow ? "border-b-4 border-red-500" : "border-b border-slate-100";
-                        const canMoveUp = index > 0 && rows[index - 1].type === row.type;
-                        const canMoveDown = index < rows.length - 1 && rows[index + 1].type === row.type;
 
                         return (
                             <div key={row.id} className={`flex relative transition-colors hover:bg-slate-50 ${rowStyleClass}`} style={{ height: `${ROW_HEIGHT}px` }}>
@@ -857,22 +900,29 @@ const TimelineView = ({ timelineData, onEditPhase, liveStatusData, staffList, st
                                         const leftPos = startOffset * PIXELS_PER_MIN;
                                         const width = duration * PIXELS_PER_MIN;
                                         let bgClass = getRowIdColor(slot.booking.rowId);
-                                        const label = getDisplayLabel(slot.booking);
-                                        const endTimeStr = window.formatMinutesToTime(slot.end);
-                                        const startTimeStr = window.formatMinutesToTime(slot.start);
 
-                                        const rawStatus = slot.booking?.status || '';
+                                        const booking = slot.booking;
+                                        const label = getDisplayLabel(booking);
+                                        const isOil = booking.isOil || (booking.serviceName && booking.serviceName.includes('油'));
+
+                                        // [V108.33] Đã ẩn code lấy mã dịch vụ (serviceCode) vì không dùng hiển thị nữa
+                                        // const serviceCode = booking.serviceCode || (booking.serviceName ? booking.serviceName.replace(/\s*\([^)]*油推[^)]*\)/g, '').substring(0, 3).trim() : '---');
+
+                                        let staffName = booking.serviceStaff || booking.staffId || booking.ServiceStaff || '隨機';
+                                        if (staffName === 'undefined' || staffName === 'null') staffName = '隨機';
+                                        const displayStaff = staffName;
+
+                                        const rawStatus = booking?.status || '';
                                         const isStatusRunning = rawStatus.includes('Running') || rawStatus.includes('服務中') || rawStatus.includes('running');
                                         const isMetaRunning = slot.meta?.isRunning === true;
-                                        const isPropRunning = slot.booking?.isRunningStatus === true;
-                                        const isLiveRunning = slot.booking && liveRunningRowIds.has(String(slot.booking.rowId));
+                                        const isPropRunning = booking?.isRunningStatus === true;
+                                        const isLiveRunning = booking && liveRunningRowIds.has(String(booking.rowId));
 
                                         const isRunning = isStatusRunning || isMetaRunning || isPropRunning || isLiveRunning;
-                                        const isSyncPending = slot.booking && slot.booking.isManualLocked;
+                                        const isSyncPending = booking && booking.isManualLocked;
                                         const isBodyFirst = slot.meta && slot.meta.sequence === 'BF';
 
-                                        const isTimeAnomaly = slot.booking?.isTimeAnomaly === true;
-                                        const anomalyDiff = slot.booking?.anomalyDiff || 0;
+                                        const isTimeAnomaly = booking?.isTimeAnomaly === true;
 
                                         let isFlowConflict = false;
                                         if (slot.meta && slot.meta.isCombo && slot.meta.sequence && slot.meta.phase) {
@@ -880,9 +930,18 @@ const TimelineView = ({ timelineData, onEditPhase, liveStatusData, staffList, st
                                                 ? (slot.meta.phase === 1 ? 'chair' : 'bed')
                                                 : (slot.meta.phase === 1 ? 'bed' : 'chair');
                                             if (row.type !== expectedType) isFlowConflict = true;
-                                        } else if (slot.booking && slot.booking.forceResourceType) {
-                                            const expectedType = slot.booking.forceResourceType === 'CHAIR' ? 'chair' : 'bed';
+                                        } else if (booking && booking.forceResourceType) {
+                                            const expectedType = booking.forceResourceType === 'CHAIR' ? 'chair' : 'bed';
                                             if (row.type !== expectedType) isFlowConflict = true;
+                                        }
+
+                                        let timeLabel = "";
+                                        if (slot.meta && slot.meta.isCombo && slot.meta.phase === 1) {
+                                            const p1Dur = booking.phase1_duration || Math.round(duration / 2);
+                                            const switchStr = window.formatMinutesToTime(slot.start + p1Dur);
+                                            timeLabel = switchStr;
+                                        } else {
+                                            timeLabel = `⏳ ${duration}分`;
                                         }
 
                                         let specialBorderClass = "border border-black/5";
@@ -902,59 +961,48 @@ const TimelineView = ({ timelineData, onEditPhase, liveStatusData, staffList, st
                                             specialBorderClass = "border-[3px] border-red-500 shadow-lg shadow-red-300 animate-pulse z-30";
                                         }
 
-                                        let comboIcon = "";
-                                        let phaseLabelStr = "";
-                                        if (slot.meta && slot.meta.isCombo) {
-                                            if (slot.meta.phase === 1) { comboIcon = "❶"; phaseLabelStr = "第一階段"; }
-                                            else if (slot.meta.phase === 2) { comboIcon = "❷"; phaseLabelStr = "第二階段"; }
-                                        }
-
-                                        let deadlineText = `⏳ ${duration}分 ➔ ${endTimeStr}`;
-
-                                        if (isTimeAnomaly) {
-                                            deadlineText = `⏳ ${duration}分 (⚠️異常 +${anomalyDiff}分) ➔ ${endTimeStr}`;
-                                        }
-
-                                        if (slot.meta && slot.meta.isCombo) {
-                                            deadlineText = `⏳ ${duration}分 (${phaseLabelStr}) ➔ ${endTimeStr}`;
-                                        }
-
                                         const isComboPhase2 = slot.meta && slot.meta.isCombo && slot.meta.phase === 2;
                                         const showControlBtn = !isComboPhase2;
 
                                         return (
                                             <div key={idx}
-                                                className={`absolute top-1 bottom-1 rounded px-2 flex flex-col justify-center text-xs overflow-hidden shadow-sm z-10 cursor-pointer transition-all timeline-block group ${bgClass} ${specialBorderClass}`}
+                                                className={`absolute top-1 bottom-1 rounded px-2 py-1 flex flex-col justify-between text-xs overflow-hidden shadow-sm z-10 cursor-pointer transition-all timeline-block group ${bgClass} ${specialBorderClass}`}
                                                 style={{ left: `${leftPos}px`, width: `${width}px` }}
-                                                title={`${slot.booking.serviceName}\n${isRunning ? '🔥 進行中 (Running)' : ''}${isSyncPending && !isRunning ? '\n⏳ 同步中 (Syncing...)' : ''}${isTimeAnomaly ? '\n⚠️ 時長異常 (Time Anomaly)' : ''}${isFlowConflict ? '\n❌ 位置與流程衝突 (Location/Flow Conflict)' : ''}`}
+                                                title={`${booking.serviceName}\n${isRunning ? '🔥 進行中 (Running)' : ''}${isSyncPending && !isRunning ? '\n⏳ 同步中 (Syncing...)' : ''}${isTimeAnomaly ? '\n⚠️ 時長異常 (Time Anomaly)' : ''}${isFlowConflict ? '\n❌ 位置與流程衝突 (Location/Flow Conflict)' : ''}`}
+                                                onClick={(e) => { if (showControlBtn) { e.stopPropagation(); handleOpenControl(booking, slot.meta, row.id); } }}
                                             >
-                                                <div className="font-bold truncate text-[11px] leading-tight flex justify-between items-center">
-                                                    <span className="flex items-center gap-1">
-                                                        {label} {comboIcon}
-                                                        {isBodyFirst && <span className="text-[10px] bg-indigo-600 text-white px-1 rounded-sm animate-pulse" title="Body First">🔀BF</span>}
-                                                        {isSyncPending && !isRunning && <span className="text-[10px] text-blue-500 animate-spin" title="Syncing..."><i className="fas fa-sync-alt"></i></span>}
-
+                                                {/* ROW 1: Tên KH (Bỏ phần mã dịch vụ) */}
+                                                <div className="flex justify-between items-center w-full leading-tight mb-0.5">
+                                                    {/* Đổi từ max-w-[60%] thành w-full để chữ được rộng rãi */}
+                                                    <div className="font-bold truncate text-[11px] w-full flex items-center gap-1">
+                                                        {label}
+                                                        {/* [V108.31] Đã ẩn icon Sync trên UI để gọn gàng hơn */}
                                                         {isFlowConflict && <span className="text-red-600 ml-0.5 animate-bounce" title="位置與流程衝突 (Location/Flow Conflict)"><i className="fas fa-exclamation-triangle"></i></span>}
-                                                    </span>
+                                                    </div>
+                                                    {/* [V108.33] Đã gỡ khối HTML hiển thị Mã dịch vụ (A3, C1...) */}
                                                 </div>
-                                                <div className={`text-[10px] font-mono font-bold text-slate-700 bg-white/40 rounded px-1 mt-0.5 truncate border border-black/5 ${isRunning ? 'bg-red-50 text-red-700 border-red-100' : ''} ${isTimeAnomaly ? 'bg-orange-100 text-orange-800 border-orange-300 animate-pulse' : ''} ${isFlowConflict ? 'bg-red-100 text-red-800' : ''}`}>
-                                                    {slot.meta && slot.meta.isCombo ? (slot.meta.phase === 1 ? deadlineText : `🏁 ${startTimeStr} ➔ ${deadlineText}`) : deadlineText}
+
+                                                {/* ROW 2: Tên Nhân Viên + Thời Gian */}
+                                                <div className="flex justify-between items-center w-full mt-auto">
+                                                    <div className="truncate text-[10px] font-bold text-slate-700 flex items-center gap-1">
+                                                        {displayStaff}
+                                                        {/* [V108.30] Biểu tượng BF được dời xuống đây */}
+                                                        {isBodyFirst && <span className="text-[9px] bg-indigo-600 text-white px-1 rounded-sm animate-pulse" title="Body First (先身後足)">BF</span>}
+                                                        {/* [V108.32] Biểu tượng Giọt nước được dời xuống đây */}
+                                                        {isOil && <span className="text-[10px]" title="精油 (Oil)">💧</span>}
+                                                    </div>
+                                                    <div className={`text-[10px] font-bold font-mono px-1 rounded border border-black/5 shadow-sm ${isTimeAnomaly ? 'bg-orange-100 text-orange-800 animate-pulse' : 'bg-white/50 text-slate-800'}`}>
+                                                        {timeLabel}
+                                                    </div>
                                                 </div>
-                                                <div className="truncate opacity-75 text-[9px] flex items-center gap-1 mt-0.5">
-                                                    {(slot.booking.isOil || (slot.booking.serviceName && slot.booking.serviceName.includes('油'))) && <span title="Oil">💧</span>}
-                                                    {(slot.booking.category === 'COMBO') && <span title="Combo">🔥</span>}
-                                                    <span>{slot.booking.serviceName}</span>
-                                                </div>
+
+                                                {/* Edit Control Icon (Hiển thị khi hover) */}
                                                 {showControlBtn && (
                                                     <button className="edit-btn absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-8 h-8 bg-white/95 backdrop-blur-sm text-slate-500 rounded-full flex items-center justify-center shadow-lg border border-slate-200 z-50 hover:text-indigo-600 hover:border-indigo-400 hover:bg-white transition-all"
-                                                        onClick={(e) => { e.stopPropagation(); handleOpenControl(slot.booking, slot.meta, row.id); }} title="設置 (Click to Edit)">
+                                                        onClick={(e) => { e.stopPropagation(); handleOpenControl(booking, slot.meta, row.id); }} title="設置 (Click to Edit)">
                                                         <i className="fas fa-cog text-sm animate-spin-hover"></i>
                                                     </button>
                                                 )}
-                                                <div className="shift-controls absolute bottom-0.5 right-0.5 flex flex-col gap-0.5 z-[60]">
-                                                    {canMoveUp && (<button onClick={(e) => handleShiftResource(e, slot.booking, row.id, -1)} className="shift-btn w-5 h-4 rounded-sm bg-black/20 text-white flex items-center justify-center text-[10px] backdrop-blur-sm hover:bg-white hover:text-indigo-600 transition-transform" title="向上移 (Move Up)"><i className="fas fa-chevron-up"></i></button>)}
-                                                    {canMoveDown && (<button onClick={(e) => handleShiftResource(e, slot.booking, row.id, 1)} className="shift-btn w-5 h-4 rounded-sm bg-black/20 text-white flex items-center justify-center text-[10px] backdrop-blur-sm hover:bg-white hover:text-indigo-600 transition-transform" title="向下移 (Move Down)"><i className="fas fa-chevron-down"></i></button>)}
-                                                </div>
                                             </div>
                                         );
                                     })}
