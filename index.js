@@ -1,12 +1,13 @@
 /**
  * =================================================================================================
  * PROJECT: XINWUCHAN MASSAGE BOT (BACKEND SERVER - MAIN ENTRY)
- * VERSION: V126-RESOURCE-SYNC (Nâng cấp đồng bộ Tọa độ Vị trí & Khóa thủ công)
+ * VERSION: V127-TITLE-SELECTION (Nâng cấp thêm bước chọn danh xưng 小姐/先生)
  * DESCRIPTION: MAIN CONTROLLER & ROUTER
  * * UPDATES IN THIS VERSION:
- * 1. [FIX] Khớp nối `phase1_res_idx`, `phase2_res_idx` từ ResourceCore vào `guestDetails`.
- * 2. [FEATURE] Tự động suy luận `resource_type` (CHAIR/BED/COMBO) ghi xuống Sheet.
- * 3. [FEATURE] Đặt mặc định `isManualLocked: false` cho các lịch do Bot tự động xếp.
+ * 1. [FEATURE] Thêm state TITLE để khách hàng chọn danh xưng sau khi nhập Họ.
+ * 2. [FIX] Khớp nối `phase1_res_idx`, `phase2_res_idx` từ ResourceCore vào `guestDetails`.
+ * 3. [FEATURE] Tự động suy luận `resource_type` (CHAIR/BED/COMBO) ghi xuống Sheet.
+ * 4. [FEATURE] Đặt mặc định `isManualLocked: false` cho các lịch do Bot tự động xếp.
  * * AUTHOR: AI ASSISTANT & USER
  * =================================================================================================
  */
@@ -617,11 +618,40 @@ async function handleEvent(event) {
         return client.replyMessage(event.replyToken, { type: 'text', text: `請問怎麼稱呼您？(姓氏/Surname)` });
     }
 
+    // --- CẬP NHẬT 1: Chuyển hướng sang bước chọn danh xưng (TITLE) ---
     if (userState[userId] && userState[userId].step === 'SURNAME') {
-        userState[userId].step = 'PHONE'; userState[userId].surname = text;
+        userState[userId].step = 'TITLE'; userState[userId].surname = text;
+        return client.replyMessage(event.replyToken, {
+            type: 'flex', altText: '選擇稱呼',
+            contents: {
+                "type": "bubble",
+                "size": "micro",
+                "body": {
+                    "type": "box",
+                    "layout": "vertical",
+                    "contents": [
+                        { "type": "text", "text": "請問您的稱呼？", "weight": "bold", "align": "center", "color": "#1DB446" },
+                        { "type": "separator", "margin": "md" },
+                        { "type": "button", "style": "primary", "margin": "sm", "action": { "type": "message", "label": "先生 (Mr.)", "text": "Title:先生" } },
+                        { "type": "button", "style": "secondary", "margin": "sm", "color": "#F48FB1", "action": { "type": "message", "label": "小姐 (Ms.)", "text": "Title:小姐" } }
+                    ]
+                }
+            }
+        });
+    }
+
+    // --- CẬP NHẬT 2: Xử lý logic ghép Họ và Danh Xưng (TITLE -> PHONE) ---
+    if (text.startsWith('Title:')) {
+        if (!userState[userId] || userState[userId].step !== 'TITLE') return Promise.resolve(null);
+
+        const title = text.replace('Title:', '').trim(); // Lấy chữ "先生" hoặc "小姐"
+        userState[userId].step = 'PHONE';
+        userState[userId].fullName = userState[userId].surname + title; // Ghép lại (VD: 黃 + 小姐)
+
         return client.replyMessage(event.replyToken, { type: 'text', text: "請輸入手機號碼 (Phone):" });
     }
 
+    // --- CẬP NHẬT 3: Sửa đổi biến s.surname thành s.fullName ở bước hoàn tất (PHONE) ---
     if (userState[userId] && userState[userId].step === 'PHONE') {
         const sdt = normalizePhoneNumber(text); const s = userState[userId];
         let finalDate = s.date;
@@ -650,7 +680,7 @@ async function handleEvent(event) {
         }
 
         let confirmMsg = `✅ 預約成功 (Confirmed)\n\n` +
-            `👤 ${s.surname} (${sdt})\n` +
+            `👤 ${s.fullName} (${sdt})\n` + // <-- Sử dụng s.fullName
             `📅 ${finalDate} ${s.time}\n` +
             `💆 ${SERVICES[s.service].name}\n` +
             `👥 ${s.pax} 位\n` +
@@ -661,7 +691,7 @@ async function handleEvent(event) {
             `若需【更改時間】或【取消預約】，請務必點擊下方「我的預約 (My Booking)」按鈕進行操作，或直接致電櫃台告知，以免影響您的權益，謝謝配合！`;
 
         await client.replyMessage(event.replyToken, { type: 'text', text: confirmMsg });
-        client.pushMessage(ID_BA_CHU, { type: 'text', text: `💰 New Booking: ${s.surname} - $${totalPrice}` });
+        client.pushMessage(ID_BA_CHU, { type: 'text', text: `💰 New Booking: ${s.fullName} - $${totalPrice}` }); // <-- Thay bằng s.fullName trên thông báo chủ
 
         const guestDetails = [];
         for (let i = 0; i < s.pax; i++) {
@@ -708,7 +738,8 @@ async function handleEvent(event) {
         await SheetService.ghiVaoSheet(
             {
                 gioDen: s.time, ngayDen: finalDate, dichVu: SERVICES[s.service].name,
-                nhanVien: staffDisplay, userId: userId, sdt: sdt, hoTen: s.surname,
+                nhanVien: staffDisplay, userId: userId, sdt: sdt,
+                hoTen: s.fullName, // <-- Truyền s.fullName xuống SheetService
                 trangThai: '已預約', pax: s.pax, isOil: s.isOil,
                 guestDetails: guestDetails, serviceCode: s.service,
                 // [UPDATED] BÁO CHO SHEET BIẾT ĐÂY LÀ BOT ĐẶT (KHÔNG KHÓA THỦ CÔNG)
@@ -740,4 +771,4 @@ setInterval(() => { SheetService.syncData(); }, 10000);
 app.get('/ping', (req, res) => { res.status(200).send('Pong!'); });
 
 const port = process.env.PORT || 3000;
-app.listen(port, () => { console.log(`XinWuChan Bot V126-RESOURCE-SYNC running on port ${port}`); });
+app.listen(port, () => { console.log(`XinWuChan Bot V127-TITLE-SELECTION running on port ${port}`); });
