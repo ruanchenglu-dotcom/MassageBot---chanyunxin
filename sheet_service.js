@@ -1,17 +1,14 @@
 /**
  * =================================================================================================
- * MODULE: SHEET SERVICE (DATA LAYER) - REFACTORED V5.8
+ * MODULE: SHEET SERVICE (DATA LAYER) - REFACTORED V5.9
  * PROJECT: XINWUCHAN MASSAGE BOT
  * DESCRIPTION: Handles Google Sheets interactions. 
+ * * * * * UPDATE V5.9 (SPLIT STAFF COLUMNS & PRIORITY SYNC):
+ * + [FEATURE] Cập nhật hàm syncData và updateBookingDetails để hỗ trợ trọn vẹn đọc/ghi các cột thợ phụ (Staff 4, 5, 6 - Cột O, P, Q).
+ * + [FIX] Đảm bảo map chuẩn xác requestedStaff (Khách chỉ định) để hỗ trợ thuật toán 3-Pass Priority.
  * * * * * UPDATE V5.8 (RESOURCE DATA SYNC):
  * + [FIX] Gia cố ghi dữ liệu vào Cột AD (resource_type) bằng cách ép kiểu String in hoa.
  * + [FIX] Đồng bộ chuẩn xác cờ `isManualLocked` (FALSE) cho Cột AE từ luồng tự động của Bot.
- * * * * * UPDATE V5.7:
- * + [FEATURE] Củng cố đồng bộ dữ liệu Vị trí thủ công (Manual Resource Selection) cho Combo.
- * + Đảm bảo map chính xác Cột AB và AC vào `phase1_res_idx` và `phase2_res_idx` để App.js hiểu.
- * * * * * UPDATE V5.6:
- * + [FEATURE] Củng cố logic đọc Giá tiền (Cột D - Menu) làm nền tảng Single Source of Truth cho Frontend.
- * + Tự động cộng phụ thu tinh dầu (+$200) trực tiếp vào object booking.
  * =================================================================================================
  */
 
@@ -279,9 +276,12 @@ async function syncData() {
                     staffId: requestedStaff,
                     requestedStaff: requestedStaff,
                     staffName: requestedStaff,
-                    serviceStaff: row[11],
-                    staffId2: row[12],
-                    staffId3: row[13],
+                    serviceStaff: row[11], // Cột L
+                    staffId2: row[12],     // Cột M
+                    staffId3: row[13],     // Cột N
+                    staffId4: row[14],     // Cột O [V5.9]
+                    staffId5: row[15],     // Cột P [V5.9]
+                    staffId6: row[16],     // Cột Q [V5.9]
                     pax: pax,
                     customerName: `${row[2]} (${row[6]})`,
                     serviceName: serviceStr, serviceCode: serviceCode,
@@ -456,6 +456,9 @@ async function ghiVaoSheet(data, proposedUpdates = []) {
             if (guestDetail) {
                 if (guestDetail.staffId2) row[12] = guestDetail.staffId2;
                 if (guestDetail.staffId3) row[13] = guestDetail.staffId3;
+                if (guestDetail.staffId4) row[14] = guestDetail.staffId4; // [V5.9]
+                if (guestDetail.staffId5) row[15] = guestDetail.staffId5; // [V5.9]
+                if (guestDetail.staffId6) row[16] = guestDetail.staffId6; // [V5.9]
             }
             row[18] = normalizeDateStrict(colA_Date);
 
@@ -565,6 +568,7 @@ async function updateBookingDetails(body) {
         await updateCell('I', body.requestedStaff);
     }
 
+    // --- [V5.9 NÂNG CẤP] BẮT TỌA ĐỘ 6 CỘT THỢ CHO TÍNH NĂNG CHIA ĐƠN ---
     const staff1 = body['服務師傅1'] || body.ServiceStaff1 || body.staff1 || body.serviceStaff || body.staffId;
     if (staff1 !== undefined && staff1 !== '隨機') {
         await updateCell('L', staff1);
@@ -579,6 +583,22 @@ async function updateBookingDetails(body) {
     if (staff3 !== undefined) {
         await updateCell('N', staff3);
     }
+
+    const staff4 = body['服務師傅4'] || body.ServiceStaff4 || body.staff4 || body.staffId4;
+    if (staff4 !== undefined) {
+        await updateCell('O', staff4);
+    }
+
+    const staff5 = body['服務師傅5'] || body.ServiceStaff5 || body.staff5 || body.staffId5;
+    if (staff5 !== undefined) {
+        await updateCell('P', staff5);
+    }
+
+    const staff6 = body['服務師傅6'] || body.ServiceStaff6 || body.staff6 || body.staffId6;
+    if (staff6 !== undefined) {
+        await updateCell('Q', staff6);
+    }
+    // ------------------------------------------------
 
     const flowVal = body.flow || body.flow_code;
     if (flowVal !== undefined) await updateCell('AA', flowVal);

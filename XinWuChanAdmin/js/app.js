@@ -1,16 +1,11 @@
 // TYPE: app.js
-// VERSION: V108.34 (FIX: BATCH START GHOST CARD & SILENT ABORT BUG)
-// UPDATE: 2026-04-03
+// VERSION: V108.55 (UPGRADE: 3-PASS BATCH START & SPLIT STAFF COLUMNS FIX)
+// UPDATE: 2026-04-07
 //
-// --- CHANGE LOG V108.34 ---
-// 1. [FIX]: Sửa lỗi "Thẻ ma" (Ghost Card) khi ấn Start All cho nhóm khách nhưng không đủ kỹ thuật viên. 
-//           - Ngăn chặn hệ thống ghi đè state `isPreview` nếu không tìm được thợ.
-//           - Khách không có thợ sẽ được giữ nguyên ở danh sách chờ (Pending).
-// 2. [UI/UX]: Thêm lại cảnh báo thông minh khi có khách bị rớt lại trong nhóm (部分客人無法自動開始).
-// --- CHANGE LOG V108.30 ---
-// 1. [ALGORITHM]: Xóa bỏ Alert cảnh báo khi không đủ thợ trong chức năng Start All (toàn thể bắt đầu) theo yêu cầu.
-// --- CHANGE LOG V108.29 ---
-// 1. [ALGORITHM]: Thay đổi lõi phân bổ thợ (executeStart & executeBatchStart) sang phương pháp "Staff-Centric" (Nhân viên tìm Khách).
+// --- CHANGE LOG V108.55 ---
+// 1. [FIX]: handleSplitConfirm - Khắc phục lỗi nối chuỗi tên nhân viên. Tự động tìm vị trí trống (staffId2, staffId3...) và ghi vào cột riêng biệt.
+// 2. [LOGIC]: executeBatchStart - Áp dụng thuật toán 3 Vòng Ưu Tiên (1. Đích danh -> 2. Giới tính/Tinh dầu -> 3. Random) để tránh lỗi cướp thợ của khách chỉ định. Sửa lỗi đọc thiếu biến requestedStaff.
+// 3. [MAINTAIN]: Giữ nguyên tính năng khôi phục previousStafftime cho thợ bị đổi giữa chừng từ bản V108.51.
 
 const { useState, useEffect, useMemo, useRef, useCallback } = React;
 
@@ -67,7 +62,7 @@ const MatrixHelper = {
     isOverlap: (startA, endA, startB, endB) => {
         return (startA < endB) && (startB < endA);
     },
-    countAvailableResources: (type, start, end, gridState, reservedTimes) => {
+    countAvailableResources: (type, start, end, gridState, reservedTimes, ignoreRowId = null) => {
         let count = 0;
         for (let i = 1; i <= 6; i++) {
             const id = `${type}-${i}`;
@@ -75,6 +70,7 @@ const MatrixHelper = {
             let isClash = false;
             if (gridState[id]) {
                 for (const slot of gridState[id]) {
+                    if (ignoreRowId && slot.booking && String(slot.booking.rowId) === String(ignoreRowId)) continue;
                     if (MatrixHelper.isOverlap(start, end, slot.start, slot.end)) {
                         isClash = true;
                         break;
@@ -85,7 +81,7 @@ const MatrixHelper = {
         }
         return count;
     },
-    findBestSlot: (type, start, end, gridState, reservedTimes, preferredIndexOrId = null) => {
+    findBestSlot: (type, start, end, gridState, reservedTimes, preferredIndexOrId = null, ignoreRowId = null) => {
         const limit = 6;
         if (preferredIndexOrId) {
             let id;
@@ -100,6 +96,7 @@ const MatrixHelper = {
                 if (reservedTimes[id] && start < reservedTimes[id]) valid = false;
                 if (valid && gridState[id]) {
                     for (const slot of gridState[id]) {
+                        if (ignoreRowId && slot.booking && String(slot.booking.rowId) === String(ignoreRowId)) continue;
                         if (MatrixHelper.isOverlap(start, end, slot.start, slot.end)) {
                             valid = false;
                             break;
@@ -116,6 +113,7 @@ const MatrixHelper = {
             let isClash = false;
             if (gridState[id]) {
                 for (const slot of gridState[id]) {
+                    if (ignoreRowId && slot.booking && String(slot.booking.rowId) === String(ignoreRowId)) continue;
                     if (MatrixHelper.isOverlap(start, end, slot.start, slot.end)) {
                         isClash = true;
                         break;
@@ -184,18 +182,17 @@ const getBookingSignature = (booking) => {
     return `${time}_${name}_${phone}`;
 };
 
-// --- [V108.29] HELPER: KIỂM TRA ĐỘ PHÙ HỢP CỦA NHÂN VIÊN VÀ KHÁCH ---
+// --- [V108.55] HELPER: TẦNG 1 - KIỂM TRA ĐỘ PHÙ HỢP CỦA NHÂN VIÊN VÀ KHÁCH ---
 const checkStaffCompatibility = (staff, booking, designatedStaffReq) => {
     const reqStr = designatedStaffReq || '隨機';
 
-    // Nếu là chỉ định đích danh (Specific ID)
-    if (!['隨機', '男', '女', 'Oil', 'undefined', 'null', ''].includes(reqStr)) {
-        return staff.id === reqStr;
-    }
-
-    // Nếu là yêu cầu ngẫu nhiên kèm điều kiện Giới tính / Tinh dầu
     const needsMale = reqStr.includes('男') || reqStr.includes('Male');
     const needsFemale = reqStr.includes('女') || reqStr.includes('Female') || (booking && booking.isOil);
+
+    // Nếu khách yêu cầu đích danh 1 ID cụ thể
+    if (!['隨機', '男', '女', 'Oil', 'undefined', 'null', ''].includes(reqStr)) {
+        return staff.id === reqStr || staff.name === reqStr;
+    }
 
     if (needsMale) {
         return staff.gender === 'M' || staff.gender === '男';
@@ -204,7 +201,46 @@ const checkStaffCompatibility = (staff, booking, designatedStaffReq) => {
         return staff.gender === 'F' || staff.gender === '女';
     }
 
-    // Nếu "隨機" (Không yêu cầu gì) -> Ai cũng được
+    return true; // Random / Không chỉ định
+};
+
+// --- [V108.45] HELPER: TẦNG 2 (LOOK-AHEAD) - KIỂM TRA LỊCH TRÌNH TƯƠNG LAI CỦA THỢ ---
+const checkStaffFutureAvailability = (staffId, proposedDuration, allBookings, currentMins, currentRowId, currentPhone = null) => {
+    const proposedEndTime = currentMins + proposedDuration;
+
+    for (let i = 0; i < allBookings.length; i++) {
+        const b = allBookings[i];
+
+        if ((currentRowId && String(b.rowId) === String(currentRowId)) || b.isDoneStatus || b.isRunningStatus) continue;
+
+        // Bỏ qua nếu cùng số điện thoại (cùng nhóm khách) -> giúp Batch Start mượt mà
+        if (currentPhone && currentPhone.length >= 4) {
+            const otherPhone = getNormalizedPhone(b);
+            if (otherPhone === currentPhone) continue;
+        }
+
+        const reqStaff = b.requestedStaff || b.serviceStaff || b.staffId || b.ServiceStaff || b.technician;
+
+        if (reqStaff === staffId) {
+            const timeStr = b.startTimeString ? b.startTimeString.split(' ')[1] : null;
+            if (timeStr) {
+                let futureStartMins = 0;
+                if (window.normalizeToTimelineMins) {
+                    futureStartMins = window.normalizeToTimelineMins(timeStr);
+                } else {
+                    const [h, m] = timeStr.split(':').map(Number);
+                    futureStartMins = (h * 60) + (m || 0);
+                    if (h < 8) futureStartMins += 1440;
+                }
+
+                if (futureStartMins > currentMins) {
+                    if (proposedEndTime > futureStartMins) {
+                        return false;
+                    }
+                }
+            }
+        }
+    }
     return true;
 };
 
@@ -266,39 +302,6 @@ const App = () => {
             return new Date().toISOString();
         }
     };
-
-    const isActuallyBusy = useCallback((staffId) => {
-        if (!resourceState) return false;
-        return Object.values(resourceState).some(r => {
-            if (!r.isRunning || r.isPaused || r.isPreview === true) return false;
-            const b = r.booking || {};
-            const possibleKeys = [
-                b.serviceStaff, b.ServiceStaff, b.technician, b.Technician,
-                b.staffId2, b.StaffId2, b.staff2, b.Staff2,
-                b.staffId3, b.StaffId3, b.staff3, b.Staff3,
-                b.staffId4, b.StaffId4, b.staff4, b.Staff4,
-                b.staffId5, b.StaffId5, b.staff5, b.Staff5,
-                b.staffId6, b.StaffId6, b.staff6, b.Staff6
-            ];
-            return possibleKeys.includes(staffId);
-        });
-    }, [resourceState]);
-
-    const busyStaffIds = useMemo(() => {
-        const ids = new Set();
-        Object.values(resourceState).forEach(r => {
-            if (r.isRunning && !r.isPaused && r.isPreview !== true) {
-                const b = r.booking || {};
-                if (b.serviceStaff) ids.add(b.serviceStaff);
-                if (b.staffId2) ids.add(b.staffId2);
-                if (b.staffId3) ids.add(b.staffId3);
-                if (b.staffId4) ids.add(b.staffId4);
-                if (b.staffId5) ids.add(b.staffId5);
-                if (b.staffId6) ids.add(b.staffId6);
-            }
-        });
-        return Array.from(ids);
-    }, [resourceState]);
 
     const updateResource = async (newState) => {
         setResourceState(newState);
@@ -531,6 +534,7 @@ const App = () => {
 
             const cleanBookings = (apiBookings || []).map(b => {
                 let targetB = { ...b };
+                const rawStatus = String(targetB.status || '');
 
                 const override = localOverridesRef.current[String(targetB.rowId)];
                 if (override) {
@@ -545,7 +549,7 @@ const App = () => {
                     if (override.phase1_res_idx && targetB.phase1_res_idx !== override.phase1_res_idx) isSynced = false;
                     if (override.phase2_res_idx && targetB.phase2_res_idx !== override.phase2_res_idx) isSynced = false;
 
-                    if (override.forceRunning && (!targetB.status || !targetB.status.includes('Running'))) isSynced = false;
+                    if (override.forceRunning && (!rawStatus || !rawStatus.includes('Running'))) isSynced = false;
 
                     if (isSynced) {
                         delete localOverridesRef.current[String(targetB.rowId)];
@@ -629,12 +633,16 @@ const App = () => {
                     displayStaff = '隨機';
                 }
 
+                const noteStrForGuaSha = (targetB.ghiChu || targetB.note || "").toString().toUpperCase();
+                const isGuaSha = noteStrForGuaSha.includes('刮痧') || noteStrForGuaSha.includes('拔罐');
+
                 return {
                     ...targetB,
                     cleanServiceName: cleanName,
                     serviceCode: serviceCode,
                     displayStaff: displayStaff,
                     isOil: targetB.isOil || (targetB.serviceName && targetB.serviceName.includes('油')),
+                    isGuaSha: isGuaSha,
                     duration: finalDur,
                     _needsAutoSyncDur: isAutoFixed,
                     price: targetB.price || 0,
@@ -649,8 +657,9 @@ const App = () => {
                     originalNote: targetB.ghiChu || targetB.note || "",
                     forceResourceType: forceResourceType,
                     isForcedSingle: isForcedSingle,
-                    isRunningStatus: (targetB.status && (targetB.status.includes('Running') || targetB.status.includes('服務中') || targetB.status.includes('running'))),
-                    isDoneStatus: (targetB.status && (targetB.status.includes('完成') || targetB.status.includes('Done') || targetB.status.includes('✅') || targetB.status.includes('Cancel') || targetB.status.includes('取消'))),
+
+                    isRunningStatus: (rawStatus.includes('Running') || rawStatus.includes('服務中') || rawStatus.toLowerCase().includes('running')),
+                    isDoneStatus: (rawStatus.includes('完成') || rawStatus.includes('Done') || rawStatus.includes('✅') || rawStatus.toLowerCase().includes('cancel') || rawStatus.includes('取消')),
                     storedLocation: targetB.location || targetB.current_resource_id || (targetB.phase1_res_idx ? targetB.phase1_res_idx.toLowerCase() : null),
 
                     standardDuration: standardDur,
@@ -659,16 +668,23 @@ const App = () => {
                 };
             });
 
+            cleanBookings.forEach(b => {
+                if (b.isDoneStatus && localOverridesRef.current[String(b.rowId)]) {
+                    delete localOverridesRef.current[String(b.rowId)];
+                }
+            });
+
             const bookingMap = new Map();
             cleanBookings.forEach(b => bookingMap.set(String(b.rowId), b));
 
             const signatureMap = new Map();
             cleanBookings.forEach(b => signatureMap.set(getBookingSignature(b), b));
 
-            const relevantBookings = cleanBookings.filter(b =>
-                window.isWithinOperationalDay(b.startTimeString.split(' ')[0], b.startTimeString.split(' ')[1], viewDate) &&
-                !b.status.includes('Cancel') && !b.status.includes('取消')
-            );
+            const relevantBookings = cleanBookings.filter(b => {
+                const safeStatus = String(b.status || '');
+                return window.isWithinOperationalDay(b.startTimeString.split(' ')[0], b.startTimeString.split(' ')[1], viewDate) &&
+                    !safeStatus.toLowerCase().includes('cancel') && !safeStatus.includes('取消');
+            });
 
             if (apiStaff && apiStaff.length > 0) {
                 setStaffList(apiStaff);
@@ -770,6 +786,7 @@ const App = () => {
             const timelineGrid = {};
 
             const addToGrid = (resId, start, end, booking, meta) => {
+                if (booking.isDoneStatus) return;
                 if (!timelineGrid[resId]) timelineGrid[resId] = [];
                 timelineGrid[resId].push({ start, end, booking, meta });
             };
@@ -918,6 +935,7 @@ const App = () => {
             listCombosGroups.sort((a, b) => sortFn(a[0], b[0]));
 
             listSingles.forEach(b => {
+                if (b.isDoneStatus) return;
                 if (activeRowIds.has(String(b.rowId))) return;
                 const originalStart = window.normalizeToTimelineMins(b.startTimeString.split(' ')[1]);
                 let targetId = b.current_resource_id ? b.current_resource_id.toLowerCase() : (b.storedLocation ? b.storedLocation.toLowerCase() : null);
@@ -932,6 +950,7 @@ const App = () => {
                 const originalStart = window.normalizeToTimelineMins(firstBooking.startTimeString.split(' ')[1]);
 
                 group.forEach((bookingItem) => {
+                    if (bookingItem.isDoneStatus) return;
                     if (bookingItem.forceResourceType) return;
                     if (activeRowIds.has(String(bookingItem.rowId))) return;
 
@@ -1085,7 +1104,7 @@ const App = () => {
             console.error("API Error", e);
             if (e.response && e.response.status === 429) setQuotaError(true);
         } finally {
-            if (isManual) setIsManualRefreshing(false);
+            if (isManualRefreshing) setIsManualRefreshing(false);
         }
     };
 
@@ -1139,31 +1158,57 @@ const App = () => {
         }
     };
 
-    const handleSplitConfirm = async (staffId2) => {
+    // --- [V108.55 UPGRADE] SỬA LỖI NỐI CHUỖI KHI SPLIT THỢ ---
+    const handleSplitConfirm = async (newStaffId) => {
         if (!splitData) return;
         const { resourceId } = splitData;
         const current = resourceState[resourceId];
         if (!current) return;
         setSyncLock(true); setTimeout(() => setSyncLock(false), 5000);
 
-        const newStatusData = { ...statusData, [staffId2]: { ...statusData[staffId2], status: 'BUSY' } };
+        const newStatusData = { ...statusData, [newStaffId]: { ...statusData[newStaffId], status: 'BUSY', stafftime: Date.now() } };
         updateStaffStatus(newStatusData);
 
-        const grpIdx = getGroupMemberIndex(resourceId, current.booking.rowId);
-        let primaryKey = "服務師傅1"; let targetProp = "serviceStaff";
-        if (grpIdx === 1) { primaryKey = "服務師傅2"; targetProp = "staffId2"; }
-        else if (grpIdx === 2) { primaryKey = "服務師傅3"; targetProp = "staffId3"; }
-        else if (grpIdx === 3) { primaryKey = "服務師傅4"; targetProp = "staffId4"; }
-        else if (grpIdx === 4) { primaryKey = "服務師傅5"; targetProp = "staffId5"; }
-        else if (grpIdx === 5) { primaryKey = "服務師傅6"; targetProp = "staffId6"; }
+        const staffProps = [
+            { key: 'serviceStaff', dbKey: '服務師傅1', fbKey: 'ServiceStaff1' },
+            { key: 'staffId2', dbKey: '服務師傅2', fbKey: 'ServiceStaff2' },
+            { key: 'staffId3', dbKey: '服務師傅3', fbKey: 'ServiceStaff3' },
+            { key: 'staffId4', dbKey: '服務師傅4', fbKey: 'ServiceStaff4' },
+            { key: 'staffId5', dbKey: '服務師傅5', fbKey: 'ServiceStaff5' },
+            { key: 'staffId6', dbKey: '服務師傅6', fbKey: 'ServiceStaff6' }
+        ];
 
-        const currentName = current.booking[targetProp] || "";
-        const newNameCombined = currentName ? `${currentName}, ${staffId2}` : staffId2;
-        const newBooking = { ...current.booking, [targetProp]: newNameCombined };
+        let targetProp = null;
+        let targetDbKey = null;
+        let targetFbKey = null;
+
+        for (let i = 0; i < staffProps.length; i++) {
+            const currentVal = current.booking[staffProps[i].key];
+            if (!currentVal || currentVal === '隨機' || currentVal === 'undefined' || currentVal === 'null' || currentVal === '') {
+                targetProp = staffProps[i].key;
+                targetDbKey = staffProps[i].dbKey;
+                targetFbKey = staffProps[i].fbKey;
+                break;
+            }
+        }
+
+        if (!targetProp) {
+            alert("⚠️ 該預約已達最大技師數量限制 (6人)。");
+            setSyncLock(false);
+            return;
+        }
+
+        const newBooking = { ...current.booking, [targetProp]: newStaffId };
         const newState = { ...resourceState, [resourceId]: { ...current, booking: newBooking } };
 
         setResourceState(newState);
-        const payload = { rowId: current.booking.rowId, [primaryKey]: newNameCombined, forceSync: true };
+
+        const payload = {
+            rowId: current.booking.rowId,
+            [targetDbKey]: newStaffId,
+            [targetFbKey]: newStaffId,
+            forceSync: true
+        };
         await universalSend('/api/update-booking-details', payload);
         await updateResource(newState);
         setSplitData(null);
@@ -1188,10 +1233,33 @@ const App = () => {
         setResourceState(newState);
 
         const newStatusData = { ...statusData };
+
         if (oldServiceStaff !== '隨機' && oldServiceStaff !== newStaffId) {
-            newStatusData[oldServiceStaff] = { status: 'READY', checkInTime: Date.now(), stafftime: Date.now() };
+            const oldStaffState = statusData[oldServiceStaff];
+            let restoredTime = Date.now();
+
+            if (oldStaffState?.previousStafftime) {
+                restoredTime = oldStaffState.previousStafftime;
+            } else if (current.startTime) {
+                restoredTime = new Date(current.startTime).getTime();
+            }
+
+            newStatusData[oldServiceStaff] = {
+                ...oldStaffState,
+                status: 'READY',
+                stafftime: restoredTime
+            };
         }
-        if (newStaffId !== '隨機') { newStatusData[newStaffId] = { status: 'BUSY' }; }
+
+        if (newStaffId !== '隨機') {
+            const currentStaffTime = statusData[newStaffId]?.stafftime || Date.now();
+            newStatusData[newStaffId] = {
+                ...statusData[newStaffId],
+                status: 'BUSY',
+                stafftime: Date.now(),
+                previousStafftime: currentStaffTime
+            };
+        }
         updateStaffStatus(newStatusData);
 
         let primaryKey = "服務師傅1"; let fallbackKey = "ServiceStaff1";
@@ -1302,11 +1370,11 @@ const App = () => {
         });
 
         let s1 = customP1Res && customP1Res !== 'auto' ? customP1Res.toLowerCase() : null;
-        if (!s1) s1 = MatrixHelper.findBestSlot(p1Type, tryStart, tryStart + newPhase1Duration, timelineData, mockActiveEndTimes) || `${p1Type}-1`;
+        if (!s1) s1 = MatrixHelper.findBestSlot(p1Type, tryStart, tryStart + newPhase1Duration, timelineData, mockActiveEndTimes, null, rowId) || `${p1Type}-1`;
 
         const p2Start = tryStart + newPhase1Duration + 5;
         let s2 = customP2Res && customP2Res !== 'auto' ? customP2Res.toLowerCase() : null;
-        if (!s2) s2 = MatrixHelper.findBestSlot(p2Type, p2Start, p2Start + newPhase2Duration, timelineData, mockActiveEndTimes) || `${p2Type}-1`;
+        if (!s2) s2 = MatrixHelper.findBestSlot(p2Type, p2Start, p2Start + newPhase2Duration, timelineData, mockActiveEndTimes, null, rowId) || `${p2Type}-1`;
 
         if (!localOverridesRef.current[rowId]) localOverridesRef.current[rowId] = {};
 
@@ -1427,9 +1495,9 @@ const App = () => {
             }
         });
 
-        const s1 = MatrixHelper.findBestSlot(p1Type, tryStart, tryStart + split.phase1, timelineData, mockActiveEndTimes) || `${p1Type}-1`;
+        const s1 = MatrixHelper.findBestSlot(p1Type, tryStart, tryStart + split.phase1, timelineData, mockActiveEndTimes, null, rowId) || `${p1Type}-1`;
         const p2Start = tryStart + split.phase1 + 5;
-        const s2 = MatrixHelper.findBestSlot(p2Type, p2Start, p2Start + split.phase2, timelineData, mockActiveEndTimes) || `${p2Type}-1`;
+        const s2 = MatrixHelper.findBestSlot(p2Type, p2Start, p2Start + split.phase2, timelineData, mockActiveEndTimes, null, rowId) || `${p2Type}-1`;
 
         const phase1_res_idx = s1.toUpperCase();
         const phase2_res_idx = s2.toUpperCase();
@@ -1638,7 +1706,6 @@ const App = () => {
         });
     };
 
-    // --- [V108.34] START LOGIC WITH STAFF-CENTRIC ALGORITHM ---
     const executeStart = (id, comboSequence, silentMode = false, fallbackBooking = null) => {
         let current = resourceState[id];
 
@@ -1683,9 +1750,13 @@ const App = () => {
 
         if (isComboService) {
             if (!comboSequence) {
-                const physicalType = currentId.split('-')[0];
-                if (physicalType === 'bed') actualSeq = 'BF';
-                else if (physicalType === 'chair') actualSeq = 'FB';
+                if (!current.booking.flow || current.booking.flow === 'null') {
+                    const physicalType = currentId.split('-')[0];
+                    if (physicalType === 'bed') actualSeq = 'BF';
+                    else if (physicalType === 'chair') actualSeq = 'FB';
+                } else {
+                    actualSeq = current.booking.flow;
+                }
             }
 
             if (!comboMeta) {
@@ -1707,6 +1778,21 @@ const App = () => {
                 (comboSequence === 'FB' && currentType === 'bed')) {
                 shouldMove = true;
 
+                const nowObj = window.getTaipeiDate ? window.getTaipeiDate() : new Date();
+                const currentMins = nowObj.getHours() * 60 + nowObj.getMinutes() + (nowObj.getHours() < 8 ? 1440 : 0);
+                const dur = current.booking.duration || window.getSafeDuration(current.booking.serviceName) || 60;
+
+                const mockActiveEndTimes = {};
+                Object.keys(resourceState).forEach(k => {
+                    if (resourceState[k].isRunning && resourceState[k].booking) {
+                        try {
+                            const startObj = new Date(resourceState[k].startTime);
+                            const startMinsRes = startObj.getHours() * 60 + startObj.getMinutes() + (startObj.getHours() < 8 ? 1440 : 0);
+                            mockActiveEndTimes[k] = startMinsRes + (resourceState[k].booking.duration || 60);
+                        } catch (e) { }
+                    }
+                });
+
                 let projectedId = null;
                 if (timelineData) {
                     for (const [resId, slots] of Object.entries(timelineData)) {
@@ -1717,14 +1803,7 @@ const App = () => {
                     }
                 }
 
-                if (projectedId && (!resourceState[projectedId] || !resourceState[projectedId].isRunning)) {
-                    targetMoveId = projectedId;
-                } else {
-                    for (let i = 1; i <= 6; i++) {
-                        const tid = `${targetType}-${i}`;
-                        if (!resourceState[tid] || !resourceState[tid].isRunning) { targetMoveId = tid; break; }
-                    }
-                }
+                targetMoveId = MatrixHelper.findBestSlot(targetType, currentMins, currentMins + dur, timelineData, mockActiveEndTimes, projectedId, String(current.booking.rowId));
             }
         } else if (isStrict) {
             const type = id.split('-')[0];
@@ -1736,7 +1815,6 @@ const App = () => {
             }
         }
 
-        // TÌM NHÂN VIÊN (STAFF-CENTRIC)
         if (['隨機', '男', '女', 'Oil'].some(k => designatedStaff.includes(k))) {
             if (!staffList || staffList.length === 0) {
                 if (!silentMode) alert("⚠️ 員工資料為空，請稍後再試！");
@@ -1754,7 +1832,6 @@ const App = () => {
                 return true;
             });
 
-            // Xếp hàng thợ rảnh từ phải qua trái (StaffTime Tăng Dần)
             const readyCandidates = readyStaff.sort((a, b) => {
                 const timeA = statusData[a.id]?.stafftime || Number.MAX_SAFE_INTEGER;
                 const timeB = statusData[b.id]?.stafftime || Number.MAX_SAFE_INTEGER;
@@ -1762,17 +1839,24 @@ const App = () => {
             });
 
             let foundStaff = null;
-            // Thợ đi thử Khách
+
+            const nowObj = window.getTaipeiDate ? window.getTaipeiDate() : new Date();
+            const currentMins = nowObj.getHours() * 60 + nowObj.getMinutes() + (nowObj.getHours() < 8 ? 1440 : 0);
+            const currentPhone = getNormalizedPhone(current.booking);
+
             for (let i = 0; i < readyCandidates.length; i++) {
                 if (checkStaffCompatibility(readyCandidates[i], current.booking, designatedStaff)) {
-                    foundStaff = readyCandidates[i];
-                    break;
+                    const dur = current.booking.duration || window.getSafeDuration(current.booking.serviceName) || 60;
+                    if (checkStaffFutureAvailability(readyCandidates[i].id, dur, bookings, currentMins, current.booking.rowId, currentPhone)) {
+                        foundStaff = readyCandidates[i];
+                        break;
+                    }
                 }
             }
 
             if (!foundStaff) {
                 const genderMsg = designatedStaff.includes('男') ? " (男)" : designatedStaff.includes('女') ? " (女)" : "";
-                if (!silentMode) alert(`⚠️ 找不到符合條件的技師${genderMsg}！(No staff matches criteria)`);
+                if (!silentMode) alert(`⚠️ 找不到符合條件的技師${genderMsg}（可能因未來已有預約或條件不符）！`);
                 setSyncLock(false); return;
             }
             finalServiceStaff = foundStaff.id;
@@ -1780,13 +1864,23 @@ const App = () => {
 
         if (shouldMove) {
             if (!targetMoveId) {
-                if (!silentMode) alert("⚠️ 無法開始：目標區域已無空位！");
+                if (!silentMode) alert("⚠️ 無法開始：目標區域已無空位（與未來預約衝突）！");
                 setSyncLock(false); return;
             }
             currentId = targetMoveId;
         }
 
-        const newStatusData = { ...statusData, [finalServiceStaff]: { ...statusData[finalServiceStaff], status: 'BUSY' } };
+        // [V108.51] Lưu previousStafftime trước khi chuyển thợ sang BUSY
+        const currentStaffTime = statusData[finalServiceStaff]?.stafftime || Date.now();
+        const newStatusData = {
+            ...statusData,
+            [finalServiceStaff]: {
+                ...statusData[finalServiceStaff],
+                status: 'BUSY',
+                stafftime: Date.now(),
+                previousStafftime: currentStaffTime
+            }
+        };
         updateStaffStatus(newStatusData);
 
         const grpIdx = getGroupMemberIndex(currentId, current.booking.rowId);
@@ -1858,147 +1952,199 @@ const App = () => {
         axios.post('/api/update-status', { rowId: current.booking.rowId, status: '🟡 Running' });
     };
 
-    // --- [V108.34] BATCH START WITH FIXED STATE MUTATION BUG ---
+    // --- [V108.55 UPGRADE] SỬA LỖI LOGIC BATCH START ---
     const executeBatchStart = (mainResId, relatedItems) => {
         const nextResourceState = { ...resourceState };
         const nextStatusData = { ...statusData };
         const apiPayloads = [];
 
         const allItemsToStart = [
-            { resourceId: mainResId, booking: resourceState[mainResId] ? resourceState[mainResId].booking : null },
+            { resourceId: mainResId, booking: mainResId && resourceState[mainResId] ? resourceState[mainResId].booking : null },
             ...relatedItems
         ];
+
+        allItemsToStart.sort((a, b) => {
+            const getGroupIndex = (item) => {
+                if (!item || !item.booking || !item.booking.customerName) return 999;
+                const match = item.booking.customerName.match(/\((\d+)\/\d+\)/);
+                return match ? parseInt(match[1], 10) : 999;
+            };
+            const idxA = getGroupIndex(a);
+            const idxB = getGroupIndex(b);
+
+            if (idxA !== idxB) return idxA - idxB;
+
+            const rowA = parseInt(a.booking?.rowId || 0);
+            const rowB = parseInt(b.booking?.rowId || 0);
+            return rowA - rowB;
+        });
 
         setSyncLock(true);
         setTimeout(() => setSyncLock(false), 5000);
 
-        allItemsToStart.forEach(item => {
-            if (!item.resourceId && item.booking && timelineData) {
-                for (const [resId, slots] of Object.entries(timelineData)) {
-                    if (slots.some(s => String(s.booking.rowId) === String(item.booking.rowId))) {
-                        if (!nextResourceState[resId] || !nextResourceState[resId].isRunning) {
-                            item.resourceId = resId;
-                            nextResourceState[resId] = { isPlaceholder: true };
-                            break;
-                        }
-                    }
-                }
-            }
+        const nowObj = window.getTaipeiDate ? window.getTaipeiDate() : new Date();
+        const currentMins = nowObj.getHours() * 60 + nowObj.getMinutes() + (nowObj.getHours() < 8 ? 1440 : 0);
 
-            if (!item.resourceId && item.booking) {
-                const isBed = item.booking.forceResourceType === 'BED' || item.booking.flow === 'BODYSINGLE';
-                const prefTypes = isBed ? ['bed', 'chair'] : ['chair', 'bed'];
-
-                for (const type of prefTypes) {
-                    for (let i = 1; i <= 6; i++) {
-                        const tid = `${type}-${i}`;
-                        if (!nextResourceState[tid] || (!nextResourceState[tid].isRunning && !nextResourceState[tid].isPlaceholder)) {
-                            item.resourceId = tid;
-                            nextResourceState[tid] = { isPlaceholder: true };
-                            break;
-                        }
-                    }
-                    if (item.resourceId) break;
-                }
+        const mockActiveEndTimes = {};
+        Object.keys(nextResourceState).forEach(k => {
+            if (nextResourceState[k].isRunning && nextResourceState[k].booking) {
+                try {
+                    const startObj = new Date(nextResourceState[k].startTime);
+                    const startMinsRes = startObj.getHours() * 60 + startObj.getMinutes() + (startObj.getHours() < 8 ? 1440 : 0);
+                    mockActiveEndTimes[k] = startMinsRes + (nextResourceState[k].booking.duration || 60);
+                } catch (e) { }
             }
         });
 
-        const validItems = allItemsToStart.filter(item => item.resourceId && item.booking);
+        allItemsToStart.forEach(item => {
+            if (!item.booking) return;
 
-        // --- CORE ALGORITHM: STAFF-CENTRIC ASSIGNMENT ---
-        const assignments = {}; // Map: resourceId -> staffId
-        let unassignedItems = [...validItems];
+            let targetId = item.resourceId || item.booking.current_resource_id || item.booking.storedLocation || item.booking.phase1_res_idx;
+            if (targetId) {
+                targetId = targetId.toLowerCase();
+            }
 
-        // Bước 1: Trích xuất các khách "Chỉ định thợ" (指定) ra ghép trước
-        unassignedItems = unassignedItems.filter(item => {
-            let req = item.booking.serviceStaff || item.booking.staffId || '隨機';
-            if (req === 'undefined' || req === 'null') req = '隨機';
+            if (targetId) {
+                item.resourceId = targetId;
+            } else {
+                const dur = item.booking.duration || window.getSafeDuration(item.booking.serviceName) || 60;
+                const flow = item.booking.flow || 'FB';
+                const isStrictSingle = item.booking.isForcedSingle === true;
+                const isComboService = !isStrictSingle && (item.booking.category === 'COMBO' || (item.booking.serviceName && item.booking.serviceName.includes('套餐')));
 
-            const isRandom = ['隨機', '男', '女', 'Oil'].some(k => req.includes(k));
+                let expectedType = 'chair';
+                if (item.booking.forceResourceType === 'BED' || flow === 'BODYSINGLE') expectedType = 'bed';
+                else if (isComboService && flow === 'BF') expectedType = 'bed';
 
-            if (!isRandom) {
-                assignments[item.resourceId] = req;
+                item.resourceId = MatrixHelper.findBestSlot(expectedType, currentMins, currentMins + dur, timelineData, mockActiveEndTimes, null, String(item.booking.rowId));
+            }
+        });
+
+        const validItems = allItemsToStart.filter(item => {
+            if (!item.resourceId || !item.booking) {
+                if (item.booking) console.warn(`Booking ${item.booking.rowId} skipped: No available seats.`);
                 return false;
             }
             return true;
         });
 
-        // Bước 2: Liệt kê toàn bộ Thợ rảnh và Sắp xếp chuẩn xác theo thời gian chờ (Mili-giây)
+        const assignments = {};
+        let unassignedItems = [...validItems];
+
         const currentlyBusyIds = Object.values(nextResourceState)
             .filter(r => r.isRunning && !r.isPaused && r.isPreview !== true)
             .map(r => r.booking.serviceStaff || r.booking.staffId);
 
         let readyCandidates = staffList.filter(s => {
             const stat = nextStatusData[s.id];
-            const isSpecificRequested = Object.values(assignments).includes(s.id);
-            return stat && stat.status === 'READY' && !currentlyBusyIds.includes(s.id) && !isSpecificRequested;
+            return stat && stat.status === 'READY' && !currentlyBusyIds.includes(s.id);
         });
 
         readyCandidates.sort((a, b) => {
             const timeA = nextStatusData[a.id]?.stafftime || Number.MAX_SAFE_INTEGER;
             const timeB = nextStatusData[b.id]?.stafftime || Number.MAX_SAFE_INTEGER;
-            return timeA - timeB; // Lấy từ Nhỏ đến Lớn (Nằm ngoài cùng bên phải UI)
+            return timeA - timeB;
         });
 
-        // Bước 3: Thợ đi tìm Khách (Thử nghiệm)
-        for (let i = 0; i < readyCandidates.length; i++) {
-            if (unassignedItems.length === 0) break; // Khách đã có thợ hết thì dừng
+        // --- THUẬT TOÁN 3-PASS PRIORITY ---
 
-            const staff = readyCandidates[i];
+        // PASS 1: Ưu tiên Khách Hàng Có Chỉ Định ID Đích Danh
+        for (let i = unassignedItems.length - 1; i >= 0; i--) {
+            const item = unassignedItems[i];
+            let req = item.booking.requestedStaff || item.booking.serviceStaff || item.booking.staffId || '隨機';
+            if (req === 'undefined' || req === 'null') req = '隨機';
 
-            // Mang thợ này đi "thử việc" lần lượt với từng khách chưa có thợ
-            for (let j = 0; j < unassignedItems.length; j++) {
-                const item = unassignedItems[j];
-                let req = item.booking.serviceStaff || item.booking.staffId || '隨機';
-
-                if (checkStaffCompatibility(staff, item.booking, req)) {
-                    // Trúng! Xếp ngay.
-                    assignments[item.resourceId] = staff.id;
-                    unassignedItems.splice(j, 1); // Rút khách này khỏi hàng đợi
-                    break; // Ngừng vòng thử khách, chuyển sang nhân viên tiếp theo ở mảng readyCandidates
+            if (!['隨機', '男', '女', 'Oil', ''].includes(req)) {
+                const staffIdx = readyCandidates.findIndex(s => s.id === req || s.name === req);
+                if (staffIdx !== -1) {
+                    const currentStaff = readyCandidates[staffIdx];
+                    const dur = item.booking.duration || window.getSafeDuration(item.booking.serviceName) || 60;
+                    const currentPhone = getNormalizedPhone(item.booking);
+                    if (checkStaffFutureAvailability(currentStaff.id, dur, bookings, currentMins, item.booking.rowId, currentPhone)) {
+                        assignments[item.resourceId] = currentStaff.id;
+                        unassignedItems.splice(i, 1);
+                        readyCandidates.splice(staffIdx, 1);
+                    }
                 }
             }
         }
 
-        let failedToStartCount = 0; // Đếm số khách bị rớt lại
+        // PASS 2: Ưu tiên Khách Hàng Yêu Cầu Giới Tính (Nam/Nữ/Tinh dầu)
+        for (let i = unassignedItems.length - 1; i >= 0; i--) {
+            const item = unassignedItems[i];
+            let req = item.booking.requestedStaff || item.booking.serviceStaff || item.booking.staffId || '隨機';
+            if (req === 'undefined' || req === 'null') req = '隨機';
 
-        // Tiến hành ghi nhận thông tin đã Assign
-        validItems.forEach(item => {
-            const { resourceId } = item;
+            const needsMale = req.includes('男') || req.includes('Male');
+            const needsFemale = req.includes('女') || req.includes('Female') || item.booking.isOil;
 
-            // [V108.34 FIX] Lấy thông tin thợ đã match, KIỂM TRA TRƯỚC KHI TẠO STATE
-            let finalServiceStaff = assignments[resourceId];
-            let req = item.booking.serviceStaff || item.booking.staffId || '隨機';
-            const isRandom = ['隨機', '男', '女', 'Oil'].some(k => req.includes(k));
-
-            if (!finalServiceStaff) {
-                if (isRandom) {
-                    failedToStartCount++; // Đánh dấu thất bại
-                    return; // QUAN TRỌNG: Lệnh return này sẽ bỏ qua toàn bộ logic bên dưới cho khách này. Không tạo State rác.
-                } else {
-                    finalServiceStaff = req; // Fallback cho trường hợp thợ được yêu cầu chưa bấm CheckIn
+            if (needsMale || needsFemale) {
+                const staffIdx = readyCandidates.findIndex(s => checkStaffCompatibility(s, item.booking, req));
+                if (staffIdx !== -1) {
+                    const currentStaff = readyCandidates[staffIdx];
+                    const dur = item.booking.duration || window.getSafeDuration(item.booking.serviceName) || 60;
+                    const currentPhone = getNormalizedPhone(item.booking);
+                    if (checkStaffFutureAvailability(currentStaff.id, dur, bookings, currentMins, item.booking.rowId, currentPhone)) {
+                        assignments[item.resourceId] = currentStaff.id;
+                        unassignedItems.splice(i, 1);
+                        readyCandidates.splice(staffIdx, 1);
+                    }
                 }
             }
+        }
 
-            // NẾU TÌM ĐƯỢC THỢ -> CHÍNH THỨC GHI VÀO STATE
+        // PASS 3: Khách Hàng Random / Không Yêu Cầu Gì Thêm
+        for (let i = unassignedItems.length - 1; i >= 0; i--) {
+            const item = unassignedItems[i];
+            const staffIdx = readyCandidates.findIndex(s => {
+                const dur = item.booking.duration || window.getSafeDuration(item.booking.serviceName) || 60;
+                const currentPhone = getNormalizedPhone(item.booking);
+                return checkStaffFutureAvailability(s.id, dur, bookings, currentMins, item.booking.rowId, currentPhone);
+            });
+
+            if (staffIdx !== -1) {
+                const currentStaff = readyCandidates[staffIdx];
+                assignments[item.resourceId] = currentStaff.id;
+                unassignedItems.splice(i, 1);
+                readyCandidates.splice(staffIdx, 1);
+            }
+        }
+
+        let failedToStartCount = unassignedItems.length;
+
+        let assignCounter = 0;
+        validItems.forEach(item => {
+            const { resourceId } = item;
+            let finalServiceStaff = assignments[resourceId];
+
+            if (!finalServiceStaff) {
+                return;
+            }
+
             let current = nextResourceState[resourceId];
-            if (!current || current.isPlaceholder) {
+            if (!current) {
                 current = {
                     booking: item.booking,
                     isRunning: false,
                     isPaused: false,
                     startTime: null,
-                    isPreview: true, // Sẽ được cập nhật thành false ngay bên dưới
+                    isPreview: true,
                     isMaxMode: true,
                     comboMeta: null
                 };
-                nextResourceState[resourceId] = current;
             }
 
             if (current.isRunning) return;
 
-            // Gán BUSY
-            nextStatusData[finalServiceStaff] = { ...nextStatusData[finalServiceStaff], status: 'BUSY' };
+            // [V108.51] Lưu previousStafftime trước khi chuyển thợ sang BUSY (Batch start)
+            const currentStaffTime = nextStatusData[finalServiceStaff]?.stafftime || Date.now();
+            nextStatusData[finalServiceStaff] = {
+                ...nextStatusData[finalServiceStaff],
+                status: 'BUSY',
+                stafftime: Date.now() + assignCounter,
+                previousStafftime: currentStaffTime
+            };
+            assignCounter++;
 
             const rowIdStr = String(item.booking.rowId);
             if (!localOverridesRef.current[rowIdStr]) localOverridesRef.current[rowIdStr] = {};
@@ -2012,9 +2158,13 @@ const App = () => {
             let actualSeq = current.booking.flow || 'FB';
 
             if (isComboService) {
-                const physicalType = resourceId.split('-')[0];
-                if (physicalType === 'bed') actualSeq = 'BF';
-                else if (physicalType === 'chair') actualSeq = 'FB';
+                if (!current.booking.flow || current.booking.flow === 'null') {
+                    const physicalType = resourceId.split('-')[0];
+                    if (physicalType === 'bed') actualSeq = 'BF';
+                    else if (physicalType === 'chair') actualSeq = 'FB';
+                } else {
+                    actualSeq = current.booking.flow;
+                }
 
                 if (!newComboMeta) {
                     let projectedTargetId = current.booking.phase2_res_idx ? current.booking.phase2_res_idx.toLowerCase() : null;
@@ -2057,7 +2207,7 @@ const App = () => {
             if (grpIdx === 1) { primaryKey = "服務師傅2"; fallbackKey = "ServiceStaff2"; }
             else if (grpIdx === 2) { primaryKey = "服務師傅3"; fallbackKey = "ServiceStaff3"; }
             else if (grpIdx === 3) { primaryKey = "服務師傅4"; fallbackKey = "ServiceStaff4"; }
-            else if (grpIdx === 4) { primaryKey = "服務師傅5"; fallbackKey = "ServiceStaff5"; }
+            else if (grpIdx === 5) { primaryKey = "服務師傅5"; fallbackKey = "ServiceStaff5"; }
             else if (grpIdx === 5) { primaryKey = "服務師傅6"; fallbackKey = "ServiceStaff6"; }
 
             let comboPayloadAdditions = {};
@@ -2093,16 +2243,8 @@ const App = () => {
             });
         });
 
-        // [V108.34 FIX] Dọn dẹp rác (Placeholder) khỏi State để không render thẻ trống ra Timeline
-        Object.keys(nextResourceState).forEach(key => {
-            if (nextResourceState[key].isPlaceholder) {
-                delete nextResourceState[key];
-            }
-        });
-
-        // [V108.34 FIX] Khôi phục hiển thị cảnh báo một cách tinh tế
         if (failedToStartCount > 0) {
-            alert(`⚠️ 部分客人 (${failedToStartCount}位) 因無符合條件的技師而無法自動開始，已保留在等待區。\n\n(Một số khách không thể tự động bắt đầu do thiếu kỹ thuật viên phù hợp, đã được giữ lại khu vực chờ)`);
+            alert(`⚠️ 部分客人 (${failedToStartCount}位) 因無符合條件的技師（可能因未來已有預約或條件不符）而無法自動開始，已保留在等待區。`);
         }
 
         setResourceState(nextResourceState);
@@ -2121,9 +2263,9 @@ const App = () => {
             executeStart(id, null);
         }
         else if (action === 'pause') { updateResource({ ...resourceState, [id]: { ...current, isPaused: !current.isPaused } }); }
-        else if (action === 'cancel') { if (confirm('確定將顧客從此位置移除？')) { const n = { ...resourceState }; delete n[id]; updateResource(n); } }
+        else if (action === 'cancel') { if (confirm('確定將顧客從位置移除？')) { const n = { ...resourceState }; delete n[id]; updateResource(n); } }
         else if (action === 'cancel_midway') {
-            if (confirm('確定要棄單 (Drop)？\n此操作將標記為「取消」並釋放此位置。')) {
+            if (confirm('確定要棄單 (Drop)？\n此操作會標記為「取消」並釋放此位置。')) {
                 const ridStr = String(current.booking.rowId);
                 if (localOverridesRef.current[ridStr]) {
                     delete localOverridesRef.current[ridStr];
@@ -2495,42 +2637,35 @@ const App = () => {
     const handleManualUpdateStatus = async (rowId, status) => { if (confirm('確認更新狀態?')) { await axios.post('/api/update-status', { rowId, status }); fetchData(); } };
     const handleRetryConnection = () => { setQuotaError(false); fetchData(true); };
 
-    const getStatus = useCallback((id) => statusData[id] ? statusData[id].status : 'AWAY', [statusData]);
-
     const safeStaffList = useMemo(() => staffList || [], [staffList]);
 
-    const awayStaff = useMemo(() => {
-        return safeStaffList.filter(s => {
-            const st = getStatus(s.id);
-            return st === 'AWAY' || st === 'OFF';
-        }).sort(window.sortIdAsc);
-    }, [safeStaffList, getStatus]);
+    // --- [V108.45 UPGRADE] LOGIC CẢNH BÁO KHÁCH CHỈ ĐỊNH VÀ TRUYỀN StaffSorter ---
+    const enrichedStaffList = useMemo(() => {
+        const nowObj = window.getTaipeiDate ? window.getTaipeiDate() : new Date();
+        const currentMins = nowObj.getHours() * 60 + nowObj.getMinutes() + (nowObj.getHours() < 8 ? 1440 : 0);
 
-    const busyStaff = useMemo(() => {
-        return safeStaffList.filter(s => isActuallyBusy(s.id)).sort((a, b) => {
-            const findRes = (sid) => Object.values(resourceState).find(r => r.isRunning && !r.isPaused && r.booking && (r.booking.serviceStaff === sid || r.booking.staffId === sid || r.booking.staffId2 === sid || r.booking.staffId3 === sid || r.booking.staffId4 === sid || r.booking.staffId5 === sid || r.booking.staffId6 === sid));
-            const resA = findRes(a.id); const resB = findRes(b.id);
-            const timeA = resA?.startTime ? new Date(resA.startTime).getTime() : 0; const timeB = resB?.startTime ? new Date(resB.startTime).getTime() : 0;
-            return timeA !== timeB ? timeA - timeB : window.sortIdAsc(a, b);
+        return safeStaffList.map(s => {
+            // Kiểm tra lịch chỉ định trong vòng 2 giờ tới (120 phút)
+            const hasDesignated = !checkStaffFutureAvailability(s.id, 120, bookings, currentMins, null, null);
+            return {
+                ...s,
+                hasUpcomingDesignated: hasDesignated
+            };
         });
-    }, [safeStaffList, isActuallyBusy, resourceState]);
+    }, [safeStaffList, bookings]);
 
-    const readyStaff = useMemo(() => {
-        return safeStaffList.filter(s => {
-            if (isActuallyBusy(s.id)) return false;
-            const st = getStatus(s.id);
-            return st === 'READY' || st === 'EAT' || st === 'OUT_SHORT';
-        }).sort((a, b) => {
-            const timeA = statusData[a.id]?.stafftime || Number.MAX_SAFE_INTEGER;
-            const timeB = statusData[b.id]?.stafftime || Number.MAX_SAFE_INTEGER;
-            if (timeA !== timeB) return timeA - timeB;
-            return window.sortIdAsc(a, b);
-        });
-    }, [safeStaffList, isActuallyBusy, getStatus, statusData]);
+    const staffGroups = useMemo(() => {
+        if (window.StaffSorter && typeof window.StaffSorter.organizeStaff === 'function') {
+            return window.StaffSorter.organizeStaff(enrichedStaffList, statusData, resourceState);
+        }
+        return { busy: [], ready: [], away: [], readyQueueIds: [] };
+    }, [enrichedStaffList, statusData, resourceState]);
 
-    const readyQueue = useMemo(() => {
-        return readyStaff.filter(s => getStatus(s.id) === 'READY').map(s => s.id);
-    }, [readyStaff, getStatus]);
+    const awayStaff = staffGroups.away || [];
+    const busyStaff = staffGroups.busy || [];
+    const readyStaff = staffGroups.ready || [];
+    const readyQueue = staffGroups.readyQueueIds || [];
+    // -------------------------------------------------------------
 
     const safeBookings = Array.isArray(bookings) ? bookings : [];
 
@@ -2544,7 +2679,7 @@ const App = () => {
         <div className="min-h-screen flex flex-col bg-slate-50">
             <header className={`text-white p-3 shadow-md flex justify-between items-center sticky top-0 z-50 transition-colors ${quotaError ? 'bg-red-800' : 'bg-[#1e1b4b]'}`}>
                 <div className="flex items-center gap-3">
-                    <span className="bg-emerald-500 text-white px-2 py-1 rounded font-black text-sm shadow-sm">V108.34</span>
+                    <span className="bg-emerald-500 text-white px-2 py-1 rounded font-black text-sm shadow-sm">V108.55</span>
                     <span className="font-bold hidden md:inline tracking-wider">XinWuChan</span>
                     <div className="flex items-center gap-2 bg-white/10 rounded px-2 py-1 border border-white/20">
                         <button onClick={() => { const d = new Date(viewDate); d.setDate(d.getDate() - 1); setViewDate(d.toISOString().split('T')[0]) }} className="text-white hover:text-amber-400 font-bold px-2">❯</button>
@@ -2580,21 +2715,21 @@ const App = () => {
             <div className="bg-white border-b shadow-sm p-2 overflow-x-auto whitespace-nowrap staff-scroll">
                 <div className="flex w-full justify-between items-center min-w-max">
                     <div className="flex gap-1 opacity-30 scale-95 border-r-2 pr-2 mr-1 border-dashed border-slate-300">
-                        {awayStaff.map(s => <window.StaffCard3D key={s.id} s={s} statusData={statusData} resourceState={resourceState} />)}
+                        {awayStaff.map(s => window.StaffCard3D && <window.StaffCard3D key={s.id} s={s} statusData={statusData} resourceState={resourceState} />)}
                     </div>
                     <div className="flex items-center flex-1 justify-end pl-2">
                         <div className="flex gap-1 px-2 border-r border-red-100 flex-row-reverse">
-                            {busyStaff.map(s => <window.StaffCard3D key={s.id} s={s} statusData={statusData} resourceState={resourceState} isForcedBusy={true} />)}
+                            {busyStaff.map(s => window.StaffCard3D && <window.StaffCard3D key={s.id} s={s} statusData={statusData} resourceState={resourceState} isForcedBusy={true} />)}
                         </div>
                         <div className="flex flex-row-reverse gap-1 pl-2">
-                            {readyStaff.map((s, idx) => { const qIdx = readyQueue.indexOf(s.id); return <window.StaffCard3D key={s.id} s={s} statusData={statusData} resourceState={resourceState} queueIndex={qIdx !== -1 ? qIdx : undefined} />; })}
+                            {readyStaff.map((s, idx) => { const qIdx = readyQueue.indexOf(s.id); return window.StaffCard3D && <window.StaffCard3D key={s.id} s={s} statusData={statusData} resourceState={resourceState} queueIndex={qIdx !== -1 ? qIdx : undefined} />; })}
                         </div>
                     </div>
                 </div>
             </div>
 
             <main className="flex-1 p-4 overflow-y-auto">
-                {activeTab === 'list' && (
+                {activeTab === 'list' && window.BookingListView && (
                     <window.BookingListView
                         bookings={todaysBookings}
                         onCancelBooking={handleManualUpdateStatus}
@@ -2602,8 +2737,8 @@ const App = () => {
                     />
                 )}
 
-                {activeTab === 'timeline' && (
-                    <TimelineView
+                {activeTab === 'timeline' && window.TimelineView && (
+                    <window.TimelineView
                         timelineData={timelineData}
                         liveStatusData={resourceState}
                         onEditPhase={handleControlAction}
@@ -2614,15 +2749,15 @@ const App = () => {
                 )}
             </main>
 
-            {showCheckIn && <window.CheckInBoard staffList={staffList} statusData={statusData} onUpdateStatus={updateStaffStatus} onClose={() => setShowCheckIn(false)} bookings={todaysBookings} />}
-            {showAvailability && <window.AvailabilityCheckModal onClose={() => setShowAvailability(false)} onSave={handleWalkInSave} staffList={staffList} bookings={bookings} initialDate={viewDate} />}
-            {comboStartData && <window.ComboStartModal onConfirm={confirmComboStart} onCancel={() => setComboStartData(null)} bookingName={comboStartData.booking.serviceName} />}
+            {showCheckIn && window.CheckInBoard && <window.CheckInBoard staffList={staffList} statusData={statusData} onUpdateStatus={updateStaffStatus} onClose={() => setShowCheckIn(false)} bookings={todaysBookings} />}
+            {showAvailability && window.AvailabilityCheckModal && <window.AvailabilityCheckModal onClose={() => setShowAvailability(false)} onSave={handleWalkInSave} staffList={staffList} bookings={bookings} initialDate={viewDate} />}
+            {comboStartData && window.ComboStartModal && <window.ComboStartModal onConfirm={confirmComboStart} onCancel={() => setComboStartData(null)} bookingName={comboStartData.booking.serviceName} />}
 
             {selectedSlot && waitingList.length === 0 && <div className="fixed inset-0 bg-black/30 z-50 flex items-center justify-center text-white font-bold" onClick={() => setSelectedSlot(null)}>目前無候位! (No Waiting)</div>}
 
-            {billingData && <window.BillingModal activeItem={billingData.activeItem} relatedItems={billingData.relatedItems} onConfirm={handleConfirmPayment} onCancel={() => setBillingData(null)} />}
+            {billingData && window.BillingModal && <window.BillingModal activeItem={billingData.activeItem} relatedItems={billingData.relatedItems} onConfirm={handleConfirmPayment} onCancel={() => setBillingData(null)} />}
 
-            {splitData && (
+            {splitData && window.SplitStaffModal && (
                 <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 10005, pointerEvents: 'none' }}>
                     <div style={{ pointerEvents: 'auto', width: '100%', height: '100%' }}>
                         <window.SplitStaffModal staffList={staffList} statusData={statusData} onCancel={() => setSplitData(null)} onConfirm={handleSplitConfirm} />

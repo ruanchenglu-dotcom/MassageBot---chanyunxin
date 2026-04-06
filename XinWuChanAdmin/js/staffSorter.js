@@ -1,12 +1,13 @@
 // File: js/staffSorter.js
-// Phiên bản: V7 (Nâng cấp: Tối ưu Auto-Increment Time - Lõi stafftime tuyệt đối, loại bỏ fallback cũ)
+// Phiên bản: V11 (Nâng cấp: Đồng bộ trạng thái BUSY tức thì cho Batch Start)
+// Cập nhật: 2026-04-06
 
 (function () {
-    console.log("🚀 StaffSorter Module: Loaded (V7 - Pure stafftime Priority for READY Queue)");
+    console.log("🚀 StaffSorter Module: Loaded (V11 - Instant Busy Sync & Queue)");
 
     const StaffSorter = {
         // =========================================================================
-        // 1. CÁC HÀM HELPER (HỖ TRỢ) - GIỮ NGUYÊN
+        // 1. CÁC HÀM HELPER (HỖ TRỢ)
         // =========================================================================
 
         isActuallyBusy: (staffId, resourceState) => {
@@ -20,16 +21,6 @@
                 ];
                 return keys.some(k => String(k).trim() === String(staffId).trim());
             });
-        },
-
-        getBusyStartTime: (staffId, resourceState) => {
-            const res = Object.values(resourceState).find(r => {
-                if (!r.isRunning || r.isPaused || r.isPreview === true) return false;
-                const b = r.booking || {};
-                const keys = [b.serviceStaff, b.staffId, b.staffId2, b.staffId3, b.staffId4, b.staffId5, b.staffId6];
-                return keys.some(k => String(k).trim() === String(staffId).trim());
-            });
-            return res && res.startTime ? new Date(res.startTime).getTime() : 0;
         },
 
         getStaffIdFromPaymentItem: (item) => {
@@ -71,11 +62,10 @@
                     return priceA - priceB;
                 }
 
-                // --- BƯỚC 2: SO SÁNH THEO STAFFTIME (Ưu tiên tuyệt đối) ---
+                // --- BƯỚC 2: SO SÁNH THEO STAFFTIME ---
                 const staffIdA = StaffSorter.getStaffIdFromPaymentItem(a);
                 const staffIdB = StaffSorter.getStaffIdFromPaymentItem(b);
 
-                // Dọn dẹp logic fallback checkInTime, chỉ dùng stafftime nguyên thủy
                 const timeA = safeStatus[staffIdA]?.stafftime || 0;
                 const timeB = safeStatus[staffIdB]?.stafftime || 0;
 
@@ -108,12 +98,15 @@
             const awayList = [];
 
             safeStaffList.forEach(s => {
-                if (StaffSorter.isActuallyBusy(s.id, safeRes)) {
+                const currentStat = safeStatus[s.id] || { status: 'AWAY' };
+
+                // [NÂNG CẤP V11]: Bổ sung kiểm tra currentStat.status === 'BUSY'
+                // Giúp thợ vừa bắt đầu (VD: người thứ 3 trong nhóm) lập tức nhảy sang mảng busy 
+                // ngay cả khi dữ liệu Resource (giường/ghế) chưa kịp đồng bộ xong.
+                if (StaffSorter.isActuallyBusy(s.id, safeRes) || currentStat.status === 'BUSY') {
                     busyList.push(s);
                 } else {
-                    const currentStat = safeStatus[s.id] || { status: 'AWAY' };
                     const status = currentStat.status;
-                    // Bổ sung các trạng thái rảnh/tạm nghỉ vào hàng đợi READY (待命)
                     if (status === 'READY' || status === 'EAT' || status === 'OUT_SHORT') {
                         readyList.push(s);
                     } else {
@@ -122,24 +115,29 @@
                 }
             });
 
-            // Sắp xếp nhóm BUSY: Ai làm trước xếp trước
+            // --- SẮP XẾP NHÓM BUSY ---
+            // Sắp xếp TĂNG DẦN (timeA - timeB): Người làm lâu nhất (ms nhỏ nhất) nằm đầu mảng.
             busyList.sort((a, b) => {
-                const timeA = StaffSorter.getBusyStartTime(a.id, safeRes);
-                const timeB = StaffSorter.getBusyStartTime(b.id, safeRes);
-                if (timeA !== timeB) return timeA - timeB;
-                return (window.sortIdAsc && typeof window.sortIdAsc === 'function') ? window.sortIdAsc(a, b) : 0;
-            });
-
-            // Sắp xếp nhóm READY: Lõi thuật toán mới - Tịnh tiến thời gian
-            readyList.sort((a, b) => {
-                // Chỉ đọc stafftime nguyên thủy, KHÔNG dùng fallback checkInTime để tránh rác dữ liệu
                 const timeA = safeStatus[a.id]?.stafftime || 0;
                 const timeB = safeStatus[b.id]?.stafftime || 0;
 
-                // Nếu có sự chênh lệch (dù chỉ 1 mili-giây do Auto-Increment tạo ra), xếp chính xác theo đó
-                if (timeA !== timeB) return timeA - timeB;
+                if (timeA !== timeB) {
+                    return timeA - timeB;
+                }
 
-                // Dự phòng cuối cùng nếu trùng lặp (lý tưởng nhất là không bao giờ chạy vào đây)
+                return (window.sortIdAsc && typeof window.sortIdAsc === 'function') ? window.sortIdAsc(a, b) : 0;
+            });
+
+            // --- SẮP XẾP NHÓM READY ---
+            // Sắp xếp TĂNG DẦN (timeA - timeB)
+            readyList.sort((a, b) => {
+                const timeA = safeStatus[a.id]?.stafftime || 0;
+                const timeB = safeStatus[b.id]?.stafftime || 0;
+
+                if (timeA !== timeB) {
+                    return timeA - timeB;
+                }
+
                 return (window.sortIdAsc && typeof window.sortIdAsc === 'function') ? window.sortIdAsc(a, b) : 0;
             });
 
@@ -152,6 +150,8 @@
                 busy: busyList,
                 ready: readyList,
                 away: awayList,
+                // Trả về ID của nhóm Bận để App.js có thể map queueIndex tương ứng
+                busyQueueIds: busyList.map(s => s.id),
                 readyQueueIds: readyList.filter(s => safeStatus[s.id]?.status === 'READY').map(s => s.id)
             };
         }

@@ -1,25 +1,21 @@
+// FILE: js/components.js
+// PHIÊN BẢN: V108.49 (RESTORED MODALS & SYNC UI)
+// CẬP NHẬT: 2026-04-06
+
 const { useState, useEffect, useMemo, useRef } = React;
 
 /**
  * ============================================================================
  * 1. ERROR BOUNDARY (系統錯誤攔截)
  * ============================================================================
- * Chức năng: Bắt lỗi React để tránh sập toàn bộ trang web.
  */
 class ErrorBoundary extends React.Component {
     constructor(props) {
         super(props);
         this.state = { hasError: false, error: null };
     }
-
-    static getDerivedStateFromError(error) {
-        return { hasError: true, error };
-    }
-
-    componentDidCatch(error, errorInfo) {
-        console.error("System Error Log:", error, errorInfo);
-    }
-
+    static getDerivedStateFromError(error) { return { hasError: true, error }; }
+    componentDidCatch(error, errorInfo) { console.error("System Error Log:", error, errorInfo); }
     render() {
         if (this.state.hasError) {
             return (
@@ -29,16 +25,11 @@ class ErrorBoundary extends React.Component {
                             <i className="fas fa-exclamation-triangle text-4xl text-red-600"></i>
                             <h1 className="text-3xl font-black text-slate-800">系統發生錯誤</h1>
                         </div>
-                        <p className="text-gray-600 mb-4 font-bold border-b pb-4">
-                            發生預期外的錯誤，請重新整理頁面。
-                        </p>
+                        <p className="text-gray-600 mb-4 font-bold border-b pb-4">發生預期外的錯誤，請重新整理頁面。</p>
                         <div className="bg-slate-100 p-4 rounded text-xs font-mono mb-6 overflow-auto max-h-40 border border-slate-300 shadow-inner">
                             {this.state.error && this.state.error.toString()}
                         </div>
-                        <button
-                            onClick={() => window.location.reload()}
-                            className="w-full py-4 bg-red-600 hover:bg-red-700 text-white font-black rounded-lg shadow-lg transition-transform active:scale-95 flex justify-center items-center gap-2"
-                        >
+                        <button onClick={() => window.location.reload()} className="w-full py-4 bg-red-600 hover:bg-red-700 text-white font-black rounded-lg shadow-lg transition-transform active:scale-95 flex justify-center items-center gap-2">
                             <i className="fas fa-redo-alt"></i> 重新整理 (Reload)
                         </button>
                     </div>
@@ -52,16 +43,15 @@ window.ErrorBoundary = ErrorBoundary;
 
 /**
  * ============================================================================
- * 2. STAFF CARD 3D (技師卡片)
+ * 2. STAFF CARD 3D (技師卡片 - NÂNG CẤP V108.48)
  * ============================================================================
- * Chức năng: Hiển thị trạng thái từng nhân viên (Busy, Ready, Away...).
+ * Chức năng: Hiển thị thẻ nhân viên với cảnh báo khách chỉ định và số thứ tự.
  */
 const StaffCard3D = ({ s, statusData, resourceState, queueIndex, isForcedBusy }) => {
     if (!s) return null;
 
     const genderStr = String(s.gender || '').toUpperCase();
     const isFemale = ['F', '女', 'FEMALE', 'NU'].includes(genderStr);
-
     const safeStatusData = statusData || {};
     const local = safeStatusData[s.id] || { status: 'AWAY' };
     let displayStatus = local.status;
@@ -70,7 +60,7 @@ const StaffCard3D = ({ s, statusData, resourceState, queueIndex, isForcedBusy })
     const staffId = String(s.id).trim();
     const staffName = String(s.name).trim();
 
-    // Tìm booking đang hoạt động liên quan đến nhân viên này
+    // Tìm thợ đang làm việc thực tế trên giường/ghế
     const activeRes = Object.values(resourceState || {}).find(r => {
         if (!r.isRunning || r.isPaused || r.isPreview === true) return false;
         const b = r.booking || {};
@@ -81,59 +71,55 @@ const StaffCard3D = ({ s, statusData, resourceState, queueIndex, isForcedBusy })
         return workerList.includes(staffId) || workerList.includes(staffName);
     });
 
-    if (activeRes) {
-        displayStatus = 'BUSY';
-        actualActiveBooking = activeRes.booking;
-    }
+    if (activeRes) { displayStatus = 'BUSY'; actualActiveBooking = activeRes.booking; }
+    if (isForcedBusy) { displayStatus = 'BUSY'; }
 
-    if (isForcedBusy) {
-        displayStatus = 'BUSY';
-    }
-
-    // Kiểm tra xem có phải là khách chỉ định (Designated) hay không
-    let isDesignated = false;
+    // Logic kiểm tra khách chỉ định hiện tại (Designated)
+    let isCurrentlyWorkingDesignated = false;
     if (displayStatus === 'BUSY' && actualActiveBooking) {
         const b = actualActiveBooking;
         const requestFields = [b.staffId, b.staffId2, b.staffId3, b.staffId4, b.technician];
-        const isRequested = requestFields.some(req => {
+        isCurrentlyWorkingDesignated = requestFields.some(req => {
             const reqStr = String(req || '').trim();
             const randomKeywords = ['隨機', 'RANDOM', 'MALE', 'FEMALE', '男', '女', 'ANY', 'NULL', 'UNDEFINED', '', '不指定', '安排', '現場'];
-            const isRandom = randomKeywords.some(kw => reqStr.toUpperCase() === kw || reqStr.includes('隨機'));
-            if (isRandom) return false;
+            if (randomKeywords.some(kw => reqStr.toUpperCase() === kw || reqStr.includes('隨機'))) return false;
             return reqStr === staffId || reqStr === staffName;
         });
-        if (isRequested) isDesignated = true;
     }
+
+    // --- CẢNH BÁO LỊCH HẸN TRONG 2 GIỜ SẮP TỚI ---
+    const hasUpcoming = s.hasUpcomingDesignated === true;
 
     let cardStyle = isFemale ? 'style-female' : 'style-male';
     let customClass = "";
 
     if (displayStatus === 'BUSY') {
         cardStyle = 'st-busy';
-        if (isDesignated) {
-            // Hiệu ứng đặc biệt cho khách chỉ định
-            customClass = "!bg-amber-500 !border-amber-600 !text-white shadow-[0_0_15px_rgba(245,158,11,0.8)] border-2 ring-2 ring-amber-300 transform scale-105 z-10";
+        // Thợ đang bận + Có khách chỉ định sắp tới: Thêm viền vàng đậm nổi bật
+        if (hasUpcoming) {
+            customClass = "ring-4 ring-yellow-500 border-yellow-600 shadow-[0_0_15px_rgba(234,179,8,0.6)]";
+        }
+        // Nếu đang làm cho khách chỉ định hiện tại: Giữ nền đỏ của thẻ Bận, thêm viền cam đậm
+        if (isCurrentlyWorkingDesignated) {
+            customClass = "ring-4 ring-amber-600 border-amber-600 shadow-[0_0_15px_rgba(245,158,11,0.8)] transform scale-105 z-10";
         }
     }
-    else if (displayStatus === 'AWAY' || displayStatus === 'OFF') {
-        cardStyle = 'st-away';
+    else if (displayStatus === 'READY') {
+        // Thợ đang rảnh + Có khách chỉ định sắp tới: Đổi màu nền vàng nhạt
+        if (hasUpcoming) {
+            customClass = "!bg-yellow-100 !border-yellow-300 shadow-sm";
+        }
     }
-    else if (displayStatus === 'EAT') {
-        cardStyle = 'st-eat';
-    }
-    else if (displayStatus === 'OUT_SHORT') {
-        cardStyle = 'bg-green-500 text-white border-green-600';
-    }
+    else if (displayStatus === 'AWAY' || displayStatus === 'OFF') { cardStyle = 'st-away'; }
+    else if (displayStatus === 'EAT') { cardStyle = 'st-eat'; }
+    else if (displayStatus === 'OUT_SHORT') { cardStyle = 'bg-green-500 text-white border-green-600'; }
 
     return (
         <div className={`card-3d ${cardStyle} ${customClass} flex flex-col items-center justify-center relative p-0 overflow-hidden transition-all duration-300`}>
-            {queueIndex !== undefined && displayStatus === 'READY' && (
-                <div className="queue-badge animate-bounce-slow">{queueIndex + 1}</div>
-            )}
-
-            {isDesignated && (
-                <div className="absolute top-0 right-0.5 text-xs text-yellow-100 animate-pulse drop-shadow-md z-10" title="指定 (Designated)">
-                    <i className="fas fa-crown text-lg shadow-black drop-shadow-sm"></i>
+            {/* Đánh số thứ tự: Hiển thị cho cả READY và BUSY */}
+            {queueIndex !== undefined && (displayStatus === 'READY' || displayStatus === 'BUSY') && (
+                <div className={`queue-badge ${displayStatus === 'BUSY' ? '!bg-slate-700 !text-white' : 'animate-bounce-slow'}`}>
+                    {queueIndex + 1}
                 </div>
             )}
 
@@ -143,7 +129,8 @@ const StaffCard3D = ({ s, statusData, resourceState, queueIndex, isForcedBusy })
                 </div>
             )}
 
-            <div className={`font-black text-2xl text-center leading-none w-full select-none flex-1 flex items-center justify-center break-words px-0.5 ${isDesignated ? '!text-white drop-shadow-md' : 'text-slate-800'}`}>
+            {/* Màu chữ mặc định cố định là text-slate-800 */}
+            <div className={`font-black text-2xl text-center leading-none w-full select-none flex-1 flex items-center justify-center break-words px-0.5 text-slate-800`}>
                 {s.name}
             </div>
         </div>
@@ -153,17 +140,14 @@ window.StaffCard3D = StaffCard3D;
 
 /**
  * ============================================================================
- * 3. CHECKIN BOARD (技師管理看板)
+ * 3. CHECKIN BOARD (技師管理看板) 
  * ============================================================================
- * Chức năng: Quản lý chấm công, tính lương tạm tính, trạng thái đi làm.
- * ĐÃ NÂNG CẤP: Auto-Increment Time để giải quyết xung đột mili-giây.
  */
 const CheckInBoard = ({ staffList, statusData, onClose, onUpdateStatus, bookings }) => {
     const safeStaffList = Array.isArray(staffList) ? staffList : [];
     const RATES = { JIE_PRICE: 250, OIL_BONUS: 80 };
     const normalize = (str) => String(str || '').trim().replace(/\s+/g, '');
 
-    // Logic tính số "Jie" (Suất) dựa trên tên dịch vụ hoặc thời gian
     const getJieCount = (serviceName, duration) => {
         const name = (serviceName || "").toUpperCase();
         if (name.includes('190') || name.includes('帝王')) return 6;
@@ -179,7 +163,6 @@ const CheckInBoard = ({ staffList, statusData, onClose, onUpdateStatus, bookings
         if (name.includes('40')) return 1;
         if (name.includes('35')) return 1;
         if (name.includes('30')) return 1;
-
         const mins = parseInt(duration || 0);
         if (mins >= 175) return 6;
         if (mins >= 115) return 4;
@@ -193,121 +176,76 @@ const CheckInBoard = ({ staffList, statusData, onClose, onUpdateStatus, bookings
         if (b.isOil === true || b.isOil === 'true') return true;
         const name = (b.serviceName || "").toLowerCase();
         if (name.includes('油') || name.includes('oil') || name.includes('精油')) return true;
-        if (name.includes('帝王') || name.includes('a6')) return true;
         return false;
     };
 
-    // Tính toán thu nhập real-time
     const staffIncomeMap = useMemo(() => {
         const stats = {};
         const lookupMap = {};
-
         (staffList || []).forEach(staff => {
             const entry = { id: staff.id, jie: 0, oil: 0, income: 0 };
             stats[staff.id] = entry;
             lookupMap[normalize(staff.id)] = entry;
             if (staff.name) lookupMap[normalize(staff.name)] = entry;
         });
-
         const safeBookings = Array.isArray(bookings) ? bookings : [];
-
         safeBookings.forEach(b => {
-            if (b.status && (b.status.includes('取消') || b.status.includes('Cancel') || b.status.includes('❌'))) return;
-
-            let potentialRawStrings = [
-                b.staffId, b.serviceStaff, b.technician, b.StaffId,
-                b.staffId2, b.staffId3, b.staffId4, b.staffId5, b.staffId6
-            ];
-            const distinctNames = potentialRawStrings.join(',').split(/[,，\s/]+/).map(s => s.trim()).filter(s => s && s !== 'null' && s !== 'undefined' && s.length > 0);
+            if (b.status && (b.status.includes('取消') || b.status.includes('❌'))) return;
+            let potentialRawStrings = [b.staffId, b.serviceStaff, b.technician, b.staffId2, b.staffId3, b.staffId4, b.staffId5, b.staffId6];
+            const distinctNames = potentialRawStrings.join(',').split(/[,，\s/]+/).map(s => s.trim()).filter(s => s && s !== 'null' && s !== 'undefined');
             const validNames = [...new Set(distinctNames)].filter(name => {
                 const n = name.toLowerCase();
-                return !['隨機', '男', '女', '男師傅', '女師傅', '不指定', '指定', 'male', 'female', 'random'].some(bad => n.includes(bad));
+                return !['隨機', '男', '女', '不指定', 'random'].some(bad => n.includes(bad));
             });
-
             validNames.forEach(key => {
                 const normKey = normalize(key);
                 let staffStat = lookupMap[normKey];
                 if (staffStat) {
-                    const q = getJieCount(b.serviceName, b.duration);
-                    const hasOil = isOilService(b);
-                    staffStat.jie += q;
-                    if (hasOil) staffStat.oil += 1;
+                    staffStat.jie += getJieCount(b.serviceName, b.duration);
+                    if (isOilService(b)) staffStat.oil += 1;
                 }
             });
         });
-
-        Object.values(stats).forEach(s => {
-            s.income = (s.jie * RATES.JIE_PRICE) + (s.oil * RATES.OIL_BONUS);
-        });
-
+        Object.values(stats).forEach(s => { s.income = (s.jie * RATES.JIE_PRICE) + (s.oil * RATES.OIL_BONUS); });
         return stats;
     }, [bookings, staffList]);
 
-    // NÂNG CẤP: Thuật toán Tự động tịnh tiến thời gian
     const toggleCheckIn = (id) => {
         const current = (statusData && statusData[id]) ? statusData[id] : {};
-
-        // Xác định trạng thái mới
         const newStatus = current.status === 'READY' || current.status === 'EAT' ? 'AWAY' : 'READY';
         let newTime = 0;
-
         if (newStatus !== 'AWAY') {
-            // Khi nhân viên điểm danh (lên ca)
-            if (typeof window._lastCheckInTime === 'undefined') {
-                window._lastCheckInTime = 0;
-            }
-
+            if (typeof window._lastCheckInTime === 'undefined') window._lastCheckInTime = 0;
             let now = Date.now();
-
-            // Đảm bảo thời gian không bao giờ bị trùng, luôn lớn hơn người trước ít nhất 1ms
-            if (now <= window._lastCheckInTime) {
-                now = window._lastCheckInTime + 1;
-            }
-
+            if (now <= window._lastCheckInTime) now = window._lastCheckInTime + 1;
             window._lastCheckInTime = now;
             newTime = now;
         }
-
-        const newState = {
-            ...statusData,
-            [id]: {
-                ...current,
-                status: newStatus,
-                checkInTime: newTime,
-                stafftime: newTime // Bổ sung biến stafftime chuẩn miligiây tuyệt đối
-            }
-        };
+        const newState = { ...statusData, [id]: { ...current, status: newStatus, checkInTime: newTime, stafftime: newTime } };
         onUpdateStatus(newState);
     };
 
     const toggleOntimeLeave = async (id, currentValue) => {
         const newValue = !currentValue;
         const current = (statusData && statusData[id]) ? statusData[id] : {};
-        const newState = {
-            ...statusData,
-            [id]: { ...current, isOntimeLeave: newValue }
-        };
+        const newState = { ...statusData, [id]: { ...current, isOntimeLeave: newValue } };
         onUpdateStatus(newState);
-
         try {
-            const response = await fetch('/api/update-staff-config', {
+            await fetch('/api/update-staff-config', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ staffId: id, isStrictTime: newValue })
             });
-            const result = await response.json();
-            if (!result.success) { console.error("Failed to update staff config:", result.error); }
-        } catch (error) { console.error("API Error:", error); }
+        } catch (e) { console.error("API Error:", e); }
     };
 
     return (
         <div className="fixed inset-0 bg-slate-900/80 z-[60] flex items-center justify-center p-4 backdrop-blur-sm">
             <div className="bg-white w-full max-w-7xl rounded-t-xl shadow-2xl modal-animate flex flex-col max-h-[90vh] overflow-hidden">
-                <div className="p-4 bg-[#7e22ce] text-white flex justify-between items-center shrink-0 shadow-md z-10">
+                <div className="p-4 bg-[#7e22ce] text-white flex justify-between items-center shrink-0 shadow-md">
                     <h2 className="text-2xl font-bold flex gap-2 items-center"><i className="fas fa-user-clock"></i> 技師管理 (Sheet Order)</h2>
-                    <button onClick={onClose} className="hover:text-red-300 transition-colors bg-white/10 rounded-full w-10 h-10 flex items-center justify-center"><i className="fas fa-times text-2xl"></i></button>
+                    <button onClick={onClose} className="hover:text-red-300 bg-white/10 rounded-full w-10 h-10 flex items-center justify-center"><i className="fas fa-times text-2xl"></i></button>
                 </div>
-
                 <div className="grid grid-cols-12 gap-2 bg-slate-100 p-4 font-bold text-slate-700 text-base border-b sticky top-0 z-10 shadow-sm">
                     <div className="col-span-2 text-center border-r border-slate-300">姓名 (Name)</div>
                     <div className="col-span-2 text-center text-emerald-700 border-r border-slate-300">💰 薪資 (Salary)</div>
@@ -317,14 +255,12 @@ const CheckInBoard = ({ staffList, statusData, onClose, onUpdateStatus, bookings
                     <div className="col-span-1 text-center border-r border-slate-300">狀態 (Status)</div>
                     <div className="col-span-1 text-center text-blue-700">準下 (On-time)</div>
                 </div>
-
                 <div className="overflow-y-auto flex-1 p-2 space-y-2 bg-white custom-scrollbar">
                     {safeStaffList.map(s => {
                         const current = (statusData && statusData[s.id]) ? statusData[s.id] : { status: 'AWAY', checkInTime: 0 };
                         const isWorking = current.status !== 'AWAY' && current.status !== 'OFF';
                         const income = staffIncomeMap[s.id] ? staffIncomeMap[s.id].income : 0;
                         const isOnTime = (current.isOntimeLeave !== undefined) ? current.isOntimeLeave : (s.isStrictTime === true);
-
                         return (
                             <div key={s.id} className="grid grid-cols-12 gap-2 items-center py-3 px-2 border-b border-gray-100 hover:bg-slate-50 transition-all group">
                                 <div className="col-span-2 text-center font-black text-2xl text-slate-800 flex items-center justify-center gap-2">
@@ -344,13 +280,7 @@ const CheckInBoard = ({ staffList, statusData, onClose, onUpdateStatus, bookings
                                             <span className="font-mono font-bold text-lg text-slate-500 bg-gray-100 px-2 py-1 rounded border">
                                                 {new Date(current.checkInTime).toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' })}
                                             </span>
-                                            <button
-                                                onClick={() => toggleCheckIn(s.id)}
-                                                className="text-red-500 hover:text-white hover:bg-red-500 border border-red-200 rounded-lg w-12 h-10 flex items-center justify-center transition-all shadow-sm active:scale-95"
-                                                title="下班 (Sign Out)"
-                                            >
-                                                <i className="fas fa-sign-out-alt text-2xl"></i>
-                                            </button>
+                                            <button onClick={() => toggleCheckIn(s.id)} className="text-red-500 hover:bg-red-500 hover:text-white border border-red-200 rounded-lg w-12 h-10 flex items-center justify-center transition-all shadow-sm active:scale-95"><i className="fas fa-sign-out-alt text-2xl"></i></button>
                                         </div>
                                     ) : (
                                         <button onClick={() => toggleCheckIn(s.id)} className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-black text-lg w-full max-w-[140px] shadow-md transition-all transform hover:scale-105 active:scale-95 flex items-center justify-center gap-2">
@@ -360,37 +290,21 @@ const CheckInBoard = ({ staffList, statusData, onClose, onUpdateStatus, bookings
                                 </div>
                                 <div className="col-span-1 text-center">
                                     <div className="relative">
-                                        <select
-                                            className={`w-full appearance-none border-2 p-2 pl-8 rounded-lg font-bold cursor-pointer outline-none text-base shadow-sm transition-colors 
-                                                ${isWorking ? 'border-purple-300 text-purple-800 bg-white hover:border-purple-500' : 'bg-gray-100 text-gray-400 border-transparent'}
-                                            `}
-                                            disabled={!isWorking}
-                                            value={current.status}
-                                            onChange={(e) => { const n = { ...statusData, [s.id]: { ...current, status: e.target.value } }; onUpdateStatus(n); }}
-                                        >
+                                        <select disabled={!isWorking} value={current.status} onChange={(e) => { const n = { ...statusData, [s.id]: { ...current, status: e.target.value } }; onUpdateStatus(n); }}
+                                            className={`w-full appearance-none border-2 p-2 pl-8 rounded-lg font-bold cursor-pointer outline-none text-base shadow-sm ${isWorking ? 'border-purple-300 text-purple-800 bg-white' : 'bg-gray-100 text-gray-400 border-transparent'}`}>
                                             <option value="AWAY">⚪ 未到</option>
                                             <option value="READY">🟣 待命</option>
                                             <option value="EAT">🟠 用餐</option>
                                             <option value="OUT_SHORT" className="text-green-700 font-bold">🟢 外出</option>
                                         </select>
                                         <div className="absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none">
-                                            <div className={`w-3 h-3 rounded-full ring-2 ring-white shadow-sm 
-                                                ${current.status === 'READY' ? 'bg-purple-600' :
-                                                    current.status === 'EAT' ? 'bg-orange-500' :
-                                                        current.status === 'OUT_SHORT' ? 'bg-green-500' :
-                                                            'bg-gray-400'}`}>
-                                            </div>
+                                            <div className={`w-3 h-3 rounded-full ring-2 ring-white ${current.status === 'READY' ? 'bg-purple-600' : current.status === 'EAT' ? 'bg-orange-500' : current.status === 'OUT_SHORT' ? 'bg-green-500' : 'bg-gray-400'}`}></div>
                                         </div>
                                     </div>
                                 </div>
                                 <div className="col-span-1 flex justify-center items-center">
-                                    <label className="flex items-center justify-center w-full h-full cursor-pointer p-2 hover:bg-blue-50 rounded-lg transition-colors" title="Check to Enforce Exact End Time">
-                                        <input
-                                            type="checkbox"
-                                            className="w-6 h-6 text-blue-600 border-2 border-gray-300 rounded focus:ring-blue-500 cursor-pointer accent-blue-600 transform transition-transform active:scale-90"
-                                            checked={isOnTime}
-                                            onChange={() => toggleOntimeLeave(s.id, isOnTime)}
-                                        />
+                                    <label className="flex items-center justify-center w-full h-full cursor-pointer p-2 hover:bg-blue-50 rounded-lg">
+                                        <input type="checkbox" className="w-6 h-6 text-blue-600 border-2 border-gray-300 rounded accent-blue-600" checked={isOnTime} onChange={() => toggleOntimeLeave(s.id, isOnTime)} />
                                     </label>
                                 </div>
                             </div>
@@ -407,15 +321,13 @@ window.CheckInBoard = CheckInBoard;
  * ============================================================================
  * 4. AVAILABILITY CHECK MODAL (電話預約檢查)
  * ============================================================================
- * Chức năng: Kiểm tra xem có thể nhận thêm khách không.
- * NÂNG CẤP MỚI: GLOBAL CAPACITY GUARDRAIL (Hàng rào dung lượng tổng).
  */
 const AvailabilityCheckModal = ({ onClose, onSave, staffList, bookings, initialDate }) => {
     const [step, setStep] = useState('CHECK');
     const [checkResult, setCheckResult] = useState(null);
     const [form, setForm] = useState({
         time: "12:00",
-        service: window.SERVICES_LIST ? window.SERVICES_LIST[2] : "Foot Massage",
+        service: (window.SERVICES_LIST && window.SERVICES_LIST.length > 2) ? window.SERVICES_LIST[2] : "Foot Massage",
         pax: 1,
         genderPref: '隨機',
         isOil: false,
@@ -432,30 +344,26 @@ const AvailabilityCheckModal = ({ onClose, onSave, staffList, bookings, initialD
     const performCheck = () => {
         const safeStaffList = staffList || [];
         const safeBookings = bookings || [];
-        const duration = window.getSafeDuration(form.service, 60);
-        const startMins = window.normalizeToTimelineMins(form.time);
+        const duration = window.getSafeDuration ? window.getSafeDuration(form.service, 60) : 60;
+        const startMins = window.normalizeToTimelineMins ? window.normalizeToTimelineMins(form.time) : 720;
         const endMins = startMins + duration;
 
-        // Lọc các booking trong ngày (chưa huỷ, chưa hoàn thành)
-        const todays = safeBookings.filter(b =>
-            window.isWithinOperationalDay(b.startTimeString.split(' ')[0], b.startTimeString.split(' ')[1], initialDate) &&
-            !b.status.includes('取消') && !b.status.includes('完成')
-        );
+        const todays = safeBookings.filter(b => {
+            if (window.isWithinOperationalDay && b.startTimeString) {
+                return window.isWithinOperationalDay(b.startTimeString.split(' ')[0], b.startTimeString.split(' ')[1], initialDate) &&
+                    !b.status.includes('取消') && !b.status.includes('完成');
+            }
+            return false;
+        });
 
-        /**
-         * --------------------------------------------------------------------
-         * 1. GLOBAL CAPACITY GUARDRAIL (KIỂM TRA TỔNG DUNG LƯỢNG)
-         * --------------------------------------------------------------------
-         */
         const totalStaffCapacity = safeStaffList.length;
         let maxConcurrency = 0;
-        let isGlobalFull = false;
 
         for (let t = startMins; t < endMins; t += 5) {
             let currentLoad = 0;
             todays.forEach(b => {
-                const bStart = window.normalizeToTimelineMins(b.startTimeString.split(' ')[1]);
-                const bEnd = bStart + window.getSafeDuration(b.serviceName, 60);
+                const bStart = window.normalizeToTimelineMins ? window.normalizeToTimelineMins(b.startTimeString.split(' ')[1]) : 0;
+                const bEnd = bStart + (window.getSafeDuration ? window.getSafeDuration(b.serviceName, 60) : 60);
                 if (t >= bStart && t < bEnd) {
                     currentLoad += (b.pax || 1);
                 }
@@ -467,22 +375,17 @@ const AvailabilityCheckModal = ({ onClose, onSave, staffList, bookings, initialD
         if (maxConcurrency > totalStaffCapacity) {
             setCheckResult({
                 status: 'FULL',
-                message: `❌ Nhân viên kín lịch (Staff Full): ${maxConcurrency}/${totalStaffCapacity} needed.`
+                message: `❌ 技師不足 (Staff Full): 需要 ${maxConcurrency}/${totalStaffCapacity} 位。`
             });
             return;
         }
 
-        /**
-         * --------------------------------------------------------------------
-         * 2. RESOURCE CHECK (KIỂM TRA GIƯỜNG / GHẾ)
-         * --------------------------------------------------------------------
-         */
         let chairOccupied = 0;
         let bedOccupied = 0;
 
         todays.forEach(b => {
-            const bStart = window.normalizeToTimelineMins(b.startTimeString.split(' ')[1]);
-            const bEnd = bStart + window.getSafeDuration(b.serviceName, 60);
+            const bStart = window.normalizeToTimelineMins ? window.normalizeToTimelineMins(b.startTimeString.split(' ')[1]) : 0;
+            const bEnd = bStart + (window.getSafeDuration ? window.getSafeDuration(b.serviceName, 60) : 60);
 
             if (startMins < bEnd && endMins > bStart) {
                 if (b.serviceName.includes('足') || b.type === 'CHAIR') chairOccupied += (b.pax || 1);
@@ -492,7 +395,7 @@ const AvailabilityCheckModal = ({ onClose, onSave, staffList, bookings, initialD
         });
 
         const needed = form.pax;
-        const resourceType = window.SERVICES_DATA[form.service]?.type || 'BED';
+        const resourceType = (window.SERVICES_DATA && window.SERVICES_DATA[form.service]) ? window.SERVICES_DATA[form.service].type : 'BED';
         let available = true;
         let msg = "✅ 可預約 (Available)";
 
@@ -504,16 +407,11 @@ const AvailabilityCheckModal = ({ onClose, onSave, staffList, bookings, initialD
             if (chairOccupied + needed > 6 || bedOccupied + needed > 6) { available = false; msg = "❌ 區域客滿 (Area Full)"; }
         }
 
-        /**
-         * --------------------------------------------------------------------
-         * 3. SPECIFIC STAFF CHECK (KIỂM TRA THỢ CHỈ ĐỊNH)
-         * --------------------------------------------------------------------
-         */
         if (available && form.genderPref !== '隨機' && form.genderPref !== '男' && form.genderPref !== '女') {
             const staffId = form.genderPref;
             const isStaffBooked = todays.some(b => {
-                const bStart = window.normalizeToTimelineMins(b.startTimeString.split(' ')[1]);
-                const bEnd = bStart + window.getSafeDuration(b.serviceName, 60);
+                const bStart = window.normalizeToTimelineMins ? window.normalizeToTimelineMins(b.startTimeString.split(' ')[1]) : 0;
+                const bEnd = bStart + (window.getSafeDuration ? window.getSafeDuration(b.serviceName, 60) : 60);
                 const isTimeConflict = (startMins < bEnd && endMins > bStart);
                 return isTimeConflict && (b.serviceStaff === staffId || b.staffId === staffId || b.staffId2 === staffId);
             });
@@ -586,8 +484,8 @@ const AvailabilityCheckModal = ({ onClose, onSave, staffList, bookings, initialD
                     {step === 'INFO' && (
                         <div className="space-y-4 animate-fadeIn">
                             <div className="bg-green-50 p-3 rounded border border-green-200 text-sm text-green-800"><div>🕒 <strong>{form.time}</strong> | 👤 <strong>{form.pax}位</strong></div><div>💆 <strong>{form.service}</strong></div><div>🔧 <strong>{form.genderPref}</strong> {form.isOil ? '(Oil)' : ''}</div></div>
-                            <div><label className="text-xs font-bold text-gray-500">顧客姓名</label><input className="w-full border p-2 rounded font-bold" placeholder="輸入姓名..." value={form.custName} onChange={e => setForm({ ...form, custName: e.target.value })} autoFocus /></div>
-                            <div><label className="text-xs font-bold text-gray-500">電話號碼</label><input className="w-full border p-2 rounded font-bold" placeholder="輸入電話..." value={form.custPhone} onChange={e => setForm({ ...form, custPhone: e.target.value })} /></div>
+                            <div><label className="text-xs font-bold text-gray-500">顧客姓名</label><input className="w-full border p-2 rounded font-bold text-slate-800" placeholder="輸入姓名..." value={form.custName} onChange={e => setForm({ ...form, custName: e.target.value })} autoFocus /></div>
+                            <div><label className="text-xs font-bold text-gray-500">電話號碼</label><input className="w-full border p-2 rounded font-bold text-slate-800" placeholder="輸入電話..." value={form.custPhone} onChange={e => setForm({ ...form, custPhone: e.target.value })} /></div>
                             <div className="grid grid-cols-2 gap-3 pt-2"><button onClick={() => setStep('CHECK')} className="bg-gray-200 text-gray-600 p-3 rounded font-bold">⬅️ 返回</button><button onClick={handleFinalSave} className="bg-indigo-600 text-white p-3 rounded font-bold hover:bg-indigo-700 shadow-lg">✅ 確認預約</button></div>
                         </div>
                     )}
@@ -614,7 +512,11 @@ const BillingModal = ({ activeItem, relatedItems, onConfirm, onCancel }) => {
         setTargetItems([activeItem]);
     }, [hasGroup, activeItem]);
 
-    const calculateTotal = (list) => list.reduce((sum, item) => sum + window.getPrice(item.booking.serviceName) + window.getOilPrice(item.booking.isOil || (item.booking.serviceName && (item.booking.serviceName.includes('油') || item.booking.serviceName.includes('Oil')))), 0);
+    const calculateTotal = (list) => list.reduce((sum, item) => {
+        const getP = window.getPrice ? window.getPrice(item.booking.serviceName) : 0;
+        const getO = window.getOilPrice ? window.getOilPrice(item.booking.isOil || (item.booking.serviceName && (item.booking.serviceName.includes('油') || item.booking.serviceName.includes('Oil')))) : 0;
+        return sum + getP + getO;
+    }, 0);
 
     if (step === 'CHOICE') {
         return (
@@ -623,8 +525,14 @@ const BillingModal = ({ activeItem, relatedItems, onConfirm, onCancel }) => {
                     <h3 className="text-2xl font-black text-slate-800 mb-2">發現同組客人</h3>
                     <p className="text-gray-500 mb-6">共有 <span className="font-bold text-blue-600">{relatedItems.length + 1}</span> 位客人在現場</p>
                     <div className="grid grid-cols-2 gap-4 w-full mb-4">
-                        <button onClick={() => { setTargetItems([activeItem]); setStep('CONFIRM'); }} className="flex flex-col items-center p-5 rounded-xl border-2 border-gray-200 hover:border-emerald-500 hover:bg-emerald-50 transition-all group"><span className="text-3xl mb-2 group-hover:scale-110 transition-transform">👤</span><span className="font-bold text-slate-700">個別結帳 (Pay 1)</span></button>
-                        <button onClick={() => { setTargetItems([activeItem, ...relatedItems]); setStep('CONFIRM'); }} className="flex flex-col items-center p-5 rounded-xl border-2 border-blue-200 bg-blue-50 hover:bg-blue-100 hover:border-blue-300 transition-all shadow-md group"><span className="text-3xl mb-2 group-hover:scale-110 transition-transform">👥</span><span className="font-bold text-blue-700">合併結帳 (Pay All)</span></button>
+                        <button onClick={() => { setTargetItems([activeItem]); setStep('CONFIRM'); }} className="flex flex-col items-center p-5 rounded-xl border-2 border-gray-200 hover:border-emerald-500 hover:bg-emerald-50 transition-all group">
+                            <span className="text-3xl mb-2 group-hover:scale-110 transition-transform">👤</span>
+                            <span className="font-bold text-slate-700">個別結帳 (Pay 1)</span>
+                        </button>
+                        <button onClick={() => { setTargetItems([activeItem, ...relatedItems]); setStep('CONFIRM'); }} className="flex flex-col items-center p-5 rounded-xl border-2 border-blue-200 bg-blue-50 hover:bg-blue-100 hover:border-blue-300 transition-all shadow-md group">
+                            <span className="text-3xl mb-2 group-hover:scale-110 transition-transform">👥</span>
+                            <span className="font-bold text-blue-700">合併結帳 (Pay All)</span>
+                        </button>
                     </div>
                     <button onClick={onCancel} className="text-gray-400 font-bold hover:text-gray-600">取消</button>
                 </div>
@@ -639,7 +547,9 @@ const BillingModal = ({ activeItem, relatedItems, onConfirm, onCancel }) => {
                 <div className="p-6 flex-1 overflow-y-auto custom-scrollbar">
                     <div className="space-y-3">{targetItems.map(item => {
                         const b = item.booking || {};
-                        const price = window.getPrice(b.serviceName) + window.getOilPrice(b.isOil || (b.serviceName && b.serviceName.includes('油')));
+                        const getP = window.getPrice ? window.getPrice(b.serviceName) : 0;
+                        const getO = window.getOilPrice ? window.getOilPrice(b.isOil || (b.serviceName && b.serviceName.includes('油'))) : 0;
+                        const price = getP + getO;
                         const staffDisplay = b.serviceStaff || b.staffId || b.ServiceStaff || b.StaffId || b.technician || '隨機';
 
                         return (
@@ -688,11 +598,11 @@ const SplitStaffModal = ({ staffList, statusData, onConfirm, onCancel }) => {
                     {readyStaff.length > 0 ? readyStaff.map(s => (
                         <button key={s.id} onClick={() => onConfirm(s.id)} className="w-full p-3 border rounded-lg hover:bg-orange-50 flex justify-between items-center group transition-colors">
                             <div className="flex items-center gap-3">
-                                <span className="font-black text-lg bg-gray-100 px-2 py-1 rounded group-hover:bg-orange-200 transition-colors">{s.id}</span>
-                                <span className="font-bold text-gray-700">{s.name}</span>
+                                <span className="font-black text-lg bg-gray-100 text-slate-800 px-2 py-1 rounded group-hover:bg-orange-200 transition-colors">{s.id}</span>
+                                <span className="font-bold text-slate-800">{s.name}</span>
                             </div>
                             <span className="text-xs font-mono text-gray-400 bg-gray-50 px-2 py-1 rounded">
-                                {new Date(statusData[s.id]?.checkInTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                {statusData[s.id]?.checkInTime ? new Date(statusData[s.id].checkInTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '--:--'}
                             </span>
                         </button>
                     )) : <div className="text-center text-gray-400 mt-10">目前無空閒技師</div>}
@@ -808,4 +718,11 @@ const ComboTimeEditModal = ({ booking, onConfirm, onCancel }) => {
         </div>
     );
 };
+window.ComboTimeEditModal = ComboTimeEditModal;
+
+// Đã định nghĩa và export toàn bộ
+window.AvailabilityCheckModal = AvailabilityCheckModal;
+window.BillingModal = BillingModal;
+window.SplitStaffModal = SplitStaffModal;
+window.ComboStartModal = ComboStartModal;
 window.ComboTimeEditModal = ComboTimeEditModal;

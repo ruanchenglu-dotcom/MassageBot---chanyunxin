@@ -1,18 +1,13 @@
 /**
  * ============================================================================
  * FILE: js/views.js
- * PHIÊN BẢN: V108.33 (UI/UX: REMOVE SERVICE CODE ON TIMELINE)
+ * PHIÊN BẢN: V108.54 (UPGRADE: GENDER GUARD & COMMISSION SPLIT FIX)
  * ============================================================================
- * CHANGE LOG V108.33:
- * - [UI/UX]: Gỡ bỏ hiển thị mã dịch vụ (VD: A3) trên dòng 1 của thẻ Timeline để giao diện gọn gàng hơn và có thêm không gian cho tên khách.
- * * CHANGE LOG V108.32:
- * - [UI/UX]: Dời biểu tượng giọt nước (💧) từ dòng 1 xuống dòng 2 (kế bên tên nhân viên/BF) trên Timeline.
- * * CHANGE LOG V108.31:
- * - [FIX]: Sửa lỗi hàm getDisplayLabel nhận diện nhầm tag nhóm (1/2, 2/3) thành số điện thoại. Format chuẩn: [Họ]([Nhóm])([3 số ĐT]).
- * - [UI/UX]: Ẩn biểu tượng xoay tròn đồng bộ (Syncing) trên thẻ Timeline để giao diện gọn hơn.
- * * CHANGE LOG V108.30:
- * - [UI/UX]: Rút gọn tên khách hàng trên Timeline (xóa 先生, 小姐, 女士, 太太, chỉ giữ Họ + 3 số cuối).
- * - [UI/UX]: Dời biểu tượng BF (Body First) từ dòng tên khách xuống dòng tên nhân viên để tối ưu không gian.
+ * CHANGE LOG V108.54:
+ * - [UI/UX]: Thêm cơ chế "Gender Guard" (Cảnh báo giới tính). Hiện popup xác nhận nếu cố tình chọn Thợ Nam cho khách yêu cầu Nữ/Tinh dầu.
+ * - [LOGIC]: Cập nhật CommissionView. Bổ sung cơ chế tách chuỗi dấu phẩy (,) để tính lương chuẩn xác cho các dữ liệu cũ bị gộp chung cột.
+ * * CHANGE LOG V108.52:
+ * - [UI/UX]: Thêm giao diện xác nhận khi đổi thợ giữa chừng (Mid-service Swap) trên BookingControlModal và ResourceCard.
  */
 
 const { useState, useEffect, useMemo, useRef } = React;
@@ -118,6 +113,12 @@ window.getOilPrice = (isOilFlagOrString) => {
     return isOil ? 200 : 0;
 };
 
+// --- HÀM KIỂM TRA DỊCH VỤ CẠO GIÓ/GIÁC HƠI ---
+const checkGuaShaService = (booking) => {
+    if (!booking) return false;
+    const note = (booking.ghiChu || booking.note || "").toString().toUpperCase();
+    return note.includes('刮痧') || note.includes('拔罐');
+};
 
 // ============================================================================
 // 0. BOOKING CONTROL MODAL (SUPER MODAL)
@@ -159,12 +160,6 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
 
     const [showPaymentOptions, setShowPaymentOptions] = useState(false);
     const [startTimeStr, setStartTimeStr] = useState("12:00");
-
-    const currentResType = contextResourceId ? contextResourceId.split('-')[0].toLowerCase() : null;
-    const isFlowConflict = currentResType && (
-        (localFlow === 'FB' && currentResType === 'bed') ||
-        (localFlow === 'BF' && currentResType === 'chair')
-    );
 
     const timeStrToMins = (timeStr) => {
         if (!timeStr) return 0;
@@ -263,12 +258,11 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
     const switchTimeStr = minsToTimeStr(switchMins);
     const endTimeStr = minsToTimeStr(endMins);
 
-    // --- [V108.27] THUẬT TOÁN TÌM GIƯỜNG/GHẾ TRỐNG (LOẠI TRỪ TRIỆT ĐỂ KHÁCH ĐANG BẬN) ---
+    // --- [V108.27] THUẬT TOÁN TÌM GIƯỜNG/GHẾ TRỐNG ---
     const checkOverlap = (resId, checkStart, checkEnd, excludeRowId) => {
         if (timelineData && timelineData[resId]) {
             for (let slot of timelineData[resId]) {
                 if (String(slot.booking.rowId) !== String(excludeRowId)) {
-                    // Logic Overlap: Start A < End B VÀ Start B < End A
                     if (checkStart < slot.end && slot.start < checkEnd) return true;
                 }
             }
@@ -289,7 +283,7 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
 
     const availableP2Resources = useMemo(() => {
         const type = isBodyFirstLocal ? 'chair' : 'bed';
-        const p2Start = switchMins + 5; // Cổng chuyển tiếp 5 phút
+        const p2Start = switchMins + 5;
         const list = [];
         for (let i = 1; i <= 6; i++) {
             const resId = `${type}-${i}`;
@@ -299,7 +293,6 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
         return list;
     }, [isBodyFirstLocal, switchMins, endMins, timelineData, booking?.rowId]);
 
-    // Reset lựa chọn về auto nếu do chỉnh giờ làm vị trí cũ bị mất (tức là bị trùng lịch với khách khác)
     useEffect(() => {
         if (selectedPhase1Res !== 'auto' && selectedPhase1Res !== 'full' && !availableP1Resources.includes(selectedPhase1Res)) {
             setSelectedPhase1Res('auto');
@@ -311,7 +304,6 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
             setSelectedPhase2Res('auto');
         }
     }, [availableP2Resources, selectedPhase2Res]);
-    // ------------------------------------------------
 
     const handleStartTimeChange = (e) => setStartTimeStr(e.target.value);
     const handleSwitchTimeChange = (e) => {
@@ -353,10 +345,9 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
     const isGroupBooking = (parseInt(booking.pax) || 1) > 1;
     const isSyncPending = booking && booking.isManualLocked;
 
-    // Các biến cờ kiểm tra full chỗ để khóa giao diện
     const isP1Full = availableP1Resources.length === 0;
     const isP2Full = availableP2Resources.length === 0;
-    const isSaveDisabled = isFlowConflict || isP1Full || isP2Full;
+    const isSaveDisabled = isP1Full || isP2Full;
 
     return (
         <div className="fixed inset-0 z-[3000] flex items-center justify-center bg-black/70 backdrop-blur-sm animate-in fade-in duration-200 p-4">
@@ -419,9 +410,23 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                             <label className="text-xs font-bold text-slate-400 uppercase mb-1 block">選擇服務師傅 (ACTUAL STAFF)</label>
                             <div className="flex items-center justify-between mb-4 relative">
                                 <div className="relative flex-1 mr-2 bg-slate-50 border border-slate-200 rounded-lg">
+                                    {/* --- [V108.54] GENDER GUARD CHO MODAL THAY THỢ --- */}
                                     <select
                                         value={selectedStaff}
-                                        onChange={(e) => setSelectedStaff(e.target.value)}
+                                        onChange={(e) => {
+                                            const newStaff = e.target.value;
+                                            const staffObj = staffList && staffList.find(s => s.id === newStaff);
+                                            const isMale = staffObj && (staffObj.gender === 'M' || staffObj.gender === '男');
+                                            const reqStaff = booking.requestedStaff || booking.staffId || '';
+                                            const needsFemale = reqStaff.includes('女') || reqStaff.includes('Female') || booking.isOil;
+
+                                            if (needsFemale && isMale) {
+                                                if (!window.confirm(`⚠️ 警告：此客人有「限女」需求 (或為精油項目)，您確定要指派男師傅 [${newStaff}] 嗎？\n(Cảnh báo: Khách này yêu cầu Nữ, bạn có chắc chắn muốn xếp thợ Nam không?)`)) {
+                                                    return; // Hủy thay đổi nếu thu ngân không xác nhận
+                                                }
+                                            }
+                                            setSelectedStaff(newStaff);
+                                        }}
                                         className="w-full text-xl font-black text-indigo-800 bg-transparent focus:outline-none focus:border-indigo-500 cursor-pointer appearance-none py-2 pl-3 pr-8 rounded-lg"
                                     >
                                         <option value="隨機">尚未安排 (Waiting)</option>
@@ -458,8 +463,20 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                                 </div>
 
                                 {selectedStaff !== ((liveData?.booking?.serviceStaff) || booking.serviceStaff || '隨機') && (
-                                    <button onClick={() => triggerAction('CHANGE_STAFF', { newStaff: selectedStaff })} className="absolute right-[85px] bg-indigo-600 text-white text-xs font-bold px-3 py-1 rounded shadow hover:bg-indigo-700 animate-pulse transition-colors z-10">
-                                        確認
+                                    <button
+                                        onClick={() => {
+                                            if (isRunning) {
+                                                if (window.confirm('確定要更換服務師傅嗎？原師傅將恢復排班順序。')) {
+                                                    triggerAction('CHANGE_STAFF', { newStaff: selectedStaff });
+                                                    setTimeout(() => alert('更換成功！計時器繼續運行。'), 300);
+                                                }
+                                            } else {
+                                                triggerAction('CHANGE_STAFF', { newStaff: selectedStaff });
+                                            }
+                                        }}
+                                        className={`absolute right-[85px] text-white text-xs font-bold px-3 py-1 rounded shadow animate-pulse transition-colors z-10 whitespace-nowrap ${isRunning ? 'bg-orange-500 hover:bg-orange-600' : 'bg-indigo-600 hover:bg-indigo-700'}`}
+                                    >
+                                        {isRunning ? <><i className="fas fa-exchange-alt mr-1"></i> 確認換師傅</> : '確認'}
                                     </button>
                                 )}
 
@@ -500,7 +517,7 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                                 <div className="text-xs text-slate-400 font-bold uppercase tracking-widest mb-1">剩餘時間 (REMAINING TIME)</div>
                                 <div className={`text-5xl font-mono font-bold tracking-tighter ${timeLeft < 5 && isRunning ? 'text-red-400 animate-pulse' : 'text-white'}`}>{timerString}</div>
 
-                                <div className="text-xs text-slate-400 mt-2 font-mono flex items-center justify-center gap-1">
+                                <div className="text-xs text-slate-400 mt-2 font-bold font-mono flex items-center justify-center gap-1">
                                     總共 (TOTAL):
                                     {booking.isTimeAnomaly ? (
                                         <>
@@ -517,30 +534,7 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                     </div>
 
                     {isCombo && (
-                        <div className={`bg-white p-5 rounded-xl border shadow-sm transition-all ${isFlowConflict ? 'border-red-400 shadow-red-100' : 'border-indigo-100'}`}>
-
-                            {isFlowConflict && (
-                                <div className="bg-red-50 border border-red-200 text-red-700 px-3 py-2 rounded-lg text-xs font-bold mb-3 flex flex-col gap-2">
-                                    <div className="flex items-start gap-2">
-                                        <i className="fas fa-exclamation-triangle mt-0.5 text-red-500 animate-pulse"></i>
-                                        <div>
-                                            ⚠️ 警告 (Warning)：目前選擇的流程 ({localFlow === 'FB' ? '先足後身' : '先身後足'}) 與客人實際座位 ({currentResType === 'bed' ? '床位' : '足部區'}) 不符！<br />
-                                            <span className="opacity-80 font-normal">請先在時間軸上移動客人至正確區域，或點擊下方按鈕自動修正。</span>
-                                        </div>
-                                    </div>
-                                    <button
-                                        onClick={(e) => {
-                                            e.preventDefault();
-                                            const correctFlow = currentResType === 'bed' ? 'BF' : 'FB';
-                                            setLocalFlow(correctFlow);
-                                            triggerAction('TOGGLE_SEQUENCE', { newFlow: correctFlow });
-                                        }}
-                                        className="bg-red-100 hover:bg-red-600 hover:text-white text-red-700 border border-red-200 py-1.5 px-3 rounded shadow-sm self-start transition-colors flex items-center"
-                                    >
-                                        <i className="fas fa-magic mr-1"></i> 自動依座位修正流程 (Auto Sync Flow)
-                                    </button>
-                                </div>
-                            )}
+                        <div className="bg-white p-5 rounded-xl border shadow-sm transition-all border-indigo-100">
 
                             <div className="flex justify-between items-center mb-4">
                                 <h3 className="font-bold text-slate-700 flex items-center gap-2"><i className="fas fa-sliders-h text-indigo-500"></i> 套餐時間調整 (Combo Phase)</h3>
@@ -721,7 +715,6 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
     );
 };
 
-
 // ============================================================================
 // 1. TIMELINE VIEW
 // ============================================================================
@@ -777,7 +770,6 @@ const TimelineView = ({ timelineData, onEditPhase, liveStatusData, staffList, st
         ...Array.from({ length: 6 }, (_, i) => ({ id: `bed-${i + 1}`, label: `床 ${i + 1}`, type: 'bed' }))
     ];
 
-    // --- [V108.31] SỬA LỖI NHẬN DIỆN NHẦM TAG NHÓM THÀNH SỐ ĐIỆN THOẠI ---
     const getDisplayLabel = (booking) => {
         let rawName = booking.customerName || '';
         let sdt = booking.sdt || '';
@@ -786,38 +778,30 @@ const TimelineView = ({ timelineData, onEditPhase, liveStatusData, staffList, st
         let groupTag = '';
         let phoneExtract = '';
 
-        // Trích xuất các thẻ nằm trong ngoặc đơn
         const matches = rawName.match(/\(([^)]+)\)/g);
         if (matches) {
             matches.forEach(match => {
                 const innerText = match.replace(/[()]/g, '').trim();
-                // Nếu chứa dấu '/', đây là tag nhóm (VD: 1/2, 2/3)
                 if (innerText.includes('/')) {
                     groupTag = `(${innerText})`;
                 }
-                // Nếu chứa chữ số, có khả năng là số điện thoại được ghi tay vào
                 else if (/\d/.test(innerText)) {
                     phoneExtract = innerText;
                 }
             });
-            // Xóa tất cả ngoặc đơn khỏi tên gốc
             name = rawName.replace(/\([^)]*\)/g, '').trim();
         }
 
-        // Loại bỏ các danh xưng phổ biến
         name = name.replace(/\s*(先生|小姐|女士|太太)\s*/g, '').trim();
 
-        // Chỉ lấy ký tự đầu tiên (thường là Họ)
         if (name.length > 0) {
             name = name.charAt(0);
         }
 
-        // Quyết định số điện thoại sẽ hiển thị (ưu tiên field sdt)
         let finalPhone = sdt || phoneExtract;
         let phoneDisplay = '';
 
         if (finalPhone) {
-            // Chỉ giữ lại các chữ số
             const digitOnly = finalPhone.replace(/\D/g, '');
             if (digitOnly.length >= 3) {
                 phoneDisplay = `(${digitOnly.slice(-3)})`;
@@ -826,7 +810,6 @@ const TimelineView = ({ timelineData, onEditPhase, liveStatusData, staffList, st
             }
         }
 
-        // Format chuẩn: [Họ]([Nhóm])([3 số ĐT]) -> VD: 李(2/3)(623)
         return `${name}${groupTag}${phoneDisplay}`;
     };
 
@@ -894,6 +877,15 @@ const TimelineView = ({ timelineData, onEditPhase, liveStatusData, staffList, st
                                 <div className="relative flex-1 h-full">
                                     <div className="absolute inset-0 flex pointer-events-none z-0">{hours.map(h => (<div key={h} className="shrink-0 border-r border-slate-200 h-full border-dashed" style={{ width: `${HOUR_WIDTH}px` }}></div>))}</div>
                                     {safeData[row.id] && safeData[row.id].map((slot, idx) => {
+
+                                        const booking = slot.booking;
+                                        if (!booking) return null;
+
+                                        // --- LỚP PHÒNG THỦ CHẶN "BÓNG MA" (UI GUARD) ---
+                                        const rawStatusStr = String(booking.status || '');
+                                        const isCancelled = rawStatusStr.includes('取消') || rawStatusStr.toUpperCase().includes('CANCEL') || booking.isDoneStatus === true;
+                                        if (isCancelled) return null;
+
                                         let startMins = slot.start;
                                         let duration = slot.end - slot.start;
                                         const startOffset = startMins - (startHour * 60);
@@ -901,12 +893,9 @@ const TimelineView = ({ timelineData, onEditPhase, liveStatusData, staffList, st
                                         const width = duration * PIXELS_PER_MIN;
                                         let bgClass = getRowIdColor(slot.booking.rowId);
 
-                                        const booking = slot.booking;
                                         const label = getDisplayLabel(booking);
                                         const isOil = booking.isOil || (booking.serviceName && booking.serviceName.includes('油'));
-
-                                        // [V108.33] Đã ẩn code lấy mã dịch vụ (serviceCode) vì không dùng hiển thị nữa
-                                        // const serviceCode = booking.serviceCode || (booking.serviceName ? booking.serviceName.replace(/\s*\([^)]*油推[^)]*\)/g, '').substring(0, 3).trim() : '---');
+                                        const isGuaSha = checkGuaShaService(booking);
 
                                         let staffName = booking.serviceStaff || booking.staffId || booking.ServiceStaff || '隨機';
                                         if (staffName === 'undefined' || staffName === 'null') staffName = '隨機';
@@ -923,17 +912,6 @@ const TimelineView = ({ timelineData, onEditPhase, liveStatusData, staffList, st
                                         const isBodyFirst = slot.meta && slot.meta.sequence === 'BF';
 
                                         const isTimeAnomaly = booking?.isTimeAnomaly === true;
-
-                                        let isFlowConflict = false;
-                                        if (slot.meta && slot.meta.isCombo && slot.meta.sequence && slot.meta.phase) {
-                                            const expectedType = (slot.meta.sequence === 'FB')
-                                                ? (slot.meta.phase === 1 ? 'chair' : 'bed')
-                                                : (slot.meta.phase === 1 ? 'bed' : 'chair');
-                                            if (row.type !== expectedType) isFlowConflict = true;
-                                        } else if (booking && booking.forceResourceType) {
-                                            const expectedType = booking.forceResourceType === 'CHAIR' ? 'chair' : 'bed';
-                                            if (row.type !== expectedType) isFlowConflict = true;
-                                        }
 
                                         let timeLabel = "";
                                         if (slot.meta && slot.meta.isCombo && slot.meta.phase === 1) {
@@ -957,10 +935,6 @@ const TimelineView = ({ timelineData, onEditPhase, liveStatusData, staffList, st
                                             }
                                         }
 
-                                        if (isFlowConflict) {
-                                            specialBorderClass = "border-[3px] border-red-500 shadow-lg shadow-red-300 animate-pulse z-30";
-                                        }
-
                                         const isComboPhase2 = slot.meta && slot.meta.isCombo && slot.meta.phase === 2;
                                         const showControlBtn = !isComboPhase2;
 
@@ -968,35 +942,27 @@ const TimelineView = ({ timelineData, onEditPhase, liveStatusData, staffList, st
                                             <div key={idx}
                                                 className={`absolute top-1 bottom-1 rounded px-2 py-1 flex flex-col justify-between text-xs overflow-hidden shadow-sm z-10 cursor-pointer transition-all timeline-block group ${bgClass} ${specialBorderClass}`}
                                                 style={{ left: `${leftPos}px`, width: `${width}px` }}
-                                                title={`${booking.serviceName}\n${isRunning ? '🔥 進行中 (Running)' : ''}${isSyncPending && !isRunning ? '\n⏳ 同步中 (Syncing...)' : ''}${isTimeAnomaly ? '\n⚠️ 時長異常 (Time Anomaly)' : ''}${isFlowConflict ? '\n❌ 位置與流程衝突 (Location/Flow Conflict)' : ''}`}
+                                                title={`${booking.serviceName}\n${isRunning ? '🔥 進行中 (Running)' : ''}${isSyncPending && !isRunning ? '\n⏳ 同步中 (Syncing...)' : ''}${isTimeAnomaly ? '\n⚠️ 時長異常 (Time Anomaly)' : ''}`}
                                                 onClick={(e) => { if (showControlBtn) { e.stopPropagation(); handleOpenControl(booking, slot.meta, row.id); } }}
                                             >
-                                                {/* ROW 1: Tên KH (Bỏ phần mã dịch vụ) */}
                                                 <div className="flex justify-between items-center w-full leading-tight mb-0.5">
-                                                    {/* Đổi từ max-w-[60%] thành w-full để chữ được rộng rãi */}
                                                     <div className="font-bold truncate text-[11px] w-full flex items-center gap-1">
                                                         {label}
-                                                        {/* [V108.31] Đã ẩn icon Sync trên UI để gọn gàng hơn */}
-                                                        {isFlowConflict && <span className="text-red-600 ml-0.5 animate-bounce" title="位置與流程衝突 (Location/Flow Conflict)"><i className="fas fa-exclamation-triangle"></i></span>}
                                                     </div>
-                                                    {/* [V108.33] Đã gỡ khối HTML hiển thị Mã dịch vụ (A3, C1...) */}
                                                 </div>
 
-                                                {/* ROW 2: Tên Nhân Viên + Thời Gian */}
                                                 <div className="flex justify-between items-center w-full mt-auto">
                                                     <div className="truncate text-[10px] font-bold text-slate-700 flex items-center gap-1">
                                                         {displayStaff}
-                                                        {/* [V108.30] Biểu tượng BF được dời xuống đây */}
                                                         {isBodyFirst && <span className="text-[9px] bg-indigo-600 text-white px-1 rounded-sm animate-pulse" title="Body First (先身後足)">BF</span>}
-                                                        {/* [V108.32] Biểu tượng Giọt nước được dời xuống đây */}
                                                         {isOil && <span className="text-[10px]" title="精油 (Oil)">💧</span>}
+                                                        {isGuaSha && <span className="text-[10px] text-red-600" title="刮痧/拔罐 (Gua Sha / Cupping)">[刮]</span>}
                                                     </div>
                                                     <div className={`text-[10px] font-bold font-mono px-1 rounded border border-black/5 shadow-sm ${isTimeAnomaly ? 'bg-orange-100 text-orange-800 animate-pulse' : 'bg-white/50 text-slate-800'}`}>
                                                         {timeLabel}
                                                     </div>
                                                 </div>
 
-                                                {/* Edit Control Icon (Hiển thị khi hover) */}
                                                 {showControlBtn && (
                                                     <button className="edit-btn absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-8 h-8 bg-white/95 backdrop-blur-sm text-slate-500 rounded-full flex items-center justify-center shadow-lg border border-slate-200 z-50 hover:text-indigo-600 hover:border-indigo-400 hover:bg-white transition-all"
                                                         onClick={(e) => { e.stopPropagation(); handleOpenControl(booking, slot.meta, row.id); }} title="設置 (Click to Edit)">
@@ -1088,20 +1054,28 @@ const CommissionView = ({ bookings, staffList }) => {
                 const isSlotDone = (slot.status && (slot.status.includes('完成') || slot.status.includes('Done'))) || mainStatusDone;
 
                 if (isSlotDone) {
-                    const normKey = normalize(slot.id);
-                    let staffStat = lookupMap[normKey];
-                    if (!staffStat) {
-                        staffStat = { id: slot.id, name: slot.id, jie: 0, oil: 0, income: 0, orderCount: 0, isGhost: true };
-                        stats[slot.id] = staffStat;
-                        lookupMap[normKey] = staffStat;
-                    }
-                    if (staffStat) {
-                        const q = getJieCount(b.serviceName, b.duration);
-                        const hasOil = isOilService(b);
-                        staffStat.jie += q;
-                        staffStat.orderCount += 1;
-                        if (hasOil) staffStat.oil += 1;
-                    }
+                    // --- [V108.54 NÂNG CẤP] TÁCH CHUỖI NHÂN VIÊN ---
+                    // Backward Compatibility: Đề phòng dữ liệu cũ bị gộp chung vào 1 cột có dấu phẩy
+                    const splitIds = String(slot.id).split(/[,，]/).map(s => s.trim()).filter(Boolean);
+
+                    splitIds.forEach(singleId => {
+                        if (singleId === '隨機' || !singleId) return;
+
+                        const normKey = normalize(singleId);
+                        let staffStat = lookupMap[normKey];
+                        if (!staffStat) {
+                            staffStat = { id: singleId, name: singleId, jie: 0, oil: 0, income: 0, orderCount: 0, isGhost: true };
+                            stats[singleId] = staffStat;
+                            lookupMap[normKey] = staffStat;
+                        }
+                        if (staffStat) {
+                            const q = getJieCount(b.serviceName, b.duration);
+                            const hasOil = isOilService(b);
+                            staffStat.jie += q;
+                            staffStat.orderCount += 1;
+                            if (hasOil) staffStat.oil += 1;
+                        }
+                    });
                 }
             });
         });
@@ -1371,6 +1345,8 @@ const ResourceCard = ({ id, type, index, data, busyStaffIds, onAction, onSelect,
     }, [staffList, statusData, staffDisplay]);
 
     const isOilJob = isOccupied && (data.booking.isOil || (data.booking.serviceName && (data.booking.serviceName.includes('油') || data.booking.serviceName.includes('Oil'))));
+    const isGuaShaJob = isOccupied && checkGuaShaService(data.booking);
+
     const isCombo = isOccupied && (data.booking.category === 'COMBO' || (data.booking.serviceName && data.booking.serviceName.includes('套餐')));
     const flexMinutes = isCombo && data.comboMeta && data.comboMeta.flex ? data.comboMeta.flex : 0;
     const formatTimeStr = (iso) => { if (!iso) return '--:--'; const d = new Date(iso); return `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`; }
@@ -1397,10 +1373,23 @@ const ResourceCard = ({ id, type, index, data, busyStaffIds, onAction, onSelect,
         }
     }
 
+    // --- KIỂM TRA THỢ CÓ PHẢI LÀ KHÁCH CHỈ ĐỊNH KHÔNG ---
+    let isCurrentlyWorkingDesignated = false;
+    if (isOccupied && staffDisplay !== '隨機') {
+        const b = data.booking || {};
+        const requestFields = [b.staffId, b.staffId2, b.staffId3, b.staffId4, b.technician];
+        isCurrentlyWorkingDesignated = requestFields.some(req => {
+            const reqStr = String(req || '').trim();
+            const randomKeywords = ['隨機', 'RANDOM', 'MALE', 'FEMALE', '男', '女', 'ANY', 'NULL', 'UNDEFINED', '', '不指定', '安排', '現場'];
+            if (randomKeywords.some(kw => reqStr.toUpperCase() === kw || reqStr.includes('隨機'))) return false;
+            return reqStr === staffDisplay;
+        });
+    }
+
     if (!isOccupied) {
         return (
             <div className={`res-card h-72 flex flex-col border-2 ${statusColor} relative`}>
-                <div className="flex justify-between items-center p-2 border-b border-black/5 bg-black/5"><span className="font-black text-xs text-gray-500 uppercase">{type === 'chair' ? '足' : '床'} {index}</span></div>
+                <div className="flex justify-between items-center p-2 border-b border-black/5 bg-black/5"><span className="font-black text-xs text-gray-500 uppercase">{type === 'chair' ? '足' : '床'}</span></div>
                 <div className="flex-1 p-2 relative flex flex-col justify-center text-center"><button onClick={onSelect} className="w-full h-full flex flex-col items-center justify-center text-gray-300 hover:text-green-600 transition-colors group"><i className="fas fa-plus text-5xl"></i><span className="text-sm font-bold mt-2">排入 (Assign)</span></button></div>
             </div>
         );
@@ -1437,15 +1426,39 @@ const ResourceCard = ({ id, type, index, data, busyStaffIds, onAction, onSelect,
                         </div>
                     )}
 
-                    <div className="absolute -top-10 right-0 z-40 bg-white border-2 border-slate-200 rounded-lg shadow-sm px-2 py-1 flex items-center gap-1">
+                    <div className={`absolute -top-10 right-0 z-40 rounded-lg shadow-sm px-2 py-1 flex items-center gap-1 border-2 transition-all ${isCurrentlyWorkingDesignated ? 'bg-red-50 border-amber-600 ring-2 ring-amber-600' : 'bg-white border-slate-200'}`}>
                         <div className="relative flex items-center">
+                            {/* --- [V108.54] GENDER GUARD CHO THẺ RESOURCE CARD --- */}
                             <select
-                                className={`text-xl font-black text-center bg-transparent focus:outline-none cursor-pointer hover:bg-slate-50 appearance-none pl-2 pr-5 ${staffDisplay === '隨機' ? 'text-gray-400' : 'text-slate-800'}`}
+                                className={`text-xl font-black text-center bg-transparent focus:outline-none cursor-pointer appearance-none pl-2 pr-5 transition-colors ${staffDisplay === '隨機' ? 'text-gray-400 hover:bg-slate-50' : 'text-slate-800 hover:bg-slate-50'}`}
                                 value={staffDisplay}
-                                onChange={(e) => { e.stopPropagation(); onStaffChange(id, e.target.value); }}
+                                onChange={(e) => {
+                                    e.stopPropagation();
+                                    const newStaff = e.target.value;
+
+                                    const staffObj = staffList && staffList.find(s => s.id === newStaff);
+                                    const isMale = staffObj && (staffObj.gender === 'M' || staffObj.gender === '男');
+                                    const reqStaff = data.booking.requestedStaff || data.booking.staffId || '';
+                                    const needsFemale = reqStaff.includes('女') || reqStaff.includes('Female') || data.booking.isOil;
+
+                                    if (needsFemale && isMale) {
+                                        if (!window.confirm(`⚠️ 警告：此客人有「限女」需求 (或為精油項目)，您確定要指派男師傅 [${newStaff}] 嗎？\n(Cảnh báo: Khách này yêu cầu Nữ, bạn có chắc chắn muốn xếp thợ Nam không?)`)) {
+                                            return; // Hủy thay đổi nếu thu ngân không xác nhận
+                                        }
+                                    }
+
+                                    if (data.isRunning && !isPreview) {
+                                        if (window.confirm('確定要更換服務師傅嗎？原師傅將恢復排班順序。')) {
+                                            onStaffChange(id, newStaff);
+                                            setTimeout(() => alert('更換成功！計時器繼續運行。'), 300);
+                                        }
+                                    } else {
+                                        onStaffChange(id, newStaff);
+                                    }
+                                }}
                                 onClick={(e) => e.stopPropagation()}
                             >
-                                <option value="隨機">尚未安排</option>
+                                <option value="隨機" className="text-slate-800">尚未安排</option>
                                 {processedStaffList.length === 0 && <option disabled>目前無空閒師傅</option>}
 
                                 {(() => {
@@ -1469,15 +1482,15 @@ const ResourceCard = ({ id, type, index, data, busyStaffIds, onAction, onSelect,
                                             suffix = ' (未到)';
                                         }
 
-                                        return <option key={val} value={val}>{prefix}{label}{suffix}</option>;
+                                        return <option key={val} value={val} className="text-slate-800">{prefix}{label}{suffix}</option>;
                                     });
                                 })()}
                             </select>
-                            <div className="pointer-events-none absolute right-1 text-gray-400 text-xs">
+                            <div className="pointer-events-none absolute right-1 text-xs transition-colors text-gray-500">
                                 <i className="fas fa-chevron-down"></i>
                             </div>
                         </div>
-                        <button onClick={(e) => { e.stopPropagation(); onSplit(id); }} className="w-6 h-6 flex items-center justify-center bg-blue-100 text-blue-600 rounded-full hover:bg-blue-200 text-xs shadow-sm transition-transform hover:scale-110 ml-1" title="加人 (Add Staff)"><i className="fas fa-user-plus"></i></button>
+                        <button onClick={(e) => { e.stopPropagation(); onSplit(id); }} className={`w-6 h-6 flex items-center justify-center rounded-full text-xs shadow-sm transition-transform hover:scale-110 ml-1 ${isCurrentlyWorkingDesignated ? 'bg-amber-100 text-amber-700 hover:bg-amber-200' : 'bg-blue-100 text-blue-600 hover:bg-blue-200'}`} title="加人 (Add Staff)"><i className="fas fa-user-plus"></i></button>
                     </div>
 
                     {isCombo && (
@@ -1527,7 +1540,11 @@ const ResourceCard = ({ id, type, index, data, busyStaffIds, onAction, onSelect,
                     {isCombo && data.isRunning && phaseLabel && (<div className={`text-sm font-black p-2 rounded border bg-white/80 ${phaseLabel.includes('足') ? 'text-emerald-700 border-emerald-200' : 'text-purple-700 border-purple-200'}`}>{phaseLabel} {flexMinutes > 0 && <span className="text-xs text-orange-500 bg-orange-100 px-1 rounded ml-1">+{flexMinutes}分</span>} <div className="text-xl font-mono mt-1">{phaseTimeLeft}分</div></div>)}
                     {isCombo && data.isRunning && data.comboMeta && data.comboMeta.targetId && (<div className="text-[10px] text-gray-400">➜ 轉: {data.comboMeta.targetId.toUpperCase()}</div>)}
 
-                    {isOilJob && <div className="text-xs text-purple-600 font-bold border border-purple-200 bg-purple-50 rounded px-2 py-1 inline-block">💧 精油 (Oil)</div>}
+                    {/* HIỂN THỊ TAG TINH DẦU & CẠO GIÓ */}
+                    <div className="flex flex-wrap justify-center gap-1 mt-1">
+                        {isOilJob && <div className="text-xs text-purple-600 font-bold border border-purple-200 bg-purple-50 rounded px-2 py-1 inline-block">💧 精油 (Oil)</div>}
+                        {isGuaShaJob && <div className="text-xs text-red-600 font-bold border border-red-200 bg-red-50 rounded px-2 py-1 inline-block">[刮] 刮/罐</div>}
+                    </div>
 
                     {data.isRunning && !isPreview && startObj && (<div className="bg-slate-50 rounded p-2 text-xs text-left space-y-1 mt-2 border border-slate-200 shadow-inner opacity-90"><div className="text-slate-600 font-bold flex justify-between"><span>🕒 開始:</span> <span className="font-mono text-blue-600">{formatTimeStr(startObj)}</span></div>{isCombo && switchObj && <div className="text-slate-500 flex justify-between"><span>⇄ 轉場:</span> <span className="font-mono text-orange-500">{formatTimeStr(switchObj)}</span></div>}<div className="text-slate-600 font-bold flex justify-between"><span>🏁 結束:</span> <span className="font-mono text-green-600">{formatTimeStr(endObj)}</span></div></div>)}
                     {isPreview && (<div className="mt-2 text-xs font-bold text-center">{data.previewType === 'NOW' && <span className="text-red-500 animate-pulse">🔴 該上鐘了 (Start Now)</span>}{data.previewType === 'SOON' && <span className="text-blue-500">🔵 預約即滿到來</span>}{data.previewType === 'PHASE2' && <span className="text-orange-500">🟠 轉場準備</span>}</div>)}

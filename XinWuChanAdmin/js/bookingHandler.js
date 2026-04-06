@@ -2,23 +2,22 @@
  * =================================================================================================
  * PROJECT: XINWUCHAN MASSAGE BOT - FRONTEND CONTROLLER & LOGIC BRIDGE
  * FILE: js/bookingHandler.js
- * PHIÊN BẢN: V113.7 (STANDALONE OIL TOGGLE + TITLE BUTTONS)
- * NGÀY CẬP NHẬT: 2026/03/26
+ * PHIÊN BẢN: V113.8 (ADD GUA SHA / CUPPING TOGGLE)
  * TÁC GIẢ: AI ASSISTANT & USER
  *
- * * * * * CHANGE LOG V113.7 * * * * *
- * 1. [UI] Separated "Oil" option from Staff Dropdown into a standalone toggle button (💧 精油).
- * 2. [LOGIC] Cleaned up staff selection logic, removing FEMALE_OIL dependency.
- * 3. [CORE] Retained V113.6 features: Title Buttons, Allocation Capture, Matrix Logic, Surname Picker.
+ * * * * * CHANGE LOG V113.8 * * * * *
+ * 1. [UI] Added "[刮] 刮/罐" (Gua Sha/Cupping) toggle button next to the Oil button.
+ * 2. [LOGIC] Appends "K[i]:刮痧/拔罐" to the booking note (ghiChu) without altering prices.
+ * 3. [CORE] Retained all V113.7 features (Title Buttons, Surname Picker, Matrix Logic).
  * =================================================================================================
  */
 
 (function () {
-    console.log("🚀 BookingHandler V113.7: Standalone Oil Toggle Added + Title Buttons.");
+    console.log("🚀 BookingHandler V113.8: Standalone Oil & GuaSha Toggles Added.");
 
     // Kiểm tra môi trường React
     if (typeof React === 'undefined') {
-        console.error("❌ CRITICAL ERROR: React not found. Cannot start BookingHandler V113.7.");
+        console.error("❌ CRITICAL ERROR: React not found. Cannot start BookingHandler V113.8.");
         return;
     }
 
@@ -937,7 +936,7 @@
     const forceGlobalRefresh = () => { if (typeof window.fetchDataAndRender === 'function') window.fetchDataAndRender(); else window.location.reload(); };
 
     // ==================================================================================
-    // 4. COMPONENT: PHONE BOOKING MODAL (UPDATED V113.7)
+    // 4. COMPONENT: PHONE BOOKING MODAL (UPDATED V113.8)
     // ==================================================================================
     const NewAvailabilityCheckModal = ({ onClose, onSave, staffList, bookings, initialDate, editingBooking }) => {
         const safeStaffList = useMemo(() => staffList || [], [staffList]);
@@ -960,7 +959,9 @@
             date: initialDate || new Date().toISOString().slice(0, 10),
             time: "12:00", pax: 1, custName: '', custTitle: '', custPhone: ''
         });
-        const [guestDetails, setGuestDetails] = useState([{ service: defaultService, staff: '隨機', isOil: false }]);
+
+        // Cập nhật State mặc định cho guestDetails có thêm isGuaSha
+        const [guestDetails, setGuestDetails] = useState([{ service: defaultService, staff: '隨機', isOil: false, isGuaSha: false }]);
 
         useEffect(() => {
             if (editingBooking) {
@@ -981,6 +982,9 @@
                     rawName = rawName.slice(0, -2).trim();
                 }
 
+                // Parse ghiChu để xem có 刮痧/拔罐 không
+                const noteStr = editingBooking.ghiChu || editingBooking.note || "";
+
                 setForm({
                     date: dateStr, time: timeStr, pax: editingBooking.pax || 1,
                     custName: rawName,
@@ -990,7 +994,8 @@
                 setGuestDetails([{
                     service: editingBooking.serviceName || defaultService,
                     staff: editingBooking.staffId || '隨機',
-                    isOil: editingBooking.isOil || false
+                    isOil: editingBooking.isOil || false,
+                    isGuaSha: noteStr.includes('刮痧/拔罐') // Bật cờ GuaSha nếu trong ghi chú cũ có
                 }]);
             }
             fetchLiveServerData(true).then(data => { if (data) setServerData(data); });
@@ -1009,7 +1014,7 @@
             setForm(prev => ({ ...prev, pax: num })); setCheckResult(null); setSuggestions([]);
             setGuestDetails(prev => {
                 const newD = [...prev];
-                if (num > prev.length) for (let i = prev.length; i < num; i++) newD.push({ service: prev[0]?.service || defaultService, staff: '隨機', isOil: false });
+                if (num > prev.length) for (let i = prev.length; i < num; i++) newD.push({ service: prev[0]?.service || defaultService, staff: '隨機', isOil: false, isGuaSha: false });
                 else newD.length = num;
                 return newD;
             });
@@ -1024,12 +1029,14 @@
                     if (val && (val.includes('足') || val.includes('Foot'))) c[idx].isOil = false;
                 }
                 else if (field === 'staff') {
-                    // Logic mới: Đơn giản hóa, không còn FEMALE_OIL
                     c[idx].staff = val;
                 }
                 else if (field === 'toggleOil') {
-                    // Chuyển đổi trạng thái Oil riêng biệt
                     c[idx].isOil = !c[idx].isOil;
+                }
+                else if (field === 'toggleGuaSha') {
+                    // Logic bật tắt cạo gió
+                    c[idx].isGuaSha = !c[idx].isGuaSha;
                 }
                 return c;
             });
@@ -1137,13 +1144,17 @@
                 });
 
                 const oils = detailedGuests.map((g, i) => g.isOil ? `K${i + 1}:精油` : null).filter(Boolean);
+                // Cập nhật: Tạo mảng ghi chú cho Cạo gió/Giác hơi
+                const guaShas = detailedGuests.map((g, i) => g.isGuaSha ? `K${i + 1}:刮痧/拔罐` : null).filter(Boolean);
+
                 const flows = detailedGuests.map((g, i) => {
                     if (g.flow === 'BF') return `K${i + 1}:先做身體`;
                     if (g.flow === 'FB') return `K${i + 1}:先做腳`;
                     return null;
                 }).filter(Boolean);
 
-                const noteParts = [...oils, ...flows];
+                // Gộp tất cả các ghi chú lại (Bao gồm Tinh dầu, Cạo gió, Flow)
+                const noteParts = [...oils, ...guaShas, ...flows];
                 const noteStr = noteParts.length > 0 ? `(${noteParts.join(', ')})` : "";
 
                 const payload = {
@@ -1192,7 +1203,7 @@
             <div className="fixed inset-0 bg-slate-900/90 z-[100] flex items-center justify-center p-4">
                 <div className="bg-white w-full max-w-xl rounded-xl shadow-2xl flex flex-col max-h-[95vh] overflow-hidden animate-fadeIn">
                     <div className={`${editingBooking ? 'bg-orange-600' : 'bg-[#0891b2]'} p-4 text-white flex justify-between items-center shrink-0`}>
-                        <h3 className="font-bold text-lg">{editingBooking ? "✏️ 修改預約 (Edit)" : "📅 電話預約 (V113.7)"}</h3>
+                        <h3 className="font-bold text-lg">{editingBooking ? "✏️ 修改預約 (Edit)" : "📅 電話預約 (V113.8)"}</h3>
                         <button onClick={onClose} className="text-2xl hover:text-red-100">&times;</button>
                     </div>
                     <div className="p-5 space-y-4 overflow-y-auto flex-1 custom-scrollbar">
@@ -1204,24 +1215,33 @@
                                         <div className="flex items-center gap-1"><div className="relative flex-1"><select className="w-full border p-2 rounded font-bold h-[42px] text-center bg-white" value={cH} onChange={e => handleTimeChange('HOUR', e.target.value)}>{HOURS_LIST.map(h => <option key={h} value={h}>{h}</option>)}</select></div><span className="font-bold">:</span><div className="relative flex-1"><select className="w-full border p-2 rounded font-bold h-[42px] text-center bg-white" value={cM} onChange={e => handleTimeChange('MINUTE', e.target.value)}>{MINUTES_STEP.map(m => <option key={m} value={m}>{m}</option>)}</select></div></div></div>
                                 </div>
                                 <div><label className="text-xs font-bold text-gray-500">人數 (Pax)</label><select className="w-full border p-2 rounded font-bold text-center h-[42px]" value={form.pax} onChange={e => handlePaxChange(e.target.value)}>{paxOptions.map(n => <option key={n} value={n}>{n} 位</option>)}</select></div>
-                                <div className="bg-slate-50 p-3 rounded border space-y-2"><div className="text-xs font-bold text-gray-400">詳細需求 (Details)</div>
+                                <div className="bg-slate-50 p-2 sm:p-3 rounded border space-y-2"><div className="text-xs font-bold text-gray-400">詳細需求 (Details)</div>
                                     {guestDetails.map((g, i) => (
-                                        <div key={i} className="flex gap-1 sm:gap-2 items-center">
-                                            <div className="w-6 shrink-0 h-10 rounded bg-gray-200 flex items-center justify-center font-bold text-sm">#{i + 1}</div>
-                                            <select className="flex-[2] min-w-0 border p-1 sm:p-2 rounded font-bold text-sm h-10" value={g.service} onChange={e => handleGuestUpdate(i, 'service', e.target.value)}>
+                                        <div key={i} className="flex gap-1 items-center">
+                                            <div className="w-6 shrink-0 h-10 rounded bg-gray-200 hidden sm:flex items-center justify-center font-bold text-sm">#{i + 1}</div>
+                                            {/* Đã thu nhỏ flex của Dịch vụ và Nhân viên để nhường chỗ */}
+                                            <select className="flex-[1.5] min-w-0 border p-1 sm:p-2 rounded font-bold text-xs sm:text-sm h-10" value={g.service} onChange={e => handleGuestUpdate(i, 'service', e.target.value)}>
                                                 {(window.SERVICES_LIST || []).map(s => <option key={s} value={s}>{s}</option>)}
                                             </select>
-                                            <select className="flex-[1.2] min-w-0 border p-1 sm:p-2 rounded font-bold text-sm h-10" value={g.staff} onChange={e => handleGuestUpdate(i, 'staff', e.target.value)}>
+                                            <select className="flex-[1] min-w-0 border p-1 sm:p-2 rounded font-bold text-xs sm:text-sm h-10" value={g.staff} onChange={e => handleGuestUpdate(i, 'staff', e.target.value)}>
                                                 <option value="隨機">🎲 隨機</option>
                                                 <option value="女">🚺 女師</option>
                                                 <option value="男">🚹 男師</option>
                                                 <optgroup label="技師">{safeStaffList.map(s => <option key={s.id} value={s.id}>{s.id}</option>)}</optgroup>
                                             </select>
+                                            {/* Nút Tinh Dầu */}
                                             <button
                                                 onClick={(e) => { e.preventDefault(); handleGuestUpdate(i, 'toggleOil'); }}
-                                                className={`flex-[0.8] min-w-[55px] px-1 shrink-0 border rounded font-bold text-xs h-10 transition-colors whitespace-nowrap flex items-center justify-center gap-1 ${g.isOil ? 'bg-orange-100 text-orange-700 border-orange-400 shadow-sm' : 'bg-slate-50 text-slate-400 border-slate-200 hover:bg-slate-100'}`}
+                                                className={`flex-[0.7] min-w-[50px] px-0.5 shrink-0 border rounded font-bold text-xs h-10 transition-colors whitespace-nowrap flex items-center justify-center gap-0.5 ${g.isOil ? 'bg-orange-100 text-orange-700 border-orange-400 shadow-sm' : 'bg-slate-50 text-slate-400 border-slate-200 hover:bg-slate-100'}`}
                                             >
                                                 <span className={g.isOil ? "opacity-100" : "opacity-50"}>💧</span>精油
+                                            </button>
+                                            {/* Nút Cạo Gió/Giác Hơi Mới Bổ Sung */}
+                                            <button
+                                                onClick={(e) => { e.preventDefault(); handleGuestUpdate(i, 'toggleGuaSha'); }}
+                                                className={`flex-[0.7] min-w-[50px] px-0.5 shrink-0 border rounded font-bold text-xs h-10 transition-colors whitespace-nowrap flex items-center justify-center gap-0.5 ${g.isGuaSha ? 'bg-red-100 text-red-700 border-red-400 shadow-sm' : 'bg-slate-50 text-slate-400 border-slate-200 hover:bg-slate-100'}`}
+                                            >
+                                                <span className={g.isGuaSha ? "opacity-100" : "opacity-50"}>[刮]</span>刮/罐
                                             </button>
                                         </div>
                                     ))}
@@ -1332,7 +1352,7 @@
     const overrideInterval = setInterval(() => {
         if (window.AvailabilityCheckModal !== NewAvailabilityCheckModal) {
             window.AvailabilityCheckModal = NewAvailabilityCheckModal;
-            console.log("♻️ AvailabilityModal Injected (V113.7 - Standalone Oil Toggle Added)");
+            console.log("♻️ AvailabilityModal Injected (V113.8 - Standalone Oil & GuaSha Toggles Added)");
         }
     }, 200);
     setTimeout(() => { clearInterval(overrideInterval); }, 5000);
