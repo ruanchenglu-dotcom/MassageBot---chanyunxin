@@ -1,6 +1,10 @@
 // TYPE: app.js
-// VERSION: V108.70 (GUA SHA FEATURE INTEGRATION)
+// VERSION: V108.71 (ADMIN NOTE & QUICK SELECT INTEGRATION)
 // UPDATE: 2026-04-09
+//
+// --- CHANGE LOG V108.71 ---
+// 1. [FEATURE]: Tích hợp trường ghi chú đặc biệt adminNote (Cột R) vào luồng dữ liệu frontend.
+// 2. [FEATURE]: Gán window.QUICK_NOTES từ API để cấp dữ liệu cho dropdown chọn nhanh trong form đặt lịch.
 //
 // --- CHANGE LOG V108.70 ---
 // 1. [FEATURE]: Tích hợp tính năng Cạo gió/Giác hơi (Gua Sha) từ backend. Loại bỏ logic đoán chữ từ trường ghi chú, sử dụng trực tiếp cờ isGuaSha từ Cột Q.
@@ -619,7 +623,13 @@ const App = () => {
                 window.SERVICES_LIST = uniqueNames;
             }
 
-            const { bookings: apiBookings, staffList: apiStaff, resourceState: serverRes, staffStatus: serverStaff } = res.data;
+            // [V108.71] Lấy biến quickNotes từ server phản hồi (nếu có)
+            const { bookings: apiBookings, staffList: apiStaff, resourceState: serverRes, staffStatus: serverStaff, quickNotes: apiQuickNotes } = res.data;
+
+            // Đưa vào biến global để AvailabilityCheckModal sử dụng cho UI
+            if (apiQuickNotes) {
+                window.QUICK_NOTES = apiQuickNotes;
+            }
 
             let nextResourceState = { ...(serverRes || {}) };
 
@@ -661,6 +671,9 @@ const App = () => {
 
                     if (override.forceRunning && (!rawStatus || !rawStatus.includes('Running'))) isSynced = false;
 
+                    // Kiểm tra đồng bộ override cho adminNote nếu cần (thường chỉ sửa inline là gửi đi)
+                    if (override.adminNote !== undefined && targetB.adminNote !== override.adminNote) isSynced = false;
+
                     if (isSynced) {
                         delete localOverridesRef.current[String(targetB.rowId)];
                     } else {
@@ -675,6 +688,8 @@ const App = () => {
                         if (override.phase1_res_idx) targetB.phase1_res_idx = override.phase1_res_idx;
                         if (override.phase2_res_idx) targetB.phase2_res_idx = override.phase2_res_idx;
                         if (override.flow) targetB.flow = override.flow;
+
+                        if (override.adminNote !== undefined) targetB.adminNote = override.adminNote;
 
                         if (override.forceRunning) {
                             targetB.status = '🟡 Running';
@@ -743,7 +758,6 @@ const App = () => {
                     displayStaff = '隨機';
                 }
 
-                // [V108.70] Lấy trực tiếp cờ isGuaSha từ backend (cột Q)
                 const isGuaSha = targetB.isGuaSha === true;
 
                 return {
@@ -753,6 +767,7 @@ const App = () => {
                     displayStaff: displayStaff,
                     isOil: targetB.isOil || (targetB.serviceName && targetB.serviceName.includes('油')),
                     isGuaSha: isGuaSha,
+                    adminNote: targetB.adminNote || "", // [V108.71] Ánh xạ Cột R
                     duration: finalDur,
                     _needsAutoSyncDur: isAutoFixed,
                     price: targetB.price || 0,
@@ -1258,6 +1273,12 @@ const App = () => {
             setSyncLock(true);
             setTimeout(() => setSyncLock(false), 3000);
 
+            // Ghi đè trạng thái Admin Note nếu được chỉnh sửa
+            if (updatedData.adminNote !== undefined) {
+                if (!localOverridesRef.current[String(rowId)]) localOverridesRef.current[String(rowId)] = {};
+                localOverridesRef.current[String(rowId)].adminNote = updatedData.adminNote;
+            }
+
             await axios.post('/api/inline-update-booking', {
                 rowId: rowId,
                 updatedData: updatedData
@@ -1584,14 +1605,12 @@ const App = () => {
             }
         }
 
-        // Ưu tiên giường/ghế do user chọn từ dropdown, nếu là 'auto' thì lấy cái hiện tại
         let s1 = newResId && newResId !== 'auto' ? newResId.toLowerCase() : null;
         if (!s1) {
             s1 = targetBooking.current_resource_id || targetBooking.location || null;
         }
         if (s1) s1 = s1.toLowerCase();
 
-        // Ghi vào bóng ma (Override) để UI cập nhật ngay lập tức
         if (!localOverridesRef.current[rowId]) localOverridesRef.current[rowId] = {};
         if (newStartTimeStringForSheet) localOverridesRef.current[rowId].startTimeString = newStartTimeStringForSheet;
         if (s1) localOverridesRef.current[rowId].storedLocation = s1;
@@ -1601,7 +1620,6 @@ const App = () => {
         let hasChanges = false;
         let oldResId = null;
 
-        // Tìm xem khách này đang nằm ở giường nào trên Live
         Object.keys(newState).forEach(key => {
             const res = newState[key];
             if (res.booking && String(res.booking.rowId) === String(rowId)) {
@@ -1609,7 +1627,6 @@ const App = () => {
             }
         });
 
-        // Nếu khách đang có mặt trên bảng Live, cập nhật thẻ Resource Card của khách
         if (oldResId) {
             const updatedResData = {
                 ...newState[oldResId],
@@ -1623,10 +1640,10 @@ const App = () => {
             };
 
             if (s1 && oldResId !== s1) {
-                newState[s1] = updatedResData; // Đổi sang giường mới
-                delete newState[oldResId];     // Xóa giường cũ
+                newState[s1] = updatedResData;
+                delete newState[oldResId];
             } else {
-                newState[oldResId] = updatedResData; // Vẫn ở giường cũ, chỉ cập nhật giờ
+                newState[oldResId] = updatedResData;
             }
             hasChanges = true;
         }
@@ -1635,9 +1652,8 @@ const App = () => {
             setResourceState(newState);
         }
 
-        fetchData(true); // Ép hệ thống load lại từ Override nội bộ
+        fetchData(true);
 
-        // Đóng gói Payload gửi lên API
         const payload = {
             rowId,
             is_locked: "TRUE",
@@ -2791,7 +2807,6 @@ const App = () => {
                 setControlCenterData(null);
                 break;
 
-            // --- [V108.69] XỬ LÝ LỆNH UPDATE TỪ UI KHÁCH LẺ ---
             case 'UPDATE_SINGLE_TIME_LOC':
                 if (targetBooking && payload.startTimeStr) {
                     handleSaveSingleTimeLoc(
@@ -2946,7 +2961,7 @@ const App = () => {
         <div className="min-h-screen flex flex-col bg-slate-50">
             <header className={`text-white p-3 shadow-md flex justify-between items-center sticky top-0 z-50 transition-colors ${quotaError ? 'bg-red-800' : 'bg-[#1e1b4b]'}`}>
                 <div className="flex items-center gap-3">
-                    <span className="bg-emerald-500 text-white px-2 py-1 rounded font-black text-sm shadow-sm">V108.70</span>
+                    <span className="bg-emerald-500 text-white px-2 py-1 rounded font-black text-sm shadow-sm">V108.71</span>
                     <span className="font-bold hidden md:inline tracking-wider">XinWuChan</span>
                     <div className="flex items-center gap-2 bg-white/10 rounded px-2 py-1 border border-white/20">
                         <button onClick={() => { const d = new Date(viewDate); d.setDate(d.getDate() - 1); setViewDate(d.toISOString().split('T')[0]) }} className="text-white hover:text-amber-400 font-bold px-2">❯</button>

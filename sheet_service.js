@@ -1,12 +1,13 @@
 /**
  * =================================================================================================
- * MODULE: SHEET SERVICE (DATA LAYER) - REFACTORED V6.0
+ * MODULE: SHEET SERVICE (DATA LAYER) - REFACTORED V6.1
  * PROJECT: XINWUCHAN MASSAGE BOT
  * DESCRIPTION: Handles Google Sheets interactions. 
+ * * * * * UPDATE V6.1 (ADMIN NOTE & QUICK SELECT INTEGRATION):
+ * + [FEATURE] Thêm logic đọc/ghi ghi chú đặc biệt của Admin (adminNote) vào Cột R.
+ * + [FEATURE] Thêm hàm syncQuickNotes() để tải danh sách yêu cầu thường gặp từ Sheet 'name' Cột N.
  * * * * * UPDATE V6.0 (GUA SHA FEATURE INTEGRATION):
- * + [FEATURE] Kích hoạt tính năng Cạo gió/Giác hơi (刮痧 / 拔罐) độc lập tại Cột Q.
- * + [CLEANUP] Loại bỏ việc map staff4, staff5, staff6 vào Cột O, P, Q do thay đổi cấu trúc bảng.
- * + Bổ sung logic đọc/ghi biến `isGuaSha` đồng bộ cho mọi thao tác (Sync, Write, Update, Inline).
+ * + [FEATURE] Kích hoạt tính năng Cạo gió/Giác hơi độc lập tại Cột Q.
  * =================================================================================================
  */
 
@@ -23,6 +24,7 @@ const STAFF_SHEET = 'StaffLog'; // (Ít dùng, giữ legacy)
 const SCHEDULE_SHEET = 'StaffSchedule'; // Sheet Chấm công chính
 const SALARY_SHEET = 'SalaryLog';
 const MENU_SHEET = 'menu';
+const NAME_SHEET = 'name'; // [V6.1] Sheet chứa các cấu hình tên/danh sách nhanh
 
 // Define Status Keywords (The Source of Truth)
 const STATUS_KEYWORDS = {
@@ -46,6 +48,7 @@ let STATE = {
     scheduleMap: {},
     dateColumnMap: {},
     SERVICES: ResourceCore.SERVICES || {},
+    QUICK_NOTES: [], // [V6.1] Chứa danh sách các lựa chọn ghi chú nhanh từ Cột N
     lastSyncTime: new Date(0),
     isSystemHealthy: false,
     isSyncing: false,
@@ -145,14 +148,9 @@ function smartFindServiceCode(inputName) {
 }
 
 function resolveStrictLockState(explicitLock, hasManualPhase, currentStatus = "FALSE") {
-    // Ưu tiên cao nhất: Lệnh lock/unlock rõ ràng từ object ghi
     if (explicitLock === true) return "TRUE";
     if (explicitLock === false) return "FALSE";
-
-    // Nếu không có lệnh rõ ràng, check xem có chỉnh thời gian thủ công không
     if (hasManualPhase === true) return "TRUE";
-
-    // Mặc định giữ nguyên trạng thái cũ
     if (isTrueString(currentStatus)) return "TRUE";
     return "FALSE";
 }
@@ -160,6 +158,21 @@ function resolveStrictLockState(explicitLock, hasManualPhase, currentStatus = "F
 // =============================================================================
 // PHẦN 2: SYNC ENGINE (ĐỌC VÀ ĐỒNG BỘ DỮ LIỆU TỪ GOOGLE SHEETS)
 // =============================================================================
+
+// --- [V6.1] Hàm Đọc Danh Sách Ghi Chú Nhanh ---
+async function syncQuickNotes() {
+    try {
+        const res = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: `${NAME_SHEET}!N2:N` });
+        const rows = res.data.values;
+        if (!rows || rows.length === 0) {
+            STATE.QUICK_NOTES = [];
+            return;
+        }
+        STATE.QUICK_NOTES = rows.map(row => row[0]).filter(val => val && val.trim() !== '');
+    } catch (e) {
+        console.error('[QUICK NOTES SYNC ERROR]', e);
+    }
+}
 
 async function syncMenuData() {
     try {
@@ -277,8 +290,8 @@ async function syncData() {
                     serviceStaff: row[11], // Cột L
                     staffId2: row[12],     // Cột M
                     staffId3: row[13],     // Cột N
-                    // [V6.0 NÂNG CẤP]: Bỏ map staff4, 5, 6 vào O, P, Q. Sử dụng Cột Q cho Cạo gió.
                     isGuaSha: row[16] === "Yes", // Cột Q
+                    adminNote: row[17] || "", // [V6.1] Cột R (Index 17)
                     pax: pax,
                     customerName: `${row[2]} (${row[6]})`,
                     serviceName: serviceStr, serviceCode: serviceCode,
@@ -455,10 +468,14 @@ async function ghiVaoSheet(data, proposedUpdates = []) {
                 if (guestDetail.staffId3) row[13] = guestDetail.staffId3;
             }
 
-            // [V6.0 NÂNG CẤP]: Xử lý Ghi Cạo gió (Cột Q - Index 16)
             let isGuaSha = data.isGuaSha;
             if (guestDetail && guestDetail.isGuaSha !== undefined) isGuaSha = guestDetail.isGuaSha;
             row[16] = isGuaSha ? "Yes" : "";
+
+            // [V6.1 NÂNG CẤP]: Ghi Ghi chú đặc biệt (Admin Note) vào Cột R
+            let adminNoteVal = data.adminNote;
+            if (guestDetail && guestDetail.adminNote !== undefined) adminNoteVal = guestDetail.adminNote;
+            row[17] = adminNoteVal || "";
 
             row[18] = normalizeDateStrict(colA_Date);
 
@@ -497,18 +514,15 @@ async function ghiVaoSheet(data, proposedUpdates = []) {
                 r2 = guestDetail.phase2_res_idx || guestDetail.phase2Resource || guestDetail.phase2_resource;
                 rType = guestDetail.resource_type || guestDetail.resourceType;
             }
-            // [V5.8 NÂNG CẤP]: Đảm bảo nhận chuẩn xác dữ liệu
             if (!r1) r1 = data.phase1_res_idx || data.phase1Resource || data.phase1_resource;
             if (!r2) r2 = data.phase2_res_idx || data.phase2Resource || data.phase2_resource;
             if (!rType) rType = data.resource_type || data.resourceType;
 
             row[27] = r1 || "";
             row[28] = r2 || "";
-            // [V5.8] Gia cố ghi cột AD (resource_type) bằng cách ép kiểu chuỗi in hoa
             row[29] = rType ? String(rType).toUpperCase() : "";
 
             const hasManualPhase = (p1 !== null && p1 !== undefined && p1 !== "");
-            // [V5.8] Hàm này sẽ trả về "FALSE" nếu index.js truyền vào data.isManualLocked = false
             const finalLockVal = resolveStrictLockState(data.isManualLocked, hasManualPhase, "FALSE");
             row[30] = finalLockVal;
 
@@ -583,15 +597,18 @@ async function updateBookingDetails(body) {
         await updateCell('N', staff3);
     }
 
-    // [V6.0 NÂNG CẤP]: Cập nhật trạng thái Cạo gió vào cột Q nếu có
     if (body.isGuaSha !== undefined) {
         await updateCell('Q', body.isGuaSha ? "Yes" : "");
+    }
+
+    // [V6.1 NÂNG CẤP]: Cập nhật Cột R (adminNote)
+    if (body.adminNote !== undefined) {
+        await updateCell('R', body.adminNote);
     }
 
     const flowVal = body.flow || body.flow_code;
     if (flowVal !== undefined) await updateCell('AA', flowVal);
 
-    // --- BẮT TỌA ĐỘ VỊ TRÍ THỦ CÔNG ---
     let phase1Res = body.phase1_res_idx !== undefined ? body.phase1_res_idx : (body.phase1_resource !== undefined ? body.phase1_resource : body.phase1Resource);
     if (phase1Res === undefined && (body.location !== undefined || body.current_resource_id !== undefined)) {
         phase1Res = body.location !== undefined ? body.location : body.current_resource_id;
@@ -603,7 +620,6 @@ async function updateBookingDetails(body) {
 
     const resourceType = body.resource_type !== undefined ? body.resource_type : body.resourceType;
     if (resourceType !== undefined) await updateCell('AD', resourceType ? String(resourceType).toUpperCase() : "");
-    // ------------------------------------------------
 
     let bookingData = STATE.cachedBookings.find(b => b.rowId == rowId);
     let totalDuration = bookingData ? bookingData.duration : (safeParseInt(body.duration, 60));
@@ -662,9 +678,12 @@ async function updateInlineBooking(rowId, updatedData) {
         if (updatedData.isOil !== undefined) {
             dataToUpdate.push({ range: `${BOOKING_SHEET}!E${rowId}`, values: [[updatedData.isOil ? "Yes" : ""]] });
         }
-        // [V6.0 NÂNG CẤP]: Cập nhật trạng thái Cạo gió Inline
         if (updatedData.isGuaSha !== undefined) {
             dataToUpdate.push({ range: `${BOOKING_SHEET}!Q${rowId}`, values: [[updatedData.isGuaSha ? "Yes" : ""]] });
+        }
+        // [V6.1 NÂNG CẤP]: Cập nhật Inline Cột R
+        if (updatedData.adminNote !== undefined) {
+            dataToUpdate.push({ range: `${BOOKING_SHEET}!R${rowId}`, values: [[updatedData.adminNote]] });
         }
         if (updatedData.pax !== undefined) {
             dataToUpdate.push({ range: `${BOOKING_SHEET}!F${rowId}`, values: [[updatedData.pax]] });
@@ -817,9 +836,11 @@ module.exports = {
     getLastSyncTime: () => STATE.lastSyncTime,
     getIsSystemHealthy: () => STATE.isSystemHealthy,
     getMatrixDebug: () => STATE.LAST_CALCULATED_MATRIX,
+    getQuickNotes: () => STATE.QUICK_NOTES, // [V6.1] Export mảng ghi chú nhanh
 
     syncMenuData,
     syncData,
+    syncQuickNotes, // [V6.1] Export hàm đồng bộ ghi chú nhanh
     syncDailySalary,
     ghiVaoSheet,
     updateBookingStatus,

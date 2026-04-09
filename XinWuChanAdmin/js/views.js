@@ -1,16 +1,15 @@
 /**
  * ============================================================================
  * FILE: js/views.js
- * PHIÊN BẢN: V108.70 (GUA SHA FEATURE INTEGRATION & UI TAGS REFACTOR)
+ * PHIÊN BẢN: V108.71 (ADMIN NOTE DISPLAY INTEGRATION)
  * ============================================================================
+ * CHANGE LOG V108.71:
+ * - [UI/FEATURE]: Tích hợp hiển thị Admin Note (特別要求/備註) vào bảng BookingControlModal.
+ * - [UI/FEATURE]: Thêm icon 📝 vào TimelineView và tag "備註" vào ResourceCard để cảnh báo có ghi chú.
  * CHANGE LOG V108.70:
  * - [UI/FEATURE]: Quy hoạch lại Header của BookingControlModal. Tạo khu vực Tags
  * chuyên biệt ở góc phải trên cùng để hiển thị: Cạo gió [🔥], Đẩy dầu [💧], Chỉ định [📌].
  * - [LOGIC]: Nhận cờ isGuaSha chuẩn từ Backend.
- * CHANGE LOG V108.69:
- * - [UI/FEATURE]: Bổ sung bảng điều khiển Thời gian và Vị trí dành riêng cho khách lẻ (Single).
- * - [UI/UX] (MỚI): Dời nhãn thứ tự luồng Combo (BF / FB) lên góc trên bên phải thẻ Timeline.
- * - [UI/UX] (MỚI): Fix lỗi không hiển thị icon cạo gió 🔥 bên cạnh icon tinh dầu 💧.
  */
 
 const { useState, useEffect, useMemo, useRef } = React;
@@ -397,7 +396,7 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
         <div className="fixed inset-0 z-[3000] flex items-center justify-center bg-black/70 backdrop-blur-sm animate-in fade-in duration-200 p-4">
             <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden border border-slate-300 flex flex-col max-h-[90vh] relative">
 
-                {/* 1. HEADER (V108.70 - NÂNG CẤP TAGS AREA) */}
+                {/* 1. HEADER (V108.71 - NÂNG CẤP TAGS VÀ ADMIN NOTE) */}
                 <div className="bg-gradient-to-r from-slate-800 to-indigo-900 p-4 text-white shrink-0">
                     <div className="flex justify-between items-start">
                         {/* LEFT SIDE: Info */}
@@ -417,6 +416,19 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                                 <span><i className="fas fa-phone-alt mr-1"></i> {booking.sdt || '---'}</span>
                                 <span><i className="fas fa-users mr-1"></i> {booking.pax} 人 (Pax)</span>
                             </div>
+
+                            {/* [V108.71] HIỂN THỊ ADMIN NOTE NẾU CÓ DỮ LIỆU */}
+                            {booking.adminNote && (
+                                <div className="mt-2 bg-amber-500/20 border border-amber-400/50 text-amber-100 text-sm px-2.5 py-1.5 rounded-lg shadow-sm flex items-start gap-2 w-fit max-w-full">
+                                    <i className="fas fa-sticky-note mt-0.5 text-amber-400"></i>
+                                    <div>
+                                        <span className="text-[10px] uppercase text-amber-400/80 font-bold block leading-none mb-0.5">特別要求 (Special Note)</span>
+                                        <span className="whitespace-pre-wrap font-bold break-words leading-tight tracking-wide">
+                                            {booking.adminNote}
+                                        </span>
+                                    </div>
+                                </div>
+                            )}
                         </div>
 
                         {/* RIGHT SIDE: Tags & Close */}
@@ -1075,8 +1087,8 @@ const TimelineView = ({ timelineData, onEditPhase, liveStatusData, staffList, st
 
                                         const label = getDisplayLabel(booking);
                                         const isOil = booking.isOil || (booking.serviceName && booking.serviceName.includes('油'));
+                                        const hasNote = booking.adminNote ? true : false; // [V108.71] Check for note
 
-                                        // MỚI: Tích hợp chặt chẽ việc bắt icon ngọn lửa từ cả hàm check lẫn biến isGuaSha
                                         const isGuaSha = checkGuaShaService(booking) || booking.isGuaSha === true;
 
                                         let staffName = booking.serviceStaff || booking.staffId || booking.ServiceStaff || '隨機';
@@ -1092,7 +1104,6 @@ const TimelineView = ({ timelineData, onEditPhase, liveStatusData, staffList, st
                                         const isRunning = isStatusRunning || isMetaRunning || isPropRunning || isLiveRunning;
                                         const isSyncPending = booking && booking.isManualLocked;
 
-                                        // MỚI: Bắt luồng Combo (BF / FB)
                                         const comboSequence = (slot.meta && slot.meta.isCombo && slot.meta.sequence) ? slot.meta.sequence : null;
 
                                         const isTimeAnomaly = booking?.isTimeAnomaly === true;
@@ -1126,10 +1137,9 @@ const TimelineView = ({ timelineData, onEditPhase, liveStatusData, staffList, st
                                             <div key={idx}
                                                 className={`absolute top-1 bottom-1 rounded px-2 py-1 flex flex-col justify-between text-xs overflow-hidden shadow-sm z-10 cursor-pointer transition-all timeline-block group ${bgClass} ${specialBorderClass}`}
                                                 style={{ left: `${leftPos}px`, width: `${width}px` }}
-                                                title={`${booking.serviceName}\n${isRunning ? '🔥 進行中 (Running)' : ''}${isSyncPending && !isRunning ? '\n⏳ 同步中 (Syncing...)' : ''}${isTimeAnomaly ? '\n⚠️ 時長異常 (Time Anomaly)' : ''}`}
+                                                title={`${booking.serviceName}\n${isRunning ? '🔥 進行中 (Running)' : ''}${isSyncPending && !isRunning ? '\n⏳ 同步中 (Syncing...)' : ''}${isTimeAnomaly ? '\n⚠️ 時長異常 (Time Anomaly)' : ''}${hasNote ? `\n📝 備註: ${booking.adminNote}` : ''}`}
                                                 onClick={(e) => { if (showControlBtn) { e.stopPropagation(); handleOpenControl(booking, slot.meta, row.id); } }}
                                             >
-                                                {/* DỜI THẺ BF / FB LÊN GÓC NÀY */}
                                                 <div className="flex justify-between items-start w-full leading-tight mb-0.5 gap-1">
                                                     <div className="font-bold truncate text-[11px] flex-1 flex items-center gap-1">
                                                         {label}
@@ -1147,9 +1157,10 @@ const TimelineView = ({ timelineData, onEditPhase, liveStatusData, staffList, st
                                                 <div className="flex justify-between items-center w-full mt-auto">
                                                     <div className="truncate text-[10px] font-bold text-slate-700 flex items-center gap-1">
                                                         {displayStaff}
-                                                        {/* Icon lửa được đặt liền kề icon giọt nước */}
                                                         {isOil && <span className="text-[10px]" title="精油 (Oil)">💧</span>}
                                                         {isGuaSha && <span className="text-[10px]" title="刮痧/拔罐 (Gua Sha / Cupping)">🔥</span>}
+                                                        {/* [V108.71] ICON GHI CHÚ TRÊN TIMELINE */}
+                                                        {hasNote && <span className="text-[10px] text-amber-600" title={`備註: ${booking.adminNote}`}>📝</span>}
                                                     </div>
                                                     <div className={`text-[10px] font-bold font-mono px-1 rounded border border-black/5 shadow-sm ${isTimeAnomaly ? 'bg-orange-100 text-orange-800 animate-pulse' : 'bg-white/50 text-slate-800'}`}>
                                                         {timeLabel}
@@ -1540,6 +1551,9 @@ const ResourceCard = ({ id, type, index, data, busyStaffIds, onAction, onSelect,
     const isOilJob = isOccupied && (data.booking.isOil || (data.booking.serviceName && (data.booking.serviceName.includes('油') || data.booking.serviceName.includes('Oil'))));
     const isGuaShaJob = isOccupied && (checkGuaShaService(data.booking) || data.booking.isGuaSha === true);
 
+    // [V108.71] BIẾN KIỂM TRA ADMIN NOTE
+    const hasAdminNote = isOccupied && data.booking.adminNote && data.booking.adminNote.trim() !== '';
+
     const isCombo = isOccupied && (data.booking.category === 'COMBO' || (data.booking.serviceName && data.booking.serviceName.includes('套餐')));
     const flexMinutes = isCombo && data.comboMeta && data.comboMeta.flex ? data.comboMeta.flex : 0;
     const formatTimeStr = (iso) => { if (!iso) return '--:--'; const d = new Date(iso); return `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`; }
@@ -1733,10 +1747,11 @@ const ResourceCard = ({ id, type, index, data, busyStaffIds, onAction, onSelect,
                     {isCombo && data.isRunning && phaseLabel && (<div className={`text-sm font-black p-2 rounded border bg-white/80 ${phaseLabel.includes('足') ? 'text-emerald-700 border-emerald-200' : 'text-purple-700 border-purple-200'}`}>{phaseLabel} {flexMinutes > 0 && <span className="text-xs text-orange-500 bg-orange-100 px-1 rounded ml-1">+{flexMinutes}分</span>} <div className="text-xl font-mono mt-1">{phaseTimeLeft}分</div></div>)}
                     {isCombo && data.isRunning && data.comboMeta && data.comboMeta.targetId && (<div className="text-[10px] text-gray-400">➜ 轉: {data.comboMeta.targetId.toUpperCase()}</div>)}
 
-                    {/* HIỂN THỊ TAG TINH DẦU & CẠO GIÓ CHO KHỐI LỚN */}
+                    {/* [V108.71] HIỂN THỊ TAG TINH DẦU, CẠO GIÓ VÀ GHI CHÚ (ADMIN NOTE) */}
                     <div className="flex flex-wrap justify-center gap-1 mt-1">
                         {isOilJob && <div className="text-xs text-purple-600 font-bold border border-purple-200 bg-purple-50 rounded px-2 py-1 inline-block">💧 精油 (Oil)</div>}
                         {isGuaShaJob && <div className="text-xs text-orange-600 font-bold border border-orange-200 bg-orange-50 rounded px-2 py-1 inline-block">🔥 刮/罐</div>}
+                        {hasAdminNote && <div className="text-xs text-amber-700 font-bold border border-amber-200 bg-amber-50 rounded px-2 py-1 inline-block truncate max-w-[100px]" title={data.booking.adminNote}><i className="fas fa-sticky-note"></i> 備註</div>}
                     </div>
 
                     {data.isRunning && !isPreview && startObj && (<div className="bg-slate-50 rounded p-2 text-xs text-left space-y-1 mt-2 border border-slate-200 shadow-inner opacity-90"><div className="text-slate-600 font-bold flex justify-between"><span>🕒 開始:</span> <span className="font-mono text-blue-600">{formatTimeStr(startObj)}</span></div>{isCombo && switchObj && <div className="text-slate-500 flex justify-between"><span>⇄ 轉場:</span> <span className="font-mono text-orange-500">{formatTimeStr(switchObj)}</span></div>}<div className="text-slate-600 font-bold flex justify-between"><span>🏁 結束:</span> <span className="font-mono text-green-600">{formatTimeStr(endObj)}</span></div></div>)}
