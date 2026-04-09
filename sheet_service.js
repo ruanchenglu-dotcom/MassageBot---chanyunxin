@@ -2,10 +2,11 @@
  * =================================================================================================
  * MODULE: SHEET SERVICE (DATA LAYER) - REFACTORED V6.0
  * PROJECT: XINWUCHAN MASSAGE BOT
- * =================================================================================================
- * UPDATE V6.0 (GUA SHA / CUPPING SUPPORT & COLUMN SHIFT):
- * + [FEATURE] Thêm hỗ trợ đọc/ghi Cột Q (刮痧 / 拔罐 - isGuaSha).
- * + [SYSTEM] Căn chỉnh lại toàn bộ Index (+1) cho các cột từ R đến AF do chèn thêm cột Q ở giữa.
+ * DESCRIPTION: Handles Google Sheets interactions. 
+ * * * * * UPDATE V6.0 (GUA SHA FEATURE INTEGRATION):
+ * + [FEATURE] Kích hoạt tính năng Cạo gió/Giác hơi (刮痧 / 拔罐) độc lập tại Cột Q.
+ * + [CLEANUP] Loại bỏ việc map staff4, staff5, staff6 vào Cột O, P, Q do thay đổi cấu trúc bảng.
+ * + Bổ sung logic đọc/ghi biến `isGuaSha` đồng bộ cho mọi thao tác (Sync, Write, Update, Inline).
  * =================================================================================================
  */
 
@@ -144,9 +145,14 @@ function smartFindServiceCode(inputName) {
 }
 
 function resolveStrictLockState(explicitLock, hasManualPhase, currentStatus = "FALSE") {
+    // Ưu tiên cao nhất: Lệnh lock/unlock rõ ràng từ object ghi
     if (explicitLock === true) return "TRUE";
     if (explicitLock === false) return "FALSE";
+
+    // Nếu không có lệnh rõ ràng, check xem có chỉnh thời gian thủ công không
     if (hasManualPhase === true) return "TRUE";
+
+    // Mặc định giữ nguyên trạng thái cũ
     if (isTrueString(currentStatus)) return "TRUE";
     return "FALSE";
 }
@@ -209,8 +215,8 @@ async function syncData() {
     try {
         STATE.isSyncing = true;
 
-        // [V6.0] Update range to AF to capture shifted columns
-        const resBooking = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: `${BOOKING_SHEET}!A:AF` });
+        // --- BƯỚC 1: ĐỌC BOOKING TỪ SHEET1 ---
+        const resBooking = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: `${BOOKING_SHEET}!A:AE` });
         const rowsBooking = resBooking.data.values;
         let tempBookings = [];
 
@@ -249,14 +255,11 @@ async function syncData() {
                     price += 200;
                 }
 
-                // [V6.0] Đọc trạng thái Gua Sha từ cột Q (Index 16)
-                const isGuaShaService = (row[16] === "Yes");
-
                 let pax = 1; if (row[5]) pax = safeParseInt(row[5], 1);
 
                 const requestedStaff = row[8] || '隨機';
 
-                let serviceCode = row[21]; // [V6.0] Cột V (Index 21) do bị đẩy
+                let serviceCode = row[20];
                 if (!serviceCode || serviceCode === '') {
                     for (const key in STATE.SERVICES) { if (STATE.SERVICES[key].name === serviceStr) { serviceCode = key; break; } }
                 }
@@ -274,25 +277,23 @@ async function syncData() {
                     serviceStaff: row[11], // Cột L
                     staffId2: row[12],     // Cột M
                     staffId3: row[13],     // Cột N
-                    staffId4: row[14],     // Cột O
-                    staffId5: row[15],     // Cột P
-                    isGuaSha: isGuaShaService, // [V6.0] Cột Q
-                    staffId6: row[17],     // [V6.0] Cột R (Shifted)
+                    // [V6.0 NÂNG CẤP]: Bỏ map staff4, 5, 6 vào O, P, Q. Sử dụng Cột Q cho Cạo gió.
+                    isGuaSha: row[16] === "Yes", // Cột Q
                     pax: pax,
                     customerName: `${row[2]} (${row[6]})`,
                     serviceName: serviceStr, serviceCode: serviceCode,
                     phone: row[6], date: cleanDate, status: status,
                     isRunning: isRunning, lineId: row[9],
                     isOil: isOilService,
-                    phase1_duration: safeParseInt(row[25], null), // [V6.0] Cột Z
-                    phase2_duration: safeParseInt(row[26], null), // [V6.0] Cột AA
-                    isManualLocked: isTrueString(row[31]), // [V6.0] Cột AF
-                    flow: row[27], // [V6.0] Cột AB
-                    phase1_res_idx: row[28] || null, // [V6.0] Cột AC
-                    phase2_res_idx: row[29] || null, // [V6.0] Cột AD
-                    phase1_resource: row[28],
-                    phase2_resource: row[29],
-                    resource_type: row[30], // [V6.0] Cột AE
+                    phase1_duration: safeParseInt(row[24], null),
+                    phase2_duration: safeParseInt(row[25], null),
+                    isManualLocked: isTrueString(row[30]),
+                    flow: row[26],
+                    phase1_res_idx: row[27] || null,
+                    phase2_res_idx: row[28] || null,
+                    phase1_resource: row[27],
+                    phase2_resource: row[28],
+                    resource_type: row[29],
                     allocated_resource: null
                 });
             }
@@ -424,8 +425,7 @@ async function ghiVaoSheet(data, proposedUpdates = []) {
         }
 
         for (let i = 0; i < loopCount; i++) {
-            // [V6.0] Tăng độ dài array lên 32 để chứa AF
-            const row = new Array(32).fill("");
+            const row = new Array(31).fill("");
             let guestDetail = (data.guestDetails && data.guestDetails[i]) ? data.guestDetails[i] : null;
 
             const guestNum = i + 1; const total = loopCount;
@@ -450,19 +450,17 @@ async function ghiVaoSheet(data, proposedUpdates = []) {
 
             row[9] = colJ_LineID; row[10] = colK_Created;
 
-            // [V6.0] Xử lý Cột Gua Sha và đẩy cột
-            let isGuaSha = data.isGuaSha;
-            if (guestDetail && guestDetail.isGuaSha !== undefined) isGuaSha = guestDetail.isGuaSha;
-            row[16] = isGuaSha ? "Yes" : ""; // Cột Q
-
             if (guestDetail) {
                 if (guestDetail.staffId2) row[12] = guestDetail.staffId2;
                 if (guestDetail.staffId3) row[13] = guestDetail.staffId3;
-                if (guestDetail.staffId4) row[14] = guestDetail.staffId4;
-                if (guestDetail.staffId5) row[15] = guestDetail.staffId5;
-                if (guestDetail.staffId6) row[17] = guestDetail.staffId6; // [V6.0] Shifted to R
             }
-            row[19] = normalizeDateStrict(colA_Date); // [V6.0] Shifted to T
+
+            // [V6.0 NÂNG CẤP]: Xử lý Ghi Cạo gió (Cột Q - Index 16)
+            let isGuaSha = data.isGuaSha;
+            if (guestDetail && guestDetail.isGuaSha !== undefined) isGuaSha = guestDetail.isGuaSha;
+            row[16] = isGuaSha ? "Yes" : "";
+
+            row[18] = normalizeDateStrict(colA_Date);
 
             let sCode = data.serviceCode;
             if (guestDetail && guestDetail.serviceCode) sCode = guestDetail.serviceCode;
@@ -470,7 +468,7 @@ async function ghiVaoSheet(data, proposedUpdates = []) {
                 const cleanSvcName = svcName.replace(" (油推+$200)", "");
                 sCode = smartFindServiceCode(cleanSvcName);
             }
-            row[21] = sCode || ""; // [V6.0] Shifted to V
+            row[20] = sCode || "";
 
             let p1 = null; let p2 = null;
             if (guestDetail) {
@@ -479,8 +477,8 @@ async function ghiVaoSheet(data, proposedUpdates = []) {
             }
             if (p1 === null || p1 === undefined) p1 = data.phase1_duration;
             if (p2 === null || p2 === undefined) p2 = data.phase2_duration;
-            row[25] = (p1 !== null && p1 !== "") ? p1 : ""; // [V6.0] Shifted to Z
-            row[26] = (p2 !== null && p2 !== "") ? p2 : ""; // [V6.0] Shifted to AA
+            row[24] = (p1 !== null && p1 !== "") ? p1 : "";
+            row[25] = (p2 !== null && p2 !== "") ? p2 : "";
 
             let flowVal = null;
             if (guestDetail) flowVal = guestDetail.flow || guestDetail.flowCode;
@@ -491,7 +489,7 @@ async function ghiVaoSheet(data, proposedUpdates = []) {
                 else if (svcDef.category === 'BODY') flowVal = "BODYSINGLE";
                 else if (svcDef.category === 'COMBO') flowVal = "FB";
             }
-            row[27] = flowVal || "FB"; // [V6.0] Shifted to AB
+            row[26] = flowVal || "FB";
 
             let r1 = null; let r2 = null; let rType = null;
             if (guestDetail) {
@@ -499,17 +497,20 @@ async function ghiVaoSheet(data, proposedUpdates = []) {
                 r2 = guestDetail.phase2_res_idx || guestDetail.phase2Resource || guestDetail.phase2_resource;
                 rType = guestDetail.resource_type || guestDetail.resourceType;
             }
+            // [V5.8 NÂNG CẤP]: Đảm bảo nhận chuẩn xác dữ liệu
             if (!r1) r1 = data.phase1_res_idx || data.phase1Resource || data.phase1_resource;
             if (!r2) r2 = data.phase2_res_idx || data.phase2Resource || data.phase2_resource;
             if (!rType) rType = data.resource_type || data.resourceType;
 
-            row[28] = r1 || ""; // [V6.0] Shifted to AC
-            row[29] = r2 || ""; // [V6.0] Shifted to AD
-            row[30] = rType ? String(rType).toUpperCase() : ""; // [V6.0] Shifted to AE
+            row[27] = r1 || "";
+            row[28] = r2 || "";
+            // [V5.8] Gia cố ghi cột AD (resource_type) bằng cách ép kiểu chuỗi in hoa
+            row[29] = rType ? String(rType).toUpperCase() : "";
 
             const hasManualPhase = (p1 !== null && p1 !== undefined && p1 !== "");
+            // [V5.8] Hàm này sẽ trả về "FALSE" nếu index.js truyền vào data.isManualLocked = false
             const finalLockVal = resolveStrictLockState(data.isManualLocked, hasManualPhase, "FALSE");
-            row[31] = finalLockVal; // [V6.0] Shifted to AF
+            row[30] = finalLockVal;
 
             valuesToWrite.push(row);
         }
@@ -550,8 +551,7 @@ async function updateBookingDetails(body) {
 
     if (body.date) {
         const formattedDate = normalizeDateStrict(body.date);
-        await updateCell('A', formattedDate);
-        await updateCell('T', formattedDate); // [V6.0] Shifted to T
+        await updateCell('A', formattedDate); await updateCell('S', formattedDate);
     }
     if (body.startTime) {
         let timeVal = body.startTime; if (timeVal.length > 5) timeVal = timeVal.substring(0, 5);
@@ -574,39 +574,36 @@ async function updateBookingDetails(body) {
     }
 
     const staff2 = body['服務師傅2'] || body.ServiceStaff2 || body.staff2 || body.staffId2;
-    if (staff2 !== undefined) await updateCell('M', staff2);
+    if (staff2 !== undefined) {
+        await updateCell('M', staff2);
+    }
 
     const staff3 = body['服務師傅3'] || body.ServiceStaff3 || body.staff3 || body.staffId3;
-    if (staff3 !== undefined) await updateCell('N', staff3);
+    if (staff3 !== undefined) {
+        await updateCell('N', staff3);
+    }
 
-    const staff4 = body['服務師傅4'] || body.ServiceStaff4 || body.staff4 || body.staffId4;
-    if (staff4 !== undefined) await updateCell('O', staff4);
-
-    const staff5 = body['服務師傅5'] || body.ServiceStaff5 || body.staff5 || body.staffId5;
-    if (staff5 !== undefined) await updateCell('P', staff5);
-
-    // [V6.0] Gua Sha is at Q
+    // [V6.0 NÂNG CẤP]: Cập nhật trạng thái Cạo gió vào cột Q nếu có
     if (body.isGuaSha !== undefined) {
         await updateCell('Q', body.isGuaSha ? "Yes" : "");
     }
 
-    const staff6 = body['服務師傅6'] || body.ServiceStaff6 || body.staff6 || body.staffId6;
-    if (staff6 !== undefined) await updateCell('R', staff6); // [V6.0] Shifted to R
-
     const flowVal = body.flow || body.flow_code;
-    if (flowVal !== undefined) await updateCell('AB', flowVal); // [V6.0] Shifted to AB
+    if (flowVal !== undefined) await updateCell('AA', flowVal);
 
+    // --- BẮT TỌA ĐỘ VỊ TRÍ THỦ CÔNG ---
     let phase1Res = body.phase1_res_idx !== undefined ? body.phase1_res_idx : (body.phase1_resource !== undefined ? body.phase1_resource : body.phase1Resource);
     if (phase1Res === undefined && (body.location !== undefined || body.current_resource_id !== undefined)) {
         phase1Res = body.location !== undefined ? body.location : body.current_resource_id;
     }
-    if (phase1Res !== undefined) await updateCell('AC', phase1Res); // [V6.0] Shifted to AC
+    if (phase1Res !== undefined) await updateCell('AB', phase1Res);
 
     const phase2Res = body.phase2_res_idx !== undefined ? body.phase2_res_idx : (body.phase2_resource !== undefined ? body.phase2_resource : body.phase2Resource);
-    if (phase2Res !== undefined) await updateCell('AD', phase2Res); // [V6.0] Shifted to AD
+    if (phase2Res !== undefined) await updateCell('AC', phase2Res);
 
     const resourceType = body.resource_type !== undefined ? body.resource_type : body.resourceType;
-    if (resourceType !== undefined) await updateCell('AE', resourceType ? String(resourceType).toUpperCase() : ""); // [V6.0] Shifted to AE
+    if (resourceType !== undefined) await updateCell('AD', resourceType ? String(resourceType).toUpperCase() : "");
+    // ------------------------------------------------
 
     let bookingData = STATE.cachedBookings.find(b => b.rowId == rowId);
     let totalDuration = bookingData ? bookingData.duration : (safeParseInt(body.duration, 60));
@@ -615,17 +612,17 @@ async function updateBookingDetails(body) {
 
     if (body.phase1_duration !== undefined && body.phase1_duration !== null) {
         const p1 = parseInt(body.phase1_duration); const p2 = totalDuration - p1;
-        await updateCell('Z', p1); await updateCell('AA', p2); hasManualPhaseChange = true; // [V6.0] Shifted to Z & AA
+        await updateCell('Y', p1); await updateCell('Z', p2); hasManualPhaseChange = true;
     } else if (body.phase2_duration !== undefined && body.phase2_duration !== null) {
         const p2 = parseInt(body.phase2_duration); const p1 = totalDuration - p2;
-        await updateCell('Z', p1); await updateCell('AA', p2); hasManualPhaseChange = true; // [V6.0] Shifted to Z & AA
+        await updateCell('Y', p1); await updateCell('Z', p2); hasManualPhaseChange = true;
     }
 
     const currentLockString = currentLockState ? "TRUE" : "FALSE";
     const finalLockString = resolveStrictLockState(body.isManualLocked, hasManualPhaseChange, currentLockString);
 
     if (finalLockString !== currentLockString || body.isManualLocked !== undefined || hasManualPhaseChange) {
-        await updateCell('AF', finalLockString); // [V6.0] Shifted to AF
+        await updateCell('AE', finalLockString);
     }
 
     if (body.forceSync) await syncData(); else setTimeout(() => syncData(), 500);
@@ -646,7 +643,7 @@ async function updateInlineBooking(rowId, updatedData) {
 
         if (formattedDate) {
             dataToUpdate.push({ range: `${BOOKING_SHEET}!A${rowId}`, values: [[formattedDate]] });
-            dataToUpdate.push({ range: `${BOOKING_SHEET}!T${rowId}`, values: [[formattedDate]] }); // [V6.0] Shifted to T
+            dataToUpdate.push({ range: `${BOOKING_SHEET}!S${rowId}`, values: [[formattedDate]] });
         }
         if (timeVal) {
             dataToUpdate.push({ range: `${BOOKING_SHEET}!B${rowId}`, values: [[timeVal]] });
@@ -660,13 +657,14 @@ async function updateInlineBooking(rowId, updatedData) {
                 svcName += " (油推+$200)";
             }
             dataToUpdate.push({ range: `${BOOKING_SHEET}!D${rowId}`, values: [[svcName]] });
-            dataToUpdate.push({ range: `${BOOKING_SHEET}!V${rowId}`, values: [[sCode]] }); // [V6.0] Shifted to V
+            dataToUpdate.push({ range: `${BOOKING_SHEET}!U${rowId}`, values: [[sCode]] });
         }
         if (updatedData.isOil !== undefined) {
             dataToUpdate.push({ range: `${BOOKING_SHEET}!E${rowId}`, values: [[updatedData.isOil ? "Yes" : ""]] });
         }
+        // [V6.0 NÂNG CẤP]: Cập nhật trạng thái Cạo gió Inline
         if (updatedData.isGuaSha !== undefined) {
-            dataToUpdate.push({ range: `${BOOKING_SHEET}!Q${rowId}`, values: [[updatedData.isGuaSha ? "Yes" : ""]] }); // [V6.0] Q
+            dataToUpdate.push({ range: `${BOOKING_SHEET}!Q${rowId}`, values: [[updatedData.isGuaSha ? "Yes" : ""]] });
         }
         if (updatedData.pax !== undefined) {
             dataToUpdate.push({ range: `${BOOKING_SHEET}!F${rowId}`, values: [[updatedData.pax]] });

@@ -1,16 +1,18 @@
 // TYPE: app.js
-// VERSION: V108.70 (GUA SHA INTEGRATION & ADDON TOGGLE)
+// VERSION: V108.70 (GUA SHA FEATURE INTEGRATION)
 // UPDATE: 2026-04-09
 //
 // --- CHANGE LOG V108.70 ---
-// 1. [DATA]: Cập nhật luồng xử lý `isGuaSha` trong hàm fetchData để đồng bộ chính xác với cột Q mới từ backend.
-// 2. [LOGIC]: Bổ sung lệnh `TOGGLE_ADDON` trong handleControlAction để sẵn sàng cho nút bật/tắt Cạo gió trên giao diện Modal.
+// 1. [FEATURE]: Tích hợp tính năng Cạo gió/Giác hơi (Gua Sha) từ backend. Loại bỏ logic đoán chữ từ trường ghi chú, sử dụng trực tiếp cờ isGuaSha từ Cột Q.
 //
 // --- CHANGE LOG V108.69 ---
 // 1. [LOGIC]: Bổ sung hàm handleSaveSingleTimeLoc để xử lý luồng thay đổi thời gian và giường/ghế cho khách lẻ (Single).
 //
 // --- CHANGE LOG V108.68 ---
-// 1. [LOGIC]: Thêm hệ thống giám sát ngầm (Auto-Transition Watchdog).
+// 1. [LOGIC]: Thêm hệ thống giám sát ngầm (Auto-Transition Watchdog). Tự động dời khách Combo
+//    từ Phase 1 sang Phase 2 khi hết thời gian quy định, giải phóng hoàn toàn vị trí cũ (ghế/giường)
+//    cho khách tiếp theo mà không cần thu ngân thao tác thủ công.
+// 2. [CORE]: Bổ sung Emergency Kick trong hàm executeStart để chống lỗi kẹt bóng ma chặn khách mới.
 
 const { useState, useEffect, useMemo, useRef, useCallback } = React;
 
@@ -657,8 +659,6 @@ const App = () => {
                     if (override.phase1_res_idx && targetB.phase1_res_idx !== override.phase1_res_idx) isSynced = false;
                     if (override.phase2_res_idx && targetB.phase2_res_idx !== override.phase2_res_idx) isSynced = false;
 
-                    if (override.isGuaSha !== undefined && targetB.isGuaSha !== override.isGuaSha) isSynced = false;
-
                     if (override.forceRunning && (!rawStatus || !rawStatus.includes('Running'))) isSynced = false;
 
                     if (isSynced) {
@@ -675,7 +675,6 @@ const App = () => {
                         if (override.phase1_res_idx) targetB.phase1_res_idx = override.phase1_res_idx;
                         if (override.phase2_res_idx) targetB.phase2_res_idx = override.phase2_res_idx;
                         if (override.flow) targetB.flow = override.flow;
-                        if (override.isGuaSha !== undefined) targetB.isGuaSha = override.isGuaSha;
 
                         if (override.forceRunning) {
                             targetB.status = '🟡 Running';
@@ -744,9 +743,8 @@ const App = () => {
                     displayStaff = '隨機';
                 }
 
-                // --- [V108.70 NÂNG CẤP] ĐỒNG BỘ CỜ GUASHA TỪ SHEET ---
-                const noteStrForGuaSha = (targetB.ghiChu || targetB.note || "").toString().toUpperCase();
-                const isGuaSha = targetB.isGuaSha === true || String(targetB.isGuaSha).toLowerCase() === 'yes' || noteStrForGuaSha.includes('刮痧') || noteStrForGuaSha.includes('拔罐');
+                // [V108.70] Lấy trực tiếp cờ isGuaSha từ backend (cột Q)
+                const isGuaSha = targetB.isGuaSha === true;
 
                 return {
                     ...targetB,
@@ -1932,217 +1930,6 @@ const App = () => {
         });
     };
 
-    const handleControlAction = (actionType, payload) => {
-        const targetBooking = payload.currentBooking || (controlCenterData ? controlCenterData.booking : null);
-        const targetResourceId = payload.resourceId || (controlCenterData ? controlCenterData.resourceId : null);
-
-        switch (actionType) {
-            case 'OPEN_CONTROL_CENTER':
-                handleOpenControlCenter(targetBooking, targetResourceId, payload.currentMeta);
-                break;
-
-            case 'FORCE_FIX_DURATION':
-                if (targetBooking && payload.standardDuration) {
-                    handleForceFixDuration(targetBooking, payload.standardDuration);
-                }
-                setControlCenterData(null);
-                break;
-
-            case 'START':
-                if (targetResourceId) {
-                    if (resourceState[targetResourceId] && resourceState[targetResourceId].isRunning) {
-                        alert(`⚠️ 位置 ${targetResourceId} 忙碌中！請選擇其他座位。`);
-                    } else {
-                        const relatedWaiters = findRelatedWaitingBookings(targetBooking, targetResourceId);
-
-                        if (relatedWaiters.length > 0) {
-                            setStartChoiceData({
-                                resourceId: targetResourceId,
-                                booking: targetBooking,
-                                relatedDetails: relatedWaiters
-                            });
-                        } else {
-                            executeStart(targetResourceId, null, false, targetBooking);
-                        }
-                    }
-                } else {
-                    alert("⚠️ 請先將此訂單拖入座位/床位再開始！");
-                }
-                setControlCenterData(null);
-                break;
-
-            case 'PAUSE':
-                if (targetResourceId) handleResourceAction(targetResourceId, 'pause');
-                setControlCenterData(null);
-                break;
-
-            case 'FINISH':
-                if (targetResourceId && targetBooking) {
-                    const related = findRelatedForCheckout(targetBooking, targetResourceId);
-                    if (related.length > 0) {
-                        setPaymentChoiceData({
-                            resourceId: targetResourceId,
-                            booking: targetBooking,
-                            relatedIds: related.map(r => r.resourceId),
-                            relatedDetails: related
-                        });
-                    } else {
-                        setBillingData({
-                            activeItem: { resourceId: targetResourceId, booking: targetBooking },
-                            relatedItems: []
-                        });
-                    }
-                } else if (targetBooking) {
-                    setBillingData({
-                        activeItem: { resourceId: null, booking: targetBooking },
-                        relatedItems: []
-                    });
-                }
-                setControlCenterData(null);
-                break;
-
-            case 'CANCEL':
-                if (targetResourceId && resourceState[targetResourceId] && !resourceState[targetResourceId].isPreview) {
-                    handleResourceAction(targetResourceId, 'cancel_midway');
-                } else if (targetBooking) {
-                    if (confirm('確定要取消此預約嗎？\n(若為團體客，將取消整組預約)')) {
-                        const ridStr = String(targetBooking.rowId);
-                        if (localOverridesRef.current[ridStr]) delete localOverridesRef.current[ridStr];
-                        axios.post('/api/update-status', { rowId: targetBooking.rowId, status: '❌ 取消' })
-                            .then(() => fetchData(true))
-                            .catch(() => alert('取消失敗，請檢查網路。'));
-                    }
-                }
-                setControlCenterData(null);
-                break;
-
-            case 'SPLIT':
-                if (targetResourceId) setSplitData({ resourceId: targetResourceId });
-                setControlCenterData(null);
-                break;
-
-            case 'UPDATE_SERVICE':
-                if (targetResourceId && payload.newService) {
-                    handleServiceChange(targetResourceId, payload.newService);
-                }
-                setControlCenterData(null);
-                break;
-
-            case 'CHANGE_STAFF':
-                if (targetBooking && payload.newStaff) {
-                    if (targetResourceId && resourceState[targetResourceId]) {
-                        handleStaffChange(targetResourceId, payload.newStaff);
-                    } else {
-                        const rowId = String(targetBooking.rowId);
-                        setSyncLock(true); setTimeout(() => setSyncLock(false), 3000);
-
-                        if (controlCenterData && String(controlCenterData.booking.rowId) === rowId) {
-                            setControlCenterData(prev => ({
-                                ...prev,
-                                booking: { ...prev.booking, serviceStaff: payload.newStaff }
-                            }));
-                        }
-
-                        universalSend('/api/update-booking-details', {
-                            rowId: rowId,
-                            服務師傅1: payload.newStaff,
-                            ServiceStaff1: payload.newStaff,
-                            technician: payload.newStaff,
-                            staff1: payload.newStaff,
-                            forceSync: true
-                        });
-                        fetchData(true);
-                    }
-                }
-                break;
-
-            case 'UPDATE_PHASE':
-                if (targetBooking && payload.phase1 !== undefined) {
-                    handleSaveComboTime(
-                        payload.phase1,
-                        targetBooking,
-                        payload.startTimeStr,
-                        payload.switchTimeStr,
-                        payload.phase1_res_idx,
-                        payload.phase2_res_idx
-                    );
-                }
-                setControlCenterData(null);
-                break;
-
-            case 'UPDATE_SINGLE_TIME_LOC':
-                if (targetBooking && payload.startTimeStr) {
-                    handleSaveSingleTimeLoc(
-                        targetBooking,
-                        payload.startTimeStr,
-                        payload.newResId
-                    );
-                }
-                setControlCenterData(null);
-                break;
-
-            case 'TOGGLE_SEQUENCE':
-                if (targetBooking && payload.newFlow) {
-                    handleToggleSequence(targetBooking, payload.newFlow);
-                } else if (targetResourceId) {
-                    handleToggleSequence(targetResourceId);
-                }
-                break;
-
-            case 'SHIFT_RESOURCE':
-            case 'SHIFT_TIME':
-                const direction = payload.direction || 1;
-                if (targetResourceId) {
-                    handleVerticalResourceShift(targetResourceId, direction, targetBooking);
-                }
-                break;
-
-            // --- [V108.70 NÂNG CẤP] LỆNH MỚI CHO NÚT BẬT/TẮT DỊCH VỤ ---
-            case 'TOGGLE_ADDON':
-                if (targetBooking && payload.addonType) {
-                    const rowId = String(targetBooking.rowId);
-                    setSyncLock(true); setTimeout(() => setSyncLock(false), 3000);
-
-                    let updatePayload = { rowId: rowId, forceSync: true };
-                    let bookingUpdates = {};
-
-                    if (payload.addonType === 'GUASHA') {
-                        bookingUpdates.isGuaSha = payload.value;
-                        updatePayload.isGuaSha = payload.value;
-                    } else if (payload.addonType === 'OIL') {
-                        bookingUpdates.isOil = payload.value;
-                        updatePayload.isOil = payload.value;
-                    }
-
-                    // Cập nhật giao diện Modal lập tức
-                    if (controlCenterData && String(controlCenterData.booking.rowId) === rowId) {
-                        setControlCenterData(prev => ({
-                            ...prev,
-                            booking: { ...prev.booking, ...bookingUpdates }
-                        }));
-                    }
-
-                    // Lưu vào bộ đệm Override
-                    if (!localOverridesRef.current[rowId]) localOverridesRef.current[rowId] = {};
-                    Object.assign(localOverridesRef.current[rowId], bookingUpdates);
-
-                    // Đồng bộ Resource Card trên Timeline
-                    const newState = { ...resourceState };
-                    Object.keys(newState).forEach(key => {
-                        if (newState[key].booking && String(newState[key].booking.rowId) === rowId) {
-                            Object.assign(newState[key].booking, bookingUpdates);
-                        }
-                    });
-                    setResourceState(newState);
-
-                    // Gửi lên Google Sheets
-                    universalSend('/api/update-booking-details', updatePayload);
-                    fetchData(true);
-                }
-                break;
-        }
-    };
-
     const executeStart = (id, comboSequence, silentMode = false, fallbackBooking = null) => {
         let current = resourceStateRef.current[id] || resourceState[id];
 
@@ -2158,6 +1945,7 @@ const App = () => {
             };
         }
 
+        // --- [V108.68] EMERGENCY KICK (Chống kẹt bóng ma) ---
         if (current && current.isRunning) {
             if (current.comboMeta && current.comboMeta.phase === 1 && current.startTime) {
                 const startTs = new Date(current.startTime).getTime();
@@ -2165,6 +1953,7 @@ const App = () => {
                 const split = getSmartSplit(current.booking, current.booking.duration || 100, current.isMaxMode, current.comboMeta.sequence);
                 const phase1Ms = (split.phase1 + (current.comboMeta.flex || 0)) * 60000;
 
+                // Nếu khách cũ đã quá giờ, tự động đá đi để nhường chỗ
                 if (elapsed >= phase1Ms) {
                     const targetId = current.comboMeta.targetId;
                     if (targetId && targetId !== id) {
@@ -2189,6 +1978,7 @@ const App = () => {
 
                             console.log(`🚀 Emergency Kick: Cleared ${id} for new customer.`);
 
+                            // Phục hồi lại dữ liệu khách mới để Start
                             current = fallbackBooking ? {
                                 booking: fallbackBooking,
                                 isRunning: false,
@@ -2412,6 +2202,7 @@ const App = () => {
         axios.post('/api/update-status', { rowId: current.booking.rowId, status: '🟡 Running' });
     };
 
+    // [V108.63] BATCH START: STAFF-CENTRIC
     const executeBatchStart = (mainResId, relatedItems) => {
         const nextResourceState = { ...resourceStateRef.current };
         const nextStatusData = { ...statusData };
@@ -2669,6 +2460,365 @@ const App = () => {
         updateStaffStatus(nextStatusData);
         apiPayloads.forEach(p => universalSend(p.endpoint, p.data));
         universalSend('/api/sync-resource', nextResourceState);
+    };
+
+    const handleResourceAction = async (id, action) => {
+        const current = resourceState[id]; if (!current) return;
+        if (action === 'start') {
+            const isStrict = current.booking.isForcedSingle === true;
+            const isCombo = !isStrict && (current.booking.category === 'COMBO' || (current.booking.serviceName && current.booking.serviceName.includes('套餐')));
+
+            if (isCombo && !current.isRunning) { setComboStartData({ id, booking: current.booking }); return; }
+            executeStart(id, null);
+        }
+        else if (action === 'pause') { updateResource({ ...resourceState, [id]: { ...current, isPaused: !current.isPaused } }); }
+        else if (action === 'cancel') { if (confirm('確定將顧客從位置移除？')) { const n = { ...resourceState }; delete n[id]; updateResource(n); } }
+        else if (action === 'cancel_midway') {
+            if (confirm('確定要棄單 (Drop)？\n此操作會標記為「取消」並釋放此位置。')) {
+                const ridStr = String(current.booking.rowId);
+                if (localOverridesRef.current[ridStr]) {
+                    delete localOverridesRef.current[ridStr];
+                }
+
+                await axios.post('/api/update-status', { rowId: current.booking.rowId, status: '❌ 取消' });
+                const n = { ...resourceState };
+                const staffId = current.booking.serviceStaff || current.booking.staffId;
+                if (staffId !== '隨機' && statusData[staffId]) {
+                    const newStatus = { ...statusData, [staffId]: { status: 'READY', checkInTime: Date.now(), stafftime: Date.now() } };
+                    updateStaffStatus(newStatus);
+                }
+                delete n[id]; updateResource(n); fetchData();
+            }
+        }
+        else if (action === 'finish') {
+            const related = findRelatedForCheckout(current.booking, id);
+            if (related.length > 0) {
+                setPaymentChoiceData({
+                    resourceId: id,
+                    booking: current.booking,
+                    relatedIds: related.map(r => r.resourceId),
+                    relatedDetails: related
+                });
+            } else {
+                setBillingData({ activeItem: { resourceId: id, booking: current.booking }, relatedItems: [] });
+            }
+        }
+    };
+
+    const confirmComboStart = (sequence) => { if (comboStartData) { executeStart(comboStartData.id, sequence); setComboStartData(null); } };
+
+    const handleSwitch = (fromId, toType) => {
+        const currentData = resourceState[fromId];
+        if (!currentData) return;
+        const isStrict = currentData.booking.isForcedSingle === true;
+        const requiredType = currentData.booking.forceResourceType;
+        const targetTypeString = toType === 'chair' ? 'CHAIR' : 'BED';
+
+        if (isStrict && requiredType !== targetTypeString) {
+            alert(`⛔️ 阻擋：此服務限定為 ${requiredType === 'CHAIR' ? '足部' : '身體'}，無法轉場至 ${targetTypeString === 'CHAIR' ? '足部' : '身體'}！`);
+            return;
+        }
+
+        for (let i = 1; i <= 6; i++) {
+            const targetId = `${toType}-${i}`;
+            if (!resourceState[targetId]) {
+                const newState = { ...resourceState }; delete newState[fromId]; newState[targetId] = currentData;
+                updateResource(newState);
+                universalSend('/api/update-booking-details', {
+                    rowId: currentData.booking.rowId,
+                    current_resource_id: targetId,
+                    record_location: true,
+                    forceSync: true
+                });
+                return;
+            }
+        }
+        alert(`該區域 (${toType === 'chair' ? '足部區' : '身體區'}) 已無空位！`);
+    };
+
+    const handleToggleMax = async (resId) => { const res = resourceState[resId]; if (!res) return; updateResource({ ...resourceState, [resId]: { ...res, isMaxMode: !res.isMaxMode } }); };
+
+    const handleConfirmPayment = async (itemsToPay, totalAmount) => {
+        try {
+            setSyncLock(true); setTimeout(() => setSyncLock(false), 5000);
+            const newState = { ...resourceState };
+            const newStatusData = { ...statusData };
+            const updatesByRow = {};
+            const baseTime = Date.now();
+
+            const checkoutStaffInfo = [];
+
+            for (let i = 0; i < itemsToPay.length; i++) {
+                const item = itemsToPay[i];
+                const b = item.booking;
+                const rid = String(b.rowId);
+                const resId = item.resourceId;
+
+                if (localOverridesRef.current[rid]) {
+                    delete localOverridesRef.current[rid];
+                }
+
+                let targetIndex = -1;
+                const currentStaff = b.serviceStaff || b.staffId;
+
+                if (currentStaff && currentStaff !== '隨機' && currentStaff !== 'undefined') {
+                    const staffCols = [b.serviceStaff || b.staffId, b.staffId2, b.staffId3, b.staffId4, b.staffId5, b.staffId6];
+                    targetIndex = staffCols.findIndex(s => s && s.trim() === currentStaff.trim());
+                }
+                if (targetIndex === -1) {
+                    if (resId) {
+                        const seatNum = parseInt(resId.replace(/\D/g, ''));
+                        if (!isNaN(seatNum) && seatNum > 0) targetIndex = Math.min(seatNum - 1, 5);
+                        else targetIndex = 0;
+                    } else {
+                        targetIndex = 0;
+                    }
+                }
+
+                const statusNum = targetIndex + 1;
+                const statusColEnglish = `Status${statusNum}`;
+                if (!updatesByRow[rid]) { updatesByRow[rid] = { rowId: rid, forceSync: true, originalBooking: b }; }
+                updatesByRow[rid][statusColEnglish] = '✅ 完成';
+
+                let staffId = null;
+                if (targetIndex === 0) staffId = b.serviceStaff || b.staffId;
+                else if (targetIndex === 1) staffId = b.staffId2;
+                else if (targetIndex === 2) staffId = b.staffId3;
+                else if (targetIndex === 3) staffId = b.staffId4;
+                else if (targetIndex === 4) staffId = b.staffId5;
+                else if (targetIndex === 5) staffId = b.staffId6;
+
+                if (staffId && staffId !== '隨機' && staffId !== 'undefined') {
+                    const duration = window.getSafeDuration(b.serviceName, b.duration);
+                    const blocks = getServiceBlocks(b.serviceName);
+                    checkoutStaffInfo.push({ staffId, duration, blocks });
+                }
+
+                if (resId && newState[resId]) {
+                    delete newState[resId];
+                }
+            }
+
+            const isGroup = checkoutStaffInfo.length >= 2 || (itemsToPay.length > 0 && parseInt(itemsToPay[0].booking.pax) >= 2);
+            const uniqueBlocks = [...new Set(checkoutStaffInfo.map(i => i.blocks))];
+            const minGroupDuration = checkoutStaffInfo.length > 0 ? Math.min(...checkoutStaffInfo.map(i => i.duration)) : 0;
+
+            checkoutStaffInfo.forEach(info => {
+                const currentStaffTime = statusData[info.staffId]?.stafftime || baseTime;
+                let newStaffTime = currentStaffTime;
+
+                if (info.blocks === 1) {
+                    newStaffTime = currentStaffTime;
+                }
+                else if (!isGroup) {
+                    newStaffTime = currentStaffTime + (info.duration * 60000);
+                }
+                else if (isGroup && uniqueBlocks.length === 1) {
+                    newStaffTime = currentStaffTime + (minGroupDuration * 60000);
+                }
+                else if (isGroup && uniqueBlocks.length > 1) {
+                    newStaffTime = currentStaffTime + (info.duration * 60000);
+                }
+
+                newStatusData[info.staffId] = {
+                    status: 'READY',
+                    checkInTime: baseTime,
+                    stafftime: newStaffTime
+                };
+            });
+
+            Object.values(updatesByRow).forEach(updatePayload => {
+                const booking = updatePayload.originalBooking;
+                const staffCols = [booking.serviceStaff || booking.staffId, booking.staffId2, booking.staffId3, booking.staffId4, booking.staffId5, booking.staffId6];
+                let activeSlotsCount = 0; let finishedSlotsCount = 0;
+                staffCols.forEach((staffName, idx) => {
+                    if (staffName && staffName !== 'undefined' && staffName !== 'null' && staffName.trim() !== '') {
+                        activeSlotsCount++;
+                        const key = `Status${idx + 1}`;
+                        const isNewCompletion = updatePayload[key] && updatePayload[key].includes('完成');
+                        const wasAlreadyDone = booking[key] && (booking[key].includes('完成') || booking[key].includes('Done') || booking[key].includes('✅'));
+                        if (isNewCompletion || wasAlreadyDone) finishedSlotsCount++;
+                    }
+                });
+                if (activeSlotsCount > 0 && finishedSlotsCount >= activeSlotsCount) {
+                    updatePayload.mainStatus = '✅ 完成';
+                }
+                delete updatePayload.originalBooking;
+            });
+
+            updateResource(newState); updateStaffStatus(newStatusData); setBillingData(null);
+            const apiCalls = Object.values(updatesByRow).map(payload => axios.post('/api/update-booking-details', payload));
+
+            await Promise.all(apiCalls); alert(`✅ 結帳成功: $${totalAmount}`);
+        } catch (e) { alert("⚠️ 連線錯誤，請檢查網路！"); }
+    };
+
+    const handleControlAction = (actionType, payload) => {
+        const targetBooking = payload.currentBooking || (controlCenterData ? controlCenterData.booking : null);
+        const targetResourceId = payload.resourceId || (controlCenterData ? controlCenterData.resourceId : null);
+
+        switch (actionType) {
+            case 'OPEN_CONTROL_CENTER':
+                handleOpenControlCenter(targetBooking, targetResourceId, payload.currentMeta);
+                break;
+
+            case 'FORCE_FIX_DURATION':
+                if (targetBooking && payload.standardDuration) {
+                    handleForceFixDuration(targetBooking, payload.standardDuration);
+                }
+                setControlCenterData(null);
+                break;
+
+            case 'START':
+                if (targetResourceId) {
+                    if (resourceState[targetResourceId] && resourceState[targetResourceId].isRunning) {
+                        alert(`⚠️ 位置 ${targetResourceId} 忙碌中！請選擇其他座位。`);
+                    } else {
+                        const relatedWaiters = findRelatedWaitingBookings(targetBooking, targetResourceId);
+
+                        if (relatedWaiters.length > 0) {
+                            setStartChoiceData({
+                                resourceId: targetResourceId,
+                                booking: targetBooking,
+                                relatedDetails: relatedWaiters
+                            });
+                        } else {
+                            executeStart(targetResourceId, null, false, targetBooking);
+                        }
+                    }
+                } else {
+                    alert("⚠️ 請先將此訂單拖入座位/床位再開始！");
+                }
+                setControlCenterData(null);
+                break;
+
+            case 'PAUSE':
+                if (targetResourceId) handleResourceAction(targetResourceId, 'pause');
+                setControlCenterData(null);
+                break;
+
+            case 'FINISH':
+                if (targetResourceId && targetBooking) {
+                    const related = findRelatedForCheckout(targetBooking, targetResourceId);
+                    if (related.length > 0) {
+                        setPaymentChoiceData({
+                            resourceId: targetResourceId,
+                            booking: targetBooking,
+                            relatedIds: related.map(r => r.resourceId),
+                            relatedDetails: related
+                        });
+                    } else {
+                        setBillingData({
+                            activeItem: { resourceId: targetResourceId, booking: targetBooking },
+                            relatedItems: []
+                        });
+                    }
+                } else if (targetBooking) {
+                    setBillingData({
+                        activeItem: { resourceId: null, booking: targetBooking },
+                        relatedItems: []
+                    });
+                }
+                setControlCenterData(null);
+                break;
+
+            case 'CANCEL':
+                if (targetResourceId && resourceState[targetResourceId] && !resourceState[targetResourceId].isPreview) {
+                    handleResourceAction(targetResourceId, 'cancel_midway');
+                } else if (targetBooking) {
+                    if (confirm('確定要取消此預約嗎？\n(若為團體客，將取消整組預約)')) {
+                        const ridStr = String(targetBooking.rowId);
+                        if (localOverridesRef.current[ridStr]) delete localOverridesRef.current[ridStr];
+                        axios.post('/api/update-status', { rowId: targetBooking.rowId, status: '❌ 取消' })
+                            .then(() => fetchData(true))
+                            .catch(() => alert('取消失敗，請檢查網路。'));
+                    }
+                }
+                setControlCenterData(null);
+                break;
+
+            case 'SPLIT':
+                if (targetResourceId) setSplitData({ resourceId: targetResourceId });
+                setControlCenterData(null);
+                break;
+
+            case 'UPDATE_SERVICE':
+                if (targetResourceId && payload.newService) {
+                    handleServiceChange(targetResourceId, payload.newService);
+                }
+                setControlCenterData(null);
+                break;
+
+            case 'CHANGE_STAFF':
+                if (targetBooking && payload.newStaff) {
+                    if (targetResourceId && resourceState[targetResourceId]) {
+                        handleStaffChange(targetResourceId, payload.newStaff);
+                    } else {
+                        const rowId = String(targetBooking.rowId);
+                        setSyncLock(true); setTimeout(() => setSyncLock(false), 3000);
+
+                        if (controlCenterData && String(controlCenterData.booking.rowId) === rowId) {
+                            setControlCenterData(prev => ({
+                                ...prev,
+                                booking: { ...prev.booking, serviceStaff: payload.newStaff }
+                            }));
+                        }
+
+                        universalSend('/api/update-booking-details', {
+                            rowId: rowId,
+                            服務師傅1: payload.newStaff,
+                            ServiceStaff1: payload.newStaff,
+                            technician: payload.newStaff,
+                            staff1: payload.newStaff,
+                            forceSync: true
+                        });
+                        fetchData(true);
+                    }
+                }
+                break;
+
+            case 'UPDATE_PHASE':
+                if (targetBooking && payload.phase1 !== undefined) {
+                    handleSaveComboTime(
+                        payload.phase1,
+                        targetBooking,
+                        payload.startTimeStr,
+                        payload.switchTimeStr,
+                        payload.phase1_res_idx,
+                        payload.phase2_res_idx
+                    );
+                }
+                setControlCenterData(null);
+                break;
+
+            // --- [V108.69] XỬ LÝ LỆNH UPDATE TỪ UI KHÁCH LẺ ---
+            case 'UPDATE_SINGLE_TIME_LOC':
+                if (targetBooking && payload.startTimeStr) {
+                    handleSaveSingleTimeLoc(
+                        targetBooking,
+                        payload.startTimeStr,
+                        payload.newResId
+                    );
+                }
+                setControlCenterData(null);
+                break;
+
+            case 'TOGGLE_SEQUENCE':
+                if (targetBooking && payload.newFlow) {
+                    handleToggleSequence(targetBooking, payload.newFlow);
+                } else if (targetResourceId) {
+                    handleToggleSequence(targetResourceId);
+                }
+                break;
+
+            case 'SHIFT_RESOURCE':
+            case 'SHIFT_TIME':
+                const direction = payload.direction || 1;
+                if (targetResourceId) {
+                    handleVerticalResourceShift(targetResourceId, direction, targetBooking);
+                }
+                break;
+        }
     };
 
     const handleProcessPaymentChoice = (mode) => {

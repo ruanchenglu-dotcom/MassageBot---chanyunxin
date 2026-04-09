@@ -1,11 +1,12 @@
 /**
  * ============================================================================
  * FILE: js/views.js
- * PHIÊN BẢN: V108.70 (GUA SHA & INTERACTIVE BADGES INTEGRATION)
+ * PHIÊN BẢN: V108.70 (GUA SHA FEATURE INTEGRATION & UI TAGS REFACTOR)
  * ============================================================================
  * CHANGE LOG V108.70:
- * - [UI/UX]: Quy hoạch lại khu vực Badge ở góc phải Booking Control Modal.
- * - [FEATURE]: Thẻ Dầu (Oil) và Cạo gió (Gua Sha) trên Modal nay có thể bấm vào để Bật/Tắt trực tiếp.
+ * - [UI/FEATURE]: Quy hoạch lại Header của BookingControlModal. Tạo khu vực Tags
+ * chuyên biệt ở góc phải trên cùng để hiển thị: Cạo gió [🔥], Đẩy dầu [💧], Chỉ định [📌].
+ * - [LOGIC]: Nhận cờ isGuaSha chuẩn từ Backend.
  * CHANGE LOG V108.69:
  * - [UI/FEATURE]: Bổ sung bảng điều khiển Thời gian và Vị trí dành riêng cho khách lẻ (Single).
  * - [UI/UX] (MỚI): Dời nhãn thứ tự luồng Combo (BF / FB) lên góc trên bên phải thẻ Timeline.
@@ -128,6 +129,10 @@ const checkGuaShaService = (booking) => {
 const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveData, contextResourceId, staffList, statusData, timelineData, resourceState }) => {
     if (!isOpen || !booking) return null;
 
+    // Các cờ tính năng mở rộng
+    const isOil = booking.isOil || (booking.serviceName && booking.serviceName.includes('油'));
+    const isGuaSha = checkGuaShaService(booking) || booking.isGuaSha === true;
+
     const effectiveDuration = (booking.isTimeAnomaly && booking.standardDuration) ? booking.standardDuration : (booking.duration || 60);
     const totalDuration = effectiveDuration;
 
@@ -143,6 +148,8 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
 
     const [selectedPhase1Res, setSelectedPhase1Res] = useState('auto');
     const [selectedPhase2Res, setSelectedPhase2Res] = useState('auto');
+
+    // --- [V108.69] Thêm state cho Single Service ---
     const [selectedSingleRes, setSelectedSingleRes] = useState('auto');
 
     const [timeLeft, setTimeLeft] = useState(0);
@@ -154,9 +161,6 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
 
     const [selectedStaff, setSelectedStaff] = useState('隨機');
 
-    // Các biến phụ trợ cho hiển thị Badge (V108.70)
-    const isOil = booking.isOil || (booking.serviceName && booking.serviceName.includes('油'));
-    const isGuaSha = booking.isGuaSha || checkGuaShaService(booking);
     const requestedStaff = booking.requestedStaff || booking.staffId || '隨機';
 
     const processedStaffList = useMemo(() => {
@@ -209,6 +213,7 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
             setSelectedPhase1Res(initP1Res);
             setSelectedPhase2Res(initP2Res);
 
+            // --- [V108.69] Khởi tạo vị trí cho Single Service ---
             let initSingleRes = 'auto';
             if (booking.current_resource_id) initSingleRes = booking.current_resource_id.toLowerCase();
             else if (booking.location) initSingleRes = booking.location.toLowerCase();
@@ -270,6 +275,7 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
     const switchTimeStr = minsToTimeStr(switchMins);
     const endTimeStr = minsToTimeStr(endMins);
 
+    // --- [V108.27] THUẬT TOÁN TÌM GIƯỜNG/GHẾ TRỐNG ---
     const checkOverlap = (resId, checkStart, checkEnd, excludeRowId) => {
         if (timelineData && timelineData[resId]) {
             for (let slot of timelineData[resId]) {
@@ -304,6 +310,7 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
         return list;
     }, [isBodyFirstLocal, switchMins, endMins, timelineData, booking?.rowId]);
 
+    // --- [V108.69] Tính toán giường/ghế trống cho Single Service ---
     const availableSingleResources = useMemo(() => {
         let type = 'bed';
         if (booking.forceResourceType === 'CHAIR' || booking.flow === 'FOOTSINGLE') type = 'chair';
@@ -331,6 +338,7 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
         }
     }, [availableP2Resources, selectedPhase2Res]);
 
+    // --- [V108.69] Xóa chọn Single Resource nếu không hợp lệ ---
     useEffect(() => {
         if (selectedSingleRes !== 'auto' && selectedSingleRes !== 'full' && !availableSingleResources.includes(selectedSingleRes)) {
             setSelectedSingleRes('auto');
@@ -381,6 +389,7 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
     const isP2Full = availableP2Resources.length === 0;
     const isSaveDisabled = isP1Full || isP2Full;
 
+    // --- [V108.69] Biến cờ cho Single ---
     const isSingleFull = availableSingleResources.length === 0;
     const isSingleSaveDisabled = isSingleFull;
 
@@ -388,11 +397,12 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
         <div className="fixed inset-0 z-[3000] flex items-center justify-center bg-black/70 backdrop-blur-sm animate-in fade-in duration-200 p-4">
             <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden border border-slate-300 flex flex-col max-h-[90vh] relative">
 
-                {/* 1. HEADER */}
+                {/* 1. HEADER (V108.70 - NÂNG CẤP TAGS AREA) */}
                 <div className="bg-gradient-to-r from-slate-800 to-indigo-900 p-4 text-white shrink-0">
                     <div className="flex justify-between items-start">
-                        <div>
-                            <div className="flex items-center gap-2">
+                        {/* LEFT SIDE: Info */}
+                        <div className="flex-1 pr-2">
+                            <div className="flex items-center gap-2 flex-wrap">
                                 <span className="bg-white/20 text-xs px-2 py-0.5 rounded uppercase font-mono tracking-wider">#{booking.rowId}</span>
                                 {contextResourceId && <span className="bg-orange-500 text-white text-xs px-2 py-0.5 rounded uppercase font-bold shadow-sm"><i className="fas fa-map-marker-alt mr-1"></i>{contextResourceId.replace('bed-', '床 ').replace('chair-', '足 ')}</span>}
                                 {isSyncPending && <span className="bg-blue-500 text-white text-xs font-bold px-2 py-0.5 rounded animate-pulse shadow-sm"><i className="fas fa-sync-alt animate-spin mr-1"></i>同步中 (SYNCING)</span>}
@@ -400,7 +410,7 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                                 {isPaused && <span className="bg-yellow-500 text-xs font-bold px-2 py-0.5 rounded">暫停 (PAUSED)</span>}
                                 {!isRunning && !isSyncPending && <span className="bg-gray-500 text-xs font-bold px-2 py-0.5 rounded">等待中 (WAITING)</span>}
                             </div>
-                            <h2 className="text-2xl font-black mt-1 flex items-center flex-wrap gap-2">
+                            <h2 className="text-2xl font-black mt-1 truncate" title={booking.customerName}>
                                 {booking.customerName}
                             </h2>
                             <div className="text-white/70 text-sm flex items-center gap-3 mt-1">
@@ -409,28 +419,27 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                             </div>
                         </div>
 
-                        {/* --- [V108.70] BADGE & TOGGLE CONTROLS (Góc trên bên phải) --- */}
-                        <div className="flex items-start gap-4">
-                            <div className="flex flex-col items-end gap-1.5 pt-1">
+                        {/* RIGHT SIDE: Tags & Close */}
+                        <div className="flex items-start gap-3 shrink-0">
+                            {/* TAGS CONTAINER */}
+                            <div className="flex flex-col items-end gap-1.5 mt-1">
                                 {requestedStaff !== '隨機' && (
-                                    <span className="text-[11px] bg-pink-100 text-pink-700 px-2 py-0.5 rounded-full border border-pink-200 shadow-sm whitespace-nowrap font-bold">
-                                        <i className="fas fa-thumbtack mr-1"></i> 指定: {requestedStaff}
+                                    <span className="text-xs bg-pink-100 text-pink-800 px-2 py-1 rounded shadow-sm flex items-center font-bold border border-pink-300 whitespace-nowrap">
+                                        <i className="fas fa-thumbtack mr-1"></i>指定: {requestedStaff}
                                     </span>
                                 )}
-                                <button
-                                    onClick={() => triggerAction('TOGGLE_ADDON', { addonType: 'OIL', value: !isOil })}
-                                    className={`text-[11px] px-2 py-0.5 rounded-full border shadow-sm whitespace-nowrap font-bold transition-all flex items-center ${isOil ? 'bg-blue-100 text-blue-700 border-blue-300 hover:bg-blue-200' : 'bg-slate-700/50 text-slate-200 border-slate-600 hover:bg-slate-600'}`}
-                                >
-                                    <i className="fas fa-tint mr-1"></i> 加購油推
-                                </button>
-                                <button
-                                    onClick={() => triggerAction('TOGGLE_ADDON', { addonType: 'GUASHA', value: !isGuaSha })}
-                                    className={`text-[11px] px-2 py-0.5 rounded-full border shadow-sm whitespace-nowrap font-bold transition-all flex items-center ${isGuaSha ? 'bg-orange-100 text-orange-700 border-orange-300 hover:bg-orange-200' : 'bg-slate-700/50 text-slate-200 border-slate-600 hover:bg-slate-600'}`}
-                                >
-                                    <i className="fas fa-fire mr-1"></i> 加購刮痧/拔罐
-                                </button>
+                                {isOil && (
+                                    <span className="text-xs bg-purple-100 text-purple-800 px-2 py-1 rounded shadow-sm flex items-center font-bold border border-purple-300 whitespace-nowrap">
+                                        💧 精油 (Oil)
+                                    </span>
+                                )}
+                                {isGuaSha && (
+                                    <span className="text-xs bg-orange-100 text-orange-800 px-2 py-1 rounded shadow-sm flex items-center font-bold border border-orange-300 whitespace-nowrap">
+                                        🔥 刮痧 / 拔罐
+                                    </span>
+                                )}
                             </div>
-
+                            {/* CLOSE BUTTON */}
                             <button onClick={onClose} className="bg-white/10 hover:bg-white/30 rounded-full w-10 h-10 flex items-center justify-center transition-all shrink-0"><i className="fas fa-times text-xl"></i></button>
                         </div>
                     </div>
@@ -464,6 +473,7 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                             <label className="text-xs font-bold text-slate-400 uppercase mb-1 block">選擇服務師傅 (ACTUAL STAFF)</label>
                             <div className="flex items-center justify-between mb-4 relative">
                                 <div className="relative flex-1 mr-2 bg-slate-50 border border-slate-200 rounded-lg">
+                                    {/* --- [V108.54] GENDER GUARD CHO MODAL THAY THỢ --- */}
                                     <select
                                         value={selectedStaff}
                                         onChange={(e) => {
@@ -475,7 +485,7 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
 
                                             if (needsFemale && isMale) {
                                                 if (!window.confirm(`⚠️ 警告：此客人有「限女」需求 (或為精油項目)，您確定要指派男師傅 [${newStaff}] 嗎？\n(Cảnh báo: Khách này yêu cầu Nữ, bạn có chắc chắn muốn xếp thợ Nam không?)`)) {
-                                                    return;
+                                                    return; // Hủy thay đổi nếu thu ngân không xác nhận
                                                 }
                                             }
                                             setSelectedStaff(newStaff);
@@ -717,6 +727,7 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                         </div>
                     )}
 
+                    {/* --- [V108.69] KHỐI ĐIỀU CHỈNH THỜI GIAN/VỊ TRÍ CHO KHÁCH LẺ --- */}
                     {!isCombo && (
                         <div className="bg-white p-5 rounded-xl border shadow-sm transition-all border-emerald-100 mt-4">
                             <div className="flex justify-between items-center mb-4">
@@ -844,12 +855,14 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
 };
 
 // ============================================================================
-// 1. TIMELINE VIEW 
+// 1. TIMELINE VIEW (V108.58 - NÂNG CẤP NOW LINE)
 // ============================================================================
 const TimelineView = ({ timelineData, onEditPhase, liveStatusData, staffList, statusData, onOpenControlCenter }) => {
+    // --- KHỞI TẠO STATE & TIMER CHO NOW LINE ---
     const [now, setNow] = useState(new Date());
 
     useEffect(() => {
+        // Cập nhật biến `now` mỗi phút (60000ms) để đường kẻ tự trượt
         const timer = setInterval(() => setNow(new Date()), 60000);
         return () => clearInterval(timer);
     }, []);
@@ -864,9 +877,11 @@ const TimelineView = ({ timelineData, onEditPhase, liveStatusData, staffList, st
     const LEFT_COL_WIDTH = 80;
     const TOTAL_WIDTH = LEFT_COL_WIDTH + (hours.length * HOUR_WIDTH);
 
+    // --- TÍNH TOÁN VỊ TRÍ CỦA NOW LINE ---
     const currentH = now.getHours();
     const currentM = now.getMinutes();
     let adjustedH = currentH;
+    // Nếu giờ thực tế < 8h sáng, ta cộng thêm 24h để hiển thị đúng ở khoảng cuối Timeline
     if (adjustedH < startHour) {
         adjustedH += 24;
     }
@@ -874,6 +889,7 @@ const TimelineView = ({ timelineData, onEditPhase, liveStatusData, staffList, st
     const timelineStartMins = startHour * 60;
     const timelineEndMins = endHour * 60;
 
+    // Kiểm tra xem giờ hiện tại có nằm trong vùng làm việc của Timeline hay không
     const isNowVisible = currentTotalMins >= timelineStartMins && currentTotalMins <= timelineEndMins;
     const nowLeftPos = LEFT_COL_WIDTH + (currentTotalMins - timelineStartMins) * PIXELS_PER_MIN;
 
@@ -999,6 +1015,8 @@ const TimelineView = ({ timelineData, onEditPhase, liveStatusData, staffList, st
             `}</style>
 
             <div style={{ width: `${TOTAL_WIDTH}px`, minWidth: '100%' }} className="relative min-h-full">
+
+                {/* --- [NÂNG CẤP V108.58] CURRENT TIME INDICATOR (NOW LINE) --- */}
                 {isNowVisible && (
                     <div
                         className="absolute top-0 bottom-0 z-[45] pointer-events-none flex flex-col transition-all duration-1000"
@@ -1012,7 +1030,9 @@ const TimelineView = ({ timelineData, onEditPhase, liveStatusData, staffList, st
                         <div className="w-[1px] h-full bg-red-600 shadow-[0_0_2px_rgba(220,38,38,0.5)] absolute top-0 left-0 -z-10"></div>
                     </div>
                 )}
+                {/* ------------------------------------------------------------- */}
 
+                {/* HEADER */}
                 <div className="flex sticky top-0 z-30 bg-slate-100 border-b border-slate-300 shadow-md h-[45px]">
                     <div className="sticky left-0 top-0 z-40 bg-[#e2e8f0] border-r border-slate-300 flex items-center justify-center font-extrabold text-slate-700 text-sm shadow-[2px_0_5px_rgba(0,0,0,0.1)]"
                         style={{ width: `${LEFT_COL_WIDTH}px`, height: `${HEADER_HEIGHT}px` }}>
@@ -1025,6 +1045,7 @@ const TimelineView = ({ timelineData, onEditPhase, liveStatusData, staffList, st
                     </div>
                 </div>
 
+                {/* BODY */}
                 <div className="relative bg-white pb-4">
                     {rows.map((row, index) => {
                         const isLastChairRow = index === 5;
@@ -1040,6 +1061,7 @@ const TimelineView = ({ timelineData, onEditPhase, liveStatusData, staffList, st
                                         const booking = slot.booking;
                                         if (!booking) return null;
 
+                                        // --- LỚP PHÒNG THỦ CHẶN "BÓNG MA" (UI GUARD) ---
                                         const rawStatusStr = String(booking.status || '');
                                         const isCancelled = rawStatusStr.includes('取消') || rawStatusStr.toUpperCase().includes('CANCEL') || booking.isDoneStatus === true;
                                         if (isCancelled) return null;
@@ -1054,6 +1076,7 @@ const TimelineView = ({ timelineData, onEditPhase, liveStatusData, staffList, st
                                         const label = getDisplayLabel(booking);
                                         const isOil = booking.isOil || (booking.serviceName && booking.serviceName.includes('油'));
 
+                                        // MỚI: Tích hợp chặt chẽ việc bắt icon ngọn lửa từ cả hàm check lẫn biến isGuaSha
                                         const isGuaSha = checkGuaShaService(booking) || booking.isGuaSha === true;
 
                                         let staffName = booking.serviceStaff || booking.staffId || booking.ServiceStaff || '隨機';
@@ -1069,6 +1092,7 @@ const TimelineView = ({ timelineData, onEditPhase, liveStatusData, staffList, st
                                         const isRunning = isStatusRunning || isMetaRunning || isPropRunning || isLiveRunning;
                                         const isSyncPending = booking && booking.isManualLocked;
 
+                                        // MỚI: Bắt luồng Combo (BF / FB)
                                         const comboSequence = (slot.meta && slot.meta.isCombo && slot.meta.sequence) ? slot.meta.sequence : null;
 
                                         const isTimeAnomaly = booking?.isTimeAnomaly === true;
@@ -1105,6 +1129,7 @@ const TimelineView = ({ timelineData, onEditPhase, liveStatusData, staffList, st
                                                 title={`${booking.serviceName}\n${isRunning ? '🔥 進行中 (Running)' : ''}${isSyncPending && !isRunning ? '\n⏳ 同步中 (Syncing...)' : ''}${isTimeAnomaly ? '\n⚠️ 時長異常 (Time Anomaly)' : ''}`}
                                                 onClick={(e) => { if (showControlBtn) { e.stopPropagation(); handleOpenControl(booking, slot.meta, row.id); } }}
                                             >
+                                                {/* DỜI THẺ BF / FB LÊN GÓC NÀY */}
                                                 <div className="flex justify-between items-start w-full leading-tight mb-0.5 gap-1">
                                                     <div className="font-bold truncate text-[11px] flex-1 flex items-center gap-1">
                                                         {label}
@@ -1122,6 +1147,7 @@ const TimelineView = ({ timelineData, onEditPhase, liveStatusData, staffList, st
                                                 <div className="flex justify-between items-center w-full mt-auto">
                                                     <div className="truncate text-[10px] font-bold text-slate-700 flex items-center gap-1">
                                                         {displayStaff}
+                                                        {/* Icon lửa được đặt liền kề icon giọt nước */}
                                                         {isOil && <span className="text-[10px]" title="精油 (Oil)">💧</span>}
                                                         {isGuaSha && <span className="text-[10px]" title="刮痧/拔罐 (Gua Sha / Cupping)">🔥</span>}
                                                     </div>
@@ -1221,6 +1247,8 @@ const CommissionView = ({ bookings, staffList }) => {
                 const isSlotDone = (slot.status && (slot.status.includes('完成') || slot.status.includes('Done'))) || mainStatusDone;
 
                 if (isSlotDone) {
+                    // --- [V108.54 NÂNG CẤP] TÁCH CHUỖI NHÂN VIÊN ---
+                    // Backward Compatibility: Đề phòng dữ liệu cũ bị gộp chung vào 1 cột có dấu phẩy
                     const splitIds = String(slot.id).split(/[,，]/).map(s => s.trim()).filter(Boolean);
 
                     splitIds.forEach(singleId => {
@@ -1538,6 +1566,7 @@ const ResourceCard = ({ id, type, index, data, busyStaffIds, onAction, onSelect,
         }
     }
 
+    // --- KIỂM TRA THỢ CÓ PHẢI LÀ KHÁCH CHỈ ĐỊNH KHÔNG ---
     let isCurrentlyWorkingDesignated = false;
     if (isOccupied && staffDisplay !== '隨機') {
         const b = data.booking || {};
@@ -1560,6 +1589,7 @@ const ResourceCard = ({ id, type, index, data, busyStaffIds, onAction, onSelect,
     }
 
     const bfBadgeStyle = isBodyFirst ? "bg-indigo-600 text-white animate-pulse shadow-lg ring-2 ring-indigo-300" : "hidden";
+
     const requestedStaffLabel = data.booking.requestedStaff || data.booking.staffId || '隨機';
 
     return (
@@ -1591,6 +1621,7 @@ const ResourceCard = ({ id, type, index, data, busyStaffIds, onAction, onSelect,
 
                     <div className={`absolute -top-10 right-0 z-40 rounded-lg shadow-sm px-2 py-1 flex items-center gap-1 border-2 transition-all ${isCurrentlyWorkingDesignated ? 'bg-red-50 border-amber-600 ring-2 ring-amber-600' : 'bg-white border-slate-200'}`}>
                         <div className="relative flex items-center">
+                            {/* --- [V108.54] GENDER GUARD CHO THẺ RESOURCE CARD --- */}
                             <select
                                 className={`text-xl font-black text-center bg-transparent focus:outline-none cursor-pointer appearance-none pl-2 pr-5 transition-colors ${staffDisplay === '隨機' ? 'text-gray-400 hover:bg-slate-50' : 'text-slate-800 hover:bg-slate-50'}`}
                                 value={staffDisplay}
@@ -1605,7 +1636,7 @@ const ResourceCard = ({ id, type, index, data, busyStaffIds, onAction, onSelect,
 
                                     if (needsFemale && isMale) {
                                         if (!window.confirm(`⚠️ 警告：此客人有「限女」需求 (或為精油項目)，您確定要指派男師傅 [${newStaff}] 嗎？\n(Cảnh báo: Khách này yêu cầu Nữ, bạn có chắc chắn muốn xếp thợ Nam không?)`)) {
-                                            return;
+                                            return; // Hủy thay đổi nếu thu ngân không xác nhận
                                         }
                                     }
 
@@ -1702,6 +1733,7 @@ const ResourceCard = ({ id, type, index, data, busyStaffIds, onAction, onSelect,
                     {isCombo && data.isRunning && phaseLabel && (<div className={`text-sm font-black p-2 rounded border bg-white/80 ${phaseLabel.includes('足') ? 'text-emerald-700 border-emerald-200' : 'text-purple-700 border-purple-200'}`}>{phaseLabel} {flexMinutes > 0 && <span className="text-xs text-orange-500 bg-orange-100 px-1 rounded ml-1">+{flexMinutes}分</span>} <div className="text-xl font-mono mt-1">{phaseTimeLeft}分</div></div>)}
                     {isCombo && data.isRunning && data.comboMeta && data.comboMeta.targetId && (<div className="text-[10px] text-gray-400">➜ 轉: {data.comboMeta.targetId.toUpperCase()}</div>)}
 
+                    {/* HIỂN THỊ TAG TINH DẦU & CẠO GIÓ CHO KHỐI LỚN */}
                     <div className="flex flex-wrap justify-center gap-1 mt-1">
                         {isOilJob && <div className="text-xs text-purple-600 font-bold border border-purple-200 bg-purple-50 rounded px-2 py-1 inline-block">💧 精油 (Oil)</div>}
                         {isGuaShaJob && <div className="text-xs text-orange-600 font-bold border border-orange-200 bg-orange-50 rounded px-2 py-1 inline-block">🔥 刮/罐</div>}
