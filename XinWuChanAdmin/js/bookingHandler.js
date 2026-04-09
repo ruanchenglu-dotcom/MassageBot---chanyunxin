@@ -2,16 +2,16 @@
  * =================================================================================================
  * PROJECT: XINWUCHAN MASSAGE BOT - FRONTEND CONTROLLER & LOGIC BRIDGE
  * FILE: js/bookingHandler.js
- * PHIÊN BẢN: V113.8.3 (UI/UX BIG SCREEN UPGRADE + QUICK NOTES REACTIVITY FIX)
+ * PHIÊN BẢN: V113.8.4 (UI/UX BIG SCREEN UPGRADE + 24/7 SUPPORT + 9 BEDS/CHAIRS)
  * =================================================================================================
  */
 
 (function () {
-    console.log("🚀 BookingHandler V113.8.3: Big Screen UI/UX Upgraded with Admin Quick Notes Reactivity.");
+    console.log("🚀 BookingHandler V113.8.4: Scaled to 9 Beds/Chairs, 24/7 Operations (5 AM Timeline).");
 
     // Kiểm tra môi trường React
     if (typeof React === 'undefined') {
-        console.error("❌ CRITICAL ERROR: React not found. Cannot start BookingHandler V113.8.");
+        console.error("❌ CRITICAL ERROR: React not found. Cannot start BookingHandler.");
         return;
     }
 
@@ -65,10 +65,10 @@
 
         // --- 1. CẤU HÌNH HỆ THỐNG ---
         const CONFIG = {
-            MAX_CHAIRS: 6,
-            MAX_BEDS: 6,
-            MAX_TOTAL_GUESTS: 12,
-            OPEN_HOUR: 8,
+            MAX_CHAIRS: 9,
+            MAX_BEDS: 9,
+            MAX_TOTAL_GUESTS: 18,
+            OPEN_HOUR: 5,
             CLEANUP_BUFFER: 5,
             TRANSITION_BUFFER: 5,
             TOLERANCE: 1,
@@ -930,7 +930,7 @@
     const forceGlobalRefresh = () => { if (typeof window.fetchDataAndRender === 'function') window.fetchDataAndRender(); else window.location.reload(); };
 
     // ==================================================================================
-    // 4. COMPONENT: PHONE BOOKING MODAL (UPDATED V113.8.3 - REACTIVE QUICK NOTES)
+    // 4. COMPONENT: PHONE BOOKING MODAL
     // ==================================================================================
     const NewAvailabilityCheckModal = ({ onClose, onSave, staffList, bookings, initialDate, editingBooking }) => {
         const safeStaffList = useMemo(() => staffList || [], [staffList]);
@@ -993,7 +993,6 @@
             fetchLiveServerData(true).then(data => { if (data) setServerData(data); });
         }, [editingBooking, initialDate, defaultService]);
 
-        // Cập nhật: Tạo mảng lựa chọn nhanh reactive và sạch (lọc rác)
         const safeQuickNotes = useMemo(() => {
             const rawList = serverData?.quickNotes || window.QUICK_NOTES || [];
             if (!Array.isArray(rawList)) return [];
@@ -1165,6 +1164,9 @@
                     staffId4: detailedGuests[3]?.staff || null,
                     staffId5: detailedGuests[4]?.staff || null,
                     staffId6: detailedGuests[5]?.staff || null,
+                    staffId7: detailedGuests[6]?.staff || null,
+                    staffId8: detailedGuests[7]?.staff || null,
+                    staffId9: detailedGuests[8]?.staff || null,
                     ghiChu: noteStr,
                     adminNote: form.adminNote,
                     guestDetails: detailedGuests,
@@ -1188,10 +1190,10 @@
             } catch (err) { alert("儲存失敗: " + err.message); setIsSubmitting(false); }
         };
 
-        const HOURS_LIST = ['08', '09', '10', '11', '12', '13', '14', '15', '16', '17', '18', '19', '20', '21', '22', '23', '00', '01', '02'];
+        const HOURS_LIST = ['05', '06', '07', '08', '09', '10', '11', '12', '13', '14', '15', '16', '17', '18', '19', '20', '21', '22', '23', '00', '01', '02', '03', '04'];
         const MINUTES_STEP = ['00', '10', '20', '30', '40', '50'];
         const [cH, cM] = (form.time || "12:00").split(':');
-        const paxOptions = [1, 2, 3, 4, 5, 6];
+        const paxOptions = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18];
 
         return (
             <>
@@ -1230,7 +1232,7 @@
                 <div className="fixed inset-0 bg-slate-900/90 z-[100] flex items-center justify-center p-2 sm:p-6">
                     <div className="bg-white w-full max-w-[1000px] rounded-2xl shadow-2xl flex flex-col h-[98vh] sm:h-[90vh] overflow-hidden animate-fadeIn">
                         <div className={`${editingBooking ? 'bg-orange-600' : 'bg-[#0891b2]'} p-6 text-white flex justify-between items-center shrink-0`}>
-                            <h3 className="font-bold text-2xl">{editingBooking ? "✏️ 修改預約 (Edit)" : "📅 電話預約 (V113.8.3)"}</h3>
+                            <h3 className="font-bold text-2xl">{editingBooking ? "✏️ 修改預約 (Edit)" : "📅 電話預約 (V113.8.4)"}</h3>
                             <button onClick={onClose} className="text-4xl hover:text-red-100 leading-none">&times;</button>
                         </div>
 
@@ -1406,7 +1408,6 @@
                                         />
                                     </div>
 
-                                    {/* --- BỔ SUNG TRƯỜNG GHI CHÚ ĐẶC BIỆT & CHỌN NHANH ĐÃ SỬA LỖI REACTIVITY --- */}
                                     <div>
                                         <label className="text-lg font-bold text-gray-500 mb-2 block">特別要求 / 備註 (Admin Note)</label>
                                         <div className="flex gap-3">
@@ -1459,7 +1460,7 @@
     const overrideInterval = setInterval(() => {
         if (window.AvailabilityCheckModal !== NewAvailabilityCheckModal) {
             window.AvailabilityCheckModal = NewAvailabilityCheckModal;
-            console.log("♻️ AvailabilityModal Injected (V113.8.3 - Reactive Quick Notes Fixed)");
+            console.log("♻️ AvailabilityModal Injected (V113.8.4 - Scaled & 24/7 Enabled)");
         }
     }, 200);
     setTimeout(() => { clearInterval(overrideInterval); }, 5000);

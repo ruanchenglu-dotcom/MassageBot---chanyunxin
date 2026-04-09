@@ -1,20 +1,18 @@
 /**
  * ============================================================================
  * FILE: js/views.js
- * PHIÊN BẢN: V108.71 (ADMIN NOTE DISPLAY INTEGRATION)
+ * PHIÊN BẢN: V109.0 (24/7 TIMELINE, 9 BEDS/CHAIRS)
  * ============================================================================
- * CHANGE LOG V108.71:
- * - [UI/FEATURE]: Tích hợp hiển thị Admin Note (特別要求/備註) vào bảng BookingControlModal.
- * - [UI/FEATURE]: Thêm icon 📝 vào TimelineView và tag "備註" vào ResourceCard để cảnh báo có ghi chú.
- * CHANGE LOG V108.70:
- * - [UI/FEATURE]: Quy hoạch lại Header của BookingControlModal. Tạo khu vực Tags
- * chuyên biệt ở góc phải trên cùng để hiển thị: Cạo gió [🔥], Đẩy dầu [💧], Chỉ định [📌].
- * - [LOGIC]: Nhận cờ isGuaSha chuẩn từ Backend.
+ * CHANGE LOG V109.0:
+ * - [SCALE UP]: Mở rộng Timeline hiển thị 9 giường (Bed) và 9 ghế (Chair).
+ * - [TIME SHIFT]: Timeline bắt đầu từ 5:00 sáng đến 5:00 sáng hôm sau (24h).
+ * - [LOGIC]: Điều chỉnh lại mốc 300 phút (5h sáng) thay vì 480 phút (8h sáng) 
+ * cho các tính toán sửa thời gian trong BookingControlModal.
  */
 
 const { useState, useEffect, useMemo, useRef } = React;
 
-// --- COMPONENT CHỌN GIỜ 24H TÙY CHỈNH (V108.13) ---
+// --- COMPONENT CHỌN GIỜ 24H TÙY CHỈNH ---
 const CustomTimePicker24h = ({ value, onChange, disabled }) => {
     const [hour, min] = (value || "12:00").split(':');
 
@@ -147,8 +145,6 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
 
     const [selectedPhase1Res, setSelectedPhase1Res] = useState('auto');
     const [selectedPhase2Res, setSelectedPhase2Res] = useState('auto');
-
-    // --- [V108.69] Thêm state cho Single Service ---
     const [selectedSingleRes, setSelectedSingleRes] = useState('auto');
 
     const [timeLeft, setTimeLeft] = useState(0);
@@ -212,7 +208,6 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
             setSelectedPhase1Res(initP1Res);
             setSelectedPhase2Res(initP2Res);
 
-            // --- [V108.69] Khởi tạo vị trí cho Single Service ---
             let initSingleRes = 'auto';
             if (booking.current_resource_id) initSingleRes = booking.current_resource_id.toLowerCase();
             else if (booking.location) initSingleRes = booking.location.toLowerCase();
@@ -266,7 +261,8 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
     const phase2 = totalDuration - phase1;
     let startMins = timeStrToMins(startTimeStr);
 
-    if (startMins < 480) startMins += 1440; // Xử lý qua ngày
+    // [Nâng cấp V109.0] Ca qua đêm tính từ mốc 5h sáng (300 phút)
+    if (startMins < 300) startMins += 1440;
 
     const switchMins = startMins + phase1;
     const endMins = startMins + totalDuration;
@@ -274,7 +270,6 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
     const switchTimeStr = minsToTimeStr(switchMins);
     const endTimeStr = minsToTimeStr(endMins);
 
-    // --- [V108.27] THUẬT TOÁN TÌM GIƯỜNG/GHẾ TRỐNG ---
     const checkOverlap = (resId, checkStart, checkEnd, excludeRowId) => {
         if (timelineData && timelineData[resId]) {
             for (let slot of timelineData[resId]) {
@@ -289,7 +284,8 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
     const availableP1Resources = useMemo(() => {
         const type = isBodyFirstLocal ? 'bed' : 'chair';
         const list = [];
-        for (let i = 1; i <= 6; i++) {
+        // [Nâng cấp V109.0] Quét 9 giường/ghế
+        for (let i = 1; i <= 9; i++) {
             const resId = `${type}-${i}`;
             const isOverlap = checkOverlap(resId, startMins, switchMins, booking?.rowId);
             if (!isOverlap) list.push(resId);
@@ -301,7 +297,8 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
         const type = isBodyFirstLocal ? 'chair' : 'bed';
         const p2Start = switchMins + 5;
         const list = [];
-        for (let i = 1; i <= 6; i++) {
+        // [Nâng cấp V109.0] Quét 9 giường/ghế
+        for (let i = 1; i <= 9; i++) {
             const resId = `${type}-${i}`;
             const isOverlap = checkOverlap(resId, p2Start, endMins, booking?.rowId);
             if (!isOverlap) list.push(resId);
@@ -309,7 +306,6 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
         return list;
     }, [isBodyFirstLocal, switchMins, endMins, timelineData, booking?.rowId]);
 
-    // --- [V108.69] Tính toán giường/ghế trống cho Single Service ---
     const availableSingleResources = useMemo(() => {
         let type = 'bed';
         if (booking.forceResourceType === 'CHAIR' || booking.flow === 'FOOTSINGLE') type = 'chair';
@@ -317,7 +313,8 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
         else if (contextResourceId) type = contextResourceId.split('-')[0];
 
         const list = [];
-        for (let i = 1; i <= 6; i++) {
+        // [Nâng cấp V109.0] Quét 9 giường/ghế
+        for (let i = 1; i <= 9; i++) {
             const resId = `${type}-${i}`;
             const isOverlap = checkOverlap(resId, startMins, endMins, booking?.rowId);
             if (!isOverlap) list.push(resId);
@@ -337,7 +334,6 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
         }
     }, [availableP2Resources, selectedPhase2Res]);
 
-    // --- [V108.69] Xóa chọn Single Resource nếu không hợp lệ ---
     useEffect(() => {
         if (selectedSingleRes !== 'auto' && selectedSingleRes !== 'full' && !availableSingleResources.includes(selectedSingleRes)) {
             setSelectedSingleRes('auto');
@@ -345,11 +341,13 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
     }, [availableSingleResources, selectedSingleRes]);
 
     const handleStartTimeChange = (e) => setStartTimeStr(e.target.value);
+
     const handleSwitchTimeChange = (e) => {
         const newSwitchStr = e.target.value;
         if (!newSwitchStr) return;
         let newSwitchMins = timeStrToMins(newSwitchStr);
-        if (newSwitchMins < 480) newSwitchMins += 1440;
+        // [Nâng cấp V109.0] Ca qua đêm tính từ mốc 5h sáng
+        if (newSwitchMins < 300) newSwitchMins += 1440;
 
         let diff = newSwitchMins - startMins;
         if (diff < 0 && (newSwitchMins + 1440) - startMins <= totalDuration) {
@@ -387,8 +385,6 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
     const isP1Full = availableP1Resources.length === 0;
     const isP2Full = availableP2Resources.length === 0;
     const isSaveDisabled = isP1Full || isP2Full;
-
-    // --- [V108.69] Biến cờ cho Single ---
     const isSingleFull = availableSingleResources.length === 0;
     const isSingleSaveDisabled = isSingleFull;
 
@@ -396,7 +392,7 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
         <div className="fixed inset-0 z-[3000] flex items-center justify-center bg-black/70 backdrop-blur-sm animate-in fade-in duration-200 p-4">
             <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden border border-slate-300 flex flex-col max-h-[90vh] relative">
 
-                {/* 1. HEADER (V108.71 - NÂNG CẤP TAGS VÀ ADMIN NOTE) */}
+                {/* HEADER */}
                 <div className="bg-gradient-to-r from-slate-800 to-indigo-900 p-4 text-white shrink-0">
                     <div className="flex justify-between items-start">
                         {/* LEFT SIDE: Info */}
@@ -417,7 +413,6 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                                 <span><i className="fas fa-users mr-1"></i> {booking.pax} 人 (Pax)</span>
                             </div>
 
-                            {/* [V108.71] HIỂN THỊ ADMIN NOTE NẾU CÓ DỮ LIỆU */}
                             {booking.adminNote && (
                                 <div className="mt-2 bg-amber-500/20 border border-amber-400/50 text-amber-100 text-sm px-2.5 py-1.5 rounded-lg shadow-sm flex items-start gap-2 w-fit max-w-full">
                                     <i className="fas fa-sticky-note mt-0.5 text-amber-400"></i>
@@ -433,7 +428,6 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
 
                         {/* RIGHT SIDE: Tags & Close */}
                         <div className="flex items-start gap-3 shrink-0">
-                            {/* TAGS CONTAINER */}
                             <div className="flex flex-col items-end gap-1.5 mt-1">
                                 {requestedStaff !== '隨機' && (
                                     <span className="text-xs bg-pink-100 text-pink-800 px-2 py-1 rounded shadow-sm flex items-center font-bold border border-pink-300 whitespace-nowrap">
@@ -451,7 +445,6 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                                     </span>
                                 )}
                             </div>
-                            {/* CLOSE BUTTON */}
                             <button onClick={onClose} className="bg-white/10 hover:bg-white/30 rounded-full w-10 h-10 flex items-center justify-center transition-all shrink-0"><i className="fas fa-times text-xl"></i></button>
                         </div>
                     </div>
@@ -477,15 +470,13 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                     </div>
                 )}
 
-                {/* 2. BODY CONTENT */}
+                {/* BODY CONTENT */}
                 <div className="p-6 overflow-y-auto custom-scrollbar space-y-6 bg-slate-50 flex-1">
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 relative">
-
                             <label className="text-xs font-bold text-slate-400 uppercase mb-1 block">選擇服務師傅 (ACTUAL STAFF)</label>
                             <div className="flex items-center justify-between mb-4 relative">
                                 <div className="relative flex-1 mr-2 bg-slate-50 border border-slate-200 rounded-lg">
-                                    {/* --- [V108.54] GENDER GUARD CHO MODAL THAY THỢ --- */}
                                     <select
                                         value={selectedStaff}
                                         onChange={(e) => {
@@ -497,7 +488,7 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
 
                                             if (needsFemale && isMale) {
                                                 if (!window.confirm(`⚠️ 警告：此客人有「限女」需求 (或為精油項目)，您確定要指派男師傅 [${newStaff}] 嗎？\n(Cảnh báo: Khách này yêu cầu Nữ, bạn có chắc chắn muốn xếp thợ Nam không?)`)) {
-                                                    return; // Hủy thay đổi nếu thu ngân không xác nhận
+                                                    return;
                                                 }
                                             }
                                             setSelectedStaff(newStaff);
@@ -506,7 +497,6 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                                     >
                                         <option value="隨機">尚未安排 (Waiting)</option>
                                         {processedStaffList.length === 0 && <option disabled>目前無空閒師傅</option>}
-
                                         {(() => {
                                             let readyCount = 0;
                                             return processedStaffList.map(s => {
@@ -610,7 +600,6 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
 
                     {isCombo && (
                         <div className="bg-white p-5 rounded-xl border shadow-sm transition-all border-indigo-100 mt-4">
-
                             <div className="flex justify-between items-center mb-4">
                                 <h3 className="font-bold text-slate-700 flex items-center gap-2"><i className="fas fa-sliders-h text-indigo-500"></i> 套餐時間調整 (Combo Phase)</h3>
 
@@ -641,7 +630,6 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                                         </div>
                                     </div>
 
-                                    {/* Dropdown Chọn Vị Trí Phase 1 */}
                                     <div className="mt-2 w-full max-w-[140px] relative">
                                         <select
                                             value={isP1Full ? 'full' : selectedPhase1Res}
@@ -705,7 +693,6 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                                         </div>
                                     </div>
 
-                                    {/* Dropdown Chọn Vị Trí Phase 2 */}
                                     <div className="mt-2 w-full max-w-[140px] relative">
                                         <select
                                             value={isP2Full ? 'full' : selectedPhase2Res}
@@ -739,7 +726,6 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                         </div>
                     )}
 
-                    {/* --- [V108.69] KHỐI ĐIỀU CHỈNH THỜI GIAN/VỊ TRÍ CHO KHÁCH LẺ --- */}
                     {!isCombo && (
                         <div className="bg-white p-5 rounded-xl border shadow-sm transition-all border-emerald-100 mt-4">
                             <div className="flex justify-between items-center mb-4">
@@ -759,7 +745,6 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                             </div>
 
                             <div className="flex items-center justify-center gap-4 md:gap-8">
-                                {/* Start Time */}
                                 <div className="flex flex-col items-center">
                                     <label className="block w-full text-xs font-bold mb-2 text-center text-emerald-600">開始時間 (Start)</label>
                                     <div className="flex items-center gap-1.5 px-3 py-2 rounded-md border shadow-inner bg-emerald-50 border-emerald-200">
@@ -768,13 +753,11 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                                     </div>
                                 </div>
 
-                                {/* Arrow & Duration */}
                                 <div className="flex flex-col items-center justify-center mt-5 text-gray-400">
                                     <i className="fas fa-arrow-right"></i>
                                     <span className="text-[10px] font-bold mt-1">{totalDuration}分</span>
                                 </div>
 
-                                {/* End Time */}
                                 <div className="flex flex-col items-center">
                                     <label className="block w-full text-xs font-bold mb-2 text-center text-emerald-600">結束時間 (End)</label>
                                     <div className="flex items-center gap-1.5 px-3 py-2 rounded-md border shadow-inner opacity-80 cursor-not-allowed bg-slate-50 border-slate-200 text-slate-500 font-mono font-bold">
@@ -784,7 +767,6 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                                 </div>
                             </div>
 
-                            {/* Location Choice */}
                             <div className="mt-6 border-t border-slate-100 pt-4 flex flex-col items-center">
                                 <label className="block text-xs font-bold mb-2 text-center text-slate-500">安排座位/床位 (Location)</label>
                                 <div className="w-full max-w-[200px] relative">
@@ -816,7 +798,7 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                     )}
                 </div>
 
-                {/* 3. ACTION FOOTER */}
+                {/* ACTION FOOTER */}
                 <div className="p-4 bg-white border-t border-slate-200 shrink-0">
                     <div className="grid grid-cols-4 gap-3">
                         {!isRunning ? (
@@ -867,21 +849,21 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
 };
 
 // ============================================================================
-// 1. TIMELINE VIEW (V108.58 - NÂNG CẤP NOW LINE)
+// 1. TIMELINE VIEW
 // ============================================================================
 const TimelineView = ({ timelineData, onEditPhase, liveStatusData, staffList, statusData, onOpenControlCenter }) => {
-    // --- KHỞI TẠO STATE & TIMER CHO NOW LINE ---
     const [now, setNow] = useState(new Date());
 
     useEffect(() => {
-        // Cập nhật biến `now` mỗi phút (60000ms) để đường kẻ tự trượt
         const timer = setInterval(() => setNow(new Date()), 60000);
         return () => clearInterval(timer);
     }, []);
 
-    const startHour = 8;
-    const endHour = 27;
+    // [Nâng cấp V109.0] Thay đổi thời gian từ 5h sáng đến 5h sáng hôm sau (24 tiếng)
+    const startHour = 5;
+    const endHour = 29;
     const hours = Array.from({ length: endHour - startHour + 1 }, (_, i) => i + startHour);
+
     const PIXELS_PER_MIN = 2.2;
     const HOUR_WIDTH = 60 * PIXELS_PER_MIN;
     const HEADER_HEIGHT = 45;
@@ -889,11 +871,10 @@ const TimelineView = ({ timelineData, onEditPhase, liveStatusData, staffList, st
     const LEFT_COL_WIDTH = 80;
     const TOTAL_WIDTH = LEFT_COL_WIDTH + (hours.length * HOUR_WIDTH);
 
-    // --- TÍNH TOÁN VỊ TRÍ CỦA NOW LINE ---
     const currentH = now.getHours();
     const currentM = now.getMinutes();
     let adjustedH = currentH;
-    // Nếu giờ thực tế < 8h sáng, ta cộng thêm 24h để hiển thị đúng ở khoảng cuối Timeline
+
     if (adjustedH < startHour) {
         adjustedH += 24;
     }
@@ -901,7 +882,6 @@ const TimelineView = ({ timelineData, onEditPhase, liveStatusData, staffList, st
     const timelineStartMins = startHour * 60;
     const timelineEndMins = endHour * 60;
 
-    // Kiểm tra xem giờ hiện tại có nằm trong vùng làm việc của Timeline hay không
     const isNowVisible = currentTotalMins >= timelineStartMins && currentTotalMins <= timelineEndMins;
     const nowLeftPos = LEFT_COL_WIDTH + (currentTotalMins - timelineStartMins) * PIXELS_PER_MIN;
 
@@ -940,9 +920,10 @@ const TimelineView = ({ timelineData, onEditPhase, liveStatusData, staffList, st
         return `${displayH}:00`;
     };
 
+    // [Nâng cấp V109.0] 9 ghế và 9 giường
     const rows = [
-        ...Array.from({ length: 6 }, (_, i) => ({ id: `chair-${i + 1}`, label: `足 ${i + 1}`, type: 'chair' })),
-        ...Array.from({ length: 6 }, (_, i) => ({ id: `bed-${i + 1}`, label: `床 ${i + 1}`, type: 'bed' }))
+        ...Array.from({ length: 9 }, (_, i) => ({ id: `chair-${i + 1}`, label: `足 ${i + 1}`, type: 'chair' })),
+        ...Array.from({ length: 9 }, (_, i) => ({ id: `bed-${i + 1}`, label: `床 ${i + 1}`, type: 'bed' }))
     ];
 
     const getDisplayLabel = (booking) => {
@@ -1027,8 +1008,6 @@ const TimelineView = ({ timelineData, onEditPhase, liveStatusData, staffList, st
             `}</style>
 
             <div style={{ width: `${TOTAL_WIDTH}px`, minWidth: '100%' }} className="relative min-h-full">
-
-                {/* --- [NÂNG CẤP V108.58] CURRENT TIME INDICATOR (NOW LINE) --- */}
                 {isNowVisible && (
                     <div
                         className="absolute top-0 bottom-0 z-[45] pointer-events-none flex flex-col transition-all duration-1000"
@@ -1042,9 +1021,7 @@ const TimelineView = ({ timelineData, onEditPhase, liveStatusData, staffList, st
                         <div className="w-[1px] h-full bg-red-600 shadow-[0_0_2px_rgba(220,38,38,0.5)] absolute top-0 left-0 -z-10"></div>
                     </div>
                 )}
-                {/* ------------------------------------------------------------- */}
 
-                {/* HEADER */}
                 <div className="flex sticky top-0 z-30 bg-slate-100 border-b border-slate-300 shadow-md h-[45px]">
                     <div className="sticky left-0 top-0 z-40 bg-[#e2e8f0] border-r border-slate-300 flex items-center justify-center font-extrabold text-slate-700 text-sm shadow-[2px_0_5px_rgba(0,0,0,0.1)]"
                         style={{ width: `${LEFT_COL_WIDTH}px`, height: `${HEADER_HEIGHT}px` }}>
@@ -1057,10 +1034,9 @@ const TimelineView = ({ timelineData, onEditPhase, liveStatusData, staffList, st
                     </div>
                 </div>
 
-                {/* BODY */}
                 <div className="relative bg-white pb-4">
                     {rows.map((row, index) => {
-                        const isLastChairRow = index === 5;
+                        const isLastChairRow = index === 8; // [Nâng cấp V109.0]
                         const rowStyleClass = isLastChairRow ? "border-b-4 border-red-500" : "border-b border-slate-100";
 
                         return (
@@ -1073,7 +1049,6 @@ const TimelineView = ({ timelineData, onEditPhase, liveStatusData, staffList, st
                                         const booking = slot.booking;
                                         if (!booking) return null;
 
-                                        // --- LỚP PHÒNG THỦ CHẶN "BÓNG MA" (UI GUARD) ---
                                         const rawStatusStr = String(booking.status || '');
                                         const isCancelled = rawStatusStr.includes('取消') || rawStatusStr.toUpperCase().includes('CANCEL') || booking.isDoneStatus === true;
                                         if (isCancelled) return null;
@@ -1087,7 +1062,7 @@ const TimelineView = ({ timelineData, onEditPhase, liveStatusData, staffList, st
 
                                         const label = getDisplayLabel(booking);
                                         const isOil = booking.isOil || (booking.serviceName && booking.serviceName.includes('油'));
-                                        const hasNote = booking.adminNote ? true : false; // [V108.71] Check for note
+                                        const hasNote = booking.adminNote ? true : false;
 
                                         const isGuaSha = checkGuaShaService(booking) || booking.isGuaSha === true;
 
@@ -1159,7 +1134,6 @@ const TimelineView = ({ timelineData, onEditPhase, liveStatusData, staffList, st
                                                         {displayStaff}
                                                         {isOil && <span className="text-[10px]" title="精油 (Oil)">💧</span>}
                                                         {isGuaSha && <span className="text-[10px]" title="刮痧/拔罐 (Gua Sha / Cupping)">🔥</span>}
-                                                        {/* [V108.71] ICON GHI CHÚ TRÊN TIMELINE */}
                                                         {hasNote && <span className="text-[10px] text-amber-600" title={`備註: ${booking.adminNote}`}>📝</span>}
                                                     </div>
                                                     <div className={`text-[10px] font-bold font-mono px-1 rounded border border-black/5 shadow-sm ${isTimeAnomaly ? 'bg-orange-100 text-orange-800 animate-pulse' : 'bg-white/50 text-slate-800'}`}>
@@ -1258,8 +1232,6 @@ const CommissionView = ({ bookings, staffList }) => {
                 const isSlotDone = (slot.status && (slot.status.includes('完成') || slot.status.includes('Done'))) || mainStatusDone;
 
                 if (isSlotDone) {
-                    // --- [V108.54 NÂNG CẤP] TÁCH CHUỖI NHÂN VIÊN ---
-                    // Backward Compatibility: Đề phòng dữ liệu cũ bị gộp chung vào 1 cột có dấu phẩy
                     const splitIds = String(slot.id).split(/[,，]/).map(s => s.trim()).filter(Boolean);
 
                     splitIds.forEach(singleId => {
@@ -1551,7 +1523,6 @@ const ResourceCard = ({ id, type, index, data, busyStaffIds, onAction, onSelect,
     const isOilJob = isOccupied && (data.booking.isOil || (data.booking.serviceName && (data.booking.serviceName.includes('油') || data.booking.serviceName.includes('Oil'))));
     const isGuaShaJob = isOccupied && (checkGuaShaService(data.booking) || data.booking.isGuaSha === true);
 
-    // [V108.71] BIẾN KIỂM TRA ADMIN NOTE
     const hasAdminNote = isOccupied && data.booking.adminNote && data.booking.adminNote.trim() !== '';
 
     const isCombo = isOccupied && (data.booking.category === 'COMBO' || (data.booking.serviceName && data.booking.serviceName.includes('套餐')));
@@ -1580,7 +1551,6 @@ const ResourceCard = ({ id, type, index, data, busyStaffIds, onAction, onSelect,
         }
     }
 
-    // --- KIỂM TRA THỢ CÓ PHẢI LÀ KHÁCH CHỈ ĐỊNH KHÔNG ---
     let isCurrentlyWorkingDesignated = false;
     if (isOccupied && staffDisplay !== '隨機') {
         const b = data.booking || {};
@@ -1635,7 +1605,6 @@ const ResourceCard = ({ id, type, index, data, busyStaffIds, onAction, onSelect,
 
                     <div className={`absolute -top-10 right-0 z-40 rounded-lg shadow-sm px-2 py-1 flex items-center gap-1 border-2 transition-all ${isCurrentlyWorkingDesignated ? 'bg-red-50 border-amber-600 ring-2 ring-amber-600' : 'bg-white border-slate-200'}`}>
                         <div className="relative flex items-center">
-                            {/* --- [V108.54] GENDER GUARD CHO THẺ RESOURCE CARD --- */}
                             <select
                                 className={`text-xl font-black text-center bg-transparent focus:outline-none cursor-pointer appearance-none pl-2 pr-5 transition-colors ${staffDisplay === '隨機' ? 'text-gray-400 hover:bg-slate-50' : 'text-slate-800 hover:bg-slate-50'}`}
                                 value={staffDisplay}
@@ -1650,7 +1619,7 @@ const ResourceCard = ({ id, type, index, data, busyStaffIds, onAction, onSelect,
 
                                     if (needsFemale && isMale) {
                                         if (!window.confirm(`⚠️ 警告：此客人有「限女」需求 (或為精油項目)，您確定要指派男師傅 [${newStaff}] 嗎？\n(Cảnh báo: Khách này yêu cầu Nữ, bạn có chắc chắn muốn xếp thợ Nam không?)`)) {
-                                            return; // Hủy thay đổi nếu thu ngân không xác nhận
+                                            return;
                                         }
                                     }
 
@@ -1747,7 +1716,6 @@ const ResourceCard = ({ id, type, index, data, busyStaffIds, onAction, onSelect,
                     {isCombo && data.isRunning && phaseLabel && (<div className={`text-sm font-black p-2 rounded border bg-white/80 ${phaseLabel.includes('足') ? 'text-emerald-700 border-emerald-200' : 'text-purple-700 border-purple-200'}`}>{phaseLabel} {flexMinutes > 0 && <span className="text-xs text-orange-500 bg-orange-100 px-1 rounded ml-1">+{flexMinutes}分</span>} <div className="text-xl font-mono mt-1">{phaseTimeLeft}分</div></div>)}
                     {isCombo && data.isRunning && data.comboMeta && data.comboMeta.targetId && (<div className="text-[10px] text-gray-400">➜ 轉: {data.comboMeta.targetId.toUpperCase()}</div>)}
 
-                    {/* [V108.71] HIỂN THỊ TAG TINH DẦU, CẠO GIÓ VÀ GHI CHÚ (ADMIN NOTE) */}
                     <div className="flex flex-wrap justify-center gap-1 mt-1">
                         {isOilJob && <div className="text-xs text-purple-600 font-bold border border-purple-200 bg-purple-50 rounded px-2 py-1 inline-block">💧 精油 (Oil)</div>}
                         {isGuaShaJob && <div className="text-xs text-orange-600 font-bold border border-orange-200 bg-orange-50 rounded px-2 py-1 inline-block">🔥 刮/罐</div>}

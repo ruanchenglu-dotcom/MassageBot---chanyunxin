@@ -1,22 +1,16 @@
 // TYPE: app.js
-// VERSION: V108.71 (ADMIN NOTE & QUICK SELECT INTEGRATION)
-// UPDATE: 2026-04-09
+// VERSION: V109.0 (24/7 TIMELINE, 9 BEDS/CHAIRS, STANDARD SHORT-QUEUE)
+// UPDATE: 2026-04-10
+//
+// --- CHANGE LOG V109.0 ---
+// 1. [SCALE UP]: Mở rộng quy mô từ 6 lên 9 Ghế và 9 Giường.
+// 2. [TIME SHIFT]: Dời mốc tính giờ qua đêm thành 5h sáng (Timeline 5AM - 5AM).
+// 3. [QUEUE FIX]: Hủy đặc quyền của đơn ngắn (35p, 40p). Thợ làm đơn ngắn sẽ bị
+//    cộng dồn thời gian và rớt xuống cuối hàng đợi như các gói tiêu chuẩn.
 //
 // --- CHANGE LOG V108.71 ---
-// 1. [FEATURE]: Tích hợp trường ghi chú đặc biệt adminNote (Cột R) vào luồng dữ liệu frontend.
-// 2. [FEATURE]: Gán window.QUICK_NOTES từ API để cấp dữ liệu cho dropdown chọn nhanh trong form đặt lịch.
-//
-// --- CHANGE LOG V108.70 ---
-// 1. [FEATURE]: Tích hợp tính năng Cạo gió/Giác hơi (Gua Sha) từ backend. Loại bỏ logic đoán chữ từ trường ghi chú, sử dụng trực tiếp cờ isGuaSha từ Cột Q.
-//
-// --- CHANGE LOG V108.69 ---
-// 1. [LOGIC]: Bổ sung hàm handleSaveSingleTimeLoc để xử lý luồng thay đổi thời gian và giường/ghế cho khách lẻ (Single).
-//
-// --- CHANGE LOG V108.68 ---
-// 1. [LOGIC]: Thêm hệ thống giám sát ngầm (Auto-Transition Watchdog). Tự động dời khách Combo
-//    từ Phase 1 sang Phase 2 khi hết thời gian quy định, giải phóng hoàn toàn vị trí cũ (ghế/giường)
-//    cho khách tiếp theo mà không cần thu ngân thao tác thủ công.
-// 2. [CORE]: Bổ sung Emergency Kick trong hàm executeStart để chống lỗi kẹt bóng ma chặn khách mới.
+// 1. [FEATURE]: Tích hợp trường ghi chú đặc biệt adminNote (Cột R).
+// 2. [FEATURE]: Gán window.QUICK_NOTES từ API.
 
 const { useState, useEffect, useMemo, useRef, useCallback } = React;
 
@@ -75,7 +69,7 @@ const MatrixHelper = {
     },
     countAvailableResources: (type, start, end, gridState, reservedTimes, ignoreRowId = null) => {
         let count = 0;
-        for (let i = 1; i <= 6; i++) {
+        for (let i = 1; i <= 9; i++) { // Nâng cấp từ 6 lên 9
             const id = `${type}-${i}`;
             if (reservedTimes[id] && start < reservedTimes[id]) continue;
             let isClash = false;
@@ -93,7 +87,7 @@ const MatrixHelper = {
         return count;
     },
     findBestSlot: (type, start, end, gridState, reservedTimes, preferredIndexOrId = null, ignoreRowId = null) => {
-        const limit = 6;
+        const limit = 9; // Nâng cấp từ 6 lên 9
         if (preferredIndexOrId) {
             let id;
             if (typeof preferredIndexOrId === 'string' && preferredIndexOrId.includes('-')) {
@@ -263,7 +257,7 @@ const checkStaffFutureAvailability = (staffId, proposedDuration, allBookings, cu
                 } else {
                     const [h, m] = timeStr.split(':').map(Number);
                     futureStartMins = (h * 60) + (m || 0);
-                    if (h < 8) futureStartMins += 1440;
+                    if (h < 5) futureStartMins += 1440; // Nâng cấp mốc 5h sáng
                 }
 
                 if (futureStartMins > currentMins) {
@@ -310,7 +304,6 @@ const App = () => {
     const localOverridesRef = useRef({});
     const lastSyncedPositionsRef = useRef({});
 
-    // --- [V108.68] RESOURCE STATE REF ---
     const resourceStateRef = useRef({});
     useEffect(() => {
         resourceStateRef.current = resourceState;
@@ -355,8 +348,8 @@ const App = () => {
 
     const getGroupMemberIndex = (targetResId, targetRowId) => {
         const allSlots = [];
-        for (let i = 1; i <= 6; i++) allSlots.push(`chair-${i}`);
-        for (let i = 1; i <= 6; i++) allSlots.push(`bed-${i}`);
+        for (let i = 1; i <= 9; i++) allSlots.push(`chair-${i}`); // Nâng cấp 9
+        for (let i = 1; i <= 9; i++) allSlots.push(`bed-${i}`);   // Nâng cấp 9
         const groupSlots = allSlots.filter(slotId => {
             const res = resourceState[slotId];
             return res && res.booking && String(res.booking.rowId) === String(targetRowId);
@@ -533,10 +526,10 @@ const App = () => {
         }
     };
 
-    // --- [V108.68] AUTO-TRANSITION WATCHDOG ---
+    // --- AUTO-TRANSITION WATCHDOG ---
     useEffect(() => {
         const watchdog = setInterval(() => {
-            if (syncLock) return; // Không can thiệp khi đang đồng bộ
+            if (syncLock) return;
             const currentState = resourceStateRef.current;
             let hasChanges = false;
             const newState = { ...currentState };
@@ -549,40 +542,33 @@ const App = () => {
                     const startTs = new Date(res.startTime).getTime();
                     const elapsed = now - startTs;
                     const split = getSmartSplit(res.booking, res.booking.duration || 100, res.isMaxMode, res.comboMeta.sequence);
-                    // Quy đổi phút sang mili-giây
                     const phase1Ms = (split.phase1 + (res.comboMeta.flex || 0)) * 60000;
 
                     if (elapsed >= phase1Ms) {
                         const targetId = res.comboMeta.targetId;
                         if (targetId && targetId !== key) {
                             const targetRes = newState[targetId];
-                            // Chỉ chuyển nếu giường đích đang trống (hoặc chứa bóng ma của chính nó do lỗi dự đoán UI)
                             const isTargetFree = !targetRes || !targetRes.isRunning || String(targetRes.booking?.rowId) === String(res.booking.rowId);
 
                             if (isTargetFree) {
                                 hasChanges = true;
                                 const rowId = String(res.booking.rowId);
 
-                                // 1. Lưu Override để fetchData lần tới không lôi nó về chỗ cũ
                                 if (!localOverridesRef.current[rowId]) localOverridesRef.current[rowId] = {};
                                 localOverridesRef.current[rowId].storedLocation = targetId;
 
-                                // 2. Bốc khách từ chỗ cũ sang chỗ mới
                                 newState[targetId] = {
                                     ...res,
                                     comboMeta: { ...res.comboMeta, phase: 2 }
                                 };
                                 delete newState[key];
 
-                                // 3. Chuẩn bị gửi lên Google Sheet
                                 apiPayloads.push({
                                     rowId: rowId,
                                     current_resource_id: targetId,
                                     location: targetId,
                                     forceSync: true
                                 });
-
-                                console.log(`🤖 Auto-Transition: Moved Row ${rowId} from ${key} to ${targetId}`);
                             }
                         }
                     }
@@ -594,7 +580,7 @@ const App = () => {
                 apiPayloads.forEach(payload => universalSend('/api/update-booking-details', payload));
                 universalSend('/api/sync-resource', newState);
             }
-        }, 5000); // Quét mỗi 5 giây
+        }, 5000);
 
         return () => clearInterval(watchdog);
     }, [syncLock]);
@@ -623,10 +609,8 @@ const App = () => {
                 window.SERVICES_LIST = uniqueNames;
             }
 
-            // [V108.71] Lấy biến quickNotes từ server phản hồi (nếu có)
             const { bookings: apiBookings, staffList: apiStaff, resourceState: serverRes, staffStatus: serverStaff, quickNotes: apiQuickNotes } = res.data;
 
-            // Đưa vào biến global để AvailabilityCheckModal sử dụng cho UI
             if (apiQuickNotes) {
                 window.QUICK_NOTES = apiQuickNotes;
             }
@@ -665,13 +649,9 @@ const App = () => {
                     if (override.phase2_duration !== undefined && parseInt(targetB.phase2_duration) !== override.phase2_duration) isSynced = false;
                     if (override.storedLocation && targetB.location !== override.storedLocation && targetB.current_resource_id !== override.storedLocation) isSynced = false;
                     if (override.flow && targetB.flow !== override.flow) isSynced = false;
-
                     if (override.phase1_res_idx && targetB.phase1_res_idx !== override.phase1_res_idx) isSynced = false;
                     if (override.phase2_res_idx && targetB.phase2_res_idx !== override.phase2_res_idx) isSynced = false;
-
                     if (override.forceRunning && (!rawStatus || !rawStatus.includes('Running'))) isSynced = false;
-
-                    // Kiểm tra đồng bộ override cho adminNote nếu cần (thường chỉ sửa inline là gửi đi)
                     if (override.adminNote !== undefined && targetB.adminNote !== override.adminNote) isSynced = false;
 
                     if (isSynced) {
@@ -688,7 +668,6 @@ const App = () => {
                         if (override.phase1_res_idx) targetB.phase1_res_idx = override.phase1_res_idx;
                         if (override.phase2_res_idx) targetB.phase2_res_idx = override.phase2_res_idx;
                         if (override.flow) targetB.flow = override.flow;
-
                         if (override.adminNote !== undefined) targetB.adminNote = override.adminNote;
 
                         if (override.forceRunning) {
@@ -767,7 +746,7 @@ const App = () => {
                     displayStaff: displayStaff,
                     isOil: targetB.isOil || (targetB.serviceName && targetB.serviceName.includes('油')),
                     isGuaSha: isGuaSha,
-                    adminNote: targetB.adminNote || "", // [V108.71] Ánh xạ Cột R
+                    adminNote: targetB.adminNote || "",
                     duration: finalDur,
                     _needsAutoSyncDur: isAutoFixed,
                     price: targetB.price || 0,
@@ -881,7 +860,7 @@ const App = () => {
 
                     if (!targetResId) {
                         const type = (b.forceResourceType === 'BED' || b.flow === 'BODYSINGLE') ? 'bed' : 'chair';
-                        for (let i = 1; i <= 6; i++) {
+                        for (let i = 1; i <= 9; i++) { // Nâng cấp 9
                             const tid = `${type}-${i}`;
                             if (!nextResourceState[tid]) { targetResId = tid; break; }
                         }
@@ -903,8 +882,9 @@ const App = () => {
                 }
             });
 
-            const nowObj = window.getTaipeiDate();
-            const nowMins = nowObj.getHours() * 60 + nowObj.getMinutes() + (nowObj.getHours() < 8 ? 1440 : 0);
+            const nowObj = window.getTaipeiDate ? window.getTaipeiDate() : new Date();
+            // Nâng cấp logic giờ: < 5h sáng thì cộng 1440
+            const nowMins = nowObj.getHours() * 60 + nowObj.getMinutes() + (nowObj.getHours() < 5 ? 1440 : 0);
 
             let tempState = {};
             const activeEndTimes = {};
@@ -920,7 +900,8 @@ const App = () => {
                 if (nextResourceState[key].isRunning) {
                     tempState[key] = nextResourceState[key];
                     const startTime = new Date(nextResourceState[key].startTime);
-                    const startMins = startTime.getHours() * 60 + startTime.getMinutes() + (startTime.getHours() < 8 ? 1440 : 0);
+                    // Nâng cấp: < 5 thì +1440
+                    const startMins = startTime.getHours() * 60 + startTime.getMinutes() + (startTime.getHours() < 5 ? 1440 : 0);
 
                     const b = nextResourceState[key].booking;
                     let durationUsed = b.duration;
@@ -1006,7 +987,8 @@ const App = () => {
                         }
                     } else {
                         const startTime = new Date(item.startTime);
-                        const p2StartMins = startTime.getHours() * 60 + startTime.getMinutes() + (startTime.getHours() < 8 ? 1440 : 0);
+                        // Nâng cấp < 5
+                        const p2StartMins = startTime.getHours() * 60 + startTime.getMinutes() + (startTime.getHours() < 5 ? 1440 : 0);
                         const p1End = p2StartMins - 5;
                         const p1Start = p1End - split.phase1;
 
@@ -1102,8 +1084,8 @@ const App = () => {
             setTimelineData(timelineGrid);
 
             const allSlots = [];
-            for (let i = 1; i <= 6; i++) allSlots.push(`chair-${i}`);
-            for (let i = 1; i <= 6; i++) allSlots.push(`bed-${i}`);
+            for (let i = 1; i <= 9; i++) allSlots.push(`chair-${i}`); // 9
+            for (let i = 1; i <= 9; i++) allSlots.push(`bed-${i}`);   // 9
 
             allSlots.forEach(resId => {
                 if (tempState[resId]) return;
@@ -1273,7 +1255,6 @@ const App = () => {
             setSyncLock(true);
             setTimeout(() => setSyncLock(false), 3000);
 
-            // Ghi đè trạng thái Admin Note nếu được chỉnh sửa
             if (updatedData.adminNote !== undefined) {
                 if (!localOverridesRef.current[String(rowId)]) localOverridesRef.current[String(rowId)] = {};
                 localOverridesRef.current[String(rowId)].adminNote = updatedData.adminNote;
@@ -1485,7 +1466,7 @@ const App = () => {
                 } else {
                     const [h, m] = effectiveStartTimeStr.split(':').map(Number);
                     tryStart = (h * 60) + (m || 0);
-                    if (h < 8) tryStart += 1440;
+                    if (h < 5) tryStart += 1440; // Nâng cấp 5h sáng
                 }
             } catch (e) { }
         }
@@ -1496,7 +1477,8 @@ const App = () => {
                 const b = resourceState[k];
                 try {
                     const startObj = new Date(b.startTime);
-                    const startMins = startObj.getHours() * 60 + startObj.getMinutes() + (startObj.getHours() < 8 ? 1440 : 0);
+                    // Nâng cấp 5h sáng
+                    const startMins = startObj.getHours() * 60 + startObj.getMinutes() + (startObj.getHours() < 5 ? 1440 : 0);
                     mockActiveEndTimes[k] = startMins + (b.booking.duration || 60);
                 } catch (e) { }
             }
@@ -1572,7 +1554,6 @@ const App = () => {
         }
     };
 
-    // --- [V108.69] HÀM LƯU THỜI GIAN & VỊ TRÍ CHO KHÁCH LẺ ---
     const handleSaveSingleTimeLoc = async (targetBooking, startTimeStr, newResId) => {
         if (!targetBooking) return;
         const rowId = String(targetBooking.rowId);
@@ -1717,7 +1698,7 @@ const App = () => {
                     } else {
                         const [h, m] = timePart.split(':').map(Number);
                         tryStart = (h * 60) + (m || 0);
-                        if (h < 8) tryStart += 1440;
+                        if (h < 5) tryStart += 1440; // Nâng cấp 5h
                     }
                 } catch (e) { }
             }
@@ -1729,7 +1710,7 @@ const App = () => {
                 const b = resourceState[k];
                 try {
                     const startObj = new Date(b.startTime);
-                    const startMins = startObj.getHours() * 60 + startObj.getMinutes() + (startObj.getHours() < 8 ? 1440 : 0);
+                    const startMins = startObj.getHours() * 60 + startObj.getMinutes() + (startObj.getHours() < 5 ? 1440 : 0); // Nâng cấp 5h
                     mockActiveEndTimes[k] = startMins + (b.booking.duration || 60);
                 } catch (e) { }
             }
@@ -1823,7 +1804,7 @@ const App = () => {
         if (isNaN(index)) return;
 
         const newIndex = index + direction;
-        if (newIndex < 1 || newIndex > 6) return;
+        if (newIndex < 1 || newIndex > 9) return; // Nâng cấp 9
 
         const targetId = `${type}-${newIndex}`;
         const rowId = String(targetBooking.rowId);
@@ -1961,7 +1942,6 @@ const App = () => {
             };
         }
 
-        // --- [V108.68] EMERGENCY KICK (Chống kẹt bóng ma) ---
         if (current && current.isRunning) {
             if (current.comboMeta && current.comboMeta.phase === 1 && current.startTime) {
                 const startTs = new Date(current.startTime).getTime();
@@ -1969,7 +1949,6 @@ const App = () => {
                 const split = getSmartSplit(current.booking, current.booking.duration || 100, current.isMaxMode, current.comboMeta.sequence);
                 const phase1Ms = (split.phase1 + (current.comboMeta.flex || 0)) * 60000;
 
-                // Nếu khách cũ đã quá giờ, tự động đá đi để nhường chỗ
                 if (elapsed >= phase1Ms) {
                     const targetId = current.comboMeta.targetId;
                     if (targetId && targetId !== id) {
@@ -1992,9 +1971,6 @@ const App = () => {
                             universalSend('/api/update-booking-details', { rowId, current_resource_id: targetId, location: targetId, forceSync: true });
                             universalSend('/api/sync-resource', newState);
 
-                            console.log(`🚀 Emergency Kick: Cleared ${id} for new customer.`);
-
-                            // Phục hồi lại dữ liệu khách mới để Start
                             current = fallbackBooking ? {
                                 booking: fallbackBooking,
                                 isRunning: false,
@@ -2108,7 +2084,7 @@ const App = () => {
             let foundStaff = null;
 
             const nowObj = window.getTaipeiDate ? window.getTaipeiDate() : new Date();
-            const currentMins = nowObj.getHours() * 60 + nowObj.getMinutes() + (nowObj.getHours() < 8 ? 1440 : 0);
+            const currentMins = nowObj.getHours() * 60 + nowObj.getMinutes() + (nowObj.getHours() < 5 ? 1440 : 0); // Nâng cấp 5h
             const currentPhone = getNormalizedPhone(current.booking);
 
             for (let i = 0; i < readyCandidates.length; i++) {
@@ -2218,7 +2194,6 @@ const App = () => {
         axios.post('/api/update-status', { rowId: current.booking.rowId, status: '🟡 Running' });
     };
 
-    // [V108.63] BATCH START: STAFF-CENTRIC
     const executeBatchStart = (mainResId, relatedItems) => {
         const nextResourceState = { ...resourceStateRef.current };
         const nextStatusData = { ...statusData };
@@ -2232,7 +2207,6 @@ const App = () => {
         setSyncLock(true);
         setTimeout(() => setSyncLock(false), 5000);
 
-        // --- BƯỚC 1: LẤY VỊ TRÍ TỪ SHEET, FALLBACK LÀ TIMELINE ---
         allItemsToStart.forEach(item => {
             if (!item.booking) return;
 
@@ -2263,7 +2237,6 @@ const App = () => {
 
         const validItems = allItemsToStart.filter(item => item.resourceId && item.booking);
 
-        // --- BƯỚC 2: THUẬT TOÁN ƯU TIÊN THEO NHÂN VIÊN (STAFF-CENTRIC) ---
         const assignments = {};
         let unassignedItems = [...validItems];
 
@@ -2288,7 +2261,7 @@ const App = () => {
         });
 
         const nowObj = window.getTaipeiDate ? window.getTaipeiDate() : new Date();
-        const currentMins = nowObj.getHours() * 60 + nowObj.getMinutes() + (nowObj.getHours() < 8 ? 1440 : 0);
+        const currentMins = nowObj.getHours() * 60 + nowObj.getMinutes() + (nowObj.getHours() < 5 ? 1440 : 0); // Nâng cấp 5h
 
         let madeProgress = true;
 
@@ -2334,7 +2307,6 @@ const App = () => {
 
         let failedToStartCount = unassignedItems.length;
 
-        // --- BƯỚC 3: CẬP NHẬT TRẠNG THÁI & GỬI LÊN HỆ THỐNG ---
         validItems.forEach(item => {
             const { resourceId } = item;
             let finalServiceStaff = assignments[resourceId];
@@ -2535,7 +2507,7 @@ const App = () => {
             return;
         }
 
-        for (let i = 1; i <= 6; i++) {
+        for (let i = 1; i <= 9; i++) { // Nâng cấp 9
             const targetId = `${toType}-${i}`;
             if (!resourceState[targetId]) {
                 const newState = { ...resourceState }; delete newState[fromId]; newState[targetId] = currentData;
@@ -2623,10 +2595,8 @@ const App = () => {
                 const currentStaffTime = statusData[info.staffId]?.stafftime || baseTime;
                 let newStaffTime = currentStaffTime;
 
-                if (info.blocks === 1) {
-                    newStaffTime = currentStaffTime;
-                }
-                else if (!isGroup) {
+                // --- NÂNG CẤP BỎ ĐẶC QUYỀN ĐƠN NGẮN (BLOCKS === 1) ---
+                if (!isGroup) {
                     newStaffTime = currentStaffTime + (info.duration * 60000);
                 }
                 else if (isGroup && uniqueBlocks.length === 1) {
@@ -2895,7 +2865,7 @@ const App = () => {
 
     const enrichedStaffList = useMemo(() => {
         const nowObj = window.getTaipeiDate ? window.getTaipeiDate() : new Date();
-        const currentMins = nowObj.getHours() * 60 + nowObj.getMinutes() + (nowObj.getHours() < 8 ? 1440 : 0);
+        const currentMins = nowObj.getHours() * 60 + nowObj.getMinutes() + (nowObj.getHours() < 5 ? 1440 : 0); // Nâng cấp 5h
 
         return safeStaffList.map(s => {
             const staffId = String(s.id).trim();
@@ -2915,7 +2885,7 @@ const App = () => {
                 } else {
                     const [h, m] = timeStr.split(':').map(Number);
                     bookMins = (h * 60) + (m || 0);
-                    if (h < 8) bookMins += 1440;
+                    if (h < 5) bookMins += 1440; // Nâng cấp 5h
                 }
 
                 const diff = bookMins - currentMins;
@@ -2961,7 +2931,7 @@ const App = () => {
         <div className="min-h-screen flex flex-col bg-slate-50">
             <header className={`text-white p-3 shadow-md flex justify-between items-center sticky top-0 z-50 transition-colors ${quotaError ? 'bg-red-800' : 'bg-[#1e1b4b]'}`}>
                 <div className="flex items-center gap-3">
-                    <span className="bg-emerald-500 text-white px-2 py-1 rounded font-black text-sm shadow-sm">V108.71</span>
+                    <span className="bg-emerald-500 text-white px-2 py-1 rounded font-black text-sm shadow-sm">V109.0</span>
                     <span className="font-bold hidden md:inline tracking-wider">XinWuChan</span>
                     <div className="flex items-center gap-2 bg-white/10 rounded px-2 py-1 border border-white/20">
                         <button onClick={() => { const d = new Date(viewDate); d.setDate(d.getDate() - 1); setViewDate(d.toISOString().split('T')[0]) }} className="text-white hover:text-amber-400 font-bold px-2">❯</button>
@@ -2996,7 +2966,6 @@ const App = () => {
 
             <div className="bg-white border-b shadow-sm p-2 overflow-x-auto whitespace-nowrap staff-scroll">
                 <div className="flex w-full justify-end items-center min-w-max">
-                    {/* Nhóm Away (awayStaff) đã được ẩn đi theo yêu cầu nâng cấp */}
                     <div className="flex items-center flex-1 justify-end pl-2">
                         <div className="flex gap-1 px-2 border-r border-red-100 flex-row-reverse">
                             {busyStaff.map(s => window.StaffCard3D && <window.StaffCard3D key={s.id} s={s} statusData={statusData} resourceState={resourceState} isForcedBusy={true} />)}

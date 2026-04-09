@@ -1,17 +1,18 @@
 /**
  * ============================================================================
  * FILE: js/utils.js
- * PHIÊN BẢN: V5.3 (PENDULUM LOGIC SUPPORT)
+ * PHIÊN BẢN: V5.4 (24/7 TIMELINE 5AM SUPPORT & PENDULUM LOGIC READY)
  * MÔ TẢ: CÁC HÀM HỖ TRỢ TOÀN CỤC (GLOBAL UTILITIES)
  * CẬP NHẬT: 
- * 1. [getComboSplit]: Hỗ trợ tham số 'sequence' (FB/BF) để đảo ngược loại dịch vụ.
- * 2. [Phase Logic]: Định nghĩa lại Phase 1 là "Bước đi đầu tiên" thay vì cố định là Chân.
+ * 1. [24/7 Timeline]: Chuyển mốc cắt sổ (Cut-off time) từ 8:00 AM thành 5:00 AM.
+ * 2. [getComboSplit]: Hỗ trợ tham số 'sequence' (FB/BF) để đảo ngược loại dịch vụ.
+ * 3. Tự động tương thích quy mô 9 ghế / 9 giường (Dynamic ID parsing).
  * TÁC GIẢ: AI ASSISTANT & USER
  * ============================================================================
  */
 
-(function() {
-    console.log("🚀 Utils Module Loaded: V5.3 (Pendulum Strategy Ready)");
+(function () {
+    console.log("🚀 Utils Module Loaded: V5.4 (24/7 Operations - 5 AM Cut-off)");
 
     // ========================================================================
     // 1. QUẢN LÝ DỊCH VỤ & THỜI GIAN
@@ -22,12 +23,12 @@
      */
     window.getSafeDuration = (serviceName, fallbackDuration) => {
         if (!serviceName) return fallbackDuration || 60;
-        
+
         // Tìm chính xác trong DB (Object Lookup)
         if (window.SERVICES_DATA && window.SERVICES_DATA[serviceName]) {
             return window.SERVICES_DATA[serviceName].duration;
         }
-        
+
         // Tìm tương đối (String Matching)
         if (window.SERVICES_LIST) {
             const key = window.SERVICES_LIST.find(k => serviceName.includes(k));
@@ -35,7 +36,7 @@
                 return window.SERVICES_DATA[key].duration;
             }
         }
-        
+
         return fallbackDuration || 60;
     };
 
@@ -49,11 +50,11 @@
 
     /**
      * Định dạng ngày cho thẻ <input type="date"> (YYYY-MM-DD)
-     * * Logic: Nếu < 8h sáng thì vẫn tính là ngày làm việc hôm trước (Operational Day)
+     * * Logic V5.4: Nếu < 5h sáng thì vẫn tính là ngày làm việc hôm trước (Operational Day)
      */
     window.getOperationalDateInputFormat = () => {
         const now = window.getTaipeiDate();
-        if (now.getHours() < 8) {
+        if (now.getHours() < 5) {
             now.setDate(now.getDate() - 1);
         }
         const y = now.getFullYear();
@@ -64,51 +65,52 @@
 
     /**
      * Kiểm tra một booking có thuộc ngày làm việc đang xem không
-     * Hỗ trợ logic qua đêm (00:00 - 08:00 sáng hôm sau vẫn thuộc ngày hôm nay)
+     * Hỗ trợ logic qua đêm (00:00 - 04:59 sáng hôm sau vẫn thuộc ngày làm việc hôm nay)
      */
     window.isWithinOperationalDay = (bookingDateStr, bookingTimeStr, targetViewDateStr) => {
         if (!bookingDateStr || !bookingTimeStr) return false;
 
         // Chuẩn hóa định dạng ngày đích (Target View Date)
-        const opDateStr = targetViewDateStr 
-            ? targetViewDateStr.replace(/-/g, '/') 
+        const opDateStr = targetViewDateStr
+            ? targetViewDateStr.replace(/-/g, '/')
             : window.getOperationalDateInputFormat().replace(/-/g, '/');
-        
+
         // Parse ngày của booking
-        let d = new Date(bookingDateStr); 
-        if(isNaN(d.getTime())) {
+        let d = new Date(bookingDateStr);
+        if (isNaN(d.getTime())) {
             d = new Date(bookingDateStr.replace(/-/g, '/'));
         }
 
-        const bDateStr = `${d.getFullYear()}/${(d.getMonth()+1).toString().padStart(2,'0')}/${d.getDate().toString().padStart(2,'0')}`;
+        const bDateStr = `${d.getFullYear()}/${(d.getMonth() + 1).toString().padStart(2, '0')}/${d.getDate().toString().padStart(2, '0')}`;
         const [h, m] = bookingTimeStr.split(':').map(Number);
 
-        // Trường hợp 1: Cùng ngày dương lịch và giờ >= 8:00
-        if (bDateStr === opDateStr && h >= 8) return true;
+        // Trường hợp 1: Cùng ngày dương lịch và giờ >= 5:00 sáng
+        if (bDateStr === opDateStr && h >= 5) return true;
 
-        // Trường hợp 2: Là ngày dương lịch hôm sau nhưng giờ < 8:00 (Ca đêm)
-        const nextDay = new Date(opDateStr); 
+        // Trường hợp 2: Là ngày dương lịch hôm sau nhưng giờ < 5:00 sáng (Ca đêm)
+        const nextDay = new Date(opDateStr);
         nextDay.setDate(nextDay.getDate() + 1);
-        const nextDayStr = `${nextDay.getFullYear()}/${(nextDay.getMonth()+1).toString().padStart(2,'0')}/${nextDay.getDate().toString().padStart(2,'0')}`;
-        
-        if (bDateStr === nextDayStr && h < 8) return true;
+        const nextDayStr = `${nextDay.getFullYear()}/${(nextDay.getMonth() + 1).toString().padStart(2, '0')}/${nextDay.getDate().toString().padStart(2, '0')}`;
+
+        if (bDateStr === nextDayStr && h < 5) return true;
 
         return false;
     };
 
     /**
      * Chuyển đổi giờ (HH:mm) thành phút tính từ 00:00 của ngày vận hành
-     * * Lưu ý: 01:00 sáng hôm sau sẽ được tính là 25:00 (1500 phút)
+     * * Lưu ý V5.4: 01:00 sáng hôm sau sẽ được cộng thêm 24h, tính thành 25:00 (1500 phút)
+     * * Áp dụng cho các giờ < 5:00 sáng.
      */
     window.normalizeToTimelineMins = (timeStr) => {
         if (!timeStr) return 0;
         try {
             const [h, m] = timeStr.split(':').map(Number);
             if (isNaN(h) || isNaN(m)) return 0;
-            
+
             let totalMins = h * 60 + m;
-            // Nếu giờ < 8, coi như là giờ của ngày hôm sau (+24h)
-            if (h < 8) totalMins += 24 * 60; 
+            // Nếu giờ < 5, coi như là giờ của ca làm việc qua đêm (thuộc ngày hôm trước về mặt hiển thị timeline)
+            if (h < 5) totalMins += 24 * 60;
             return totalMins;
         } catch (e) {
             console.error("Error normalizing time:", timeStr);
@@ -123,11 +125,11 @@
     window.formatMinutesToTime = (totalMins) => {
         let h = Math.floor(totalMins / 60);
         let m = totalMins % 60;
-        
+
         // Xử lý giờ qua đêm
         if (h >= 24) h -= 24;
-        
-        return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`;
+
+        return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
     };
 
     // ========================================================================
@@ -137,18 +139,18 @@
     /**
      * Lấy giá tiền cơ bản của dịch vụ
      */
-    window.getPrice = (name) => { 
+    window.getPrice = (name) => {
         if (!name) return 0;
         if (window.SERVICES_DATA && window.SERVICES_DATA[name]) {
             return window.SERVICES_DATA[name].price;
         }
         // Fallback: Tìm theo tên gần đúng
         if (window.SERVICES_DATA) {
-            for(let k in window.SERVICES_DATA) {
-                if(name.includes(k)) return window.SERVICES_DATA[k].price;
+            for (let k in window.SERVICES_DATA) {
+                if (name.includes(k)) return window.SERVICES_DATA[k].price;
             }
         }
-        return 0; 
+        return 0;
     };
 
     /**
@@ -183,7 +185,7 @@
     window.getComboSplit = (duration, isMaxMode, sequence = 'FB', customPhase1 = null) => {
         const dur = parseInt(duration);
         if (!dur || isNaN(dur)) return { phase1: 0, phase2: 0, type1: '?', type2: '?' };
-        
+
         let p1, p2;
 
         // 1. Xác định thời lượng Phase 1 (First Step)
@@ -194,7 +196,7 @@
             // Mặc định chia đôi 50-50
             p1 = Math.floor(dur / 2);
         }
-        
+
         // Phase 2 là phần còn lại
         p2 = dur - p1;
 
@@ -203,23 +205,23 @@
             // Trường hợp BODY FIRST (BF)
             // Phase 1: Làm Body trước -> Type = BODY (BED)
             // Phase 2: Làm Chân sau -> Type = FOOT (CHAIR)
-            return { 
-                phase1: p1, 
-                phase2: p2, 
-                type1: 'BODY', 
+            return {
+                phase1: p1,
+                phase2: p2,
+                type1: 'BODY',
                 type2: 'FOOT',
-                isElastic: (customPhase1 !== null && customPhase1 !== Math.floor(dur/2))
+                isElastic: (customPhase1 !== null && customPhase1 !== Math.floor(dur / 2))
             };
         } else {
             // Trường hợp FOOT FIRST (FB) - Mặc định
             // Phase 1: Làm Chân trước -> Type = FOOT (CHAIR)
             // Phase 2: Làm Body sau -> Type = BODY (BED)
-            return { 
-                phase1: p1, 
-                phase2: p2, 
-                type1: 'FOOT', 
+            return {
+                phase1: p1,
+                phase2: p2,
+                type1: 'FOOT',
                 type2: 'BODY',
-                isElastic: (customPhase1 !== null && customPhase1 !== Math.floor(dur/2))
+                isElastic: (customPhase1 !== null && customPhase1 !== Math.floor(dur / 2))
             };
         }
     };
@@ -232,18 +234,19 @@
      * Tính trọng số để sắp xếp thẻ tài nguyên
      * Ghế (Chair) nhẹ hơn -> Xếp trước
      * Giường (Bed) nặng hơn -> Xếp sau
+     * Hoạt động linh hoạt với số lượng lên đến 9, 10, 20...
      */
-    window.getWeight = (id) => { 
+    window.getWeight = (id) => {
         if (!id) return 9999;
-        const num = parseInt(id.replace(/\D/g, '')); 
+        const num = parseInt(id.replace(/\D/g, ''));
         const base = isNaN(num) ? 9000 + id.charCodeAt(0) : num;
-        
+
         // Bed hoặc Body thì cộng thêm 2000 điểm để đẩy xuống dưới
         if (id.toLowerCase().includes('bed') || id.includes('身') || id.toUpperCase().includes('BODY')) {
             return 2000 + base;
         }
         // Chair hoặc Foot thì cộng 1000 điểm
-        return 1000 + base; 
+        return 1000 + base;
     };
 
     /**
@@ -255,8 +258,8 @@
      * [New] Helper lấy Label cho Sequence (Dùng cho UI hiển thị)
      */
     window.getFlowLabel = (sequence) => {
-        if (sequence === 'BF') return "🛏️ Body ➜ 👣 Foot";
-        return "👣 Foot ➜ 🛏️ Body";
+        if (sequence === 'BF') return "🛏️ 身體 (Body) ➜ 👣 足部 (Foot)"; // Đã điều chỉnh ngôn ngữ để đồng bộ
+        return "👣 足部 (Foot) ➜ 🛏️ 身體 (Body)";
     };
 
 })();
