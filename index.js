@@ -770,5 +770,5 @@ setInterval(() => { SheetService.syncData(); }, 10000);
 // 3. Health Check
 app.get('/ping', (req, res) => { res.status(200).send('Pong!'); });
 
-const port = process.env.PORT || 3000;
+const port = process.env.PORT || 4000;
 app.listen(port, () => { console.log(`XinWuChan Bot V127-TITLE-SELECTION running on port ${port}`); });
