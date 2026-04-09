@@ -2,18 +2,12 @@
  * =================================================================================================
  * PROJECT: XINWUCHAN MASSAGE BOT - FRONTEND CONTROLLER & LOGIC BRIDGE
  * FILE: js/bookingHandler.js
- * PHIÊN BẢN: V113.8 (ADD GUA SHA / CUPPING TOGGLE)
- * TÁC GIẢ: AI ASSISTANT & USER
- *
- * * * * * CHANGE LOG V113.8 * * * * *
- * 1. [UI] Added "[刮] 刮/罐" (Gua Sha/Cupping) toggle button next to the Oil button.
- * 2. [LOGIC] Appends "K[i]:刮痧/拔罐" to the booking note (ghiChu) without altering prices.
- * 3. [CORE] Retained all V113.7 features (Title Buttons, Surname Picker, Matrix Logic).
+ * PHIÊN BẢN: V113.8.1 (UI/UX BIG SCREEN UPGRADE)
  * =================================================================================================
  */
 
 (function () {
-    console.log("🚀 BookingHandler V113.8: Standalone Oil & GuaSha Toggles Added.");
+    console.log("🚀 BookingHandler V113.8.1: Big Screen UI/UX Upgraded.");
 
     // Kiểm tra môi trường React
     if (typeof React === 'undefined') {
@@ -936,7 +930,7 @@
     const forceGlobalRefresh = () => { if (typeof window.fetchDataAndRender === 'function') window.fetchDataAndRender(); else window.location.reload(); };
 
     // ==================================================================================
-    // 4. COMPONENT: PHONE BOOKING MODAL (UPDATED V113.8)
+    // 4. COMPONENT: PHONE BOOKING MODAL (UPDATED V113.8.1 - UI/UX SCALE UP)
     // ==================================================================================
     const NewAvailabilityCheckModal = ({ onClose, onSave, staffList, bookings, initialDate, editingBooking }) => {
         const safeStaffList = useMemo(() => staffList || [], [staffList]);
@@ -1200,159 +1194,242 @@
         const paxOptions = [1, 2, 3, 4, 5, 6];
 
         return (
-            <div className="fixed inset-0 bg-slate-900/90 z-[100] flex items-center justify-center p-4">
-                <div className="bg-white w-full max-w-xl rounded-xl shadow-2xl flex flex-col max-h-[95vh] overflow-hidden animate-fadeIn">
-                    <div className={`${editingBooking ? 'bg-orange-600' : 'bg-[#0891b2]'} p-4 text-white flex justify-between items-center shrink-0`}>
-                        <h3 className="font-bold text-lg">{editingBooking ? "✏️ 修改預約 (Edit)" : "📅 電話預約 (V113.8)"}</h3>
-                        <button onClick={onClose} className="text-2xl hover:text-red-100">&times;</button>
+            <>
+                {/* --- MÀN HÌNH CHỌN HỌ (FULL-SCREEN OVERLAY) --- */}
+                {showSurnamePicker && (
+                    <div className="fixed inset-0 z-[200] bg-white flex flex-col animate-fadeIn">
+                        <div className="bg-orange-600 p-6 text-white flex justify-between items-center shadow-md">
+                            <h2 className="text-3xl font-bold">請選擇姓氏 (Select Surname)</h2>
+                            <button onClick={() => setShowSurnamePicker(false)} className="text-5xl px-4">&times;</button>
+                        </div>
+                        <div className="flex-1 p-4 sm:p-6 overflow-y-auto custom-scrollbar">
+                            <div className="grid grid-cols-5 sm:grid-cols-8 md:grid-cols-10 gap-3 sm:gap-4">
+                                {PREDEFINED_SURNAMES.map(char => (
+                                    <button
+                                        key={char}
+                                        onClick={(e) => { e.preventDefault(); handleSurnameSelect(char); }}
+                                        className="aspect-square flex items-center justify-center bg-orange-50 hover:bg-orange-500 hover:text-white border-2 border-orange-200 rounded-2xl font-bold text-4xl transition-colors shadow-sm"
+                                    >
+                                        {char}
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+                        <div className="p-6 bg-slate-100 border-t border-slate-300">
+                            <button
+                                onClick={(e) => { e.preventDefault(); setShowSurnamePicker(false); }}
+                                className="w-full bg-gray-400 text-white text-2xl py-5 rounded-xl font-bold shadow-lg hover:bg-gray-500 transition-colors"
+                            >
+                                關閉 (Close)
+                            </button>
+                        </div>
                     </div>
-                    <div className="p-5 space-y-4 overflow-y-auto flex-1 custom-scrollbar">
-                        {step === 'CHECK' && (
-                            <>
-                                <div className="grid grid-cols-2 gap-3">
-                                    <div><label className="text-xs font-bold text-gray-500">日期 (Date)</label><input type="date" className="w-full border p-2 rounded font-bold h-[42px]" value={form.date} onChange={e => { setForm({ ...form, date: e.target.value }); setCheckResult(null); }} /></div>
-                                    <div><label className="text-xs font-bold text-gray-500">時間 (Time)</label>
-                                        <div className="flex items-center gap-1"><div className="relative flex-1"><select className="w-full border p-2 rounded font-bold h-[42px] text-center bg-white" value={cH} onChange={e => handleTimeChange('HOUR', e.target.value)}>{HOURS_LIST.map(h => <option key={h} value={h}>{h}</option>)}</select></div><span className="font-bold">:</span><div className="relative flex-1"><select className="w-full border p-2 rounded font-bold h-[42px] text-center bg-white" value={cM} onChange={e => handleTimeChange('MINUTE', e.target.value)}>{MINUTES_STEP.map(m => <option key={m} value={m}>{m}</option>)}</select></div></div></div>
-                                </div>
-                                <div><label className="text-xs font-bold text-gray-500">人數 (Pax)</label><select className="w-full border p-2 rounded font-bold text-center h-[42px]" value={form.pax} onChange={e => handlePaxChange(e.target.value)}>{paxOptions.map(n => <option key={n} value={n}>{n} 位</option>)}</select></div>
-                                <div className="bg-slate-50 p-2 sm:p-3 rounded border space-y-2"><div className="text-xs font-bold text-gray-400">詳細需求 (Details)</div>
-                                    {guestDetails.map((g, i) => (
-                                        <div key={i} className="flex gap-1 items-center">
-                                            <div className="w-6 shrink-0 h-10 rounded bg-gray-200 hidden sm:flex items-center justify-center font-bold text-sm">#{i + 1}</div>
-                                            {/* Đã thu nhỏ flex của Dịch vụ và Nhân viên để nhường chỗ */}
-                                            <select className="flex-[1.5] min-w-0 border p-1 sm:p-2 rounded font-bold text-xs sm:text-sm h-10" value={g.service} onChange={e => handleGuestUpdate(i, 'service', e.target.value)}>
-                                                {(window.SERVICES_LIST || []).map(s => <option key={s} value={s}>{s}</option>)}
-                                            </select>
-                                            <select className="flex-[1] min-w-0 border p-1 sm:p-2 rounded font-bold text-xs sm:text-sm h-10" value={g.staff} onChange={e => handleGuestUpdate(i, 'staff', e.target.value)}>
-                                                <option value="隨機">🎲 隨機</option>
-                                                <option value="女">🚺 女師</option>
-                                                <option value="男">🚹 男師</option>
-                                                <optgroup label="技師">{safeStaffList.map(s => <option key={s.id} value={s.id}>{s.id}</option>)}</optgroup>
-                                            </select>
-                                            {/* Nút Tinh Dầu */}
-                                            <button
-                                                onClick={(e) => { e.preventDefault(); handleGuestUpdate(i, 'toggleOil'); }}
-                                                className={`flex-[0.7] min-w-[50px] px-0.5 shrink-0 border rounded font-bold text-xs h-10 transition-colors whitespace-nowrap flex items-center justify-center gap-0.5 ${g.isOil ? 'bg-orange-100 text-orange-700 border-orange-400 shadow-sm' : 'bg-slate-50 text-slate-400 border-slate-200 hover:bg-slate-100'}`}
-                                            >
-                                                <span className={g.isOil ? "opacity-100" : "opacity-50"}>💧</span>精油
-                                            </button>
-                                            {/* Nút Cạo Gió/Giác Hơi Mới Bổ Sung */}
-                                            <button
-                                                onClick={(e) => { e.preventDefault(); handleGuestUpdate(i, 'toggleGuaSha'); }}
-                                                className={`flex-[0.7] min-w-[50px] px-0.5 shrink-0 border rounded font-bold text-xs h-10 transition-colors whitespace-nowrap flex items-center justify-center gap-0.5 ${g.isGuaSha ? 'bg-red-100 text-red-700 border-red-400 shadow-sm' : 'bg-slate-50 text-slate-400 border-slate-200 hover:bg-slate-100'}`}
-                                            >
-                                                <span className={g.isGuaSha ? "opacity-100" : "opacity-50"}>[刮]</span>刮/罐
-                                            </button>
+                )}
+
+                {/* --- MÀN HÌNH MODAL CHÍNH --- */}
+                <div className="fixed inset-0 bg-slate-900/90 z-[100] flex items-center justify-center p-2 sm:p-6">
+                    <div className="bg-white w-full max-w-[1000px] rounded-2xl shadow-2xl flex flex-col h-[98vh] sm:h-[90vh] overflow-hidden animate-fadeIn">
+                        <div className={`${editingBooking ? 'bg-orange-600' : 'bg-[#0891b2]'} p-6 text-white flex justify-between items-center shrink-0`}>
+                            <h3 className="font-bold text-2xl">{editingBooking ? "✏️ 修改預約 (Edit)" : "📅 電話預約 (V113.8.1)"}</h3>
+                            <button onClick={onClose} className="text-4xl hover:text-red-100 leading-none">&times;</button>
+                        </div>
+
+                        <div className="p-6 space-y-6 overflow-y-auto flex-1 custom-scrollbar">
+                            {step === 'CHECK' && (
+                                <>
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <div>
+                                            <label className="text-lg font-bold text-gray-500 mb-1 block">日期 (Date)</label>
+                                            <input type="date" className="w-full border-2 p-3 rounded-xl font-bold text-xl h-[64px] bg-slate-50" value={form.date} onChange={e => { setForm({ ...form, date: e.target.value }); setCheckResult(null); }} />
                                         </div>
-                                    ))}
-                                </div>
-                                <div>
-                                    {!checkResult ?
-                                        <button onClick={performCheck} disabled={isChecking} className={`w-full text-white p-3 rounded font-bold shadow-lg flex justify-center items-center ${isChecking ? 'bg-gray-400 cursor-not-allowed' : 'bg-cyan-600 hover:bg-cyan-700'}`}>
-                                            {isChecking ? "🔄 正在同步數據..." : "🔍 查詢空位 (Strict Scan)"}
-                                        </button>
-                                        :
-                                        <div className="space-y-3">
-                                            <div className={`p-3 rounded text-center font-bold text-sm border-2 ${checkResult.status === 'OK' ? 'bg-green-100 text-green-700 border-green-300' : 'bg-red-50 text-red-700 border-red-200'}`}>{checkResult.message}</div>
-                                            {checkResult.status === 'FAIL' && suggestions.length > 0 && (<div className="bg-yellow-50 p-3 rounded border border-yellow-200"><div className="text-xs font-bold text-yellow-700 mb-2">💡 建議時段 (Suggestions):</div><div className="flex gap-2 flex-wrap">{suggestions.map(t => <button key={t} onClick={() => { setForm(f => ({ ...f, time: t })); setCheckResult(null); setSuggestions([]); }} className="px-3 py-1 bg-white border border-yellow-300 text-yellow-800 rounded font-bold hover:bg-yellow-100">{t}</button>)}</div></div>)}
-                                            {checkResult.status === 'OK' ? <button onClick={() => setStep('INFO')} className="w-full bg-emerald-600 text-white p-3 rounded font-bold shadow-lg animate-pulse hover:bg-emerald-700">➡️ 下一步 (Next)</button> : <button onClick={() => { setCheckResult(null); setSuggestions([]) }} className="w-full bg-gray-400 text-white p-3 rounded font-bold hover:bg-gray-500">🔄 重新選擇 (Retry)</button>}
-                                        </div>
-                                    }
-                                </div>
-                            </>
-                        )}
-                        {step === 'INFO' && (
-                            <div className="space-y-4 animate-slideIn">
-                                <div className="bg-green-50 p-3 rounded border border-green-200 text-green-800 font-bold">
-                                    <div className="flex justify-between border-b border-green-200 pb-2 mb-2"><span>{form.date}</span><span>{form.time}</span></div>
-                                    <div className="text-sm font-normal space-y-1">
-                                        {checkResult && checkResult.coreDetails && checkResult.coreDetails.map((d, i) => (
-                                            <div key={i} className="flex justify-between items-center bg-white p-1 rounded border border-green-100">
-                                                <span>#{i + 1} {d.service}</span>
-                                                <div className="flex flex-col items-end gap-1">
-                                                    <div className="flex gap-1">
-                                                        <span className="bg-green-100 px-2 py-0.5 rounded text-green-700 text-xs font-bold">{d.staff}</span>
-                                                        {d.flow === 'BF' && <span className="bg-orange-100 px-2 py-0.5 rounded text-orange-700 border border-orange-300 text-xs font-bold">⚠️ 先做身體</span>}
-                                                        {d.flow === 'FB' && <span className="bg-blue-100 px-2 py-0.5 rounded text-blue-700 border border-blue-300 text-xs font-bold">🦶 先做腳</span>}
-                                                    </div>
-                                                    {d.allocated && d.allocated.length > 0 && (
-                                                        <div className="text-[10px] text-gray-500 font-mono">
-                                                            📍 {d.allocated.join(' -> ')}
-                                                        </div>
-                                                    )}
+                                        <div>
+                                            <label className="text-lg font-bold text-gray-500 mb-1 block">時間 (Time)</label>
+                                            <div className="flex items-center gap-2">
+                                                <div className="relative flex-1">
+                                                    <select className="w-full border-2 p-3 rounded-xl font-bold text-xl h-[64px] text-center bg-slate-50" value={cH} onChange={e => handleTimeChange('HOUR', e.target.value)}>
+                                                        {HOURS_LIST.map(h => <option key={h} value={h}>{h}</option>)}
+                                                    </select>
                                                 </div>
+                                                <span className="font-bold text-2xl">:</span>
+                                                <div className="relative flex-1">
+                                                    <select className="w-full border-2 p-3 rounded-xl font-bold text-xl h-[64px] text-center bg-slate-50" value={cM} onChange={e => handleTimeChange('MINUTE', e.target.value)}>
+                                                        {MINUTES_STEP.map(m => <option key={m} value={m}>{m}</option>)}
+                                                    </select>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div>
+                                        <label className="text-lg font-bold text-gray-500 mb-1 block">人數 (Pax)</label>
+                                        <select className="w-full border-2 p-3 rounded-xl font-bold text-xl text-center h-[64px] bg-slate-50" value={form.pax} onChange={e => handlePaxChange(e.target.value)}>
+                                            {paxOptions.map(n => <option key={n} value={n}>{n} 位</option>)}
+                                        </select>
+                                    </div>
+
+                                    <div className="bg-slate-50 p-4 rounded-xl border-2 space-y-3">
+                                        <div className="text-base font-bold text-gray-500 uppercase">詳細需求 (Details)</div>
+                                        {guestDetails.map((g, i) => (
+                                            <div key={i} className="flex gap-2 items-center">
+                                                <div className="w-10 shrink-0 h-[64px] rounded-lg bg-gray-200 hidden sm:flex items-center justify-center font-black text-lg text-slate-500">#{i + 1}</div>
+
+                                                <select className="flex-[1.5] min-w-0 border-2 p-2 sm:p-3 rounded-lg font-bold text-base sm:text-xl h-[64px] bg-white" value={g.service} onChange={e => handleGuestUpdate(i, 'service', e.target.value)}>
+                                                    {(window.SERVICES_LIST || []).map(s => <option key={s} value={s}>{s}</option>)}
+                                                </select>
+
+                                                <select className="flex-[1] min-w-0 border-2 p-2 sm:p-3 rounded-lg font-bold text-base sm:text-xl h-[64px] bg-white" value={g.staff} onChange={e => handleGuestUpdate(i, 'staff', e.target.value)}>
+                                                    <option value="隨機">🎲 隨機</option>
+                                                    <option value="女">🚺 女師</option>
+                                                    <option value="男">🚹 男師</option>
+                                                    <optgroup label="技師">{safeStaffList.map(s => <option key={s.id} value={s.id}>{s.id}</option>)}</optgroup>
+                                                </select>
+
+                                                {/* Nút Tinh Dầu */}
+                                                <button
+                                                    onClick={(e) => { e.preventDefault(); handleGuestUpdate(i, 'toggleOil'); }}
+                                                    className={`flex-[0.7] min-w-[70px] px-2 shrink-0 border-2 rounded-lg font-bold text-base sm:text-lg h-[64px] transition-colors whitespace-nowrap flex items-center justify-center gap-1 ${g.isOil ? 'bg-orange-100 text-orange-700 border-orange-400 shadow-sm' : 'bg-slate-100 text-slate-400 border-slate-300 hover:bg-slate-200'}`}
+                                                >
+                                                    <span className={g.isOil ? "opacity-100" : "opacity-50"}>💧</span>精油
+                                                </button>
+
+                                                {/* Nút Cạo Gió/Giác Hơi */}
+                                                <button
+                                                    onClick={(e) => { e.preventDefault(); handleGuestUpdate(i, 'toggleGuaSha'); }}
+                                                    className={`flex-[0.7] min-w-[70px] px-2 shrink-0 border-2 rounded-lg font-bold text-base sm:text-lg h-[64px] transition-colors whitespace-nowrap flex items-center justify-center gap-1 ${g.isGuaSha ? 'bg-red-100 text-red-700 border-red-400 shadow-sm' : 'bg-slate-100 text-slate-400 border-slate-300 hover:bg-slate-200'}`}
+                                                >
+                                                    <span className={g.isGuaSha ? "opacity-100" : "opacity-50"}>[刮]</span>刮/罐
+                                                </button>
                                             </div>
                                         ))}
                                     </div>
-                                </div>
 
-                                <div>
-                                    <label className="text-xs font-bold text-gray-500">顧客姓名 (Name)</label>
-                                    <div className="flex gap-2">
-                                        <input
-                                            className="flex-1 border p-3 rounded font-bold outline-none"
-                                            value={form.custName}
-                                            onChange={e => setForm({ ...form, custName: e.target.value })}
-                                            placeholder="請輸入顧客姓名..."
-                                            disabled={isSubmitting}
-                                        />
-                                        {/* --- CỤM NÚT DANH XƯNG & HỌ --- */}
-                                        <button
-                                            onClick={(e) => { e.preventDefault(); handleTitleToggle('先生'); }}
-                                            className={`px-3 border rounded font-bold transition-colors whitespace-nowrap ${form.custTitle === '先生' ? 'bg-blue-600 text-white border-blue-600' : 'bg-blue-50 text-blue-700 border-blue-300 hover:bg-blue-100'}`}
-                                        >
-                                            先生
-                                        </button>
-                                        <button
-                                            onClick={(e) => { e.preventDefault(); handleTitleToggle('小姐'); }}
-                                            className={`px-3 border rounded font-bold transition-colors whitespace-nowrap ${form.custTitle === '小姐' ? 'bg-pink-600 text-white border-pink-600' : 'bg-pink-50 text-pink-700 border-pink-300 hover:bg-pink-100'}`}
-                                        >
-                                            小姐
-                                        </button>
-                                        <button
-                                            onClick={(e) => { e.preventDefault(); setShowSurnamePicker(!showSurnamePicker); }}
-                                            className="px-4 bg-orange-100 text-orange-700 border border-orange-300 rounded font-bold hover:bg-orange-200 transition-colors whitespace-nowrap"
-                                            title="選擇姓氏 (Select Surname)"
-                                        >
-                                            姓
-                                        </button>
+                                    <div className="pt-4">
+                                        {!checkResult ?
+                                            <button onClick={performCheck} disabled={isChecking} className={`w-full text-white p-5 rounded-xl font-bold text-xl shadow-lg flex justify-center items-center ${isChecking ? 'bg-gray-400 cursor-not-allowed' : 'bg-cyan-600 hover:bg-cyan-700'}`}>
+                                                {isChecking ? "🔄 正在同步數據..." : "🔍 查詢空位 (Strict Scan)"}
+                                            </button>
+                                            :
+                                            <div className="space-y-4">
+                                                <div className={`p-5 rounded-xl text-center font-bold text-xl border-2 ${checkResult.status === 'OK' ? 'bg-green-100 text-green-700 border-green-400' : 'bg-red-50 text-red-700 border-red-300'}`}>{checkResult.message}</div>
+                                                {checkResult.status === 'FAIL' && suggestions.length > 0 && (
+                                                    <div className="bg-yellow-50 p-4 rounded-xl border-2 border-yellow-300">
+                                                        <div className="text-base font-bold text-yellow-800 mb-3">💡 建議時段 (Suggestions):</div>
+                                                        <div className="flex gap-3 flex-wrap">
+                                                            {suggestions.map(t => (
+                                                                <button key={t} onClick={() => { setForm(f => ({ ...f, time: t })); setCheckResult(null); setSuggestions([]); }} className="px-5 py-2 bg-white border-2 border-yellow-400 text-yellow-900 rounded-lg font-bold text-lg hover:bg-yellow-200">
+                                                                    {t}
+                                                                </button>
+                                                            ))}
+                                                        </div>
+                                                    </div>
+                                                )}
+                                                <div className="flex gap-4">
+                                                    {checkResult.status === 'OK' ?
+                                                        <button onClick={() => setStep('INFO')} className="w-full bg-emerald-600 text-white p-5 rounded-xl font-bold text-xl shadow-lg animate-pulse hover:bg-emerald-700">➡️ 下一步 (Next)</button>
+                                                        :
+                                                        <button onClick={() => { setCheckResult(null); setSuggestions([]) }} className="w-full bg-gray-400 text-white p-5 rounded-xl font-bold text-xl hover:bg-gray-500">🔄 重新選擇 (Retry)</button>
+                                                    }
+                                                </div>
+                                            </div>
+                                        }
+                                    </div>
+                                </>
+                            )}
+
+                            {step === 'INFO' && (
+                                <div className="space-y-6 animate-slideIn flex flex-col h-full">
+                                    <div className="bg-green-50 p-4 rounded-xl border-2 border-green-300 text-green-900 font-bold">
+                                        <div className="flex justify-between border-b-2 border-green-200 pb-3 mb-3 text-xl">
+                                            <span>{form.date}</span>
+                                            <span>{form.time}</span>
+                                        </div>
+                                        <div className="text-lg font-normal space-y-2">
+                                            {checkResult && checkResult.coreDetails && checkResult.coreDetails.map((d, i) => (
+                                                <div key={i} className="flex justify-between items-center bg-white p-2 rounded-lg border border-green-200 shadow-sm">
+                                                    <span>#{i + 1} {d.service}</span>
+                                                    <div className="flex flex-col items-end gap-1">
+                                                        <div className="flex gap-2">
+                                                            <span className="bg-green-100 px-3 py-1 rounded-md text-green-800 text-sm font-bold">{d.staff}</span>
+                                                            {d.flow === 'BF' && <span className="bg-orange-100 px-3 py-1 rounded-md text-orange-800 border border-orange-300 text-sm font-bold">⚠️ 先做身體</span>}
+                                                            {d.flow === 'FB' && <span className="bg-blue-100 px-3 py-1 rounded-md text-blue-800 border border-blue-300 text-sm font-bold">🦶 先做腳</span>}
+                                                        </div>
+                                                        {d.allocated && d.allocated.length > 0 && (
+                                                            <div className="text-sm text-gray-500 font-mono mt-1">
+                                                                📍 {d.allocated.join(' -> ')}
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
                                     </div>
 
-                                    {showSurnamePicker && (
-                                        <div className="mt-2 p-2 bg-white border-2 border-orange-300 rounded-lg shadow-lg grid grid-cols-6 gap-2 max-h-48 overflow-y-auto custom-scrollbar animate-fadeIn">
-                                            {PREDEFINED_SURNAMES.map(char => (
-                                                <button
-                                                    key={char}
-                                                    onClick={(e) => { e.preventDefault(); handleSurnameSelect(char); }}
-                                                    className="aspect-square flex items-center justify-center bg-gray-50 hover:bg-orange-500 hover:text-white border rounded font-bold text-lg transition-colors"
-                                                >
-                                                    {char}
-                                                </button>
-                                            ))}
+                                    <div>
+                                        <label className="text-lg font-bold text-gray-500 mb-2 block">顧客姓名 (Name)</label>
+                                        <div className="flex gap-3">
+                                            <input
+                                                className="flex-[2] border-2 border-slate-300 p-4 rounded-xl font-bold text-2xl outline-none focus:border-indigo-500"
+                                                value={form.custName}
+                                                onChange={e => setForm({ ...form, custName: e.target.value })}
+                                                placeholder="輸入姓名..."
+                                                disabled={isSubmitting}
+                                            />
+                                            {/* --- CỤM NÚT DANH XƯNG & HỌ --- */}
                                             <button
-                                                onClick={(e) => { e.preventDefault(); setShowSurnamePicker(false); }}
-                                                className="col-span-6 bg-gray-200 text-gray-600 text-xs py-1 rounded mt-1 font-bold"
+                                                onClick={(e) => { e.preventDefault(); handleTitleToggle('先生'); }}
+                                                className={`flex-[1] border-2 rounded-xl font-bold text-xl transition-colors whitespace-nowrap ${form.custTitle === '先生' ? 'bg-blue-600 text-white border-blue-600 shadow-md' : 'bg-blue-50 text-blue-700 border-blue-300 hover:bg-blue-100'}`}
                                             >
-                                                關閉 (Close)
+                                                先生
+                                            </button>
+                                            <button
+                                                onClick={(e) => { e.preventDefault(); handleTitleToggle('小姐'); }}
+                                                className={`flex-[1] border-2 rounded-xl font-bold text-xl transition-colors whitespace-nowrap ${form.custTitle === '小姐' ? 'bg-pink-600 text-white border-pink-600 shadow-md' : 'bg-pink-50 text-pink-700 border-pink-300 hover:bg-pink-100'}`}
+                                            >
+                                                小姐
+                                            </button>
+                                            <button
+                                                onClick={(e) => { e.preventDefault(); setShowSurnamePicker(true); }}
+                                                className="flex-[1] bg-orange-100 text-orange-700 border-2 border-orange-400 rounded-xl font-bold text-xl hover:bg-orange-200 transition-colors shadow-sm whitespace-nowrap"
+                                                title="選擇姓氏 (Select Surname)"
+                                            >
+                                                姓
                                             </button>
                                         </div>
-                                    )}
-                                </div>
+                                    </div>
 
-                                <div><label className="text-xs font-bold text-gray-500">電話號碼 (Phone)</label><input className="w-full border p-3 rounded font-bold outline-none" value={form.custPhone} onChange={e => setForm({ ...form, custPhone: e.target.value })} placeholder="09xx..." disabled={isSubmitting} /></div>
-                                <div className="flex gap-2 pt-2"><button onClick={(e) => { e.preventDefault(); if (!isSubmitting) setStep('CHECK'); }} className="flex-1 bg-gray-200 p-3 rounded font-bold text-gray-700 hover:bg-gray-300" disabled={isSubmitting}>⬅️ 返回 (Back)</button><button onClick={handleFinalSave} className="flex-1 bg-indigo-600 text-white p-3 rounded font-bold shadow-xl hover:bg-indigo-700" disabled={isSubmitting}>{isSubmitting ? "處理中..." : (editingBooking ? "💾 保存修改 (Save)" : "✅ 確認預約 (Confirm)")}</button></div>
-                            </div>
-                        )}
+                                    <div>
+                                        <label className="text-lg font-bold text-gray-500 mb-2 block">電話號碼 (Phone)</label>
+                                        <input
+                                            className="w-full border-2 border-slate-300 p-4 rounded-xl font-bold text-2xl outline-none focus:border-indigo-500"
+                                            value={form.custPhone}
+                                            onChange={e => setForm({ ...form, custPhone: e.target.value })}
+                                            placeholder="09xx..."
+                                            disabled={isSubmitting}
+                                            type="tel"
+                                        />
+                                    </div>
+
+                                    <div className="flex gap-4 pt-6 mt-auto">
+                                        <button onClick={(e) => { e.preventDefault(); if (!isSubmitting) setStep('CHECK'); }} className="flex-[1] bg-gray-200 p-5 rounded-xl font-bold text-gray-700 hover:bg-gray-300 text-xl" disabled={isSubmitting}>
+                                            ⬅️ 返回 (Back)
+                                        </button>
+                                        <button onClick={handleFinalSave} className="flex-[2] bg-indigo-600 text-white p-5 rounded-xl font-bold shadow-xl hover:bg-indigo-700 text-xl" disabled={isSubmitting}>
+                                            {isSubmitting ? "處理中..." : (editingBooking ? "💾 保存修改 (Save)" : "✅ 確認預約 (Confirm)")}
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
                     </div>
                 </div>
-            </div>
+            </>
         );
     };
 
     const overrideInterval = setInterval(() => {
         if (window.AvailabilityCheckModal !== NewAvailabilityCheckModal) {
             window.AvailabilityCheckModal = NewAvailabilityCheckModal;
-            console.log("♻️ AvailabilityModal Injected (V113.8 - Standalone Oil & GuaSha Toggles Added)");
+            console.log("♻️ AvailabilityModal Injected (V113.8.1 - Big Screen UI/UX)");
         }
     }, 200);
     setTimeout(() => { clearInterval(overrideInterval); }, 5000);

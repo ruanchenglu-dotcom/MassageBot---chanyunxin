@@ -1,13 +1,16 @@
 /**
  * ============================================================================
  * FILE: js/views.js
- * PHIÊN BẢN: V108.54 (UPGRADE: GENDER GUARD & COMMISSION SPLIT FIX)
+ * PHIÊN BẢN: V108.69 (UI TWEAK: SINGLE SERVICE TIME & LOC ADJUSTMENT)
  * ============================================================================
+ * CHANGE LOG V108.69:
+ * - [UI/FEATURE]: Bổ sung bảng điều khiển Thời gian và Vị trí dành riêng cho khách lẻ (Single).
+ * CHANGE LOG V108.59:
+ * - [UI/UX]: Đổi biểu tượng Cạo gió/Giác hơi từ text [刮] sang icon ngọn lửa 🔥.
+ * CHANGE LOG V108.58:
+ * - [UI/UX]: Tinh chỉnh Current Time Indicator (Now Line).
  * CHANGE LOG V108.54:
- * - [UI/UX]: Thêm cơ chế "Gender Guard" (Cảnh báo giới tính). Hiện popup xác nhận nếu cố tình chọn Thợ Nam cho khách yêu cầu Nữ/Tinh dầu.
- * - [LOGIC]: Cập nhật CommissionView. Bổ sung cơ chế tách chuỗi dấu phẩy (,) để tính lương chuẩn xác cho các dữ liệu cũ bị gộp chung cột.
- * * CHANGE LOG V108.52:
- * - [UI/UX]: Thêm giao diện xác nhận khi đổi thợ giữa chừng (Mid-service Swap) trên BookingControlModal và ResourceCard.
+ * - [UI/UX]: Thêm cơ chế "Gender Guard" (Cảnh báo giới tính). 
  */
 
 const { useState, useEffect, useMemo, useRef } = React;
@@ -142,6 +145,9 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
     const [selectedPhase1Res, setSelectedPhase1Res] = useState('auto');
     const [selectedPhase2Res, setSelectedPhase2Res] = useState('auto');
 
+    // --- [V108.69] Thêm state cho Single Service ---
+    const [selectedSingleRes, setSelectedSingleRes] = useState('auto');
+
     const [timeLeft, setTimeLeft] = useState(0);
     const [percent, setPercent] = useState(0);
     const [timerString, setTimerString] = useState("--:--");
@@ -202,8 +208,15 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
             if (booking.phase2_res_idx) initP2Res = booking.phase2_res_idx.toLowerCase();
             setSelectedPhase1Res(initP1Res);
             setSelectedPhase2Res(initP2Res);
+
+            // --- [V108.69] Khởi tạo vị trí cho Single Service ---
+            let initSingleRes = 'auto';
+            if (booking.current_resource_id) initSingleRes = booking.current_resource_id.toLowerCase();
+            else if (booking.location) initSingleRes = booking.location.toLowerCase();
+            else if (contextResourceId) initSingleRes = contextResourceId.toLowerCase();
+            setSelectedSingleRes(initSingleRes);
         }
-    }, [isOpen, booking, meta, liveData, totalDuration]);
+    }, [isOpen, booking, meta, liveData, totalDuration, contextResourceId]);
 
     useEffect(() => {
         if (isOpen && booking) {
@@ -293,6 +306,22 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
         return list;
     }, [isBodyFirstLocal, switchMins, endMins, timelineData, booking?.rowId]);
 
+    // --- [V108.69] Tính toán giường/ghế trống cho Single Service ---
+    const availableSingleResources = useMemo(() => {
+        let type = 'bed';
+        if (booking.forceResourceType === 'CHAIR' || booking.flow === 'FOOTSINGLE') type = 'chair';
+        else if (booking.forceResourceType === 'BED' || booking.flow === 'BODYSINGLE') type = 'bed';
+        else if (contextResourceId) type = contextResourceId.split('-')[0];
+
+        const list = [];
+        for (let i = 1; i <= 6; i++) {
+            const resId = `${type}-${i}`;
+            const isOverlap = checkOverlap(resId, startMins, endMins, booking?.rowId);
+            if (!isOverlap) list.push(resId);
+        }
+        return list;
+    }, [booking, contextResourceId, startMins, endMins, timelineData]);
+
     useEffect(() => {
         if (selectedPhase1Res !== 'auto' && selectedPhase1Res !== 'full' && !availableP1Resources.includes(selectedPhase1Res)) {
             setSelectedPhase1Res('auto');
@@ -304,6 +333,13 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
             setSelectedPhase2Res('auto');
         }
     }, [availableP2Resources, selectedPhase2Res]);
+
+    // --- [V108.69] Xóa chọn Single Resource nếu không hợp lệ ---
+    useEffect(() => {
+        if (selectedSingleRes !== 'auto' && selectedSingleRes !== 'full' && !availableSingleResources.includes(selectedSingleRes)) {
+            setSelectedSingleRes('auto');
+        }
+    }, [availableSingleResources, selectedSingleRes]);
 
     const handleStartTimeChange = (e) => setStartTimeStr(e.target.value);
     const handleSwitchTimeChange = (e) => {
@@ -348,6 +384,10 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
     const isP1Full = availableP1Resources.length === 0;
     const isP2Full = availableP2Resources.length === 0;
     const isSaveDisabled = isP1Full || isP2Full;
+
+    // --- [V108.69] Biến cờ cho Single ---
+    const isSingleFull = availableSingleResources.length === 0;
+    const isSingleSaveDisabled = isSingleFull;
 
     return (
         <div className="fixed inset-0 z-[3000] flex items-center justify-center bg-black/70 backdrop-blur-sm animate-in fade-in duration-200 p-4">
@@ -534,7 +574,7 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                     </div>
 
                     {isCombo && (
-                        <div className="bg-white p-5 rounded-xl border shadow-sm transition-all border-indigo-100">
+                        <div className="bg-white p-5 rounded-xl border shadow-sm transition-all border-indigo-100 mt-4">
 
                             <div className="flex justify-between items-center mb-4">
                                 <h3 className="font-bold text-slate-700 flex items-center gap-2"><i className="fas fa-sliders-h text-indigo-500"></i> 套餐時間調整 (Combo Phase)</h3>
@@ -663,6 +703,82 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                             </div>
                         </div>
                     )}
+
+                    {/* --- [V108.69] KHỐI ĐIỀU CHỈNH THỜI GIAN/VỊ TRÍ CHO KHÁCH LẺ --- */}
+                    {!isCombo && (
+                        <div className="bg-white p-5 rounded-xl border shadow-sm transition-all border-emerald-100 mt-4">
+                            <div className="flex justify-between items-center mb-4">
+                                <h3 className="font-bold text-slate-700 flex items-center gap-2">
+                                    <i className="fas fa-clock text-emerald-500"></i> 單項服務調整 (Service Adjustment)
+                                </h3>
+                                <button
+                                    onClick={() => triggerAction('UPDATE_SINGLE_TIME_LOC', {
+                                        startTimeStr,
+                                        newResId: selectedSingleRes === 'auto' ? null : selectedSingleRes.toUpperCase()
+                                    })}
+                                    disabled={isSingleSaveDisabled}
+                                    className={`text-xs px-3 py-1.5 rounded font-bold border shadow-sm transition-all flex items-center ${isSingleSaveDisabled ? 'bg-gray-200 text-gray-400 border-gray-300 cursor-not-allowed' : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border-emerald-300'}`}
+                                >
+                                    <i className="fas fa-save mr-1"></i> 保存同步 (Save Sync)
+                                </button>
+                            </div>
+
+                            <div className="flex items-center justify-center gap-4 md:gap-8">
+                                {/* Start Time */}
+                                <div className="flex flex-col items-center">
+                                    <label className="block w-full text-xs font-bold mb-2 text-center text-emerald-600">開始時間 (Start)</label>
+                                    <div className="flex items-center gap-1.5 px-3 py-2 rounded-md border shadow-inner bg-emerald-50 border-emerald-200">
+                                        <i className="fas fa-play-circle text-emerald-500"></i>
+                                        <CustomTimePicker24h value={startTimeStr} onChange={handleStartTimeChange} />
+                                    </div>
+                                </div>
+
+                                {/* Arrow & Duration */}
+                                <div className="flex flex-col items-center justify-center mt-5 text-gray-400">
+                                    <i className="fas fa-arrow-right"></i>
+                                    <span className="text-[10px] font-bold mt-1">{totalDuration}分</span>
+                                </div>
+
+                                {/* End Time */}
+                                <div className="flex flex-col items-center">
+                                    <label className="block w-full text-xs font-bold mb-2 text-center text-emerald-600">結束時間 (End)</label>
+                                    <div className="flex items-center gap-1.5 px-3 py-2 rounded-md border shadow-inner opacity-80 cursor-not-allowed bg-slate-50 border-slate-200 text-slate-500 font-mono font-bold">
+                                        <i className="fas fa-flag-checkered"></i>
+                                        {endTimeStr}
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Location Choice */}
+                            <div className="mt-6 border-t border-slate-100 pt-4 flex flex-col items-center">
+                                <label className="block text-xs font-bold mb-2 text-center text-slate-500">安排座位/床位 (Location)</label>
+                                <div className="w-full max-w-[200px] relative">
+                                    <select
+                                        value={isSingleFull ? 'full' : selectedSingleRes}
+                                        onChange={(e) => setSelectedSingleRes(e.target.value)}
+                                        disabled={isSingleFull}
+                                        className={`w-full text-sm font-bold appearance-none bg-slate-50 border rounded-md py-2 pl-3 pr-8 focus:outline-none focus:border-emerald-400 cursor-pointer shadow-sm transition-colors ${isSingleFull ? 'bg-red-50 border-red-300 text-red-600 cursor-not-allowed' : (selectedSingleRes !== 'auto' ? 'border-emerald-300 bg-emerald-50 text-emerald-700' : 'border-slate-200 text-slate-700')}`}
+                                    >
+                                        {isSingleFull ? (
+                                            <option value="full">⛔️ 該時段已滿</option>
+                                        ) : (
+                                            <>
+                                                <option value="auto">🤖 自動安排 (Auto)</option>
+                                                {availableSingleResources.map(resId => (
+                                                    <option key={resId} value={resId}>
+                                                        {resId.replace('bed-', '🛏️ 床 ').replace('chair-', '👣 足 ')}
+                                                    </option>
+                                                ))}
+                                            </>
+                                        )}
+                                    </select>
+                                    <div className="pointer-events-none absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 text-[10px]">
+                                        <i className="fas fa-chevron-down"></i>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
                 </div>
 
                 {/* 3. ACTION FOOTER */}
@@ -716,9 +832,17 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
 };
 
 // ============================================================================
-// 1. TIMELINE VIEW
+// 1. TIMELINE VIEW (V108.58 - NÂNG CẤP NOW LINE)
 // ============================================================================
 const TimelineView = ({ timelineData, onEditPhase, liveStatusData, staffList, statusData, onOpenControlCenter }) => {
+    // --- KHỞI TẠO STATE & TIMER CHO NOW LINE ---
+    const [now, setNow] = useState(new Date());
+
+    useEffect(() => {
+        // Cập nhật biến `now` mỗi phút (60000ms) để đường kẻ tự trượt
+        const timer = setInterval(() => setNow(new Date()), 60000);
+        return () => clearInterval(timer);
+    }, []);
 
     const startHour = 8;
     const endHour = 27;
@@ -729,6 +853,22 @@ const TimelineView = ({ timelineData, onEditPhase, liveStatusData, staffList, st
     const ROW_HEIGHT = 60;
     const LEFT_COL_WIDTH = 80;
     const TOTAL_WIDTH = LEFT_COL_WIDTH + (hours.length * HOUR_WIDTH);
+
+    // --- TÍNH TOÁN VỊ TRÍ CỦA NOW LINE ---
+    const currentH = now.getHours();
+    const currentM = now.getMinutes();
+    let adjustedH = currentH;
+    // Nếu giờ thực tế < 8h sáng, ta cộng thêm 24h để hiển thị đúng ở khoảng cuối Timeline
+    if (adjustedH < startHour) {
+        adjustedH += 24;
+    }
+    const currentTotalMins = adjustedH * 60 + currentM;
+    const timelineStartMins = startHour * 60;
+    const timelineEndMins = endHour * 60;
+
+    // Kiểm tra xem giờ hiện tại có nằm trong vùng làm việc của Timeline hay không
+    const isNowVisible = currentTotalMins >= timelineStartMins && currentTotalMins <= timelineEndMins;
+    const nowLeftPos = LEFT_COL_WIDTH + (currentTotalMins - timelineStartMins) * PIXELS_PER_MIN;
 
     const colorPalette = [
         "bg-red-100 text-red-900 border-red-200 hover:bg-red-200",
@@ -851,7 +991,24 @@ const TimelineView = ({ timelineData, onEditPhase, liveStatusData, staffList, st
                 @keyframes pulse-border { 0% { border-color: #4f46e5; box-shadow: 0 0 0 0 rgba(79, 70, 229, 0.4); } 70% { border-color: #818cf8; box-shadow: 0 0 0 4px rgba(79, 70, 229, 0); } 100% { border-color: #4f46e5; box-shadow: 0 0 0 0 rgba(79, 70, 229, 0); } }
             `}</style>
 
-            <div style={{ width: `${TOTAL_WIDTH}px`, minWidth: '100%' }}>
+            <div style={{ width: `${TOTAL_WIDTH}px`, minWidth: '100%' }} className="relative min-h-full">
+
+                {/* --- [NÂNG CẤP V108.58] CURRENT TIME INDICATOR (NOW LINE) --- */}
+                {isNowVisible && (
+                    <div
+                        className="absolute top-0 bottom-0 z-[45] pointer-events-none flex flex-col transition-all duration-1000"
+                        style={{ left: `${nowLeftPos}px`, width: '1px' }}
+                    >
+                        <div className="sticky top-0 z-50 flex justify-center w-full">
+                            <div className="bg-red-600 text-white text-[10px] font-black px-1.5 py-0.5 rounded shadow-sm whitespace-nowrap" style={{ transform: 'translate(-50%, -5px)' }}>
+                                {String(now.getHours()).padStart(2, '0')}:{String(now.getMinutes()).padStart(2, '0')} 現在
+                            </div>
+                        </div>
+                        <div className="w-[1px] h-full bg-red-600 shadow-[0_0_2px_rgba(220,38,38,0.5)] absolute top-0 left-0 -z-10"></div>
+                    </div>
+                )}
+                {/* ------------------------------------------------------------- */}
+
                 {/* HEADER */}
                 <div className="flex sticky top-0 z-30 bg-slate-100 border-b border-slate-300 shadow-md h-[45px]">
                     <div className="sticky left-0 top-0 z-40 bg-[#e2e8f0] border-r border-slate-300 flex items-center justify-center font-extrabold text-slate-700 text-sm shadow-[2px_0_5px_rgba(0,0,0,0.1)]"
@@ -956,7 +1113,7 @@ const TimelineView = ({ timelineData, onEditPhase, liveStatusData, staffList, st
                                                         {displayStaff}
                                                         {isBodyFirst && <span className="text-[9px] bg-indigo-600 text-white px-1 rounded-sm animate-pulse" title="Body First (先身後足)">BF</span>}
                                                         {isOil && <span className="text-[10px]" title="精油 (Oil)">💧</span>}
-                                                        {isGuaSha && <span className="text-[10px] text-red-600" title="刮痧/拔罐 (Gua Sha / Cupping)">[刮]</span>}
+                                                        {isGuaSha && <span className="text-[10px]" title="刮痧/拔罐 (Gua Sha / Cupping)">🔥</span>}
                                                     </div>
                                                     <div className={`text-[10px] font-bold font-mono px-1 rounded border border-black/5 shadow-sm ${isTimeAnomaly ? 'bg-orange-100 text-orange-800 animate-pulse' : 'bg-white/50 text-slate-800'}`}>
                                                         {timeLabel}
@@ -1543,7 +1700,7 @@ const ResourceCard = ({ id, type, index, data, busyStaffIds, onAction, onSelect,
                     {/* HIỂN THỊ TAG TINH DẦU & CẠO GIÓ */}
                     <div className="flex flex-wrap justify-center gap-1 mt-1">
                         {isOilJob && <div className="text-xs text-purple-600 font-bold border border-purple-200 bg-purple-50 rounded px-2 py-1 inline-block">💧 精油 (Oil)</div>}
-                        {isGuaShaJob && <div className="text-xs text-red-600 font-bold border border-red-200 bg-red-50 rounded px-2 py-1 inline-block">[刮] 刮/罐</div>}
+                        {isGuaShaJob && <div className="text-xs text-orange-600 font-bold border border-orange-200 bg-orange-50 rounded px-2 py-1 inline-block">🔥 刮/罐</div>}
                     </div>
 
                     {data.isRunning && !isPreview && startObj && (<div className="bg-slate-50 rounded p-2 text-xs text-left space-y-1 mt-2 border border-slate-200 shadow-inner opacity-90"><div className="text-slate-600 font-bold flex justify-between"><span>🕒 開始:</span> <span className="font-mono text-blue-600">{formatTimeStr(startObj)}</span></div>{isCombo && switchObj && <div className="text-slate-500 flex justify-between"><span>⇄ 轉場:</span> <span className="font-mono text-orange-500">{formatTimeStr(switchObj)}</span></div>}<div className="text-slate-600 font-bold flex justify-between"><span>🏁 結束:</span> <span className="font-mono text-green-600">{formatTimeStr(endObj)}</span></div></div>)}

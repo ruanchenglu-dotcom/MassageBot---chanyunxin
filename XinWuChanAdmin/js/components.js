@@ -1,6 +1,6 @@
 // FILE: js/components.js
-// PHIÊN BẢN: V108.49 (RESTORED MODALS & SYNC UI)
-// CẬP NHẬT: 2026-04-06
+// PHIÊN BẢN: V108.50 (UPGRADE: QUEUE-SAFE STAFFTIME ON CHECK-IN)
+// CẬP NHẬT: 2026-04-08
 
 const { useState, useEffect, useMemo, useRef } = React;
 
@@ -213,15 +213,48 @@ const CheckInBoard = ({ staffList, statusData, onClose, onUpdateStatus, bookings
     const toggleCheckIn = (id) => {
         const current = (statusData && statusData[id]) ? statusData[id] : {};
         const newStatus = current.status === 'READY' || current.status === 'EAT' ? 'AWAY' : 'READY';
-        let newTime = 0;
+
+        let newCheckInTime = 0;
+        let newStaffTime = 0;
+
         if (newStatus !== 'AWAY') {
+            // --- 1. Giữ nguyên logic checkInTime (Thời gian thực tế hiển thị trên UI) ---
             if (typeof window._lastCheckInTime === 'undefined') window._lastCheckInTime = 0;
             let now = Date.now();
             if (now <= window._lastCheckInTime) now = window._lastCheckInTime + 1;
             window._lastCheckInTime = now;
-            newTime = now;
+            newCheckInTime = now;
+
+            // --- 2. LOGIC MỚI CHO stafftime (Dùng để bảo toàn vị trí xếp hạng chót) ---
+            let maxStaffTime = -1;
+
+            if (statusData) {
+                const readyTimes = Object.entries(statusData)
+                    .filter(([key, staff]) => staff.status === 'READY' && key !== id)
+                    .map(([_, staff]) => Number(staff.stafftime))
+                    .filter(t => !isNaN(t));
+
+                if (readyTimes.length > 0) {
+                    maxStaffTime = Math.max(...readyTimes);
+                }
+            }
+
+            if (maxStaffTime > 0) {
+                newStaffTime = maxStaffTime + 100; // Đảm bảo luôn đứng xếp sau cùng
+            } else {
+                newStaffTime = newCheckInTime; // Fallback nếu không có ai đang READY
+            }
         }
-        const newState = { ...statusData, [id]: { ...current, status: newStatus, checkInTime: newTime, stafftime: newTime } };
+
+        const newState = {
+            ...statusData,
+            [id]: {
+                ...current,
+                status: newStatus,
+                checkInTime: newCheckInTime,
+                stafftime: newStaffTime
+            }
+        };
         onUpdateStatus(newState);
     };
 

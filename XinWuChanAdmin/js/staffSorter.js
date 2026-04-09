@@ -1,9 +1,9 @@
 // File: js/staffSorter.js
-// Phiên bản: V11 (Nâng cấp: Đồng bộ trạng thái BUSY tức thì cho Batch Start)
-// Cập nhật: 2026-04-06
+// Phiên bản: V12 (Nâng cấp: Xử lý an toàn stafftime & Tối ưu hóa thứ tự BUSY/READY)
+// Cập nhật: 2026-04-07
 
 (function () {
-    console.log("🚀 StaffSorter Module: Loaded (V11 - Instant Busy Sync & Queue)");
+    console.log("🚀 StaffSorter Module: Loaded (V12 - Safe Stafftime & Strict Queue Sync)");
 
     const StaffSorter = {
         // =========================================================================
@@ -66,11 +66,12 @@
                 const staffIdA = StaffSorter.getStaffIdFromPaymentItem(a);
                 const staffIdB = StaffSorter.getStaffIdFromPaymentItem(b);
 
-                const timeA = safeStatus[staffIdA]?.stafftime || 0;
-                const timeB = safeStatus[staffIdB]?.stafftime || 0;
+                // Dùng Number.MAX_SAFE_INTEGER để chống lỗi dữ liệu trống (undefined)
+                const timeA = safeStatus[staffIdA]?.stafftime || Number.MAX_SAFE_INTEGER;
+                const timeB = safeStatus[staffIdB]?.stafftime || Number.MAX_SAFE_INTEGER;
 
-                if (timeA > 0 && timeB > 0 && timeA !== timeB) {
-                    return timeA - timeB;
+                if (timeA !== timeB) {
+                    return timeA - timeB; // Tăng dần (FIFO)
                 }
 
                 // --- BƯỚC 3: DỰ PHÒNG THEO SỐ GHẾ ---
@@ -100,9 +101,6 @@
             safeStaffList.forEach(s => {
                 const currentStat = safeStatus[s.id] || { status: 'AWAY' };
 
-                // [NÂNG CẤP V11]: Bổ sung kiểm tra currentStat.status === 'BUSY'
-                // Giúp thợ vừa bắt đầu (VD: người thứ 3 trong nhóm) lập tức nhảy sang mảng busy 
-                // ngay cả khi dữ liệu Resource (giường/ghế) chưa kịp đồng bộ xong.
                 if (StaffSorter.isActuallyBusy(s.id, safeRes) || currentStat.status === 'BUSY') {
                     busyList.push(s);
                 } else {
@@ -116,10 +114,11 @@
             });
 
             // --- SẮP XẾP NHÓM BUSY ---
-            // Sắp xếp TĂNG DẦN (timeA - timeB): Người làm lâu nhất (ms nhỏ nhất) nằm đầu mảng.
+            // Sắp xếp TĂNG DẦN (timeA - timeB): Người làm lâu nhất nằm đầu mảng (index 0).
+            // Do view render ở app.js dùng flex-row-reverse, index 0 sẽ được đẩy qua góc phải cùng.
             busyList.sort((a, b) => {
-                const timeA = safeStatus[a.id]?.stafftime || 0;
-                const timeB = safeStatus[b.id]?.stafftime || 0;
+                const timeA = safeStatus[a.id]?.stafftime || Number.MAX_SAFE_INTEGER;
+                const timeB = safeStatus[b.id]?.stafftime || Number.MAX_SAFE_INTEGER;
 
                 if (timeA !== timeB) {
                     return timeA - timeB;
@@ -129,10 +128,10 @@
             });
 
             // --- SẮP XẾP NHÓM READY ---
-            // Sắp xếp TĂNG DẦN (timeA - timeB)
+            // Sắp xếp TĂNG DẦN (timeA - timeB): Người đợi lâu nhất nằm đầu mảng (index 0).
             readyList.sort((a, b) => {
-                const timeA = safeStatus[a.id]?.stafftime || 0;
-                const timeB = safeStatus[b.id]?.stafftime || 0;
+                const timeA = safeStatus[a.id]?.stafftime || Number.MAX_SAFE_INTEGER;
+                const timeB = safeStatus[b.id]?.stafftime || Number.MAX_SAFE_INTEGER;
 
                 if (timeA !== timeB) {
                     return timeA - timeB;
