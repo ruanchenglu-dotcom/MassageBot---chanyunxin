@@ -2,12 +2,12 @@
  * =================================================================================================
  * PROJECT: XINWUCHAN MASSAGE BOT - FRONTEND CONTROLLER & LOGIC BRIDGE
  * FILE: js/bookingHandler.js
- * PHIÊN BẢN: V113.8.1 (UI/UX BIG SCREEN UPGRADE)
+ * PHIÊN BẢN: V113.8.3 (UI/UX BIG SCREEN UPGRADE + QUICK NOTES REACTIVITY FIX)
  * =================================================================================================
  */
 
 (function () {
-    console.log("🚀 BookingHandler V113.8.1: Big Screen UI/UX Upgraded.");
+    console.log("🚀 BookingHandler V113.8.3: Big Screen UI/UX Upgraded with Admin Quick Notes Reactivity.");
 
     // Kiểm tra môi trường React
     if (typeof React === 'undefined') {
@@ -930,7 +930,7 @@
     const forceGlobalRefresh = () => { if (typeof window.fetchDataAndRender === 'function') window.fetchDataAndRender(); else window.location.reload(); };
 
     // ==================================================================================
-    // 4. COMPONENT: PHONE BOOKING MODAL (UPDATED V113.8.1 - UI/UX SCALE UP)
+    // 4. COMPONENT: PHONE BOOKING MODAL (UPDATED V113.8.3 - REACTIVE QUICK NOTES)
     // ==================================================================================
     const NewAvailabilityCheckModal = ({ onClose, onSave, staffList, bookings, initialDate, editingBooking }) => {
         const safeStaffList = useMemo(() => staffList || [], [staffList]);
@@ -951,10 +951,9 @@
         // --- TITLE STATE ---
         const [form, setForm] = useState({
             date: initialDate || new Date().toISOString().slice(0, 10),
-            time: "12:00", pax: 1, custName: '', custTitle: '', custPhone: ''
+            time: "12:00", pax: 1, custName: '', custTitle: '', custPhone: '', adminNote: ''
         });
 
-        // Cập nhật State mặc định cho guestDetails có thêm isGuaSha
         const [guestDetails, setGuestDetails] = useState([{ service: defaultService, staff: '隨機', isOil: false, isGuaSha: false }]);
 
         useEffect(() => {
@@ -965,7 +964,6 @@
                     if (parts.length >= 2) { dateStr = parts[0].replace(/\//g, '-'); timeStr = parts[1].substring(0, 5); }
                 }
 
-                // --- Xử lý tách riêng Tên và Danh xưng khi Edit ---
                 let rawName = (editingBooking.customerName || "").split('(')[0].trim();
                 let parsedTitle = '';
                 if (rawName.endsWith('先生')) {
@@ -976,24 +974,31 @@
                     rawName = rawName.slice(0, -2).trim();
                 }
 
-                // Parse ghiChu để xem có 刮痧/拔罐 không
                 const noteStr = editingBooking.ghiChu || editingBooking.note || "";
 
                 setForm({
                     date: dateStr, time: timeStr, pax: editingBooking.pax || 1,
                     custName: rawName,
                     custTitle: parsedTitle,
-                    custPhone: editingBooking.phone || ""
+                    custPhone: editingBooking.phone || "",
+                    adminNote: editingBooking.adminNote || ""
                 });
                 setGuestDetails([{
                     service: editingBooking.serviceName || defaultService,
                     staff: editingBooking.staffId || '隨機',
                     isOil: editingBooking.isOil || false,
-                    isGuaSha: noteStr.includes('刮痧/拔罐') // Bật cờ GuaSha nếu trong ghi chú cũ có
+                    isGuaSha: noteStr.includes('刮痧/拔罐')
                 }]);
             }
             fetchLiveServerData(true).then(data => { if (data) setServerData(data); });
         }, [editingBooking, initialDate, defaultService]);
+
+        // Cập nhật: Tạo mảng lựa chọn nhanh reactive và sạch (lọc rác)
+        const safeQuickNotes = useMemo(() => {
+            const rawList = serverData?.quickNotes || window.QUICK_NOTES || [];
+            if (!Array.isArray(rawList)) return [];
+            return rawList.filter(n => typeof n === 'string' && n.trim() !== '');
+        }, [serverData]);
 
         const handleTimeChange = useCallback((type, value) => {
             setForm(prev => {
@@ -1029,7 +1034,6 @@
                     c[idx].isOil = !c[idx].isOil;
                 }
                 else if (field === 'toggleGuaSha') {
-                    // Logic bật tắt cạo gió
                     c[idx].isGuaSha = !c[idx].isGuaSha;
                 }
                 return c;
@@ -1041,7 +1045,6 @@
             setShowSurnamePicker(false);
         };
 
-        // --- Hàm Toggle trạng thái Danh Xưng ---
         const handleTitleToggle = (titleOption) => {
             setForm(prev => ({
                 ...prev,
@@ -1081,7 +1084,6 @@
         const handleFinalSave = async (e) => {
             if (e) e.preventDefault(); if (isSubmitting) return;
 
-            // --- Nối tên và danh xưng trước khi check rỗng ---
             const finalCustName = (form.custName.trim() + (form.custTitle || '')).trim();
             if (!finalCustName) { alert("⚠️ 請輸入顧客姓名 (Enter Name)!"); return; }
 
@@ -1138,21 +1140,18 @@
                 });
 
                 const oils = detailedGuests.map((g, i) => g.isOil ? `K${i + 1}:精油` : null).filter(Boolean);
-                // Cập nhật: Tạo mảng ghi chú cho Cạo gió/Giác hơi
                 const guaShas = detailedGuests.map((g, i) => g.isGuaSha ? `K${i + 1}:刮痧/拔罐` : null).filter(Boolean);
-
                 const flows = detailedGuests.map((g, i) => {
                     if (g.flow === 'BF') return `K${i + 1}:先做身體`;
                     if (g.flow === 'FB') return `K${i + 1}:先做腳`;
                     return null;
                 }).filter(Boolean);
 
-                // Gộp tất cả các ghi chú lại (Bao gồm Tinh dầu, Cạo gió, Flow)
                 const noteParts = [...oils, ...guaShas, ...flows];
                 const noteStr = noteParts.length > 0 ? `(${noteParts.join(', ')})` : "";
 
                 const payload = {
-                    hoTen: finalCustName, // Dùng tên đã nối với danh xưng
+                    hoTen: finalCustName,
                     sdt: form.custPhone || "",
                     dichVu: detailedGuests.map(g => g.service).join(','),
                     pax: form.pax,
@@ -1167,6 +1166,7 @@
                     staffId5: detailedGuests[4]?.staff || null,
                     staffId6: detailedGuests[5]?.staff || null,
                     ghiChu: noteStr,
+                    adminNote: form.adminNote,
                     guestDetails: detailedGuests,
                     mainFlow: detailedGuests[0].flowCode,
                     phase1_duration: detailedGuests[0].phase1_duration,
@@ -1230,7 +1230,7 @@
                 <div className="fixed inset-0 bg-slate-900/90 z-[100] flex items-center justify-center p-2 sm:p-6">
                     <div className="bg-white w-full max-w-[1000px] rounded-2xl shadow-2xl flex flex-col h-[98vh] sm:h-[90vh] overflow-hidden animate-fadeIn">
                         <div className={`${editingBooking ? 'bg-orange-600' : 'bg-[#0891b2]'} p-6 text-white flex justify-between items-center shrink-0`}>
-                            <h3 className="font-bold text-2xl">{editingBooking ? "✏️ 修改預約 (Edit)" : "📅 電話預約 (V113.8.1)"}</h3>
+                            <h3 className="font-bold text-2xl">{editingBooking ? "✏️ 修改預約 (Edit)" : "📅 電話預約 (V113.8.3)"}</h3>
                             <button onClick={onClose} className="text-4xl hover:text-red-100 leading-none">&times;</button>
                         </div>
 
@@ -1284,7 +1284,6 @@
                                                     <optgroup label="技師">{safeStaffList.map(s => <option key={s.id} value={s.id}>{s.id}</option>)}</optgroup>
                                                 </select>
 
-                                                {/* Nút Tinh Dầu */}
                                                 <button
                                                     onClick={(e) => { e.preventDefault(); handleGuestUpdate(i, 'toggleOil'); }}
                                                     className={`flex-[0.7] min-w-[70px] px-2 shrink-0 border-2 rounded-lg font-bold text-base sm:text-lg h-[64px] transition-colors whitespace-nowrap flex items-center justify-center gap-1 ${g.isOil ? 'bg-orange-100 text-orange-700 border-orange-400 shadow-sm' : 'bg-slate-100 text-slate-400 border-slate-300 hover:bg-slate-200'}`}
@@ -1292,7 +1291,6 @@
                                                     <span className={g.isOil ? "opacity-100" : "opacity-50"}>💧</span>精油
                                                 </button>
 
-                                                {/* Nút Cạo Gió/Giác Hơi */}
                                                 <button
                                                     onClick={(e) => { e.preventDefault(); handleGuestUpdate(i, 'toggleGuaSha'); }}
                                                     className={`flex-[0.7] min-w-[70px] px-2 shrink-0 border-2 rounded-lg font-bold text-base sm:text-lg h-[64px] transition-colors whitespace-nowrap flex items-center justify-center gap-1 ${g.isGuaSha ? 'bg-red-100 text-red-700 border-red-400 shadow-sm' : 'bg-slate-100 text-slate-400 border-slate-300 hover:bg-slate-200'}`}
@@ -1374,7 +1372,6 @@
                                                 placeholder="輸入姓名..."
                                                 disabled={isSubmitting}
                                             />
-                                            {/* --- CỤM NÚT DANH XƯNG & HỌ --- */}
                                             <button
                                                 onClick={(e) => { e.preventDefault(); handleTitleToggle('先生'); }}
                                                 className={`flex-[1] border-2 rounded-xl font-bold text-xl transition-colors whitespace-nowrap ${form.custTitle === '先生' ? 'bg-blue-600 text-white border-blue-600 shadow-md' : 'bg-blue-50 text-blue-700 border-blue-300 hover:bg-blue-100'}`}
@@ -1409,6 +1406,39 @@
                                         />
                                     </div>
 
+                                    {/* --- BỔ SUNG TRƯỜNG GHI CHÚ ĐẶC BIỆT & CHỌN NHANH ĐÃ SỬA LỖI REACTIVITY --- */}
+                                    <div>
+                                        <label className="text-lg font-bold text-gray-500 mb-2 block">特別要求 / 備註 (Admin Note)</label>
+                                        <div className="flex gap-3">
+                                            <input
+                                                className="flex-[2] border-2 border-slate-300 p-4 rounded-xl font-bold text-xl outline-none focus:border-indigo-500"
+                                                value={form.adminNote}
+                                                onChange={e => setForm({ ...form, adminNote: e.target.value })}
+                                                placeholder="輸入特別要求..."
+                                                disabled={isSubmitting}
+                                            />
+                                            <select
+                                                className="flex-[1] border-2 border-orange-300 bg-orange-50 text-orange-800 p-4 rounded-xl font-bold text-xl outline-none cursor-pointer"
+                                                onChange={(e) => {
+                                                    const val = e.target.value;
+                                                    if (val) {
+                                                        setForm(prev => ({
+                                                            ...prev,
+                                                            adminNote: prev.adminNote ? prev.adminNote + ' ' + val : val
+                                                        }));
+                                                        e.target.value = ""; // Reset dropdown after selection
+                                                    }
+                                                }}
+                                                disabled={isSubmitting}
+                                            >
+                                                <option value="">⚡ 快速選擇</option>
+                                                {safeQuickNotes.map((note, idx) => (
+                                                    <option key={idx} value={note}>{note}</option>
+                                                ))}
+                                            </select>
+                                        </div>
+                                    </div>
+
                                     <div className="flex gap-4 pt-6 mt-auto">
                                         <button onClick={(e) => { e.preventDefault(); if (!isSubmitting) setStep('CHECK'); }} className="flex-[1] bg-gray-200 p-5 rounded-xl font-bold text-gray-700 hover:bg-gray-300 text-xl" disabled={isSubmitting}>
                                             ⬅️ 返回 (Back)
@@ -1429,7 +1459,7 @@
     const overrideInterval = setInterval(() => {
         if (window.AvailabilityCheckModal !== NewAvailabilityCheckModal) {
             window.AvailabilityCheckModal = NewAvailabilityCheckModal;
-            console.log("♻️ AvailabilityModal Injected (V113.8.1 - Big Screen UI/UX)");
+            console.log("♻️ AvailabilityModal Injected (V113.8.3 - Reactive Quick Notes Fixed)");
         }
     }, 200);
     setTimeout(() => { clearInterval(overrideInterval); }, 5000);

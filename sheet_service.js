@@ -1,8 +1,11 @@
 /**
  * =================================================================================================
- * MODULE: SHEET SERVICE (DATA LAYER) - REFACTORED V6.1
+ * MODULE: SHEET SERVICE (DATA LAYER) - REFACTORED V6.1.1
  * PROJECT: XINWUCHAN MASSAGE BOT
  * DESCRIPTION: Handles Google Sheets interactions. 
+ * * * * * UPDATE V6.1.1 (INIT & AUTO-SYNC QUICK NOTES):
+ * + [FEATURE] Thêm hàm init() để nạp dữ liệu ngay khi khởi động server.
+ * + [FEATURE] Tích hợp syncQuickNotes() vào luồng syncData() tự động.
  * * * * * UPDATE V6.1 (ADMIN NOTE & QUICK SELECT INTEGRATION):
  * + [FEATURE] Thêm logic đọc/ghi ghi chú đặc biệt của Admin (adminNote) vào Cột R.
  * + [FEATURE] Thêm hàm syncQuickNotes() để tải danh sách yêu cầu thường gặp từ Sheet 'name' Cột N.
@@ -159,6 +162,19 @@ function resolveStrictLockState(explicitLock, hasManualPhase, currentStatus = "F
 // PHẦN 2: SYNC ENGINE (ĐỌC VÀ ĐỒNG BỘ DỮ LIỆU TỪ GOOGLE SHEETS)
 // =============================================================================
 
+// --- [V6.1.1] HÀM KHỞI TẠO CHUNG LÚC SERVER START ---
+async function init() {
+    try {
+        console.log("[SHEET SERVICE] Đang khởi tạo dữ liệu ban đầu...");
+        await syncQuickNotes(); // Tải danh sách ghi chú
+        await syncMenuData();   // Tải menu dịch vụ
+        await syncData();       // Tải booking và schedule
+        console.log("[SHEET SERVICE] Khởi tạo hoàn tất!");
+    } catch (error) {
+        console.error("[SHEET SERVICE] Lỗi trong quá trình khởi tạo:", error);
+    }
+}
+
 // --- [V6.1] Hàm Đọc Danh Sách Ghi Chú Nhanh ---
 async function syncQuickNotes() {
     try {
@@ -227,6 +243,10 @@ async function syncData() {
 
     try {
         STATE.isSyncing = true;
+
+        // --- BƯỚC 0: [V6.1.1] ĐỒNG BỘ GHI CHÚ NHANH (QUICK NOTES) ---
+        // Gọi ở đây để mỗi khi reload data định kỳ, file lấy danh sách mới nếu Admin có sửa đổi trên Sheet
+        await syncQuickNotes();
 
         // --- BƯỚC 1: ĐỌC BOOKING TỪ SHEET1 ---
         const resBooking = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: `${BOOKING_SHEET}!A:AE` });
@@ -829,6 +849,7 @@ async function syncDailySalary(dateStr, staffDataList) {
 // =============================================================================
 
 module.exports = {
+    init, // [V6.1.1] Export hàm khởi tạo
     getServices: () => STATE.SERVICES,
     getStaffList: () => STATE.STAFF_LIST,
     getBookings: () => STATE.cachedBookings,

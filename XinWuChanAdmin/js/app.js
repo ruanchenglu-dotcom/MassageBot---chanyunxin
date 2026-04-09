@@ -2995,10 +2995,8 @@ const App = () => {
             </header>
 
             <div className="bg-white border-b shadow-sm p-2 overflow-x-auto whitespace-nowrap staff-scroll">
-                <div className="flex w-full justify-between items-center min-w-max">
-                    <div className="flex gap-1 opacity-30 scale-95 border-r-2 pr-2 mr-1 border-dashed border-slate-300">
-                        {awayStaff.map(s => window.StaffCard3D && <window.StaffCard3D key={s.id} s={s} statusData={statusData} resourceState={resourceState} />)}
-                    </div>
+                <div className="flex w-full justify-end items-center min-w-max">
+                    {/* Nhóm Away (awayStaff) đã được ẩn đi theo yêu cầu nâng cấp */}
                     <div className="flex items-center flex-1 justify-end pl-2">
                         <div className="flex gap-1 px-2 border-r border-red-100 flex-row-reverse">
                             {busyStaff.map(s => window.StaffCard3D && <window.StaffCard3D key={s.id} s={s} statusData={statusData} resourceState={resourceState} isForcedBusy={true} />)}
