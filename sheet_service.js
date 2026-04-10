@@ -1,8 +1,11 @@
 /**
  * =================================================================================================
- * MODULE: SHEET SERVICE (DATA LAYER) - REFACTORED V6.1.1
+ * MODULE: SHEET SERVICE (DATA LAYER) - REFACTORED V6.1.2
  * PROJECT: XINWUCHAN MASSAGE BOT
  * DESCRIPTION: Handles Google Sheets interactions. 
+ * * * * * UPDATE V6.1.2 (DYNAMIC SCAN & RENDER ENV FIX):
+ * + [FEATURE] Cập nhật Auth để đọc process.env trên Render, tự động fix lỗi ký tự \n của private_key.
+ * + [FEATURE] Đổi range đọc Menu sang quét động (Dynamic Scan) `${MENU_SHEET}!A2:Z` không giới hạn.
  * * * * * UPDATE V6.1.1 (INIT & AUTO-SYNC QUICK NOTES):
  * + [FEATURE] Thêm hàm init() để nạp dữ liệu ngay khi khởi động server.
  * + [FEATURE] Tích hợp syncQuickNotes() vào luồng syncData() tự động.
@@ -38,10 +41,24 @@ const STATUS_KEYWORDS = {
 };
 
 // --- GOOGLE AUTHENTICATION ---
-const auth = new google.auth.GoogleAuth({
-    keyFile: 'google-key.json',
-    scopes: ['https://www.googleapis.com/auth/spreadsheets'],
-});
+let auth;
+if (process.env.GOOGLE_PRIVATE_KEY && process.env.GOOGLE_CLIENT_EMAIL) {
+    // [V6.1.2] Ưu tiên đọc biến môi trường (Hỗ trợ Render) và fix lỗi định dạng xuống dòng
+    auth = new google.auth.GoogleAuth({
+        credentials: {
+            client_email: process.env.GOOGLE_CLIENT_EMAIL,
+            private_key: process.env.GOOGLE_PRIVATE_KEY.replace(/\\n/g, '\n'),
+        },
+        scopes: ['https://www.googleapis.com/auth/spreadsheets'],
+    });
+} else {
+    // Fallback cho môi trường Local
+    auth = new google.auth.GoogleAuth({
+        keyFile: 'google-key.json',
+        scopes: ['https://www.googleapis.com/auth/spreadsheets'],
+    });
+}
+
 const sheets = google.sheets({ version: 'v4', auth });
 
 // --- INTERNAL STATE (IN-MEMORY CACHE) ---
@@ -192,7 +209,8 @@ async function syncQuickNotes() {
 
 async function syncMenuData() {
     try {
-        const res = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: `${MENU_SHEET}!A2:Z150` });
+        // [V6.1.2 NÂNG CẤP]: Quét động toàn bộ bảng dữ liệu không giới hạn dòng
+        const res = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: `${MENU_SHEET}!A2:Z` });
         const rows = res.data.values;
         if (!rows || rows.length === 0) return;
 
