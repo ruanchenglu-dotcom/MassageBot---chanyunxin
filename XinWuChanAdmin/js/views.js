@@ -1,16 +1,24 @@
 /**
  * ============================================================================
  * FILE: js/views.js
- * PHIÊN BẢN: V109.0 (24/7 TIMELINE, 9 BEDS/CHAIRS)
+ * PHIÊN BẢN: V110.0 (CENTRALIZED CONFIGURATION ENABLED)
  * ============================================================================
- * CHANGE LOG V109.0:
- * - [SCALE UP]: Mở rộng Timeline hiển thị 9 giường (Bed) và 9 ghế (Chair).
- * - [TIME SHIFT]: Timeline bắt đầu từ 5:00 sáng đến 5:00 sáng hôm sau (24h).
- * - [LOGIC]: Điều chỉnh lại mốc 300 phút (5h sáng) thay vì 480 phút (8h sáng) 
- * cho các tính toán sửa thời gian trong BookingControlModal.
+ * CHANGE LOG V110.0:
+ * - [CENTRALIZED CONFIG]: Tích hợp window.SYSTEM_CONFIG để điều khiển động số
+ * lượng giường (MAX_BEDS), ghế (MAX_CHAIRS), giờ mở cửa (OPEN_HOUR), và lương.
+ * - [AUTO-SCALE]: Tự động render timeline và modal theo thông số cấu hình.
+ * - Giữ nguyên giao diện Traditional Chinese và toàn bộ logic hiện có.
  */
 
 const { useState, useEffect, useMemo, useRef } = React;
+
+// --- GLOBAL SYSTEM CONFIG GETTERS (FALLBACK TO DEFAULTS IF DATA.JS NOT READY) ---
+const getConfig = () => window.SYSTEM_CONFIG || {};
+const getMaxChairs = () => getConfig().MAX_CHAIRS || 9;
+const getMaxBeds = () => getConfig().MAX_BEDS || 9;
+const getOpenHour = () => getConfig().OPEN_HOUR !== undefined ? getConfig().OPEN_HOUR : 5;
+const getOpenMins = () => getOpenHour() * 60;
+const getRatesConfig = () => getConfig().RATES || { JIE_PRICE: 250, OIL_BONUS: 80 };
 
 // --- COMPONENT CHỌN GIỜ 24H TÙY CHỈNH ---
 const CustomTimePicker24h = ({ value, onChange, disabled }) => {
@@ -261,8 +269,9 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
     const phase2 = totalDuration - phase1;
     let startMins = timeStrToMins(startTimeStr);
 
-    // [Nâng cấp V109.0] Ca qua đêm tính từ mốc 5h sáng (300 phút)
-    if (startMins < 300) startMins += 1440;
+    // [V110.0] Ca qua đêm tính từ mốc Open Hour từ Config
+    const openMins = getOpenMins();
+    if (startMins < openMins) startMins += 1440;
 
     const switchMins = startMins + phase1;
     const endMins = startMins + totalDuration;
@@ -283,9 +292,9 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
 
     const availableP1Resources = useMemo(() => {
         const type = isBodyFirstLocal ? 'bed' : 'chair';
+        const maxCount = type === 'bed' ? getMaxBeds() : getMaxChairs();
         const list = [];
-        // [Nâng cấp V109.0] Quét 9 giường/ghế
-        for (let i = 1; i <= 9; i++) {
+        for (let i = 1; i <= maxCount; i++) {
             const resId = `${type}-${i}`;
             const isOverlap = checkOverlap(resId, startMins, switchMins, booking?.rowId);
             if (!isOverlap) list.push(resId);
@@ -296,9 +305,9 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
     const availableP2Resources = useMemo(() => {
         const type = isBodyFirstLocal ? 'chair' : 'bed';
         const p2Start = switchMins + 5;
+        const maxCount = type === 'bed' ? getMaxBeds() : getMaxChairs();
         const list = [];
-        // [Nâng cấp V109.0] Quét 9 giường/ghế
-        for (let i = 1; i <= 9; i++) {
+        for (let i = 1; i <= maxCount; i++) {
             const resId = `${type}-${i}`;
             const isOverlap = checkOverlap(resId, p2Start, endMins, booking?.rowId);
             if (!isOverlap) list.push(resId);
@@ -312,9 +321,9 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
         else if (booking.forceResourceType === 'BED' || booking.flow === 'BODYSINGLE') type = 'bed';
         else if (contextResourceId) type = contextResourceId.split('-')[0];
 
+        const maxCount = type === 'bed' ? getMaxBeds() : getMaxChairs();
         const list = [];
-        // [Nâng cấp V109.0] Quét 9 giường/ghế
-        for (let i = 1; i <= 9; i++) {
+        for (let i = 1; i <= maxCount; i++) {
             const resId = `${type}-${i}`;
             const isOverlap = checkOverlap(resId, startMins, endMins, booking?.rowId);
             if (!isOverlap) list.push(resId);
@@ -346,8 +355,8 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
         const newSwitchStr = e.target.value;
         if (!newSwitchStr) return;
         let newSwitchMins = timeStrToMins(newSwitchStr);
-        // [Nâng cấp V109.0] Ca qua đêm tính từ mốc 5h sáng
-        if (newSwitchMins < 300) newSwitchMins += 1440;
+        // [V110.0] Ca qua đêm tính từ mốc Open Hour từ Config
+        if (newSwitchMins < getOpenMins()) newSwitchMins += 1440;
 
         let diff = newSwitchMins - startMins;
         if (diff < 0 && (newSwitchMins + 1440) - startMins <= totalDuration) {
@@ -859,9 +868,9 @@ const TimelineView = ({ timelineData, onEditPhase, liveStatusData, staffList, st
         return () => clearInterval(timer);
     }, []);
 
-    // [Nâng cấp V109.0] Thay đổi thời gian từ 5h sáng đến 5h sáng hôm sau (24 tiếng)
-    const startHour = 5;
-    const endHour = 29;
+    // [V110.0] Thay đổi thời gian dựa trên Config
+    const startHour = getOpenHour();
+    const endHour = startHour + 24;
     const hours = Array.from({ length: endHour - startHour + 1 }, (_, i) => i + startHour);
 
     const PIXELS_PER_MIN = 2.2;
@@ -920,10 +929,12 @@ const TimelineView = ({ timelineData, onEditPhase, liveStatusData, staffList, st
         return `${displayH}:00`;
     };
 
-    // [Nâng cấp V109.0] 9 ghế và 9 giường
+    // [V110.0] Động hóa ghế và giường dựa trên Config
+    const numChairs = getMaxChairs();
+    const numBeds = getMaxBeds();
     const rows = [
-        ...Array.from({ length: 9 }, (_, i) => ({ id: `chair-${i + 1}`, label: `足 ${i + 1}`, type: 'chair' })),
-        ...Array.from({ length: 9 }, (_, i) => ({ id: `bed-${i + 1}`, label: `床 ${i + 1}`, type: 'bed' }))
+        ...Array.from({ length: numChairs }, (_, i) => ({ id: `chair-${i + 1}`, label: `足 ${i + 1}`, type: 'chair' })),
+        ...Array.from({ length: numBeds }, (_, i) => ({ id: `bed-${i + 1}`, label: `床 ${i + 1}`, type: 'bed' }))
     ];
 
     const getDisplayLabel = (booking) => {
@@ -1036,7 +1047,7 @@ const TimelineView = ({ timelineData, onEditPhase, liveStatusData, staffList, st
 
                 <div className="relative bg-white pb-4">
                     {rows.map((row, index) => {
-                        const isLastChairRow = index === 8; // [Nâng cấp V109.0]
+                        const isLastChairRow = index === (numChairs - 1); // [V110.0]
                         const rowStyleClass = isLastChairRow ? "border-b-4 border-red-500" : "border-b border-slate-100";
 
                         return (
@@ -1089,7 +1100,7 @@ const TimelineView = ({ timelineData, onEditPhase, liveStatusData, staffList, st
                                             const switchStr = window.formatMinutesToTime(slot.start + p1Dur);
                                             timeLabel = switchStr;
                                         } else {
-                                            timeLabel = `⏳ ${duration}分`;
+                                            timeLabel = duration; // Đã loại bỏ icon ⏳ và chữ 分
                                         }
 
                                         let specialBorderClass = "border border-black/5";
@@ -1165,7 +1176,8 @@ window.TimelineView = TimelineView;
 // 2. COMMISSION VIEW 
 // ============================================================================
 const CommissionView = ({ bookings, staffList }) => {
-    const RATES = { JIE_PRICE: 250, OIL_BONUS: 80 };
+    // [V110.0] Đồng bộ RATES từ Config thay vì hard-code
+    const RATES = getRatesConfig();
     const normalize = (str) => String(str || '').trim().replace(/\s+/g, '');
 
     const getJieCount = (serviceName, duration) => {
@@ -1262,7 +1274,7 @@ const CommissionView = ({ bookings, staffList }) => {
             if (b.income !== a.income) return b.income - a.income;
             return String(a.id).localeCompare(String(b.id));
         });
-    }, [bookings, staffList]);
+    }, [bookings, staffList, RATES]);
 
     const totalJie = commissionData.reduce((sum, item) => sum + item.jie, 0);
     const totalOil = commissionData.reduce((sum, item) => sum + item.oil, 0);

@@ -1,16 +1,11 @@
 // TYPE: app.js
-// VERSION: V109.0 (24/7 TIMELINE, 9 BEDS/CHAIRS, STANDARD SHORT-QUEUE)
-// UPDATE: 2026-04-10
+// VERSION: V109.2 (SYSTEM_CONFIG INTEGRATION)
+// UPDATE: 2026-04-12
 //
-// --- CHANGE LOG V109.0 ---
-// 1. [SCALE UP]: Mở rộng quy mô từ 6 lên 9 Ghế và 9 Giường.
-// 2. [TIME SHIFT]: Dời mốc tính giờ qua đêm thành 5h sáng (Timeline 5AM - 5AM).
-// 3. [QUEUE FIX]: Hủy đặc quyền của đơn ngắn (35p, 40p). Thợ làm đơn ngắn sẽ bị
-//    cộng dồn thời gian và rớt xuống cuối hàng đợi như các gói tiêu chuẩn.
-//
-// --- CHANGE LOG V108.71 ---
-// 1. [FEATURE]: Tích hợp trường ghi chú đặc biệt adminNote (Cột R).
-// 2. [FEATURE]: Gán window.QUICK_NOTES từ API.
+// --- CHANGE LOG V109.2 ---
+// 1. [CENTRALIZED CONFIG]: Tích hợp dữ liệu từ window.SYSTEM_CONFIG (data.js).
+// 2. [DYNAMIC SCALE]: Quy mô Giường/Ghế tự động thích ứng với cấu hình (SCALE.MAX_CHAIRS / BEDS).
+// 3. [DYNAMIC TIME]: Mốc giờ cắt ngày tự động lấy từ cấu hình (OPERATION_TIME.OPEN_HOUR).
 
 const { useState, useEffect, useMemo, useRef, useCallback } = React;
 
@@ -28,13 +23,13 @@ const getServiceBlocks = (serviceName) => {
     if (name.includes('A4') || name.includes('B4') || name.includes('F4')) return 4;
     if (name.includes('A3') || name.includes('B3') || name.includes('F3')) return 3;
     if (name.includes('A2') || name.includes('B2') || name.includes('F2')) return 2;
-    if (name.includes('B1') || name.includes('F1')) return 1;
+    if (name.includes('B1') || name.includes('F1') || name.includes('C1') || name.includes('C2')) return 1;
 
     if (name.includes('190') || name.includes('180') || name.includes('帝王')) return 6;
     if (name.includes('130') || name.includes('120') || name.includes('豪華')) return 4;
     if (name.includes('100') || name.includes('90') || name.includes('招牌')) return 3;
     if (name.includes('70') || name.includes('精選')) return 2;
-    if (name.includes('40') || name.includes('35')) return 1;
+    if (name.includes('40') || name.includes('35') || name.includes('刮痧') || name.includes('拔罐') || name.includes('修指甲') || name.includes('修腳皮')) return 1;
 
     return 2;
 };
@@ -69,7 +64,8 @@ const MatrixHelper = {
     },
     countAvailableResources: (type, start, end, gridState, reservedTimes, ignoreRowId = null) => {
         let count = 0;
-        for (let i = 1; i <= 9; i++) { // Nâng cấp từ 6 lên 9
+        const limit = type.includes('chair') ? (window.SYSTEM_CONFIG?.SCALE?.MAX_CHAIRS || 9) : (window.SYSTEM_CONFIG?.SCALE?.MAX_BEDS || 9);
+        for (let i = 1; i <= limit; i++) {
             const id = `${type}-${i}`;
             if (reservedTimes[id] && start < reservedTimes[id]) continue;
             let isClash = false;
@@ -87,7 +83,8 @@ const MatrixHelper = {
         return count;
     },
     findBestSlot: (type, start, end, gridState, reservedTimes, preferredIndexOrId = null, ignoreRowId = null) => {
-        const limit = 9; // Nâng cấp từ 6 lên 9
+        const limit = type.includes('chair') ? (window.SYSTEM_CONFIG?.SCALE?.MAX_CHAIRS || 9) : (window.SYSTEM_CONFIG?.SCALE?.MAX_BEDS || 9);
+
         if (preferredIndexOrId) {
             let id;
             if (typeof preferredIndexOrId === 'string' && preferredIndexOrId.includes('-')) {
@@ -235,6 +232,7 @@ const scoreStaffCompatibility = (staff, booking, designatedStaffReq) => {
 // --- HELPER: TẦNG 2 (LOOK-AHEAD) - KIỂM TRA LỊCH TRÌNH TƯƠNG LAI CỦA THỢ ---
 const checkStaffFutureAvailability = (staffId, proposedDuration, allBookings, currentMins, currentRowId, currentPhone = null) => {
     const proposedEndTime = currentMins + proposedDuration;
+    const openHour = window.SYSTEM_CONFIG?.OPERATION_TIME?.OPEN_HOUR || 5;
 
     for (let i = 0; i < allBookings.length; i++) {
         const b = allBookings[i];
@@ -257,7 +255,7 @@ const checkStaffFutureAvailability = (staffId, proposedDuration, allBookings, cu
                 } else {
                     const [h, m] = timeStr.split(':').map(Number);
                     futureStartMins = (h * 60) + (m || 0);
-                    if (h < 5) futureStartMins += 1440; // Nâng cấp mốc 5h sáng
+                    if (h < openHour) futureStartMins += 1440;
                 }
 
                 if (futureStartMins > currentMins) {
@@ -348,8 +346,10 @@ const App = () => {
 
     const getGroupMemberIndex = (targetResId, targetRowId) => {
         const allSlots = [];
-        for (let i = 1; i <= 9; i++) allSlots.push(`chair-${i}`); // Nâng cấp 9
-        for (let i = 1; i <= 9; i++) allSlots.push(`bed-${i}`);   // Nâng cấp 9
+        const maxChairs = window.SYSTEM_CONFIG?.SCALE?.MAX_CHAIRS || 9;
+        const maxBeds = window.SYSTEM_CONFIG?.SCALE?.MAX_BEDS || 9;
+        for (let i = 1; i <= maxChairs; i++) allSlots.push(`chair-${i}`);
+        for (let i = 1; i <= maxBeds; i++) allSlots.push(`bed-${i}`);
         const groupSlots = allSlots.filter(slotId => {
             const res = resourceState[slotId];
             return res && res.booking && String(res.booking.rowId) === String(targetRowId);
@@ -860,7 +860,8 @@ const App = () => {
 
                     if (!targetResId) {
                         const type = (b.forceResourceType === 'BED' || b.flow === 'BODYSINGLE') ? 'bed' : 'chair';
-                        for (let i = 1; i <= 9; i++) { // Nâng cấp 9
+                        const limit = type === 'chair' ? (window.SYSTEM_CONFIG?.SCALE?.MAX_CHAIRS || 9) : (window.SYSTEM_CONFIG?.SCALE?.MAX_BEDS || 9);
+                        for (let i = 1; i <= limit; i++) {
                             const tid = `${type}-${i}`;
                             if (!nextResourceState[tid]) { targetResId = tid; break; }
                         }
@@ -883,8 +884,8 @@ const App = () => {
             });
 
             const nowObj = window.getTaipeiDate ? window.getTaipeiDate() : new Date();
-            // Nâng cấp logic giờ: < 5h sáng thì cộng 1440
-            const nowMins = nowObj.getHours() * 60 + nowObj.getMinutes() + (nowObj.getHours() < 5 ? 1440 : 0);
+            const openHour = window.SYSTEM_CONFIG?.OPERATION_TIME?.OPEN_HOUR || 5;
+            const nowMins = nowObj.getHours() * 60 + nowObj.getMinutes() + (nowObj.getHours() < openHour ? 1440 : 0);
 
             let tempState = {};
             const activeEndTimes = {};
@@ -900,8 +901,7 @@ const App = () => {
                 if (nextResourceState[key].isRunning) {
                     tempState[key] = nextResourceState[key];
                     const startTime = new Date(nextResourceState[key].startTime);
-                    // Nâng cấp: < 5 thì +1440
-                    const startMins = startTime.getHours() * 60 + startTime.getMinutes() + (startTime.getHours() < 5 ? 1440 : 0);
+                    const startMins = startTime.getHours() * 60 + startTime.getMinutes() + (startTime.getHours() < openHour ? 1440 : 0);
 
                     const b = nextResourceState[key].booking;
                     let durationUsed = b.duration;
@@ -987,8 +987,7 @@ const App = () => {
                         }
                     } else {
                         const startTime = new Date(item.startTime);
-                        // Nâng cấp < 5
-                        const p2StartMins = startTime.getHours() * 60 + startTime.getMinutes() + (startTime.getHours() < 5 ? 1440 : 0);
+                        const p2StartMins = startTime.getHours() * 60 + startTime.getMinutes() + (startTime.getHours() < openHour ? 1440 : 0);
                         const p1End = p2StartMins - 5;
                         const p1Start = p1End - split.phase1;
 
@@ -1084,8 +1083,10 @@ const App = () => {
             setTimelineData(timelineGrid);
 
             const allSlots = [];
-            for (let i = 1; i <= 9; i++) allSlots.push(`chair-${i}`); // 9
-            for (let i = 1; i <= 9; i++) allSlots.push(`bed-${i}`);   // 9
+            const maxChairs = window.SYSTEM_CONFIG?.SCALE?.MAX_CHAIRS || 9;
+            const maxBeds = window.SYSTEM_CONFIG?.SCALE?.MAX_BEDS || 9;
+            for (let i = 1; i <= maxChairs; i++) allSlots.push(`chair-${i}`);
+            for (let i = 1; i <= maxBeds; i++) allSlots.push(`bed-${i}`);
 
             allSlots.forEach(resId => {
                 if (tempState[resId]) return;
@@ -1459,6 +1460,8 @@ const App = () => {
         const resourceTypeForSheet = 'COMBO';
 
         let tryStart = 720;
+        const openHour = window.SYSTEM_CONFIG?.OPERATION_TIME?.OPEN_HOUR || 5;
+
         if (effectiveStartTimeStr) {
             try {
                 if (window.normalizeToTimelineMins) {
@@ -1466,7 +1469,7 @@ const App = () => {
                 } else {
                     const [h, m] = effectiveStartTimeStr.split(':').map(Number);
                     tryStart = (h * 60) + (m || 0);
-                    if (h < 5) tryStart += 1440; // Nâng cấp 5h sáng
+                    if (h < openHour) tryStart += 1440;
                 }
             } catch (e) { }
         }
@@ -1477,8 +1480,7 @@ const App = () => {
                 const b = resourceState[k];
                 try {
                     const startObj = new Date(b.startTime);
-                    // Nâng cấp 5h sáng
-                    const startMins = startObj.getHours() * 60 + startObj.getMinutes() + (startObj.getHours() < 5 ? 1440 : 0);
+                    const startMins = startObj.getHours() * 60 + startObj.getMinutes() + (startObj.getHours() < openHour ? 1440 : 0);
                     mockActiveEndTimes[k] = startMins + (b.booking.duration || 60);
                 } catch (e) { }
             }
@@ -1689,6 +1691,8 @@ const App = () => {
         const resourceTypeForSheet = 'COMBO';
 
         let tryStart = 720;
+        const openHour = window.SYSTEM_CONFIG?.OPERATION_TIME?.OPEN_HOUR || 5;
+
         if (booking.startTimeString) {
             const timePart = booking.startTimeString.split(' ')[1];
             if (timePart) {
@@ -1698,7 +1702,7 @@ const App = () => {
                     } else {
                         const [h, m] = timePart.split(':').map(Number);
                         tryStart = (h * 60) + (m || 0);
-                        if (h < 5) tryStart += 1440; // Nâng cấp 5h
+                        if (h < openHour) tryStart += 1440;
                     }
                 } catch (e) { }
             }
@@ -1710,7 +1714,7 @@ const App = () => {
                 const b = resourceState[k];
                 try {
                     const startObj = new Date(b.startTime);
-                    const startMins = startObj.getHours() * 60 + startObj.getMinutes() + (startObj.getHours() < 5 ? 1440 : 0); // Nâng cấp 5h
+                    const startMins = startObj.getHours() * 60 + startObj.getMinutes() + (startObj.getHours() < openHour ? 1440 : 0);
                     mockActiveEndTimes[k] = startMins + (b.booking.duration || 60);
                 } catch (e) { }
             }
@@ -1804,7 +1808,8 @@ const App = () => {
         if (isNaN(index)) return;
 
         const newIndex = index + direction;
-        if (newIndex < 1 || newIndex > 9) return; // Nâng cấp 9
+        const maxLimit = type === 'chair' ? (window.SYSTEM_CONFIG?.SCALE?.MAX_CHAIRS || 9) : (window.SYSTEM_CONFIG?.SCALE?.MAX_BEDS || 9);
+        if (newIndex < 1 || newIndex > maxLimit) return;
 
         const targetId = `${type}-${newIndex}`;
         const rowId = String(targetBooking.rowId);
@@ -2084,7 +2089,8 @@ const App = () => {
             let foundStaff = null;
 
             const nowObj = window.getTaipeiDate ? window.getTaipeiDate() : new Date();
-            const currentMins = nowObj.getHours() * 60 + nowObj.getMinutes() + (nowObj.getHours() < 5 ? 1440 : 0); // Nâng cấp 5h
+            const openHour = window.SYSTEM_CONFIG?.OPERATION_TIME?.OPEN_HOUR || 5;
+            const currentMins = nowObj.getHours() * 60 + nowObj.getMinutes() + (nowObj.getHours() < openHour ? 1440 : 0);
             const currentPhone = getNormalizedPhone(current.booking);
 
             for (let i = 0; i < readyCandidates.length; i++) {
@@ -2261,7 +2267,8 @@ const App = () => {
         });
 
         const nowObj = window.getTaipeiDate ? window.getTaipeiDate() : new Date();
-        const currentMins = nowObj.getHours() * 60 + nowObj.getMinutes() + (nowObj.getHours() < 5 ? 1440 : 0); // Nâng cấp 5h
+        const openHour = window.SYSTEM_CONFIG?.OPERATION_TIME?.OPEN_HOUR || 5;
+        const currentMins = nowObj.getHours() * 60 + nowObj.getMinutes() + (nowObj.getHours() < openHour ? 1440 : 0);
 
         let madeProgress = true;
 
@@ -2507,7 +2514,8 @@ const App = () => {
             return;
         }
 
-        for (let i = 1; i <= 9; i++) { // Nâng cấp 9
+        const limit = toType === 'chair' ? (window.SYSTEM_CONFIG?.SCALE?.MAX_CHAIRS || 9) : (window.SYSTEM_CONFIG?.SCALE?.MAX_BEDS || 9);
+        for (let i = 1; i <= limit; i++) {
             const targetId = `${toType}-${i}`;
             if (!resourceState[targetId]) {
                 const newState = { ...resourceState }; delete newState[fromId]; newState[targetId] = currentData;
@@ -2865,7 +2873,8 @@ const App = () => {
 
     const enrichedStaffList = useMemo(() => {
         const nowObj = window.getTaipeiDate ? window.getTaipeiDate() : new Date();
-        const currentMins = nowObj.getHours() * 60 + nowObj.getMinutes() + (nowObj.getHours() < 5 ? 1440 : 0); // Nâng cấp 5h
+        const openHour = window.SYSTEM_CONFIG?.OPERATION_TIME?.OPEN_HOUR || 5;
+        const currentMins = nowObj.getHours() * 60 + nowObj.getMinutes() + (nowObj.getHours() < openHour ? 1440 : 0);
 
         return safeStaffList.map(s => {
             const staffId = String(s.id).trim();
@@ -2885,7 +2894,7 @@ const App = () => {
                 } else {
                     const [h, m] = timeStr.split(':').map(Number);
                     bookMins = (h * 60) + (m || 0);
-                    if (h < 5) bookMins += 1440; // Nâng cấp 5h
+                    if (h < openHour) bookMins += 1440;
                 }
 
                 const diff = bookMins - currentMins;
@@ -2931,8 +2940,8 @@ const App = () => {
         <div className="min-h-screen flex flex-col bg-slate-50">
             <header className={`text-white p-3 shadow-md flex justify-between items-center sticky top-0 z-50 transition-colors ${quotaError ? 'bg-red-800' : 'bg-[#1e1b4b]'}`}>
                 <div className="flex items-center gap-3">
-                    <span className="bg-emerald-500 text-white px-2 py-1 rounded font-black text-sm shadow-sm">V109.0</span>
-                    <span className="font-bold hidden md:inline tracking-wider">XinWuChan</span>
+                    <span className="bg-emerald-500 text-white px-2 py-1 rounded font-black text-sm shadow-sm">V109.2</span>
+                    <span className="font-bold hidden md:inline tracking-wider">禪云心養生館</span>
                     <div className="flex items-center gap-2 bg-white/10 rounded px-2 py-1 border border-white/20">
                         <button onClick={() => { const d = new Date(viewDate); d.setDate(d.getDate() - 1); setViewDate(d.toISOString().split('T')[0]) }} className="text-white hover:text-amber-400 font-bold px-2">❯</button>
                         <input type="date" value={viewDate} onChange={(e) => setViewDate(e.target.value)} className="bg-transparent text-white font-bold outline-none cursor-pointer text-center" style={{ colorScheme: 'dark' }} />

@@ -2,55 +2,71 @@
  * =================================================================================================
  * PROJECT: XINWUCHAN MASSAGE BOT - CORE LOGIC KERNEL (SERVER SIDE)
  * FILE: resource_core.js
- * PHIÊN BẢN: V117.0 (RESOURCE ALLOCATION UPGRADE)
- * NGÀY CẬP NHẬT: 2026/04/04
+ * PHIÊN BẢN: V118.0 (UNIVERSAL SYNC & CONTINUOUS GUARDRAIL)
+ * NGÀY CẬP NHẬT: Mới nhất
  * TÁC GIẢ: AI ASSISTANT & USER
  *
- * * * * * CHANGE LOG V117.0 (RESOURCE ALLOCATION FIX) * * * * *
- * 1. [FEATURE] Phân tách rõ ràng biến `phase1_res_idx` và `phase2_res_idx` thay vì
- * chỉ dùng mảng `allocated[]` ẩn danh. Giúp Backend (index.js) dễ dàng map vào Sheet.
- * 2. [FIX] Lưu chính xác vị trí tài nguyên (Ghế/Giường) cho khách mới ngay cả khi
- * hệ thống kích hoạt Squeeze Logic (co giãn lịch khách cũ).
- *
- * * * * * CHANGE LOG V116.0 (STAFF LOGIC ENHANCEMENT) * * * * *
- * - DYNAMIC STAFF SCHEDULE: Tự động nhận diện OFF/Late từ Sheet.
- * - Squeeze Logic, Phase Duration Lock, Global Guardrail (Giữ nguyên).
+ * * * * * CHANGE LOG V118.0 (DATA & LOGIC SYNC) * * * * *
+ * 1. [CONFIG INJECTION] Loại bỏ Hardcode. Tự động đọc cấu hình MAX_CHAIRS, MAX_BEDS, OPEN_HOUR
+ * từ file data.js (SYSTEM_CONFIG). Hỗ trợ chạy trên cả Node.js và Browser.
+ * 2. [ALGORITHM SYNC] Bê nguyên thuật toán "Continuous Scan Guardrail" (chống phân mảnh
+ * khoảng trống) từ bookingHandler.js (Frontend) sang. Đảm bảo Backend và Frontend
+ * đồng bộ 100% kết quả kiểm tra chỗ trống.
+ * 3. [PRESERVED] Giữ nguyên logic V117.0 (Squeeze Logic, Phase Resource Coordinate Mapping).
  * =================================================================================================
  */
 
 // ============================================================================
-// PHẦN 1: CẤU HÌNH HỆ THỐNG (SYSTEM CONFIGURATION)
-// Mô tả: Định nghĩa các giới hạn vật lý và thời gian của tiệm.
+// PHẦN 1: LIÊN KẾT CẤU HÌNH TRUNG TÂM (DATA.JS)
 // ============================================================================
 
-const CONFIG = {
-    // --- Tài nguyên vật lý (Physical Limits) ---
-    MAX_CHAIRS: 6,          // Số lượng ghế chân tối đa
-    MAX_BEDS: 6,            // Số lượng giường body tối đa
-    MAX_TOTAL_GUESTS: 12,   // Tổng dung lượng khách tối đa cùng lúc
+let SYSTEM_CONFIG = null;
 
-    // --- Cấu hình thời gian (Time Settings) ---
-    OPEN_HOUR: 8,           // Giờ mở cửa: 08:00 Sáng
+// Thử tải data.js trong môi trường Node.js (Backend)
+if (typeof require !== 'undefined') {
+    try {
+        const dataModule = require('./data.js');
+        SYSTEM_CONFIG = dataModule.SYSTEM_CONFIG;
+        console.log("✅ [CORE V118.0] Đã nạp thành công SYSTEM_CONFIG từ data.js (Backend)");
+    } catch (e) {
+        console.warn("⚠️ [CORE V118.0] Không tìm thấy file ./data.js qua require. Chờ Fallback.");
+    }
+}
 
-    // --- Bộ đệm (Buffers - Đơn vị: Phút) ---
-    CLEANUP_BUFFER: 5,      // Thời gian dọn dẹp bắt buộc sau mỗi ca
-    TRANSITION_BUFFER: 5,   // Thời gian chuyển đổi giữa Chân <-> Body hoặc thay đồ
+// Thử tải từ Global Window nếu chạy dưới dạng script trên trình duyệt (Frontend fallback)
+if (!SYSTEM_CONFIG && typeof window !== 'undefined' && window.SYSTEM_CONFIG) {
+    SYSTEM_CONFIG = window.SYSTEM_CONFIG;
+    console.log("✅ [CORE V118.0] Đã nạp thành công SYSTEM_CONFIG từ window (Frontend)");
+}
 
-    // --- Giới hạn tính toán (Computational Limits) ---
-    TOLERANCE: 1,           // Sai số cho phép (tránh lỗi làm tròn giây)
-    MAX_TIMELINE_MINS: 1680, // Hỗ trợ ca đêm (24h + 4h sáng hôm sau = 28h * 60)
+// FALLBACK AN TOÀN TỐI HẬU (Phòng trường hợp file data.js bị lỗi/mất)
+if (!SYSTEM_CONFIG) {
+    console.error("❌ [CORE V118.0] CRITICAL: Không tìm thấy SYSTEM_CONFIG. Đang dùng Fallback mặc định 9-9.");
+    SYSTEM_CONFIG = {
+        SCALE: { MAX_CHAIRS: 9, MAX_BEDS: 9 },
+        OPERATION_TIME: { OPEN_HOUR: 3 },
+        BUFFERS: { CLEANUP_MINUTES: 5, TRANSITION_MINUTES: 5 },
+        LOGIC_RULES: { TOLERANCE: 1, CAPACITY_CHECK_STEP: 10 }
+    };
+}
 
-    // --- Cấu hình Guardrail ---
-    // Bước nhảy khi quét tải trọng. Để 10 phút như Frontend để đảm bảo độ chính xác cao.
-    CAPACITY_CHECK_STEP: 10
+// Alias ánh xạ cấu hình để code phía dưới ngắn gọn và tương thích ngược
+const CONF = {
+    MAX_CHAIRS: SYSTEM_CONFIG.SCALE.MAX_CHAIRS,
+    MAX_BEDS: SYSTEM_CONFIG.SCALE.MAX_BEDS,
+    OPEN_HOUR: SYSTEM_CONFIG.OPERATION_TIME.OPEN_HOUR,
+    CLEANUP_BUFFER: SYSTEM_CONFIG.BUFFERS.CLEANUP_MINUTES,
+    TRANSITION_BUFFER: SYSTEM_CONFIG.BUFFERS.TRANSITION_MINUTES,
+    TOLERANCE: SYSTEM_CONFIG.LOGIC_RULES?.TOLERANCE || 1,
+    CAPACITY_CHECK_STEP: SYSTEM_CONFIG.LOGIC_RULES?.CAPACITY_CHECK_STEP || 10
 };
 
-// Cơ sở dữ liệu dịch vụ (Dynamic Services Database)
+// ============================================================================
+// PHẦN 2: DỮ LIỆU DỊCH VỤ VÀ UTILS THỜI GIAN
+// ============================================================================
+
 let SERVICES = {};
 
-/**
- * Cập nhật danh sách dịch vụ và thêm các dịch vụ hệ thống mặc định.
- */
 function setDynamicServices(newServicesObj) {
     const systemServices = {
         'OFF_DAY': { name: '⛔ 請假 (OFF)', duration: 1080, type: 'NONE', price: 0, category: 'SYSTEM' },
@@ -61,9 +77,6 @@ function setDynamicServices(newServicesObj) {
     SERVICES = { ...newServicesObj, ...systemServices };
 }
 
-/**
- * [HELPER] Lấy thông tin dịch vụ an toàn.
- */
 function getServiceInfo(code, name) {
     if (code && SERVICES[code]) return SERVICES[code];
     if (name) {
@@ -75,10 +88,6 @@ function getServiceInfo(code, name) {
     }
     return { name: name || 'Unknown', duration: 60, price: 0, type: 'CHAIR' };
 }
-
-// ============================================================================
-// PHẦN 2: UNIVERSAL DATE ADAPTER
-// ============================================================================
 
 function normalizeDateStrict(input) {
     if (!input) return "";
@@ -95,14 +104,10 @@ function normalizeDateStrict(input) {
         if (partC.length === 4) return `${partC}/${partB.padStart(2, '0')}/${partA.padStart(2, '0')}`;
         return str;
     } catch (e) {
-        console.error("[CORE V117.0] Date Normalize Error:", e);
+        console.error("[CORE V118.0] Date Normalize Error:", e);
         return input;
     }
 }
-
-// ============================================================================
-// PHẦN 3: TIỆN ÍCH THỜI GIAN & DATA
-// ============================================================================
 
 function getTaipeiNow() {
     const d = new Date();
@@ -126,7 +131,8 @@ function getMinsFromTimeStr(timeStr) {
         let m = parseInt(parts[1], 10);
 
         if (isNaN(h) || isNaN(m)) return -1;
-        if (h < CONFIG.OPEN_HOUR) h += 24;
+        // Sử dụng OPEN_HOUR từ cấu hình trung tâm (Mặc định 3:00 sáng)
+        if (h < CONF.OPEN_HOUR) h += 24;
 
         return (h * 60) + m;
     } catch (e) { return -1; }
@@ -139,8 +145,8 @@ function getTimeStrFromMins(mins) {
 }
 
 function isOverlap(startA, endA, startB, endB) {
-    const safeEndA = endA - CONFIG.TOLERANCE;
-    const safeEndB = endB - CONFIG.TOLERANCE;
+    const safeEndA = endA - CONF.TOLERANCE;
+    const safeEndB = endB - CONF.TOLERANCE;
     return (startA < safeEndB) && (startB < safeEndA);
 }
 
@@ -153,7 +159,7 @@ function isActiveBookingStatus(statusRaw) {
 }
 
 // ============================================================================
-// PHẦN 4: BỘ NHẬN DIỆN THÔNG MINH
+// PHẦN 3: BỘ NHẬN DIỆN THÔNG MINH
 // ============================================================================
 
 function isComboService(serviceObj, serviceNameRaw = '', explicitFlow = null) {
@@ -195,44 +201,6 @@ function inferFlowFromService(serviceObj, fallbackFlow = null) {
     return 'BODYSINGLE';
 }
 
-// ============================================================================
-// PHẦN 5: HÀNG RÀO DUNG LƯỢNG & STAFF PARSER
-// ============================================================================
-
-function inferResourceAtTime(booking, timeMins) {
-    const bStart = getMinsFromTimeStr(booking.startTime);
-    const svcInfo = getServiceInfo(booking.serviceCode, booking.serviceName);
-    const duration = parseInt(booking.duration) || svcInfo.duration || 60;
-    const bEnd = bStart + duration + CONFIG.CLEANUP_BUFFER;
-
-    if (timeMins < bStart || timeMins >= bEnd) return null;
-
-    const storedFlow = booking.flow || booking.originalData?.flowCode;
-    const smartFlow = inferFlowFromService(svcInfo, storedFlow);
-    const isCombo = isComboService(svcInfo, booking.serviceName, storedFlow);
-
-    if (!isCombo) {
-        if (smartFlow === 'FOOTSINGLE') return 'CHAIR'; return 'BED';
-    } else {
-        let isBodyFirst = false;
-        const noteContent = (booking.note || booking.ghiChu || "").toString().toUpperCase();
-
-        if (storedFlow === 'BF') isBodyFirst = true;
-        else if (storedFlow === 'FB') isBodyFirst = false;
-        else if (noteContent.includes('BF') || noteContent.includes('BODY FIRST') || noteContent.includes('先做身體')) isBodyFirst = true;
-        else if (booking.allocated_resource && (booking.allocated_resource.includes('BED') || booking.allocated_resource.includes('BODY'))) isBodyFirst = true;
-
-        let p1 = 0;
-        const p1Raw = booking.phase1_duration || (booking.originalData ? booking.originalData.phase1_duration : null);
-        if (p1Raw !== null && p1Raw !== undefined && p1Raw !== "") p1 = parseInt(p1Raw, 10);
-        else p1 = Math.floor(duration / 2);
-
-        const splitTime = bStart + p1;
-        if (timeMins < splitTime) return isBodyFirst ? 'BED' : 'CHAIR';
-        else return isBodyFirst ? 'CHAIR' : 'BED';
-    }
-}
-
 function parseStaffStatus(staffInfo) {
     if (!staffInfo) return { isAvailable: false };
     let isOff = false;
@@ -257,92 +225,155 @@ function getEligibleStaffCount(staffList, currentTimeMins, requiredEndTime) {
         if (!status.isAvailable) continue;
         const shiftStart = status.startMins; const shiftEnd = status.endMins;
         if (currentTimeMins >= shiftStart && currentTimeMins < shiftEnd) {
-            if (status.isStrict && shiftEnd < (requiredEndTime - CONFIG.TOLERANCE)) continue;
+            if (status.isStrict && shiftEnd < (requiredEndTime - CONF.TOLERANCE)) continue;
             count++;
         }
     }
     return count;
 }
 
+// ============================================================================
+// PHẦN 4: HÀNG RÀO DUNG LƯỢNG (GUARDRAIL V118.0)
+// Áp dụng thuật toán Continuous Scan từ bookingHandler.js
+// ============================================================================
+
+function checkLaneContinuity(laneOccupiedArr, start, end) {
+    const safeEnd = end + CONF.CLEANUP_BUFFER;
+    for (let block of laneOccupiedArr) {
+        if (isOverlap(start, safeEnd, block.start, block.end)) return false;
+    }
+    return true;
+}
+
 function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBookingsRaw, staffList, queryDateStr) {
-    const requestEnd = requestStart + maxDuration + CONFIG.CLEANUP_BUFFER;
-    const activeExistingBookings = currentBookingsRaw.filter(b => {
-        const bStart = getMinsFromTimeStr(b.startTime);
+    // 1. Lọc Booking hợp lệ
+    const relevantBookings = currentBookingsRaw.filter(b => {
+        const bStart = getMinsFromTimeStr(b.startTimeString || b.startTime);
         if (bStart === -1) return false;
         if (!isActiveBookingStatus(b.status)) return false;
-        const bEnd = bStart + (b.duration || 60) + CONFIG.CLEANUP_BUFFER;
-        return isOverlap(requestStart, requestEnd, bStart, bEnd);
+        const bEnd = bStart + (b.duration || 60) + CONF.CLEANUP_BUFFER;
+        return bEnd > requestStart;
     });
 
-    let failureSnapshot = null;
-    for (let t = requestStart; t < requestEnd; t += CONFIG.CAPACITY_CHECK_STEP) {
-        const supplyCount = getEligibleStaffCount(staffList, t, requestEnd);
-        let currentStaffLoad = 0;
-        for (const b of activeExistingBookings) {
-            const bStart = getMinsFromTimeStr(b.startTime);
-            const bEnd = bStart + (b.duration || 60) + CONFIG.CLEANUP_BUFFER;
-            if (t >= bStart && t < bEnd) currentStaffLoad++;
-        }
+    // 2. Kiểm tra Nhân sự (Staff Capacity)
+    const supplyCount = getEligibleStaffCount(staffList, requestStart, requestStart + maxDuration);
+    let staffBusyCount = 0;
+    relevantBookings.forEach(b => {
+        const bS = getMinsFromTimeStr(b.startTimeString || b.startTime);
+        const bE = bS + (b.duration || 60) + CONF.CLEANUP_BUFFER;
+        if (requestStart >= bS && requestStart < bE) staffBusyCount++;
+    });
 
-        const totalStaffDemand = currentStaffLoad + guestList.length;
-        let usedBeds = 0; let usedChairs = 0;
-        for (const b of activeExistingBookings) {
-            const resType = inferResourceAtTime(b, t);
-            if (resType === 'BED') usedBeds++; else if (resType === 'CHAIR') usedChairs++;
-        }
-
-        let neededBeds = 0; let neededChairs = 0; let neededFlexible = 0;
-        for (const g of guestList) {
-            const svc = getServiceInfo(g.serviceCode, g.serviceName);
-            const explicitFlow = g.flowCode || null;
-            const isCombo = isComboService(svc, g.serviceCode, explicitFlow);
-            const gDuration = svc.duration || 60;
-            const elapsed = t - requestStart;
-            if (elapsed >= gDuration + CONFIG.CLEANUP_BUFFER) continue;
-
-            if (!isCombo) {
-                const smartFlow = inferFlowFromService(svc, explicitFlow);
-                if (smartFlow === 'FOOTSINGLE') neededChairs++; else neededBeds++;
-            } else neededFlexible++;
-        }
-
-        const availableBeds = CONFIG.MAX_BEDS - usedBeds;
-        const availableChairs = CONFIG.MAX_CHAIRS - usedChairs;
-
-        const snapshot = {
-            queryDate: queryDateStr, time: getTimeStrFromMins(t), activeStaff: supplyCount,
-            guestsRunning: currentStaffLoad, usedBeds: usedBeds, usedChairs: usedChairs,
-            maxBeds: CONFIG.MAX_BEDS, maxChairs: CONFIG.MAX_CHAIRS
-        };
-
-        if (totalStaffDemand > supplyCount) return { pass: false, reason: `Quá tải THỢ lúc ${getTimeStrFromMins(t)}.`, debug: snapshot };
-        if (neededBeds > availableBeds) return { pass: false, reason: `Hết GIƯỜNG lúc ${getTimeStrFromMins(t)}.`, debug: snapshot };
-        if (neededChairs > availableChairs) return { pass: false, reason: `Hết GHẾ lúc ${getTimeStrFromMins(t)}.`, debug: snapshot };
-
-        const remainingBeds = availableBeds - neededBeds; const remainingChairs = availableChairs - neededChairs;
-        const totalSlots = remainingBeds + remainingChairs;
-        if (neededFlexible > totalSlots) return { pass: false, reason: `Không đủ GIƯỜNG/GHẾ Combo lúc ${getTimeStrFromMins(t)}.`, debug: snapshot };
-        if (!failureSnapshot) failureSnapshot = snapshot;
+    if ((staffBusyCount + guestList.length) > supplyCount) {
+        return { pass: false, reason: `⚠️ 技師不足 (Not Enough Staff)。總共: ${supplyCount}, 忙碌中: ${staffBusyCount}, 新客: ${guestList.length}`, debug: {} };
     }
-    return { pass: true, debug: failureSnapshot };
+
+    // 3. Phân tích tài nguyên chống phân mảnh (Continuous Scan)
+    const resourceMap = {
+        'BED': Array.from({ length: CONF.MAX_BEDS }, () => []),
+        'CHAIR': Array.from({ length: CONF.MAX_CHAIRS }, () => [])
+    };
+
+    relevantBookings.forEach(b => {
+        const bStart = getMinsFromTimeStr(b.startTimeString || b.startTime);
+        const duration = b.duration || 60;
+        const rId = b.allocated_resource || b.rowId || "";
+        const laneMatch = rId.toString().match(/(BED|CHAIR)[-_ ]?(\d+)/i);
+
+        if (laneMatch) {
+            const type = laneMatch[1].toUpperCase().includes('BED') ? 'BED' : 'CHAIR';
+            const idx = parseInt(laneMatch[2]) - 1;
+            if (resourceMap[type] && resourceMap[type][idx]) {
+                resourceMap[type][idx].push({ start: bStart, end: bStart + duration + CONF.CLEANUP_BUFFER });
+            }
+        }
+    });
+
+    // Mô phỏng luồng khách mới
+    const simulationMap = JSON.parse(JSON.stringify(resourceMap));
+
+    for (let i = 0; i < guestList.length; i++) {
+        const g = guestList[i];
+        const svc = getServiceInfo(g.serviceCode, g.serviceName);
+        const duration = svc.duration || 60;
+        const explicitFlow = g.flowCode || null;
+        const isCombo = isComboService(svc, g.serviceCode, explicitFlow);
+
+        if (isCombo) {
+            const p1 = Math.floor(duration / 2);
+            const p2 = duration - p1;
+            const tStart = requestStart;
+            const tSwitch = tStart + p1 + CONF.TRANSITION_BUFFER;
+
+            let successBF = false; let successFB = false;
+            let bedIdx = -1, chairIdx = -1;
+
+            // Kịch bản A: Body Trước (BED -> CHAIR)
+            for (let b = 0; b < CONF.MAX_BEDS; b++) { if (checkLaneContinuity(simulationMap.BED[b], tStart, tStart + p1)) { bedIdx = b; break; } }
+            for (let c = 0; c < CONF.MAX_CHAIRS; c++) { if (checkLaneContinuity(simulationMap.CHAIR[c], tSwitch, tSwitch + p2)) { chairIdx = c; break; } }
+
+            if (bedIdx !== -1 && chairIdx !== -1) {
+                successBF = true;
+                simulationMap.BED[bedIdx].push({ start: tStart, end: tStart + p1 + CONF.CLEANUP_BUFFER });
+                simulationMap.CHAIR[chairIdx].push({ start: tSwitch, end: tSwitch + p2 + CONF.CLEANUP_BUFFER });
+            } else {
+                // Kịch bản B: Chân Trước (CHAIR -> BED)
+                chairIdx = -1; bedIdx = -1;
+                for (let c = 0; c < CONF.MAX_CHAIRS; c++) { if (checkLaneContinuity(simulationMap.CHAIR[c], tStart, tStart + p1)) { chairIdx = c; break; } }
+                for (let b = 0; b < CONF.MAX_BEDS; b++) { if (checkLaneContinuity(simulationMap.BED[b], tSwitch, tSwitch + p2)) { bedIdx = b; break; } }
+
+                if (chairIdx !== -1 && bedIdx !== -1) {
+                    successFB = true;
+                    simulationMap.CHAIR[chairIdx].push({ start: tStart, end: tStart + p1 + CONF.CLEANUP_BUFFER });
+                    simulationMap.BED[bedIdx].push({ start: tSwitch, end: tSwitch + p2 + CONF.CLEANUP_BUFFER });
+                }
+            }
+
+            if (!successBF && !successFB) {
+                return { pass: false, reason: `⚠️ 在 ${getTimeStrFromMins(requestStart)} 沒有足夠的連續空位 (Continuous Gap) 給套餐。`, debug: { msg: "Logic V118.0 detected gap fragmentation." } };
+            }
+
+        } else {
+            // Khách lẻ
+            const smartFlow = inferFlowFromService(svc, explicitFlow);
+            let rType = (smartFlow === 'FOOTSINGLE') ? 'CHAIR' : 'BED';
+            let foundIdx = -1;
+
+            for (let k = 0; k < (rType === 'BED' ? CONF.MAX_BEDS : CONF.MAX_CHAIRS); k++) {
+                if (checkLaneContinuity(simulationMap[rType][k], requestStart, requestStart + duration)) {
+                    foundIdx = k; break;
+                }
+            }
+
+            if (foundIdx !== -1) {
+                simulationMap[rType][foundIdx].push({ start: requestStart, end: requestStart + duration + CONF.CLEANUP_BUFFER });
+            } else {
+                return { pass: false, reason: `⚠️ 已經沒有連續 ${duration} 分鐘的空${rType === 'BED' ? '床位' : '座位'}。`, debug: {} };
+            }
+        }
+    }
+    return { pass: true, debug: { msg: "V118.0 Continuous Scan Passed" } };
 }
 
 // ============================================================================
-// PHẦN 6: MATRIX ENGINE (CORE ALLOCATION)
+// PHẦN 5: MATRIX ENGINE (CORE ALLOCATION)
 // ============================================================================
 
 class VirtualMatrix {
     constructor() {
         this.lanes = {
-            'CHAIR': Array.from({ length: CONFIG.MAX_CHAIRS }, (_, i) => ({ id: `CHAIR-${i + 1}`, occupied: [] })),
-            'BED': Array.from({ length: CONFIG.MAX_BEDS }, (_, i) => ({ id: `BED-${i + 1}`, occupied: [] }))
+            'CHAIR': Array.from({ length: CONF.MAX_CHAIRS }, (_, i) => ({ id: `CHAIR-${i + 1}`, occupied: [] })),
+            'BED': Array.from({ length: CONF.MAX_BEDS }, (_, i) => ({ id: `BED-${i + 1}`, occupied: [] }))
         };
+        this.blockLog = [];
     }
     checkLaneFree(lane, start, end) {
         for (let block of lane.occupied) {
-            if (isOverlap(start, end, block.start, block.end)) return false;
+            if (isOverlap(start, end, block.start, block.end)) {
+                return { free: false, blocker: block };
+            }
         }
-        return true;
+        return { free: true };
     }
     allocateToLane(lane, start, end, ownerId) {
         lane.occupied.push({ start, end, ownerId });
@@ -352,19 +383,24 @@ class VirtualMatrix {
     tryAllocate(type, start, end, ownerId, preferredIndex = null) {
         const resourceGroup = this.lanes[type];
         if (!resourceGroup) return null;
+
         if (preferredIndex !== null && preferredIndex > 0 && preferredIndex <= resourceGroup.length) {
             const targetLane = resourceGroup[preferredIndex - 1];
-            if (this.checkLaneFree(targetLane, start, end)) return this.allocateToLane(targetLane, start, end, ownerId);
+            if (this.checkLaneFree(targetLane, start, end).free) {
+                return this.allocateToLane(targetLane, start, end, ownerId);
+            }
         }
         for (let lane of resourceGroup) {
-            if (this.checkLaneFree(lane, start, end)) return this.allocateToLane(lane, start, end, ownerId);
+            const check = this.checkLaneFree(lane, start, end);
+            if (check.free) return this.allocateToLane(lane, start, end, ownerId);
+            else this.blockLog.push(`❌ ${lane.id} 被 ${check.blocker.ownerId} 擋住`);
         }
         return null;
     }
 }
 
 // ============================================================================
-// PHẦN 7: LOGIC TÌM NHÂN VIÊN & CO GIÃN
+// PHẦN 6: LOGIC TÌM NHÂN VIÊN & CO GIÃN
 // ============================================================================
 
 function findAvailableStaff(staffReq, start, end, staffListRef, busyList) {
@@ -374,8 +410,8 @@ function findAvailableStaff(staffReq, start, end, staffListRef, busyList) {
         if (!status.isAvailable) return false;
 
         const shiftStart = status.startMins; const shiftEnd = status.endMins;
-        if ((start + CONFIG.TOLERANCE) < shiftStart) return false;
-        if (status.isStrict) { if ((end - CONFIG.TOLERANCE) > shiftEnd) return false; }
+        if ((start + CONF.TOLERANCE) < shiftStart) return false;
+        if (status.isStrict) { if ((end - CONF.TOLERANCE) > shiftEnd) return false; }
         else { if (start > shiftEnd) return false; }
 
         for (const b of busyList) { if (b.staffName === name && isOverlap(start, end, b.start, b.end)) return false; }
@@ -422,18 +458,10 @@ function isBlockSetAllocatable(blocks, matrix) {
         let foundLane = false;
         if (b.forcedIndex && b.forcedIndex > 0 && b.forcedIndex <= laneGroup.length) {
             const targetLane = laneGroup[b.forcedIndex - 1];
-            let isFree = true;
-            for (const occ of targetLane.occupied) {
-                if (isOverlap(b.start, b.end, occ.start, occ.end)) { isFree = false; break; }
-            }
-            if (isFree) return true;
+            if (matrix.checkLaneFree(targetLane, b.start, b.end).free) return true;
         }
         for (const lane of laneGroup) {
-            let isFree = true;
-            for (const occ of lane.occupied) {
-                if (isOverlap(b.start, b.end, occ.start, occ.end)) { isFree = false; break; }
-            }
-            if (isFree) { foundLane = true; break; }
+            if (matrix.checkLaneFree(lane, b.start, b.end).free) { foundLane = true; break; }
         }
         if (!foundLane) return false;
     }
@@ -441,13 +469,13 @@ function isBlockSetAllocatable(blocks, matrix) {
 }
 
 // ============================================================================
-// PHẦN 8: CORE ENGINE V117.0
+// PHẦN 7: CORE ENGINE V118.0
 // ============================================================================
 
 function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRaw, staffList) {
-    // PRE-CHECK
     const requestStartMins = getMinsFromTimeStr(timeStr);
     if (requestStartMins === -1) return { feasible: false, reason: "Error: Invalid Time Format" };
+
     const normalizedQueryDate = normalizeDateStrict(dateStr);
     const filteredBookings = currentBookingsRaw.filter(b => {
         if (!b || !b.startTimeString) return false;
@@ -460,13 +488,14 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
         if (dur > maxGuestDuration) maxGuestDuration = dur;
     });
 
-    // BƯỚC 0: GUARDRAIL
+    // 1. GUARDRAIL CHECK (Đồng bộ Backend & Frontend V118)
     const guardrailCheck = validateGlobalCapacity(requestStartMins, maxGuestDuration, guestList, filteredBookings, staffList, normalizedQueryDate);
     if (!guardrailCheck.pass) return { feasible: false, reason: `SYSTEM REJECT: ${guardrailCheck.reason}`, debug: guardrailCheck.debug };
 
-    // BƯỚC A: TIỀN XỬ LÝ
+    // 2. TIỀN XỬ LÝ BOOKING CŨ
     let sortedRaw = [...filteredBookings].sort((a, b) => getMinsFromTimeStr(a.startTimeString || a.startTime) - getMinsFromTimeStr(b.startTimeString || b.startTime));
     const bookingGroups = {};
+
     sortedRaw.forEach(b => {
         if (!isActiveBookingStatus(b.status)) return;
         const timeKey = ((b.startTimeString || b.startTime) || "").split(' ')[1] || "00:00";
@@ -492,7 +521,7 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
         });
     });
 
-    // BƯỚC B: XỬ LÝ BLOCK CŨ
+    // 3. TẠO KHỐI THỜI GIAN
     let existingBookingsProcessed = [];
     remappedBookings.forEach(b => {
         const bStart = getMinsFromTimeStr(b.startTimeString || b.startTime);
@@ -529,7 +558,7 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
             else if (b.originalData && b.originalData.phase1_duration !== undefined && b.originalData.phase1_duration !== null && b.originalData.phase1_duration !== "") p1 = parseInt(b.originalData.phase1_duration, 10);
             else p1 = Math.floor(duration / 2);
 
-            let p2 = duration - p1; const p1End = bStart + p1; const p2Start = p1End + CONFIG.TRANSITION_BUFFER;
+            let p2 = duration - p1; const p1End = bStart + p1; const p2Start = p1End + CONF.TRANSITION_BUFFER;
             let isBodyFirst = false;
             const noteContent = (b.note || b.ghiChu || b.originalData?.ghiChu || "").toString().toUpperCase();
 
@@ -559,7 +588,7 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
         existingBookingsProcessed.push(processedB);
     });
 
-    // BƯỚC C: KỊCH BẢN KHÁCH MỚI
+    // 4. KỊCH BẢN MATRIX KHÁCH MỚI
     const newGuests = guestList.map((g, idx) => ({ ...g, idx: idx }));
     const comboGuests = newGuests.filter(g => isComboService(getServiceInfo(g.serviceCode, g.serviceName), g.serviceCode, g.flowCode));
     const newGuestHalfSize = Math.ceil(comboGuests.length / 2);
@@ -581,8 +610,8 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
         }
     } else { trySequence.push(0); }
 
-    // BƯỚC D: VÒNG LẶP MATRIX
     let successfulScenario = null;
+    let failureLog = [];
 
     for (let numBF of trySequence) {
         let matrix = new VirtualMatrix();
@@ -590,12 +619,11 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
         let scenarioUpdates = [];
         let scenarioFailed = false;
 
-        // 1. Nạp khách cũ
         let softsToSqueezeCandidates = [];
         for (const exB of existingBookingsProcessed) {
             let placedSuccessfully = true; let allocatedSlots = [];
             for (const block of exB.blocks) {
-                const realEnd = block.end + CONFIG.CLEANUP_BUFFER;
+                const realEnd = block.end + CONF.CLEANUP_BUFFER;
                 const slotId = matrix.tryAllocate(block.type, block.start, realEnd, exB.id, block.forcedIndex);
                 if (!slotId) { placedSuccessfully = false; break; }
                 allocatedSlots.push(slotId);
@@ -606,7 +634,6 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
             }
         }
 
-        // 2. Tính toán khách mới
         let newGuestBlocksMap = [];
         for (const ng of newGuests) {
             const svc = getServiceInfo(ng.serviceCode, ng.serviceName);
@@ -622,25 +649,24 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
             if (isThisGuestCombo) {
                 const p1Standard = Math.floor(duration / 2); const p2Standard = duration - p1Standard;
                 if (flow === 'FB') {
-                    const t1End = requestStartMins + p1Standard; const t2Start = t1End + CONFIG.TRANSITION_BUFFER;
-                    blocks.push({ start: requestStartMins, end: t1End + CONFIG.CLEANUP_BUFFER, type: 'CHAIR' });
-                    blocks.push({ start: t2Start, end: t2Start + p2Standard + CONFIG.CLEANUP_BUFFER, type: 'BED' });
+                    const t1End = requestStartMins + p1Standard; const t2Start = t1End + CONF.TRANSITION_BUFFER;
+                    blocks.push({ start: requestStartMins, end: t1End + CONF.CLEANUP_BUFFER, type: 'CHAIR' });
+                    blocks.push({ start: t2Start, end: t2Start + p2Standard + CONF.CLEANUP_BUFFER, type: 'BED' });
                     scenarioDetails.push({ guestIndex: ng.idx, service: svc.name, price: svc.price, phase1_duration: p1Standard, phase2_duration: p2Standard, flow: 'FB', timeStr: timeStr, allocated: [] });
                 } else {
-                    const t1End = requestStartMins + p2Standard; const t2Start = t1End + CONFIG.TRANSITION_BUFFER;
-                    blocks.push({ start: requestStartMins, end: t1End + CONFIG.CLEANUP_BUFFER, type: 'BED' });
-                    blocks.push({ start: t2Start, end: t2Start + p1Standard + CONFIG.CLEANUP_BUFFER, type: 'CHAIR' });
+                    const t1End = requestStartMins + p2Standard; const t2Start = t1End + CONF.TRANSITION_BUFFER;
+                    blocks.push({ start: requestStartMins, end: t1End + CONF.CLEANUP_BUFFER, type: 'BED' });
+                    blocks.push({ start: t2Start, end: t2Start + p1Standard + CONF.CLEANUP_BUFFER, type: 'CHAIR' });
                     scenarioDetails.push({ guestIndex: ng.idx, service: svc.name, price: svc.price, phase1_duration: p1Standard, phase2_duration: p2Standard, flow: 'BF', timeStr: timeStr, allocated: [] });
                 }
             } else {
                 let rType = (flow === 'FOOTSINGLE') ? 'CHAIR' : 'BED';
-                blocks.push({ start: requestStartMins, end: requestStartMins + duration + CONFIG.CLEANUP_BUFFER, type: rType });
+                blocks.push({ start: requestStartMins, end: requestStartMins + duration + CONF.CLEANUP_BUFFER, type: rType });
                 scenarioDetails.push({ guestIndex: ng.idx, service: svc.name, price: svc.price, flow: flow, timeStr: timeStr, allocated: [] });
             }
             newGuestBlocksMap.push({ guest: ng, blocks: blocks });
         }
 
-        // 3. Xếp khách mới (V117.0 Cập nhật Tọa độ trực tiếp)
         let conflictFound = false;
         for (const item of newGuestBlocksMap) {
             let guestAllocations = [];
@@ -658,22 +684,22 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
             const detail = scenarioDetails.find(d => d.guestIndex === item.guest.idx);
             if (detail) {
                 detail.allocated = guestAllocations;
-                // [NÂNG CẤP V117.0] Gán rõ biến Phase 1 và 2 cho Client
+                // [V117.0/V118.0] Phân tách tọa độ để Sheet hiểu chính xác
                 detail.phase1_res_idx = guestAllocations[0] || null;
                 detail.phase2_res_idx = guestAllocations[1] || null;
             }
         }
 
-        // 4. Squeeze Logic (Khách cũ co giãn)
+        // 5. SQUEEZE LOGIC (Co giãn lịch)
         if (conflictFound) {
             let matrixSqueeze = new VirtualMatrix();
             let updatesProposed = [];
 
             const hardBookings = existingBookingsProcessed.filter(b => !b.isElastic);
-            hardBookings.forEach(hb => { hb.blocks.forEach(blk => matrixSqueeze.tryAllocate(blk.type, blk.start, blk.end + CONFIG.CLEANUP_BUFFER, hb.id, blk.forcedIndex)); });
+            hardBookings.forEach(hb => { hb.blocks.forEach(blk => matrixSqueeze.tryAllocate(blk.type, blk.start, blk.end + CONF.CLEANUP_BUFFER, hb.id, blk.forcedIndex)); });
 
             let squeezeScenarioPossible = true;
-            let squeezeAllocationsMap = []; // [NÂNG CẤP V117.0] Lưu lại vị trí mới
+            let squeezeAllocationsMap = [];
             for (const item of newGuestBlocksMap) {
                 let preferredIdxSqueeze = null;
                 if (newGuestHalfSize > 0 && newGuests.length >= 2) {
@@ -690,21 +716,24 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
                 squeezeAllocationsMap.push({ guestIndex: item.guest.idx, allocated: guestSqueezeAllocations });
             }
 
-            if (!squeezeScenarioPossible) { scenarioFailed = true; continue; }
+            if (!squeezeScenarioPossible) {
+                if (matrixSqueeze.blockLog.length > 0) failureLog = matrixSqueeze.blockLog;
+                scenarioFailed = true; continue;
+            }
 
             const softBookings = existingBookingsProcessed.filter(b => b.isElastic);
             for (const sb of softBookings) {
                 const splits = generateElasticSplits(sb.duration, sb.elasticStep, sb.elasticLimit, null);
                 let fit = false;
                 for (const split of splits) {
-                    const sP1End = sb.startMins + split.p1; const sP2Start = sP1End + CONFIG.TRANSITION_BUFFER; const sP2End = sP2Start + split.p2;
+                    const sP1End = sb.startMins + split.p1; const sP2Start = sP1End + CONF.TRANSITION_BUFFER; const sP2End = sP2Start + split.p2;
                     const testBlocks = [
-                        { type: 'CHAIR', start: sb.startMins, end: sP1End + CONFIG.CLEANUP_BUFFER, forcedIndex: sb.blocks[0].forcedIndex },
-                        { type: 'BED', start: sP2Start, end: sP2End + CONFIG.CLEANUP_BUFFER, forcedIndex: sb.blocks[1] ? sb.blocks[1].forcedIndex : null }
+                        { type: 'CHAIR', start: sb.startMins, end: sP1End + CONF.CLEANUP_BUFFER, forcedIndex: sb.blocks[0].forcedIndex },
+                        { type: 'BED', start: sP2Start, end: sP2End + CONF.CLEANUP_BUFFER, forcedIndex: sb.blocks[1] ? sb.blocks[1].forcedIndex : null }
                     ];
                     if (isBlockSetAllocatable(testBlocks, matrixSqueeze)) {
                         testBlocks.forEach(tb => matrixSqueeze.tryAllocate(tb.type, tb.start, tb.end, sb.id, tb.forcedIndex)); fit = true;
-                        if (split.deviation !== 0) updatesProposed.push({ rowId: sb.id, customerName: sb.originalData.customerName, newPhase1: split.p1, newPhase2: split.p2, reason: 'Matrix Squeeze V117.0' });
+                        if (split.deviation !== 0) updatesProposed.push({ rowId: sb.id, customerName: sb.originalData.customerName, newPhase1: split.p1, newPhase2: split.p2, reason: 'Matrix Squeeze V118.0' });
                         break;
                     }
                 }
@@ -713,7 +742,6 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
             if (squeezeScenarioPossible) {
                 scenarioUpdates = updatesProposed;
                 matrix = matrixSqueeze;
-                // [NÂNG CẤP V117.0] Ánh xạ lại tọa độ sau khi Squeeze thành công
                 squeezeAllocationsMap.forEach(mapItem => {
                     const detail = scenarioDetails.find(d => d.guestIndex === mapItem.guestIndex);
                     if (detail) {
@@ -722,10 +750,13 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
                         detail.phase2_res_idx = mapItem.allocated[1] || null;
                     }
                 });
-            } else { scenarioFailed = true; continue; }
+            } else {
+                if (matrixSqueeze.blockLog.length > 0) failureLog = matrixSqueeze.blockLog;
+                scenarioFailed = true; continue;
+            }
         }
 
-        // 5. Staff Check
+        // 6. STAFF ASSIGNMENT
         let flatTimeline = [];
         Object.values(matrix.lanes).forEach(group => group.forEach(lane => lane.occupied.forEach(occ => {
             const ex = existingBookingsProcessed.find(e => e.id === occ.ownerId);
@@ -748,27 +779,30 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
     if (successfulScenario) {
         successfulScenario.details.sort((a, b) => a.guestIndex - b.guestIndex);
         return {
-            feasible: true, strategy: 'MATRIX_COUPLE_SYNC_V117.0',
+            feasible: true, strategy: 'MATRIX_UNIVERSAL_V118.0',
             details: successfulScenario.details, proposedUpdates: successfulScenario.updates,
             totalPrice: successfulScenario.details.reduce((sum, item) => sum + (item.price || 0), 0),
             debug: guardrailCheck.debug
         };
     } else {
-        return { feasible: false, reason: "Hết chỗ (Không tìm thấy khe hở phù hợp hoặc không đủ nhân viên)", debug: guardrailCheck.debug };
+        const debugReason = failureLog.slice(-2).join(' | ');
+        const failMessage = debugReason ? `❌ Matrix Full: ${debugReason}` : "❌ 已額滿 (Matrix System Full)";
+        return { feasible: false, reason: failMessage, debug: guardrailCheck.debug };
     }
 }
 
 // ============================================================================
-// PHẦN 9: MODULE EXPORT
+// PHẦN 8: MODULE EXPORT
 // ============================================================================
 const CoreAPI = {
     checkRequestAvailability, setDynamicServices, get SERVICES() { return SERVICES; },
-    CONFIG, getMinsFromTimeStr, getTimeStrFromMins, getTaipeiNow, normalizeDateStrict, inferFlowFromService
+    CONFIG: CONF, // Giữ tên biến CONFIG khi xuất ra để tương thích ngược với index.js cũ nếu có
+    getMinsFromTimeStr, getTimeStrFromMins, getTaipeiNow, normalizeDateStrict, inferFlowFromService
 };
 
 if (typeof module !== 'undefined' && module.exports) module.exports = CoreAPI;
 if (typeof window !== 'undefined') {
     window.ResourceCore = CoreAPI; window.checkRequestAvailability = CoreAPI.checkRequestAvailability;
     window.setDynamicServices = CoreAPI.setDynamicServices; window.normalizeDateStrict = CoreAPI.normalizeDateStrict;
-    console.log("✅ Resource Core V117.0 Loaded: RESOURCE ALLOCATION ACTIVE.");
+    console.log("✅ Resource Core V118.0 Loaded: DATA & CONTINUOUS SCAN SYNCED.");
 }

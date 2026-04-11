@@ -1,13 +1,14 @@
 /**
  * =================================================================================================
  * PROJECT: XINWUCHAN MASSAGE BOT (BACKEND SERVER - MAIN ENTRY)
- * VERSION: V127-TITLE-SELECTION (Nâng cấp thêm bước chọn danh xưng 小姐/先生)
+ * VERSION: V128-CENTRALIZED-CONFIG (Tích hợp data.js)
  * DESCRIPTION: MAIN CONTROLLER & ROUTER
  * * UPDATES IN THIS VERSION:
- * 1. [FEATURE] Thêm state TITLE để khách hàng chọn danh xưng sau khi nhập Họ.
- * 2. [FIX] Khớp nối `phase1_res_idx`, `phase2_res_idx` từ ResourceCore vào `guestDetails`.
- * 3. [FEATURE] Tự động suy luận `resource_type` (CHAIR/BED/COMBO) ghi xuống Sheet.
- * 4. [FEATURE] Đặt mặc định `isManualLocked: false` cho các lịch do Bot tự động xếp.
+ * 1. [REFACTOR] Import cấu hình tập trung từ `data.js` (SYSTEM_CONFIG).
+ * 2. [REFACTOR] Thay thế hardcode MAX_CHAIRS, MAX_BEDS bằng dữ liệu quy mô từ SYSTEM_CONFIG.SCALE.
+ * 3. [REFACTOR] Khung giờ đặt lịch tự động mở rộng qua mốc 24h dựa vào CUT_OFF_HOUR.
+ * 4. [REFACTOR] Đồng bộ phí dịch vụ tinh dầu (OIL_BONUS) từ cấu hình tài chính.
+ * 5. [FEATURE] Giữ nguyên toàn bộ logic nâng cấp TITLE, Location (res_idx), isManualLocked từ V127.
  * * AUTHOR: AI ASSISTANT & USER
  * =================================================================================================
  */
@@ -23,6 +24,7 @@ const path = require('path');
 const ResourceCore = require('./resource_core');
 const StaffBot = require('./staff_bot');
 const SheetService = require('./sheet_service'); // Module Sheet Service: Single Source of Truth
+const { SYSTEM_CONFIG } = require('./data');     // <-- [UPDATED] Import Centralized Config
 
 // --- 1. CẤU HÌNH HỆ THỐNG (SYSTEM CONFIG) ---
 const config = {
@@ -32,9 +34,11 @@ const config = {
 
 const ID_BA_CHU = process.env.ID_BA_CHU;
 
-// Resource Config (Lấy từ ResourceCore hoặc Default)
-const MAX_CHAIRS = ResourceCore.CONFIG ? ResourceCore.CONFIG.MAX_CHAIRS : 6;
-const MAX_BEDS = ResourceCore.CONFIG ? ResourceCore.CONFIG.MAX_BEDS : 6;
+// [UPDATED] Lấy thông số từ SYSTEM_CONFIG thay vì hardcode hoặc phụ thuộc hoàn toàn vào ResourceCore
+const MAX_CHAIRS = SYSTEM_CONFIG.SCALE.MAX_CHAIRS;
+const MAX_BEDS = SYSTEM_CONFIG.SCALE.MAX_BEDS;
+const CUT_OFF_HOUR = SYSTEM_CONFIG.OPERATION_TIME.CUT_OFF_HOUR;
+const OIL_BONUS = SYSTEM_CONFIG.FINANCE.OIL_BONUS;
 
 // --- 2. GLOBAL STATE (CACHE ONLY) ---
 // Lưu ý: Với nâng cấp "Single Source of Truth", các biến này chỉ dùng để cache nhanh phục vụ UI.
@@ -123,7 +127,10 @@ function findBestSlots(selectedDate, serviceCode, pax = 1, requireFemale = false
     for (let i = 0; i < pax; i++) { guestList.push({ serviceCode: serviceCode, staffName: 'RANDOM', flow: null }); }
 
     let candidates = [];
-    for (let h = 8; h <= 24; h += 1) {
+    // [UPDATED] Sử dụng CUT_OFF_HOUR từ cấu hình để quét khung giờ (Ví dụ: 8h sáng hôm nay đến 3h sáng hôm sau = mốc 27)
+    const maxHour = 24 + CUT_OFF_HOUR;
+    for (let h = 8; h <= maxHour; h += 1) {
+        // Javascript Date tự động đẩy qua ngày hôm sau nếu h >= 24
         const slotTime = new Date(sYear, sMonth - 1, sDay, h, 0, 0);
         if (slotTime.getTime() <= nowTaipei.getTime()) continue;
 
@@ -171,7 +178,9 @@ function generateTimeBubbles(selectedDate, serviceCode, specificStaffIds = null,
         guestList.push({ serviceCode: serviceCode, staffName: sId, flow: null });
     }
 
-    for (let h = 8; h <= 24; h += 1) {
+    // [UPDATED] Quét giờ linh hoạt theo cấu hình CUT_OFF_HOUR
+    const maxHour = 24 + CUT_OFF_HOUR;
+    for (let h = 8; h <= maxHour; h += 1) {
         const slotTime = new Date(sYear, sMonth - 1, sDay, h, 0, 0);
         if (slotTime.getTime() <= nowTaipei.getTime()) continue;
 
@@ -188,7 +197,7 @@ function generateTimeBubbles(selectedDate, serviceCode, specificStaffIds = null,
         { name: '🌞 早安 (Morning)', slots: validSlots.filter(h => h >= 8 && h < 12) },
         { name: '☀️ 午後 (Afternoon)', slots: validSlots.filter(h => h >= 12 && h < 18) },
         { name: '🌙 晚安 (Evening)', slots: validSlots.filter(h => h >= 18 && h < 24) },
-        { name: '✨ 深夜 (Late Night)', slots: validSlots.filter(h => h >= 24) }
+        { name: '✨ 深夜 (Late Night)', slots: validSlots.filter(h => h >= 24 && h <= maxHour) }
     ];
     let bubbles = [];
     bubbles.push({ "type": "bubble", "size": "kilo", "body": { "type": "box", "layout": "vertical", "backgroundColor": "#F0F9FF", "cornerRadius": "lg", "contents": [{ "type": "text", "text": "💎 SMART BOOKING", "weight": "bold", "color": "#0284C7", "align": "center", "size": "xs" }, { "type": "text", "text": "精選推薦時段", "weight": "bold", "size": "md", "align": "center", "margin": "xs" }, { "type": "button", "style": "primary", "color": "#0EA5E9", "margin": "md", "height": "sm", "action": { "type": "message", "label": "⭐ 查看 (View)", "text": "Time:Suggest" } }] } });
@@ -225,7 +234,7 @@ function createMenuFlexMessage() {
         const row = createRow(svc.name, svc.duration, svc.price);
         if (svc.category === 'COMBO') comboRows.push(row); else if (svc.category === 'FOOT') footRows.push(row); else bodyRows.push(row);
     });
-    return { "type": "bubble", "size": "mega", "body": { "type": "box", "layout": "vertical", "contents": [{ "type": "text", "text": "📜 服務價目表 (Menu)", "weight": "bold", "size": "xl", "color": "#1DB446", "align": "center", "margin": "md" }, { "type": "separator", "margin": "lg" }, { "type": "text", "text": "🔥 熱門套餐 (Combo)", "weight": "bold", "size": "md", "color": "#111111", "margin": "lg" }, ...comboRows, { "type": "text", "text": "👣 足底按摩 (Foot)", "weight": "bold", "size": "md", "color": "#111111", "margin": "lg" }, ...footRows, { "type": "text", "text": "🛏️ 身體指壓 (Body)", "weight": "bold", "size": "md", "color": "#111111", "margin": "lg" }, ...bodyRows, { "type": "separator", "margin": "xl" }, { "type": "text", "text": "⭐ 油推需加收 $200，請詢問櫃台。", "size": "xs", "color": "#aaaaaa", "margin": "md", "align": "center" }] }, "footer": { "type": "box", "layout": "vertical", "contents": [{ "type": "button", "style": "primary", "action": { "type": "message", "label": "📅 立即預約 (Book Now)", "text": "Action:Booking" } }] } };
+    return { "type": "bubble", "size": "mega", "body": { "type": "box", "layout": "vertical", "contents": [{ "type": "text", "text": "📜 服務價目表 (Menu)", "weight": "bold", "size": "xl", "color": "#1DB446", "align": "center", "margin": "md" }, { "type": "separator", "margin": "lg" }, { "type": "text", "text": "🔥 熱門套餐 (Combo)", "weight": "bold", "size": "md", "color": "#111111", "margin": "lg" }, ...comboRows, { "type": "text", "text": "👣 足底按摩 (Foot)", "weight": "bold", "size": "md", "color": "#111111", "margin": "lg" }, ...footRows, { "type": "text", "text": "🛏️ 身體指壓 (Body)", "weight": "bold", "size": "md", "color": "#111111", "margin": "lg" }, ...bodyRows, { "type": "separator", "margin": "xl" }, { "type": "text", "text": `⭐ 油推需加收 $${OIL_BONUS}，請詢問櫃台。`, "size": "xs", "color": "#aaaaaa", "margin": "md", "align": "center" }] }, "footer": { "type": "box", "layout": "vertical", "contents": [{ "type": "button", "style": "primary", "action": { "type": "message", "label": "📅 立即預約 (Book Now)", "text": "Action:Booking" } }] } };
 }
 
 // =============================================================================
@@ -247,13 +256,10 @@ app.post('/callback', line.middleware(config), (req, res) => {
 });
 
 // --- ROUTE CHO BOT NHÂN VIÊN (STAFF BOT) - CRITICAL BRIDGE ---
-// Tại đây chúng ta thực hiện Injection (tiêm) toàn bộ SheetService vào StaffBot
 app.post('/callback-staff', StaffBot.middleware(StaffBot.config), (req, res) => {
     Promise.all(req.body.events.map(event => {
 
-        // Tạo Context Object chứa toàn bộ công cụ cần thiết cho StaffBot
         const staffBotContext = {
-            // 1. Các hàm cơ bản cũ (giữ tương thích)
             ghiVaoSheet: SheetService.ghiVaoSheet,
             normalizeDateStrict: SheetService.normalizeDateStrict,
             getTaipeiNow: SheetService.getTaipeiNow,
@@ -262,29 +268,19 @@ app.post('/callback-staff', StaffBot.middleware(StaffBot.config), (req, res) => 
             ID_BA_CHU: ID_BA_CHU,
             clientMain: client,
 
-            // ==========================================
-            // ĐOẠN CODE ĐÃ ĐƯỢC FIX LỖI 
-            // ==========================================
-
-            // FIX 1: Gọi đúng tên hàm tìm kiếm ID nhân viên
             findStaffRowByLineId: SheetService.findStaffByLineId,
 
-            // FIX 2: Khớp nối lại đúng thứ tự tham số cho hàm Xin Nghỉ / Đi Trễ
             updateScheduleCell: async (dateStr, staffName, value) => {
-                const userId = event.source.userId; // Lấy Line ID trực tiếp từ tin nhắn
+                const userId = event.source.userId;
                 return await SheetService.updateScheduleCell(userId, dateStr, value);
             },
 
-            // FIX 3: Bổ sung và khớp nối tham số cho hàm Ăn Cơm / Ra Ngoài
             updateDailyStatus: async (staffName, dateStr, type, startVal, endVal) => {
                 const userId = event.source.userId;
                 return await SheetService.updateDailyActivity(userId, type, startVal, endVal);
             }
-
-            // ==========================================
         };
 
-        // Chuyển giao xử lý cho StaffBot
         return StaffBot.handleEvent(event, staffBotContext);
     }))
         .then((r) => res.json(r))
@@ -300,8 +296,6 @@ app.use(express.static(path.join(__dirname, 'public')));
 app.use('/admin2', express.static(path.join(__dirname, 'XinWuChanAdmin')));
 
 // --- API: INFO ---
-// API này Frontend sẽ gọi liên tục để cập nhật trạng thái.
-// Trạng thái "Running" sẽ được lấy trực tiếp từ `SheetService.getBookings()`
 app.get('/api/info', async (req, res) => {
     try {
         const isForceRefresh = req.query.forceRefresh === 'true';
@@ -323,11 +317,10 @@ app.get('/api/info', async (req, res) => {
     } catch (error) { res.status(500).json({ error: "Internal Server Error" }); }
 });
 
-// Các API đồng bộ state tạm thời (Legacy/Cache)
 app.post('/api/sync-resource', (req, res) => { SERVER_RESOURCE_STATE = req.body; res.json({ success: true }); });
 app.post('/api/sync-staff-status', (req, res) => { SERVER_STAFF_STATUS = req.body; res.json({ success: true }); });
 
-// --- API: ADMIN BOOKING (UPDATED FOR RESOURCE ALLOCATION) ---
+// --- API: ADMIN BOOKING ---
 app.post('/api/admin-booking', async (req, res) => {
     const data = req.body;
     const SERVICES = SheetService.getServices();
@@ -355,7 +348,6 @@ app.post('/api/admin-booking', async (req, res) => {
                 }
                 const checkResult = ResourceCore.checkRequestAvailability(data.ngayDen, data.gioDen, guestList, relevantBookings, staffListMap);
 
-                // [UPDATED] XỬ LÝ KẾT QUẢ VÀ LẤY VỊ TRÍ (LOCATION)
                 if (checkResult.feasible && checkResult.details && checkResult.details.length > 0) {
                     const optimalDetail = checkResult.details[0];
                     const optimalFlow = optimalDetail.flow;
@@ -366,7 +358,6 @@ app.post('/api/admin-booking', async (req, res) => {
                         if (data.phase2_duration === undefined) data.phase2_duration = optimalDetail.phase2_duration || optimalDetail.phase2;
                     }
 
-                    // CẬP NHẬT GUEST DETAILS ĐỂ GHI NHẬN VỊ TRÍ
                     if (!data.guestDetails) data.guestDetails = [];
 
                     if (data.guestDetails.length === 0) {
@@ -376,13 +367,11 @@ app.post('/api/admin-booking', async (req, res) => {
                             flow: optimalFlow,
                             phase1_duration: data.phase1_duration,
                             phase2_duration: data.phase2_duration,
-                            // *** LẤY VỊ TRÍ TỪ ENGINE ***
                             phase1_res_idx: optimalDetail.phase1_res_idx,
                             phase2_res_idx: optimalDetail.phase2_res_idx,
                             resource_type: optimalFlow === 'FOOTSINGLE' ? 'CHAIR' : (optimalFlow === 'BODYSINGLE' ? 'BED' : 'COMBO')
                         });
                     } else {
-                        // Nếu đã có object (ví dụ từ frontend), cập nhật thêm vị trí vào đó
                         if (data.guestDetails[0]) {
                             data.guestDetails[0].phase1_res_idx = optimalDetail.phase1_res_idx;
                             data.guestDetails[0].phase2_res_idx = optimalDetail.phase2_res_idx;
@@ -403,29 +392,21 @@ app.post('/api/admin-booking', async (req, res) => {
         ngayDen: data.ngayDen, gioDen: data.gioDen, dichVu: data.dichVu, nhanVien: data.nhanVien,
         userId: 'ADMIN_WEB', sdt: data.sdt || '現場客', hoTen: data.hoTen || '現場客',
         trangThai: '已預約', pax: data.pax || 1, isOil: data.isOil || false,
-        guestDetails: data.guestDetails, // Đã bao gồm phase1_res_idx, resource_type
+        guestDetails: data.guestDetails,
         phase1_duration: data.phase1_duration, phase2_duration: data.phase2_duration,
         isManualLocked: data.isManualLocked, flow: data.flow, serviceCode: data.serviceCode
     });
     res.json({ success: true });
 });
 
-// --- API: INLINE UPDATE BOOKING ROW (NEW) ---
-// Thêm mới: API dành riêng cho tính năng chỉnh sửa trực tiếp trên bảng danh sách
+// --- API: INLINE UPDATE BOOKING ROW ---
 app.post('/api/inline-update-booking', async (req, res) => {
     try {
         const { rowId, updatedData } = req.body;
-
         if (!rowId || !updatedData) {
             return res.status(400).json({ success: false, error: 'Thiếu thông tin rowId hoặc updatedData' });
         }
-
-        console.log(`[INLINE UPDATE] Request cho Row ID: ${rowId}`);
-
-        // Gọi hàm xử lý cập nhật dòng trong SheetService
-        // (Hàm này sẽ được bổ sung vào sheet_service.js ở bước tiếp theo)
         await SheetService.updateInlineBooking(rowId, updatedData);
-
         res.json({ success: true, message: 'Cập nhật thành công (Update Success)' });
     } catch (e) {
         console.error('[INLINE UPDATE ERROR]', e);
@@ -433,25 +414,19 @@ app.post('/api/inline-update-booking', async (req, res) => {
     }
 });
 
-// --- API: UPDATE STATUS (SINGLE SOURCE OF TRUTH) ---
-// Xử lý Start Service và cập nhật trạng thái vào Sheet
+// --- API: UPDATE STATUS ---
 app.post('/api/update-status', async (req, res) => {
     try {
         const { rowId, status, syncStartTime } = req.body;
-        console.log(`[UPDATE STATUS] Row: ${rowId}, Status: ${status}, SyncTime: ${syncStartTime}`);
-
         let timeToUpdate = null;
 
-        // LOGIC "START": Cập nhật giờ thực tế vào Cột B (Giờ Đến)
         if (syncStartTime === true) {
             const now = SheetService.getTaipeiNow();
             const hours = now.getHours().toString().padStart(2, '0');
             const minutes = now.getMinutes().toString().padStart(2, '0');
             timeToUpdate = `${hours}:${minutes}`;
-            console.log(`[STATUS LOGIC] Auto-updating Start Time for Row ${rowId} to NOW: ${timeToUpdate}`);
         }
 
-        // Gọi SheetService để cập nhật
         await SheetService.updateBookingStatus(rowId, status, timeToUpdate);
         res.json({ success: true });
 
@@ -463,7 +438,6 @@ app.post('/api/update-status', async (req, res) => {
 
 app.post('/api/save-salary', async (req, res) => { await SheetService.syncDailySalary(req.body.date, req.body.staffData); res.json({ success: true }); });
 
-// --- API: UPDATE BOOKING DETAILS ---
 app.post('/api/update-booking-details', async (req, res) => {
     try {
         await SheetService.updateBookingDetails(req.body);
@@ -561,7 +535,8 @@ async function handleEvent(event) {
             { "type": "button", "style": "primary", "color": "#333333", "margin": "sm", "action": { "type": "message", "label": "👉 指定特定號碼", "text": "Pref:SPECIFIC" } },
             { "type": "button", "style": "secondary", "margin": "sm", "action": { "type": "message", "label": "👩 指定女師傅 (無油)", "text": "Pref:FEMALE" } }
         ];
-        if (serviceType !== 'FOOT') buttons.push({ "type": "button", "style": "primary", "color": "#E91E63", "margin": "sm", "action": { "type": "message", "label": "💧 指定女師傅推油 (+$200)", "text": "Pref:OIL" } });
+        // [UPDATED] Lấy phí tinh dầu tự động
+        if (serviceType !== 'FOOT') buttons.push({ "type": "button", "style": "primary", "color": "#E91E63", "margin": "sm", "action": { "type": "message", "label": `💧 指定女師傅推油 (+$${OIL_BONUS})`, "text": "Pref:OIL" } });
         else buttons.push({ "type": "text", "text": "(足底按摩無油壓選項)", "size": "xs", "color": "#aaaaaa", "align": "center", "margin": "sm" });
         return client.replyMessage(event.replyToken, { type: 'flex', altText: '師傅', contents: { "type": "bubble", "body": { "type": "box", "layout": "vertical", "contents": buttons } } });
     }
@@ -644,9 +619,9 @@ async function handleEvent(event) {
     if (text.startsWith('Title:')) {
         if (!userState[userId] || userState[userId].step !== 'TITLE') return Promise.resolve(null);
 
-        const title = text.replace('Title:', '').trim(); // Lấy chữ "先生" hoặc "小姐"
+        const title = text.replace('Title:', '').trim();
         userState[userId].step = 'PHONE';
-        userState[userId].fullName = userState[userId].surname + title; // Ghép lại (VD: 黃 + 小姐)
+        userState[userId].fullName = userState[userId].surname + title;
 
         return client.replyMessage(event.replyToken, { type: 'text', text: "請輸入手機號碼 (Phone):" });
     }
@@ -660,7 +635,11 @@ async function handleEvent(event) {
             const d = new Date(s.date); d.setDate(d.getDate() + 1); finalDate = formatDateDisplay(d.toLocaleDateString());
         }
 
-        let basePrice = SERVICES[s.service].price; if (s.isOil) basePrice += 200; const totalPrice = basePrice * s.pax;
+        // [UPDATED] Lấy phụ phí tinh dầu từ hệ thống thay vì fix cứng 200
+        let basePrice = SERVICES[s.service].price;
+        if (s.isOil) basePrice += OIL_BONUS;
+        const totalPrice = basePrice * s.pax;
+
         let staffDisplay = '隨機'; if (s.selectedStaff && s.selectedStaff.length > 0) staffDisplay = s.selectedStaff.join(', '); else if (s.pref === 'FEMALE') staffDisplay = '女師傅'; else if (s.pref === 'MALE') staffDisplay = '男師傅'; else if (s.pref === 'OIL') staffDisplay = '女師傅(油)';
 
         const guestList = [];
@@ -680,7 +659,7 @@ async function handleEvent(event) {
         }
 
         let confirmMsg = `✅ 預約成功 (Confirmed)\n\n` +
-            `👤 ${s.fullName} (${sdt})\n` + // <-- Sử dụng s.fullName
+            `👤 ${s.fullName} (${sdt})\n` +
             `📅 ${finalDate} ${s.time}\n` +
             `💆 ${SERVICES[s.service].name}\n` +
             `👥 ${s.pax} 位\n` +
@@ -691,7 +670,7 @@ async function handleEvent(event) {
             `若需【更改時間】或【取消預約】，請務必點擊下方「我的預約 (My Booking)」按鈕進行操作，或直接致電櫃台告知，以免影響您的權益，謝謝配合！`;
 
         await client.replyMessage(event.replyToken, { type: 'text', text: confirmMsg });
-        client.pushMessage(ID_BA_CHU, { type: 'text', text: `💰 New Booking: ${s.fullName} - $${totalPrice}` }); // <-- Thay bằng s.fullName trên thông báo chủ
+        client.pushMessage(ID_BA_CHU, { type: 'text', text: `💰 New Booking: ${s.fullName} - $${totalPrice}` });
 
         const guestDetails = [];
         for (let i = 0; i < s.pax; i++) {
@@ -717,7 +696,6 @@ async function handleEvent(event) {
             const p1 = coreDetail ? (coreDetail.phase1_duration !== undefined ? coreDetail.phase1_duration : coreDetail.phase1) : null;
             const p2 = coreDetail ? (coreDetail.phase2_duration !== undefined ? coreDetail.phase2_duration : coreDetail.phase2) : null;
 
-            // Xác định resource_type (Loại tài nguyên)
             let resType = '';
             if (optimalFlow === 'FOOTSINGLE') resType = 'CHAIR';
             else if (optimalFlow === 'BODYSINGLE') resType = 'BED';
@@ -728,7 +706,6 @@ async function handleEvent(event) {
                 staff: sId, isOil: s.isOil, flow: optimalFlow,
                 phase1_duration: p1, phase2_duration: p2,
                 serviceCode: s.service,
-                // [UPDATED] THÊM THÔNG TIN VỊ TRÍ & LOẠI TÀI NGUYÊN VÀO BOOKING CỦA KHÁCH
                 phase1_res_idx: coreDetail ? coreDetail.phase1_res_idx : undefined,
                 phase2_res_idx: coreDetail ? coreDetail.phase2_res_idx : undefined,
                 resource_type: resType
@@ -739,10 +716,9 @@ async function handleEvent(event) {
             {
                 gioDen: s.time, ngayDen: finalDate, dichVu: SERVICES[s.service].name,
                 nhanVien: staffDisplay, userId: userId, sdt: sdt,
-                hoTen: s.fullName, // <-- Truyền s.fullName xuống SheetService
+                hoTen: s.fullName,
                 trangThai: '已預約', pax: s.pax, isOil: s.isOil,
                 guestDetails: guestDetails, serviceCode: s.service,
-                // [UPDATED] BÁO CHO SHEET BIẾT ĐÂY LÀ BOT ĐẶT (KHÔNG KHÓA THỦ CÔNG)
                 isManualLocked: false
             },
             checkResult.proposedUpdates
@@ -771,4 +747,4 @@ setInterval(() => { SheetService.syncData(); }, 10000);
 app.get('/ping', (req, res) => { res.status(200).send('Pong!'); });
 
 const port = process.env.PORT || 4000;
-app.listen(port, () => { console.log(`XinWuChan Bot V127-TITLE-SELECTION running on port ${port}`); });
+app.listen(port, () => { console.log(`XinWuChan Bot V128-CENTRALIZED-CONFIG running on port ${port}`); });

@@ -1,8 +1,14 @@
 /**
  * =================================================================================================
- * MODULE: SHEET SERVICE (DATA LAYER) - REFACTORED V6.1.2
+ * MODULE: SHEET SERVICE (DATA LAYER) - REFACTORED V6.2 (INTEGRATED DATA.JS)
  * PROJECT: XINWUCHAN MASSAGE BOT
  * DESCRIPTION: Handles Google Sheets interactions. 
+ * * * * * UPDATE V6.2 (CENTRALIZED CONFIG):
+ * + [FEATURE] Tích hợp file data.js (SYSTEM_CONFIG, SERVICES_DATA) để quản lý tập trung.
+ * + [FEATURE] Loại bỏ hardcode $200 cho phí tinh dầu, sử dụng SYSTEM_CONFIG.FINANCE.OIL_BONUS.
+ * + [FEATURE] Dùng SERVICES_DATA làm dữ liệu dịch vụ dự phòng (Fallback) khi khởi tạo.
+ * * * * * UPDATE V6.1.3 (ADDON SPECIFIC ROUTING):
+ * + [FEATURE] Thêm logic phân loại rõ ràng cho mã 'C': C1 (Cạo gió/Giác hơi) mặc định xếp vào giường (BODYSINGLE), C2 (Cắt móng) xếp vào ghế (FOOTSINGLE).
  * * * * * UPDATE V6.1.2 (DYNAMIC SCAN & RENDER ENV FIX):
  * + [FEATURE] Cập nhật Auth để đọc process.env trên Render, tự động fix lỗi ký tự \n của private_key.
  * + [FEATURE] Đổi range đọc Menu sang quét động (Dynamic Scan) `${MENU_SHEET}!A2:Z` không giới hạn.
@@ -20,6 +26,7 @@
 require('dotenv').config();
 const { google } = require('googleapis');
 const ResourceCore = require('./resource_core'); // Core logic for Matrix & Rules
+const { SYSTEM_CONFIG, SERVICES_DATA } = require('./data.js'); // [V6.2] Centralized Configuration
 
 // --- CONFIGURATION ---
 const SHEET_ID = process.env.SHEET_ID;
@@ -67,7 +74,7 @@ let STATE = {
     cachedBookings: [],
     scheduleMap: {},
     dateColumnMap: {},
-    SERVICES: ResourceCore.SERVICES || {},
+    SERVICES: SERVICES_DATA || ResourceCore.SERVICES || {}, // [V6.2] Fallback bằng SERVICES_DATA từ data.js
     QUICK_NOTES: [], // [V6.1] Chứa danh sách các lựa chọn ghi chú nhanh từ Cột N
     lastSyncTime: new Date(0),
     isSystemHealthy: false,
@@ -175,6 +182,12 @@ function resolveStrictLockState(explicitLock, hasManualPhase, currentStatus = "F
     return "FALSE";
 }
 
+// --- [V6.2 HELPER] Lấy Text hiển thị phí Tinh dầu ---
+function getOilSuffixText() {
+    const bonus = SYSTEM_CONFIG.FINANCE.OIL_BONUS;
+    return bonus > 0 ? ` (油推+$${bonus})` : ` (油推)`;
+}
+
 // =============================================================================
 // PHẦN 2: SYNC ENGINE (ĐỌC VÀ ĐỒNG BỘ DỮ LIỆU TỪ GOOGLE SHEETS)
 // =============================================================================
@@ -237,6 +250,18 @@ async function syncMenuData() {
             if (prefix === 'A') { type = 'BED'; category = 'COMBO'; }
             else if (prefix === 'F') { type = 'CHAIR'; category = 'FOOT'; }
             else if (prefix === 'B') { type = 'BED'; category = 'BODY'; }
+            // [V6.1.3 NÂNG CẤP]: Phân loại rành mạch mã C1 (Body) và C2 (Foot)
+            else if (prefix === 'C') {
+                if (code.toUpperCase() === 'C1') {
+                    type = 'BED';
+                    category = 'BODY'; // Mặc định vào giường (BODYSINGLE)
+                } else if (code.toUpperCase() === 'C2') {
+                    type = 'CHAIR';
+                    category = 'FOOT'; // Mặc định vào ghế (FOOTSINGLE)
+                } else {
+                    category = 'ADDON';
+                }
+            }
 
             newServices[code] = {
                 name: name,
@@ -263,7 +288,6 @@ async function syncData() {
         STATE.isSyncing = true;
 
         // --- BƯỚC 0: [V6.1.1] ĐỒNG BỘ GHI CHÚ NHANH (QUICK NOTES) ---
-        // Gọi ở đây để mỗi khi reload data định kỳ, file lấy danh sách mới nếu Admin có sửa đổi trên Sheet
         await syncQuickNotes();
 
         // --- BƯỚC 1: ĐỌC BOOKING TỪ SHEET1 ---
@@ -303,7 +327,8 @@ async function syncData() {
 
                 const isOilService = (row[4] === "Yes");
                 if (isOilService) {
-                    price += 200;
+                    // [V6.2 NÂNG CẤP]: Tính giá tinh dầu từ data.js
+                    price += SYSTEM_CONFIG.FINANCE.OIL_BONUS;
                 }
 
                 let pax = 1; if (row[5]) pax = safeParseInt(row[5], 1);
@@ -487,7 +512,9 @@ async function ghiVaoSheet(data, proposedUpdates = []) {
             if (guestDetail) svcName = guestDetail.service;
             let isOil = data.isOil;
             if (guestDetail && guestDetail.isOil !== undefined) isOil = guestDetail.isOil;
-            if (isOil) svcName += " (油推+$200)";
+
+            // [V6.2 NÂNG CẤP]: Áp dụng hiển thị Text Tinh Dầu động
+            if (isOil) svcName += getOilSuffixText();
 
             row[3] = svcName; row[4] = isOil ? "Yes" : ""; row[5] = 1;
             row[6] = colG_Phone; row[7] = colH_Status;
@@ -520,7 +547,8 @@ async function ghiVaoSheet(data, proposedUpdates = []) {
             let sCode = data.serviceCode;
             if (guestDetail && guestDetail.serviceCode) sCode = guestDetail.serviceCode;
             if (!sCode && svcName) {
-                const cleanSvcName = svcName.replace(" (油推+$200)", "");
+                // Xoá chuỗi tinh dầu (bằng regex linh hoạt) để lookup Code gốc chuẩn xác
+                const cleanSvcName = svcName.replace(/\s*\(油推.*?\)/, "");
                 sCode = smartFindServiceCode(cleanSvcName);
             }
             row[20] = sCode || "";
@@ -707,8 +735,9 @@ async function updateInlineBooking(rowId, updatedData) {
         }
         if (updatedData.dichVu !== undefined) {
             let svcName = updatedData.dichVu;
+            // [V6.2 NÂNG CẤP]: Cập nhật động Text tinh dầu inline
             if (updatedData.isOil && !svcName.includes("油推")) {
-                svcName += " (油推+$200)";
+                svcName += getOilSuffixText();
             }
             dataToUpdate.push({ range: `${BOOKING_SHEET}!D${rowId}`, values: [[svcName]] });
             dataToUpdate.push({ range: `${BOOKING_SHEET}!U${rowId}`, values: [[sCode]] });

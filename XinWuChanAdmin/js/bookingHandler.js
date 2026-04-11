@@ -2,12 +2,12 @@
  * =================================================================================================
  * PROJECT: XINWUCHAN MASSAGE BOT - FRONTEND CONTROLLER & LOGIC BRIDGE
  * FILE: js/bookingHandler.js
- * PHIÊN BẢN: V113.8.4 (UI/UX BIG SCREEN UPGRADE + 24/7 SUPPORT + 9 BEDS/CHAIRS)
+ * PHIÊN BẢN: V114.0 (CENTRALIZED CONFIGURATION UPGRADE)
  * =================================================================================================
  */
 
 (function () {
-    console.log("🚀 BookingHandler V113.8.4: Scaled to 9 Beds/Chairs, 24/7 Operations (5 AM Timeline).");
+    console.log("🚀 BookingHandler V114.0: Centralized Config Enabled, Scaled for Dynamic Beds/Chairs & Hours.");
 
     // Kiểm tra môi trường React
     if (typeof React === 'undefined') {
@@ -63,17 +63,21 @@
     // ========================================================================
     const CoreKernel = (function () {
 
-        // --- 1. CẤU HÌNH HỆ THỐNG ---
-        const CONFIG = {
-            MAX_CHAIRS: 9,
-            MAX_BEDS: 9,
-            MAX_TOTAL_GUESTS: 18,
-            OPEN_HOUR: 5,
-            CLEANUP_BUFFER: 5,
-            TRANSITION_BUFFER: 5,
-            TOLERANCE: 1,
-            MAX_TIMELINE_MINS: 1680,
-            CAPACITY_CHECK_STEP: 10
+        // --- 1. CẤU HÌNH HỆ THỐNG ĐỘNG (DYNAMIC SYSTEM CONFIG) ---
+        // Lấy từ data.js, nếu chưa có sẽ fallback về giá trị mặc định an toàn.
+        const getSystemConfig = () => {
+            const ext = window.SYSTEM_CONFIG || {};
+            return {
+                MAX_CHAIRS: ext.MAX_CHAIRS || 9,
+                MAX_BEDS: ext.MAX_BEDS || 9,
+                MAX_TOTAL_GUESTS: ext.MAX_TOTAL_GUESTS || 18,
+                OPEN_HOUR: ext.OPEN_HOUR || 5,
+                CLEANUP_BUFFER: ext.CLEANUP_BUFFER || 5,
+                TRANSITION_BUFFER: ext.TRANSITION_BUFFER || 5,
+                TOLERANCE: ext.TOLERANCE || 1,
+                MAX_TIMELINE_MINS: ext.MAX_TIMELINE_MINS || 1680,
+                CAPACITY_CHECK_STEP: ext.CAPACITY_CHECK_STEP || 10
+            };
         };
 
         let SERVICES = {};
@@ -91,6 +95,7 @@
         // --- UTILS THỜI GIAN ---
         function getMinsFromTimeStr(timeStr) {
             if (!timeStr) return -1;
+            const CONF = getSystemConfig();
             try {
                 let str = timeStr.toString();
                 if (str.includes('T') || str.includes(' ')) {
@@ -103,7 +108,7 @@
                 let h = parseInt(parts[0], 10);
                 let m = parseInt(parts[1], 10);
                 if (isNaN(h) || isNaN(m)) return -1;
-                if (h < CONFIG.OPEN_HOUR) h += 24;
+                if (h < CONF.OPEN_HOUR) h += 24;
                 return (h * 60) + m;
             } catch (e) { return -1; }
         }
@@ -116,8 +121,9 @@
         }
 
         function isOverlap(startA, endA, startB, endB) {
-            const safeEndA = endA - CONFIG.TOLERANCE;
-            const safeEndB = endB - CONFIG.TOLERANCE;
+            const CONF = getSystemConfig();
+            const safeEndA = endA - CONF.TOLERANCE;
+            const safeEndB = endB - CONF.TOLERANCE;
             return (startA < safeEndB) && (startB < safeEndA);
         }
 
@@ -130,12 +136,13 @@
         }
 
         function isMathematicallyActive(booking, currentQueryTimeMins) {
+            const CONF = getSystemConfig();
             const s = (booking.status || '').toLowerCase();
             if (!s.includes('running') && !s.includes('doing')) return true;
             const start = getMinsFromTimeStr(booking.startTime);
             if (start === -1) return true;
             const duration = parseInt(booking.duration) || 60;
-            const realEnd = start + duration + CONFIG.CLEANUP_BUFFER;
+            const realEnd = start + duration + CONF.CLEANUP_BUFFER;
             if (currentQueryTimeMins >= realEnd) return false;
             return true;
         }
@@ -167,9 +174,10 @@
 
         // --- LOGIC PHÂN TÍCH TÀI NGUYÊN ---
         function inferResourceAtTime(booking, timeMins) {
+            const CONF = getSystemConfig();
             const bStart = getMinsFromTimeStr(booking.startTime);
             const duration = parseInt(booking.duration) || 60;
-            const bEnd = bStart + duration + CONFIG.CLEANUP_BUFFER;
+            const bEnd = bStart + duration + CONF.CLEANUP_BUFFER;
             if (timeMins < bStart || timeMins >= bEnd) return null;
 
             const svcInfo = SERVICES[booking.serviceCode] || { name: booking.serviceName };
@@ -204,7 +212,8 @@
 
         // --- CONTINUOUS SCAN GUARDRAIL ---
         function checkLaneContinuity(laneOccupiedArr, start, end) {
-            const safeEnd = end + CONFIG.CLEANUP_BUFFER;
+            const CONF = getSystemConfig();
+            const safeEnd = end + CONF.CLEANUP_BUFFER;
             for (let block of laneOccupiedArr) {
                 if (isOverlap(start, safeEnd, block.start, block.end)) return false;
             }
@@ -212,9 +221,10 @@
         }
 
         function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBookingsRaw, staffList, queryDateStr) {
+            const CONF = getSystemConfig();
             const resourceMap = {
-                'BED': Array.from({ length: CONFIG.MAX_BEDS }, () => []),
-                'CHAIR': Array.from({ length: CONFIG.MAX_CHAIRS }, () => [])
+                'BED': Array.from({ length: CONF.MAX_BEDS }, () => []),
+                'CHAIR': Array.from({ length: CONF.MAX_CHAIRS }, () => [])
             };
 
             const relevantBookings = currentBookingsRaw.filter(b => {
@@ -222,7 +232,7 @@
                 if (bStart === -1) return false;
                 if (!isActiveBookingStatus(b.status)) return false;
                 if (!isMathematicallyActive(b, requestStart)) return false;
-                const bEnd = bStart + (b.duration || 60) + CONFIG.CLEANUP_BUFFER;
+                const bEnd = bStart + (b.duration || 60) + CONF.CLEANUP_BUFFER;
                 return bEnd > requestStart;
             });
 
@@ -237,7 +247,7 @@
                     const type = laneMatch[1].toUpperCase().includes('BED') ? 'BED' : 'CHAIR';
                     const idx = parseInt(laneMatch[2]) - 1;
                     if (resourceMap[type] && resourceMap[type][idx]) {
-                        resourceMap[type][idx].push({ start: bStart, end: bStart + duration + CONFIG.CLEANUP_BUFFER });
+                        resourceMap[type][idx].push({ start: bStart, end: bStart + duration + CONF.CLEANUP_BUFFER });
                         assigned = true;
                     }
                 }
@@ -253,7 +263,7 @@
             let staffBusyCount = 0;
             relevantBookings.forEach(b => {
                 const bS = getMinsFromTimeStr(b.startTime);
-                const bE = bS + (b.duration || 60) + CONFIG.CLEANUP_BUFFER;
+                const bE = bS + (b.duration || 60) + CONF.CLEANUP_BUFFER;
                 if (requestStart >= bS && requestStart < bE) staffBusyCount++;
             });
 
@@ -274,36 +284,36 @@
                     const p1 = Math.floor(duration / 2);
                     const p2 = duration - p1;
                     const tStart = requestStart;
-                    const tSwitch = tStart + p1 + CONFIG.TRANSITION_BUFFER;
+                    const tSwitch = tStart + p1 + CONF.TRANSITION_BUFFER;
 
                     let successBF = false;
                     let successFB = false;
 
                     let bedIdx = -1, chairIdx = -1;
-                    for (let b = 0; b < CONFIG.MAX_BEDS; b++) {
+                    for (let b = 0; b < CONF.MAX_BEDS; b++) {
                         if (checkLaneContinuity(simulationMap.BED[b], tStart, tStart + p1)) { bedIdx = b; break; }
                     }
-                    for (let c = 0; c < CONFIG.MAX_CHAIRS; c++) {
+                    for (let c = 0; c < CONF.MAX_CHAIRS; c++) {
                         if (checkLaneContinuity(simulationMap.CHAIR[c], tSwitch, tSwitch + p2)) { chairIdx = c; break; }
                     }
 
                     if (bedIdx !== -1 && chairIdx !== -1) {
                         successBF = true;
-                        simulationMap.BED[bedIdx].push({ start: tStart, end: tStart + p1 + CONFIG.CLEANUP_BUFFER });
-                        simulationMap.CHAIR[chairIdx].push({ start: tSwitch, end: tSwitch + p2 + CONFIG.CLEANUP_BUFFER });
+                        simulationMap.BED[bedIdx].push({ start: tStart, end: tStart + p1 + CONF.CLEANUP_BUFFER });
+                        simulationMap.CHAIR[chairIdx].push({ start: tSwitch, end: tSwitch + p2 + CONF.CLEANUP_BUFFER });
                     } else {
                         chairIdx = -1; bedIdx = -1;
-                        for (let c = 0; c < CONFIG.MAX_CHAIRS; c++) {
+                        for (let c = 0; c < CONF.MAX_CHAIRS; c++) {
                             if (checkLaneContinuity(simulationMap.CHAIR[c], tStart, tStart + p1)) { chairIdx = c; break; }
                         }
-                        for (let b = 0; b < CONFIG.MAX_BEDS; b++) {
+                        for (let b = 0; b < CONF.MAX_BEDS; b++) {
                             if (checkLaneContinuity(simulationMap.BED[b], tSwitch, tSwitch + p2)) { bedIdx = b; break; }
                         }
 
                         if (chairIdx !== -1 && bedIdx !== -1) {
                             successFB = true;
-                            simulationMap.CHAIR[chairIdx].push({ start: tStart, end: tStart + p1 + CONFIG.CLEANUP_BUFFER });
-                            simulationMap.BED[bedIdx].push({ start: tSwitch, end: tSwitch + p2 + CONFIG.CLEANUP_BUFFER });
+                            simulationMap.CHAIR[chairIdx].push({ start: tStart, end: tStart + p1 + CONF.CLEANUP_BUFFER });
+                            simulationMap.BED[bedIdx].push({ start: tSwitch, end: tSwitch + p2 + CONF.CLEANUP_BUFFER });
                         }
                     }
 
@@ -311,7 +321,7 @@
                         return {
                             pass: false,
                             reason: `⚠️ 在 ${getTimeStrFromMins(requestStart)} 沒有足夠的連續空位 (Continuous Gap) 給套餐。`,
-                            debug: { msg: "Logic V113.2 detected gap fragmentation." }
+                            debug: { msg: "Logic V114.0 detected gap fragmentation." }
                         };
                     }
 
@@ -322,7 +332,7 @@
                     else rType = detectResourceType(svc);
 
                     let foundIdx = -1;
-                    for (let k = 0; k < (rType === 'BED' ? CONFIG.MAX_BEDS : CONFIG.MAX_CHAIRS); k++) {
+                    for (let k = 0; k < (rType === 'BED' ? CONF.MAX_BEDS : CONF.MAX_CHAIRS); k++) {
                         if (checkLaneContinuity(simulationMap[rType][k], requestStart, requestStart + duration)) {
                             foundIdx = k;
                             break;
@@ -330,7 +340,7 @@
                     }
 
                     if (foundIdx !== -1) {
-                        simulationMap[rType][foundIdx].push({ start: requestStart, end: requestStart + duration + CONFIG.CLEANUP_BUFFER });
+                        simulationMap[rType][foundIdx].push({ start: requestStart, end: requestStart + duration + CONF.CLEANUP_BUFFER });
                     } else {
                         return {
                             pass: false,
@@ -340,15 +350,16 @@
                     }
                 }
             }
-            return { pass: true, debug: { msg: "V113.2 Continuous Scan Passed" } };
+            return { pass: true, debug: { msg: "V114.0 Continuous Scan Passed" } };
         }
 
         // --- MATRIX ENGINE ---
         class VirtualMatrix {
             constructor() {
+                const CONF = getSystemConfig();
                 this.lanes = {
-                    'CHAIR': Array.from({ length: CONFIG.MAX_CHAIRS }, (_, i) => ({ id: `CHAIR-${i + 1}`, occupied: [] })),
-                    'BED': Array.from({ length: CONFIG.MAX_BEDS }, (_, i) => ({ id: `BED-${i + 1}`, occupied: [] }))
+                    'CHAIR': Array.from({ length: CONF.MAX_CHAIRS }, (_, i) => ({ id: `CHAIR-${i + 1}`, occupied: [] })),
+                    'BED': Array.from({ length: CONF.MAX_BEDS }, (_, i) => ({ id: `BED-${i + 1}`, occupied: [] }))
                 };
                 this.blockLog = [];
             }
@@ -390,6 +401,7 @@
 
         // --- HELPER LOGIC: STAFF MATCHING & ELASTIC ---
         function findAvailableStaff(staffReq, start, end, staffListRef, busyList) {
+            const CONF = getSystemConfig();
             const checkOneStaff = (name) => {
                 const staffInfo = staffListRef[name];
                 if (!staffInfo || staffInfo.off) return false;
@@ -397,10 +409,10 @@
                 const shiftEnd = getMinsFromTimeStr(staffInfo.end);
                 if (shiftStart === -1 || shiftEnd === -1) return false;
 
-                if ((start + CONFIG.TOLERANCE) < shiftStart) return false;
+                if ((start + CONF.TOLERANCE) < shiftStart) return false;
                 const isStrict = staffInfo.isStrictTime === true;
                 if (isStrict) {
-                    if ((end - CONFIG.TOLERANCE) > shiftEnd) return false;
+                    if ((end - CONF.TOLERANCE) > shiftEnd) return false;
                 } else {
                     if (start > shiftEnd) return false;
                 }
@@ -462,6 +474,7 @@
 
         // --- MAIN ENGINE ---
         function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRaw, staffList) {
+            const CONF = getSystemConfig();
             const requestStartMins = getMinsFromTimeStr(timeStr);
             if (requestStartMins === -1) return { feasible: false, reason: "❌ 錯誤: 時間格式無效 (Invalid Time)" };
 
@@ -577,7 +590,7 @@
                     if (p1 >= duration) p1 = duration;
                     let p2 = duration - p1;
                     const p1End = bStart + p1;
-                    const p2Start = p1End + CONFIG.TRANSITION_BUFFER;
+                    const p2Start = p1End + CONF.TRANSITION_BUFFER;
                     let isBodyFirst = false;
                     const noteContent = (b.note || b.ghiChu || b.originalData?.ghiChu || "").toString().toUpperCase();
                     if (storedFlow === 'BF') isBodyFirst = true;
@@ -646,7 +659,7 @@
                     let placedSuccessfully = true;
                     let allocatedSlots = [];
                     for (const block of exB.blocks) {
-                        const realEnd = block.end + CONFIG.CLEANUP_BUFFER;
+                        const realEnd = block.end + CONF.CLEANUP_BUFFER;
                         const slotId = matrix.tryAllocate(block.type, block.start, realEnd, exB.id, block.forcedIndex);
                         if (!slotId) { placedSuccessfully = false; break; }
                         allocatedSlots.push(slotId);
@@ -673,15 +686,15 @@
                         const p2Standard = duration - p1Standard;
                         if (flow === 'FB') {
                             const t1End = requestStartMins + p1Standard;
-                            const t2Start = t1End + CONFIG.TRANSITION_BUFFER;
-                            blocks.push({ start: requestStartMins, end: t1End + CONFIG.CLEANUP_BUFFER, type: 'CHAIR' });
-                            blocks.push({ start: t2Start, end: t2Start + p2Standard + CONFIG.CLEANUP_BUFFER, type: 'BED' });
+                            const t2Start = t1End + CONF.TRANSITION_BUFFER;
+                            blocks.push({ start: requestStartMins, end: t1End + CONF.CLEANUP_BUFFER, type: 'CHAIR' });
+                            blocks.push({ start: t2Start, end: t2Start + p2Standard + CONF.CLEANUP_BUFFER, type: 'BED' });
                             scenarioDetails.push({ guestIndex: ng.idx, service: svc.name, price: svc.price, phase1_duration: p1Standard, phase2_duration: p2Standard, flow: 'FB', timeStr: timeStr, allocated: [] });
                         } else {
                             const t1End = requestStartMins + p2Standard;
-                            const t2Start = t1End + CONFIG.TRANSITION_BUFFER;
-                            blocks.push({ start: requestStartMins, end: t1End + CONFIG.CLEANUP_BUFFER, type: 'BED' });
-                            blocks.push({ start: t2Start, end: t2Start + p1Standard + CONFIG.CLEANUP_BUFFER, type: 'CHAIR' });
+                            const t2Start = t1End + CONF.TRANSITION_BUFFER;
+                            blocks.push({ start: requestStartMins, end: t1End + CONF.CLEANUP_BUFFER, type: 'BED' });
+                            blocks.push({ start: t2Start, end: t2Start + p1Standard + CONF.CLEANUP_BUFFER, type: 'CHAIR' });
                             scenarioDetails.push({ guestIndex: ng.idx, service: svc.name, price: svc.price, phase1_duration: p1Standard, phase2_duration: p2Standard, flow: 'BF', timeStr: timeStr, allocated: [] });
                         }
                     } else {
@@ -689,7 +702,7 @@
                         if (flow === 'FOOTSINGLE') rType = 'CHAIR';
                         else if (flow === 'BODYSINGLE') rType = 'BED';
                         else rType = detectResourceType(svc);
-                        blocks.push({ start: requestStartMins, end: requestStartMins + duration + CONFIG.CLEANUP_BUFFER, type: rType });
+                        blocks.push({ start: requestStartMins, end: requestStartMins + duration + CONF.CLEANUP_BUFFER, type: rType });
                         scenarioDetails.push({ guestIndex: ng.idx, service: svc.name, price: svc.price, flow: flow, timeStr: timeStr, allocated: [] });
                     }
                     newGuestBlocksMap.push({ guest: ng, blocks: blocks });
@@ -718,7 +731,7 @@
                     let updatesProposed = [];
                     const hardBookings = existingBookingsProcessed.filter(b => !b.isElastic);
                     hardBookings.forEach(hb => {
-                        hb.blocks.forEach(blk => matrixSqueeze.tryAllocate(blk.type, blk.start, blk.end + CONFIG.CLEANUP_BUFFER, hb.id, blk.forcedIndex));
+                        hb.blocks.forEach(blk => matrixSqueeze.tryAllocate(blk.type, blk.start, blk.end + CONF.CLEANUP_BUFFER, hb.id, blk.forcedIndex));
                     });
                     let squeezeScenarioPossible = true;
                     for (const item of newGuestBlocksMap) {
@@ -744,11 +757,11 @@
                         let fit = false;
                         for (const split of splits) {
                             const sP1End = sb.startMins + split.p1;
-                            const sP2Start = sP1End + CONFIG.TRANSITION_BUFFER;
+                            const sP2Start = sP1End + CONF.TRANSITION_BUFFER;
                             const sP2End = sP2Start + split.p2;
                             const testBlocks = [
-                                { type: 'CHAIR', start: sb.startMins, end: sP1End + CONFIG.CLEANUP_BUFFER, forcedIndex: sb.blocks[0].forcedIndex },
-                                { type: 'BED', start: sP2Start, end: sP2End + CONFIG.CLEANUP_BUFFER, forcedIndex: sb.blocks[1] ? sb.blocks[1].forcedIndex : null }
+                                { type: 'CHAIR', start: sb.startMins, end: sP1End + CONF.CLEANUP_BUFFER, forcedIndex: sb.blocks[0].forcedIndex },
+                                { type: 'BED', start: sP2Start, end: sP2End + CONF.CLEANUP_BUFFER, forcedIndex: sb.blocks[1] ? sb.blocks[1].forcedIndex : null }
                             ];
                             if (isBlockSetAllocatable(testBlocks, matrixSqueeze)) {
                                 testBlocks.forEach(tb => matrixSqueeze.tryAllocate(tb.type, tb.start, tb.end, sb.id, tb.forcedIndex));
@@ -792,7 +805,7 @@
             if (successfulScenario) {
                 successfulScenario.details.sort((a, b) => a.guestIndex - b.guestIndex);
                 return {
-                    feasible: true, strategy: 'MATRIX_V113.2_STRICT',
+                    feasible: true, strategy: 'MATRIX_V114.0_DYNAMIC',
                     details: successfulScenario.details,
                     proposedUpdates: successfulScenario.updates,
                     totalPrice: successfulScenario.details.reduce((sum, item) => sum + (item.price || 0), 0),
@@ -946,7 +959,16 @@
         // SURNAME PICKER STATE
         const [showSurnamePicker, setShowSurnamePicker] = useState(false);
 
-        const defaultService = (window.SERVICES_LIST && window.SERVICES_LIST.length > 0) ? window.SERVICES_LIST[2] : "Body Massage";
+        // Default: "套餐 (120分)"
+        const defaultService = useMemo(() => {
+            if (window.SERVICES_LIST && window.SERVICES_LIST.length > 0) {
+                if (window.SERVICES_LIST.includes("套餐 (120分)")) {
+                    return "套餐 (120分)";
+                }
+                return window.SERVICES_LIST[0];
+            }
+            return "Body Massage";
+        }, []);
 
         // --- TITLE STATE ---
         const [form, setForm] = useState({
@@ -1232,7 +1254,7 @@
                 <div className="fixed inset-0 bg-slate-900/90 z-[100] flex items-center justify-center p-2 sm:p-6">
                     <div className="bg-white w-full max-w-[1000px] rounded-2xl shadow-2xl flex flex-col h-[98vh] sm:h-[90vh] overflow-hidden animate-fadeIn">
                         <div className={`${editingBooking ? 'bg-orange-600' : 'bg-[#0891b2]'} p-6 text-white flex justify-between items-center shrink-0`}>
-                            <h3 className="font-bold text-2xl">{editingBooking ? "✏️ 修改預約 (Edit)" : "📅 電話預約 (V113.8.4)"}</h3>
+                            <h3 className="font-bold text-2xl">{editingBooking ? "✏️ 修改預約 (Edit)" : "📅 電話預約 (V114.0)"}</h3>
                             <button onClick={onClose} className="text-4xl hover:text-red-100 leading-none">&times;</button>
                         </div>
 
@@ -1460,7 +1482,7 @@
     const overrideInterval = setInterval(() => {
         if (window.AvailabilityCheckModal !== NewAvailabilityCheckModal) {
             window.AvailabilityCheckModal = NewAvailabilityCheckModal;
-            console.log("♻️ AvailabilityModal Injected (V113.8.4 - Scaled & 24/7 Enabled)");
+            console.log("♻️ AvailabilityModal Injected (V114.0 - Centralized Config)");
         }
     }, 200);
     setTimeout(() => { clearInterval(overrideInterval); }, 5000);
