@@ -18,7 +18,7 @@ const getMaxChairs = () => getConfig().MAX_CHAIRS || 9;
 const getMaxBeds = () => getConfig().MAX_BEDS || 9;
 const getOpenHour = () => getConfig().OPEN_HOUR !== undefined ? getConfig().OPEN_HOUR : 5;
 const getOpenMins = () => getOpenHour() * 60;
-const getRatesConfig = () => getConfig().RATES || { JIE_PRICE: 250, OIL_BONUS: 80 };
+const getRatesConfig = () => getConfig().RATES || { JIE_PRICE: 250, OIL_BONUS: 0 };
 
 // --- COMPONENT CHỌN GIỜ 24H TÙY CHỈNH ---
 const CustomTimePicker24h = ({ value, onChange, disabled }) => {

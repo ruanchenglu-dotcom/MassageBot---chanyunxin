@@ -1,12 +1,15 @@
 /**
  * ============================================================================
  * FILE: js/data.js (HOẶC dùng cho Backend)
- * PHIÊN BẢN: V1.1 (UNIVERSAL CONFIGURATION)
+ * PHIÊN BẢN: V1.2 (UNIVERSAL CONFIGURATION & API OPTIMIZATION)
  * ============================================================================
  * MỤC TIÊU: 
  * 1. Quản lý toàn bộ thông số kỹ thuật của tiệm 禪云心養生館 tại một nơi.
  * 2. Cung cấp dữ liệu dự phòng (Fallback) cho bảng giá và quy mô hệ thống.
  * 3. Hỗ trợ chạy trên cả môi trường Frontend (Browser/React) và Backend (Node.js).
+ * * * * * UPDATE V1.2:
+ * + [FEATURE] Thêm block API_CONFIG để quản lý tập trung tần suất đồng bộ (SYNC_INTERVAL),
+ * tránh việc hardcode 10s trong index.js gây quá tải Google Sheets API.
  */
 
 // ============================================================================
@@ -17,7 +20,7 @@ const SYSTEM_CONFIG = {
     SHOP_INFO: {
         NAME: '禪云心養生館',
         BRANCH: 'Zhonghe', // Chi nhánh Trung Hòa
-        VERSION: 'V1.1_Universal'
+        VERSION: 'V1.2_Universal'
     },
 
     // Quy mô chi nhánh
@@ -53,6 +56,12 @@ const SYSTEM_CONFIG = {
         AUTO_SYNC_GOOGLE_SHEETS: true
     },
 
+    // [V1.2 NÂNG CẤP] Cấu hình tối ưu hóa API & Mạng
+    API_CONFIG: {
+        SYNC_INTERVAL: 30000, // Tần suất đồng bộ Google Sheets (30 giây/lần) - Giảm tải 66% so với 10s
+        MAX_RETRIES: 3        // Số lần lỗi API liên tiếp tối đa trước khi gửi cảnh báo LINE
+    },
+
     // Nhãn giao diện (Tiếng Trung Phồn Thể)
     UI_LABELS: {
         CHAIR_PREFIX: '足',
@@ -64,7 +73,7 @@ const SYSTEM_CONFIG = {
     // Tham số tài chính
     FINANCE: {
         DEFAULT_JIE_PRICE: 250, // Giá 1 tiết cơ bản
-        OIL_BONUS: 0          // Thưởng tinh dầu (Đã đồng bộ với logic Backend cũ)
+        OIL_BONUS: 0            // Thưởng tinh dầu (Đã đồng bộ với logic Backend cũ)
     }
 };
 

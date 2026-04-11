@@ -15,9 +15,9 @@
     const CONFIG = window.SYSTEM_CONFIG || {
         SHOP_INFO: { VERSION: 'V109.0 fallback' },
         OPERATION_TIME: { OPEN_HOUR: 5 },
-        BUFFERS: { CLEANUP_MINUTES: 10, TRANSITION_MINUTES: 5 },
+        BUFFERS: { CLEANUP_MINUTES: 5, TRANSITION_MINUTES: 5 },
         UI_LABELS: { CHAIR_PREFIX: '足', BED_PREFIX: '床' },
-        FINANCE: { OIL_BONUS: 100 }
+        FINANCE: { OIL_BONUS: 0 }
     };
 
     console.log(`🚀 Utils Module Loaded: ${CONFIG.SHOP_INFO.VERSION} (Dynamic Logic Ready)`);

@@ -1,14 +1,12 @@
 /**
  * =================================================================================================
  * PROJECT: XINWUCHAN MASSAGE BOT (BACKEND SERVER - MAIN ENTRY)
- * VERSION: V128-CENTRALIZED-CONFIG (Tích hợp data.js)
+ * VERSION: V129-OPTIMIZED (Tích hợp Auto-Alert & Tối ưu API)
  * DESCRIPTION: MAIN CONTROLLER & ROUTER
  * * UPDATES IN THIS VERSION:
- * 1. [REFACTOR] Import cấu hình tập trung từ `data.js` (SYSTEM_CONFIG).
- * 2. [REFACTOR] Thay thế hardcode MAX_CHAIRS, MAX_BEDS bằng dữ liệu quy mô từ SYSTEM_CONFIG.SCALE.
- * 3. [REFACTOR] Khung giờ đặt lịch tự động mở rộng qua mốc 24h dựa vào CUT_OFF_HOUR.
- * 4. [REFACTOR] Đồng bộ phí dịch vụ tinh dầu (OIL_BONUS) từ cấu hình tài chính.
- * 5. [FEATURE] Giữ nguyên toàn bộ logic nâng cấp TITLE, Location (res_idx), isManualLocked từ V127.
+ * 1. [FIX] Đổi UI thông báo bảo trì sang 100% Tiếng Trung Phồn Thể.
+ * 2. [REFACTOR] Sử dụng SYNC_INTERVAL từ data.js thay vì hardcode 10 giây.
+ * 3. [FEATURE] Tích hợp hệ thống báo động LINE (Auto-Alert) gửi cho ID_BA_CHU khi lỗi API quá 3 lần.
  * * AUTHOR: AI ASSISTANT & USER
  * =================================================================================================
  */
@@ -24,7 +22,7 @@ const path = require('path');
 const ResourceCore = require('./resource_core');
 const StaffBot = require('./staff_bot');
 const SheetService = require('./sheet_service'); // Module Sheet Service: Single Source of Truth
-const { SYSTEM_CONFIG } = require('./data');     // <-- [UPDATED] Import Centralized Config
+const { SYSTEM_CONFIG } = require('./data');     // Import Centralized Config
 
 // --- 1. CẤU HÌNH HỆ THỐNG (SYSTEM CONFIG) ---
 const config = {
@@ -34,7 +32,7 @@ const config = {
 
 const ID_BA_CHU = process.env.ID_BA_CHU;
 
-// [UPDATED] Lấy thông số từ SYSTEM_CONFIG thay vì hardcode hoặc phụ thuộc hoàn toàn vào ResourceCore
+// Lấy thông số từ SYSTEM_CONFIG thay vì hardcode hoặc phụ thuộc hoàn toàn vào ResourceCore
 const MAX_CHAIRS = SYSTEM_CONFIG.SCALE.MAX_CHAIRS;
 const MAX_BEDS = SYSTEM_CONFIG.SCALE.MAX_BEDS;
 const CUT_OFF_HOUR = SYSTEM_CONFIG.OPERATION_TIME.CUT_OFF_HOUR;
@@ -127,10 +125,8 @@ function findBestSlots(selectedDate, serviceCode, pax = 1, requireFemale = false
     for (let i = 0; i < pax; i++) { guestList.push({ serviceCode: serviceCode, staffName: 'RANDOM', flow: null }); }
 
     let candidates = [];
-    // [UPDATED] Sử dụng CUT_OFF_HOUR từ cấu hình để quét khung giờ (Ví dụ: 8h sáng hôm nay đến 3h sáng hôm sau = mốc 27)
     const maxHour = 24 + CUT_OFF_HOUR;
     for (let h = 8; h <= maxHour; h += 1) {
-        // Javascript Date tự động đẩy qua ngày hôm sau nếu h >= 24
         const slotTime = new Date(sYear, sMonth - 1, sDay, h, 0, 0);
         if (slotTime.getTime() <= nowTaipei.getTime()) continue;
 
@@ -178,7 +174,6 @@ function generateTimeBubbles(selectedDate, serviceCode, specificStaffIds = null,
         guestList.push({ serviceCode: serviceCode, staffName: sId, flow: null });
     }
 
-    // [UPDATED] Quét giờ linh hoạt theo cấu hình CUT_OFF_HOUR
     const maxHour = 24 + CUT_OFF_HOUR;
     for (let h = 8; h <= maxHour; h += 1) {
         const slotTime = new Date(sYear, sMonth - 1, sDay, h, 0, 0);
@@ -472,11 +467,12 @@ async function handleEvent(event) {
     }
 
     // --- 1. HEALTH CHECK & MAINTENANCE ---
+    // [V129 NÂNG CẤP]: Chuyển UI thông báo sang 100% Tiếng Trung Phồn Thể
     const isBookingAction = text === 'Action:Booking' || text.startsWith('Cat:') || text.startsWith('Svc:') || text.startsWith('Date:') || text.startsWith('Pref:') || text.startsWith('Pax:') || text.startsWith('Time:');
     if (isBookingAction && (!SheetService.getIsSystemHealthy() || STAFF_LIST.length === 0)) {
         return client.replyMessage(event.replyToken, {
-            type: 'flex', altText: 'Hệ thống bảo trì',
-            contents: { "type": "bubble", "body": { "type": "box", "layout": "vertical", "contents": [{ "type": "text", "text": "⛔ TẠM NGƯNG ĐẶT LỊCH", "weight": "bold", "color": "#E63946", "size": "lg", "align": "center" }, { "type": "text", "text": "Hệ thống đang đồng bộ dữ liệu.", "margin": "md", "wrap": true, "size": "sm", "align": "center" }] } }
+            type: 'flex', altText: '系統維護中',
+            contents: { "type": "bubble", "body": { "type": "box", "layout": "vertical", "contents": [{ "type": "text", "text": "⛔ 系統維護中", "weight": "bold", "color": "#E63946", "size": "lg", "align": "center" }, { "type": "text", "text": "系統正在同步數據，請稍後再試。", "margin": "md", "wrap": true, "size": "sm", "align": "center" }] } }
         });
     }
 
@@ -535,7 +531,6 @@ async function handleEvent(event) {
             { "type": "button", "style": "primary", "color": "#333333", "margin": "sm", "action": { "type": "message", "label": "👉 指定特定號碼", "text": "Pref:SPECIFIC" } },
             { "type": "button", "style": "secondary", "margin": "sm", "action": { "type": "message", "label": "👩 指定女師傅 (無油)", "text": "Pref:FEMALE" } }
         ];
-        // [UPDATED] Lấy phí tinh dầu tự động
         if (serviceType !== 'FOOT') buttons.push({ "type": "button", "style": "primary", "color": "#E91E63", "margin": "sm", "action": { "type": "message", "label": `💧 指定女師傅推油 (+$${OIL_BONUS})`, "text": "Pref:OIL" } });
         else buttons.push({ "type": "text", "text": "(足底按摩無油壓選項)", "size": "xs", "color": "#aaaaaa", "align": "center", "margin": "sm" });
         return client.replyMessage(event.replyToken, { type: 'flex', altText: '師傅', contents: { "type": "bubble", "body": { "type": "box", "layout": "vertical", "contents": buttons } } });
@@ -593,7 +588,6 @@ async function handleEvent(event) {
         return client.replyMessage(event.replyToken, { type: 'text', text: `請問怎麼稱呼您？(姓氏/Surname)` });
     }
 
-    // --- CẬP NHẬT 1: Chuyển hướng sang bước chọn danh xưng (TITLE) ---
     if (userState[userId] && userState[userId].step === 'SURNAME') {
         userState[userId].step = 'TITLE'; userState[userId].surname = text;
         return client.replyMessage(event.replyToken, {
@@ -615,7 +609,6 @@ async function handleEvent(event) {
         });
     }
 
-    // --- CẬP NHẬT 2: Xử lý logic ghép Họ và Danh Xưng (TITLE -> PHONE) ---
     if (text.startsWith('Title:')) {
         if (!userState[userId] || userState[userId].step !== 'TITLE') return Promise.resolve(null);
 
@@ -626,7 +619,6 @@ async function handleEvent(event) {
         return client.replyMessage(event.replyToken, { type: 'text', text: "請輸入手機號碼 (Phone):" });
     }
 
-    // --- CẬP NHẬT 3: Sửa đổi biến s.surname thành s.fullName ở bước hoàn tất (PHONE) ---
     if (userState[userId] && userState[userId].step === 'PHONE') {
         const sdt = normalizePhoneNumber(text); const s = userState[userId];
         let finalDate = s.date;
@@ -635,7 +627,6 @@ async function handleEvent(event) {
             const d = new Date(s.date); d.setDate(d.getDate() + 1); finalDate = formatDateDisplay(d.toLocaleDateString());
         }
 
-        // [UPDATED] Lấy phụ phí tinh dầu từ hệ thống thay vì fix cứng 200
         let basePrice = SERVICES[s.service].price;
         if (s.isOil) basePrice += OIL_BONUS;
         const totalPrice = basePrice * s.pax;
@@ -740,11 +731,38 @@ async function handleEvent(event) {
 // 1. Initial Sync (Khởi động đồng bộ)
 SheetService.syncMenuData().then(() => SheetService.syncData());
 
-// 2. Auto Sync Interval (10s)
-setInterval(() => { SheetService.syncData(); }, 10000);
+// 2. Auto Sync Interval & Error Tracking [V129 NÂNG CẤP]
+const SYNC_INTERVAL = SYSTEM_CONFIG.API_CONFIG.SYNC_INTERVAL || 30000; // Mặc định 30 giây
+const MAX_RETRIES = SYSTEM_CONFIG.API_CONFIG.MAX_RETRIES || 3;
+let alarmSent = false; // Trạng thái đã gửi cảnh báo hay chưa
+
+setInterval(async () => {
+    await SheetService.syncData();
+    const errors = SheetService.getConsecutiveErrors();
+
+    if (errors >= MAX_RETRIES && !alarmSent) {
+        // Kích hoạt báo động LINE khi vượt quá số lần retry
+        const msg = `⚠️ 系統警告: Google Sheet 連線失敗!\n(Cảnh báo: Lỗi kết nối Google Sheet quá ${errors} lần)`;
+        if (ID_BA_CHU) {
+            client.pushMessage(ID_BA_CHU, { type: 'text', text: msg })
+                .catch(err => console.error("[LINE PUSH ERROR]", err));
+        }
+        console.log(`[ALERT TRIGGERED] ${msg}`);
+        alarmSent = true;
+    } else if (errors === 0 && alarmSent) {
+        // Hệ thống khôi phục thành công
+        const msg = `✅ 系統恢復: Google Sheet 連線已恢復正常。`;
+        if (ID_BA_CHU) {
+            client.pushMessage(ID_BA_CHU, { type: 'text', text: msg })
+                .catch(err => console.error("[LINE PUSH ERROR]", err));
+        }
+        console.log(`[ALERT RECOVERED] ${msg}`);
+        alarmSent = false;
+    }
+}, SYNC_INTERVAL);
 
 // 3. Health Check
 app.get('/ping', (req, res) => { res.status(200).send('Pong!'); });
 
 const port = process.env.PORT || 4000;
-app.listen(port, () => { console.log(`XinWuChan Bot V128-CENTRALIZED-CONFIG running on port ${port}`); });
+app.listen(port, () => { console.log(`XinWuChan Bot V129-OPTIMIZED running on port ${port}`); });

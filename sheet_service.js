@@ -1,43 +1,35 @@
 /**
  * =================================================================================================
- * MODULE: SHEET SERVICE (DATA LAYER) - REFACTORED V6.2 (INTEGRATED DATA.JS)
+ * MODULE: SHEET SERVICE (DATA LAYER) - REFACTORED V6.3 (GRACEFUL DEGRADATION)
  * PROJECT: XINWUCHAN MASSAGE BOT
  * DESCRIPTION: Handles Google Sheets interactions. 
+ * * * * * UPDATE V6.3 (GRACEFUL DEGRADATION & ERROR TRACKING):
+ * + [FEATURE] Thêm logic "Graceful Degradation": Khi API lỗi (Rate Limit/Network), 
+ * giữ lại cache cũ (STAFF_LIST, cachedBookings), KHÔNG tự động báo lỗi sập bot.
+ * + [FEATURE] Thêm bộ đếm lỗi consecutiveSyncErrors để chuẩn bị cho tính năng báo động LINE.
  * * * * * UPDATE V6.2 (CENTRALIZED CONFIG):
  * + [FEATURE] Tích hợp file data.js (SYSTEM_CONFIG, SERVICES_DATA) để quản lý tập trung.
- * + [FEATURE] Loại bỏ hardcode $200 cho phí tinh dầu, sử dụng SYSTEM_CONFIG.FINANCE.OIL_BONUS.
- * + [FEATURE] Dùng SERVICES_DATA làm dữ liệu dịch vụ dự phòng (Fallback) khi khởi tạo.
+ * + [FEATURE] Dùng SERVICES_DATA làm dữ liệu dịch vụ dự phòng.
  * * * * * UPDATE V6.1.3 (ADDON SPECIFIC ROUTING):
- * + [FEATURE] Thêm logic phân loại rõ ràng cho mã 'C': C1 (Cạo gió/Giác hơi) mặc định xếp vào giường (BODYSINGLE), C2 (Cắt móng) xếp vào ghế (FOOTSINGLE).
- * * * * * UPDATE V6.1.2 (DYNAMIC SCAN & RENDER ENV FIX):
- * + [FEATURE] Cập nhật Auth để đọc process.env trên Render, tự động fix lỗi ký tự \n của private_key.
- * + [FEATURE] Đổi range đọc Menu sang quét động (Dynamic Scan) `${MENU_SHEET}!A2:Z` không giới hạn.
- * * * * * UPDATE V6.1.1 (INIT & AUTO-SYNC QUICK NOTES):
- * + [FEATURE] Thêm hàm init() để nạp dữ liệu ngay khi khởi động server.
- * + [FEATURE] Tích hợp syncQuickNotes() vào luồng syncData() tự động.
- * * * * * UPDATE V6.1 (ADMIN NOTE & QUICK SELECT INTEGRATION):
- * + [FEATURE] Thêm logic đọc/ghi ghi chú đặc biệt của Admin (adminNote) vào Cột R.
- * + [FEATURE] Thêm hàm syncQuickNotes() để tải danh sách yêu cầu thường gặp từ Sheet 'name' Cột N.
- * * * * * UPDATE V6.0 (GUA SHA FEATURE INTEGRATION):
- * + [FEATURE] Kích hoạt tính năng Cạo gió/Giác hơi độc lập tại Cột Q.
+ * + [FEATURE] Phân loại rõ ràng cho mã 'C': C1 -> giường (BODYSINGLE), C2 -> ghế (FOOTSINGLE).
  * =================================================================================================
  */
 
 require('dotenv').config();
 const { google } = require('googleapis');
 const ResourceCore = require('./resource_core'); // Core logic for Matrix & Rules
-const { SYSTEM_CONFIG, SERVICES_DATA } = require('./data.js'); // [V6.2] Centralized Configuration
+const { SYSTEM_CONFIG, SERVICES_DATA } = require('./data.js'); // Centralized Configuration
 
 // --- CONFIGURATION ---
 const SHEET_ID = process.env.SHEET_ID;
 
 // Define Sheet Names
 const BOOKING_SHEET = 'Sheet1';
-const STAFF_SHEET = 'StaffLog'; // (Ít dùng, giữ legacy)
-const SCHEDULE_SHEET = 'StaffSchedule'; // Sheet Chấm công chính
+const STAFF_SHEET = 'StaffLog';
+const SCHEDULE_SHEET = 'StaffSchedule';
 const SALARY_SHEET = 'SalaryLog';
 const MENU_SHEET = 'menu';
-const NAME_SHEET = 'name'; // [V6.1] Sheet chứa các cấu hình tên/danh sách nhanh
+const NAME_SHEET = 'name';
 
 // Define Status Keywords (The Source of Truth)
 const STATUS_KEYWORDS = {
@@ -50,7 +42,6 @@ const STATUS_KEYWORDS = {
 // --- GOOGLE AUTHENTICATION ---
 let auth;
 if (process.env.GOOGLE_PRIVATE_KEY && process.env.GOOGLE_CLIENT_EMAIL) {
-    // [V6.1.2] Ưu tiên đọc biến môi trường (Hỗ trợ Render) và fix lỗi định dạng xuống dòng
     auth = new google.auth.GoogleAuth({
         credentials: {
             client_email: process.env.GOOGLE_CLIENT_EMAIL,
@@ -59,7 +50,6 @@ if (process.env.GOOGLE_PRIVATE_KEY && process.env.GOOGLE_CLIENT_EMAIL) {
         scopes: ['https://www.googleapis.com/auth/spreadsheets'],
     });
 } else {
-    // Fallback cho môi trường Local
     auth = new google.auth.GoogleAuth({
         keyFile: 'google-key.json',
         scopes: ['https://www.googleapis.com/auth/spreadsheets'],
@@ -74,12 +64,13 @@ let STATE = {
     cachedBookings: [],
     scheduleMap: {},
     dateColumnMap: {},
-    SERVICES: SERVICES_DATA || ResourceCore.SERVICES || {}, // [V6.2] Fallback bằng SERVICES_DATA từ data.js
-    QUICK_NOTES: [], // [V6.1] Chứa danh sách các lựa chọn ghi chú nhanh từ Cột N
+    SERVICES: SERVICES_DATA || ResourceCore.SERVICES || {},
+    QUICK_NOTES: [],
     lastSyncTime: new Date(0),
     isSystemHealthy: false,
     isSyncing: false,
-    LAST_CALCULATED_MATRIX: null
+    LAST_CALCULATED_MATRIX: null,
+    consecutiveSyncErrors: 0 // [V6.3 NÂNG CẤP]: Đếm số lần đồng bộ thất bại liên tiếp
 };
 
 // =============================================================================
@@ -182,7 +173,6 @@ function resolveStrictLockState(explicitLock, hasManualPhase, currentStatus = "F
     return "FALSE";
 }
 
-// --- [V6.2 HELPER] Lấy Text hiển thị phí Tinh dầu ---
 function getOilSuffixText() {
     const bonus = SYSTEM_CONFIG.FINANCE.OIL_BONUS;
     return bonus > 0 ? ` (油推+$${bonus})` : ` (油推)`;
@@ -192,20 +182,18 @@ function getOilSuffixText() {
 // PHẦN 2: SYNC ENGINE (ĐỌC VÀ ĐỒNG BỘ DỮ LIỆU TỪ GOOGLE SHEETS)
 // =============================================================================
 
-// --- [V6.1.1] HÀM KHỞI TẠO CHUNG LÚC SERVER START ---
 async function init() {
     try {
         console.log("[SHEET SERVICE] Đang khởi tạo dữ liệu ban đầu...");
-        await syncQuickNotes(); // Tải danh sách ghi chú
-        await syncMenuData();   // Tải menu dịch vụ
-        await syncData();       // Tải booking và schedule
+        await syncQuickNotes();
+        await syncMenuData();
+        await syncData();
         console.log("[SHEET SERVICE] Khởi tạo hoàn tất!");
     } catch (error) {
         console.error("[SHEET SERVICE] Lỗi trong quá trình khởi tạo:", error);
     }
 }
 
-// --- [V6.1] Hàm Đọc Danh Sách Ghi Chú Nhanh ---
 async function syncQuickNotes() {
     try {
         const res = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: `${NAME_SHEET}!N2:N` });
@@ -222,7 +210,6 @@ async function syncQuickNotes() {
 
 async function syncMenuData() {
     try {
-        // [V6.1.2 NÂNG CẤP]: Quét động toàn bộ bảng dữ liệu không giới hạn dòng
         const res = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: `${MENU_SHEET}!A2:Z` });
         const rows = res.data.values;
         if (!rows || rows.length === 0) return;
@@ -250,14 +237,13 @@ async function syncMenuData() {
             if (prefix === 'A') { type = 'BED'; category = 'COMBO'; }
             else if (prefix === 'F') { type = 'CHAIR'; category = 'FOOT'; }
             else if (prefix === 'B') { type = 'BED'; category = 'BODY'; }
-            // [V6.1.3 NÂNG CẤP]: Phân loại rành mạch mã C1 (Body) và C2 (Foot)
             else if (prefix === 'C') {
                 if (code.toUpperCase() === 'C1') {
                     type = 'BED';
-                    category = 'BODY'; // Mặc định vào giường (BODYSINGLE)
+                    category = 'BODY';
                 } else if (code.toUpperCase() === 'C2') {
                     type = 'CHAIR';
-                    category = 'FOOT'; // Mặc định vào ghế (FOOTSINGLE)
+                    category = 'FOOT';
                 } else {
                     category = 'ADDON';
                 }
@@ -287,10 +273,8 @@ async function syncData() {
     try {
         STATE.isSyncing = true;
 
-        // --- BƯỚC 0: [V6.1.1] ĐỒNG BỘ GHI CHÚ NHANH (QUICK NOTES) ---
         await syncQuickNotes();
 
-        // --- BƯỚC 1: ĐỌC BOOKING TỪ SHEET1 ---
         const resBooking = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: `${BOOKING_SHEET}!A:AE` });
         const rowsBooking = resBooking.data.values;
         let tempBookings = [];
@@ -327,7 +311,6 @@ async function syncData() {
 
                 const isOilService = (row[4] === "Yes");
                 if (isOilService) {
-                    // [V6.2 NÂNG CẤP]: Tính giá tinh dầu từ data.js
                     price += SYSTEM_CONFIG.FINANCE.OIL_BONUS;
                 }
 
@@ -350,11 +333,11 @@ async function syncData() {
                     staffId: requestedStaff,
                     requestedStaff: requestedStaff,
                     staffName: requestedStaff,
-                    serviceStaff: row[11], // Cột L
-                    staffId2: row[12],     // Cột M
-                    staffId3: row[13],     // Cột N
-                    isGuaSha: row[16] === "Yes", // Cột Q
-                    adminNote: row[17] || "", // [V6.1] Cột R (Index 17)
+                    serviceStaff: row[11],
+                    staffId2: row[12],
+                    staffId3: row[13],
+                    isGuaSha: row[16] === "Yes",
+                    adminNote: row[17] || "",
                     pax: pax,
                     customerName: `${row[2]} (${row[6]})`,
                     serviceName: serviceStr, serviceCode: serviceCode,
@@ -375,7 +358,6 @@ async function syncData() {
             }
         }
 
-        // --- BƯỚC 2: ĐỌC SCHEDULE & LINE MAPPING ---
         const resSchedule = await sheets.spreadsheets.values.get({
             spreadsheetId: SHEET_ID,
             range: `${SCHEDULE_SHEET}!A1:150`
@@ -445,12 +427,11 @@ async function syncData() {
         }
 
         if (tempStaffList.length === 0) {
-            STATE.isSystemHealthy = false; STATE.STAFF_LIST = [];
+            throw new Error("API returned empty staff list");
         } else {
             STATE.STAFF_LIST = tempStaffList; STATE.scheduleMap = tempScheduleMap; STATE.isSystemHealthy = true;
         }
 
-        // --- BƯỚC 3: TÍNH TOÁN MATRIX ---
         if (STATE.isSystemHealthy && tempBookings.length > 0) {
             try {
                 if (typeof ResourceCore.generateResourceMatrix === 'function') {
@@ -467,9 +448,20 @@ async function syncData() {
 
         STATE.cachedBookings = tempBookings;
         STATE.lastSyncTime = new Date();
+        STATE.consecutiveSyncErrors = 0; // [V6.3 NÂNG CẤP]: Reset bộ đếm khi sync thành công
 
     } catch (e) {
-        console.error('[SYNC FATAL ERROR]', e); STATE.isSystemHealthy = false; STATE.STAFF_LIST = [];
+        console.error('[SYNC FATAL ERROR]', e);
+        STATE.consecutiveSyncErrors++;
+
+        // [V6.3 NÂNG CẤP]: Graceful Degradation Logic
+        if (STATE.STAFF_LIST.length === 0) {
+            // Chỉ đánh sập hệ thống nếu chưa có bất kỳ dữ liệu nào trong RAM
+            STATE.isSystemHealthy = false;
+        } else {
+            console.warn(`[GRACEFUL DEGRADATION] Google Sheets API lỗi lần ${STATE.consecutiveSyncErrors}. Sử dụng dữ liệu Cache cũ.`);
+            // Giữ nguyên STATE.STAFF_LIST và STATE.cachedBookings
+        }
     } finally {
         STATE.isSyncing = false;
     }
@@ -513,7 +505,6 @@ async function ghiVaoSheet(data, proposedUpdates = []) {
             let isOil = data.isOil;
             if (guestDetail && guestDetail.isOil !== undefined) isOil = guestDetail.isOil;
 
-            // [V6.2 NÂNG CẤP]: Áp dụng hiển thị Text Tinh Dầu động
             if (isOil) svcName += getOilSuffixText();
 
             row[3] = svcName; row[4] = isOil ? "Yes" : ""; row[5] = 1;
@@ -537,7 +528,6 @@ async function ghiVaoSheet(data, proposedUpdates = []) {
             if (guestDetail && guestDetail.isGuaSha !== undefined) isGuaSha = guestDetail.isGuaSha;
             row[16] = isGuaSha ? "Yes" : "";
 
-            // [V6.1 NÂNG CẤP]: Ghi Ghi chú đặc biệt (Admin Note) vào Cột R
             let adminNoteVal = data.adminNote;
             if (guestDetail && guestDetail.adminNote !== undefined) adminNoteVal = guestDetail.adminNote;
             row[17] = adminNoteVal || "";
@@ -547,7 +537,6 @@ async function ghiVaoSheet(data, proposedUpdates = []) {
             let sCode = data.serviceCode;
             if (guestDetail && guestDetail.serviceCode) sCode = guestDetail.serviceCode;
             if (!sCode && svcName) {
-                // Xoá chuỗi tinh dầu (bằng regex linh hoạt) để lookup Code gốc chuẩn xác
                 const cleanSvcName = svcName.replace(/\s*\(油推.*?\)/, "");
                 sCode = smartFindServiceCode(cleanSvcName);
             }
@@ -667,7 +656,6 @@ async function updateBookingDetails(body) {
         await updateCell('Q', body.isGuaSha ? "Yes" : "");
     }
 
-    // [V6.1 NÂNG CẤP]: Cập nhật Cột R (adminNote)
     if (body.adminNote !== undefined) {
         await updateCell('R', body.adminNote);
     }
@@ -735,7 +723,6 @@ async function updateInlineBooking(rowId, updatedData) {
         }
         if (updatedData.dichVu !== undefined) {
             let svcName = updatedData.dichVu;
-            // [V6.2 NÂNG CẤP]: Cập nhật động Text tinh dầu inline
             if (updatedData.isOil && !svcName.includes("油推")) {
                 svcName += getOilSuffixText();
             }
@@ -748,7 +735,6 @@ async function updateInlineBooking(rowId, updatedData) {
         if (updatedData.isGuaSha !== undefined) {
             dataToUpdate.push({ range: `${BOOKING_SHEET}!Q${rowId}`, values: [[updatedData.isGuaSha ? "Yes" : ""]] });
         }
-        // [V6.1 NÂNG CẤP]: Cập nhật Inline Cột R
         if (updatedData.adminNote !== undefined) {
             dataToUpdate.push({ range: `${BOOKING_SHEET}!R${rowId}`, values: [[updatedData.adminNote]] });
         }
@@ -896,7 +882,7 @@ async function syncDailySalary(dateStr, staffDataList) {
 // =============================================================================
 
 module.exports = {
-    init, // [V6.1.1] Export hàm khởi tạo
+    init,
     getServices: () => STATE.SERVICES,
     getStaffList: () => STATE.STAFF_LIST,
     getBookings: () => STATE.cachedBookings,
@@ -904,11 +890,12 @@ module.exports = {
     getLastSyncTime: () => STATE.lastSyncTime,
     getIsSystemHealthy: () => STATE.isSystemHealthy,
     getMatrixDebug: () => STATE.LAST_CALCULATED_MATRIX,
-    getQuickNotes: () => STATE.QUICK_NOTES, // [V6.1] Export mảng ghi chú nhanh
+    getQuickNotes: () => STATE.QUICK_NOTES,
+    getConsecutiveErrors: () => STATE.consecutiveSyncErrors, // [V6.3 NÂNG CẤP]: Export bộ đếm lỗi
 
     syncMenuData,
     syncData,
-    syncQuickNotes, // [V6.1] Export hàm đồng bộ ghi chú nhanh
+    syncQuickNotes,
     syncDailySalary,
     ghiVaoSheet,
     updateBookingStatus,
