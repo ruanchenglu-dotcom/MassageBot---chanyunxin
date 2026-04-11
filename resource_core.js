@@ -25,7 +25,7 @@ let SYSTEM_CONFIG = null;
 // Thử tải data.js trong môi trường Node.js (Backend)
 if (typeof require !== 'undefined') {
     try {
-        const dataModule = require('./js/data.js');
+        const dataModule = require('./data.js');
         SYSTEM_CONFIG = dataModule.SYSTEM_CONFIG;
         console.log("✅ [CORE V118.0] Đã nạp thành công SYSTEM_CONFIG từ data.js (Backend)");
     } catch (e) {

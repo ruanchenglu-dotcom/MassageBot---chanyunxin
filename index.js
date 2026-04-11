@@ -24,7 +24,7 @@ const path = require('path');
 const ResourceCore = require('./resource_core');
 const StaffBot = require('./staff_bot');
 const SheetService = require('./sheet_service'); // Module Sheet Service: Single Source of Truth
-const { SYSTEM_CONFIG } = require('./js/data');     // <-- [UPDATED] Import Centralized Config
+const { SYSTEM_CONFIG } = require('./data');     // <-- [UPDATED] Import Centralized Config
 
 // --- 1. CẤU HÌNH HỆ THỐNG (SYSTEM CONFIG) ---
 const config = {
