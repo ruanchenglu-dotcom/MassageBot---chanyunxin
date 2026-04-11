@@ -26,7 +26,7 @@
 require('dotenv').config();
 const { google } = require('googleapis');
 const ResourceCore = require('./resource_core'); // Core logic for Matrix & Rules
-const { SYSTEM_CONFIG, SERVICES_DATA } = require('./data.js'); // [V6.2] Centralized Configuration
+const { SYSTEM_CONFIG, SERVICES_DATA } = require('./js/data.js'); // [V6.2] Centralized Configuration
 
 // --- CONFIGURATION ---
 const SHEET_ID = process.env.SHEET_ID;
