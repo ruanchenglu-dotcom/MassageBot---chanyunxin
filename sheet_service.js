@@ -1,8 +1,11 @@
 /**
  * =================================================================================================
- * MODULE: SHEET SERVICE (DATA LAYER) - REFACTORED V6.3 (GRACEFUL DEGRADATION)
+ * MODULE: SHEET SERVICE (DATA LAYER) - REFACTORED V6.4
  * PROJECT: XINWUCHAN MASSAGE BOT
  * DESCRIPTION: Handles Google Sheets interactions. 
+ * * * * * UPDATE V6.4 (MENU SYNC & NEW PARAMS OPTIMIZED):
+ * + [FEATURE] Đưa syncMenuData() vào chu trình đồng bộ tự động 30s của syncData().
+ * + [FEATURE] Đọc thêm Cột G (節數 - blocks) và Cột H (單節抽成 - commission) từ sheet 'menu'.
  * * * * * UPDATE V6.3 (GRACEFUL DEGRADATION & ERROR TRACKING):
  * + [FEATURE] Thêm logic "Graceful Degradation": Khi API lỗi (Rate Limit/Network), 
  * giữ lại cache cũ (STAFF_LIST, cachedBookings), KHÔNG tự động báo lỗi sập bot.
@@ -10,8 +13,6 @@
  * * * * * UPDATE V6.2 (CENTRALIZED CONFIG):
  * + [FEATURE] Tích hợp file data.js (SYSTEM_CONFIG, SERVICES_DATA) để quản lý tập trung.
  * + [FEATURE] Dùng SERVICES_DATA làm dữ liệu dịch vụ dự phòng.
- * * * * * UPDATE V6.1.3 (ADDON SPECIFIC ROUTING):
- * + [FEATURE] Phân loại rõ ràng cho mã 'C': C1 -> giường (BODYSINGLE), C2 -> ghế (FOOTSINGLE).
  * =================================================================================================
  */
 
@@ -232,6 +233,14 @@ async function syncMenuData() {
             if (row[4]) { const ps = parseInt(row[4].toString().replace(/\D/g, '')); if (!isNaN(ps)) elasticStep = ps; }
             if (row[5]) { const pl = parseInt(row[5].toString().replace(/\D/g, '')); if (!isNaN(pl)) elasticLimit = pl; }
 
+            // [V6.4] Thêm thuộc tính Blocks (節數) từ Cột G (Index 6)
+            let blocks = 1;
+            if (row[6]) { const blk = parseInt(row[6].toString().replace(/\D/g, '')); if (!isNaN(blk)) blocks = blk; }
+
+            // [V6.4] Thêm thuộc tính Commission (單節抽成) từ Cột H (Index 7)
+            let commission = 0;
+            if (row[7]) { const comm = parseInt(row[7].toString().replace(/\D/g, '')); if (!isNaN(comm)) commission = comm; }
+
             let type = 'BED'; let category = 'BODY';
             const prefix = code.charAt(0).toUpperCase();
             if (prefix === 'A') { type = 'BED'; category = 'COMBO'; }
@@ -256,7 +265,9 @@ async function syncMenuData() {
                 category: category,
                 price: price,
                 elasticStep: elasticStep,
-                elasticLimit: elasticLimit
+                elasticLimit: elasticLimit,
+                blocks: blocks,       // Bổ sung dữ liệu số tiết
+                commission: commission // Bổ sung dữ liệu hoa hồng
             };
         });
 
@@ -274,6 +285,7 @@ async function syncData() {
         STATE.isSyncing = true;
 
         await syncQuickNotes();
+        await syncMenuData(); // [V6.4 NÂNG CẤP]: Đưa việc tải menu vào chu trình cập nhật 30s
 
         const resBooking = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: `${BOOKING_SHEET}!A:AE` });
         const rowsBooking = resBooking.data.values;

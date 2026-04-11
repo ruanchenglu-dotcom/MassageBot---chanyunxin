@@ -1,15 +1,17 @@
 /**
  * ============================================================================
  * FILE: js/data.js (HOẶC dùng cho Backend)
- * PHIÊN BẢN: V1.2 (UNIVERSAL CONFIGURATION & API OPTIMIZATION)
+ * PHIÊN BẢN: V1.3 (SYNCED KEYS & NEW FALLBACK DATA)
  * ============================================================================
  * MỤC TIÊU: 
  * 1. Quản lý toàn bộ thông số kỹ thuật của tiệm 禪云心養生館 tại một nơi.
  * 2. Cung cấp dữ liệu dự phòng (Fallback) cho bảng giá và quy mô hệ thống.
  * 3. Hỗ trợ chạy trên cả môi trường Frontend (Browser/React) và Backend (Node.js).
+ * * * * * UPDATE V1.3:
+ * + [FIX] Đổi toàn bộ Key của SERVICES_DATA sang service_code (A3, A2, F3...) để đồng bộ với Sheet.
+ * + [FEATURE] Cập nhật giá tiền, thời gian, số tiết (blocks) và hoa hồng (commission) khớp 100% với Sheet mới.
  * * * * * UPDATE V1.2:
- * + [FEATURE] Thêm block API_CONFIG để quản lý tập trung tần suất đồng bộ (SYNC_INTERVAL),
- * tránh việc hardcode 10s trong index.js gây quá tải Google Sheets API.
+ * + [FEATURE] Thêm block API_CONFIG để quản lý tập trung tần suất đồng bộ (SYNC_INTERVAL).
  */
 
 // ============================================================================
@@ -20,7 +22,7 @@ const SYSTEM_CONFIG = {
     SHOP_INFO: {
         NAME: '禪云心養生館',
         BRANCH: 'Zhonghe', // Chi nhánh Trung Hòa
-        VERSION: 'V1.2_Universal'
+        VERSION: 'V1.3_Universal'
     },
 
     // Quy mô chi nhánh
@@ -56,9 +58,9 @@ const SYSTEM_CONFIG = {
         AUTO_SYNC_GOOGLE_SHEETS: true
     },
 
-    // [V1.2 NÂNG CẤP] Cấu hình tối ưu hóa API & Mạng
+    // Cấu hình tối ưu hóa API & Mạng
     API_CONFIG: {
-        SYNC_INTERVAL: 30000, // Tần suất đồng bộ Google Sheets (30 giây/lần) - Giảm tải 66% so với 10s
+        SYNC_INTERVAL: 30000, // Tần suất đồng bộ Google Sheets (30 giây/lần)
         MAX_RETRIES: 3        // Số lần lỗi API liên tiếp tối đa trước khi gửi cảnh báo LINE
     },
 
@@ -73,29 +75,30 @@ const SYSTEM_CONFIG = {
     // Tham số tài chính
     FINANCE: {
         DEFAULT_JIE_PRICE: 250, // Giá 1 tiết cơ bản
-        OIL_BONUS: 0            // Thưởng tinh dầu (Đã đồng bộ với logic Backend cũ)
+        OIL_BONUS: 0            // Thưởng tinh dầu
     }
 };
 
 // ============================================================================
-// 2. DỮ LIỆU DỊCH VỤ DỰ PHÒNG (FALLBACK)
+// 2. DỮ LIỆU DỊCH VỤ DỰ PHÒNG (FALLBACK) - SYNCED WITH GOOGLE SHEET
 // ============================================================================
 
 const DYNAMIC_PRICES_MAP = null;
 
 const SERVICES_DATA = {
-    '👑 帝王套餐 (190分)': { duration: 190, price: 2000, type: 'BED', category: 'COMBO', blocks: 6 },
-    '💎 豪華套餐 (130分)': { duration: 130, price: 1500, type: 'BED', category: 'COMBO', blocks: 4 },
-    '🔥 招牌套餐 (100分)': { duration: 100, price: 999, type: 'BED', category: 'COMBO', blocks: 3 },
-    '⚡ 精選套餐 (70分)': { duration: 70, price: 900, type: 'BED', category: 'COMBO', blocks: 2 },
-    '👣 足底按摩 (120分)': { duration: 120, price: 1500, type: 'CHAIR', category: 'FOOT', blocks: 4 },
-    '👣 足底按摩 (90分)': { duration: 90, price: 999, type: 'CHAIR', category: 'FOOT', blocks: 3 },
-    '👣 足底按摩 (70分)': { duration: 70, price: 900, type: 'CHAIR', category: 'FOOT', blocks: 2 },
-    '👣 足底按摩 (40分)': { duration: 40, price: 500, type: 'CHAIR', category: 'FOOT', blocks: 1 },
-    '🛏️ 全身指壓 (120分)': { duration: 120, price: 1500, type: 'BED', category: 'BODY', blocks: 4 },
-    '🛏️ 全身指壓 (90分)': { duration: 90, price: 999, type: 'BED', category: 'BODY', blocks: 3 },
-    '🛏️ 全身指壓 (70分)': { duration: 70, price: 900, type: 'BED', category: 'BODY', blocks: 2 },
-    '🛏️ 半身指壓 (35分)': { duration: 35, price: 500, type: 'BED', category: 'BODY', blocks: 1 }
+    'A3': { name: '套餐 (120分)', duration: 120, price: 1200, type: 'BED', category: 'COMBO', blocks: 3, commission: 250 },
+    'A2': { name: '套餐 (70分)', duration: 70, price: 800, type: 'BED', category: 'COMBO', blocks: 2, commission: 250 },
+
+    'F3': { name: '腳底按摩 (110分)', duration: 110, price: 1200, type: 'CHAIR', category: 'FOOT', blocks: 3, commission: 250 },
+    'F2': { name: '腳底按摩 (70分)', duration: 70, price: 800, type: 'CHAIR', category: 'FOOT', blocks: 2, commission: 250 },
+    'F1': { name: '腳底按摩 (40分)', duration: 40, price: 500, type: 'CHAIR', category: 'FOOT', blocks: 1, commission: 250 },
+
+    'B3': { name: '身體按摩 (110分)', duration: 110, price: 1200, type: 'BED', category: 'BODY', blocks: 3, commission: 250 },
+    'B2': { name: '身體按摩 (70分)', duration: 70, price: 800, type: 'BED', category: 'BODY', blocks: 2, commission: 250 },
+    'B1': { name: '身體按摩 (35分)', duration: 35, price: 500, type: 'BED', category: 'BODY', blocks: 1, commission: 250 },
+
+    'C1': { name: '拔罐/刮痧 (35分)', duration: 35, price: 500, type: 'BED', category: 'ADDON', blocks: 1, commission: 250 },
+    'C2': { name: '修指甲/修腳皮 (35分)', duration: 35, price: 500, type: 'CHAIR', category: 'ADDON', blocks: 1, commission: 250 }
 };
 
 const SERVICES_LIST = Object.keys(SERVICES_DATA);

@@ -1,12 +1,11 @@
 /**
  * =================================================================================================
  * PROJECT: XINWUCHAN MASSAGE BOT (BACKEND SERVER - MAIN ENTRY)
- * VERSION: V129-OPTIMIZED (Tích hợp Auto-Alert & Tối ưu API)
+ * VERSION: V130-OPTIMIZED (Sửa lỗi Cache Menu & Tự động đồng bộ Menu định kỳ)
  * DESCRIPTION: MAIN CONTROLLER & ROUTER
  * * UPDATES IN THIS VERSION:
- * 1. [FIX] Đổi UI thông báo bảo trì sang 100% Tiếng Trung Phồn Thể.
- * 2. [REFACTOR] Sử dụng SYNC_INTERVAL từ data.js thay vì hardcode 10 giây.
- * 3. [FEATURE] Tích hợp hệ thống báo động LINE (Auto-Alert) gửi cho ID_BA_CHU khi lỗi API quá 3 lần.
+ * 1. [FIX] Xóa điều kiện chặn cache khi khách gọi lệnh Menu.
+ * 2. [FEATURE] Tích hợp syncMenuData() vào chu trình Auto-Sync mỗi 30s.
  * * AUTHOR: AI ASSISTANT & USER
  * =================================================================================================
  */
@@ -482,8 +481,8 @@ async function handleEvent(event) {
         return client.replyMessage(event.replyToken, { type: 'flex', altText: '選擇服務', contents: { "type": "bubble", "body": { "type": "box", "layout": "vertical", "contents": [{ "type": "text", "text": "請選擇服務類別 (Service)", "weight": "bold", "size": "lg", "align": "center", "color": "#1DB446" }, { "type": "separator", "margin": "md" }, { "type": "button", "style": "primary", "color": "#A17DF5", "margin": "md", "action": { "type": "message", "label": "🔥 套餐 (Combo)", "text": "Cat:COMBO" } }, { "type": "button", "style": "secondary", "margin": "sm", "action": { "type": "message", "label": "👣 足底按摩 (Foot)", "text": "Cat:FOOT" } }, { "type": "button", "style": "secondary", "margin": "sm", "action": { "type": "message", "label": "🛏️ 身體指壓 (Body)", "text": "Cat:BODY" } }] } } });
     }
 
+    // [V130 CẬP NHẬT] Luôn hiển thị Menu từ cache hiện tại, loại bỏ điều kiện chặn.
     if (text.includes('Menu') || text.includes('價目') || text === '服務價目') {
-        if (Object.keys(SERVICES).length === 0) await SheetService.syncMenuData();
         return client.replyMessage(event.replyToken, { type: 'flex', altText: '服務價目表', contents: createMenuFlexMessage() });
     }
 
@@ -731,12 +730,13 @@ async function handleEvent(event) {
 // 1. Initial Sync (Khởi động đồng bộ)
 SheetService.syncMenuData().then(() => SheetService.syncData());
 
-// 2. Auto Sync Interval & Error Tracking [V129 NÂNG CẤP]
+// 2. Auto Sync Interval & Error Tracking [V130 NÂNG CẤP]
 const SYNC_INTERVAL = SYSTEM_CONFIG.API_CONFIG.SYNC_INTERVAL || 30000; // Mặc định 30 giây
 const MAX_RETRIES = SYSTEM_CONFIG.API_CONFIG.MAX_RETRIES || 3;
 let alarmSent = false; // Trạng thái đã gửi cảnh báo hay chưa
 
 setInterval(async () => {
+    await SheetService.syncMenuData(); // [V130 CẬP NHẬT] Đồng bộ Menu định kỳ mỗi chu kỳ
     await SheetService.syncData();
     const errors = SheetService.getConsecutiveErrors();
 
@@ -765,4 +765,4 @@ setInterval(async () => {
 app.get('/ping', (req, res) => { res.status(200).send('Pong!'); });
 
 const port = process.env.PORT || 4000;
-app.listen(port, () => { console.log(`XinWuChan Bot V129-OPTIMIZED running on port ${port}`); });
+app.listen(port, () => { console.log(`XinWuChan Bot V130-OPTIMIZED running on port ${port}`); });
