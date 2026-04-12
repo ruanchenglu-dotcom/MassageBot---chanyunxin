@@ -1,11 +1,12 @@
 /**
  * =================================================================================================
  * PROJECT: XINWUCHAN MASSAGE BOT (BACKEND SERVER - MAIN ENTRY)
- * VERSION: V130-OPTIMIZED (Sửa lỗi Cache Menu & Tự động đồng bộ Menu định kỳ)
+ * VERSION: V131-OPTIMIZED (Xử lý Cold Start & 100% Giao diện Phồn Thể)
  * DESCRIPTION: MAIN CONTROLLER & ROUTER
  * * UPDATES IN THIS VERSION:
- * 1. [FIX] Xóa điều kiện chặn cache khi khách gọi lệnh Menu.
- * 2. [FEATURE] Tích hợp syncMenuData() vào chu trình Auto-Sync mỗi 30s.
+ * 1. [UX IMPROVEMENT] Thay đổi thông báo bảo trì thành "Hệ thống đang khởi tạo" khi Cold Start.
+ * 2. [TRANSLATION] Dịch triệt để các câu báo lỗi trùng lịch sang Tiếng Trung Phồn Thể (zh-TW).
+ * 3. [PRESERVED] Giữ nguyên luồng Auto-Sync 30s và logic bypass Menu.
  * * AUTHOR: AI ASSISTANT & USER
  * =================================================================================================
  */
@@ -466,12 +467,12 @@ async function handleEvent(event) {
     }
 
     // --- 1. HEALTH CHECK & MAINTENANCE ---
-    // [V129 NÂNG CẤP]: Chuyển UI thông báo sang 100% Tiếng Trung Phồn Thể
+    // [V131 NÂNG CẤP]: Cải thiện hiển thị khi Cold Start
     const isBookingAction = text === 'Action:Booking' || text.startsWith('Cat:') || text.startsWith('Svc:') || text.startsWith('Date:') || text.startsWith('Pref:') || text.startsWith('Pax:') || text.startsWith('Time:');
     if (isBookingAction && (!SheetService.getIsSystemHealthy() || STAFF_LIST.length === 0)) {
         return client.replyMessage(event.replyToken, {
-            type: 'flex', altText: '系統維護中',
-            contents: { "type": "bubble", "body": { "type": "box", "layout": "vertical", "contents": [{ "type": "text", "text": "⛔ 系統維護中", "weight": "bold", "color": "#E63946", "size": "lg", "align": "center" }, { "type": "text", "text": "系統正在同步數據，請稍後再試。", "margin": "md", "wrap": true, "size": "sm", "align": "center" }] } }
+            type: 'flex', altText: '系統初始化中',
+            contents: { "type": "bubble", "body": { "type": "box", "layout": "vertical", "contents": [{ "type": "text", "text": "⏳ 系統正在初始化", "weight": "bold", "color": "#E63946", "size": "lg", "align": "center" }, { "type": "text", "text": "請等待 3-5 秒後再試一次。", "margin": "md", "wrap": true, "size": "sm", "align": "center" }] } }
         });
     }
 
@@ -645,7 +646,8 @@ async function handleEvent(event) {
         const checkResult = ResourceCore.checkRequestAvailability(s.date, s.time, guestList, relevantBookings, staffListMap);
 
         if (!checkResult.feasible) {
-            return client.replyMessage(event.replyToken, { type: 'text', text: "😢 Rất tiếc, khung giờ này vừa bị người khác đặt mất. Vui lòng chọn giờ khác." });
+            // [V131 NÂNG CẤP]: Đổi thông báo lỗi trùng lịch sang Tiếng Trung Phồn Thể
+            return client.replyMessage(event.replyToken, { type: 'text', text: "😢 抱歉，該時段剛好被其他人預約了，請選擇其他時間。" });
         }
 
         let confirmMsg = `✅ 預約成功 (Confirmed)\n\n` +
@@ -765,4 +767,4 @@ setInterval(async () => {
 app.get('/ping', (req, res) => { res.status(200).send('Pong!'); });
 
 const port = process.env.PORT || 4000;
-app.listen(port, () => { console.log(`XinWuChan Bot V130-OPTIMIZED running on port ${port}`); });
+app.listen(port, () => { console.log(`XinWuChan Bot V131-OPTIMIZED running on port ${port}`); });

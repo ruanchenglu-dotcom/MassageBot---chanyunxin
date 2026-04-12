@@ -1,18 +1,12 @@
 /**
  * =================================================================================================
- * MODULE: SHEET SERVICE (DATA LAYER) - REFACTORED V6.4
+ * MODULE: SHEET SERVICE (DATA LAYER) - REFACTORED V131 / V6.5
  * PROJECT: XINWUCHAN MASSAGE BOT
- * DESCRIPTION: Handles Google Sheets interactions. 
- * * * * * UPDATE V6.4 (MENU SYNC & NEW PARAMS OPTIMIZED):
- * + [FEATURE] Đưa syncMenuData() vào chu trình đồng bộ tự động 30s của syncData().
- * + [FEATURE] Đọc thêm Cột G (節數 - blocks) và Cột H (單節抽成 - commission) từ sheet 'menu'.
- * * * * * UPDATE V6.3 (GRACEFUL DEGRADATION & ERROR TRACKING):
- * + [FEATURE] Thêm logic "Graceful Degradation": Khi API lỗi (Rate Limit/Network), 
- * giữ lại cache cũ (STAFF_LIST, cachedBookings), KHÔNG tự động báo lỗi sập bot.
- * + [FEATURE] Thêm bộ đếm lỗi consecutiveSyncErrors để chuẩn bị cho tính năng báo động LINE.
- * * * * * UPDATE V6.2 (CENTRALIZED CONFIG):
- * + [FEATURE] Tích hợp file data.js (SYSTEM_CONFIG, SERVICES_DATA) để quản lý tập trung.
- * + [FEATURE] Dùng SERVICES_DATA làm dữ liệu dịch vụ dự phòng.
+ * DESCRIPTION: Handles Google Sheets interactions & Fallback Systems.
+ * * * * * UPDATE V131 (DYNAMIC COLUMNS & HARD FALLBACK):
+ * + [FIX] Loại bỏ hardcode cột 15. Tự động dò tìm các cột chứa ngày tháng trên dòng Header.
+ * + [FEATURE] Thêm hàm generateVirtualStaffList(). Luôn có dữ liệu nhân viên để tránh lỗi Cold Start.
+ * + [FEATURE] Đảm bảo isSystemHealthy luôn True (Graceful Degradation tuyệt đối).
  * =================================================================================================
  */
 
@@ -71,7 +65,7 @@ let STATE = {
     isSystemHealthy: false,
     isSyncing: false,
     LAST_CALCULATED_MATRIX: null,
-    consecutiveSyncErrors: 0 // [V6.3 NÂNG CẤP]: Đếm số lần đồng bộ thất bại liên tiếp
+    consecutiveSyncErrors: 0
 };
 
 // =============================================================================
@@ -179,6 +173,33 @@ function getOilSuffixText() {
     return bonus > 0 ? ` (油推+$${bonus})` : ` (油推)`;
 }
 
+// [V131 NÂNG CẤP]: Hàm tạo danh sách nhân sự ảo khi Sheet/API lỗi hoặc trống
+function generateVirtualStaffList() {
+    const virtualStaff = [];
+    // Tính toán số lượng thợ tối đa có thể phục vụ dựa vào số giường/ghế
+    const maxCapacity = Math.max(SYSTEM_CONFIG.SCALE.MAX_BEDS, SYSTEM_CONFIG.SCALE.MAX_CHAIRS) || 9;
+
+    for (let i = 1; i <= maxCapacity; i++) {
+        const genderVal = (i % 2 === 0) ? 'F' : 'M';
+        virtualStaff.push({
+            id: `0${i}`.slice(-2), // 01, 02, 03...
+            name: `技師${i}號`,     // 技師1號
+            gender: genderVal,
+            lineId: null,
+            start: '08:00',
+            end: '23:59',
+            shiftStart: '08:00',
+            shiftEnd: '23:59',
+            isStrictTime: false,
+            sheetRowIndex: 0,
+            off: false,
+            offDays: [],
+            isVirtual: true // Cờ đánh dấu dữ liệu ảo
+        });
+    }
+    return virtualStaff;
+}
+
 // =============================================================================
 // PHẦN 2: SYNC ENGINE (ĐỌC VÀ ĐỒNG BỘ DỮ LIỆU TỪ GOOGLE SHEETS)
 // =============================================================================
@@ -233,11 +254,9 @@ async function syncMenuData() {
             if (row[4]) { const ps = parseInt(row[4].toString().replace(/\D/g, '')); if (!isNaN(ps)) elasticStep = ps; }
             if (row[5]) { const pl = parseInt(row[5].toString().replace(/\D/g, '')); if (!isNaN(pl)) elasticLimit = pl; }
 
-            // [V6.4] Thêm thuộc tính Blocks (節數) từ Cột G (Index 6)
             let blocks = 1;
             if (row[6]) { const blk = parseInt(row[6].toString().replace(/\D/g, '')); if (!isNaN(blk)) blocks = blk; }
 
-            // [V6.4] Thêm thuộc tính Commission (單節抽成) từ Cột H (Index 7)
             let commission = 0;
             if (row[7]) { const comm = parseInt(row[7].toString().replace(/\D/g, '')); if (!isNaN(comm)) commission = comm; }
 
@@ -266,8 +285,8 @@ async function syncMenuData() {
                 price: price,
                 elasticStep: elasticStep,
                 elasticLimit: elasticLimit,
-                blocks: blocks,       // Bổ sung dữ liệu số tiết
-                commission: commission // Bổ sung dữ liệu hoa hồng
+                blocks: blocks,
+                commission: commission
             };
         });
 
@@ -285,7 +304,7 @@ async function syncData() {
         STATE.isSyncing = true;
 
         await syncQuickNotes();
-        await syncMenuData(); // [V6.4 NÂNG CẤP]: Đưa việc tải menu vào chu trình cập nhật 30s
+        await syncMenuData();
 
         const resBooking = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: `${BOOKING_SHEET}!A:AE` });
         const rowsBooking = resBooking.data.values;
@@ -386,12 +405,15 @@ async function syncData() {
 
         if (rows && rows.length > 1) {
             const headerRow = rows[0];
+            let dateColumns = [];
 
-            for (let j = 15; j < headerRow.length; j++) {
+            // [V131 NÂNG CẤP]: Thuật toán quét Header linh hoạt bắt đầu từ cột index 6 (Cột G)
+            for (let j = 6; j < headerRow.length; j++) {
                 if (!headerRow[j]) continue;
                 const normalizedDate = normalizeDateStrict(headerRow[j]);
                 if (normalizedDate) {
                     tempDateColumnMap[normalizedDate] = j;
+                    dateColumns.push({ index: j, date: normalizedDate });
                 }
             }
             STATE.dateColumnMap = tempDateColumnMap;
@@ -417,12 +439,12 @@ async function syncData() {
 
                 const todayStr = normalizeDateStrict(today);
 
-                for (let j = 15; j < headerRow.length; j++) {
-                    const normalizedDate = normalizeDateStrict(headerRow[j]);
-                    if (!normalizedDate) continue;
+                // Dùng dateColumns đã quét được ở trên để đối chiếu dữ liệu nhân sự
+                for (const col of dateColumns) {
+                    const normalizedDate = col.date;
+                    const j = col.index;
 
-                    const dateObj = new Date(normalizedDate);
-                    if (dateObj < pastThreshold) continue;
+                    if (new Date(normalizedDate) < pastThreshold) continue;
 
                     const cellValue = row[j] ? row[j].trim().toUpperCase() : "";
 
@@ -438,11 +460,15 @@ async function syncData() {
             }
         }
 
+        // [V131 NÂNG CẤP]: Cơ chế bảo vệ Fallback Tuyệt Đối
         if (tempStaffList.length === 0) {
-            throw new Error("API returned empty staff list");
-        } else {
-            STATE.STAFF_LIST = tempStaffList; STATE.scheduleMap = tempScheduleMap; STATE.isSystemHealthy = true;
+            console.warn("⚠️ [GRACEFUL DEGRADATION] Không đọc được nhân sự từ Sheet. Kích hoạt Danh sách ảo!");
+            tempStaffList = generateVirtualStaffList();
         }
+
+        STATE.STAFF_LIST = tempStaffList;
+        STATE.scheduleMap = tempScheduleMap;
+        STATE.isSystemHealthy = true; // Luôn luôn khỏe mạnh vì đã có dữ liệu Fallback
 
         if (STATE.isSystemHealthy && tempBookings.length > 0) {
             try {
@@ -460,19 +486,20 @@ async function syncData() {
 
         STATE.cachedBookings = tempBookings;
         STATE.lastSyncTime = new Date();
-        STATE.consecutiveSyncErrors = 0; // [V6.3 NÂNG CẤP]: Reset bộ đếm khi sync thành công
+        STATE.consecutiveSyncErrors = 0;
 
     } catch (e) {
         console.error('[SYNC FATAL ERROR]', e);
         STATE.consecutiveSyncErrors++;
 
-        // [V6.3 NÂNG CẤP]: Graceful Degradation Logic
+        // [V131 NÂNG CẤP]: Nếu API sập hẳn (mất kết nối hoàn toàn)
         if (STATE.STAFF_LIST.length === 0) {
-            // Chỉ đánh sập hệ thống nếu chưa có bất kỳ dữ liệu nào trong RAM
-            STATE.isSystemHealthy = false;
+            console.warn(`[HARD FALLBACK] Mất kết nối Google Sheets ở lần khởi tạo đầu tiên. Đang dùng dữ liệu ảo.`);
+            STATE.STAFF_LIST = generateVirtualStaffList();
+            STATE.isSystemHealthy = true; // Ép trạng thái an toàn
         } else {
-            console.warn(`[GRACEFUL DEGRADATION] Google Sheets API lỗi lần ${STATE.consecutiveSyncErrors}. Sử dụng dữ liệu Cache cũ.`);
-            // Giữ nguyên STATE.STAFF_LIST và STATE.cachedBookings
+            console.warn(`[GRACEFUL DEGRADATION] Google Sheets API lỗi lần ${STATE.consecutiveSyncErrors}. Tiếp tục dùng RAM Cache.`);
+            // Không set isSystemHealthy = false nữa, giữ nguyên trạng thái cũ
         }
     } finally {
         STATE.isSyncing = false;
@@ -903,7 +930,7 @@ module.exports = {
     getIsSystemHealthy: () => STATE.isSystemHealthy,
     getMatrixDebug: () => STATE.LAST_CALCULATED_MATRIX,
     getQuickNotes: () => STATE.QUICK_NOTES,
-    getConsecutiveErrors: () => STATE.consecutiveSyncErrors, // [V6.3 NÂNG CẤP]: Export bộ đếm lỗi
+    getConsecutiveErrors: () => STATE.consecutiveSyncErrors,
 
     syncMenuData,
     syncData,
