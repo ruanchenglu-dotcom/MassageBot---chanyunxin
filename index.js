@@ -1,11 +1,12 @@
 /**
  * =================================================================================================
  * PROJECT: XINWUCHAN MASSAGE BOT (BACKEND SERVER - MAIN ENTRY)
- * VERSION: V133 (Nâng cấp lớp bảo vệ Menu & Chống ngủ đông server)
+ * VERSION: V134 (FAIL-SAFE & ANTI SILENT FAILURE)
  * DESCRIPTION: MAIN CONTROLLER & ROUTER
  * * UPDATES IN THIS VERSION:
- * 1. [FIX] Phục hồi lớp bảo vệ hiển thị Menu trong quá trình Cold Start (tránh hiển thị Menu rỗng).
- * 2. [FEATURE] Bổ sung cơ chế Active Anti-Hibernation tự động ping server mỗi 14 phút.
+ * 1. [CRITICAL FIX] Đảo ngược trình tự xử lý: Bắt buộc ghi Google Sheet thành công (isSaved = true) 
+ * mới gửi tin nhắn xác nhận cho khách hàng. Chống lỗi báo thành công ảo (Silent Failure).
+ * 2. [FEATURE] Thêm cảnh báo cho cả Khách hàng và Admin khi Sheet API bị lỗi/từ chối.
  * * AUTHOR: AI ASSISTANT & USER
  * =================================================================================================
  */
@@ -40,8 +41,6 @@ const CUT_OFF_HOUR = SYSTEM_CONFIG.OPERATION_TIME.CUT_OFF_HOUR;
 const OIL_BONUS = SYSTEM_CONFIG.FINANCE.OIL_BONUS;
 
 // --- 2. GLOBAL STATE (CACHE ONLY) ---
-// Lưu ý: Với nâng cấp "Single Source of Truth", các biến này chỉ dùng để cache nhanh phục vụ UI.
-// Trạng thái gốc luôn được đọc/ghi trực tiếp từ Google Sheet thông qua SheetService.
 let SERVER_RESOURCE_STATE = {};
 let SERVER_STAFF_STATUS = {};
 let userState = {};
@@ -201,7 +200,7 @@ function generateTimeBubbles(selectedDate, serviceCode, specificStaffIds = null,
     return { type: 'carousel', contents: [...bubbles, ...timeBubbles] };
 }
 
-// Tạo Bubble chọn nhân viên (Staff Bubbles) - Đã cập nhật layout 4 cột, chú thích & rút gọn số
+// Tạo Bubble chọn nhân viên (Staff Bubbles)
 function createStaffBubbles(filterFemale = false, excludedIds = []) {
     let list = SheetService.getStaffList();
     if (filterFemale) list = list.filter(s => s.gender === 'F' || s.gender === '女');
@@ -234,16 +233,15 @@ function createStaffBubbles(filterFemale = false, excludedIds = []) {
     };
 
     const bubbles = [];
-    const chunkSize = 16; // Tăng lên 16 để chứa 4 hàng (mỗi hàng 4 nút)
+    const chunkSize = 16;
 
     for (let i = 0; i < list.length; i += chunkSize) {
         const chunk = list.slice(i, i + chunkSize);
         const rows = [];
-        for (let j = 0; j < chunk.length; j += 4) { // Lấy 4 thợ mỗi hàng
+        for (let j = 0; j < chunk.length; j += 4) {
             const rowItems = chunk.slice(j, j + 4);
 
             const rowButtons = rowItems.map(s => {
-                // Trích xuất số từ tên (VD: "技師1號" -> "01")
                 let numMatch = s.name.match(/\d+/);
                 let displayName = s.name;
                 if (numMatch) {
@@ -262,7 +260,6 @@ function createStaffBubbles(filterFemale = false, excludedIds = []) {
                 };
             });
 
-            // Chèn các khối trống để cố định kích thước nút nếu hàng không đủ 4 thợ
             while (rowButtons.length < 4) {
                 rowButtons.push({ "type": "box", "layout": "vertical", "flex": 1, "contents": [] });
             }
@@ -451,7 +448,8 @@ app.post('/api/admin-booking', async (req, res) => {
 
     if (data.flowCode && !data.flow) data.flow = data.flowCode;
 
-    await SheetService.ghiVaoSheet({
+    // [V134 NÂNG CẤP] Bắt kết quả ghi Sheet
+    const isSaved = await SheetService.ghiVaoSheet({
         ngayDen: data.ngayDen, gioDen: data.gioDen, dichVu: data.dichVu, nhanVien: data.nhanVien,
         userId: 'ADMIN_WEB', sdt: data.sdt || '現場客', hoTen: data.hoTen || '現場客',
         trangThai: '已預約', pax: data.pax || 1, isOil: data.isOil || false,
@@ -459,7 +457,12 @@ app.post('/api/admin-booking', async (req, res) => {
         phase1_duration: data.phase1_duration, phase2_duration: data.phase2_duration,
         isManualLocked: data.isManualLocked, flow: data.flow, serviceCode: data.serviceCode
     });
-    res.json({ success: true });
+
+    if (isSaved) {
+        res.json({ success: true });
+    } else {
+        res.status(500).json({ success: false, error: 'Database Write Failed' });
+    }
 });
 
 // --- API: INLINE UPDATE BOOKING ROW ---
@@ -467,7 +470,7 @@ app.post('/api/inline-update-booking', async (req, res) => {
     try {
         const { rowId, updatedData } = req.body;
         if (!rowId || !updatedData) {
-            return res.status(400).json({ success: false, error: 'Thiếu thông tin rowId hoặc updatedData' });
+            return res.status(400).json({ success: false, error: 'Thiếu thông欠 rowId hoặc updatedData' });
         }
         await SheetService.updateInlineBooking(rowId, updatedData);
         res.json({ success: true, message: 'Cập nhật thành công (Update Success)' });
@@ -524,7 +527,7 @@ async function handleEvent(event) {
     const isPostback = event.type === 'postback';
     if (!isText && !isPostback) return Promise.resolve(null);
 
-    const SERVICES = SheetService.getServices(); // Get latest services
+    const SERVICES = SheetService.getServices();
     const STAFF_LIST = SheetService.getStaffList();
 
     let text = ''; let userId = event.source.userId;
@@ -535,7 +538,6 @@ async function handleEvent(event) {
     }
 
     // --- 1. HEALTH CHECK & MAINTENANCE ---
-    // [V133 NÂNG CẤP]: Cải thiện hiển thị khi Cold Start và đưa Menu vào danh sách cần bảo vệ
     const isMenuAction = text.includes('Menu') || text.includes('價目') || text === '服務價目';
     const isBookingAction = text === 'Action:Booking' || text.startsWith('Cat:') || text.startsWith('Svc:') || text.startsWith('Date:') || text.startsWith('Pref:') || text.startsWith('Pax:') || text.startsWith('Time:') || isMenuAction;
 
@@ -559,20 +561,41 @@ async function handleEvent(event) {
 
     // --- 3. ADMIN LOGIC (BOT KHÁCH - QUYỀN CHỦ) ---
     if (text === 'Admin') { return client.replyMessage(event.replyToken, { type: 'flex', altText: 'Admin', contents: { "type": "bubble", "body": { "type": "box", "layout": "vertical", "contents": [{ "type": "text", "text": "🛠️ 師傅管理 (Admin)", "weight": "bold", "color": "#E63946", "size": "lg" }, { "type": "separator", "margin": "md" }, { "type": "button", "style": "primary", "color": "#000000", "margin": "md", "action": { "type": "message", "label": "⛔ 全店店休", "text": "Admin:CloseShop" } }, { "type": "separator", "margin": "md" }, { "type": "button", "style": "secondary", "margin": "sm", "action": { "type": "message", "label": "🛌 請假", "text": "Admin:SetOff" } }, { "type": "button", "style": "secondary", "margin": "sm", "action": { "type": "message", "label": "🤒 早退", "text": "Admin:SetLeaveEarly" } }, { "type": "button", "style": "secondary", "margin": "sm", "action": { "type": "message", "label": "🍱 用餐", "text": "Admin:SetBreak" } }] } } }); }
+
     if (text === 'Admin:CloseShop') { userState[userId] = { step: 'ADMIN_PICK_CLOSE_DATE' }; return client.replyMessage(event.replyToken, { type: 'template', altText: '選擇日期', template: { type: 'buttons', text: '請選擇店休日期:', actions: [{ type: 'datetimepicker', label: '🗓️ 點擊選擇', data: 'ShopClosePicked', mode: 'date' }] } }); }
+
+    // [V134 NÂNG CẤP] Bảo vệ tính năng Đóng cửa tiệm
     if (text.startsWith('DatePick:') && userState[userId] && userState[userId].step === 'ADMIN_PICK_CLOSE_DATE') {
         const pickedDate = SheetService.normalizeDateStrict(text.split(':')[1]);
-        await SheetService.ghiVaoSheet({ gioDen: '08:00', ngayDen: pickedDate, dichVu: SERVICES['SHOP_CLOSE'] ? SERVICES['SHOP_CLOSE'].name : 'SHOP_CLOSE', nhanVien: 'ALL_STAFF', userId: 'ADMIN', sdt: 'ADMIN', hoTen: '全店店休', trangThai: '⛔ 店休' }); delete userState[userId];
-        return client.replyMessage(event.replyToken, { type: 'text', text: `✅ 已設定 ${pickedDate} 全店店休。` });
+        const isSaved = await SheetService.ghiVaoSheet({ gioDen: '08:00', ngayDen: pickedDate, dichVu: SERVICES['SHOP_CLOSE'] ? SERVICES['SHOP_CLOSE'].name : 'SHOP_CLOSE', nhanVien: 'ALL_STAFF', userId: 'ADMIN', sdt: 'ADMIN', hoTen: '全店店休', trangThai: '⛔ 店休' });
+        delete userState[userId];
+        if (isSaved) {
+            return client.replyMessage(event.replyToken, { type: 'text', text: `✅ 已設定 ${pickedDate} 全店店休。` });
+        } else {
+            return client.replyMessage(event.replyToken, { type: 'text', text: `❌ 寫入失敗，請檢查 Google Sheet 連線狀態。` });
+        }
     }
+
     if (text.startsWith('Admin:')) { const action = text.split(':')[1]; userState[userId] = { step: 'ADMIN_PICK_STAFF', action: action }; const bubbles = createStaffBubbles().map(b => { const str = JSON.stringify(b).replace(/StaffSelect/g, 'StaffOp'); return JSON.parse(str); }); return client.replyMessage(event.replyToken, { type: 'flex', altText: '選擇師傅', contents: { type: 'carousel', contents: bubbles } }); }
+
+    // [V134 NÂNG CẤP] Bảo vệ tính năng Nghỉ phép/Ăn trưa của nhân viên
     if (text.startsWith('StaffOp:')) {
         const staffId = text.split(':')[1]; const currentState = userState[userId]; if (!currentState || currentState.step !== 'ADMIN_PICK_STAFF') return Promise.resolve(null);
         const now = SheetService.getTaipeiNow(); const todayISO = formatDateDisplay(now.toLocaleDateString()); const currentTimeStr = now.toTimeString().substring(0, 5); let logType = ''; let logNote = '';
-        if (currentState.action === 'SetOff') { logType = '請假'; logNote = '全天'; await SheetService.ghiVaoSheet({ gioDen: '08:00', ngayDen: todayISO, dichVu: 'OFF_DAY', nhanVien: staffId, userId: 'ADMIN', sdt: 'ADMIN', hoTen: '請假', trangThai: '⛔ 已鎖定' }); }
-        else if (currentState.action === 'SetBreak') { logType = '用餐'; logNote = '30分鐘'; await SheetService.ghiVaoSheet({ gioDen: currentTimeStr, ngayDen: todayISO, dichVu: 'BREAK_30', nhanVien: staffId, userId: 'ADMIN', sdt: 'ADMIN', hoTen: '用餐', trangThai: '🍱 用餐中' }); }
-        else if (currentState.action === 'SetLeaveEarly') { logType = '早退/病假'; let duration = (26 * 60) - (now.getHours() * 60 + now.getMinutes()); if (duration < 0) duration = 0; logNote = `早退 (${duration}分)`; await SheetService.ghiVaoSheet({ gioDen: currentTimeStr, ngayDen: todayISO, dichVu: `⛔ 早退 (${duration}分)`, nhanVien: staffId, userId: 'ADMIN', sdt: 'ADMIN', hoTen: '管理員操作', trangThai: '⚠️ 早退' }); }
-        SERVER_STAFF_STATUS[staffId] = { status: currentState.action === 'SetOff' ? 'AWAY' : currentState.action === 'SetBreak' ? 'EAT' : 'OUT_SHORT', checkInTime: 0 }; delete userState[userId]; return client.replyMessage(event.replyToken, { type: 'text', text: `✅ 已登記: ${staffId} - ${logType}\n(${logNote})` });
+        let isSaved = false;
+
+        if (currentState.action === 'SetOff') { logType = '請假'; logNote = '全天'; isSaved = await SheetService.ghiVaoSheet({ gioDen: '08:00', ngayDen: todayISO, dichVu: 'OFF_DAY', nhanVien: staffId, userId: 'ADMIN', sdt: 'ADMIN', hoTen: '請假', trangThai: '⛔ 已鎖定' }); }
+        else if (currentState.action === 'SetBreak') { logType = '用餐'; logNote = '30分鐘'; isSaved = await SheetService.ghiVaoSheet({ gioDen: currentTimeStr, ngayDen: todayISO, dichVu: 'BREAK_30', nhanVien: staffId, userId: 'ADMIN', sdt: 'ADMIN', hoTen: '用餐', trangThai: '🍱 用餐中' }); }
+        else if (currentState.action === 'SetLeaveEarly') { logType = '早退/病假'; let duration = (26 * 60) - (now.getHours() * 60 + now.getMinutes()); if (duration < 0) duration = 0; logNote = `早退 (${duration}分)`; isSaved = await SheetService.ghiVaoSheet({ gioDen: currentTimeStr, ngayDen: todayISO, dichVu: `⛔ 早退 (${duration}分)`, nhanVien: staffId, userId: 'ADMIN', sdt: 'ADMIN', hoTen: '管理員操作', trangThai: '⚠️ 早退' }); }
+
+        delete userState[userId];
+
+        if (isSaved) {
+            SERVER_STAFF_STATUS[staffId] = { status: currentState.action === 'SetOff' ? 'AWAY' : currentState.action === 'SetBreak' ? 'EAT' : 'OUT_SHORT', checkInTime: 0 };
+            return client.replyMessage(event.replyToken, { type: 'text', text: `✅ 已登記: ${staffId} - ${logType}\n(${logNote})` });
+        } else {
+            return client.replyMessage(event.replyToken, { type: 'text', text: `❌ 寫入失敗，請檢查 Google Sheet 連線狀態。` });
+        }
     }
 
     // --- 4. BOOKING FLOW (STEP BY STEP) ---
@@ -689,6 +712,7 @@ async function handleEvent(event) {
         return client.replyMessage(event.replyToken, { type: 'text', text: "請輸入手機號碼 (Phone):" });
     }
 
+    // [V134 NÂNG CẤP] Xử lý rẽ nhánh an toàn tại bước cuối cùng của luồng đặt lịch
     if (userState[userId] && userState[userId].step === 'PHONE') {
         const sdt = normalizePhoneNumber(text); const s = userState[userId];
         let finalDate = s.date;
@@ -719,20 +743,7 @@ async function handleEvent(event) {
             return client.replyMessage(event.replyToken, { type: 'text', text: "😢 抱歉，該時段剛好被其他人預約了，請選擇其他時間。" });
         }
 
-        let confirmMsg = `✅ 預約成功 (Confirmed)\n\n` +
-            `👤 ${s.fullName} (${sdt})\n` +
-            `📅 ${finalDate} ${s.time}\n` +
-            `💆 ${SERVICES[s.service].name}\n` +
-            `👥 ${s.pax} 位\n` +
-            `🛠️ ${staffDisplay}\n` +
-            `💵 總金額: $${totalPrice}\n\n`;
-
-        confirmMsg += `⚠️ 重要須知 (Notice):\n` +
-            `若需【更改時間】或【取消預約】，請務必點擊下方「我的預約 (My Booking)」按鈕進行操作，或直接致電櫃台告知，以免影響您的權益，謝謝配合！`;
-
-        await client.replyMessage(event.replyToken, { type: 'text', text: confirmMsg });
-        client.pushMessage(ID_BA_CHU, { type: 'text', text: `💰 New Booking: ${s.fullName} - $${totalPrice}` });
-
+        // --- ĐÓNG GÓI DỮ LIỆU ---
         const guestDetails = [];
         for (let i = 0; i < s.pax; i++) {
             let sId = '隨機';
@@ -773,7 +784,8 @@ async function handleEvent(event) {
             });
         }
 
-        await SheetService.ghiVaoSheet(
+        // --- BƯỚC QUAN TRỌNG: GHI VÀO DB TRƯỚC ---
+        const isSaved = await SheetService.ghiVaoSheet(
             {
                 gioDen: s.time, ngayDen: finalDate, dichVu: SERVICES[s.service].name,
                 nhanVien: staffDisplay, userId: userId, sdt: sdt,
@@ -785,7 +797,39 @@ async function handleEvent(event) {
             checkResult.proposedUpdates
         );
 
-        delete userState[userId]; return;
+        // --- RẼ NHÁNH DỰA TRÊN KẾT QUẢ DB ---
+        if (isSaved) {
+            // Nhánh thành công: Gửi tin nhắn Confirm cho khách
+            let confirmMsg = `✅ 預約成功 (Confirmed)\n\n` +
+                `👤 ${s.fullName} (${sdt})\n` +
+                `📅 ${finalDate} ${s.time}\n` +
+                `💆 ${SERVICES[s.service].name}\n` +
+                `👥 ${s.pax} 位\n` +
+                `🛠️ ${staffDisplay}\n` +
+                `💵 總金額: $${totalPrice}\n\n`;
+
+            confirmMsg += `⚠️ 重要須知 (Notice):\n` +
+                `若需【更改時間】或【取消預約】，請務必點擊下方「我的預約 (My Booking)」按鈕進行操作，或直接致電櫃台告知，以免影響您的權益，謝謝配合！`;
+
+            await client.replyMessage(event.replyToken, { type: 'text', text: confirmMsg });
+
+            // Thông báo cho chủ tiệm
+            if (ID_BA_CHU) {
+                client.pushMessage(ID_BA_CHU, { type: 'text', text: `💰 New Booking: ${s.fullName} - $${totalPrice}` }).catch(e => console.error(e));
+            }
+        } else {
+            // Nhánh thất bại: Báo lỗi để khách không đến nhầm
+            await client.replyMessage(event.replyToken, { type: 'text', text: `⚠️ 系統繁忙，預約寫入失敗。請稍後再試，或直接致電櫃台為您安排！` });
+
+            // Cảnh báo khẩn cấp cho chủ tiệm
+            if (ID_BA_CHU) {
+                client.pushMessage(ID_BA_CHU, { type: 'text', text: `⚠️ 系統警告: 客人 ${s.fullName} 的預約寫入 Google Sheet 失敗！請檢查。` }).catch(e => console.error(e));
+            }
+        }
+
+        // Xóa state để khách có thể đặt lại
+        delete userState[userId];
+        return;
     }
 
     // --- 5. MY BOOKING & CANCELLATION ---
@@ -856,6 +900,6 @@ function startAntiHibernation() {
 
 const port = process.env.PORT || 4000;
 app.listen(port, () => {
-    console.log(`XinWuChan Bot V133 running on port ${port}`);
+    console.log(`XinWuChan Bot V134 running on port ${port}`);
     startAntiHibernation(); // Khởi chạy Anti-Hibernation ngay sau khi server lên
 });

@@ -1,8 +1,11 @@
 /**
  * =================================================================================================
- * MODULE: SHEET SERVICE (DATA LAYER) - REFACTORED V1.4 (DYNAMIC CONFIG)
+ * MODULE: SHEET SERVICE (DATA LAYER) - REFACTORED V1.5 (DYNAMIC CONFIG & ERROR HANDLING)
  * PROJECT: XINWUCHAN MASSAGE BOT (禪云心養生館)
  * DESCRIPTION: Handles Google Sheets interactions & Fallback Systems.
+ * * * * * UPDATE V1.5 (CRITICAL FIX - ANTI SILENT FAILURE):
+ * + [FIX] Hàm ghiVaoSheet nay sẽ trả về 'true' nếu ghi thành công và 'false' nếu thất bại, 
+ * giúp Lớp Controller (index.js) nhận biết để rẽ nhánh thông báo cho khách hàng.
  * * * * * UPDATE V1.4 (DYNAMIC SHEET NAMES):
  * + [FIX] Loại bỏ hoàn toàn hardcode tên Sheet. Kế thừa từ SYSTEM_CONFIG.SHEET_NAMES.
  * + [FIX] Sửa lỗi hardcode 'Sheet1!A:A' trong hàm ghiVaoSheet.
@@ -633,9 +636,17 @@ async function ghiVaoSheet(data, proposedUpdates = []) {
                 valueInputOption: 'USER_ENTERED', requestBody: { values: valuesToWrite }
             });
         }
+
         setTimeout(() => syncData(), 500);
 
-    } catch (e) { console.error('[WRITE ERROR]', e); }
+        // [V1.5 NÂNG CẤP] Trả về true nếu toàn bộ quá trình ghi trên API thành công
+        return true;
+
+    } catch (e) {
+        console.error('[WRITE ERROR]', e);
+        // [V1.5 NÂNG CẤP] Trả về false nếu quá trình ghi thất bại
+        return false;
+    }
 }
 
 async function updateBookingStatus(rowId, newStatus) {
