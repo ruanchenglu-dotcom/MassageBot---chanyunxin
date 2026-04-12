@@ -1,8 +1,11 @@
 /**
  * =================================================================================================
- * MODULE: SHEET SERVICE (DATA LAYER) - REFACTORED V131 / V6.5
- * PROJECT: XINWUCHAN MASSAGE BOT
+ * MODULE: SHEET SERVICE (DATA LAYER) - REFACTORED V1.4 (DYNAMIC CONFIG)
+ * PROJECT: XINWUCHAN MASSAGE BOT (禪云心養生館)
  * DESCRIPTION: Handles Google Sheets interactions & Fallback Systems.
+ * * * * * UPDATE V1.4 (DYNAMIC SHEET NAMES):
+ * + [FIX] Loại bỏ hoàn toàn hardcode tên Sheet. Kế thừa từ SYSTEM_CONFIG.SHEET_NAMES.
+ * + [FIX] Sửa lỗi hardcode 'Sheet1!A:A' trong hàm ghiVaoSheet.
  * * * * * UPDATE V131 (DYNAMIC COLUMNS & HARD FALLBACK):
  * + [FIX] Loại bỏ hardcode cột 15. Tự động dò tìm các cột chứa ngày tháng trên dòng Header.
  * + [FEATURE] Thêm hàm generateVirtualStaffList(). Luôn có dữ liệu nhân viên để tránh lỗi Cold Start.
@@ -15,16 +18,17 @@ const { google } = require('googleapis');
 const ResourceCore = require('./resource_core'); // Core logic for Matrix & Rules
 const { SYSTEM_CONFIG, SERVICES_DATA } = require('./data.js'); // Centralized Configuration
 
+// Kế thừa tên Sheet động từ file cấu hình trung tâm (Giao diện Phồn Thể)
+const {
+    BOOKING_SHEET_NAME,
+    STAFF_SHEET_NAME,
+    MENU_SHEET_NAME,
+    STAFF_LIST_SHEET_NAME,
+    SALARY_LOG_SHEET_NAME
+} = SYSTEM_CONFIG.SHEET_NAMES;
+
 // --- CONFIGURATION ---
 const SHEET_ID = process.env.SHEET_ID;
-
-// Define Sheet Names
-const BOOKING_SHEET = 'Sheet1';
-const STAFF_SHEET = 'StaffLog';
-const SCHEDULE_SHEET = 'StaffSchedule';
-const SALARY_SHEET = 'SalaryLog';
-const MENU_SHEET = 'menu';
-const NAME_SHEET = 'name';
 
 // Define Status Keywords (The Source of Truth)
 const STATUS_KEYWORDS = {
@@ -218,7 +222,7 @@ async function init() {
 
 async function syncQuickNotes() {
     try {
-        const res = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: `${NAME_SHEET}!N2:N` });
+        const res = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: `${STAFF_LIST_SHEET_NAME}!N2:N` });
         const rows = res.data.values;
         if (!rows || rows.length === 0) {
             STATE.QUICK_NOTES = [];
@@ -232,7 +236,7 @@ async function syncQuickNotes() {
 
 async function syncMenuData() {
     try {
-        const res = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: `${MENU_SHEET}!A2:Z` });
+        const res = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: `${MENU_SHEET_NAME}!A2:Z` });
         const rows = res.data.values;
         if (!rows || rows.length === 0) return;
 
@@ -306,7 +310,7 @@ async function syncData() {
         await syncQuickNotes();
         await syncMenuData();
 
-        const resBooking = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: `${BOOKING_SHEET}!A:AE` });
+        const resBooking = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: `${BOOKING_SHEET_NAME}!A:AE` });
         const rowsBooking = resBooking.data.values;
         let tempBookings = [];
 
@@ -391,7 +395,7 @@ async function syncData() {
 
         const resSchedule = await sheets.spreadsheets.values.get({
             spreadsheetId: SHEET_ID,
-            range: `${SCHEDULE_SHEET}!A1:150`
+            range: `${STAFF_SHEET_NAME}!A1:150`
         });
 
         const rows = resSchedule.data.values;
@@ -625,7 +629,7 @@ async function ghiVaoSheet(data, proposedUpdates = []) {
 
         if (valuesToWrite.length > 0) {
             await sheets.spreadsheets.values.append({
-                spreadsheetId: SHEET_ID, range: 'Sheet1!A:A',
+                spreadsheetId: SHEET_ID, range: `${BOOKING_SHEET_NAME}!A:A`,
                 valueInputOption: 'USER_ENTERED', requestBody: { values: valuesToWrite }
             });
         }
@@ -638,7 +642,7 @@ async function updateBookingStatus(rowId, newStatus) {
     try {
         if (!rowId) throw new Error("RowID required");
         await sheets.spreadsheets.values.update({
-            spreadsheetId: SHEET_ID, range: `${BOOKING_SHEET}!H${rowId}`,
+            spreadsheetId: SHEET_ID, range: `${BOOKING_SHEET_NAME}!H${rowId}`,
             valueInputOption: 'USER_ENTERED', requestBody: { values: [[newStatus]] }
         });
         await syncData();
@@ -652,7 +656,7 @@ async function updateBookingDetails(body) {
 
     const updateCell = async (col, val) => {
         await sheets.spreadsheets.values.update({
-            spreadsheetId: SHEET_ID, range: `${BOOKING_SHEET}!${col}${rowId}`,
+            spreadsheetId: SHEET_ID, range: `${BOOKING_SHEET_NAME}!${col}${rowId}`,
             valueInputOption: 'USER_ENTERED', requestBody: { values: [[val]] }
         });
     };
@@ -751,43 +755,43 @@ async function updateInlineBooking(rowId, updatedData) {
         const dataToUpdate = [];
 
         if (formattedDate) {
-            dataToUpdate.push({ range: `${BOOKING_SHEET}!A${rowId}`, values: [[formattedDate]] });
-            dataToUpdate.push({ range: `${BOOKING_SHEET}!S${rowId}`, values: [[formattedDate]] });
+            dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!A${rowId}`, values: [[formattedDate]] });
+            dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!S${rowId}`, values: [[formattedDate]] });
         }
         if (timeVal) {
-            dataToUpdate.push({ range: `${BOOKING_SHEET}!B${rowId}`, values: [[timeVal]] });
+            dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!B${rowId}`, values: [[timeVal]] });
         }
         if (updatedData.hoTen !== undefined) {
-            dataToUpdate.push({ range: `${BOOKING_SHEET}!C${rowId}`, values: [[updatedData.hoTen]] });
+            dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!C${rowId}`, values: [[updatedData.hoTen]] });
         }
         if (updatedData.dichVu !== undefined) {
             let svcName = updatedData.dichVu;
             if (updatedData.isOil && !svcName.includes("油推")) {
                 svcName += getOilSuffixText();
             }
-            dataToUpdate.push({ range: `${BOOKING_SHEET}!D${rowId}`, values: [[svcName]] });
-            dataToUpdate.push({ range: `${BOOKING_SHEET}!U${rowId}`, values: [[sCode]] });
+            dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!D${rowId}`, values: [[svcName]] });
+            dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!U${rowId}`, values: [[sCode]] });
         }
         if (updatedData.isOil !== undefined) {
-            dataToUpdate.push({ range: `${BOOKING_SHEET}!E${rowId}`, values: [[updatedData.isOil ? "Yes" : ""]] });
+            dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!E${rowId}`, values: [[updatedData.isOil ? "Yes" : ""]] });
         }
         if (updatedData.isGuaSha !== undefined) {
-            dataToUpdate.push({ range: `${BOOKING_SHEET}!Q${rowId}`, values: [[updatedData.isGuaSha ? "Yes" : ""]] });
+            dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!Q${rowId}`, values: [[updatedData.isGuaSha ? "Yes" : ""]] });
         }
         if (updatedData.adminNote !== undefined) {
-            dataToUpdate.push({ range: `${BOOKING_SHEET}!R${rowId}`, values: [[updatedData.adminNote]] });
+            dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!R${rowId}`, values: [[updatedData.adminNote]] });
         }
         if (updatedData.pax !== undefined) {
-            dataToUpdate.push({ range: `${BOOKING_SHEET}!F${rowId}`, values: [[updatedData.pax]] });
+            dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!F${rowId}`, values: [[updatedData.pax]] });
         }
         if (updatedData.sdt !== undefined) {
-            dataToUpdate.push({ range: `${BOOKING_SHEET}!G${rowId}`, values: [[updatedData.sdt]] });
+            dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!G${rowId}`, values: [[updatedData.sdt]] });
         }
         if (updatedData.trangThai !== undefined) {
-            dataToUpdate.push({ range: `${BOOKING_SHEET}!H${rowId}`, values: [[updatedData.trangThai]] });
+            dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!H${rowId}`, values: [[updatedData.trangThai]] });
         }
         if (updatedData.nhanVien !== undefined) {
-            dataToUpdate.push({ range: `${BOOKING_SHEET}!I${rowId}`, values: [[updatedData.nhanVien]] });
+            dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!I${rowId}`, values: [[updatedData.nhanVien]] });
         }
 
         if (dataToUpdate.length > 0) {
@@ -830,7 +834,7 @@ async function updateScheduleCell(lineId, dateStr, value) {
         if (!colIndex) { return false; }
 
         const colLetter = getColumnLetter(colIndex);
-        const range = `${SCHEDULE_SHEET}!${colLetter}${staff.sheetRowIndex}`;
+        const range = `${STAFF_SHEET_NAME}!${colLetter}${staff.sheetRowIndex}`;
 
         await sheets.spreadsheets.values.update({
             spreadsheetId: SHEET_ID,
@@ -856,14 +860,14 @@ async function updateDailyActivity(lineId, type, startVal, endVal) {
 
         if (startVal) {
             await sheets.spreadsheets.values.update({
-                spreadsheetId: SHEET_ID, range: `${SCHEDULE_SHEET}!${startCol}${row}`,
+                spreadsheetId: SHEET_ID, range: `${STAFF_SHEET_NAME}!${startCol}${row}`,
                 valueInputOption: 'USER_ENTERED', requestBody: { values: [[startVal]] }
             });
         }
 
         if (endVal) {
             await sheets.spreadsheets.values.update({
-                spreadsheetId: SHEET_ID, range: `${SCHEDULE_SHEET}!${endCol}${row}`,
+                spreadsheetId: SHEET_ID, range: `${STAFF_SHEET_NAME}!${endCol}${row}`,
                 valueInputOption: 'USER_ENTERED', requestBody: { values: [[endVal]] }
             });
         }
@@ -885,7 +889,7 @@ async function updateStaffConfig(staffId, isStrictTime) {
 
         if (sheetRowIndex !== -1) {
             const valueToWrite = isStrictTime ? "TRUE" : "";
-            await sheets.spreadsheets.values.update({ spreadsheetId: SHEET_ID, range: `${SCHEDULE_SHEET}!E${sheetRowIndex}`, valueInputOption: 'USER_ENTERED', requestBody: { values: [[valueToWrite]] } });
+            await sheets.spreadsheets.values.update({ spreadsheetId: SHEET_ID, range: `${STAFF_SHEET_NAME}!E${sheetRowIndex}`, valueInputOption: 'USER_ENTERED', requestBody: { values: [[valueToWrite]] } });
         }
         await syncData();
         return true;
@@ -894,7 +898,7 @@ async function updateStaffConfig(staffId, isStrictTime) {
 
 async function layLichDatGanNhat(userId) {
     try {
-        const res = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: `${BOOKING_SHEET}!A:K` });
+        const res = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: `${BOOKING_SHEET_NAME}!A:K` });
         const rows = res.data.values; if (!rows || rows.length === 0) return null;
         for (let i = rows.length - 1; i >= 0; i--) {
             const row = rows[i];
@@ -911,7 +915,7 @@ async function layLichDatGanNhat(userId) {
 
 async function syncDailySalary(dateStr, staffDataList) {
     try {
-        const range = `${SALARY_SHEET}!A1:AZ100`;
+        const range = `${SALARY_LOG_SHEET_NAME}!A1:AZ100`;
         await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: range });
     } catch (e) { console.error('[SALARY ERROR]', e); }
 }

@@ -1,12 +1,14 @@
 /**
  * ============================================================================
  * FILE: js/data.js (HOẶC dùng cho Backend)
- * PHIÊN BẢN: V1.3 (SYNCED KEYS & NEW FALLBACK DATA)
+ * PHIÊN BẢN: V1.4 (EXACT SHEET NAMES & VARIABLES)
  * ============================================================================
  * MỤC TIÊU: 
  * 1. Quản lý toàn bộ thông số kỹ thuật của tiệm 禪云心養生館 tại một nơi.
  * 2. Cung cấp dữ liệu dự phòng (Fallback) cho bảng giá và quy mô hệ thống.
  * 3. Hỗ trợ chạy trên cả môi trường Frontend (Browser/React) và Backend (Node.js).
+ * * * * * UPDATE V1.4:
+ * + [FIX] Cập nhật block SHEET_NAMES với đúng cấu trúc tên biến và tên sheet Phồn Thể (預約表, 技師班表, 服務價目).
  * * * * * UPDATE V1.3:
  * + [FIX] Đổi toàn bộ Key của SERVICES_DATA sang service_code (A3, A2, F3...) để đồng bộ với Sheet.
  * + [FEATURE] Cập nhật giá tiền, thời gian, số tiết (blocks) và hoa hồng (commission) khớp 100% với Sheet mới.
@@ -21,8 +23,20 @@
 const SYSTEM_CONFIG = {
     SHOP_INFO: {
         NAME: '禪云心養生館',
-        BRANCH: 'Zhonghe', // Chi nhánh Trung Hòa
-        VERSION: 'V1.3_Universal'
+        BRANCH: '古亭', // Chi nhánh 古亭
+        VERSION: 'V1.4_Universal'
+    },
+
+    // Cấu hình Database (Google Sheets) - Chuẩn tên biến & tên sheet Phồn Thể
+    SHEET_NAMES: {
+        BOOKING_SHEET_NAME: '預約表',       // Dữ liệu đặt lịch chung
+        STAFF_SHEET_NAME: '技師班表',       // Bảng chia ca/lịch làm việc của kỹ thuật viên
+        MENU_SHEET_NAME: '服務價目',        // Bảng giá dịch vụ hệ thống
+
+        // Các sheet bổ sung (dựa trên cấu trúc tab hiện tại)
+        STAFF_LIST_SHEET_NAME: 'name',      // Danh sách hồ sơ kỹ thuật viên
+        SALARY_SHEET_NAME: 'Salary',        // Bảng lương
+        SALARY_LOG_SHEET_NAME: 'SalaryLog'  // Lịch sử thanh toán lương/hoa hồng
     },
 
     // Quy mô chi nhánh
@@ -69,7 +83,9 @@ const SYSTEM_CONFIG = {
         CHAIR_PREFIX: '足',
         BED_PREFIX: '床',
         MINUTES_UNIT: '分',
-        PRICE_UNIT: '元'
+        PRICE_UNIT: '元',
+        LOADING_DATA: '資料庫連接中...',
+        SYSTEM_UPDATE: '系統更新中請稍後'
     },
 
     // Tham số tài chính
