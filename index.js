@@ -1,12 +1,11 @@
 /**
  * =================================================================================================
  * PROJECT: XINWUCHAN MASSAGE BOT (BACKEND SERVER - MAIN ENTRY)
- * VERSION: V132-OPTIMIZED (Giao diện 4 cột, rút gọn số thợ & thêm chú thích màu)
+ * VERSION: V133 (Nâng cấp lớp bảo vệ Menu & Chống ngủ đông server)
  * DESCRIPTION: MAIN CONTROLLER & ROUTER
  * * UPDATES IN THIS VERSION:
- * 1. [UX] Rút gọn tên thợ thành dạng số có đệm (01, 02...).
- * 2. [UX] Thêm chú thích phân biệt giới tính (Ô vuông màu Xanh/Hồng).
- * 3. [UX] Nâng cấp grid hiển thị lên 4 nút/hàng, cố định kích thước nút.
+ * 1. [FIX] Phục hồi lớp bảo vệ hiển thị Menu trong quá trình Cold Start (tránh hiển thị Menu rỗng).
+ * 2. [FEATURE] Bổ sung cơ chế Active Anti-Hibernation tự động ping server mỗi 14 phút.
  * * AUTHOR: AI ASSISTANT & USER
  * =================================================================================================
  */
@@ -17,6 +16,8 @@ const express = require('express');
 const line = require('@line/bot-sdk');
 const cors = require('cors');
 const path = require('path');
+const https = require('https'); // Thêm module https để phục vụ Anti-Hibernation
+const http = require('http');   // Thêm module http để phục vụ Anti-Hibernation
 
 // --- IMPORT MODULES ---
 const ResourceCore = require('./resource_core');
@@ -534,8 +535,10 @@ async function handleEvent(event) {
     }
 
     // --- 1. HEALTH CHECK & MAINTENANCE ---
-    // [V131 NÂNG CẤP]: Cải thiện hiển thị khi Cold Start
-    const isBookingAction = text === 'Action:Booking' || text.startsWith('Cat:') || text.startsWith('Svc:') || text.startsWith('Date:') || text.startsWith('Pref:') || text.startsWith('Pax:') || text.startsWith('Time:');
+    // [V133 NÂNG CẤP]: Cải thiện hiển thị khi Cold Start và đưa Menu vào danh sách cần bảo vệ
+    const isMenuAction = text.includes('Menu') || text.includes('價目') || text === '服務價目';
+    const isBookingAction = text === 'Action:Booking' || text.startsWith('Cat:') || text.startsWith('Svc:') || text.startsWith('Date:') || text.startsWith('Pref:') || text.startsWith('Pax:') || text.startsWith('Time:') || isMenuAction;
+
     if (isBookingAction && (!SheetService.getIsSystemHealthy() || STAFF_LIST.length === 0)) {
         return client.replyMessage(event.replyToken, {
             type: 'flex', altText: '系統初始化中',
@@ -549,8 +552,8 @@ async function handleEvent(event) {
         return client.replyMessage(event.replyToken, { type: 'flex', altText: '選擇服務', contents: { "type": "bubble", "body": { "type": "box", "layout": "vertical", "contents": [{ "type": "text", "text": "請選擇服務類別 (Service)", "weight": "bold", "size": "lg", "align": "center", "color": "#1DB446" }, { "type": "separator", "margin": "md" }, { "type": "button", "style": "primary", "color": "#A17DF5", "margin": "md", "action": { "type": "message", "label": "🔥 套餐 (Combo)", "text": "Cat:COMBO" } }, { "type": "button", "style": "secondary", "margin": "sm", "action": { "type": "message", "label": "👣 足底按摩 (Foot)", "text": "Cat:FOOT" } }, { "type": "button", "style": "secondary", "margin": "sm", "action": { "type": "message", "label": "🛏️ 身體指壓 (Body)", "text": "Cat:BODY" } }] } } });
     }
 
-    // [V130 CẬP NHẬT] Luôn hiển thị Menu từ cache hiện tại, loại bỏ điều kiện chặn.
-    if (text.includes('Menu') || text.includes('價目') || text === '服務價目') {
+    // Hiển thị Menu khi hệ thống đã sẵn sàng
+    if (isMenuAction) {
         return client.replyMessage(event.replyToken, { type: 'flex', altText: '服務價目表', contents: createMenuFlexMessage() });
     }
 
@@ -713,7 +716,6 @@ async function handleEvent(event) {
         const checkResult = ResourceCore.checkRequestAvailability(s.date, s.time, guestList, relevantBookings, staffListMap);
 
         if (!checkResult.feasible) {
-            // [V131 NÂNG CẤP]: Đổi thông báo lỗi trùng lịch sang Tiếng Trung Phồn Thể
             return client.replyMessage(event.replyToken, { type: 'text', text: "😢 抱歉，該時段剛好被其他人預約了，請選擇其他時間。" });
         }
 
@@ -833,5 +835,27 @@ setInterval(async () => {
 // 3. Health Check
 app.get('/ping', (req, res) => { res.status(200).send('Pong!'); });
 
+// 4. [V133 NÂNG CẤP] Active Anti-Hibernation (Tự động đánh thức)
+function startAntiHibernation() {
+    const serverUrl = process.env.SERVER_URL; // Yêu cầu thêm SERVER_URL vào file .env
+    if (serverUrl) {
+        const pingInterval = 14 * 60 * 1000; // 14 phút (840,000 milliseconds)
+        setInterval(() => {
+            const reqModule = serverUrl.startsWith('https') ? https : http;
+            reqModule.get(`${serverUrl}/ping`, (res) => {
+                console.log(`[ANTI-HIBERNATION] Self-ping thành công (Status: ${res.statusCode}) lúc ${new Date().toISOString()}`);
+            }).on('error', (err) => {
+                console.error(`[ANTI-HIBERNATION] Lỗi khi tự ping:`, err.message);
+            });
+        }, pingInterval);
+        console.log(`[ANTI-HIBERNATION] Đã kích hoạt cơ chế tự đánh thức mỗi 14 phút đối với URL: ${serverUrl}`);
+    } else {
+        console.warn(`[ANTI-HIBERNATION] CẢNH BÁO: Chưa cấu hình biến SERVER_URL trong file .env. Hệ thống có thể bị ngủ đông!`);
+    }
+}
+
 const port = process.env.PORT || 4000;
-app.listen(port, () => { console.log(`XinWuChan Bot V132-OPTIMIZED running on port ${port}`); });
+app.listen(port, () => {
+    console.log(`XinWuChan Bot V133 running on port ${port}`);
+    startAntiHibernation(); // Khởi chạy Anti-Hibernation ngay sau khi server lên
+});
