@@ -1,12 +1,12 @@
 /**
  * =================================================================================================
  * PROJECT: XINWUCHAN MASSAGE BOT (BACKEND SERVER - MAIN ENTRY)
- * VERSION: V131-OPTIMIZED (Xử lý Cold Start & 100% Giao diện Phồn Thể)
+ * VERSION: V132-OPTIMIZED (Giao diện 4 cột, rút gọn số thợ & thêm chú thích màu)
  * DESCRIPTION: MAIN CONTROLLER & ROUTER
  * * UPDATES IN THIS VERSION:
- * 1. [UX IMPROVEMENT] Thay đổi thông báo bảo trì thành "Hệ thống đang khởi tạo" khi Cold Start.
- * 2. [TRANSLATION] Dịch triệt để các câu báo lỗi trùng lịch sang Tiếng Trung Phồn Thể (zh-TW).
- * 3. [PRESERVED] Giữ nguyên luồng Auto-Sync 30s và logic bypass Menu.
+ * 1. [UX] Rút gọn tên thợ thành dạng số có đệm (01, 02...).
+ * 2. [UX] Thêm chú thích phân biệt giới tính (Ô vuông màu Xanh/Hồng).
+ * 3. [UX] Nâng cấp grid hiển thị lên 4 nút/hàng, cố định kích thước nút.
  * * AUTHOR: AI ASSISTANT & USER
  * =================================================================================================
  */
@@ -200,21 +200,88 @@ function generateTimeBubbles(selectedDate, serviceCode, specificStaffIds = null,
     return { type: 'carousel', contents: [...bubbles, ...timeBubbles] };
 }
 
-// Tạo Bubble chọn nhân viên (Staff Bubbles)
+// Tạo Bubble chọn nhân viên (Staff Bubbles) - Đã cập nhật layout 4 cột, chú thích & rút gọn số
 function createStaffBubbles(filterFemale = false, excludedIds = []) {
     let list = SheetService.getStaffList();
     if (filterFemale) list = list.filter(s => s.gender === 'F' || s.gender === '女');
     if (excludedIds && excludedIds.length > 0) list = list.filter(s => !excludedIds.includes(s.id));
     if (!list || list.length === 0) return [{ "type": "bubble", "body": { "type": "box", "layout": "vertical", "contents": [{ "type": "text", "text": filterFemale ? "無女技師" : "無其他技師", "align": "center" }] } }];
-    const bubbles = []; const chunkSize = 12;
+
+    // Khối chú thích (Legend Box)
+    const legendBox = {
+        "type": "box",
+        "layout": "horizontal",
+        "margin": "md",
+        "spacing": "sm",
+        "justifyContent": "center",
+        "contents": [
+            {
+                "type": "box", "layout": "horizontal", "spacing": "sm", "alignItems": "center",
+                "contents": [
+                    { "type": "box", "layout": "vertical", "width": "12px", "height": "12px", "backgroundColor": "#90CAF9", "cornerRadius": "2px", "contents": [] },
+                    { "type": "text", "text": "男師傅", "size": "xs", "color": "#555555", "flex": 0 }
+                ]
+            },
+            {
+                "type": "box", "layout": "horizontal", "spacing": "sm", "alignItems": "center",
+                "contents": [
+                    { "type": "box", "layout": "vertical", "width": "12px", "height": "12px", "backgroundColor": "#F48FB1", "cornerRadius": "2px", "contents": [] },
+                    { "type": "text", "text": "女師傅", "size": "xs", "color": "#555555", "flex": 0 }
+                ]
+            }
+        ]
+    };
+
+    const bubbles = [];
+    const chunkSize = 16; // Tăng lên 16 để chứa 4 hàng (mỗi hàng 4 nút)
+
     for (let i = 0; i < list.length; i += chunkSize) {
-        const chunk = list.slice(i, i + chunkSize); const rows = [];
-        for (let j = 0; j < chunk.length; j += 3) {
-            const rowItems = chunk.slice(j, j + 3);
-            const rowButtons = rowItems.map(s => ({ "type": "button", "style": "secondary", "color": (s.gender === 'F' || s.gender === '女') ? "#F48FB1" : "#90CAF9", "height": "sm", "margin": "xs", "flex": 1, "action": { "type": "message", "label": s.name, "text": `StaffSelect:${s.id}` } }));
+        const chunk = list.slice(i, i + chunkSize);
+        const rows = [];
+        for (let j = 0; j < chunk.length; j += 4) { // Lấy 4 thợ mỗi hàng
+            const rowItems = chunk.slice(j, j + 4);
+
+            const rowButtons = rowItems.map(s => {
+                // Trích xuất số từ tên (VD: "技師1號" -> "01")
+                let numMatch = s.name.match(/\d+/);
+                let displayName = s.name;
+                if (numMatch) {
+                    let num = parseInt(numMatch[0], 10);
+                    displayName = num < 10 ? `0${num}` : `${num}`;
+                }
+
+                return {
+                    "type": "button",
+                    "style": "secondary",
+                    "color": (s.gender === 'F' || s.gender === '女') ? "#F48FB1" : "#90CAF9",
+                    "height": "sm",
+                    "margin": "xs",
+                    "flex": 1,
+                    "action": { "type": "message", "label": displayName, "text": `StaffSelect:${s.id}` }
+                };
+            });
+
+            // Chèn các khối trống để cố định kích thước nút nếu hàng không đủ 4 thợ
+            while (rowButtons.length < 4) {
+                rowButtons.push({ "type": "box", "layout": "vertical", "flex": 1, "contents": [] });
+            }
+
             rows.push({ "type": "box", "layout": "horizontal", "spacing": "xs", "contents": rowButtons });
         }
-        bubbles.push({ "type": "bubble", "body": { "type": "box", "layout": "vertical", "contents": [{ "type": "text", "text": filterFemale ? "選擇女技師" : "指定技師", "weight": "bold", "align": "center", "color": "#1DB446" }, { "type": "separator", "margin": "md" }, ...rows] } });
+
+        bubbles.push({
+            "type": "bubble",
+            "body": {
+                "type": "box",
+                "layout": "vertical",
+                "contents": [
+                    { "type": "text", "text": filterFemale ? "選擇女技師" : "指定技師", "weight": "bold", "align": "center", "color": "#1DB446" },
+                    legendBox,
+                    { "type": "separator", "margin": "md" },
+                    ...rows
+                ]
+            }
+        });
     }
     return bubbles;
 }
@@ -767,4 +834,4 @@ setInterval(async () => {
 app.get('/ping', (req, res) => { res.status(200).send('Pong!'); });
 
 const port = process.env.PORT || 4000;
-app.listen(port, () => { console.log(`XinWuChan Bot V131-OPTIMIZED running on port ${port}`); });
+app.listen(port, () => { console.log(`XinWuChan Bot V132-OPTIMIZED running on port ${port}`); });
