@@ -2,12 +2,12 @@
  * =================================================================================================
  * PROJECT: XINWUCHAN MASSAGE BOT - FRONTEND CONTROLLER & LOGIC BRIDGE
  * FILE: js/bookingHandler.js
- * PHIÊN BẢN: V114.0 (CENTRALIZED CONFIGURATION UPGRADE)
+ * PHIÊN BẢN: V115.0 (STATUS STANDARDIZATION UPGRADE)
  * =================================================================================================
  */
 
 (function () {
-    console.log("🚀 BookingHandler V114.0: Centralized Config Enabled, Scaled for Dynamic Beds/Chairs & Hours.");
+    console.log("🚀 BookingHandler V115.0: SSOT Status Integrated, Scaled for 9x9 Resources.");
 
     // Kiểm tra môi trường React
     if (typeof React === 'undefined') {
@@ -31,8 +31,18 @@
     ];
 
     // ========================================================================
-    // PHẦN 0: UNIVERSAL UTILS
+    // PHẦN 0: UNIVERSAL UTILS & STATUS MANAGEMENT
     // ========================================================================
+
+    const getBookingStatus = () => {
+        if (window.BOOKING_STATUS) return window.BOOKING_STATUS;
+        return {
+            WAITING: '等待中',
+            SERVING: '服務中',
+            COMPLETED: '已完成',
+            CANCELLED: '已取消'
+        };
+    };
 
     const normalizeDateStrict = (input) => {
         if (!input) return "";
@@ -64,18 +74,20 @@
     const CoreKernel = (function () {
 
         // --- 1. CẤU HÌNH HỆ THỐNG ĐỘNG (DYNAMIC SYSTEM CONFIG) ---
-        // Lấy từ data.js, nếu chưa có sẽ fallback về giá trị mặc định an toàn.
         const getSystemConfig = () => {
             const ext = window.SYSTEM_CONFIG || {};
+            // Quy mô chuẩn 9 ghế x 9 giường
+            const scale = ext.SCALE || {};
+            const opTime = ext.OPERATION_TIME || {};
             return {
-                MAX_CHAIRS: ext.MAX_CHAIRS || 9,
-                MAX_BEDS: ext.MAX_BEDS || 9,
+                MAX_CHAIRS: scale.MAX_CHAIRS || ext.MAX_CHAIRS || 9,
+                MAX_BEDS: scale.MAX_BEDS || ext.MAX_BEDS || 9,
                 MAX_TOTAL_GUESTS: ext.MAX_TOTAL_GUESTS || 18,
-                OPEN_HOUR: ext.OPEN_HOUR || 5,
-                CLEANUP_BUFFER: ext.CLEANUP_BUFFER || 5,
-                TRANSITION_BUFFER: ext.TRANSITION_BUFFER || 5,
+                OPEN_HOUR: opTime.OPEN_HOUR || ext.OPEN_HOUR || 3,
+                CLEANUP_BUFFER: (ext.BUFFERS && ext.BUFFERS.CLEANUP_MINUTES) || ext.CLEANUP_BUFFER || 5,
+                TRANSITION_BUFFER: (ext.BUFFERS && ext.BUFFERS.TRANSITION_MINUTES) || ext.TRANSITION_BUFFER || 5,
                 TOLERANCE: ext.TOLERANCE || 1,
-                MAX_TIMELINE_MINS: ext.MAX_TIMELINE_MINS || 1680,
+                MAX_TIMELINE_MINS: opTime.TOTAL_TIMELINE_MINS || ext.MAX_TIMELINE_MINS || 1440,
                 CAPACITY_CHECK_STEP: ext.CAPACITY_CHECK_STEP || 10
             };
         };
@@ -127,18 +139,33 @@
             return (startA < safeEndB) && (startB < safeEndA);
         }
 
+        // --- BỘ LỌC TRẠNG THÁI SSOT ---
         function isActiveBookingStatus(statusRaw) {
             if (!statusRaw) return false;
             const s = statusRaw.toString().toLowerCase().trim();
+            const STATUS = getBookingStatus();
+
+            if (s === STATUS.COMPLETED.toLowerCase() || s === STATUS.CANCELLED.toLowerCase()) return false;
+
+            // Legacy keywords
             const inactiveKeywords = ['cancel', 'hủy', 'huỷ', 'finish', 'done', 'xong', 'check-out', 'checkout', '取消', '完成', '空'];
             for (const kw of inactiveKeywords) { if (s.includes(kw)) return false; }
             return true;
         }
 
+        function isStatusRunning(statusRaw) {
+            if (!statusRaw) return false;
+            const s = statusRaw.toString().toLowerCase().trim();
+            const STATUS = getBookingStatus();
+            if (s.includes(STATUS.SERVING.toLowerCase())) return true;
+            if (s.includes('running') || s.includes('doing')) return true;
+            return false;
+        }
+
         function isMathematicallyActive(booking, currentQueryTimeMins) {
             const CONF = getSystemConfig();
-            const s = (booking.status || '').toLowerCase();
-            if (!s.includes('running') && !s.includes('doing')) return true;
+            if (!isStatusRunning(booking.status)) return true;
+
             const start = getMinsFromTimeStr(booking.startTime);
             if (start === -1) return true;
             const duration = parseInt(booking.duration) || 60;
@@ -239,7 +266,6 @@
             relevantBookings.forEach(b => {
                 const bStart = getMinsFromTimeStr(b.startTime);
                 const duration = b.duration || 60;
-                let assigned = false;
                 const rId = b.allocated_resource || b.rowId || "";
 
                 const laneMatch = rId.toString().match(/(BED|CHAIR)[-_ ]?(\d+)/i);
@@ -248,7 +274,6 @@
                     const idx = parseInt(laneMatch[2]) - 1;
                     if (resourceMap[type] && resourceMap[type][idx]) {
                         resourceMap[type][idx].push({ start: bStart, end: bStart + duration + CONF.CLEANUP_BUFFER });
-                        assigned = true;
                     }
                 }
             });
@@ -321,7 +346,7 @@
                         return {
                             pass: false,
                             reason: `⚠️ 在 ${getTimeStrFromMins(requestStart)} 沒有足夠的連續空位 (Continuous Gap) 給套餐。`,
-                            debug: { msg: "Logic V114.0 detected gap fragmentation." }
+                            debug: { msg: "Logic V115.0 detected gap fragmentation." }
                         };
                     }
 
@@ -350,7 +375,7 @@
                     }
                 }
             }
-            return { pass: true, debug: { msg: "V114.0 Continuous Scan Passed" } };
+            return { pass: true, debug: { msg: "V115.0 Continuous Scan Passed" } };
         }
 
         // --- MATRIX ENGINE ---
@@ -511,8 +536,9 @@
                 const timeKey = (b.startTime || "").split(' ')[1] || "00:00";
                 const contactInfo = b.originalData?.phone || b.originalData?.sdt || b.originalData?.custPhone || b.originalData?.customerName || "Unknown";
                 const contactKey = contactInfo.toString().replace(/\D/g, '').slice(-6) || contactInfo.toString().trim();
-                const statusLower = (b.status || '').toLowerCase();
-                const groupKey = (statusLower.includes('running') || statusLower.includes('doing')) ? `RUNNING_${b.rowId}` : `${timeKey}_${contactKey}`;
+
+                const isRunning = isStatusRunning(b.status);
+                const groupKey = isRunning ? `RUNNING_${b.rowId}` : `${timeKey}_${contactKey}`;
                 if (!bookingGroups[groupKey]) bookingGroups[groupKey] = [];
                 bookingGroups[groupKey].push(b);
             });
@@ -525,8 +551,8 @@
                 group.forEach((b, idx) => {
                     b._virtualInheritanceIndex = null;
                     b._impliedFlow = null;
-                    const statusLower = (b.status || '').toLowerCase();
-                    if (!statusLower.includes('running')) {
+                    const isRunning = isStatusRunning(b.status);
+                    if (!isRunning) {
                         let virtualIndex = (groupSize >= 2) ? (idx % halfSize) + 1 : idx + 1;
                         b._virtualInheritanceIndex = virtualIndex;
                         if (groupSize >= 2) {
@@ -549,8 +575,7 @@
 
                 let duration = b.duration || 60;
                 let anchorIndex = null;
-                const statusLower = (b.status || '').toLowerCase();
-                const isRunning = statusLower.includes('running');
+                const isRunning = isStatusRunning(b.status);
 
                 const ownerName = b.originalData?.customerName || b.originalData?.hoTen || b.rowId || "Guest";
 
@@ -805,7 +830,7 @@
             if (successfulScenario) {
                 successfulScenario.details.sort((a, b) => a.guestIndex - b.guestIndex);
                 return {
-                    feasible: true, strategy: 'MATRIX_V114.0_DYNAMIC',
+                    feasible: true, strategy: 'MATRIX_V115.0_SSOT',
                     details: successfulScenario.details,
                     proposedUpdates: successfulScenario.updates,
                     totalPrice: successfulScenario.details.reduce((sum, item) => sum + (item.price || 0), 0),
@@ -874,6 +899,8 @@
     const callCoreAvailabilityCheck = (date, time, guests, bookings, staffList) => {
         syncServicesToCore();
         const now = new Date();
+        const STATUS = getBookingStatus();
+
         const coreGuests = guests.map(g => {
             let foundCode = getServiceCodeByName(g.service);
             const svcDef = window.SERVICES_DATA && foundCode ? window.SERVICES_DATA[foundCode] : null;
@@ -892,9 +919,15 @@
                 flowCode: impliedFlow
             };
         });
+
         const targetDateStandard = normalizeDateStrict(date);
         const coreBookings = (Array.isArray(bookings) ? bookings : []).filter(b => {
-            if (!b || !b.startTimeString || (b.status && (b.status.includes('hủy') || b.status.includes('Cancel')))) return false;
+            if (!b || !b.startTimeString) return false;
+
+            // Lọc bỏ đơn hủy bằng chuẩn mới SSOT + Legacy fallback
+            const isCancelled = b.status && (b.status.includes('hủy') || b.status.includes('Cancel') || b.status.includes(STATUS.CANCELLED));
+            if (isCancelled) return false;
+
             const rawDate = b.startTimeString.split(' ')[0];
             const bDate = normalizeDateStrict(rawDate);
             return bDate === targetDateStandard;
@@ -905,6 +938,11 @@
             if (serverLockSignal === undefined && b.originalData) serverLockSignal = b.originalData.isManualLocked;
             const isExplicitlyLocked = (serverLockSignal === true || String(serverLockSignal).toUpperCase() === 'TRUE' || serverLockSignal === 1);
             const finalLockState = isExplicitlyLocked || isPastOrRunning;
+
+            // Gán giá trị trạng thái SSOT mới
+            let normalizedStatus = b.status || STATUS.WAITING;
+            if (isPastOrRunning) normalizedStatus = STATUS.SERVING;
+
             return {
                 serviceCode: b.serviceCode || b.serviceName, serviceName: b.serviceName,
                 startTime: b.startTimeString, duration: parseInt(b.duration) || 60, staffName: b.technician || b.staffId || "Unassigned", rowId: b.rowId,
@@ -912,11 +950,12 @@
                 originalData: b, isManualLocked: finalLockState,
                 phase1_duration: b.phase1_duration !== undefined ? parseInt(b.phase1_duration) : (b.originalData?.phase1_duration ? parseInt(b.originalData.phase1_duration) : null),
                 phase2_duration: b.phase2_duration !== undefined ? parseInt(b.phase2_duration) : (b.originalData?.phase2_duration ? parseInt(b.originalData.phase2_duration) : null),
-                status: isPastOrRunning ? 'Running' : (b.status || 'Reserved'),
+                status: normalizedStatus,
                 note: b.ghiChu || b.note, ghiChu: b.ghiChu || b.note,
                 flow: b.flow || b.originalData?.flowCode || b.originalData?.mainFlow
             };
         });
+
         const staffMap = {};
         if (Array.isArray(staffList)) {
             staffList.forEach(s => {
@@ -1254,7 +1293,7 @@
                 <div className="fixed inset-0 bg-slate-900/90 z-[100] flex items-center justify-center p-2 sm:p-6">
                     <div className="bg-white w-full max-w-[1000px] rounded-2xl shadow-2xl flex flex-col h-[98vh] sm:h-[90vh] overflow-hidden animate-fadeIn">
                         <div className={`${editingBooking ? 'bg-orange-600' : 'bg-[#0891b2]'} p-6 text-white flex justify-between items-center shrink-0`}>
-                            <h3 className="font-bold text-2xl">{editingBooking ? "✏️ 修改預約 (Edit)" : "📅 電話預約 (V114.0)"}</h3>
+                            <h3 className="font-bold text-2xl">{editingBooking ? "✏️ 修改預約 (Edit)" : "📅 電話預約 (V115.0 SSOT)"}</h3>
                             <button onClick={onClose} className="text-4xl hover:text-red-100 leading-none">&times;</button>
                         </div>
 
@@ -1482,7 +1521,7 @@
     const overrideInterval = setInterval(() => {
         if (window.AvailabilityCheckModal !== NewAvailabilityCheckModal) {
             window.AvailabilityCheckModal = NewAvailabilityCheckModal;
-            console.log("♻️ AvailabilityModal Injected (V114.0 - Centralized Config)");
+            console.log("♻️ AvailabilityModal Injected (V115.0 - SSOT Integrated)");
         }
     }, 200);
     setTimeout(() => { clearInterval(overrideInterval); }, 5000);

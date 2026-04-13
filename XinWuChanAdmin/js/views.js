@@ -1,13 +1,15 @@
 /**
  * ============================================================================
  * FILE: js/views.js
- * PHIÊN BẢN: V110.0 (CENTRALIZED CONFIGURATION ENABLED)
+ * PHIÊN BẢN: V111.0 (GLOBAL STATUS SYNC ENABLED)
  * ============================================================================
- * CHANGE LOG V110.0:
- * - [CENTRALIZED CONFIG]: Tích hợp window.SYSTEM_CONFIG để điều khiển động số
- * lượng giường (MAX_BEDS), ghế (MAX_CHAIRS), giờ mở cửa (OPEN_HOUR), và lương.
- * - [AUTO-SCALE]: Tự động render timeline và modal theo thông số cấu hình.
- * - Giữ nguyên giao diện Traditional Chinese và toàn bộ logic hiện có.
+ * CHANGE LOG V111.0:
+ * - [STATUS SYNC]: Tích hợp window.BOOKING_STATUS từ data.js để đồng nhất
+ * các trạng thái (等待中, 服務中, 已完成, 已取消) trên toàn bộ UI Modal, Timeline,
+ * Commission và Report.
+ * - [UI UPDATE]: Cập nhật các nhãn cứng tiếng Anh sang Tiếng Trung Phồn Thể.
+ * - [BACKWARD COMPATIBILITY]: Giữ nguyên khả năng đọc các trạng thái cũ 
+ * (Done, Cancel, Running, ❌, ✅) để không ảnh hưởng dữ liệu lịch sử.
  */
 
 const { useState, useEffect, useMemo, useRef } = React;
@@ -19,6 +21,12 @@ const getMaxBeds = () => getConfig().MAX_BEDS || 9;
 const getOpenHour = () => getConfig().OPEN_HOUR !== undefined ? getConfig().OPEN_HOUR : 5;
 const getOpenMins = () => getOpenHour() * 60;
 const getRatesConfig = () => getConfig().RATES || { JIE_PRICE: 250, OIL_BONUS: 0 };
+const getBookingStatus = () => window.BOOKING_STATUS || {
+    WAITING: '等待中',
+    SERVING: '服務中',
+    COMPLETED: '已完成',
+    CANCELLED: '已取消'
+};
 
 // --- COMPONENT CHỌN GIỜ 24H TÙY CHỈNH ---
 const CustomTimePicker24h = ({ value, onChange, disabled }) => {
@@ -133,6 +141,7 @@ const checkGuaShaService = (booking) => {
 // ============================================================================
 const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveData, contextResourceId, staffList, statusData, timelineData, resourceState }) => {
     if (!isOpen || !booking) return null;
+    const STATUS = getBookingStatus();
 
     // Các cờ tính năng mở rộng
     const isOil = booking.isOil || (booking.serviceName && booking.serviceName.includes('油'));
@@ -269,7 +278,6 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
     const phase2 = totalDuration - phase1;
     let startMins = timeStrToMins(startTimeStr);
 
-    // [V110.0] Ca qua đêm tính từ mốc Open Hour từ Config
     const openMins = getOpenMins();
     if (startMins < openMins) startMins += 1440;
 
@@ -355,7 +363,6 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
         const newSwitchStr = e.target.value;
         if (!newSwitchStr) return;
         let newSwitchMins = timeStrToMins(newSwitchStr);
-        // [V110.0] Ca qua đêm tính từ mốc Open Hour từ Config
         if (newSwitchMins < getOpenMins()) newSwitchMins += 1440;
 
         let diff = newSwitchMins - startMins;
@@ -409,24 +416,24 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                             <div className="flex items-center gap-2 flex-wrap">
                                 <span className="bg-white/20 text-xs px-2 py-0.5 rounded uppercase font-mono tracking-wider">#{booking.rowId}</span>
                                 {contextResourceId && <span className="bg-orange-500 text-white text-xs px-2 py-0.5 rounded uppercase font-bold shadow-sm"><i className="fas fa-map-marker-alt mr-1"></i>{contextResourceId.replace('bed-', '床 ').replace('chair-', '足 ')}</span>}
-                                {isSyncPending && <span className="bg-blue-500 text-white text-xs font-bold px-2 py-0.5 rounded animate-pulse shadow-sm"><i className="fas fa-sync-alt animate-spin mr-1"></i>同步中 (SYNCING)</span>}
-                                {isRunning && !isPaused && !isSyncPending && <span className="bg-green-500 text-xs font-bold px-2 py-0.5 rounded animate-pulse">進行中 (RUNNING)</span>}
-                                {isPaused && <span className="bg-yellow-500 text-xs font-bold px-2 py-0.5 rounded">暫停 (PAUSED)</span>}
-                                {!isRunning && !isSyncPending && <span className="bg-gray-500 text-xs font-bold px-2 py-0.5 rounded">等待中 (WAITING)</span>}
+                                {isSyncPending && <span className="bg-blue-500 text-white text-xs font-bold px-2 py-0.5 rounded animate-pulse shadow-sm"><i className="fas fa-sync-alt animate-spin mr-1"></i>同步中</span>}
+                                {isRunning && !isPaused && !isSyncPending && <span className="bg-green-500 text-xs font-bold px-2 py-0.5 rounded animate-pulse">{STATUS.SERVING}</span>}
+                                {isPaused && <span className="bg-yellow-500 text-xs font-bold px-2 py-0.5 rounded">暫停中</span>}
+                                {!isRunning && !isSyncPending && <span className="bg-gray-500 text-xs font-bold px-2 py-0.5 rounded">{STATUS.WAITING}</span>}
                             </div>
                             <h2 className="text-2xl font-black mt-1 truncate" title={booking.customerName}>
                                 {booking.customerName}
                             </h2>
                             <div className="text-white/70 text-sm flex items-center gap-3 mt-1">
                                 <span><i className="fas fa-phone-alt mr-1"></i> {booking.sdt || '---'}</span>
-                                <span><i className="fas fa-users mr-1"></i> {booking.pax} 人 (Pax)</span>
+                                <span><i className="fas fa-users mr-1"></i> {booking.pax} 人</span>
                             </div>
 
                             {booking.adminNote && (
                                 <div className="mt-2 bg-amber-500/20 border border-amber-400/50 text-amber-100 text-sm px-2.5 py-1.5 rounded-lg shadow-sm flex items-start gap-2 w-fit max-w-full">
                                     <i className="fas fa-sticky-note mt-0.5 text-amber-400"></i>
                                     <div>
-                                        <span className="text-[10px] uppercase text-amber-400/80 font-bold block leading-none mb-0.5">特別要求 (Special Note)</span>
+                                        <span className="text-[10px] uppercase text-amber-400/80 font-bold block leading-none mb-0.5">特別要求</span>
                                         <span className="whitespace-pre-wrap font-bold break-words leading-tight tracking-wide">
                                             {booking.adminNote}
                                         </span>
@@ -445,7 +452,7 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                                 )}
                                 {isOil && (
                                     <span className="text-xs bg-purple-100 text-purple-800 px-2 py-1 rounded shadow-sm flex items-center font-bold border border-purple-300 whitespace-nowrap">
-                                        💧 精油 (Oil)
+                                        💧 精油
                                     </span>
                                 )}
                                 {isGuaSha && (
@@ -463,7 +470,7 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                     <div className="bg-orange-50/80 border border-orange-200 px-4 py-2 mx-6 mt-4 rounded-lg flex items-center justify-between">
                         <div className="flex items-center gap-2">
                             <i className="fas fa-exclamation-triangle text-orange-500"></i>
-                            <span className="text-orange-800 text-sm font-bold">時長異常 (Time Anomaly):</span>
+                            <span className="text-orange-800 text-sm font-bold">時長異常:</span>
                             <span className="text-slate-600 text-sm">
                                 紀錄 <span className="line-through opacity-70">{booking.duration}分</span>
                                 <i className="fas fa-arrow-right mx-1 text-xs text-slate-400"></i>
@@ -483,7 +490,7 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                 <div className="p-6 overflow-y-auto custom-scrollbar space-y-6 bg-slate-50 flex-1">
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 relative">
-                            <label className="text-xs font-bold text-slate-400 uppercase mb-1 block">選擇服務師傅 (ACTUAL STAFF)</label>
+                            <label className="text-xs font-bold text-slate-400 uppercase mb-1 block">選擇服務師傅</label>
                             <div className="flex items-center justify-between mb-4 relative">
                                 <div className="relative flex-1 mr-2 bg-slate-50 border border-slate-200 rounded-lg">
                                     <select
@@ -504,7 +511,7 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                                         }}
                                         className="w-full text-xl font-black text-indigo-800 bg-transparent focus:outline-none focus:border-indigo-500 cursor-pointer appearance-none py-2 pl-3 pr-8 rounded-lg"
                                     >
-                                        <option value="隨機">尚未安排 (Waiting)</option>
+                                        <option value="隨機">尚未安排 ({STATUS.WAITING})</option>
                                         {processedStaffList.length === 0 && <option disabled>目前無空閒師傅</option>}
                                         {(() => {
                                             let readyCount = 0;
@@ -559,7 +566,7 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                                 </button>
                             </div>
 
-                            <label className="text-xs font-bold text-slate-400 uppercase mb-1 block">服務項目 (SERVICE)</label>
+                            <label className="text-xs font-bold text-slate-400 uppercase mb-1 block">服務項目</label>
                             <div className="relative">
                                 <select
                                     value={selectedService}
@@ -588,11 +595,11 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                         <div className="bg-slate-800 rounded-xl p-4 text-white relative overflow-hidden flex flex-col justify-center items-center shadow-inner">
                             <div className="absolute bottom-0 left-0 h-1 bg-green-500 transition-all duration-1000 z-0" style={{ width: `${percent}%` }}></div>
                             <div className="z-10 text-center">
-                                <div className="text-xs text-slate-400 font-bold uppercase tracking-widest mb-1">剩餘時間 (REMAINING TIME)</div>
+                                <div className="text-xs text-slate-400 font-bold uppercase tracking-widest mb-1">剩餘時間</div>
                                 <div className={`text-5xl font-mono font-bold tracking-tighter ${timeLeft < 5 && isRunning ? 'text-red-400 animate-pulse' : 'text-white'}`}>{timerString}</div>
 
                                 <div className="text-xs text-slate-400 mt-2 font-bold font-mono flex items-center justify-center gap-1">
-                                    總共 (TOTAL):
+                                    總共:
                                     {booking.isTimeAnomaly ? (
                                         <>
                                             <span className="line-through opacity-50">{booking.duration}</span>
@@ -610,7 +617,7 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                     {isCombo && (
                         <div className="bg-white p-5 rounded-xl border shadow-sm transition-all border-indigo-100 mt-4">
                             <div className="flex justify-between items-center mb-4">
-                                <h3 className="font-bold text-slate-700 flex items-center gap-2"><i className="fas fa-sliders-h text-indigo-500"></i> 套餐時間調整 (Combo Phase)</h3>
+                                <h3 className="font-bold text-slate-700 flex items-center gap-2"><i className="fas fa-sliders-h text-indigo-500"></i> 套餐時間調整</h3>
 
                                 <button
                                     onClick={() => triggerAction('UPDATE_PHASE', {
@@ -623,14 +630,14 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                                     disabled={isSaveDisabled}
                                     className={`text-xs px-3 py-1.5 rounded font-bold border shadow-sm transition-all flex items-center ${isSaveDisabled ? 'bg-gray-200 text-gray-400 border-gray-300 cursor-not-allowed' : 'bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border-indigo-300'}`}
                                 >
-                                    <i className="fas fa-save mr-1"></i> 保存同步 (Save Sync)
+                                    <i className="fas fa-save mr-1"></i> 保存同步
                                 </button>
                             </div>
                             <div className="flex items-start justify-between gap-4">
                                 <div className="flex-1 relative flex flex-col items-center">
                                     <label className={`block w-full text-xs font-bold mb-1 text-center transition-colors ${isBodyFirstLocal ? 'text-orange-600' : 'text-indigo-600'}`}>PHASE 1 ({isBodyFirstLocal ? '身' : '足'})</label>
                                     <input type="number" value={phase1} onChange={(e) => handleChangeP1(e.target.value)} className={`w-full text-center text-3xl font-black border-b-2 focus:outline-none bg-transparent transition-colors ${isBodyFirstLocal ? 'text-orange-900 border-orange-200 focus:border-orange-600' : 'text-indigo-900 border-indigo-200 focus:border-indigo-600'}`} />
-                                    <span className="block text-center text-xs text-gray-400 mt-1">分鐘 (Minutes)</span>
+                                    <span className="block text-center text-xs text-gray-400 mt-1">分鐘</span>
 
                                     <div className="mt-3 flex flex-col items-center animate-in fade-in w-full max-w-[140px]">
                                         <div className={`flex w-full justify-center items-center gap-1.5 px-2 py-1 rounded-md border shadow-inner transition-colors ${isBodyFirstLocal ? 'bg-orange-50 border-orange-200' : 'bg-indigo-50 border-indigo-200'}`}>
@@ -693,7 +700,7 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                                 <div className="flex-1 relative flex flex-col items-center">
                                     <label className={`block w-full text-xs font-bold mb-1 text-center transition-colors ${isBodyFirstLocal ? 'text-indigo-600' : 'text-orange-600'}`}>PHASE 2 ({isBodyFirstLocal ? '足' : '身'})</label>
                                     <input type="number" value={phase2} onChange={(e) => handleChangeP2(e.target.value)} className={`w-full text-center text-3xl font-black border-b-2 focus:outline-none bg-transparent transition-colors ${isBodyFirstLocal ? 'text-indigo-900 border-indigo-200 focus:border-indigo-600' : 'text-orange-900 border-orange-200 focus:border-orange-600'}`} />
-                                    <span className="block text-center text-xs text-gray-400 mt-1">分鐘 (Minutes)</span>
+                                    <span className="block text-center text-xs text-gray-400 mt-1">分鐘</span>
 
                                     <div className="mt-3 flex flex-col items-center animate-in fade-in w-full max-w-[140px]">
                                         <div className={`flex w-full justify-center items-center gap-1.5 px-2 py-1 rounded-md border shadow-inner opacity-80 cursor-not-allowed transition-colors ${isBodyFirstLocal ? 'bg-indigo-50 border-indigo-200' : 'bg-orange-50 border-orange-200'}`}>
@@ -739,7 +746,7 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                         <div className="bg-white p-5 rounded-xl border shadow-sm transition-all border-emerald-100 mt-4">
                             <div className="flex justify-between items-center mb-4">
                                 <h3 className="font-bold text-slate-700 flex items-center gap-2">
-                                    <i className="fas fa-clock text-emerald-500"></i> 單項服務調整 (Service Adjustment)
+                                    <i className="fas fa-clock text-emerald-500"></i> 單項服務調整
                                 </h3>
                                 <button
                                     onClick={() => triggerAction('UPDATE_SINGLE_TIME_LOC', {
@@ -749,13 +756,13 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                                     disabled={isSingleSaveDisabled}
                                     className={`text-xs px-3 py-1.5 rounded font-bold border shadow-sm transition-all flex items-center ${isSingleSaveDisabled ? 'bg-gray-200 text-gray-400 border-gray-300 cursor-not-allowed' : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border-emerald-300'}`}
                                 >
-                                    <i className="fas fa-save mr-1"></i> 保存同步 (Save Sync)
+                                    <i className="fas fa-save mr-1"></i> 保存同步
                                 </button>
                             </div>
 
                             <div className="flex items-center justify-center gap-4 md:gap-8">
                                 <div className="flex flex-col items-center">
-                                    <label className="block w-full text-xs font-bold mb-2 text-center text-emerald-600">開始時間 (Start)</label>
+                                    <label className="block w-full text-xs font-bold mb-2 text-center text-emerald-600">開始時間</label>
                                     <div className="flex items-center gap-1.5 px-3 py-2 rounded-md border shadow-inner bg-emerald-50 border-emerald-200">
                                         <i className="fas fa-play-circle text-emerald-500"></i>
                                         <CustomTimePicker24h value={startTimeStr} onChange={handleStartTimeChange} />
@@ -768,7 +775,7 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                                 </div>
 
                                 <div className="flex flex-col items-center">
-                                    <label className="block w-full text-xs font-bold mb-2 text-center text-emerald-600">結束時間 (End)</label>
+                                    <label className="block w-full text-xs font-bold mb-2 text-center text-emerald-600">結束時間</label>
                                     <div className="flex items-center gap-1.5 px-3 py-2 rounded-md border shadow-inner opacity-80 cursor-not-allowed bg-slate-50 border-slate-200 text-slate-500 font-mono font-bold">
                                         <i className="fas fa-flag-checkered"></i>
                                         {endTimeStr}
@@ -777,7 +784,7 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                             </div>
 
                             <div className="mt-6 border-t border-slate-100 pt-4 flex flex-col items-center">
-                                <label className="block text-xs font-bold mb-2 text-center text-slate-500">安排座位/床位 (Location)</label>
+                                <label className="block text-xs font-bold mb-2 text-center text-slate-500">安排座位/床位</label>
                                 <div className="w-full max-w-[200px] relative">
                                     <select
                                         value={isSingleFull ? 'full' : selectedSingleRes}
@@ -817,15 +824,15 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                                     <button onClick={() => triggerAction('START', { scope: 'GROUP' })} className="col-span-1 bg-green-600 hover:bg-green-700 text-white rounded-xl font-bold text-sm shadow-lg shadow-green-200 flex flex-col items-center justify-center transform active:scale-95 transition-all"><i className="fas fa-users mb-1"></i> 開始(全體)</button>
                                 </>
                             ) : (
-                                <button onClick={() => triggerAction('START', { scope: 'INDIVIDUAL' })} className="col-span-2 bg-green-600 hover:bg-green-700 text-white py-3 rounded-xl font-bold text-lg shadow-lg shadow-green-200 flex items-center justify-center gap-2 transform active:scale-95 transition-all"><i className="fas fa-play"></i> 開始 (Start)</button>
+                                <button onClick={() => triggerAction('START', { scope: 'INDIVIDUAL' })} className="col-span-2 bg-green-600 hover:bg-green-700 text-white py-3 rounded-xl font-bold text-lg shadow-lg shadow-green-200 flex items-center justify-center gap-2 transform active:scale-95 transition-all"><i className="fas fa-play"></i> 開始</button>
                             )
                         ) : (
                             <button onClick={() => triggerAction('PAUSE')} className={`col-span-2 text-white py-3 rounded-xl font-bold text-lg shadow-lg flex items-center justify-center gap-2 transform active:scale-95 transition-all ${isPaused ? 'bg-green-500' : 'bg-yellow-500 hover:bg-yellow-600'}`}>
-                                {isPaused ? <><i className="fas fa-play"></i> 繼續 (Resume)</> : <><i className="fas fa-pause"></i> 暫停 (Pause)</>}
+                                {isPaused ? <><i className="fas fa-play"></i> 繼續</> : <><i className="fas fa-pause"></i> 暫停</>}
                             </button>
                         )}
-                        <button onClick={handleFinishRequest} className="bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold shadow-lg shadow-blue-200 flex flex-col items-center justify-center transform active:scale-95 transition-all"><i className="fas fa-check-circle text-xl mb-0.5"></i><span className="text-xs">結帳 (Done)</span></button>
-                        <button onClick={() => { if (confirm('確定要取消嗎？ / Are you sure?')) triggerAction('CANCEL'); }} className="bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 rounded-xl font-bold flex flex-col items-center justify-center transform active:scale-95 transition-all"><i className="fas fa-trash-alt text-xl mb-0.5"></i><span className="text-xs">取消 (Cancel)</span></button>
+                        <button onClick={handleFinishRequest} className="bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold shadow-lg shadow-blue-200 flex flex-col items-center justify-center transform active:scale-95 transition-all"><i className="fas fa-check-circle text-xl mb-0.5"></i><span className="text-xs">結帳 ({STATUS.COMPLETED})</span></button>
+                        <button onClick={() => { if (confirm('確定要取消嗎？ / Are you sure?')) triggerAction('CANCEL'); }} className="bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 rounded-xl font-bold flex flex-col items-center justify-center transform active:scale-95 transition-all"><i className="fas fa-trash-alt text-xl mb-0.5"></i><span className="text-xs">取消 ({STATUS.CANCELLED})</span></button>
                     </div>
                 </div>
 
@@ -833,21 +840,21 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                     <div className="absolute inset-0 z-[3010] bg-slate-900/95 flex flex-col items-center justify-center p-6 animate-in fade-in zoom-in duration-200">
                         <div className="w-full max-w-sm bg-white rounded-2xl shadow-2xl overflow-hidden">
                             <div className="bg-indigo-600 p-4 text-center">
-                                <h3 className="text-white font-bold text-xl">結帳方式選擇 (Payment Option)</h3>
-                                <p className="text-indigo-200 text-sm mt-1">{booking.customerName} ({booking.pax} Pax)</p>
+                                <h3 className="text-white font-bold text-xl">結帳方式選擇</h3>
+                                <p className="text-indigo-200 text-sm mt-1">{booking.customerName} ({booking.pax} 人)</p>
                             </div>
                             <div className="p-6 space-y-4">
                                 <button onClick={() => triggerAction('FINISH', { scope: 'INDIVIDUAL' })} className="w-full py-4 bg-white border-2 border-indigo-100 hover:border-indigo-500 hover:bg-indigo-50 rounded-xl flex items-center p-4 transition-all group transform active:scale-95">
                                     <div className="w-12 h-12 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center text-xl mr-4 group-hover:scale-110 transition-transform"><i className="fas fa-user"></i></div>
-                                    <div className="text-left"><div className="font-bold text-slate-800 text-lg">分開結帳 (Individual)</div><div className="text-xs text-slate-500">只結算此位客人的費用</div></div>
+                                    <div className="text-left"><div className="font-bold text-slate-800 text-lg">分開結帳</div><div className="text-xs text-slate-500">只結算此位客人的費用</div></div>
                                 </button>
                                 <button onClick={() => triggerAction('FINISH', { scope: 'GROUP' })} className="w-full py-4 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-xl flex items-center p-4 shadow-lg hover:shadow-xl hover:from-blue-500 hover:to-indigo-500 transition-all group transform active:scale-95">
                                     <div className="w-12 h-12 rounded-full bg-white/20 flex items-center justify-center text-xl mr-4 group-hover:scale-110 transition-transform"><i className="fas fa-users"></i></div>
-                                    <div className="text-left"><div className="font-bold text-white text-lg">團體結帳 (Group Pay)</div><div className="text-xs text-blue-100">結算全體 {booking.pax} 位客人的總費用</div></div>
+                                    <div className="text-left"><div className="font-bold text-white text-lg">團體結帳</div><div className="text-xs text-blue-100">結算全體 {booking.pax} 位客人的總費用</div></div>
                                 </button>
                             </div>
                             <div className="bg-slate-50 p-3 text-center border-t border-slate-200">
-                                <button onClick={() => setShowPaymentOptions(false)} className="text-slate-500 hover:text-slate-700 text-sm font-bold underline">取消 (Cancel)</button>
+                                <button onClick={() => setShowPaymentOptions(false)} className="text-slate-500 hover:text-slate-700 text-sm font-bold underline">取消</button>
                             </div>
                         </div>
                     </div>
@@ -862,13 +869,13 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
 // ============================================================================
 const TimelineView = ({ timelineData, onEditPhase, liveStatusData, staffList, statusData, onOpenControlCenter }) => {
     const [now, setNow] = useState(new Date());
+    const STATUS = getBookingStatus();
 
     useEffect(() => {
         const timer = setInterval(() => setNow(new Date()), 60000);
         return () => clearInterval(timer);
     }, []);
 
-    // [V110.0] Thay đổi thời gian dựa trên Config
     const startHour = getOpenHour();
     const endHour = startHour + 24;
     const hours = Array.from({ length: endHour - startHour + 1 }, (_, i) => i + startHour);
@@ -929,7 +936,6 @@ const TimelineView = ({ timelineData, onEditPhase, liveStatusData, staffList, st
         return `${displayH}:00`;
     };
 
-    // [V110.0] Động hóa ghế và giường dựa trên Config
     const numChairs = getMaxChairs();
     const numBeds = getMaxBeds();
     const rows = [
@@ -1036,7 +1042,7 @@ const TimelineView = ({ timelineData, onEditPhase, liveStatusData, staffList, st
                 <div className="flex sticky top-0 z-30 bg-slate-100 border-b border-slate-300 shadow-md h-[45px]">
                     <div className="sticky left-0 top-0 z-40 bg-[#e2e8f0] border-r border-slate-300 flex items-center justify-center font-extrabold text-slate-700 text-sm shadow-[2px_0_5px_rgba(0,0,0,0.1)]"
                         style={{ width: `${LEFT_COL_WIDTH}px`, height: `${HEADER_HEIGHT}px` }}>
-                        區域 (Zone)
+                        區域
                     </div>
                     <div className="flex bg-slate-50">
                         {hours.map(h => (
@@ -1047,7 +1053,7 @@ const TimelineView = ({ timelineData, onEditPhase, liveStatusData, staffList, st
 
                 <div className="relative bg-white pb-4">
                     {rows.map((row, index) => {
-                        const isLastChairRow = index === (numChairs - 1); // [V110.0]
+                        const isLastChairRow = index === (numChairs - 1);
                         const rowStyleClass = isLastChairRow ? "border-b-4 border-red-500" : "border-b border-slate-100";
 
                         return (
@@ -1061,7 +1067,7 @@ const TimelineView = ({ timelineData, onEditPhase, liveStatusData, staffList, st
                                         if (!booking) return null;
 
                                         const rawStatusStr = String(booking.status || '');
-                                        const isCancelled = rawStatusStr.includes('取消') || rawStatusStr.toUpperCase().includes('CANCEL') || booking.isDoneStatus === true;
+                                        const isCancelled = rawStatusStr.includes('取消') || rawStatusStr.toUpperCase().includes('CANCEL') || booking.isDoneStatus === true || rawStatusStr === STATUS.CANCELLED;
                                         if (isCancelled) return null;
 
                                         let startMins = slot.start;
@@ -1082,7 +1088,7 @@ const TimelineView = ({ timelineData, onEditPhase, liveStatusData, staffList, st
                                         const displayStaff = staffName;
 
                                         const rawStatus = booking?.status || '';
-                                        const isStatusRunning = rawStatus.includes('Running') || rawStatus.includes('服務中') || rawStatus.includes('running');
+                                        const isStatusRunning = rawStatus.includes('Running') || rawStatus.includes('服務中') || rawStatus.includes('running') || rawStatus === STATUS.SERVING;
                                         const isMetaRunning = slot.meta?.isRunning === true;
                                         const isPropRunning = booking?.isRunningStatus === true;
                                         const isLiveRunning = booking && liveRunningRowIds.has(String(booking.rowId));
@@ -1100,7 +1106,7 @@ const TimelineView = ({ timelineData, onEditPhase, liveStatusData, staffList, st
                                             const switchStr = window.formatMinutesToTime(slot.start + p1Dur);
                                             timeLabel = switchStr;
                                         } else {
-                                            timeLabel = duration; // Đã loại bỏ icon ⏳ và chữ 分
+                                            timeLabel = duration;
                                         }
 
                                         let specialBorderClass = "border border-black/5";
@@ -1123,7 +1129,7 @@ const TimelineView = ({ timelineData, onEditPhase, liveStatusData, staffList, st
                                             <div key={idx}
                                                 className={`absolute top-1 bottom-1 rounded px-2 py-1 flex flex-col justify-between text-xs overflow-hidden shadow-sm z-10 cursor-pointer transition-all timeline-block group ${bgClass} ${specialBorderClass}`}
                                                 style={{ left: `${leftPos}px`, width: `${width}px` }}
-                                                title={`${booking.serviceName}\n${isRunning ? '🔥 進行中 (Running)' : ''}${isSyncPending && !isRunning ? '\n⏳ 同步中 (Syncing...)' : ''}${isTimeAnomaly ? '\n⚠️ 時長異常 (Time Anomaly)' : ''}${hasNote ? `\n📝 備註: ${booking.adminNote}` : ''}`}
+                                                title={`${booking.serviceName}\n${isRunning ? `🔥 ${STATUS.SERVING}` : ''}${isSyncPending && !isRunning ? '\n⏳ 同步中...' : ''}${isTimeAnomaly ? '\n⚠️ 時長異常' : ''}${hasNote ? `\n📝 備註: ${booking.adminNote}` : ''}`}
                                                 onClick={(e) => { if (showControlBtn) { e.stopPropagation(); handleOpenControl(booking, slot.meta, row.id); } }}
                                             >
                                                 <div className="flex justify-between items-start w-full leading-tight mb-0.5 gap-1">
@@ -1133,7 +1139,7 @@ const TimelineView = ({ timelineData, onEditPhase, liveStatusData, staffList, st
                                                     {comboSequence && (
                                                         <div
                                                             className={`shrink-0 text-[10px] font-black px-1 rounded shadow-sm leading-tight ${comboSequence === 'BF' ? 'bg-indigo-500 text-white' : 'bg-orange-500 text-white'}`}
-                                                            title={comboSequence === 'BF' ? 'Body First (先身後足)' : 'Foot First (先足後身)'}
+                                                            title={comboSequence === 'BF' ? '先身後足' : '先足後身'}
                                                         >
                                                             {comboSequence}
                                                         </div>
@@ -1143,8 +1149,8 @@ const TimelineView = ({ timelineData, onEditPhase, liveStatusData, staffList, st
                                                 <div className="flex justify-between items-center w-full mt-auto">
                                                     <div className="truncate text-[10px] font-bold text-slate-700 flex items-center gap-1">
                                                         {displayStaff}
-                                                        {isOil && <span className="text-[10px]" title="精油 (Oil)">💧</span>}
-                                                        {isGuaSha && <span className="text-[10px]" title="刮痧/拔罐 (Gua Sha / Cupping)">🔥</span>}
+                                                        {isOil && <span className="text-[10px]" title="精油">💧</span>}
+                                                        {isGuaSha && <span className="text-[10px]" title="刮痧/拔罐">🔥</span>}
                                                         {hasNote && <span className="text-[10px] text-amber-600" title={`備註: ${booking.adminNote}`}>📝</span>}
                                                     </div>
                                                     <div className={`text-[10px] font-bold font-mono px-1 rounded border border-black/5 shadow-sm ${isTimeAnomaly ? 'bg-orange-100 text-orange-800 animate-pulse' : 'bg-white/50 text-slate-800'}`}>
@@ -1154,7 +1160,7 @@ const TimelineView = ({ timelineData, onEditPhase, liveStatusData, staffList, st
 
                                                 {showControlBtn && (
                                                     <button className="edit-btn absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-8 h-8 bg-white/95 backdrop-blur-sm text-slate-500 rounded-full flex items-center justify-center shadow-lg border border-slate-200 z-50 hover:text-indigo-600 hover:border-indigo-400 hover:bg-white transition-all"
-                                                        onClick={(e) => { e.stopPropagation(); handleOpenControl(booking, slot.meta, row.id); }} title="設置 (Click to Edit)">
+                                                        onClick={(e) => { e.stopPropagation(); handleOpenControl(booking, slot.meta, row.id); }} title="設置">
                                                         <i className="fas fa-cog text-sm animate-spin-hover"></i>
                                                     </button>
                                                 )}
@@ -1176,8 +1182,8 @@ window.TimelineView = TimelineView;
 // 2. COMMISSION VIEW 
 // ============================================================================
 const CommissionView = ({ bookings, staffList }) => {
-    // [V110.0] Đồng bộ RATES từ Config thay vì hard-code
     const RATES = getRatesConfig();
+    const STATUS = getBookingStatus();
     const normalize = (str) => String(str || '').trim().replace(/\s+/g, '');
 
     const getJieCount = (serviceName, duration) => {
@@ -1225,7 +1231,7 @@ const CommissionView = ({ bookings, staffList }) => {
         const safeBookings = Array.isArray(bookings) ? bookings : [];
 
         safeBookings.forEach(b => {
-            if (b.status && (b.status.includes('取消') || b.status.includes('Cancel') || b.status.includes('❌'))) return;
+            if (b.status && (b.status.includes('取消') || b.status.includes('Cancel') || b.status.includes('❌') || b.status === STATUS.CANCELLED)) return;
 
             const slots = [
                 { id: b.serviceStaff, status: b.Status1 },
@@ -1236,12 +1242,12 @@ const CommissionView = ({ bookings, staffList }) => {
                 { id: b.staffId6, status: b.Status6 },
             ];
 
-            const mainStatusDone = b.status && (b.status.includes('完成') || b.status.includes('Done') || b.status.includes('✅'));
+            const mainStatusDone = b.status && (b.status.includes('完成') || b.status.includes('Done') || b.status.includes('✅') || b.status === STATUS.COMPLETED);
 
             slots.forEach((slot) => {
                 if (!slot.id || slot.id === '隨機' || slot.id === 'undefined' || slot.id === 'null' || slot.id === '') return;
 
-                const isSlotDone = (slot.status && (slot.status.includes('完成') || slot.status.includes('Done'))) || mainStatusDone;
+                const isSlotDone = (slot.status && (slot.status.includes('完成') || slot.status.includes('Done') || slot.status === STATUS.COMPLETED)) || mainStatusDone;
 
                 if (isSlotDone) {
                     const splitIds = String(slot.id).split(/[,，]/).map(s => s.trim()).filter(Boolean);
@@ -1279,14 +1285,14 @@ const CommissionView = ({ bookings, staffList }) => {
     const totalJie = commissionData.reduce((sum, item) => sum + item.jie, 0);
     const totalOil = commissionData.reduce((sum, item) => sum + item.oil, 0);
     const totalIncome = commissionData.reduce((sum, item) => sum + item.income, 0);
-    const validOrders = bookings.filter(b => !b.status?.includes('取消')).length;
+    const validOrders = bookings.filter(b => !(b.status && (b.status.includes('取消') || b.status === STATUS.CANCELLED))).length;
 
     return (
         <div className="bg-white rounded shadow-lg flex flex-col h-[calc(100vh-280px)] animate-in fade-in zoom-in duration-300 font-sans border border-slate-200">
             <div className="bg-[#2e1065] text-white p-2 flex justify-between items-center shrink-0 rounded-t-lg shadow-md z-10">
                 <div className="flex items-center gap-4">
-                    <h2 className="text-sm font-bold flex items-center gap-2"><i className="fas fa-calculator"></i> 薪資與節數統計 (Commissions)</h2>
-                    <span className="text-xs text-gray-300 bg-white/10 px-2 py-0.5 rounded">有效單數 (Valid Orders): {validOrders}</span>
+                    <h2 className="text-sm font-bold flex items-center gap-2"><i className="fas fa-calculator"></i> 薪資與節數統計</h2>
+                    <span className="text-xs text-gray-300 bg-white/10 px-2 py-0.5 rounded">有效單數: {validOrders}</span>
                 </div>
                 <div className="text-right">
                     <div className="text-[10px] text-gray-300 bg-white/10 px-2 py-0.5 rounded inline-block font-mono">(節數×{RATES.JIE_PRICE}) + (精油×{RATES.OIL_BONUS})</div>
@@ -1320,7 +1326,7 @@ const CommissionView = ({ bookings, staffList }) => {
 
             <div className="bg-slate-100 border-t border-slate-300 p-3 shrink-0 rounded-b-lg">
                 <div className="flex justify-between items-center text-base font-bold text-gray-600">
-                    <div className="w-1/4 pl-4 text-gray-800 text-lg">總計 (Total):</div>
+                    <div className="w-1/4 pl-4 text-gray-800 text-lg">總計:</div>
                     <div className="text-blue-700 text-2xl">{totalJie}</div>
                     <div className="text-purple-700 text-2xl">{totalOil}</div>
                     <div className="text-center w-[100px]"></div>
@@ -1333,20 +1339,21 @@ const CommissionView = ({ bookings, staffList }) => {
 window.CommissionView = CommissionView;
 
 // ============================================================================
-// 3. REPORT VIEW  (V108.16 DYNAMIC PRICING ENABLED)
+// 3. REPORT VIEW
 // ============================================================================
 const ReportView = ({ bookings }) => {
+    const STATUS = getBookingStatus();
     const safeBookings = Array.isArray(bookings) ? bookings : [];
 
     const processedStats = useMemo(() => {
         let revenue = 0; let guests = 0;
         safeBookings.forEach(b => {
-            if (b.status && b.status.includes('取消')) return;
+            if (b.status && (b.status.includes('取消') || b.status === STATUS.CANCELLED)) return;
             const pax = parseInt(b.pax, 10) || 1;
             for (let i = 0; i < 6; i++) {
                 const statusKey = `Status${i + 1}`;
-                const isItemDone = (b[statusKey] && (b[statusKey].includes('完成') || b[statusKey].includes('Done')));
-                const isAllDone = (b.status && (b.status.includes('完成') || b.status.includes('Done') || b.status.includes('✅')));
+                const isItemDone = (b[statusKey] && (b[statusKey].includes('完成') || b[statusKey].includes('Done') || b[statusKey] === STATUS.COMPLETED));
+                const isAllDone = (b.status && (b.status.includes('完成') || b.status.includes('Done') || b.status.includes('✅') || b.status === STATUS.COMPLETED));
 
                 if (isItemDone || (isAllDone && i < pax)) {
                     guests++;
@@ -1367,17 +1374,17 @@ const ReportView = ({ bookings }) => {
         <div className="p-4 space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="bg-white p-6 rounded-xl shadow-sm border border-emerald-100">
-                    <h3 className="text-gray-500 font-bold mb-2">本日營收 (Revenue)</h3>
+                    <h3 className="text-gray-500 font-bold mb-2">本日營收</h3>
                     <div className="text-4xl font-black text-emerald-600">${processedStats.revenue.toLocaleString()}</div>
                 </div>
                 <div className="bg-white p-6 rounded-xl shadow-sm border border-blue-100">
-                    <h3 className="text-gray-500 font-bold mb-2">已服務人數 (Guests)</h3>
+                    <h3 className="text-gray-500 font-bold mb-2">已服務人數</h3>
                     <div className="text-4xl font-black text-blue-600">{processedStats.guests}</div>
                 </div>
             </div>
 
             <div className="bg-white rounded-xl shadow border overflow-hidden flex flex-col h-[600px]">
-                <div className="p-3 bg-slate-50 border-b font-bold text-slate-700 shrink-0">交易明細 (Details)</div>
+                <div className="p-3 bg-slate-50 border-b font-bold text-slate-700 shrink-0">交易明細</div>
                 <div className="overflow-y-auto flex-1">
                     <table className="w-full text-sm text-left">
                         <thead className="bg-white text-slate-500 sticky top-0 shadow-sm z-10">
@@ -1391,15 +1398,15 @@ const ReportView = ({ bookings }) => {
                         </thead>
                         <tbody className="divide-y">
                             {safeBookings.flatMap((b, index) => {
-                                if (b.status && b.status.includes('取消')) return [];
+                                if (b.status && (b.status.includes('取消') || b.status === STATUS.CANCELLED)) return [];
                                 const pax = parseInt(b.pax, 10) || 1;
                                 const rows = [];
                                 const staffList = [b.serviceStaff, b.staffId2, b.staffId3, b.staffId4, b.staffId5, b.staffId6];
 
                                 for (let k = 0; k < 6; k++) {
                                     const statusKey = `Status${k + 1}`;
-                                    const isSingleDone = (b[statusKey] && (b[statusKey].includes('完成') || b[statusKey].includes('Done')));
-                                    const isAllDone = (b.status && (b.status.includes('完成') || b.status.includes('Done') || b.status.includes('✅')));
+                                    const isSingleDone = (b[statusKey] && (b[statusKey].includes('完成') || b[statusKey].includes('Done') || b[statusKey] === STATUS.COMPLETED));
+                                    const isAllDone = (b.status && (b.status.includes('完成') || b.status.includes('Done') || b.status.includes('✅') || b.status === STATUS.COMPLETED));
 
                                     if (isSingleDone || (isAllDone && k < pax)) {
                                         let singlePrice = 0;
@@ -1444,6 +1451,7 @@ const ResourceCard = ({ id, type, index, data, busyStaffIds, onAction, onSelect,
     const [phaseLabel, setPhaseLabel] = useState(null);
     const [phaseTimeLeft, setPhaseTimeLeft] = useState(0);
     const [switchPercent, setSwitchPercent] = useState(null);
+    const STATUS = getBookingStatus();
 
     const isOccupied = data && data.booking;
     const isPreview = data && data.isPreview;
@@ -1579,7 +1587,7 @@ const ResourceCard = ({ id, type, index, data, busyStaffIds, onAction, onSelect,
         return (
             <div className={`res-card h-72 flex flex-col border-2 ${statusColor} relative`}>
                 <div className="flex justify-between items-center p-2 border-b border-black/5 bg-black/5"><span className="font-black text-xs text-gray-500 uppercase">{type === 'chair' ? '足' : '床'}</span></div>
-                <div className="flex-1 p-2 relative flex flex-col justify-center text-center"><button onClick={onSelect} className="w-full h-full flex flex-col items-center justify-center text-gray-300 hover:text-green-600 transition-colors group"><i className="fas fa-plus text-5xl"></i><span className="text-sm font-bold mt-2">排入 (Assign)</span></button></div>
+                <div className="flex-1 p-2 relative flex flex-col justify-center text-center"><button onClick={onSelect} className="w-full h-full flex flex-col items-center justify-center text-gray-300 hover:text-green-600 transition-colors group"><i className="fas fa-plus text-5xl"></i><span className="text-sm font-bold mt-2">排入</span></button></div>
             </div>
         );
     }
@@ -1678,7 +1686,7 @@ const ResourceCard = ({ id, type, index, data, busyStaffIds, onAction, onSelect,
                                 <i className="fas fa-chevron-down"></i>
                             </div>
                         </div>
-                        <button onClick={(e) => { e.stopPropagation(); onSplit(id); }} className={`w-6 h-6 flex items-center justify-center rounded-full text-xs shadow-sm transition-transform hover:scale-110 ml-1 ${isCurrentlyWorkingDesignated ? 'bg-amber-100 text-amber-700 hover:bg-amber-200' : 'bg-blue-100 text-blue-600 hover:bg-blue-200'}`} title="加人 (Add Staff)"><i className="fas fa-user-plus"></i></button>
+                        <button onClick={(e) => { e.stopPropagation(); onSplit(id); }} className={`w-6 h-6 flex items-center justify-center rounded-full text-xs shadow-sm transition-transform hover:scale-110 ml-1 ${isCurrentlyWorkingDesignated ? 'bg-amber-100 text-amber-700 hover:bg-amber-200' : 'bg-blue-100 text-blue-600 hover:bg-blue-200'}`} title="加人"><i className="fas fa-user-plus"></i></button>
                     </div>
 
                     {isCombo && (
@@ -1729,13 +1737,13 @@ const ResourceCard = ({ id, type, index, data, busyStaffIds, onAction, onSelect,
                     {isCombo && data.isRunning && data.comboMeta && data.comboMeta.targetId && (<div className="text-[10px] text-gray-400">➜ 轉: {data.comboMeta.targetId.toUpperCase()}</div>)}
 
                     <div className="flex flex-wrap justify-center gap-1 mt-1">
-                        {isOilJob && <div className="text-xs text-purple-600 font-bold border border-purple-200 bg-purple-50 rounded px-2 py-1 inline-block">💧 精油 (Oil)</div>}
+                        {isOilJob && <div className="text-xs text-purple-600 font-bold border border-purple-200 bg-purple-50 rounded px-2 py-1 inline-block">💧 精油</div>}
                         {isGuaShaJob && <div className="text-xs text-orange-600 font-bold border border-orange-200 bg-orange-50 rounded px-2 py-1 inline-block">🔥 刮/罐</div>}
                         {hasAdminNote && <div className="text-xs text-amber-700 font-bold border border-amber-200 bg-amber-50 rounded px-2 py-1 inline-block truncate max-w-[100px]" title={data.booking.adminNote}><i className="fas fa-sticky-note"></i> 備註</div>}
                     </div>
 
                     {data.isRunning && !isPreview && startObj && (<div className="bg-slate-50 rounded p-2 text-xs text-left space-y-1 mt-2 border border-slate-200 shadow-inner opacity-90"><div className="text-slate-600 font-bold flex justify-between"><span>🕒 開始:</span> <span className="font-mono text-blue-600">{formatTimeStr(startObj)}</span></div>{isCombo && switchObj && <div className="text-slate-500 flex justify-between"><span>⇄ 轉場:</span> <span className="font-mono text-orange-500">{formatTimeStr(switchObj)}</span></div>}<div className="text-slate-600 font-bold flex justify-between"><span>🏁 結束:</span> <span className="font-mono text-green-600">{formatTimeStr(endObj)}</span></div></div>)}
-                    {isPreview && (<div className="mt-2 text-xs font-bold text-center">{data.previewType === 'NOW' && <span className="text-red-500 animate-pulse">🔴 該上鐘了 (Start Now)</span>}{data.previewType === 'SOON' && <span className="text-blue-500">🔵 預約即滿到來</span>}{data.previewType === 'PHASE2' && <span className="text-orange-500">🟠 轉場準備</span>}</div>)}
+                    {isPreview && (<div className="mt-2 text-xs font-bold text-center">{data.previewType === 'NOW' && <span className="text-red-500 animate-pulse">🔴 該上鐘了</span>}{data.previewType === 'SOON' && <span className="text-blue-500">🔵 預約即滿到來</span>}{data.previewType === 'PHASE2' && <span className="text-orange-500">🟠 轉場準備</span>}</div>)}
                 </div>
             </div>
 
@@ -1755,14 +1763,14 @@ const ResourceCard = ({ id, type, index, data, busyStaffIds, onAction, onSelect,
                 ) : (
                     <div className="grid grid-cols-2 gap-2">
                         <button onClick={(e) => { e.stopPropagation(); onAction(id, 'pause'); }} className={`py-1.5 rounded font-bold text-white text-xs shadow flex items-center justify-center transform active:scale-95 ${data.isPaused ? 'bg-green-500 hover:bg-green-600' : 'bg-yellow-500 hover:bg-yellow-600'}`}>
-                            {data.isPaused ? '▶ 繼續 (Resume)' : '⏸ 暫停 (Pause)'}
+                            {data.isPaused ? '▶ 繼續' : '⏸ 暫停'}
                         </button>
 
                         {isCombo ? (
                             <button
                                 onClick={(e) => {
                                     e.stopPropagation();
-                                    alert("⛔️ 系統提示：\n\n套餐 (Combo) 會自動安排轉場，不支援手動跨區轉場，以免破壞時程邏輯與造成錯誤！\n\n(若需更換同區座位，請在時間軸使用上下箭頭移動)");
+                                    alert("⛔️ 系統提示：\n\n套餐會自動安排轉場，不支援手動跨區轉場，以免破壞時程邏輯與造成錯誤！\n\n(若需更換同區座位，請在時間軸使用上下箭頭移動)");
                                 }}
                                 className="py-1.5 rounded font-bold text-slate-500 bg-slate-200 cursor-not-allowed flex items-center justify-center text-xs shadow"
                             >

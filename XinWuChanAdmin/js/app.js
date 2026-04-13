@@ -1,11 +1,10 @@
 // TYPE: app.js
-// VERSION: V109.2 (SYSTEM_CONFIG INTEGRATION)
-// UPDATE: 2026-04-12
+// VERSION: V109.3 (BOOKING_STATUS STANDARDIZATION)
+// UPDATE: 2026-04-13
 //
-// --- CHANGE LOG V109.2 ---
-// 1. [CENTRALIZED CONFIG]: Tích hợp dữ liệu từ window.SYSTEM_CONFIG (data.js).
-// 2. [DYNAMIC SCALE]: Quy mô Giường/Ghế tự động thích ứng với cấu hình (SCALE.MAX_CHAIRS / BEDS).
-// 3. [DYNAMIC TIME]: Mốc giờ cắt ngày tự động lấy từ cấu hình (OPERATION_TIME.OPEN_HOUR).
+// --- CHANGE LOG V109.3 ---
+// 1. [SSOT STATUS]: Loại bỏ chuỗi hardcode ('🟡 Running', '✅ 完成', '❌ 取消').
+// 2. [SSOT STATUS]: Sử dụng window.BOOKING_STATUS từ data.js cho các hàm Start, Finish, Cancel.
 
 const { useState, useEffect, useMemo, useRef, useCallback } = React;
 
@@ -14,6 +13,14 @@ const CommissionView = window.CommissionView;
 const TimelineView = window.TimelineView;
 const BookingListView = window.BookingListView;
 const BookingControlModal = window.BookingControlModal || window.ComboTimeEditModal;
+
+// --- STATUS FALLBACK (SINGLE SOURCE OF TRUTH) ---
+const APP_STATUS = window.BOOKING_STATUS || {
+    WAITING: '等待中',
+    SERVING: '服務中',
+    COMPLETED: '已完成',
+    CANCELLED: '已取消'
+};
 
 // --- HÀM TRỢ GIÚP TÍNH "節數" (BLOCKS) CHO QUY TẮC D ---
 const getServiceBlocks = (serviceName) => {
@@ -651,7 +658,7 @@ const App = () => {
                     if (override.flow && targetB.flow !== override.flow) isSynced = false;
                     if (override.phase1_res_idx && targetB.phase1_res_idx !== override.phase1_res_idx) isSynced = false;
                     if (override.phase2_res_idx && targetB.phase2_res_idx !== override.phase2_res_idx) isSynced = false;
-                    if (override.forceRunning && (!rawStatus || !rawStatus.includes('Running'))) isSynced = false;
+                    if (override.forceRunning && (!rawStatus || !rawStatus.includes('Running') && !rawStatus.includes(APP_STATUS.SERVING))) isSynced = false;
                     if (override.adminNote !== undefined && targetB.adminNote !== override.adminNote) isSynced = false;
 
                     if (isSynced) {
@@ -671,7 +678,7 @@ const App = () => {
                         if (override.adminNote !== undefined) targetB.adminNote = override.adminNote;
 
                         if (override.forceRunning) {
-                            targetB.status = '🟡 Running';
+                            targetB.status = APP_STATUS.SERVING;
                         }
                         targetB.isManualLocked = true;
                     }
@@ -762,8 +769,8 @@ const App = () => {
                     forceResourceType: forceResourceType,
                     isForcedSingle: isForcedSingle,
 
-                    isRunningStatus: (rawStatus.includes('Running') || rawStatus.includes('服務中') || rawStatus.toLowerCase().includes('running')),
-                    isDoneStatus: (rawStatus.includes('完成') || rawStatus.includes('Done') || rawStatus.includes('✅') || rawStatus.toLowerCase().includes('cancel') || rawStatus.includes('取消')),
+                    isRunningStatus: (rawStatus.includes('Running') || rawStatus.includes('服務中') || rawStatus.toLowerCase().includes('running') || rawStatus.includes(APP_STATUS.SERVING)),
+                    isDoneStatus: (rawStatus.includes('完成') || rawStatus.includes('Done') || rawStatus.includes('✅') || rawStatus.toLowerCase().includes('cancel') || rawStatus.includes('取消') || rawStatus.includes(APP_STATUS.COMPLETED) || rawStatus.includes(APP_STATUS.CANCELLED)),
                     storedLocation: targetB.location || targetB.current_resource_id || (targetB.phase1_res_idx ? targetB.phase1_res_idx.toLowerCase() : null),
 
                     standardDuration: standardDur,
@@ -787,7 +794,7 @@ const App = () => {
             const relevantBookings = cleanBookings.filter(b => {
                 const safeStatus = String(b.status || '');
                 return window.isWithinOperationalDay(b.startTimeString.split(' ')[0], b.startTimeString.split(' ')[1], viewDate) &&
-                    !safeStatus.toLowerCase().includes('cancel') && !safeStatus.includes('取消');
+                    !safeStatus.toLowerCase().includes('cancel') && !safeStatus.includes('取消') && !safeStatus.includes(APP_STATUS.CANCELLED);
             });
 
             if (apiStaff && apiStaff.length > 0) {
@@ -2182,7 +2189,7 @@ const App = () => {
             [`staff${grpIdx + 1}`]: finalServiceStaff,
             current_resource_id: currentId,
             record_location: true,
-            status: '🟡 Running'
+            status: APP_STATUS.SERVING
         };
 
         if (isComboService && comboMeta) {
@@ -2197,7 +2204,7 @@ const App = () => {
         }
 
         universalSend('/api/update-booking-details', payload);
-        axios.post('/api/update-status', { rowId: current.booking.rowId, status: '🟡 Running' });
+        axios.post('/api/update-status', { rowId: current.booking.rowId, status: APP_STATUS.SERVING });
     };
 
     const executeBatchStart = (mainResId, relatedItems) => {
@@ -2435,14 +2442,14 @@ const App = () => {
                     [`staff${grpIdx + 1}`]: finalServiceStaff,
                     current_resource_id: resourceId,
                     record_location: true,
-                    status: '🟡 Running',
+                    status: APP_STATUS.SERVING,
                     ...comboPayloadAdditions
                 }
             });
 
             apiPayloads.push({
                 endpoint: '/api/update-status',
-                data: { rowId: current.booking.rowId, status: '🟡 Running' }
+                data: { rowId: current.booking.rowId, status: APP_STATUS.SERVING }
             });
         });
 
@@ -2475,7 +2482,7 @@ const App = () => {
                     delete localOverridesRef.current[ridStr];
                 }
 
-                await axios.post('/api/update-status', { rowId: current.booking.rowId, status: '❌ 取消' });
+                await axios.post('/api/update-status', { rowId: current.booking.rowId, status: APP_STATUS.CANCELLED });
                 const n = { ...resourceState };
                 const staffId = current.booking.serviceStaff || current.booking.staffId;
                 if (staffId !== '隨機' && statusData[staffId]) {
@@ -2574,7 +2581,7 @@ const App = () => {
                 const statusNum = targetIndex + 1;
                 const statusColEnglish = `Status${statusNum}`;
                 if (!updatesByRow[rid]) { updatesByRow[rid] = { rowId: rid, forceSync: true, originalBooking: b }; }
-                updatesByRow[rid][statusColEnglish] = '✅ 完成';
+                updatesByRow[rid][statusColEnglish] = APP_STATUS.COMPLETED;
 
                 let staffId = null;
                 if (targetIndex === 0) staffId = b.serviceStaff || b.staffId;
@@ -2630,12 +2637,12 @@ const App = () => {
                         activeSlotsCount++;
                         const key = `Status${idx + 1}`;
                         const isNewCompletion = updatePayload[key] && updatePayload[key].includes('完成');
-                        const wasAlreadyDone = booking[key] && (booking[key].includes('完成') || booking[key].includes('Done') || booking[key].includes('✅'));
+                        const wasAlreadyDone = booking[key] && (booking[key].includes('完成') || booking[key].includes('Done') || booking[key].includes('✅') || booking[key].includes(APP_STATUS.COMPLETED));
                         if (isNewCompletion || wasAlreadyDone) finishedSlotsCount++;
                     }
                 });
                 if (activeSlotsCount > 0 && finishedSlotsCount >= activeSlotsCount) {
-                    updatePayload.mainStatus = '✅ 完成';
+                    updatePayload.mainStatus = APP_STATUS.COMPLETED;
                 }
                 delete updatePayload.originalBooking;
             });
@@ -2723,7 +2730,7 @@ const App = () => {
                     if (confirm('確定要取消此預約嗎？\n(若為團體客，將取消整組預約)')) {
                         const ridStr = String(targetBooking.rowId);
                         if (localOverridesRef.current[ridStr]) delete localOverridesRef.current[ridStr];
-                        axios.post('/api/update-status', { rowId: targetBooking.rowId, status: '❌ 取消' })
+                        axios.post('/api/update-status', { rowId: targetBooking.rowId, status: APP_STATUS.CANCELLED })
                             .then(() => fetchData(true))
                             .catch(() => alert('取消失敗，請檢查網路。'));
                     }
@@ -2881,7 +2888,7 @@ const App = () => {
             const staffName = String(s.name).trim();
 
             const hasDesignated = todaysBookings.some(b => {
-                if (!b.status || !b.status.includes('已預約')) return false;
+                if (!b.status || (!b.status.includes('已預約') && !b.status.includes(APP_STATUS.WAITING))) return false;
                 if (b.isDoneStatus || b.isRunningStatus) return false;
 
                 if (!b.startTimeString) return false;
@@ -2932,7 +2939,7 @@ const App = () => {
     const readyStaff = staffGroups.ready || [];
     const readyQueue = staffGroups.readyQueueIds || [];
 
-    const waitingList = todaysBookings.filter(b => !b.status.includes('完成') && !b.status.includes('✅') && b.status === '已預約');
+    const waitingList = todaysBookings.filter(b => !b.status.includes('完成') && !b.status.includes('✅') && !b.status.includes(APP_STATUS.COMPLETED) && (b.status === '已預約' || b.status === APP_STATUS.WAITING));
 
     const visualReadyStaff = readyStaff;
 
@@ -2940,7 +2947,7 @@ const App = () => {
         <div className="min-h-screen flex flex-col bg-slate-50">
             <header className={`text-white p-3 shadow-md flex justify-between items-center sticky top-0 z-50 transition-colors ${quotaError ? 'bg-red-800' : 'bg-[#1e1b4b]'}`}>
                 <div className="flex items-center gap-3">
-                    <span className="bg-emerald-500 text-white px-2 py-1 rounded font-black text-sm shadow-sm">V109.2</span>
+                    <span className="bg-emerald-500 text-white px-2 py-1 rounded font-black text-sm shadow-sm">V109.3</span>
                     <span className="font-bold hidden md:inline tracking-wider">禪云心養生館</span>
                     <div className="flex items-center gap-2 bg-white/10 rounded px-2 py-1 border border-white/20">
                         <button onClick={() => { const d = new Date(viewDate); d.setDate(d.getDate() - 1); setViewDate(d.toISOString().split('T')[0]) }} className="text-white hover:text-amber-400 font-bold px-2">❯</button>

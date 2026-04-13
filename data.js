@@ -1,12 +1,14 @@
 /**
  * ============================================================================
  * FILE: js/data.js (HOẶC dùng cho Backend)
- * PHIÊN BẢN: V1.4 (EXACT SHEET NAMES & VARIABLES)
+ * PHIÊN BẢN: V1.5 (EXACT SHEET NAMES, VARIABLES & GLOBAL STATUS)
  * ============================================================================
  * MỤC TIÊU: 
  * 1. Quản lý toàn bộ thông số kỹ thuật của tiệm 禪云心養生館 tại một nơi.
  * 2. Cung cấp dữ liệu dự phòng (Fallback) cho bảng giá và quy mô hệ thống.
  * 3. Hỗ trợ chạy trên cả môi trường Frontend (Browser/React) và Backend (Node.js).
+ * * * * * UPDATE V1.5:
+ * + [FEATURE] Khai báo Object BOOKING_STATUS toàn cục bằng tiếng Trung Phồn Thể để quản lý trạng thái đồng nhất (SSOT).
  * * * * * UPDATE V1.4:
  * + [FIX] Cập nhật block SHEET_NAMES với đúng cấu trúc tên biến và tên sheet Phồn Thể (預約表, 技師班表, 服務價目).
  * * * * * UPDATE V1.3:
@@ -24,7 +26,7 @@ const SYSTEM_CONFIG = {
     SHOP_INFO: {
         NAME: '禪云心養生館',
         BRANCH: '古亭', // Chi nhánh 古亭
-        VERSION: 'V1.4_Universal'
+        VERSION: 'V1.5_Universal'
     },
 
     // Cấu hình Database (Google Sheets) - Chuẩn tên biến & tên sheet Phồn Thể
@@ -96,8 +98,16 @@ const SYSTEM_CONFIG = {
 };
 
 // ============================================================================
-// 2. DỮ LIỆU DỊCH VỤ DỰ PHÒNG (FALLBACK) - SYNCED WITH GOOGLE SHEET
+// 2. TRẠNG THÁI BOOKING & DỮ LIỆU DỊCH VỤ DỰ PHÒNG (FALLBACK)
 // ============================================================================
+
+// Hằng số quản lý trạng thái Booking (Single Source of Truth)
+const BOOKING_STATUS = {
+    WAITING: '等待中',     // Đang chờ tới lượt
+    SERVING: '服務中',     // Đang trong quá trình phục vụ
+    COMPLETED: '已完成',   // Đã hoàn thành xong dịch vụ
+    CANCELLED: '已取消'    // Đã hủy lịch
+};
 
 const DYNAMIC_PRICES_MAP = null;
 
@@ -126,6 +136,7 @@ const SERVICES_LIST = Object.keys(SERVICES_DATA);
 // A. Môi trường Browser / Frontend (Gắn vào window)
 if (typeof window !== 'undefined') {
     window.SYSTEM_CONFIG = SYSTEM_CONFIG;
+    window.BOOKING_STATUS = BOOKING_STATUS;
     window.DYNAMIC_PRICES_MAP = DYNAMIC_PRICES_MAP;
     window.SERVICES_DATA = SERVICES_DATA;
     window.SERVICES_LIST = SERVICES_LIST;
@@ -137,6 +148,7 @@ if (typeof window !== 'undefined') {
 if (typeof module !== 'undefined' && module.exports) {
     module.exports = {
         SYSTEM_CONFIG,
+        BOOKING_STATUS,
         DYNAMIC_PRICES_MAP,
         SERVICES_DATA,
         SERVICES_LIST

@@ -1,8 +1,16 @@
 // FILE: js/components.js
-// PHIÊN BẢN: V108.50 (UPGRADE: QUEUE-SAFE STAFFTIME ON CHECK-IN)
+// PHIÊN BẢN: V108.51 (UPGRADE: QUEUE-SAFE STAFFTIME & GLOBAL STATUS SYNC)
 // CẬP NHẬT: 2026-04-08
 
 const { useState, useEffect, useMemo, useRef } = React;
+
+// --- GLOBAL SYSTEM CONFIG GETTERS ---
+const getBookingStatus = () => window.BOOKING_STATUS || {
+    WAITING: '等待中',
+    SERVING: '服務中',
+    COMPLETED: '已完成',
+    CANCELLED: '已取消'
+};
 
 /**
  * ============================================================================
@@ -30,7 +38,7 @@ class ErrorBoundary extends React.Component {
                             {this.state.error && this.state.error.toString()}
                         </div>
                         <button onClick={() => window.location.reload()} className="w-full py-4 bg-red-600 hover:bg-red-700 text-white font-black rounded-lg shadow-lg transition-transform active:scale-95 flex justify-center items-center gap-2">
-                            <i className="fas fa-redo-alt"></i> 重新整理 (Reload)
+                            <i className="fas fa-redo-alt"></i> 重新整理
                         </button>
                     </div>
                 </div>
@@ -45,7 +53,6 @@ window.ErrorBoundary = ErrorBoundary;
  * ============================================================================
  * 2. STAFF CARD 3D (技師卡片 - NÂNG CẤP V108.48)
  * ============================================================================
- * Chức năng: Hiển thị thẻ nhân viên với cảnh báo khách chỉ định và số thứ tự.
  */
 const StaffCard3D = ({ s, statusData, resourceState, queueIndex, isForcedBusy }) => {
     if (!s) return null;
@@ -60,7 +67,6 @@ const StaffCard3D = ({ s, statusData, resourceState, queueIndex, isForcedBusy })
     const staffId = String(s.id).trim();
     const staffName = String(s.name).trim();
 
-    // Tìm thợ đang làm việc thực tế trên giường/ghế
     const activeRes = Object.values(resourceState || {}).find(r => {
         if (!r.isRunning || r.isPaused || r.isPreview === true) return false;
         const b = r.booking || {};
@@ -74,7 +80,6 @@ const StaffCard3D = ({ s, statusData, resourceState, queueIndex, isForcedBusy })
     if (activeRes) { displayStatus = 'BUSY'; actualActiveBooking = activeRes.booking; }
     if (isForcedBusy) { displayStatus = 'BUSY'; }
 
-    // Logic kiểm tra khách chỉ định hiện tại (Designated)
     let isCurrentlyWorkingDesignated = false;
     if (displayStatus === 'BUSY' && actualActiveBooking) {
         const b = actualActiveBooking;
@@ -87,7 +92,6 @@ const StaffCard3D = ({ s, statusData, resourceState, queueIndex, isForcedBusy })
         });
     }
 
-    // --- CẢNH BÁO LỊCH HẸN TRONG 2 GIỜ SẮP TỚI ---
     const hasUpcoming = s.hasUpcomingDesignated === true;
 
     let cardStyle = isFemale ? 'style-female' : 'style-male';
@@ -95,17 +99,14 @@ const StaffCard3D = ({ s, statusData, resourceState, queueIndex, isForcedBusy })
 
     if (displayStatus === 'BUSY') {
         cardStyle = 'st-busy';
-        // Thợ đang bận + Có khách chỉ định sắp tới: Thêm viền vàng đậm nổi bật
         if (hasUpcoming) {
             customClass = "ring-4 ring-yellow-500 border-yellow-600 shadow-[0_0_15px_rgba(234,179,8,0.6)]";
         }
-        // Nếu đang làm cho khách chỉ định hiện tại: Giữ nền đỏ của thẻ Bận, thêm viền cam đậm
         if (isCurrentlyWorkingDesignated) {
             customClass = "ring-4 ring-amber-600 border-amber-600 shadow-[0_0_15px_rgba(245,158,11,0.8)] transform scale-105 z-10";
         }
     }
     else if (displayStatus === 'READY') {
-        // Thợ đang rảnh + Có khách chỉ định sắp tới: Đổi màu nền vàng nhạt
         if (hasUpcoming) {
             customClass = "!bg-yellow-100 !border-yellow-300 shadow-sm";
         }
@@ -116,7 +117,6 @@ const StaffCard3D = ({ s, statusData, resourceState, queueIndex, isForcedBusy })
 
     return (
         <div className={`card-3d ${cardStyle} ${customClass} flex flex-col items-center justify-center relative p-0 overflow-hidden transition-all duration-300`}>
-            {/* Đánh số thứ tự: Hiển thị cho cả READY và BUSY */}
             {queueIndex !== undefined && (displayStatus === 'READY' || displayStatus === 'BUSY') && (
                 <div className={`queue-badge ${displayStatus === 'BUSY' ? '!bg-slate-700 !text-white' : 'animate-bounce-slow'}`}>
                     {queueIndex + 1}
@@ -129,7 +129,6 @@ const StaffCard3D = ({ s, statusData, resourceState, queueIndex, isForcedBusy })
                 </div>
             )}
 
-            {/* Màu chữ mặc định cố định là text-slate-800 */}
             <div className={`font-black text-2xl text-center leading-none w-full select-none flex-1 flex items-center justify-center break-words px-0.5 text-slate-800`}>
                 {s.name}
             </div>
@@ -144,6 +143,7 @@ window.StaffCard3D = StaffCard3D;
  * ============================================================================
  */
 const CheckInBoard = ({ staffList, statusData, onClose, onUpdateStatus, bookings }) => {
+    const STATUS = getBookingStatus();
     const safeStaffList = Array.isArray(staffList) ? staffList : [];
     const RATES = { JIE_PRICE: 250, OIL_BONUS: 80 };
     const normalize = (str) => String(str || '').trim().replace(/\s+/g, '');
@@ -190,7 +190,7 @@ const CheckInBoard = ({ staffList, statusData, onClose, onUpdateStatus, bookings
         });
         const safeBookings = Array.isArray(bookings) ? bookings : [];
         safeBookings.forEach(b => {
-            if (b.status && (b.status.includes('取消') || b.status.includes('❌'))) return;
+            if (b.status && (b.status.includes('取消') || b.status.includes('❌') || b.status === STATUS.CANCELLED)) return;
             let potentialRawStrings = [b.staffId, b.serviceStaff, b.technician, b.staffId2, b.staffId3, b.staffId4, b.staffId5, b.staffId6];
             const distinctNames = potentialRawStrings.join(',').split(/[,，\s/]+/).map(s => s.trim()).filter(s => s && s !== 'null' && s !== 'undefined');
             const validNames = [...new Set(distinctNames)].filter(name => {
@@ -208,7 +208,7 @@ const CheckInBoard = ({ staffList, statusData, onClose, onUpdateStatus, bookings
         });
         Object.values(stats).forEach(s => { s.income = (s.jie * RATES.JIE_PRICE) + (s.oil * RATES.OIL_BONUS); });
         return stats;
-    }, [bookings, staffList]);
+    }, [bookings, staffList, STATUS]);
 
     const toggleCheckIn = (id) => {
         const current = (statusData && statusData[id]) ? statusData[id] : {};
@@ -218,14 +218,12 @@ const CheckInBoard = ({ staffList, statusData, onClose, onUpdateStatus, bookings
         let newStaffTime = 0;
 
         if (newStatus !== 'AWAY') {
-            // --- 1. Giữ nguyên logic checkInTime (Thời gian thực tế hiển thị trên UI) ---
             if (typeof window._lastCheckInTime === 'undefined') window._lastCheckInTime = 0;
             let now = Date.now();
             if (now <= window._lastCheckInTime) now = window._lastCheckInTime + 1;
             window._lastCheckInTime = now;
             newCheckInTime = now;
 
-            // --- 2. LOGIC MỚI CHO stafftime (Dùng để bảo toàn vị trí xếp hạng chót) ---
             let maxStaffTime = -1;
 
             if (statusData) {
@@ -240,9 +238,9 @@ const CheckInBoard = ({ staffList, statusData, onClose, onUpdateStatus, bookings
             }
 
             if (maxStaffTime > 0) {
-                newStaffTime = maxStaffTime + 100; // Đảm bảo luôn đứng xếp sau cùng
+                newStaffTime = maxStaffTime + 100;
             } else {
-                newStaffTime = newCheckInTime; // Fallback nếu không có ai đang READY
+                newStaffTime = newCheckInTime;
             }
         }
 
@@ -276,17 +274,17 @@ const CheckInBoard = ({ staffList, statusData, onClose, onUpdateStatus, bookings
         <div className="fixed inset-0 bg-slate-900/80 z-[60] flex items-center justify-center p-4 backdrop-blur-sm">
             <div className="bg-white w-full max-w-7xl rounded-t-xl shadow-2xl modal-animate flex flex-col max-h-[90vh] overflow-hidden">
                 <div className="p-4 bg-[#7e22ce] text-white flex justify-between items-center shrink-0 shadow-md">
-                    <h2 className="text-2xl font-bold flex gap-2 items-center"><i className="fas fa-user-clock"></i> 技師管理 (Sheet Order)</h2>
+                    <h2 className="text-2xl font-bold flex gap-2 items-center"><i className="fas fa-user-clock"></i> 技師管理看板</h2>
                     <button onClick={onClose} className="hover:text-red-300 bg-white/10 rounded-full w-10 h-10 flex items-center justify-center"><i className="fas fa-times text-2xl"></i></button>
                 </div>
                 <div className="grid grid-cols-12 gap-2 bg-slate-100 p-4 font-bold text-slate-700 text-base border-b sticky top-0 z-10 shadow-sm">
-                    <div className="col-span-2 text-center border-r border-slate-300">姓名 (Name)</div>
-                    <div className="col-span-2 text-center text-emerald-700 border-r border-slate-300">💰 薪資 (Salary)</div>
-                    <div className="col-span-2 text-center border-r border-slate-300">上班 (Start)</div>
-                    <div className="col-span-2 text-center border-r border-slate-300">下班 (End)</div>
-                    <div className="col-span-2 text-center border-r border-slate-300">操作 (Action)</div>
-                    <div className="col-span-1 text-center border-r border-slate-300">狀態 (Status)</div>
-                    <div className="col-span-1 text-center text-blue-700">準下 (On-time)</div>
+                    <div className="col-span-2 text-center border-r border-slate-300">姓名</div>
+                    <div className="col-span-2 text-center text-emerald-700 border-r border-slate-300">💰 薪資</div>
+                    <div className="col-span-2 text-center border-r border-slate-300">上班時間</div>
+                    <div className="col-span-2 text-center border-r border-slate-300">下班時間</div>
+                    <div className="col-span-2 text-center border-r border-slate-300">操作</div>
+                    <div className="col-span-1 text-center border-r border-slate-300">狀態</div>
+                    <div className="col-span-1 text-center text-blue-700">準時下班</div>
                 </div>
                 <div className="overflow-y-auto flex-1 p-2 space-y-2 bg-white custom-scrollbar">
                     {safeStaffList.map(s => {
@@ -313,7 +311,7 @@ const CheckInBoard = ({ staffList, statusData, onClose, onUpdateStatus, bookings
                                             <span className="font-mono font-bold text-lg text-slate-500 bg-gray-100 px-2 py-1 rounded border">
                                                 {new Date(current.checkInTime).toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' })}
                                             </span>
-                                            <button onClick={() => toggleCheckIn(s.id)} className="text-red-500 hover:bg-red-500 hover:text-white border border-red-200 rounded-lg w-12 h-10 flex items-center justify-center transition-all shadow-sm active:scale-95"><i className="fas fa-sign-out-alt text-2xl"></i></button>
+                                            <button onClick={() => toggleCheckIn(s.id)} className="text-red-500 hover:bg-red-500 hover:text-white border border-red-200 rounded-lg w-12 h-10 flex items-center justify-center transition-all shadow-sm active:scale-95" title="下班"><i className="fas fa-sign-out-alt text-2xl"></i></button>
                                         </div>
                                     ) : (
                                         <button onClick={() => toggleCheckIn(s.id)} className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-black text-lg w-full max-w-[140px] shadow-md transition-all transform hover:scale-105 active:scale-95 flex items-center justify-center gap-2">
@@ -356,6 +354,7 @@ window.CheckInBoard = CheckInBoard;
  * ============================================================================
  */
 const AvailabilityCheckModal = ({ onClose, onSave, staffList, bookings, initialDate }) => {
+    const STATUS = getBookingStatus();
     const [step, setStep] = useState('CHECK');
     const [checkResult, setCheckResult] = useState(null);
     const [form, setForm] = useState({
@@ -384,7 +383,7 @@ const AvailabilityCheckModal = ({ onClose, onSave, staffList, bookings, initialD
         const todays = safeBookings.filter(b => {
             if (window.isWithinOperationalDay && b.startTimeString) {
                 return window.isWithinOperationalDay(b.startTimeString.split(' ')[0], b.startTimeString.split(' ')[1], initialDate) &&
-                    !b.status.includes('取消') && !b.status.includes('完成');
+                    !b.status.includes('取消') && !b.status.includes('完成') && b.status !== STATUS.CANCELLED && b.status !== STATUS.COMPLETED;
             }
             return false;
         });
@@ -408,7 +407,7 @@ const AvailabilityCheckModal = ({ onClose, onSave, staffList, bookings, initialD
         if (maxConcurrency > totalStaffCapacity) {
             setCheckResult({
                 status: 'FULL',
-                message: `❌ 技師不足 (Staff Full): 需要 ${maxConcurrency}/${totalStaffCapacity} 位。`
+                message: `❌ 技師不足: 需要 ${maxConcurrency}/${totalStaffCapacity} 位。`
             });
             return;
         }
@@ -430,14 +429,14 @@ const AvailabilityCheckModal = ({ onClose, onSave, staffList, bookings, initialD
         const needed = form.pax;
         const resourceType = (window.SERVICES_DATA && window.SERVICES_DATA[form.service]) ? window.SERVICES_DATA[form.service].type : 'BED';
         let available = true;
-        let msg = "✅ 可預約 (Available)";
+        let msg = "✅ 可預約";
 
         if (resourceType === 'CHAIR') {
-            if (chairOccupied + needed > 6) { available = false; msg = "❌ 足底區客滿 (Foot Area Full)"; }
+            if (chairOccupied + needed > 6) { available = false; msg = "❌ 足底區客滿"; }
         } else if (resourceType === 'BED') {
-            if (bedOccupied + needed > 6) { available = false; msg = "❌ 指壓區客滿 (Body Area Full)"; }
+            if (bedOccupied + needed > 6) { available = false; msg = "❌ 指壓區客滿"; }
         } else {
-            if (chairOccupied + needed > 6 || bedOccupied + needed > 6) { available = false; msg = "❌ 區域客滿 (Area Full)"; }
+            if (chairOccupied + needed > 6 || bedOccupied + needed > 6) { available = false; msg = "❌ 區域客滿"; }
         }
 
         if (available && form.genderPref !== '隨機' && form.genderPref !== '男' && form.genderPref !== '女') {
@@ -475,7 +474,7 @@ const AvailabilityCheckModal = ({ onClose, onSave, staffList, bookings, initialD
         <div className="fixed inset-0 bg-slate-900/90 z-[70] flex items-center justify-center p-4">
             <div className="bg-white w-full max-w-md rounded-xl shadow-2xl modal-animate flex flex-col overflow-hidden">
                 <div className="bg-emerald-600 p-4 text-white flex justify-between items-center">
-                    <h3 className="font-bold text-lg"><i className="fas fa-phone-volume"></i> 電話預約檢查 (Check Booking)</h3>
+                    <h3 className="font-bold text-lg"><i className="fas fa-phone-volume"></i> 電話預約檢查</h3>
                     <button onClick={onClose}><i className="fas fa-times"></i></button>
                 </div>
                 <div className="p-5 space-y-4">
@@ -500,7 +499,7 @@ const AvailabilityCheckModal = ({ onClose, onSave, staffList, bookings, initialD
                             <div className="pt-2">
                                 {!checkResult ? (
                                     <button onClick={performCheck} className="w-full bg-blue-600 text-white p-3 rounded font-bold hover:bg-blue-700 shadow-md transition-transform active:scale-95">
-                                        🔍 查詢空位 (Check)
+                                        🔍 查詢空位
                                     </button>
                                 ) : (checkResult.status === 'OK' ? (
                                     <button onClick={() => setStep('INFO')} className="w-full bg-green-600 text-white p-3 rounded font-bold hover:bg-green-700 animate-pulse shadow-md transition-transform active:scale-95">
@@ -508,7 +507,7 @@ const AvailabilityCheckModal = ({ onClose, onSave, staffList, bookings, initialD
                                     </button>
                                 ) : (
                                     <button onClick={performCheck} className="w-full bg-gray-400 text-white p-3 rounded font-bold hover:bg-gray-500 transition-colors">
-                                        🔄 重新查詢 (Re-Check)
+                                        🔄 重新查詢
                                     </button>
                                 ))}
                             </div>
@@ -516,7 +515,7 @@ const AvailabilityCheckModal = ({ onClose, onSave, staffList, bookings, initialD
                     )}
                     {step === 'INFO' && (
                         <div className="space-y-4 animate-fadeIn">
-                            <div className="bg-green-50 p-3 rounded border border-green-200 text-sm text-green-800"><div>🕒 <strong>{form.time}</strong> | 👤 <strong>{form.pax}位</strong></div><div>💆 <strong>{form.service}</strong></div><div>🔧 <strong>{form.genderPref}</strong> {form.isOil ? '(Oil)' : ''}</div></div>
+                            <div className="bg-green-50 p-3 rounded border border-green-200 text-sm text-green-800"><div>🕒 <strong>{form.time}</strong> | 👤 <strong>{form.pax}位</strong></div><div>💆 <strong>{form.service}</strong></div><div>🔧 <strong>{form.genderPref}</strong> {form.isOil ? '(精油)' : ''}</div></div>
                             <div><label className="text-xs font-bold text-gray-500">顧客姓名</label><input className="w-full border p-2 rounded font-bold text-slate-800" placeholder="輸入姓名..." value={form.custName} onChange={e => setForm({ ...form, custName: e.target.value })} autoFocus /></div>
                             <div><label className="text-xs font-bold text-gray-500">電話號碼</label><input className="w-full border p-2 rounded font-bold text-slate-800" placeholder="輸入電話..." value={form.custPhone} onChange={e => setForm({ ...form, custPhone: e.target.value })} /></div>
                             <div className="grid grid-cols-2 gap-3 pt-2"><button onClick={() => setStep('CHECK')} className="bg-gray-200 text-gray-600 p-3 rounded font-bold">⬅️ 返回</button><button onClick={handleFinalSave} className="bg-indigo-600 text-white p-3 rounded font-bold hover:bg-indigo-700 shadow-lg">✅ 確認預約</button></div>
@@ -560,11 +559,11 @@ const BillingModal = ({ activeItem, relatedItems, onConfirm, onCancel }) => {
                     <div className="grid grid-cols-2 gap-4 w-full mb-4">
                         <button onClick={() => { setTargetItems([activeItem]); setStep('CONFIRM'); }} className="flex flex-col items-center p-5 rounded-xl border-2 border-gray-200 hover:border-emerald-500 hover:bg-emerald-50 transition-all group">
                             <span className="text-3xl mb-2 group-hover:scale-110 transition-transform">👤</span>
-                            <span className="font-bold text-slate-700">個別結帳 (Pay 1)</span>
+                            <span className="font-bold text-slate-700">個別結帳</span>
                         </button>
                         <button onClick={() => { setTargetItems([activeItem, ...relatedItems]); setStep('CONFIRM'); }} className="flex flex-col items-center p-5 rounded-xl border-2 border-blue-200 bg-blue-50 hover:bg-blue-100 hover:border-blue-300 transition-all shadow-md group">
                             <span className="text-3xl mb-2 group-hover:scale-110 transition-transform">👥</span>
-                            <span className="font-bold text-blue-700">合併結帳 (Pay All)</span>
+                            <span className="font-bold text-blue-700">合併結帳</span>
                         </button>
                     </div>
                     <button onClick={onCancel} className="text-gray-400 font-bold hover:text-gray-600">取消</button>
@@ -576,7 +575,7 @@ const BillingModal = ({ activeItem, relatedItems, onConfirm, onCancel }) => {
     return (
         <div className="fixed inset-0 bg-slate-900/90 z-[90] flex items-center justify-center p-4">
             <div className="bg-white w-full max-w-md rounded-2xl shadow-2xl modal-animate overflow-hidden flex flex-col max-h-[90vh]">
-                <div className="bg-emerald-600 p-4 text-white text-center shrink-0"><h3 className="text-xl font-bold flex justify-center items-center gap-2"><i className="fas fa-file-invoice-dollar"></i> 結帳清單 (Bill)</h3></div>
+                <div className="bg-emerald-600 p-4 text-white text-center shrink-0"><h3 className="text-xl font-bold flex justify-center items-center gap-2"><i className="fas fa-file-invoice-dollar"></i> 結帳清單</h3></div>
                 <div className="p-6 flex-1 overflow-y-auto custom-scrollbar">
                     <div className="space-y-3">{targetItems.map(item => {
                         const b = item.booking || {};
@@ -656,11 +655,11 @@ const ComboStartModal = ({ onConfirm, onCancel, bookingName }) => {
     return (
         <div className="fixed inset-0 bg-black/70 z-[100] flex items-center justify-center p-4">
             <div className="bg-white w-full max-w-sm rounded-2xl shadow-2xl modal-animate p-6 flex flex-col items-center">
-                <h3 className="text-xl font-bold text-slate-800 mb-2">開始套餐 (Start Combo)</h3>
+                <h3 className="text-xl font-bold text-slate-800 mb-2">開始套餐</h3>
                 <p className="text-slate-500 mb-6 text-center">請選擇優先順序<br /><span className="font-bold text-indigo-600">{bookingName}</span></p>
                 <div className="grid grid-cols-2 gap-4 w-full mb-4">
-                    <button onClick={() => onConfirm('FB')} className="flex flex-col items-center justify-center p-4 rounded-xl border-2 border-emerald-200 bg-emerald-50 hover:bg-emerald-100 transition-all hover:scale-105 shadow-sm"><span className="text-4xl mb-2">👣</span><span className="font-bold text-emerald-700">先做腳 (Foot First)</span></button>
-                    <button onClick={() => onConfirm('BF')} className="flex flex-col items-center justify-center p-4 rounded-xl border-2 border-purple-200 bg-purple-50 hover:bg-purple-100 transition-all hover:scale-105 shadow-sm"><span className="text-4xl mb-2">🛏️</span><span className="font-bold text-purple-700">先做身 (Body First)</span></button>
+                    <button onClick={() => onConfirm('FB')} className="flex flex-col items-center justify-center p-4 rounded-xl border-2 border-emerald-200 bg-emerald-50 hover:bg-emerald-100 transition-all hover:scale-105 shadow-sm"><span className="text-4xl mb-2">👣</span><span className="font-bold text-emerald-700">先做足部</span></button>
+                    <button onClick={() => onConfirm('BF')} className="flex flex-col items-center justify-center p-4 rounded-xl border-2 border-purple-200 bg-purple-50 hover:bg-purple-100 transition-all hover:scale-105 shadow-sm"><span className="text-4xl mb-2">🛏️</span><span className="font-bold text-purple-700">先做身體</span></button>
                 </div>
                 <button onClick={onCancel} className="text-slate-400 font-bold hover:text-slate-600">取消</button>
             </div>
@@ -695,26 +694,26 @@ const ComboTimeEditModal = ({ booking, onConfirm, onCancel }) => {
         <div className="fixed inset-0 bg-slate-900/80 z-[110] flex items-center justify-center p-4 backdrop-blur-sm">
             <div className="bg-white w-full max-w-sm rounded-2xl shadow-2xl modal-animate overflow-hidden border border-slate-200">
                 <div className="bg-indigo-600 p-4 text-white flex justify-between items-center">
-                    <h3 className="font-bold text-lg"><i className="fas fa-stopwatch"></i> 調整時間 (Adjust Time)</h3>
+                    <h3 className="font-bold text-lg"><i className="fas fa-stopwatch"></i> 調整時間</h3>
                     <button onClick={onCancel} className="opacity-80 hover:opacity-100 transition-opacity"><i className="fas fa-times"></i></button>
                 </div>
 
                 <div className="p-6 space-y-6">
                     <div className="text-center">
-                        <div className="text-sm font-bold text-gray-400 uppercase tracking-wider mb-1">Customer</div>
+                        <div className="text-sm font-bold text-gray-400 uppercase tracking-wider mb-1">顧客</div>
                         <div className="text-2xl font-black text-slate-800">{booking.customerName}</div>
-                        <div className="text-indigo-600 font-bold text-sm bg-indigo-50 inline-block px-2 py-1 rounded mt-2">{booking.serviceName} ({totalDuration}m)</div>
+                        <div className="text-indigo-600 font-bold text-sm bg-indigo-50 inline-block px-2 py-1 rounded mt-2">{booking.serviceName} ({totalDuration}分)</div>
                     </div>
 
                     <div className="bg-gray-50 p-4 rounded-xl border border-gray-200">
                         <div className="flex justify-between items-end mb-4">
                             <div className="text-center w-1/2 border-r border-gray-300 pr-2">
-                                <div className="text-xs font-bold text-gray-400">Phase 1</div>
-                                <div className="text-3xl font-black text-emerald-600">{phase1}<span className="text-sm text-gray-500">m</span></div>
+                                <div className="text-xs font-bold text-gray-400">第一階段</div>
+                                <div className="text-3xl font-black text-emerald-600">{phase1}<span className="text-sm text-gray-500">分</span></div>
                             </div>
                             <div className="text-center w-1/2 pl-2">
-                                <div className="text-xs font-bold text-gray-400">Phase 2</div>
-                                <div className="text-3xl font-black text-purple-600">{phase2}<span className="text-sm text-gray-500">m</span></div>
+                                <div className="text-xs font-bold text-gray-400">第二階段</div>
+                                <div className="text-3xl font-black text-purple-600">{phase2}<span className="text-sm text-gray-500">分</span></div>
                             </div>
                         </div>
 
@@ -728,22 +727,22 @@ const ComboTimeEditModal = ({ booking, onConfirm, onCancel }) => {
                             className="w-full h-3 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-indigo-600 hover:accent-indigo-500 transition-all"
                         />
                         <div className="flex justify-between text-xs text-gray-400 font-bold mt-2">
-                            <span>10m</span>
-                            <span>Slide to Adjust</span>
-                            <span>{totalDuration - 10}m</span>
+                            <span>10分</span>
+                            <span>滑動以調整</span>
+                            <span>{totalDuration - 10}分</span>
                         </div>
                     </div>
 
                     <div className="text-xs text-center text-amber-600 font-bold bg-amber-50 p-2 rounded border border-amber-100">
-                        <i className="fas fa-lock"></i> 調整後將鎖定時間 (Manual Lock)
+                        <i className="fas fa-lock"></i> 調整後將手動鎖定時間
                     </div>
 
                     <div className="grid grid-cols-2 gap-3">
                         <button onClick={onCancel} className="w-full py-3 bg-gray-100 text-gray-500 font-bold rounded-lg hover:bg-gray-200 transition-colors">
-                            取消 (Cancel)
+                            取消
                         </button>
                         <button onClick={() => onConfirm(phase1)} className="w-full py-3 bg-indigo-600 text-white font-bold rounded-lg hover:bg-indigo-700 shadow-lg transform active:scale-95 transition-all">
-                            確認 (Confirm)
+                            確認
                         </button>
                     </div>
                 </div>
