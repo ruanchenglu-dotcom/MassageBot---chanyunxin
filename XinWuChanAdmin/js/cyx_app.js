@@ -4,7 +4,7 @@
 //
 // --- CHANGE LOG V109.3 ---
 // 1. [SSOT STATUS]: Loại bỏ chuỗi hardcode ('🟡 Running', '✅ 完成', '❌ 取消').
-// 2. [SSOT STATUS]: Sử dụng window.BOOKING_STATUS từ data.js cho các hàm Start, Finish, Cancel.
+// 2. [SSOT STATUS]: Sử dụng window.BOOKING_STATUS từ cyx_data.js cho các hàm Start, Finish, Cancel.
 
 const { useState, useEffect, useMemo, useRef, useCallback } = React;
 
