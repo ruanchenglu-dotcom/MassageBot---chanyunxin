@@ -1,6 +1,6 @@
 // FILE: js/components.js
-// PHIÊN BẢN: V108.51 (UPGRADE: QUEUE-SAFE STAFFTIME & GLOBAL STATUS SYNC)
-// CẬP NHẬT: 2026-04-08
+// PHIÊN BẢN: V118.0 (UPGRADE: CLEAN AVAILABILITY MODAL & 9x9 MATRIX)
+// CẬP NHẬT: 2026-04-13
 
 const { useState, useEffect, useMemo, useRef } = React;
 
@@ -51,7 +51,7 @@ window.ErrorBoundary = ErrorBoundary;
 
 /**
  * ============================================================================
- * 2. STAFF CARD 3D (技師卡片 - NÂNG CẤP V108.48)
+ * 2. STAFF CARD 3D (技師卡片)
  * ============================================================================
  */
 const StaffCard3D = ({ s, statusData, resourceState, queueIndex, isForcedBusy }) => {
@@ -350,7 +350,7 @@ window.CheckInBoard = CheckInBoard;
 
 /**
  * ============================================================================
- * 4. AVAILABILITY CHECK MODAL (電話預約檢查)
+ * 4. AVAILABILITY CHECK MODAL (電話預約檢查) - CLEAN & OPTIMIZED FOR 9x9 MATRIX
  * ============================================================================
  */
 const AvailabilityCheckModal = ({ onClose, onSave, staffList, bookings, initialDate }) => {
@@ -431,12 +431,13 @@ const AvailabilityCheckModal = ({ onClose, onSave, staffList, bookings, initialD
         let available = true;
         let msg = "✅ 可預約";
 
+        // Logic check sức chứa đã được đồng bộ với ma trận 9 giường/9 ghế
         if (resourceType === 'CHAIR') {
-            if (chairOccupied + needed > 6) { available = false; msg = "❌ 足底區客滿"; }
+            if (chairOccupied + needed > 9) { available = false; msg = "❌ 足底區客滿"; }
         } else if (resourceType === 'BED') {
-            if (bedOccupied + needed > 6) { available = false; msg = "❌ 指壓區客滿"; }
+            if (bedOccupied + needed > 9) { available = false; msg = "❌ 指壓區客滿"; }
         } else {
-            if (chairOccupied + needed > 6 || bedOccupied + needed > 6) { available = false; msg = "❌ 區域客滿"; }
+            if (chairOccupied + needed > 9 || bedOccupied + needed > 9) { available = false; msg = "❌ 區域客滿"; }
         }
 
         if (available && form.genderPref !== '隨機' && form.genderPref !== '男' && form.genderPref !== '女') {
@@ -482,7 +483,12 @@ const AvailabilityCheckModal = ({ onClose, onSave, staffList, bookings, initialD
                         <>
                             <div className="grid grid-cols-2 gap-3">
                                 <div><label className="text-xs font-bold text-gray-500">預約時間</label><input type="time" className="w-full border p-2 rounded font-bold text-lg" value={form.time} onChange={e => { setForm({ ...form, time: e.target.value }); setCheckResult(null); }} /></div>
-                                <div><label className="text-xs font-bold text-gray-500">人數</label><select className="w-full border p-2 rounded font-bold" value={form.pax} onChange={e => { setForm({ ...form, pax: parseInt(e.target.value) }); setCheckResult(null); }}>{[1, 2, 3, 4, 5, 6].map(n => <option key={n} value={n}>{n} 位</option>)}</select></div>
+                                <div>
+                                    <label className="text-xs font-bold text-gray-500">人數</label>
+                                    <select className="w-full border p-2 rounded font-bold" value={form.pax} onChange={e => { setForm({ ...form, pax: parseInt(e.target.value) }); setCheckResult(null); }}>
+                                        {[1, 2, 3, 4, 5, 6, 7, 8, 9].map(n => <option key={n} value={n}>{n} 位</option>)}
+                                    </select>
+                                </div>
                             </div>
                             <div><label className="text-xs font-bold text-gray-500">服務項目</label><select className="w-full border p-2 rounded font-bold" value={form.service} onChange={e => { setForm({ ...form, service: e.target.value }); setCheckResult(null); }}>{(window.SERVICES_LIST || []).map(s => <option key={s} value={s}>{s}</option>)}</select></div>
                             <div className="grid grid-cols-2 gap-3">
@@ -658,7 +664,7 @@ const ComboStartModal = ({ onConfirm, onCancel, bookingName }) => {
                 <h3 className="text-xl font-bold text-slate-800 mb-2">開始套餐</h3>
                 <p className="text-slate-500 mb-6 text-center">請選擇優先順序<br /><span className="font-bold text-indigo-600">{bookingName}</span></p>
                 <div className="grid grid-cols-2 gap-4 w-full mb-4">
-                    <button onClick={() => onConfirm('FB')} className="flex flex-col items-center justify-center p-4 rounded-xl border-2 border-emerald-200 bg-emerald-50 hover:bg-emerald-100 transition-all hover:scale-105 shadow-sm"><span className="text-4xl mb-2">👣</span><span className="font-bold text-emerald-700">先做足部</span></button>
+                    <button onClick={() => onConfirm('FB')} className="flex flex-col items-center justify-center p-4 rounded-xl border-2 border-emerald-200 bg-emerald-50 hover:bg-emerald-100 transition-all hover:scale-105 shadow-sm"><span className="text-4xl mb-2">👣</span><span className="font-bold text-emerald-700">先做足底</span></button>
                     <button onClick={() => onConfirm('BF')} className="flex flex-col items-center justify-center p-4 rounded-xl border-2 border-purple-200 bg-purple-50 hover:bg-purple-100 transition-all hover:scale-105 shadow-sm"><span className="text-4xl mb-2">🛏️</span><span className="font-bold text-purple-700">先做身體</span></button>
                 </div>
                 <button onClick={onCancel} className="text-slate-400 font-bold hover:text-slate-600">取消</button>

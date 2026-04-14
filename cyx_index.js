@@ -21,10 +21,10 @@ const https = require('https'); // Thêm module https để phục vụ Anti-Hib
 const http = require('http');   // Thêm module http để phục vụ Anti-Hibernation
 
 // --- IMPORT MODULES ---
-const ResourceCore = require('./resource_core');
-const StaffBot = require('./staff_bot');
-const SheetService = require('./sheet_service'); // Module Sheet Service: Single Source of Truth
-const { SYSTEM_CONFIG } = require('./data');     // Import Centralized Config
+const ResourceCore = require('./cyx_resource_core');
+const StaffBot = require('./cyx_staff_bot');
+const SheetService = require('./cyx_sheet_service'); // Module Sheet Service: Single Source of Truth
+const { SYSTEM_CONFIG } = require('./cyx_data');     // Import Centralized Config
 
 // --- 1. CẤU HÌNH HỆ THỐNG (SYSTEM CONFIG) ---
 const config = {
@@ -360,7 +360,7 @@ app.get('/api/info', async (req, res) => {
     try {
         const isForceRefresh = req.query.forceRefresh === 'true';
         if (isForceRefresh) {
-            await SheetService.syncData();
+            await SheetService.synccyx_data();
         }
         res.json({
             staffList: SheetService.getStaffList(),
@@ -382,62 +382,62 @@ app.post('/api/sync-staff-status', (req, res) => { SERVER_STAFF_STATUS = req.bod
 
 // --- API: ADMIN BOOKING ---
 app.post('/api/admin-booking', async (req, res) => {
-    const data = req.body;
+    const cyx_data = req.body;
     const SERVICES = SheetService.getServices();
 
-    if (data.ngayDen) data.ngayDen = SheetService.normalizeDateStrict(data.ngayDen);
+    if (cyx_data.ngayDen) cyx_data.ngayDen = SheetService.normalizeDateStrict(cyx_data.ngayDen);
 
-    if (!data.serviceCode || data.serviceCode === "") {
-        data.serviceCode = SheetService.smartFindServiceCode(data.dichVu);
-        console.log(`[API ADMIN] Auto-mapped Service Code: ${data.serviceCode}`);
+    if (!cyx_data.serviceCode || cyx_data.serviceCode === "") {
+        cyx_data.serviceCode = SheetService.smartFindServiceCode(cyx_data.dichVu);
+        console.log(`[API ADMIN] Auto-mapped Service Code: ${cyx_data.serviceCode}`);
     }
 
-    if (!data.flow && ResourceCore.checkRequestAvailability) {
+    if (!cyx_data.flow && ResourceCore.checkRequestAvailability) {
         try {
             const staffListMap = {}; SheetService.getStaffList().forEach(s => { staffListMap[s.id] = s; });
-            const relevantBookings = SheetService.getBookings().filter(b => b.date === data.ngayDen && !b.status.includes('取消'));
+            const relevantBookings = SheetService.getBookings().filter(b => b.date === cyx_data.ngayDen && !b.status.includes('取消'));
             let serviceCode = 'UNKNOWN';
-            if (data.serviceCode) serviceCode = data.serviceCode;
-            else for (const key in SERVICES) { if (SERVICES[key].name === data.dichVu) { serviceCode = key; break; } }
+            if (cyx_data.serviceCode) serviceCode = cyx_data.serviceCode;
+            else for (const key in SERVICES) { if (SERVICES[key].name === cyx_data.dichVu) { serviceCode = key; break; } }
 
             if (serviceCode !== 'UNKNOWN') {
-                const guestList = []; const pax = data.pax || 1;
+                const guestList = []; const pax = cyx_data.pax || 1;
                 for (let i = 0; i < pax; i++) {
-                    let sId = (data.nhanVien && data.nhanVien !== '隨機' && data.nhanVien !== 'ALL_STAFF') ? data.nhanVien : 'RANDOM';
+                    let sId = (cyx_data.nhanVien && cyx_data.nhanVien !== '隨機' && cyx_data.nhanVien !== 'ALL_STAFF') ? cyx_data.nhanVien : 'RANDOM';
                     guestList.push({ serviceCode: serviceCode, staffName: sId, flow: null });
                 }
-                const checkResult = ResourceCore.checkRequestAvailability(data.ngayDen, data.gioDen, guestList, relevantBookings, staffListMap);
+                const checkResult = ResourceCore.checkRequestAvailability(cyx_data.ngayDen, cyx_data.gioDen, guestList, relevantBookings, staffListMap);
 
                 if (checkResult.feasible && checkResult.details && checkResult.details.length > 0) {
                     const optimalDetail = checkResult.details[0];
                     const optimalFlow = optimalDetail.flow;
 
                     if (['BF', 'FB', 'FOOTSINGLE', 'BODYSINGLE'].includes(optimalFlow)) {
-                        data.flow = optimalFlow;
-                        if (data.phase1_duration === undefined) data.phase1_duration = optimalDetail.phase1_duration || optimalDetail.phase1;
-                        if (data.phase2_duration === undefined) data.phase2_duration = optimalDetail.phase2_duration || optimalDetail.phase2;
+                        cyx_data.flow = optimalFlow;
+                        if (cyx_data.phase1_duration === undefined) cyx_data.phase1_duration = optimalDetail.phase1_duration || optimalDetail.phase1;
+                        if (cyx_data.phase2_duration === undefined) cyx_data.phase2_duration = optimalDetail.phase2_duration || optimalDetail.phase2;
                     }
 
-                    if (!data.guestDetails) data.guestDetails = [];
+                    if (!cyx_data.guestDetails) cyx_data.guestDetails = [];
 
-                    if (data.guestDetails.length === 0) {
-                        data.guestDetails.push({
+                    if (cyx_data.guestDetails.length === 0) {
+                        cyx_data.guestDetails.push({
                             serviceCode: serviceCode,
-                            staff: data.nhanVien || 'RANDOM',
+                            staff: cyx_data.nhanVien || 'RANDOM',
                             flow: optimalFlow,
-                            phase1_duration: data.phase1_duration,
-                            phase2_duration: data.phase2_duration,
+                            phase1_duration: cyx_data.phase1_duration,
+                            phase2_duration: cyx_data.phase2_duration,
                             phase1_res_idx: optimalDetail.phase1_res_idx,
                             phase2_res_idx: optimalDetail.phase2_res_idx,
                             resource_type: optimalFlow === 'FOOTSINGLE' ? 'CHAIR' : (optimalFlow === 'BODYSINGLE' ? 'BED' : 'COMBO')
                         });
                     } else {
-                        if (data.guestDetails[0]) {
-                            data.guestDetails[0].phase1_res_idx = optimalDetail.phase1_res_idx;
-                            data.guestDetails[0].phase2_res_idx = optimalDetail.phase2_res_idx;
-                            if (!data.guestDetails[0].flow) data.guestDetails[0].flow = optimalFlow;
-                            if (!data.guestDetails[0].resource_type) {
-                                data.guestDetails[0].resource_type = optimalFlow === 'FOOTSINGLE' ? 'CHAIR' : (optimalFlow === 'BODYSINGLE' ? 'BED' : 'COMBO');
+                        if (cyx_data.guestDetails[0]) {
+                            cyx_data.guestDetails[0].phase1_res_idx = optimalDetail.phase1_res_idx;
+                            cyx_data.guestDetails[0].phase2_res_idx = optimalDetail.phase2_res_idx;
+                            if (!cyx_data.guestDetails[0].flow) cyx_data.guestDetails[0].flow = optimalFlow;
+                            if (!cyx_data.guestDetails[0].resource_type) {
+                                cyx_data.guestDetails[0].resource_type = optimalFlow === 'FOOTSINGLE' ? 'CHAIR' : (optimalFlow === 'BODYSINGLE' ? 'BED' : 'COMBO');
                             }
                         }
                     }
@@ -446,33 +446,33 @@ app.post('/api/admin-booking', async (req, res) => {
         } catch (err) { console.error("[ADMIN AUTO-FLOW ERROR]", err); }
     }
 
-    if (data.flowCode && !data.flow) data.flow = data.flowCode;
+    if (cyx_data.flowCode && !cyx_data.flow) cyx_data.flow = cyx_data.flowCode;
 
     // [V134 NÂNG CẤP] Bắt kết quả ghi Sheet
     const isSaved = await SheetService.ghiVaoSheet({
-        ngayDen: data.ngayDen, gioDen: data.gioDen, dichVu: data.dichVu, nhanVien: data.nhanVien,
-        userId: 'ADMIN_WEB', sdt: data.sdt || '現場客', hoTen: data.hoTen || '現場客',
-        trangThai: '已預約', pax: data.pax || 1, isOil: data.isOil || false,
-        guestDetails: data.guestDetails,
-        phase1_duration: data.phase1_duration, phase2_duration: data.phase2_duration,
-        isManualLocked: data.isManualLocked, flow: data.flow, serviceCode: data.serviceCode
+        ngayDen: cyx_data.ngayDen, gioDen: cyx_data.gioDen, dichVu: cyx_data.dichVu, nhanVien: cyx_data.nhanVien,
+        userId: 'ADMIN_WEB', sdt: cyx_data.sdt || '現場客', hoTen: cyx_data.hoTen || '現場客',
+        trangThai: '已預約', pax: cyx_data.pax || 1, isOil: cyx_data.isOil || false,
+        guestDetails: cyx_data.guestDetails,
+        phase1_duration: cyx_data.phase1_duration, phase2_duration: cyx_data.phase2_duration,
+        isManualLocked: cyx_data.isManualLocked, flow: cyx_data.flow, serviceCode: cyx_data.serviceCode
     });
 
     if (isSaved) {
         res.json({ success: true });
     } else {
-        res.status(500).json({ success: false, error: 'Database Write Failed' });
+        res.status(500).json({ success: false, error: 'cyx_database Write Failed' });
     }
 });
 
 // --- API: INLINE UPDATE BOOKING ROW ---
 app.post('/api/inline-update-booking', async (req, res) => {
     try {
-        const { rowId, updatedData } = req.body;
-        if (!rowId || !updatedData) {
-            return res.status(400).json({ success: false, error: 'Thiếu thông欠 rowId hoặc updatedData' });
+        const { rowId, updatedcyx_data } = req.body;
+        if (!rowId || !updatedcyx_data) {
+            return res.status(400).json({ success: false, error: 'Thiếu thông欠 rowId hoặc updatedcyx_data' });
         }
-        await SheetService.updateInlineBooking(rowId, updatedData);
+        await SheetService.updateInlineBooking(rowId, updatedcyx_data);
         res.json({ success: true, message: 'Cập nhật thành công (Update Success)' });
     } catch (e) {
         console.error('[INLINE UPDATE ERROR]', e);
@@ -502,7 +502,7 @@ app.post('/api/update-status', async (req, res) => {
     }
 });
 
-app.post('/api/save-salary', async (req, res) => { await SheetService.syncDailySalary(req.body.date, req.body.staffData); res.json({ success: true }); });
+app.post('/api/save-salary', async (req, res) => { await SheetService.syncDailySalary(req.body.date, req.body.staffcyx_data); res.json({ success: true }); });
 
 app.post('/api/update-booking-details', async (req, res) => {
     try {
@@ -534,7 +534,7 @@ async function handleEvent(event) {
     if (isText) text = event.message.text.trim();
     else if (isPostback) {
         if (event.postback.params && event.postback.params.date) text = `DatePick:${event.postback.params.date}`;
-        else text = event.postback.data;
+        else text = event.postback.cyx_data;
     }
 
     // --- 1. HEALTH CHECK & MAINTENANCE ---
@@ -562,7 +562,7 @@ async function handleEvent(event) {
     // --- 3. ADMIN LOGIC (BOT KHÁCH - QUYỀN CHỦ) ---
     if (text === 'Admin') { return client.replyMessage(event.replyToken, { type: 'flex', altText: 'Admin', contents: { "type": "bubble", "body": { "type": "box", "layout": "vertical", "contents": [{ "type": "text", "text": "🛠️ 師傅管理 (Admin)", "weight": "bold", "color": "#E63946", "size": "lg" }, { "type": "separator", "margin": "md" }, { "type": "button", "style": "primary", "color": "#000000", "margin": "md", "action": { "type": "message", "label": "⛔ 全店店休", "text": "Admin:CloseShop" } }, { "type": "separator", "margin": "md" }, { "type": "button", "style": "secondary", "margin": "sm", "action": { "type": "message", "label": "🛌 請假", "text": "Admin:SetOff" } }, { "type": "button", "style": "secondary", "margin": "sm", "action": { "type": "message", "label": "🤒 早退", "text": "Admin:SetLeaveEarly" } }, { "type": "button", "style": "secondary", "margin": "sm", "action": { "type": "message", "label": "🍱 用餐", "text": "Admin:SetBreak" } }] } } }); }
 
-    if (text === 'Admin:CloseShop') { userState[userId] = { step: 'ADMIN_PICK_CLOSE_DATE' }; return client.replyMessage(event.replyToken, { type: 'template', altText: '選擇日期', template: { type: 'buttons', text: '請選擇店休日期:', actions: [{ type: 'datetimepicker', label: '🗓️ 點擊選擇', data: 'ShopClosePicked', mode: 'date' }] } }); }
+    if (text === 'Admin:CloseShop') { userState[userId] = { step: 'ADMIN_PICK_CLOSE_DATE' }; return client.replyMessage(event.replyToken, { type: 'template', altText: '選擇日期', template: { type: 'buttons', text: '請選擇店休日期:', actions: [{ type: 'datetimepicker', label: '🗓️ 點擊選擇', cyx_data: 'ShopClosePicked', mode: 'date' }] } }); }
 
     // [V134 NÂNG CẤP] Bảo vệ tính năng Đóng cửa tiệm
     if (text.startsWith('DatePick:') && userState[userId] && userState[userId].step === 'ADMIN_PICK_CLOSE_DATE') {
@@ -837,13 +837,13 @@ async function handleEvent(event) {
     if (text === 'Action:Late') { return client.replyMessage(event.replyToken, { type: 'flex', altText: 'Late', contents: { "type": "bubble", "body": { "type": "box", "layout": "horizontal", "spacing": "sm", "contents": [{ "type": "button", "style": "secondary", "action": { "type": "message", "label": "5 分", "text": "Late:5p" } }, { type: "button", "style": "secondary", "action": { "type": "message", "label": "10 分", "text": "Late:10p" } }, { type: "button", "style": "secondary", "action": { "type": "message", "label": "15 分", "text": "Late:15p" } }] } } }); }
     if (text.startsWith('Late:')) { const phut = text.split(':')[1].replace('p', '分'); const booking = await SheetService.layLichDatGanNhat(userId); if (booking) { await SheetService.updateBookingStatus(booking.rowId, `⚠️ 晚到 ${phut}`); } client.pushMessage(ID_BA_CHU, { type: 'text', text: `⚠️ 晚到通知!\nID: ${userId}\n預計晚: ${phut}` }); return client.replyMessage(event.replyToken, { type: 'text', text: '好的，我們會為您保留 (OK, Confirmed)。' }); }
     if (text === 'Action:ConfirmCancel') { const booking = await SheetService.layLichDatGanNhat(userId); if (booking) { await SheetService.updateBookingStatus(booking.rowId, '❌ Cancelled'); return client.replyMessage(event.replyToken, { type: 'text', text: '✅ 已成功取消預約 (Cancelled)。' }); } return client.replyMessage(event.replyToken, { type: 'text', text: '找不到您的預約資料。' }); }
-    if (text.includes('booking') || text.includes('預約')) { delete userState[userId]; SheetService.syncData(); return client.replyMessage(event.replyToken, { type: 'flex', altText: '服務價目表', contents: createMenuFlexMessage() }); }
+    if (text.includes('booking') || text.includes('預約')) { delete userState[userId]; SheetService.synccyx_data(); return client.replyMessage(event.replyToken, { type: 'flex', altText: '服務價目表', contents: createMenuFlexMessage() }); }
 
     return client.replyMessage(event.replyToken, { type: 'flex', altText: '預約服務', contents: { "type": "bubble", "body": { "type": "box", "layout": "vertical", "contents": [{ "type": "text", "text": "您好 👋", "weight": "bold", "size": "lg", "align": "center" }, { "type": "text", "text": "請問您是要預約按摩服務嗎？", "wrap": true, "size": "sm", "color": "#555555", "align": "center", "margin": "md" }] }, "footer": { "type": "box", "layout": "horizontal", "spacing": "sm", "contents": [{ "type": "button", "style": "primary", "action": { "type": "message", "label": "✅ 立即預約 (Book)", "text": "Action:Booking" } }, { "type": "button", "style": "secondary", "action": { "type": "message", "label": "📄 服務價目 (Menu)", "text": "Menu" } }] } } });
 }
 
 // 1. Initial Sync (Khởi động đồng bộ)
-SheetService.syncMenuData().then(() => SheetService.syncData());
+SheetService.syncMenucyx_data().then(() => SheetService.synccyx_data());
 
 // 2. Auto Sync Interval & Error Tracking [V130 NÂNG CẤP]
 const SYNC_INTERVAL = SYSTEM_CONFIG.API_CONFIG.SYNC_INTERVAL || 30000; // Mặc định 30 giây
@@ -851,8 +851,8 @@ const MAX_RETRIES = SYSTEM_CONFIG.API_CONFIG.MAX_RETRIES || 3;
 let alarmSent = false; // Trạng thái đã gửi cảnh báo hay chưa
 
 setInterval(async () => {
-    await SheetService.syncMenuData(); // [V130 CẬP NHẬT] Đồng bộ Menu định kỳ mỗi chu kỳ
-    await SheetService.syncData();
+    await SheetService.syncMenucyx_data(); // [V130 CẬP NHẬT] Đồng bộ Menu định kỳ mỗi chu kỳ
+    await SheetService.synccyx_data();
     const errors = SheetService.getConsecutiveErrors();
 
     if (errors >= MAX_RETRIES && !alarmSent) {

@@ -18,7 +18,7 @@
 
 require('dotenv').config();
 const { google } = require('googleapis');
-const ResourceCore = require('./resource_core'); // Core logic for Matrix & Rules
+const ResourceCore = require('./cyx_resource_core'); // Core logic for Matrix & Rules
 const { SYSTEM_CONFIG, SERVICES_DATA } = require('./data.js'); // Centralized Configuration
 
 // Kế thừa tên Sheet động từ file cấu hình trung tâm (Giao diện Phồn Thể)

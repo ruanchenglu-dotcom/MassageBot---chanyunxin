@@ -1,15 +1,14 @@
 /**
  * ============================================================================
  * FILE: js/views.js
- * PHIÊN BẢN: V111.0 (GLOBAL STATUS SYNC ENABLED)
+ * PHIÊN BẢN: V111.1 (SMOOTH SCROLL TO NOW & FAB BUTTON ADDED)
  * ============================================================================
- * CHANGE LOG V111.0:
+ * CHANGE LOG V111.1:
+ * - [TIMELINE]: Tích hợp useRef và useEffect để tự động smooth scroll tới thời điểm 
+ * hiện tại (lùi 150px để dễ nhìn) sau khi load xong.
+ * - [TIMELINE]: Bổ sung nút Floating "回到現在" (Trở về hiện tại) ở góc trên bên phải.
  * - [STATUS SYNC]: Tích hợp window.BOOKING_STATUS từ data.js để đồng nhất
- * các trạng thái (等待中, 服務中, 已完成, 已取消) trên toàn bộ UI Modal, Timeline,
- * Commission và Report.
- * - [UI UPDATE]: Cập nhật các nhãn cứng tiếng Anh sang Tiếng Trung Phồn Thể.
- * - [BACKWARD COMPATIBILITY]: Giữ nguyên khả năng đọc các trạng thái cũ 
- * (Done, Cancel, Running, ❌, ✅) để không ảnh hưởng dữ liệu lịch sử.
+ * các trạng thái (等待中, 服務中, 已完成, 已取消) trên toàn bộ UI.
  */
 
 const { useState, useEffect, useMemo, useRef } = React;
@@ -407,8 +406,8 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
     return (
         <div className="fixed inset-0 z-[3000] flex items-center justify-center bg-black/70 backdrop-blur-sm animate-in fade-in duration-200 p-4">
             <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden border border-slate-300 flex flex-col max-h-[90vh] relative">
-
-                {/* HEADER */}
+                {/* Modal Header... */}
+                {/* ... (Giữ nguyên nội dung header cũ để tiết kiệm không gian hiển thị mã) ... */}
                 <div className="bg-gradient-to-r from-slate-800 to-indigo-900 p-4 text-white shrink-0">
                     <div className="flex justify-between items-start">
                         {/* LEFT SIDE: Info */}
@@ -870,6 +869,7 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
 const TimelineView = ({ timelineData, onEditPhase, liveStatusData, staffList, statusData, onOpenControlCenter }) => {
     const [now, setNow] = useState(new Date());
     const STATUS = getBookingStatus();
+    const scrollContainerRef = useRef(null);
 
     useEffect(() => {
         const timer = setInterval(() => setNow(new Date()), 60000);
@@ -900,6 +900,25 @@ const TimelineView = ({ timelineData, onEditPhase, liveStatusData, staffList, st
 
     const isNowVisible = currentTotalMins >= timelineStartMins && currentTotalMins <= timelineEndMins;
     const nowLeftPos = LEFT_COL_WIDTH + (currentTotalMins - timelineStartMins) * PIXELS_PER_MIN;
+
+    // --- NEW: SMOOTH SCROLL TO NOW ---
+    const scrollToNow = (smooth = true) => {
+        if (scrollContainerRef.current) {
+            const scrollPos = nowLeftPos - 150;
+            scrollContainerRef.current.scrollTo({
+                left: scrollPos > 0 ? scrollPos : 0,
+                behavior: smooth ? 'smooth' : 'auto'
+            });
+        }
+    };
+
+    useEffect(() => {
+        // Tự động cuộn đến thời điểm hiện tại sau khi render lần đầu (delay 500ms để DOM ổn định)
+        const timer = setTimeout(() => {
+            scrollToNow(true);
+        }, 500);
+        return () => clearTimeout(timer);
+    }, []);
 
     const colorPalette = [
         "bg-red-100 text-red-900 border-red-200 hover:bg-red-200",
@@ -1009,168 +1028,181 @@ const TimelineView = ({ timelineData, onEditPhase, liveStatusData, staffList, st
     const safeData = timelineData || {};
 
     return (
-        <div className="bg-white rounded shadow border border-slate-200 h-[calc(100vh-170px)] overflow-x-scroll overflow-y-auto relative custom-scrollbar pb-2">
-            <style>{`
-                .custom-scrollbar::-webkit-scrollbar:horizontal { height: 25px !important; }
-                .custom-scrollbar::-webkit-scrollbar:vertical { width: 14px !important; }
-                .custom-scrollbar::-webkit-scrollbar-track { background: #f1f5f9; border-radius: 4px; border: 1px solid #e2e8f0; }
-                .custom-scrollbar::-webkit-scrollbar-thumb { background-color: #94a3b8; border-radius: 20px; border: 4px solid #f1f5f9; background-clip: content-box; }
-                .custom-scrollbar::-webkit-scrollbar-thumb:hover { background-color: #64748b; }
-                .custom-scrollbar::-webkit-scrollbar-corner { background: #f1f5f9; }
-                .edit-btn { opacity: 0; transition: opacity 0.2s, transform 0.1s; }
-                .timeline-block:hover .edit-btn { opacity: 1; }
-                .edit-btn:hover { transform: translate(-50%, -50%) scale(1.1); background-color: rgba(255,255,255,1) !important; color: #4f46e5 !important; border-color: #6366f1; }
-                .bf-indicator { animation: pulse-border 2s infinite; }
-                @keyframes pulse-border { 0% { border-color: #4f46e5; box-shadow: 0 0 0 0 rgba(79, 70, 229, 0.4); } 70% { border-color: #818cf8; box-shadow: 0 0 0 4px rgba(79, 70, 229, 0); } 100% { border-color: #4f46e5; box-shadow: 0 0 0 0 rgba(79, 70, 229, 0); } }
-            `}</style>
+        <div className="relative w-full h-[calc(100vh-170px)]">
 
-            <div style={{ width: `${TOTAL_WIDTH}px`, minWidth: '100%' }} className="relative min-h-full">
-                {isNowVisible && (
-                    <div
-                        className="absolute top-0 bottom-0 z-[45] pointer-events-none flex flex-col transition-all duration-1000"
-                        style={{ left: `${nowLeftPos}px`, width: '1px' }}
-                    >
-                        <div className="sticky top-0 z-50 flex justify-center w-full">
-                            <div className="bg-red-600 text-white text-[10px] font-black px-1.5 py-0.5 rounded shadow-sm whitespace-nowrap" style={{ transform: 'translate(-50%, -5px)' }}>
-                                {String(now.getHours()).padStart(2, '0')}:{String(now.getMinutes()).padStart(2, '0')} 現在
-                            </div>
-                        </div>
-                        <div className="w-[1px] h-full bg-red-600 shadow-[0_0_2px_rgba(220,38,38,0.5)] absolute top-0 left-0 -z-10"></div>
-                    </div>
-                )}
+            {/* --- FAB Nút Trở về hiện tại --- */}
+            <button
+                onClick={() => scrollToNow(true)}
+                className="absolute top-4 right-4 z-[70] bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold px-3 py-2 rounded-full shadow-lg flex items-center gap-1.5 transform active:scale-95 transition-all border border-indigo-400"
+                title="Cuộn đến thời điểm hiện tại"
+            >
+                <i className="fas fa-crosshairs"></i> 回到現在
+            </button>
 
-                <div className="flex sticky top-0 z-30 bg-slate-100 border-b border-slate-300 shadow-md h-[45px]">
-                    <div className="sticky left-0 top-0 z-40 bg-[#e2e8f0] border-r border-slate-300 flex items-center justify-center font-extrabold text-slate-700 text-sm shadow-[2px_0_5px_rgba(0,0,0,0.1)]"
-                        style={{ width: `${LEFT_COL_WIDTH}px`, height: `${HEADER_HEIGHT}px` }}>
-                        區域
-                    </div>
-                    <div className="flex bg-slate-50">
-                        {hours.map(h => (
-                            <div key={h} className="shrink-0 border-r border-slate-300 flex items-center justify-center text-slate-500 font-bold text-xs" style={{ width: `${HOUR_WIDTH}px`, height: `${HEADER_HEIGHT}px` }}>{formatHour(h)}</div>
-                        ))}
-                    </div>
-                </div>
+            {/* --- Kéo vùng Timeline vào trong Scroll Container --- */}
+            <div ref={scrollContainerRef} className="bg-white rounded shadow border border-slate-200 h-full overflow-x-scroll overflow-y-auto relative custom-scrollbar pb-2">
+                <style>{`
+                    .custom-scrollbar::-webkit-scrollbar:horizontal { height: 25px !important; }
+                    .custom-scrollbar::-webkit-scrollbar:vertical { width: 14px !important; }
+                    .custom-scrollbar::-webkit-scrollbar-track { background: #f1f5f9; border-radius: 4px; border: 1px solid #e2e8f0; }
+                    .custom-scrollbar::-webkit-scrollbar-thumb { background-color: #94a3b8; border-radius: 20px; border: 4px solid #f1f5f9; background-clip: content-box; }
+                    .custom-scrollbar::-webkit-scrollbar-thumb:hover { background-color: #64748b; }
+                    .custom-scrollbar::-webkit-scrollbar-corner { background: #f1f5f9; }
+                    .edit-btn { opacity: 0; transition: opacity 0.2s, transform 0.1s; }
+                    .timeline-block:hover .edit-btn { opacity: 1; }
+                    .edit-btn:hover { transform: translate(-50%, -50%) scale(1.1); background-color: rgba(255,255,255,1) !important; color: #4f46e5 !important; border-color: #6366f1; }
+                    .bf-indicator { animation: pulse-border 2s infinite; }
+                    @keyframes pulse-border { 0% { border-color: #4f46e5; box-shadow: 0 0 0 0 rgba(79, 70, 229, 0.4); } 70% { border-color: #818cf8; box-shadow: 0 0 0 4px rgba(79, 70, 229, 0); } 100% { border-color: #4f46e5; box-shadow: 0 0 0 0 rgba(79, 70, 229, 0); } }
+                `}</style>
 
-                <div className="relative bg-white pb-4">
-                    {rows.map((row, index) => {
-                        const isLastChairRow = index === (numChairs - 1);
-                        const rowStyleClass = isLastChairRow ? "border-b-4 border-red-500" : "border-b border-slate-100";
-
-                        return (
-                            <div key={row.id} className={`flex relative transition-colors hover:bg-slate-50 ${rowStyleClass}`} style={{ height: `${ROW_HEIGHT}px` }}>
-                                <div className={`sticky left-0 z-20 shrink-0 border-r border-slate-300 flex items-center justify-center font-bold text-sm shadow-[2px_0_5px_rgba(0,0,0,0.05)] ${row.type === 'chair' ? 'bg-teal-50 text-teal-800' : 'bg-purple-50 text-purple-800'}`} style={{ width: `${LEFT_COL_WIDTH}px` }}>{row.label}</div>
-                                <div className="relative flex-1 h-full">
-                                    <div className="absolute inset-0 flex pointer-events-none z-0">{hours.map(h => (<div key={h} className="shrink-0 border-r border-slate-200 h-full border-dashed" style={{ width: `${HOUR_WIDTH}px` }}></div>))}</div>
-                                    {safeData[row.id] && safeData[row.id].map((slot, idx) => {
-
-                                        const booking = slot.booking;
-                                        if (!booking) return null;
-
-                                        const rawStatusStr = String(booking.status || '');
-                                        const isCancelled = rawStatusStr.includes('取消') || rawStatusStr.toUpperCase().includes('CANCEL') || booking.isDoneStatus === true || rawStatusStr === STATUS.CANCELLED;
-                                        if (isCancelled) return null;
-
-                                        let startMins = slot.start;
-                                        let duration = slot.end - slot.start;
-                                        const startOffset = startMins - (startHour * 60);
-                                        const leftPos = startOffset * PIXELS_PER_MIN;
-                                        const width = duration * PIXELS_PER_MIN;
-                                        let bgClass = getRowIdColor(slot.booking.rowId);
-
-                                        const label = getDisplayLabel(booking);
-                                        const isOil = booking.isOil || (booking.serviceName && booking.serviceName.includes('油'));
-                                        const hasNote = booking.adminNote ? true : false;
-
-                                        const isGuaSha = checkGuaShaService(booking) || booking.isGuaSha === true;
-
-                                        let staffName = booking.serviceStaff || booking.staffId || booking.ServiceStaff || '隨機';
-                                        if (staffName === 'undefined' || staffName === 'null') staffName = '隨機';
-                                        const displayStaff = staffName;
-
-                                        const rawStatus = booking?.status || '';
-                                        const isStatusRunning = rawStatus.includes('Running') || rawStatus.includes('服務中') || rawStatus.includes('running') || rawStatus === STATUS.SERVING;
-                                        const isMetaRunning = slot.meta?.isRunning === true;
-                                        const isPropRunning = booking?.isRunningStatus === true;
-                                        const isLiveRunning = booking && liveRunningRowIds.has(String(booking.rowId));
-
-                                        const isRunning = isStatusRunning || isMetaRunning || isPropRunning || isLiveRunning;
-                                        const isSyncPending = booking && booking.isManualLocked;
-
-                                        const comboSequence = (slot.meta && slot.meta.isCombo && slot.meta.sequence) ? slot.meta.sequence : null;
-
-                                        const isTimeAnomaly = booking?.isTimeAnomaly === true;
-
-                                        let timeLabel = "";
-                                        if (slot.meta && slot.meta.isCombo && slot.meta.phase === 1) {
-                                            const p1Dur = booking.phase1_duration || Math.round(duration / 2);
-                                            const switchStr = window.formatMinutesToTime(slot.start + p1Dur);
-                                            timeLabel = switchStr;
-                                        } else {
-                                            timeLabel = duration;
-                                        }
-
-                                        let specialBorderClass = "border border-black/5";
-
-                                        if (isRunning) specialBorderClass = "border border-slate-300 shadow-md shadow-slate-200 z-20";
-                                        else if (comboSequence === 'BF') specialBorderClass = "border-l-[6px] border-l-indigo-700 bf-indicator shadow-indigo-200";
-
-                                        if (isTimeAnomaly) {
-                                            if (!isRunning) {
-                                                specialBorderClass = "border-2 border-dashed border-orange-500 shadow-md shadow-orange-200 z-20";
-                                            } else {
-                                                specialBorderClass += " border-orange-400 border-dashed";
-                                            }
-                                        }
-
-                                        const isComboPhase2 = slot.meta && slot.meta.isCombo && slot.meta.phase === 2;
-                                        const showControlBtn = !isComboPhase2;
-
-                                        return (
-                                            <div key={idx}
-                                                className={`absolute top-1 bottom-1 rounded px-2 py-1 flex flex-col justify-between text-xs overflow-hidden shadow-sm z-10 cursor-pointer transition-all timeline-block group ${bgClass} ${specialBorderClass}`}
-                                                style={{ left: `${leftPos}px`, width: `${width}px` }}
-                                                title={`${booking.serviceName}\n${isRunning ? `🔥 ${STATUS.SERVING}` : ''}${isSyncPending && !isRunning ? '\n⏳ 同步中...' : ''}${isTimeAnomaly ? '\n⚠️ 時長異常' : ''}${hasNote ? `\n📝 備註: ${booking.adminNote}` : ''}`}
-                                                onClick={(e) => { if (showControlBtn) { e.stopPropagation(); handleOpenControl(booking, slot.meta, row.id); } }}
-                                            >
-                                                <div className="flex justify-between items-start w-full leading-tight mb-0.5 gap-1">
-                                                    <div className="font-bold truncate text-[11px] flex-1 flex items-center gap-1">
-                                                        {label}
-                                                    </div>
-                                                    {comboSequence && (
-                                                        <div
-                                                            className={`shrink-0 text-[10px] font-black px-1 rounded shadow-sm leading-tight ${comboSequence === 'BF' ? 'bg-indigo-500 text-white' : 'bg-orange-500 text-white'}`}
-                                                            title={comboSequence === 'BF' ? '先身後足' : '先足後身'}
-                                                        >
-                                                            {comboSequence}
-                                                        </div>
-                                                    )}
-                                                </div>
-
-                                                <div className="flex justify-between items-center w-full mt-auto">
-                                                    <div className="truncate text-[10px] font-bold text-slate-700 flex items-center gap-1">
-                                                        {displayStaff}
-                                                        {isOil && <span className="text-[10px]" title="精油">💧</span>}
-                                                        {isGuaSha && <span className="text-[10px]" title="刮痧/拔罐">🔥</span>}
-                                                        {hasNote && <span className="text-[10px] text-amber-600" title={`備註: ${booking.adminNote}`}>📝</span>}
-                                                    </div>
-                                                    <div className={`text-[10px] font-bold font-mono px-1 rounded border border-black/5 shadow-sm ${isTimeAnomaly ? 'bg-orange-100 text-orange-800 animate-pulse' : 'bg-white/50 text-slate-800'}`}>
-                                                        {timeLabel}
-                                                    </div>
-                                                </div>
-
-                                                {showControlBtn && (
-                                                    <button className="edit-btn absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-8 h-8 bg-white/95 backdrop-blur-sm text-slate-500 rounded-full flex items-center justify-center shadow-lg border border-slate-200 z-50 hover:text-indigo-600 hover:border-indigo-400 hover:bg-white transition-all"
-                                                        onClick={(e) => { e.stopPropagation(); handleOpenControl(booking, slot.meta, row.id); }} title="設置">
-                                                        <i className="fas fa-cog text-sm animate-spin-hover"></i>
-                                                    </button>
-                                                )}
-                                            </div>
-                                        );
-                                    })}
+                <div style={{ width: `${TOTAL_WIDTH}px`, minWidth: '100%' }} className="relative min-h-full">
+                    {isNowVisible && (
+                        <div
+                            className="absolute top-0 bottom-0 z-[45] pointer-events-none flex flex-col transition-all duration-1000"
+                            style={{ left: `${nowLeftPos}px`, width: '1px' }}
+                        >
+                            <div className="sticky top-0 z-50 flex justify-center w-full">
+                                <div className="bg-red-600 text-white text-[10px] font-black px-1.5 py-0.5 rounded shadow-sm whitespace-nowrap" style={{ transform: 'translate(-50%, -5px)' }}>
+                                    {String(now.getHours()).padStart(2, '0')}:{String(now.getMinutes()).padStart(2, '0')} 現在
                                 </div>
                             </div>
-                        );
-                    })}
+                            <div className="w-[1px] h-full bg-red-600 shadow-[0_0_2px_rgba(220,38,38,0.5)] absolute top-0 left-0 -z-10"></div>
+                        </div>
+                    )}
+
+                    <div className="flex sticky top-0 z-30 bg-slate-100 border-b border-slate-300 shadow-md h-[45px]">
+                        <div className="sticky left-0 top-0 z-40 bg-[#e2e8f0] border-r border-slate-300 flex items-center justify-center font-extrabold text-slate-700 text-sm shadow-[2px_0_5px_rgba(0,0,0,0.1)]"
+                            style={{ width: `${LEFT_COL_WIDTH}px`, height: `${HEADER_HEIGHT}px` }}>
+                            區域
+                        </div>
+                        <div className="flex bg-slate-50">
+                            {hours.map(h => (
+                                <div key={h} className="shrink-0 border-r border-slate-300 flex items-center justify-center text-slate-500 font-bold text-xs" style={{ width: `${HOUR_WIDTH}px`, height: `${HEADER_HEIGHT}px` }}>{formatHour(h)}</div>
+                            ))}
+                        </div>
+                    </div>
+
+                    <div className="relative bg-white pb-4">
+                        {rows.map((row, index) => {
+                            const isLastChairRow = index === (numChairs - 1);
+                            const rowStyleClass = isLastChairRow ? "border-b-4 border-red-500" : "border-b border-slate-100";
+
+                            return (
+                                <div key={row.id} className={`flex relative transition-colors hover:bg-slate-50 ${rowStyleClass}`} style={{ height: `${ROW_HEIGHT}px` }}>
+                                    <div className={`sticky left-0 z-20 shrink-0 border-r border-slate-300 flex items-center justify-center font-bold text-sm shadow-[2px_0_5px_rgba(0,0,0,0.05)] ${row.type === 'chair' ? 'bg-teal-50 text-teal-800' : 'bg-purple-50 text-purple-800'}`} style={{ width: `${LEFT_COL_WIDTH}px` }}>{row.label}</div>
+                                    <div className="relative flex-1 h-full">
+                                        <div className="absolute inset-0 flex pointer-events-none z-0">{hours.map(h => (<div key={h} className="shrink-0 border-r border-slate-200 h-full border-dashed" style={{ width: `${HOUR_WIDTH}px` }}></div>))}</div>
+                                        {safeData[row.id] && safeData[row.id].map((slot, idx) => {
+
+                                            const booking = slot.booking;
+                                            if (!booking) return null;
+
+                                            const rawStatusStr = String(booking.status || '');
+                                            const isCancelled = rawStatusStr.includes('取消') || rawStatusStr.toUpperCase().includes('CANCEL') || booking.isDoneStatus === true || rawStatusStr === STATUS.CANCELLED;
+                                            if (isCancelled) return null;
+
+                                            let startMins = slot.start;
+                                            let duration = slot.end - slot.start;
+                                            const startOffset = startMins - (startHour * 60);
+                                            const leftPos = startOffset * PIXELS_PER_MIN;
+                                            const width = duration * PIXELS_PER_MIN;
+                                            let bgClass = getRowIdColor(slot.booking.rowId);
+
+                                            const label = getDisplayLabel(booking);
+                                            const isOil = booking.isOil || (booking.serviceName && booking.serviceName.includes('油'));
+                                            const hasNote = booking.adminNote ? true : false;
+
+                                            const isGuaSha = checkGuaShaService(booking) || booking.isGuaSha === true;
+
+                                            let staffName = booking.serviceStaff || booking.staffId || booking.ServiceStaff || '隨機';
+                                            if (staffName === 'undefined' || staffName === 'null') staffName = '隨機';
+                                            const displayStaff = staffName;
+
+                                            const rawStatus = booking?.status || '';
+                                            const isStatusRunning = rawStatus.includes('Running') || rawStatus.includes('服務中') || rawStatus.includes('running') || rawStatus === STATUS.SERVING;
+                                            const isMetaRunning = slot.meta?.isRunning === true;
+                                            const isPropRunning = booking?.isRunningStatus === true;
+                                            const isLiveRunning = booking && liveRunningRowIds.has(String(booking.rowId));
+
+                                            const isRunning = isStatusRunning || isMetaRunning || isPropRunning || isLiveRunning;
+                                            const isSyncPending = booking && booking.isManualLocked;
+
+                                            const comboSequence = (slot.meta && slot.meta.isCombo && slot.meta.sequence) ? slot.meta.sequence : null;
+
+                                            const isTimeAnomaly = booking?.isTimeAnomaly === true;
+
+                                            let timeLabel = "";
+                                            if (slot.meta && slot.meta.isCombo && slot.meta.phase === 1) {
+                                                const p1Dur = booking.phase1_duration || Math.round(duration / 2);
+                                                const switchStr = window.formatMinutesToTime(slot.start + p1Dur);
+                                                timeLabel = switchStr;
+                                            } else {
+                                                timeLabel = duration;
+                                            }
+
+                                            let specialBorderClass = "border border-black/5";
+
+                                            if (isRunning) specialBorderClass = "border border-slate-300 shadow-md shadow-slate-200 z-20";
+                                            else if (comboSequence === 'BF') specialBorderClass = "border-l-[6px] border-l-indigo-700 bf-indicator shadow-indigo-200";
+
+                                            if (isTimeAnomaly) {
+                                                if (!isRunning) {
+                                                    specialBorderClass = "border-2 border-dashed border-orange-500 shadow-md shadow-orange-200 z-20";
+                                                } else {
+                                                    specialBorderClass += " border-orange-400 border-dashed";
+                                                }
+                                            }
+
+                                            const isComboPhase2 = slot.meta && slot.meta.isCombo && slot.meta.phase === 2;
+                                            const showControlBtn = !isComboPhase2;
+
+                                            return (
+                                                <div key={idx}
+                                                    className={`absolute top-1 bottom-1 rounded px-2 py-1 flex flex-col justify-between text-xs overflow-hidden shadow-sm z-10 cursor-pointer transition-all timeline-block group ${bgClass} ${specialBorderClass}`}
+                                                    style={{ left: `${leftPos}px`, width: `${width}px` }}
+                                                    title={`${booking.serviceName}\n${isRunning ? `🔥 ${STATUS.SERVING}` : ''}${isSyncPending && !isRunning ? '\n⏳ 同步中...' : ''}${isTimeAnomaly ? '\n⚠️ 時長異常' : ''}${hasNote ? `\n📝 備註: ${booking.adminNote}` : ''}`}
+                                                    onClick={(e) => { if (showControlBtn) { e.stopPropagation(); handleOpenControl(booking, slot.meta, row.id); } }}
+                                                >
+                                                    <div className="flex justify-between items-start w-full leading-tight mb-0.5 gap-1">
+                                                        <div className="font-bold truncate text-[11px] flex-1 flex items-center gap-1">
+                                                            {label}
+                                                        </div>
+                                                        {comboSequence && (
+                                                            <div
+                                                                className={`shrink-0 text-[10px] font-black px-1 rounded shadow-sm leading-tight ${comboSequence === 'BF' ? 'bg-indigo-500 text-white' : 'bg-orange-500 text-white'}`}
+                                                                title={comboSequence === 'BF' ? '先身後足' : '先足後身'}
+                                                            >
+                                                                {comboSequence}
+                                                            </div>
+                                                        )}
+                                                    </div>
+
+                                                    <div className="flex justify-between items-center w-full mt-auto">
+                                                        <div className="truncate text-[10px] font-bold text-slate-700 flex items-center gap-1">
+                                                            {displayStaff}
+                                                            {isOil && <span className="text-[10px]" title="精油">💧</span>}
+                                                            {isGuaSha && <span className="text-[10px]" title="刮痧/拔罐">🔥</span>}
+                                                            {hasNote && <span className="text-[10px] text-amber-600" title={`備註: ${booking.adminNote}`}>📝</span>}
+                                                        </div>
+                                                        <div className={`text-[10px] font-bold font-mono px-1 rounded border border-black/5 shadow-sm ${isTimeAnomaly ? 'bg-orange-100 text-orange-800 animate-pulse' : 'bg-white/50 text-slate-800'}`}>
+                                                            {timeLabel}
+                                                        </div>
+                                                    </div>
+
+                                                    {showControlBtn && (
+                                                        <button className="edit-btn absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-8 h-8 bg-white/95 backdrop-blur-sm text-slate-500 rounded-full flex items-center justify-center shadow-lg border border-slate-200 z-50 hover:text-indigo-600 hover:border-indigo-400 hover:bg-white transition-all"
+                                                            onClick={(e) => { e.stopPropagation(); handleOpenControl(booking, slot.meta, row.id); }} title="設置">
+                                                            <i className="fas fa-cog text-sm animate-spin-hover"></i>
+                                                        </button>
+                                                    )}
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
                 </div>
             </div>
         </div>

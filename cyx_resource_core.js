@@ -8,7 +8,7 @@
  *
  * * * * * CHANGE LOG V118.0 (DATA & LOGIC SYNC) * * * * *
  * 1. [CONFIG INJECTION] Loại bỏ Hardcode. Tự động đọc cấu hình MAX_CHAIRS, MAX_BEDS, OPEN_HOUR
- * từ file data.js (SYSTEM_CONFIG). Hỗ trợ chạy trên cả Node.js và Browser.
+ * từ file cyx_data.js (SYSTEM_CONFIG). Hỗ trợ chạy trên cả Node.js và Browser.
  * 2. [ALGORITHM SYNC] Bê nguyên thuật toán "Continuous Scan Guardrail" (chống phân mảnh
  * khoảng trống) từ bookingHandler.js (Frontend) sang. Đảm bảo Backend và Frontend
  * đồng bộ 100% kết quả kiểm tra chỗ trống.
@@ -17,19 +17,19 @@
  */
 
 // ============================================================================
-// PHẦN 1: LIÊN KẾT CẤU HÌNH TRUNG TÂM (DATA.JS)
+// PHẦN 1: LIÊN KẾT CẤU HÌNH TRUNG TÂM (cyx_data.js)
 // ============================================================================
 
 let SYSTEM_CONFIG = null;
 
-// Thử tải data.js trong môi trường Node.js (Backend)
+// Thử tải cyx_data.js trong môi trường Node.js (Backend)
 if (typeof require !== 'undefined') {
     try {
-        const dataModule = require('./data.js');
+        const dataModule = require('./cyx_data.js');
         SYSTEM_CONFIG = dataModule.SYSTEM_CONFIG;
-        console.log("✅ [CORE V118.0] Đã nạp thành công SYSTEM_CONFIG từ data.js (Backend)");
+        console.log("✅ [CORE V118.0] Đã nạp thành công SYSTEM_CONFIG từ cyx_data.js (Backend)");
     } catch (e) {
-        console.warn("⚠️ [CORE V118.0] Không tìm thấy file ./data.js qua require. Chờ Fallback.");
+        console.warn("⚠️ [CORE V118.0] Không tìm thấy file ./cyx_data.js qua require. Chờ Fallback.");
     }
 }
 
@@ -39,7 +39,7 @@ if (!SYSTEM_CONFIG && typeof window !== 'undefined' && window.SYSTEM_CONFIG) {
     console.log("✅ [CORE V118.0] Đã nạp thành công SYSTEM_CONFIG từ window (Frontend)");
 }
 
-// FALLBACK AN TOÀN TỐI HẬU (Phòng trường hợp file data.js bị lỗi/mất)
+// FALLBACK AN TOÀN TỐI HẬU (Phòng trường hợp file cyx_data.js bị lỗi/mất)
 if (!SYSTEM_CONFIG) {
     console.error("❌ [CORE V118.0] CRITICAL: Không tìm thấy SYSTEM_CONFIG. Đang dùng Fallback mặc định 9-9.");
     SYSTEM_CONFIG = {
