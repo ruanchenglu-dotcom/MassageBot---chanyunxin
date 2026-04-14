@@ -851,8 +851,8 @@ const MAX_RETRIES = SYSTEM_CONFIG.API_CONFIG.MAX_RETRIES || 3;
 let alarmSent = false; // Trạng thái đã gửi cảnh báo hay chưa
 
 setInterval(async () => {
-    await SheetService.syncMenucyx_data(); // [V130 CẬP NHẬT] Đồng bộ Menu định kỳ mỗi chu kỳ
-    await SheetService.synccyx_data();
+    await SheetService.syncMenuData(); // [V130 CẬP NHẬT] Đồng bộ Menu định kỳ mỗi chu kỳ
+    await SheetService.syncData();
     const errors = SheetService.getConsecutiveErrors();
 
     if (errors >= MAX_RETRIES && !alarmSent) {
