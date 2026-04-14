@@ -843,7 +843,7 @@ async function handleEvent(event) {
 }
 
 // 1. Initial Sync (Khởi động đồng bộ)
-SheetService.syncMenucyx_data().then(() => SheetService.synccyx_data());
+SheetService.syncMenuData().then(() => SheetService.syncData());
 
 // 2. Auto Sync Interval & Error Tracking [V130 NÂNG CẤP]
 const SYNC_INTERVAL = SYSTEM_CONFIG.API_CONFIG.SYNC_INTERVAL || 30000; // Mặc định 30 giây
