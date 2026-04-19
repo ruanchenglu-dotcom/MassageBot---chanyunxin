@@ -1,6 +1,6 @@
 // FILE: js/components.js
-// PHIÊN BẢN: V118.0 (UPGRADE: CLEAN AVAILABILITY MODAL & 9x9 MATRIX)
-// CẬP NHẬT: 2026-04-13
+// PHIÊN BẢN: V118.3 (UPGRADE: STAFF CARD UI FIX & STRICT COL I CHECK)
+// CẬP Nhật: 2026-04-15
 
 const { useState, useEffect, useMemo, useRef } = React;
 
@@ -51,7 +51,7 @@ window.ErrorBoundary = ErrorBoundary;
 
 /**
  * ============================================================================
- * 2. STAFF CARD 3D (技師卡片)
+ * 2. STAFF CARD 3D (技師卡片) - CẬP NHẬT GIAO DIỆN & LOGIC CỘT I
  * ============================================================================
  */
 const StaffCard3D = ({ s, statusData, resourceState, queueIndex, isForcedBusy }) => {
@@ -83,7 +83,8 @@ const StaffCard3D = ({ s, statusData, resourceState, queueIndex, isForcedBusy })
     let isCurrentlyWorkingDesignated = false;
     if (displayStatus === 'BUSY' && actualActiveBooking) {
         const b = actualActiveBooking;
-        const requestFields = [b.staffId, b.staffId2, b.staffId3, b.staffId4, b.technician];
+        // CHỈ KIỂM TRA CỘT I (staffId) theo yêu cầu nâng cấp
+        const requestFields = [b.staffId];
         isCurrentlyWorkingDesignated = requestFields.some(req => {
             const reqStr = String(req || '').trim();
             const randomKeywords = ['隨機', 'RANDOM', 'MALE', 'FEMALE', '男', '女', 'ANY', 'NULL', 'UNDEFINED', '', '不指定', '安排', '現場'];
@@ -97,26 +98,23 @@ const StaffCard3D = ({ s, statusData, resourceState, queueIndex, isForcedBusy })
     let cardStyle = isFemale ? 'style-female' : 'style-male';
     let customClass = "";
 
-    if (displayStatus === 'BUSY') {
-        cardStyle = 'st-busy';
-        if (hasUpcoming) {
-            customClass = "ring-4 ring-yellow-500 border-yellow-600 shadow-[0_0_15px_rgba(234,179,8,0.6)]";
-        }
-        if (isCurrentlyWorkingDesignated) {
-            customClass = "ring-4 ring-amber-600 border-amber-600 shadow-[0_0_15px_rgba(245,158,11,0.8)] transform scale-105 z-10";
-        }
-    }
-    else if (displayStatus === 'READY') {
-        if (hasUpcoming) {
-            customClass = "!bg-yellow-100 !border-yellow-300 shadow-sm";
-        }
-    }
+    // 1. Gán style cơ bản theo trạng thái
+    if (displayStatus === 'BUSY') { cardStyle = 'st-busy'; }
     else if (displayStatus === 'AWAY' || displayStatus === 'OFF') { cardStyle = 'st-away'; }
     else if (displayStatus === 'EAT') { cardStyle = 'st-eat'; }
-    else if (displayStatus === 'OUT_SHORT') { cardStyle = 'bg-green-500 text-white border-green-600'; }
+    else if (displayStatus === 'OUT_SHORT') { cardStyle = 'bg-green-500 text-white !border-green-600'; }
+
+    // 2. Logic ưu tiên: Cảnh báo sắp tới có lịch chỉ định (Chỉ đổi màu thẻ khi đang ở trạng thái READY)
+    if (displayStatus === 'READY' && hasUpcoming) {
+        customClass = "!bg-yellow-400 !text-black !border-yellow-500 z-10 shadow-md";
+    }
+
+    // 3. Trạng thái BUSY: Giữ tuyệt đối cardStyle 'st-busy' gốc, không thay đổi customClass (Đã xóa logic override bóng cam)
 
     return (
         <div className={`card-3d ${cardStyle} ${customClass} flex flex-col items-center justify-center relative p-0 overflow-hidden transition-all duration-300`}>
+
+
             {queueIndex !== undefined && (displayStatus === 'READY' || displayStatus === 'BUSY') && (
                 <div className={`queue-badge ${displayStatus === 'BUSY' ? '!bg-slate-700 !text-white' : 'animate-bounce-slow'}`}>
                     {queueIndex + 1}
@@ -124,12 +122,12 @@ const StaffCard3D = ({ s, statusData, resourceState, queueIndex, isForcedBusy })
             )}
 
             {(displayStatus === 'EAT' || displayStatus === 'OUT_SHORT') && (
-                <div className="absolute top-0 left-0 w-full bg-black/20 text-white text-[10px] font-bold text-center">
+                <div className="absolute top-0 left-0 w-full bg-black/30 text-white text-[10px] font-bold text-center z-10">
                     {displayStatus === 'EAT' ? '用餐' : '外出'}
                 </div>
             )}
 
-            <div className={`font-black text-2xl text-center leading-none w-full select-none flex-1 flex items-center justify-center break-words px-0.5 text-slate-800`}>
+            <div className={`font-black text-2xl text-center leading-none w-full select-none flex-1 flex items-center justify-center break-words px-0.5 relative z-0 ${displayStatus === 'READY' && hasUpcoming ? 'text-black' : 'text-slate-800'}`}>
                 {s.name}
             </div>
         </div>
@@ -145,8 +143,27 @@ window.StaffCard3D = StaffCard3D;
 const CheckInBoard = ({ staffList, statusData, onClose, onUpdateStatus, bookings }) => {
     const STATUS = getBookingStatus();
     const safeStaffList = Array.isArray(staffList) ? staffList : [];
+
+    // Tối ưu sắp xếp danh sách thợ theo số (id: "2" sẽ đứng trước "10")
+    const sortedStaffList = useMemo(() => {
+        return [...safeStaffList].sort((a, b) => {
+            const numA = parseInt(a.id, 10);
+            const numB = parseInt(b.id, 10);
+            if (!isNaN(numA) && !isNaN(numB)) return numA - numB;
+            return String(a.id).localeCompare(String(b.id));
+        });
+    }, [safeStaffList]);
+
     const RATES = { JIE_PRICE: 250, OIL_BONUS: 80 };
-    const normalize = (str) => String(str || '').trim().replace(/\s+/g, '');
+
+    // Nâng cấp hàm normalize để gom chung "01" và "1"
+    const normalize = (str) => {
+        if (typeof window !== 'undefined' && window.normalizeStaffId) {
+            return window.normalizeStaffId(str);
+        }
+        // Xóa khoảng trắng, cắt số 0 ở đầu (nếu có số theo sau) để gom chung ID, ép lên in hoa
+        return String(str || '').trim().replace(/\s+/g, '').replace(/^0+(?=\d)/, '').toUpperCase();
+    };
 
     const getJieCount = (serviceName, duration) => {
         const name = (serviceName || "").toUpperCase();
@@ -185,6 +202,7 @@ const CheckInBoard = ({ staffList, statusData, onClose, onUpdateStatus, bookings
         (staffList || []).forEach(staff => {
             const entry = { id: staff.id, jie: 0, oil: 0, income: 0 };
             stats[staff.id] = entry;
+            // Ánh xạ bằng normalized ID
             lookupMap[normalize(staff.id)] = entry;
             if (staff.name) lookupMap[normalize(staff.name)] = entry;
         });
@@ -224,23 +242,11 @@ const CheckInBoard = ({ staffList, statusData, onClose, onUpdateStatus, bookings
             window._lastCheckInTime = now;
             newCheckInTime = now;
 
-            let maxStaffTime = -1;
-
-            if (statusData) {
-                const readyTimes = Object.entries(statusData)
-                    .filter(([key, staff]) => staff.status === 'READY' && key !== id)
-                    .map(([_, staff]) => Number(staff.stafftime))
-                    .filter(t => !isNaN(t));
-
-                if (readyTimes.length > 0) {
-                    maxStaffTime = Math.max(...readyTimes);
-                }
-            }
-
-            if (maxStaffTime > 0) {
-                newStaffTime = maxStaffTime + 100;
+            // [V118 SSOT] Gọi cổng API quản lý vòng đời (Stage 1: Check-in)
+            if (window.StaffSorter?.processCheckIn) {
+                newStaffTime = window.StaffSorter.processCheckIn(id, statusData, staffList, newCheckInTime);
             } else {
-                newStaffTime = newCheckInTime;
+                newStaffTime = newCheckInTime; // Fallback
             }
         }
 
@@ -287,7 +293,7 @@ const CheckInBoard = ({ staffList, statusData, onClose, onUpdateStatus, bookings
                     <div className="col-span-1 text-center text-blue-700">準時下班</div>
                 </div>
                 <div className="overflow-y-auto flex-1 p-2 space-y-2 bg-white custom-scrollbar">
-                    {safeStaffList.map(s => {
+                    {sortedStaffList.map(s => {
                         const current = (statusData && statusData[s.id]) ? statusData[s.id] : { status: 'AWAY', checkInTime: 0 };
                         const isWorking = current.status !== 'AWAY' && current.status !== 'OFF';
                         const income = staffIncomeMap[s.id] ? staffIncomeMap[s.id].income : 0;
@@ -350,15 +356,30 @@ window.CheckInBoard = CheckInBoard;
 
 /**
  * ============================================================================
- * 4. AVAILABILITY CHECK MODAL (電話預約檢查) - CLEAN & OPTIMIZED FOR 9x9 MATRIX
+ * 4. AVAILABILITY CHECK MODAL (預約檢查)
  * ============================================================================
  */
 const AvailabilityCheckModal = ({ onClose, onSave, staffList, bookings, initialDate }) => {
+    const getRoundedCurrentTime = () => {
+        const now = new Date();
+        let h = now.getHours();
+        let m = now.getMinutes();
+        let remainder = m % 10;
+        if (remainder !== 0) {
+            m += (10 - remainder);
+            if (m >= 60) {
+                m = 0;
+                h = (h + 1) % 24;
+            }
+        }
+        return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+    };
+
     const STATUS = getBookingStatus();
     const [step, setStep] = useState('CHECK');
     const [checkResult, setCheckResult] = useState(null);
     const [form, setForm] = useState({
-        time: "12:00",
+        time: getRoundedCurrentTime(),
         service: (window.SERVICES_LIST && window.SERVICES_LIST.length > 2) ? window.SERVICES_LIST[2] : "Foot Massage",
         pax: 1,
         genderPref: '隨機',
@@ -431,7 +452,6 @@ const AvailabilityCheckModal = ({ onClose, onSave, staffList, bookings, initialD
         let available = true;
         let msg = "✅ 可預約";
 
-        // Logic check sức chứa đã được đồng bộ với ma trận 9 giường/9 ghế
         if (resourceType === 'CHAIR') {
             if (chairOccupied + needed > 9) { available = false; msg = "❌ 足底區客滿"; }
         } else if (resourceType === 'BED') {
@@ -469,13 +489,22 @@ const AvailabilityCheckModal = ({ onClose, onSave, staffList, bookings, initialD
         onSave(bookingData);
     };
 
-    const safeStaffList = staffList || [];
+    // Tối ưu sắp xếp danh sách thợ cho Dropdown chọn thợ
+    const sortedStaffList = useMemo(() => {
+        const safeList = Array.isArray(staffList) ? staffList : [];
+        return [...safeList].sort((a, b) => {
+            const numA = parseInt(a.id, 10);
+            const numB = parseInt(b.id, 10);
+            if (!isNaN(numA) && !isNaN(numB)) return numA - numB;
+            return String(a.id).localeCompare(String(b.id));
+        });
+    }, [staffList]);
 
     return (
         <div className="fixed inset-0 bg-slate-900/90 z-[70] flex items-center justify-center p-4">
             <div className="bg-white w-full max-w-md rounded-xl shadow-2xl modal-animate flex flex-col overflow-hidden">
                 <div className="bg-emerald-600 p-4 text-white flex justify-between items-center">
-                    <h3 className="font-bold text-lg"><i className="fas fa-phone-volume"></i> 電話預約檢查</h3>
+                    <h3 className="font-bold text-lg"><i className="fas fa-phone-volume"></i> 預約檢查</h3>
                     <button onClick={onClose}><i className="fas fa-times"></i></button>
                 </div>
                 <div className="p-5 space-y-4">
@@ -492,7 +521,17 @@ const AvailabilityCheckModal = ({ onClose, onSave, staffList, bookings, initialD
                             </div>
                             <div><label className="text-xs font-bold text-gray-500">服務項目</label><select className="w-full border p-2 rounded font-bold" value={form.service} onChange={e => { setForm({ ...form, service: e.target.value }); setCheckResult(null); }}>{(window.SERVICES_LIST || []).map(s => <option key={s} value={s}>{s}</option>)}</select></div>
                             <div className="grid grid-cols-2 gap-3">
-                                <div><label className="text-xs font-bold text-gray-500">指定技師</label><select className="w-full border p-2 rounded font-bold" value={form.genderPref} onChange={e => { setForm({ ...form, genderPref: e.target.value }); setCheckResult(null); }}><option value="隨機">🎲 隨機</option><option value="女">🚺 女師傅</option><option value="男">🚹 男師傅</option><optgroup label="指定 ID">{safeStaffList.map(s => <option key={s.id} value={s.id}>{s.id} - {s.name}</option>)}</optgroup></select></div>
+                                <div>
+                                    <label className="text-xs font-bold text-gray-500">指定技師</label>
+                                    <select className="w-full border p-2 rounded font-bold" value={form.genderPref} onChange={e => { setForm({ ...form, genderPref: e.target.value }); setCheckResult(null); }}>
+                                        <option value="隨機">🎲 隨機</option>
+                                        <option value="女">🚺 女師傅</option>
+                                        <option value="男">🚹 男師傅</option>
+                                        <optgroup label="指定 ID">
+                                            {sortedStaffList.map(s => <option key={s.id} value={s.id}>{s.id} - {s.name}</option>)}
+                                        </optgroup>
+                                    </select>
+                                </div>
                                 <div><label className="text-xs font-bold text-gray-500">精油</label><button onClick={() => { const newVal = !form.isOil; setForm({ ...form, isOil: newVal, genderPref: newVal ? '女' : form.genderPref }); setCheckResult(null); }} className={`w-full border p-2 rounded font-bold flex items-center justify-center gap-2 ${form.isOil ? 'bg-purple-600 text-white' : 'bg-gray-100'}`}>{form.isOil ? '✅ 有' : '⬜ 無'}</button></div>
                             </div>
 
@@ -541,14 +580,8 @@ window.AvailabilityCheckModal = AvailabilityCheckModal;
  */
 const BillingModal = ({ activeItem, relatedItems, onConfirm, onCancel }) => {
     const hasGroup = relatedItems && relatedItems.length > 0;
-    const [step, setStep] = useState(hasGroup ? 'CHOICE' : 'CONFIRM');
-    const [targetItems, setTargetItems] = useState(hasGroup ? [] : [activeItem]);
-
-    useEffect(() => {
-        if (hasGroup) setStep('CHOICE');
-        else setStep('CONFIRM');
-        setTargetItems([activeItem]);
-    }, [hasGroup, activeItem]);
+    const [step, setStep] = useState('CONFIRM'); // Bỏ qua step CHOICE thừa thãi
+    const [targetItems, setTargetItems] = useState(hasGroup ? [activeItem, ...relatedItems] : [activeItem]);
 
     const calculateTotal = (list) => list.reduce((sum, item) => {
         const getP = window.getPrice ? window.getPrice(item.booking.serviceName) : 0;

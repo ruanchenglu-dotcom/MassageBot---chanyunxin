@@ -131,8 +131,8 @@ function getMinsFromTimeStr(timeStr) {
         let m = parseInt(parts[1], 10);
 
         if (isNaN(h) || isNaN(m)) return -1;
-        // Sử dụng OPEN_HOUR từ cấu hình trung tâm (Mặc định 3:00 sáng)
-        if (h < CONF.OPEN_HOUR) h += 24;
+        // [V116.3 NÂNG CẤP]: Mở rộng giờ ca đêm lên tới 06:00 sáng, chống lỗi 03:00
+        if (h <= 6) h += 24;
 
         return (h * 60) + m;
     } catch (e) { return -1; }
@@ -211,9 +211,14 @@ function parseStaffStatus(staffInfo) {
     if (startStr.includes('OFF') || startStr.includes('NGHỈ') || startStr.includes('CLOSE')) isOff = true;
     if (isOff) return { isAvailable: false, reason: "MARKED_OFF" };
 
-    const startMins = getMinsFromTimeStr(staffInfo.start);
-    const endMins = getMinsFromTimeStr(staffInfo.end);
+    let startMins = getMinsFromTimeStr(staffInfo.start);
+    let endMins = getMinsFromTimeStr(staffInfo.end);
     if (startMins === -1 || endMins === -1) return { isAvailable: false, reason: "INVALID_TIME" };
+
+    // [CORE V118.1] Fix Overnight Shifts (Ca Xuyên Đêm)
+    if (endMins < startMins) {
+        endMins += 1440;
+    }
 
     return { isAvailable: true, startMins: startMins, endMins: endMins, isStrict: staffInfo.isStrictTime === true };
 }

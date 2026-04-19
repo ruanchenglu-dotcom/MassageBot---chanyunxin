@@ -310,9 +310,6 @@ async function syncData() {
     try {
         STATE.isSyncing = true;
 
-        await syncQuickNotes();
-        await syncMenuData();
-
         const resBooking = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: `${BOOKING_SHEET_NAME}!A:AE` });
         const rowsBooking = resBooking.data.values;
         let tempBookings = [];
@@ -637,7 +634,7 @@ async function ghiVaoSheet(data, proposedUpdates = []) {
             });
         }
 
-        setTimeout(() => syncData(), 500);
+        triggerSyncDebounced();
 
         // [V1.5 NÂNG CẤP] Trả về true nếu toàn bộ quá trình ghi trên API thành công
         return true;
@@ -656,7 +653,7 @@ async function updateBookingStatus(rowId, newStatus) {
             spreadsheetId: SHEET_ID, range: `${BOOKING_SHEET_NAME}!H${rowId}`,
             valueInputOption: 'USER_ENTERED', requestBody: { values: [[newStatus]] }
         });
-        await syncData();
+        triggerSyncDebounced();
         return true;
     } catch (e) { console.error('Update Status Error:', e); return false; }
 }
@@ -749,7 +746,7 @@ async function updateBookingDetails(body) {
         await updateCell('AE', finalLockString);
     }
 
-    if (body.forceSync) await syncData(); else setTimeout(() => syncData(), 500);
+    if (body.forceSync) triggerSyncDebounced(100); else triggerSyncDebounced();
     return true;
 }
 
@@ -816,11 +813,125 @@ async function updateInlineBooking(rowId, updatedData) {
             console.log(`[INLINE UPDATE] Success for Row: ${rowId}`);
         }
 
-        setTimeout(() => syncData(), 500);
+        triggerSyncDebounced();
         return true;
     } catch (e) {
         console.error('[INLINE UPDATE ERROR]', e);
         throw e;
+    }
+}
+
+// =============================================================================
+// PHẦN 3.5: BATCH UPDATE LOGIC (CHỐNG LỖI QUOTA)
+// =============================================================================
+
+let syncDataTimeoutStore = null;
+function triggerSyncDebounced(delay = 700) {
+    if (syncDataTimeoutStore) clearTimeout(syncDataTimeoutStore);
+    syncDataTimeoutStore = setTimeout(() => {
+        syncDataTimeoutStore = null;
+        if (!STATE.isSyncing) syncData();
+    }, delay);
+}
+
+async function batchUpdateMultipleBookings(updatesArray) {
+    if (!updatesArray || updatesArray.length === 0) return true;
+    try {
+        const dataToUpdate = [];
+        let hasForceSync = false;
+
+        updatesArray.forEach(body => {
+            const rowId = body.rowId;
+            if (!rowId) return;
+            if (body.forceSync) hasForceSync = true;
+
+            if (body.date) {
+                const formattedDate = normalizeDateStrict(body.date);
+                dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!A${rowId}`, values: [[formattedDate]] });
+                dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!S${rowId}`, values: [[formattedDate]] });
+            }
+            if (body.startTime) {
+                let timeVal = String(body.startTime); if (timeVal.length > 5) timeVal = timeVal.substring(0, 5);
+                dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!B${rowId}`, values: [[timeVal]] });
+            }
+            if (body.customerName !== undefined) dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!C${rowId}`, values: [[body.customerName]] });
+            if (body.serviceName !== undefined) dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!D${rowId}`, values: [[body.serviceName]] });
+            if (body.isOil !== undefined) dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!E${rowId}`, values: [[body.isOil ? "Yes" : ""]] });
+            if (body.pax !== undefined) dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!F${rowId}`, values: [[body.pax]] });
+            if (body.phone !== undefined) dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!G${rowId}`, values: [[body.phone]] });
+            if (body.mainStatus !== undefined || body.status !== undefined) dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!H${rowId}`, values: [[body.mainStatus || body.status]] });
+            
+            if (body.requestedStaff !== undefined) dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!I${rowId}`, values: [[body.requestedStaff]] });
+            
+            const staff1 = body['服務師傅1'] || body.ServiceStaff1 || body.staff1 || body.serviceStaff || body.staffId;
+            if (staff1 !== undefined && staff1 !== '隨機') dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!L${rowId}`, values: [[staff1]] });
+            
+            const staff2 = body['服務師傅2'] || body.ServiceStaff2 || body.staff2 || body.staffId2;
+            if (staff2 !== undefined) dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!M${rowId}`, values: [[staff2]] });
+            
+            const staff3 = body['服務師傅3'] || body.ServiceStaff3 || body.staff3 || body.staffId3;
+            if (staff3 !== undefined) dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!N${rowId}`, values: [[staff3]] });
+
+            if (body.isGuaSha !== undefined) dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!Q${rowId}`, values: [[body.isGuaSha ? "Yes" : ""]] });
+            if (body.adminNote !== undefined) dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!R${rowId}`, values: [[body.adminNote]] });
+
+            const flowVal = body.flow || body.flow_code;
+            if (flowVal !== undefined) dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!AA${rowId}`, values: [[flowVal]] });
+
+            let phase1Res = body.phase1_res_idx !== undefined ? body.phase1_res_idx : (body.phase1_resource !== undefined ? body.phase1_resource : body.phase1Resource);
+            if (phase1Res === undefined && (body.location !== undefined || body.current_resource_id !== undefined)) {
+                phase1Res = body.location !== undefined ? body.location : body.current_resource_id;
+            }
+            if (phase1Res !== undefined) dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!AB${rowId}`, values: [[phase1Res]] });
+
+            const phase2Res = body.phase2_res_idx !== undefined ? body.phase2_res_idx : (body.phase2_resource !== undefined ? body.phase2_resource : body.phase2Resource);
+            if (phase2Res !== undefined) dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!AC${rowId}`, values: [[phase2Res]] });
+
+            const resourceType = body.resource_type !== undefined ? body.resource_type : body.resourceType;
+            if (resourceType !== undefined) dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!AD${rowId}`, values: [[resourceType ? String(resourceType).toUpperCase() : ""]] });
+
+            let bookingData = STATE.cachedBookings.find(b => b.rowId == rowId);
+            let totalDuration = bookingData ? bookingData.duration : (safeParseInt(body.duration, 60));
+            let currentLockState = bookingData ? bookingData.isManualLocked : false;
+            let hasManualPhaseChange = false;
+
+            if (body.phase1_duration !== undefined && body.phase1_duration !== null) {
+                const p1 = parseInt(body.phase1_duration); const p2 = totalDuration - p1;
+                dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!Y${rowId}`, values: [[p1]] });
+                dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!Z${rowId}`, values: [[p2]] });
+                hasManualPhaseChange = true;
+            } else if (body.phase2_duration !== undefined && body.phase2_duration !== null) {
+                const p2 = parseInt(body.phase2_duration); const p1 = totalDuration - p2;
+                dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!Y${rowId}`, values: [[p1]] });
+                dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!Z${rowId}`, values: [[p2]] });
+                hasManualPhaseChange = true;
+            }
+
+            const currentLockString = currentLockState ? "TRUE" : "FALSE";
+            const finalLockString = resolveStrictLockState(body.isManualLocked, hasManualPhaseChange, currentLockString);
+
+            if (finalLockString !== currentLockString || body.isManualLocked !== undefined || hasManualPhaseChange) {
+                dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!AE${rowId}`, values: [[finalLockString]] });
+            }
+        });
+
+        if (dataToUpdate.length > 0) {
+            await sheets.spreadsheets.values.batchUpdate({
+                spreadsheetId: SHEET_ID,
+                requestBody: {
+                    valueInputOption: 'USER_ENTERED',
+                    data: dataToUpdate
+                }
+            });
+            console.log(`[BATCH UPDATE MULTIPLE] Success: ${dataToUpdate.length} updates for ${updatesArray.length} bookings.`);
+        }
+
+        if (hasForceSync) triggerSyncDebounced(100); else triggerSyncDebounced();
+        return true;
+
+    } catch (e) {
+        console.error('[BATCH UPDATE MULTIPLE ERROR]', e);
+        return false;
     }
 }
 
@@ -854,7 +965,7 @@ async function updateScheduleCell(lineId, dateStr, value) {
             requestBody: { values: [[value]] }
         });
 
-        await syncData();
+        triggerSyncDebounced();
         return true;
     } catch (e) { console.error('[SCHED ERROR]', e); return false; }
 }
@@ -883,7 +994,7 @@ async function updateDailyActivity(lineId, type, startVal, endVal) {
             });
         }
 
-        await syncData();
+        triggerSyncDebounced();
         return true;
     } catch (e) { console.error('[ACTIVITY ERROR]', e); return false; }
 }
@@ -902,7 +1013,7 @@ async function updateStaffConfig(staffId, isStrictTime) {
             const valueToWrite = isStrictTime ? "TRUE" : "";
             await sheets.spreadsheets.values.update({ spreadsheetId: SHEET_ID, range: `${STAFF_SHEET_NAME}!E${sheetRowIndex}`, valueInputOption: 'USER_ENTERED', requestBody: { values: [[valueToWrite]] } });
         }
-        await syncData();
+        triggerSyncDebounced();
         return true;
     } catch (e) { console.error(e); throw e; }
 }
@@ -955,6 +1066,7 @@ module.exports = {
     updateBookingStatus,
     updateBookingDetails,
     updateInlineBooking,
+    batchUpdateMultipleBookings,
     updateStaffConfig,
     layLichDatGanNhat,
 

@@ -1,19 +1,21 @@
 /**
  * ============================================================================
  * FILE: js/utils.js
- * PHIÊN BẢN: V109.0 (CENTRALIZED & DYNAMIC)
+ * PHIÊN BẢN: V110.0 (CENTRALIZED & DYNAMIC)
  * MÔ TẢ: CÁC HÀM HỖ TRỢ TOÀN CỤC (GLOBAL UTILITIES)
  * CẬP NHẬT: 
  * 1. Chuyển toàn bộ tham số cứng sang tham chiếu window.SYSTEM_CONFIG.
  * 2. Cập nhật nhãn giao diện sang Tiếng Trung Phồn Thể (Traditional Chinese).
  * 3. Thêm các hàm lấy Buffer Time (Dọn dẹp/Chuyển đổi) từ cấu hình.
+ * 4. Bổ sung hàm SSOT normalizeStaffId để chuẩn hóa ID nhân viên.
+ * 5. Nâng cấp sortIdAsc để hỗ trợ sắp xếp toán học cho ID dạng số.
  * ============================================================================
  */
 
 (function () {
     // Kiểm tra cấu hình hệ thống, dự phòng nếu chưa load kịp
     const CONFIG = window.SYSTEM_CONFIG || {
-        SHOP_INFO: { VERSION: 'V109.0 fallback' },
+        SHOP_INFO: { VERSION: 'V110.0 fallback' },
         OPERATION_TIME: { OPEN_HOUR: 5 },
         BUFFERS: { CLEANUP_MINUTES: 5, TRANSITION_MINUTES: 5 },
         UI_LABELS: { CHAIR_PREFIX: '足', BED_PREFIX: '床' },
@@ -131,7 +133,7 @@
     };
 
     // ========================================================================
-    // 2. THỜI GIAN ĐỆM (BUFFERS) - NEW IN V109.0
+    // 2. THỜI GIAN ĐỆM (BUFFERS)
     // ========================================================================
 
     window.getCleanupBuffer = () => {
@@ -187,7 +189,11 @@
     };
 
     // ========================================================================
-    // 4. SẮP XẾP & HIỂN THỊ (UI RENDERING)
+    // 4. QUẢN LÝ NHÂN VIÊN (STAFF MANAGEMENT) - NEW SSOT
+    // ========================================================================
+
+    // ========================================================================
+    // 5. SẮP XẾP & HIỂN THỊ (UI RENDERING)
     // ========================================================================
 
     /**
@@ -213,7 +219,26 @@
         return base;
     };
 
-    window.sortIdAsc = (a, b) => window.getWeight(a.id) - window.getWeight(b.id);
+    /**
+     * Sắp xếp tăng dần hỗ trợ cả Resource ID và Staff ID
+     */
+    window.sortIdAsc = (a, b) => {
+        const idA = a.id ? String(a.id) : '';
+        const idB = b.id ? String(b.id) : '';
+
+        // Ép sang số để kiểm tra
+        const numA = Number(idA);
+        const numB = Number(idB);
+
+        // Nếu cả hai ID đều là số thuần túy (VD: Staff ID "1", "2", "10")
+        // So sánh trực tiếp bằng toán học để đảm bảo 1 -> 2 -> 10
+        if (!isNaN(numA) && !isNaN(numB) && idA !== '' && idB !== '') {
+            return numA - numB;
+        }
+
+        // Fallback: Nếu chứa ký tự (VD: "足1", "床10"), sử dụng logic trọng số
+        return window.getWeight(idA) - window.getWeight(idB);
+    };
 
     /**
      * Nhãn hiển thị quy trình dịch vụ (Tiếng Trung Phồn Thể)

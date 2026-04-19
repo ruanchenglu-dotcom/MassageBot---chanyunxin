@@ -511,6 +511,20 @@ app.post('/api/update-booking-details', async (req, res) => {
     } catch (e) { console.error('[UPDATE DETAIL ERROR]', e); res.status(500).json({ error: e.message }); }
 });
 
+// --- API: BATCH PROCESS BOOKINGS (CHỐNG QUOTA LIMIT) ---
+app.post('/api/batch-process-bookings', async (req, res) => {
+    try {
+        if (!req.body || !Array.isArray(req.body.payloads)) {
+            return res.status(400).json({ success: false, error: 'Invalid payload format (expected an array called payloads)' });
+        }
+        await SheetService.batchUpdateMultipleBookings(req.body.payloads);
+        res.json({ success: true });
+    } catch (e) { 
+        console.error('[BATCH PROCESS ERROR]', e); 
+        res.status(500).json({ success: false, error: e.message }); 
+    }
+});
+
 app.post('/api/update-staff-config', async (req, res) => {
     try {
         await SheetService.updateStaffConfig(req.body.staffId, req.body.isStrictTime);
@@ -843,15 +857,24 @@ async function handleEvent(event) {
 }
 
 // 1. Initial Sync (Khởi động đồng bộ)
-SheetService.syncMenuData().then(() => SheetService.syncData());
+SheetService.syncMenuData()
+    .then(() => SheetService.syncQuickNotes())
+    .then(() => SheetService.syncData());
 
 // 2. Auto Sync Interval & Error Tracking [V130 NÂNG CẤP]
 const SYNC_INTERVAL = SYSTEM_CONFIG.API_CONFIG.SYNC_INTERVAL || 30000; // Mặc định 30 giây
+const LONG_SYNC_INTERVAL = 600000; // Mặc định 10 phút (600,000ms)
 const MAX_RETRIES = SYSTEM_CONFIG.API_CONFIG.MAX_RETRIES || 3;
 let alarmSent = false; // Trạng thái đã gửi cảnh báo hay chưa
 
+// Chu kỳ siêu dài: Menu Data & Quick Notes (Cấu hình ít thay đổi)
 setInterval(async () => {
-    await SheetService.syncMenuData(); // [V130 CẬP NHẬT] Đồng bộ Menu định kỳ mỗi chu kỳ
+    await SheetService.syncMenuData();
+    await SheetService.syncQuickNotes();
+}, LONG_SYNC_INTERVAL);
+
+// Chu kỳ ngắn: Cập nhật Lịch hẹn Booking & Trạng thái Nhân viên
+setInterval(async () => {
     await SheetService.syncData();
     const errors = SheetService.getConsecutiveErrors();
 

@@ -2,12 +2,12 @@
  * =================================================================================================
  * PROJECT: XINWUCHAN MASSAGE BOT - FRONTEND CONTROLLER & LOGIC BRIDGE
  * FILE: js/bookingHandler.js
- * PHIÊN BẢN: V115.0 (STATUS STANDARDIZATION UPGRADE)
+ * PHIÊN BẢN: V116.2 (STATUS SSOT, REAL_DURATION, ID NORMALIZATION & MULTI-STAFF COLLISION FIX)
  * =================================================================================================
  */
 
 (function () {
-    console.log("🚀 BookingHandler V115.0: SSOT Status Integrated, Scaled for 9x9 Resources.");
+    console.log("🚀 BookingHandler V116.2: Multi-Staff Array Supported (Columns L,M,N) for Collision Checks.");
 
     // Kiểm tra môi trường React
     if (typeof React === 'undefined') {
@@ -17,22 +17,27 @@
 
     // --- DANH SÁCH HỌ TỪ SHEET 'NAME' (HARDCODED FOR SPEED) ---
     const PREDEFINED_SURNAMES = [
-        "陳", "林", "王", "黃", "李", "吳", "蔡", "張", "許", "謝",
-        "鄭", "簡", "周", "郭", "洪", "曾", "邱", "廖", "賴", "徐",
-        "高", "葉", "蘇", "莊", "江", "何", "劉", "羅", "楊", "蕭",
-        "潘", "朱", "呂", "鍾", "彭", "游", "詹", "胡", "施", "沈",
-        "余", "趙", "盧", "梁", "顏", "柯", "孫", "魏", "翁", "戴",
-        "范", "宋", "方", "鄧", "杜", "傅", "侯", "曹", "溫", "薛",
-        "丁", "馬", "蔣", "唐", "卓", "藍", "馮", "白", "石", "官",
-        "韓", "龔", "程", "董", "紀", "袁", "於", "顧", "孟", "平",
-        "秦", "姚", "邵", "汪", "毛", "史", "崔", "陶", "陸", "段",
-        "錢", "湯", "尹", "黎", "易", "常", "武", "喬", "賀", "康",
-        "歐陽", "上官", "司馬", "公孫", "諸葛", "東方"
+        "陳", "林", "王", "黃", "李", "吳", "蔡", "張", "許", "謝", "簡", "曾", "高", "葉", "盧", "劉", "周", "曾", "丁",
+        "鄭", "朱", "趙", "郭", "洪", "彭", "邱", "廖", "賴", "徐", "游", "楊", "康", "紀", "方", "杜", "易", "汪", "曹",
+        "呂", "錢", "蘇", "莊", "江", "何", "余", "羅", "薛", "蕭", "潘", "武", "毛", "史", "崔", "陶", "陸", "段", "溫",
+        "柯", "孫", "程", "鍾", "董", "傅", "詹", "胡", "施", "沈", "馬", "蔣", "唐", "卓", "藍", "馮", "白", "石", "官",
+        "秦", "姚", "范", "宋", "喬", "梁", "顏", "魏", "翁", "戴", "袁", "於", "顧", "孟", "平", "湯", "尹", "黎", "常",
+        "邵", "鄧", "賀", "韓", "侯", "龔", "司馬", "公孫", "諸葛", "歐陽", "上官", "東方", "", "", "", "", "", "", ""
     ];
 
     // ========================================================================
     // PHẦN 0: UNIVERSAL UTILS & STATUS MANAGEMENT
     // ========================================================================
+
+    const normalizeStaffId = (id) => {
+        if (!id) return "";
+        const strId = String(id).trim();
+        // Nếu chuỗi là số và có số 0 ở đầu (ví dụ: "01", "05", "007") -> chuyển thành "1", "5", "7"
+        if (/^0+\d+$/.test(strId)) {
+            return parseInt(strId, 10).toString();
+        }
+        return strId;
+    };
 
     const getBookingStatus = () => {
         if (window.BOOKING_STATUS) return window.BOOKING_STATUS;
@@ -120,7 +125,8 @@
                 let h = parseInt(parts[0], 10);
                 let m = parseInt(parts[1], 10);
                 if (isNaN(h) || isNaN(m)) return -1;
-                if (h < CONF.OPEN_HOUR) h += 24;
+                // [V116.3 NÂNG CẤP]: Phóng chiếu giờ rạng sáng cho thuật toán ca đêm (0h-6h)
+                if (h <= 6) h += 24;
                 return (h * 60) + m;
             } catch (e) { return -1; }
         }
@@ -162,18 +168,6 @@
             return false;
         }
 
-        function isMathematicallyActive(booking, currentQueryTimeMins) {
-            const CONF = getSystemConfig();
-            if (!isStatusRunning(booking.status)) return true;
-
-            const start = getMinsFromTimeStr(booking.startTime);
-            if (start === -1) return true;
-            const duration = parseInt(booking.duration) || 60;
-            const realEnd = start + duration + CONF.CLEANUP_BUFFER;
-            if (currentQueryTimeMins >= realEnd) return false;
-            return true;
-        }
-
         function isComboService(serviceObj, serviceNameRaw = '', explicitFlow = null) {
             if (explicitFlow) {
                 const flowUpper = explicitFlow.toString().toUpperCase().trim();
@@ -199,22 +193,66 @@
             return 'CHAIR';
         }
 
+        // --- HELPER: REAL DURATION CALCULATION (FIX 1) ---
+        function calculateRealDurations(booking, defaultDuration, isCombo) {
+            const CONF = getSystemConfig();
+            let p1 = Math.floor(defaultDuration / 2);
+            let p2 = defaultDuration - p1;
+
+            if (booking.phase1_duration !== undefined && booking.phase1_duration !== null && !isNaN(booking.phase1_duration)) {
+                p1 = parseInt(booking.phase1_duration, 10);
+            } else if (booking.originalData?.phase1_duration !== undefined && !isNaN(booking.originalData.phase1_duration)) {
+                p1 = parseInt(booking.originalData.phase1_duration, 10);
+            }
+
+            if (booking.phase2_duration !== undefined && booking.phase2_duration !== null && !isNaN(booking.phase2_duration)) {
+                p2 = parseInt(booking.phase2_duration, 10);
+            } else if (booking.originalData?.phase2_duration !== undefined && !isNaN(booking.originalData.phase2_duration)) {
+                p2 = parseInt(booking.originalData.phase2_duration, 10);
+            }
+
+            const realDuration = isCombo ? (p1 + p2 + CONF.TRANSITION_BUFFER) : defaultDuration;
+            return { p1, p2, realDuration };
+        }
+
+        function isMathematicallyActive(booking, currentQueryTimeMins) {
+            const CONF = getSystemConfig();
+            if (!isStatusRunning(booking.status)) return true;
+
+            const start = getMinsFromTimeStr(booking.startTime);
+            if (start === -1) return true;
+
+            const duration = parseInt(booking.duration) || 60;
+            const svcInfo = SERVICES[booking.serviceCode] || { name: booking.serviceName };
+            const storedFlow = booking.originalData?.flowCode || booking.flow;
+            const isCombo = isComboService(svcInfo, booking.serviceName, storedFlow);
+
+            const { realDuration } = calculateRealDurations(booking, duration, isCombo);
+
+            const realEnd = start + realDuration + CONF.CLEANUP_BUFFER;
+            if (currentQueryTimeMins >= realEnd) return false;
+            return true;
+        }
+
         // --- LOGIC PHÂN TÍCH TÀI NGUYÊN ---
         function inferResourceAtTime(booking, timeMins) {
             const CONF = getSystemConfig();
             const bStart = getMinsFromTimeStr(booking.startTime);
             const duration = parseInt(booking.duration) || 60;
-            const bEnd = bStart + duration + CONF.CLEANUP_BUFFER;
-            if (timeMins < bStart || timeMins >= bEnd) return null;
 
             const svcInfo = SERVICES[booking.serviceCode] || { name: booking.serviceName };
             const storedFlow = booking.originalData?.flowCode || booking.flow;
+            const isCombo = isComboService(svcInfo, booking.serviceName, storedFlow);
+
+            const { p1, realDuration } = calculateRealDurations(booking, duration, isCombo);
+
+            const bEnd = bStart + realDuration + CONF.CLEANUP_BUFFER;
+            if (timeMins < bStart || timeMins >= bEnd) return null;
 
             if (storedFlow === 'FOOTSINGLE') return 'CHAIR';
             if (storedFlow === 'BODYSINGLE') return 'BED';
             if (storedFlow === 'SINGLE') return detectResourceType(svcInfo);
 
-            const isCombo = isComboService(svcInfo, booking.serviceName, storedFlow);
             if (!isCombo) return detectResourceType(svcInfo);
 
             let isBodyFirst = false;
@@ -224,15 +262,7 @@
             else if (noteContent.includes('BF') || noteContent.includes('BODY FIRST') || noteContent.includes('先做身體')) isBodyFirst = true;
             else if (booking.allocated_resource && (booking.allocated_resource.includes('BED') || booking.allocated_resource.includes('BODY'))) isBodyFirst = true;
 
-            let p1 = Math.floor(duration / 2);
-            if (booking.phase1_duration !== undefined && booking.phase1_duration !== null && !isNaN(booking.phase1_duration)) {
-                p1 = parseInt(booking.phase1_duration, 10);
-            } else if (booking.originalData && booking.originalData.phase1_duration !== undefined && !isNaN(booking.originalData.phase1_duration)) {
-                p1 = parseInt(booking.originalData.phase1_duration, 10);
-            }
-            if (p1 >= duration) p1 = duration;
-
-            const splitTime = bStart + p1;
+            const splitTime = bStart + p1 + (CONF.TRANSITION_BUFFER / 2); // Approximate switch
             if (timeMins < splitTime) return isBodyFirst ? 'BED' : 'CHAIR';
             else return isBodyFirst ? 'CHAIR' : 'BED';
         }
@@ -259,13 +289,23 @@
                 if (bStart === -1) return false;
                 if (!isActiveBookingStatus(b.status)) return false;
                 if (!isMathematicallyActive(b, requestStart)) return false;
-                const bEnd = bStart + (b.duration || 60) + CONF.CLEANUP_BUFFER;
+
+                const svcInfo = SERVICES[b.serviceCode] || { name: b.serviceName };
+                const storedFlow = b.originalData?.flowCode || b.flow;
+                const isCombo = isComboService(svcInfo, b.serviceName, storedFlow);
+                const { realDuration } = calculateRealDurations(b, b.duration || 60, isCombo);
+
+                const bEnd = bStart + realDuration + CONF.CLEANUP_BUFFER;
                 return bEnd > requestStart;
             });
 
             relevantBookings.forEach(b => {
                 const bStart = getMinsFromTimeStr(b.startTime);
-                const duration = b.duration || 60;
+                const svcInfo = SERVICES[b.serviceCode] || { name: b.serviceName };
+                const storedFlow = b.originalData?.flowCode || b.flow;
+                const isCombo = isComboService(svcInfo, b.serviceName, storedFlow);
+                const { realDuration } = calculateRealDurations(b, b.duration || 60, isCombo);
+
                 const rId = b.allocated_resource || b.rowId || "";
 
                 const laneMatch = rId.toString().match(/(BED|CHAIR)[-_ ]?(\d+)/i);
@@ -273,7 +313,7 @@
                     const type = laneMatch[1].toUpperCase().includes('BED') ? 'BED' : 'CHAIR';
                     const idx = parseInt(laneMatch[2]) - 1;
                     if (resourceMap[type] && resourceMap[type][idx]) {
-                        resourceMap[type][idx].push({ start: bStart, end: bStart + duration + CONF.CLEANUP_BUFFER });
+                        resourceMap[type][idx].push({ start: bStart, end: bStart + realDuration + CONF.CLEANUP_BUFFER });
                     }
                 }
             });
@@ -281,15 +321,32 @@
             const supplyCount = Object.values(staffList).filter(s => {
                 if (s.off) return false;
                 const ss = getMinsFromTimeStr(s.start);
-                const se = getMinsFromTimeStr(s.end);
+                let se = getMinsFromTimeStr(s.end);
+                
+                // [FRONTEND V116.3] Fix Overnight Shifts (Ca Xuyên Đêm)
+                if (se < ss) {
+                    se += 1440;
+                }
+
                 return (requestStart >= ss && requestStart < se);
             }).length;
 
             let staffBusyCount = 0;
             relevantBookings.forEach(b => {
                 const bS = getMinsFromTimeStr(b.startTime);
-                const bE = bS + (b.duration || 60) + CONF.CLEANUP_BUFFER;
-                if (requestStart >= bS && requestStart < bE) staffBusyCount++;
+                const svcInfo = SERVICES[b.serviceCode] || { name: b.serviceName };
+                const storedFlow = b.originalData?.flowCode || b.flow;
+                const isCombo = isComboService(svcInfo, b.serviceName, storedFlow);
+                const { realDuration } = calculateRealDurations(b, b.duration || 60, isCombo);
+
+                const bE = bS + realDuration + CONF.CLEANUP_BUFFER;
+
+                // MULTI-STAFF FIX: Đếm tất cả thợ bận trong booking này thay vì chỉ đếm 1
+                let staffsInBooking = b.assignedStaffs && b.assignedStaffs.length > 0 ? b.assignedStaffs.length : 1;
+
+                if (requestStart >= bS && requestStart < bE) {
+                    staffBusyCount += staffsInBooking;
+                }
             });
 
             if ((staffBusyCount + guestList.length) > supplyCount) {
@@ -346,7 +403,7 @@
                         return {
                             pass: false,
                             reason: `⚠️ 在 ${getTimeStrFromMins(requestStart)} 沒有足夠的連續空位 (Continuous Gap) 給套餐。`,
-                            debug: { msg: "Logic V115.0 detected gap fragmentation." }
+                            debug: { msg: "Logic V116.1 detected gap fragmentation." }
                         };
                     }
 
@@ -375,7 +432,7 @@
                     }
                 }
             }
-            return { pass: true, debug: { msg: "V115.0 Continuous Scan Passed" } };
+            return { pass: true, debug: { msg: "V116.1 Continuous Scan Passed" } };
         }
 
         // --- MATRIX ENGINE ---
@@ -424,15 +481,20 @@
             }
         }
 
-        // --- HELPER LOGIC: STAFF MATCHING & ELASTIC ---
+        // --- HELPER LOGIC: STAFF MATCHING & ELASTIC (MULTI-STAFF ARRAY UPDATE) ---
         function findAvailableStaff(staffReq, start, end, staffListRef, busyList) {
             const CONF = getSystemConfig();
             const checkOneStaff = (name) => {
                 const staffInfo = staffListRef[name];
                 if (!staffInfo || staffInfo.off) return false;
                 const shiftStart = getMinsFromTimeStr(staffInfo.start);
-                const shiftEnd = getMinsFromTimeStr(staffInfo.end);
+                let shiftEnd = getMinsFromTimeStr(staffInfo.end);
                 if (shiftStart === -1 || shiftEnd === -1) return false;
+
+                // [FRONTEND V116.3] Fix Overnight Shifts (Ca Xuyên Đêm)
+                if (shiftEnd < shiftStart) {
+                    shiftEnd += 1440;
+                }
 
                 if ((start + CONF.TOLERANCE) < shiftStart) return false;
                 const isStrict = staffInfo.isStrictTime === true;
@@ -441,14 +503,17 @@
                 } else {
                     if (start > shiftEnd) return false;
                 }
+
+                // MULTI-STAFF FIX: Kiểm tra xem name có nằm trong mảng thợ của bất kỳ booking nào đang bận không
                 for (const b of busyList) {
-                    if (b.staffName === name && isOverlap(start, end, b.start, b.end)) return false;
+                    const staffArray = b.assignedStaffs || [b.staffName];
+                    if (staffArray.includes(name) && isOverlap(start, end, b.start, b.end)) return false;
                 }
-                if (staffReq === 'MALE' && staffInfo.gender !== 'M') return false;
-                if ((staffReq === 'FEMALE' || staffReq === '女') && staffInfo.gender !== 'F') return false;
+                if ((staffReq === 'MALE' || staffReq === '男' || staffReq === '男師') && staffInfo.gender !== 'M') return false;
+                if ((staffReq === 'FEMALE' || staffReq === '女' || staffReq === '女師') && staffInfo.gender !== 'F') return false;
                 return true;
             };
-            if (staffReq && !['RANDOM', 'MALE', 'FEMALE', '隨機', 'Any', 'undefined'].includes(staffReq)) {
+            if (staffReq && !['RANDOM', 'MALE', 'FEMALE', '隨機', 'Any', 'undefined', '男', '女', '男師', '女師'].includes(staffReq)) {
                 return checkOneStaff(staffReq) ? staffReq : null;
             } else {
                 const allStaffNames = Object.keys(staffListRef);
@@ -484,15 +549,19 @@
             for (const b of blocks) {
                 const laneGroup = matrix.lanes[b.type];
                 if (!laneGroup) return false;
-                let foundLane = false;
+                let foundLaneForThisBlock = false;
                 if (b.forcedIndex && b.forcedIndex > 0 && b.forcedIndex <= laneGroup.length) {
                     const targetLane = laneGroup[b.forcedIndex - 1];
-                    if (matrix.checkLaneFree(targetLane, b.start, b.end).free) return true;
+                    if (matrix.checkLaneFree(targetLane, b.start, b.end).free) {
+                        foundLaneForThisBlock = true;
+                    }
                 }
-                for (const lane of laneGroup) {
-                    if (matrix.checkLaneFree(lane, b.start, b.end).free) { foundLane = true; break; }
+                if (!foundLaneForThisBlock) {
+                    for (const lane of laneGroup) {
+                        if (matrix.checkLaneFree(lane, b.start, b.end).free) { foundLaneForThisBlock = true; break; }
+                    }
                 }
-                if (!foundLane) return false;
+                if (!foundLaneForThisBlock) return false;
             }
             return true;
         }
@@ -553,17 +622,17 @@
                     b._impliedFlow = null;
                     const isRunning = isStatusRunning(b.status);
                     if (!isRunning) {
-                        let virtualIndex = (groupSize >= 2) ? (idx % halfSize) + 1 : idx + 1;
-                        b._virtualInheritanceIndex = virtualIndex;
-                        if (groupSize >= 2) {
-                            b._impliedFlow = (idx < halfSize) ? 'BF' : 'FB';
+                        // [V116.5 FIX] Ngăn chặn Bóng Ma Ghi Đè: Tôn trọng vị trí đã gán từ Google Sheets
+                        if (!b.allocated_resource) {
+                            b._virtualInheritanceIndex = idx + 1;
                         }
+                        b._impliedFlow = null;
                     }
                     remappedBookings.push(b);
                 });
             });
 
-            // GIAI ĐOẠN B: XỬ LÝ CHI TIẾT BOOKING
+            // GIAI ĐOẠN B: XỬ LÝ CHI TIẾT BOOKING (MULTI-STAFF UPDATE)
             let existingBookingsProcessed = [];
             remappedBookings.forEach(b => {
                 const bStart = getMinsFromTimeStr(b.startTime);
@@ -595,27 +664,27 @@
                     }
                 }
 
+                // Dùng hàm Helper tính chính xác toàn bộ p1, p2 và tổng thời lượng thực.
+                const { p1, p2, realDuration } = calculateRealDurations(b, duration, isCombo);
+
                 let isElastic = isCombo && (b.isManualLocked !== true) && (!isRunning);
                 let processedB = {
                     id: ownerName,
-                    originalData: b, staffName: b.staffName, serviceName: b.serviceName,
+                    originalData: b,
+                    staffName: b.staffName,
+                    assignedStaffs: b.assignedStaffs || [], // GẮN MẢNG MULTI-STAFF
+                    serviceName: b.serviceName,
                     category: svcInfo.category,
                     isElastic: isElastic,
                     elasticStep: svcInfo.elasticStep || 5, elasticLimit: svcInfo.elasticLimit || 15,
-                    startMins: bStart, duration: duration, blocks: [], anchorIndex: anchorIndex
+                    startMins: bStart, duration: realDuration, blocks: [], anchorIndex: anchorIndex
                 };
 
                 if (isCombo) {
-                    let p1 = Math.floor(duration / 2);
-                    if (b.phase1_duration !== undefined && b.phase1_duration !== null && !isNaN(b.phase1_duration)) {
-                        p1 = parseInt(b.phase1_duration, 10);
-                    } else if (b.originalData && b.originalData.phase1_duration !== undefined && !isNaN(b.originalData.phase1_duration)) {
-                        p1 = parseInt(b.originalData.phase1_duration, 10);
-                    }
-                    if (p1 >= duration) p1 = duration;
-                    let p2 = duration - p1;
                     const p1End = bStart + p1;
                     const p2Start = p1End + CONF.TRANSITION_BUFFER;
+                    const p2End = p2Start + p2;
+
                     let isBodyFirst = false;
                     const noteContent = (b.note || b.ghiChu || b.originalData?.ghiChu || "").toString().toUpperCase();
                     if (storedFlow === 'BF') isBodyFirst = true;
@@ -626,11 +695,11 @@
 
                     if (isBodyFirst) {
                         processedB.blocks.push({ start: bStart, end: p1End, type: 'BED', forcedIndex: anchorIndex });
-                        processedB.blocks.push({ start: p2Start, end: bStart + duration, type: 'CHAIR', forcedIndex: anchorIndex });
+                        processedB.blocks.push({ start: p2Start, end: p2End, type: 'CHAIR', forcedIndex: anchorIndex });
                         processedB.flow = 'BF';
                     } else {
                         processedB.blocks.push({ start: bStart, end: p1End, type: 'CHAIR', forcedIndex: anchorIndex });
-                        processedB.blocks.push({ start: p2Start, end: bStart + duration, type: 'BED', forcedIndex: anchorIndex });
+                        processedB.blocks.push({ start: p2Start, end: p2End, type: 'BED', forcedIndex: anchorIndex });
                         processedB.flow = 'FB';
                     }
                     processedB.p1_current = p1; processedB.p2_current = p2;
@@ -639,7 +708,7 @@
                     else processedB.flow = 'SINGLE';
                     let rType = inferResourceAtTime(b, bStart);
                     if (!rType) rType = detectResourceType(svcInfo);
-                    processedB.blocks.push({ start: bStart, end: bStart + duration, type: rType, forcedIndex: anchorIndex });
+                    processedB.blocks.push({ start: bStart, end: bStart + realDuration, type: rType, forcedIndex: anchorIndex });
                 }
                 existingBookingsProcessed.push(processedB);
             });
@@ -806,10 +875,17 @@
                     }
                 }
 
+                // MULTI-STAFF FIX TẠI TIMELINE
                 let flatTimeline = [];
                 Object.values(matrix.lanes).forEach(group => group.forEach(lane => lane.occupied.forEach(occ => {
                     const ex = existingBookingsProcessed.find(e => e.id === occ.ownerId);
-                    if (ex) flatTimeline.push({ start: occ.start, end: occ.end, staffName: ex.staffName, resourceType: lane.id });
+                    if (ex) flatTimeline.push({
+                        start: occ.start,
+                        end: occ.end,
+                        staffName: ex.staffName,
+                        assignedStaffs: ex.assignedStaffs || [ex.staffName], // GHI NHẬN MẢNG MULTI-STAFF
+                        resourceType: lane.id
+                    });
                 })));
 
                 let staffAssignmentSuccess = true;
@@ -818,7 +894,13 @@
                     if (!assignedStaff) { staffAssignmentSuccess = false; break; }
                     const detail = scenarioDetails.find(d => d.guestIndex === item.guest.idx);
                     if (detail) detail.staff = assignedStaff;
-                    item.blocks.forEach(b => flatTimeline.push({ start: b.start, end: b.end, staffName: assignedStaff }));
+                    // Khi khách mới được phân thợ, cũng gán vào mảng assignedStaffs để check cho khách tiếp theo
+                    item.blocks.forEach(b => flatTimeline.push({
+                        start: b.start,
+                        end: b.end,
+                        staffName: assignedStaff,
+                        assignedStaffs: [assignedStaff]
+                    }));
                 }
 
                 if (!staffAssignmentSuccess) { scenarioFailed = true; continue; }
@@ -830,7 +912,7 @@
             if (successfulScenario) {
                 successfulScenario.details.sort((a, b) => a.guestIndex - b.guestIndex);
                 return {
-                    feasible: true, strategy: 'MATRIX_V115.0_SSOT',
+                    feasible: true, strategy: 'MATRIX_V116.2_MULTI_STAFF',
                     details: successfulScenario.details,
                     proposedUpdates: successfulScenario.updates,
                     totalPrice: successfulScenario.details.reduce((sum, item) => sum + (item.price || 0), 0),
@@ -913,9 +995,18 @@
                     else impliedFlow = 'BODYSINGLE';
                 }
             }
+
+            // CHUẨN HÓA ID THỢ TỪ GUEST
+            let rawStaff = g.staff;
+            let normalizedStaff = 'RANDOM';
+            if (rawStaff === '隨機') normalizedStaff = 'RANDOM';
+            else if (rawStaff === '女' || rawStaff === '女師') normalizedStaff = 'FEMALE';
+            else if (rawStaff === '男' || rawStaff === '男師') normalizedStaff = 'MALE';
+            else normalizedStaff = normalizeStaffId(rawStaff);
+
             return {
                 serviceCode: foundCode || g.service,
-                staffName: g.staff === '隨機' ? 'RANDOM' : (g.staff === '女') ? 'FEMALE' : (g.staff === '男') ? 'MALE' : g.staff,
+                staffName: normalizedStaff,
                 flowCode: impliedFlow
             };
         });
@@ -924,9 +1015,13 @@
         const coreBookings = (Array.isArray(bookings) ? bookings : []).filter(b => {
             if (!b || !b.startTimeString) return false;
 
-            // Lọc bỏ đơn hủy bằng chuẩn mới SSOT + Legacy fallback
-            const isCancelled = b.status && (b.status.includes('hủy') || b.status.includes('Cancel') || b.status.includes(STATUS.CANCELLED));
-            if (isCancelled) return false;
+            // [V116.7 LỖI TRẠNG THÁI] Lọc bỏ hoàn toàn các đơn Đã Hủy hoặc Đã Hoàn Thành bằng chuẩn SSOT
+            // Ngăn chặn việc đơn cũ bị tái sinh thành "Đang Phục Vụ" do thời gian quá khứ
+            const isInactive = b.status && (
+                b.status.includes('hủy') || b.status.includes('Cancel') || b.status.includes('取消') || b.status.includes(STATUS.CANCELLED) ||
+                b.status.includes('完成') || b.status.includes('Done') || b.status.includes('✅') || b.status.includes(STATUS.COMPLETED)
+            );
+            if (isInactive) return false;
 
             const rawDate = b.startTimeString.split(' ')[0];
             const bDate = normalizeDateStrict(rawDate);
@@ -943,9 +1038,32 @@
             let normalizedStatus = b.status || STATUS.WAITING;
             if (isPastOrRunning) normalizedStatus = STATUS.SERVING;
 
+            // ==============================================================
+            // TRỌNG TÂM: GOM TOÀN BỘ THỢ (CỘT L, M, N...) THÀNH MẢNG
+            // ==============================================================
+            let rawStaffs = [];
+            if (b.technician) rawStaffs.push(b.technician);
+            if (b.staffId) rawStaffs.push(b.staffId);
+
+            // Quét các cột phụ từ staffId2 đến staffId9 (hoặc tương đương)
+            for (let i = 2; i <= 9; i++) {
+                if (b[`staffId${i}`]) rawStaffs.push(b[`staffId${i}`]);
+                if (b.originalData && b.originalData[`staffId${i}`]) rawStaffs.push(b.originalData[`staffId${i}`]);
+            }
+
+            // Lọc bỏ undefined/null/Unassigned và trùng lặp
+            let uniqueRawStaffs = [...new Set(rawStaffs.filter(s => s && String(s).trim() !== "" && s !== "Unassigned"))];
+            let normalizedStaffs = uniqueRawStaffs.map(s => normalizeStaffId(s));
+
+            // Lấy ID chính để tương thích với các UI hiện hành
+            let primaryStaff = normalizedStaffs.length > 0 ? normalizedStaffs[0] : "Unassigned";
+
             return {
                 serviceCode: b.serviceCode || b.serviceName, serviceName: b.serviceName,
-                startTime: b.startTimeString, duration: parseInt(b.duration) || 60, staffName: b.technician || b.staffId || "Unassigned", rowId: b.rowId,
+                startTime: b.startTimeString, duration: parseInt(b.duration) || 60,
+                staffName: primaryStaff,
+                assignedStaffs: normalizedStaffs, // MẢNG THỢ MỚI
+                rowId: b.rowId,
                 allocated_resource: b.resourceId || b.allocated_resource || b.rowId,
                 originalData: b, isManualLocked: finalLockState,
                 phase1_duration: b.phase1_duration !== undefined ? parseInt(b.phase1_duration) : (b.originalData?.phase1_duration ? parseInt(b.originalData.phase1_duration) : null),
@@ -959,7 +1077,8 @@
         const staffMap = {};
         if (Array.isArray(staffList)) {
             staffList.forEach(s => {
-                const sId = String(s.id).trim();
+                // CHUẨN HÓA ID KEY CHO STAFFMAP
+                const sId = normalizeStaffId(String(s.id).trim());
                 const rawStart = s['上班'] || s.shiftStart || s.start || "00:00";
                 const rawEnd = s['下班'] || s.shiftEnd || s.end || "00:00";
                 const dayStatus = s[targetDateStandard] || s[targetDateStandard.replace(/\//g, '-')] || "";
@@ -968,7 +1087,8 @@
                     id: sId, gender: s.gender, start: rawStart, end: rawEnd,
                     isStrictTime: (s.isStrictTime === true || String(s.isStrictTime).toUpperCase() === 'TRUE'), off: isOff
                 };
-                if (s.name) staffMap[s.name] = staffMap[sId];
+                // Đồng bộ cả key name nếu có
+                if (s.name) staffMap[normalizeStaffId(String(s.name).trim())] = staffMap[sId];
             });
         }
         try {
@@ -985,7 +1105,12 @@
     // 4. COMPONENT: PHONE BOOKING MODAL
     // ==================================================================================
     const NewAvailabilityCheckModal = ({ onClose, onSave, staffList, bookings, initialDate, editingBooking }) => {
-        const safeStaffList = useMemo(() => staffList || [], [staffList]);
+        // Chuẩn hóa ID thợ ngay từ list đầu vào để tránh lỗi Map/Dropdown
+        const safeStaffList = useMemo(() => {
+            if (!staffList) return [];
+            return staffList.map(s => ({ ...s, id: normalizeStaffId(s.id) }));
+        }, [staffList]);
+
         const safeBookings = useMemo(() => bookings || [], [bookings]);
 
         const [step, setStep] = useState('CHECK');
@@ -1009,20 +1134,44 @@
             return "Body Massage";
         }, []);
 
+        const getRoundedCurrentTime = () => {
+            const now = new Date();
+            let h = now.getHours();
+            let m = now.getMinutes();
+            let remainder = m % 10;
+            if (remainder !== 0) {
+                m += (10 - remainder);
+                if (m >= 60) {
+                    m = 0;
+                    h = (h + 1) % 24;
+                }
+            }
+            return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+        };
+
         // --- TITLE STATE ---
         const [form, setForm] = useState({
             date: initialDate || new Date().toISOString().slice(0, 10),
-            time: "12:00", pax: 1, custName: '', custTitle: '', custPhone: '', adminNote: ''
+            time: getRoundedCurrentTime(), pax: 1, custName: '', custTitle: '', custPhone: '', adminNote: ''
         });
 
         const [guestDetails, setGuestDetails] = useState([{ service: defaultService, staff: '隨機', isOil: false, isGuaSha: false }]);
 
         useEffect(() => {
             if (editingBooking) {
-                let timeStr = "12:00"; let dateStr = initialDate;
+                let timeStr = getRoundedCurrentTime(); let dateStr = initialDate;
                 if (editingBooking.startTimeString) {
                     const parts = editingBooking.startTimeString.split(' ');
-                    if (parts.length >= 2) { dateStr = parts[0].replace(/\//g, '-'); timeStr = parts[1].substring(0, 5); }
+                    if (parts.length >= 2) { 
+                        dateStr = parts[0].replace(/\//g, '-'); 
+                        timeStr = parts[1].substring(0, 5); 
+                        // [V116.3 NÂNG CẤP]: Phục hồi Calendar Date cho UI hiển thị nhảy ngày
+                        const hh = parseInt(timeStr.split(':')[0], 10);
+                        if (hh >= 0 && hh <= 6) {
+                            let d = new Date(dateStr.replace(/-/g, '/')); d.setDate(d.getDate() + 1);
+                            dateStr = d.toISOString().split('T')[0];
+                        }
+                    }
                 }
 
                 let rawName = (editingBooking.customerName || "").split('(')[0].trim();
@@ -1046,13 +1195,24 @@
                 });
                 setGuestDetails([{
                     service: editingBooking.serviceName || defaultService,
-                    staff: editingBooking.staffId || '隨機',
+                    staff: editingBooking.staffId ? normalizeStaffId(editingBooking.staffId) : '隨機',
                     isOil: editingBooking.isOil || false,
                     isGuaSha: noteStr.includes('刮痧/拔罐')
                 }]);
             }
             fetchLiveServerData(true).then(data => { if (data) setServerData(data); });
         }, [editingBooking, initialDate, defaultService]);
+
+        // [V116.3 NÂNG CẤP]: Móc nối Dual-Date, chuyển đổi từ Calendar Date (UI) xuống Operational Date (Hệ Thống)
+        const getOpDate = (calDateStr, timeStr) => {
+            const h = parseInt((timeStr || "12:00").toString().split(':')[0], 10);
+            if (h >= 0 && h <= 6) {
+                let d = new Date(calDateStr.replace(/-/g, '/'));
+                d.setDate(d.getDate() - 1);
+                return d.toISOString().split('T')[0];
+            }
+            return calDateStr;
+        };
 
         const safeQuickNotes = useMemo(() => {
             const rawList = serverData?.quickNotes || window.QUICK_NOTES || [];
@@ -1063,7 +1223,24 @@
         const handleTimeChange = useCallback((type, value) => {
             setForm(prev => {
                 const parts = (prev.time || "12:00").split(':');
-                return { ...prev, time: type === 'HOUR' ? `${value}:${parts[1]}` : `${parts[0]}:${value}` };
+                const newHour = type === 'HOUR' ? value : parts[0];
+                const newMinute = type === 'MINUTE' ? value : parts[1];
+                let newDate = prev.date;
+
+                // [V116.3 NÂNG CẤP]: Dual-Date Mapping - Tự động nhảy ngày UI 
+                if (type === 'HOUR' && prev.date) {
+                    const oldHour = parseInt(parts[0], 10);
+                    const selHour = parseInt(value, 10);
+                    if (selHour >= 0 && selHour <= 6 && (oldHour > 6 || isNaN(oldHour))) {
+                        let d = new Date(prev.date.replace(/-/g, '/')); d.setDate(d.getDate() + 1);
+                        newDate = d.toISOString().split('T')[0];
+                    } else if (oldHour >= 0 && oldHour <= 6 && selHour > 6) {
+                        let d = new Date(prev.date.replace(/-/g, '/')); d.setDate(d.getDate() - 1);
+                        newDate = d.toISOString().split('T')[0];
+                    }
+                }
+
+                return { ...prev, date: newDate, time: `${newHour}:${newMinute}` };
             });
             setCheckResult(null); setSuggestions([]);
         }, []);
@@ -1121,7 +1298,8 @@
             let localBookingsList = safeBookings;
             let finalBookings = mergeBookingData(serverBookingsList, localBookingsList);
             if (editingBooking) { finalBookings = finalBookings.filter(b => b.rowId !== editingBooking.rowId); }
-            const res = callCoreAvailabilityCheck(form.date, form.time, guestDetails, finalBookings, serverStaffList);
+            const opDateCheck = getOpDate(form.date, form.time);
+            const res = callCoreAvailabilityCheck(opDateCheck, form.time, guestDetails, finalBookings, serverStaffList);
             if (res.valid) {
                 setCheckResult({ status: 'OK', message: "✅ 此時段可預約 (Available)", coreDetails: res.details, debug: res.debug });
             } else {
@@ -1132,7 +1310,8 @@
                 for (let i = 1; i <= 24; i++) {
                     let nM = currMins + (i * 10); let h = Math.floor(nM / 60); let m = nM % 60; if (h >= 24) h -= 24;
                     let tStr = `${String(h).padStart(2, '0')}:${String(Math.floor(m / 10) * 10).padStart(2, '0')}`;
-                    if (callCoreAvailabilityCheck(form.date, tStr, guestDetails, finalBookings, serverStaffList).valid) {
+                    const sugOpDate = getOpDate(form.date, tStr);
+                    if (callCoreAvailabilityCheck(sugOpDate, tStr, guestDetails, finalBookings, serverStaffList).valid) {
                         found.push(tStr); if (found.length >= 4) break;
                     }
                 }
@@ -1151,7 +1330,8 @@
             try {
                 let checkBookings = mergeBookingData(serverData?.bookings || [], safeBookings);
                 if (editingBooking) checkBookings = checkBookings.filter(b => b.rowId !== editingBooking.rowId);
-                const finalCheck = callCoreAvailabilityCheck(form.date, form.time, guestDetails, checkBookings, serverData?.staff || safeStaffList);
+                const finalOpDate = getOpDate(form.date, form.time);
+                const finalCheck = callCoreAvailabilityCheck(finalOpDate, form.time, guestDetails, checkBookings, serverData?.staff || safeStaffList);
 
                 if (!finalCheck.valid) {
                     alert("⚠️ 數據已變更，無法預約: " + finalCheck.reason);
@@ -1185,17 +1365,24 @@
                         if (detail.allocated.length > 1) phase2Res = detail.allocated[1];
                     }
 
+                    // [V116.3 FIX] Determine explicit resource_type (Column AD)
+                    let explicitResourceType = 'CHAIR';
+                    if (finalFlow === 'BODYSINGLE') explicitResourceType = 'BED';
+                    else if (finalFlow === 'FOOTSINGLE') explicitResourceType = 'CHAIR';
+                    else if (finalFlow === 'BF' || finalFlow === 'FB' || finalFlow === 'COMBO') explicitResourceType = 'COMBO';
+
                     return {
                         ...g,
                         serviceCode: getServiceCodeByName(g.service) || "",
-                        staff: g.staff,
+                        staff: normalizeStaffId(g.staff),
                         flow: finalFlow,
                         flowCode: finalFlow,
                         phase1_duration: detail ? detail.phase1_duration : null,
                         phase2_duration: detail ? detail.phase2_duration : null,
                         allocated_resource: allocatedRes,
                         phase1_resource: phase1Res,
-                        phase2_resource: phase2Res
+                        phase2_resource: phase2Res,
+                        resource_type: explicitResourceType
                     };
                 });
 
@@ -1215,7 +1402,7 @@
                     sdt: form.custPhone || "",
                     dichVu: detailedGuests.map(g => g.service).join(','),
                     pax: form.pax,
-                    ngayDen: normalizeDateStrict(form.date),
+                    ngayDen: normalizeDateStrict(finalOpDate),
                     gioDen: form.time,
                     nhanVien: detailedGuests[0].staff,
                     isOil: detailedGuests[0].isOil,
@@ -1265,23 +1452,26 @@
                             <h2 className="text-3xl font-bold">請選擇姓氏 (Select Surname)</h2>
                             <button onClick={() => setShowSurnamePicker(false)} className="text-5xl px-4">&times;</button>
                         </div>
-                        <div className="flex-1 p-4 sm:p-6 overflow-y-auto custom-scrollbar">
-                            <div className="grid grid-cols-5 sm:grid-cols-8 md:grid-cols-10 gap-3 sm:gap-4">
-                                {PREDEFINED_SURNAMES.map(char => (
-                                    <button
-                                        key={char}
-                                        onClick={(e) => { e.preventDefault(); handleSurnameSelect(char); }}
-                                        className="aspect-square flex items-center justify-center bg-orange-50 hover:bg-orange-500 hover:text-white border-2 border-orange-200 rounded-2xl font-bold text-4xl transition-colors shadow-sm"
-                                    >
-                                        {char}
-                                    </button>
-                                ))}
+                        <div className="flex-1 p-2 sm:p-4 overflow-y-auto custom-scrollbar">
+                            <div className="grid gap-1 sm:gap-2" style={{ gridTemplateColumns: 'repeat(19, minmax(0, 1fr))' }}>
+                                {PREDEFINED_SURNAMES.map((char, index) => {
+                                    if (!char) return <div key={`empty-${index}`} className="aspect-square"></div>;
+                                    return (
+                                        <button
+                                            key={`${char}-${index}`}
+                                            onClick={(e) => { e.preventDefault(); handleSurnameSelect(char); }}
+                                            className="aspect-square flex items-center justify-center bg-orange-50 hover:bg-orange-500 hover:text-white border border-orange-200 rounded-lg font-bold text-4xl transition-colors shadow-sm"
+                                        >
+                                            {char}
+                                        </button>
+                                    );
+                                })}
                             </div>
                         </div>
-                        <div className="p-6 bg-slate-100 border-t border-slate-300">
+                        <div className="p-3 bg-slate-100 border-t border-slate-300">
                             <button
                                 onClick={(e) => { e.preventDefault(); setShowSurnamePicker(false); }}
-                                className="w-full bg-gray-400 text-white text-2xl py-5 rounded-xl font-bold shadow-lg hover:bg-gray-500 transition-colors"
+                                className="w-full bg-gray-400 text-white text-lg py-2.5 rounded-lg font-bold shadow-md hover:bg-gray-500 transition-colors"
                             >
                                 關閉 (Close)
                             </button>
@@ -1293,7 +1483,7 @@
                 <div className="fixed inset-0 bg-slate-900/90 z-[100] flex items-center justify-center p-2 sm:p-6">
                     <div className="bg-white w-full max-w-[1000px] rounded-2xl shadow-2xl flex flex-col h-[98vh] sm:h-[90vh] overflow-hidden animate-fadeIn">
                         <div className={`${editingBooking ? 'bg-orange-600' : 'bg-[#0891b2]'} p-6 text-white flex justify-between items-center shrink-0`}>
-                            <h3 className="font-bold text-2xl">{editingBooking ? "✏️ 修改預約 (Edit)" : "📅 電話預約 (V115.0 SSOT)"}</h3>
+                            <h3 className="font-bold text-2xl">{editingBooking ? "✏️ 修改預約 (Edit)" : "📅 預約 (V116.2 MULTI-STAFF)"}</h3>
                             <button onClick={onClose} className="text-4xl hover:text-red-100 leading-none">&times;</button>
                         </div>
 
@@ -1521,7 +1711,7 @@
     const overrideInterval = setInterval(() => {
         if (window.AvailabilityCheckModal !== NewAvailabilityCheckModal) {
             window.AvailabilityCheckModal = NewAvailabilityCheckModal;
-            console.log("♻️ AvailabilityModal Injected (V115.0 - SSOT Integrated)");
+            console.log("♻️ AvailabilityModal Injected (V116.2 - SSOT, DURATION FIX, ID NORM & MULTI-STAFF)");
         }
     }, 200);
     setTimeout(() => { clearInterval(overrideInterval); }, 5000);

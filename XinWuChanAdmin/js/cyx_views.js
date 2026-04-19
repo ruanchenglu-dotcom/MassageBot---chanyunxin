@@ -217,17 +217,45 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
             setShowPaymentOptions(false);
             setLocalFlow((meta && meta.sequence) ? meta.sequence : (booking.flow || 'FB'));
 
+            // [V116.4 Tối ưu hiển thị vị trí ghế/giường đã cấp]
             let initP1Res = 'auto';
             let initP2Res = 'auto';
-            if (booking.phase1_res_idx) initP1Res = booking.phase1_res_idx.toLowerCase();
-            if (booking.phase2_res_idx) initP2Res = booking.phase2_res_idx.toLowerCase();
+
+            if (booking.phase1_res_idx) {
+                initP1Res = booking.phase1_res_idx.toLowerCase();
+            } else if (booking.phase1_resource) {
+                initP1Res = booking.phase1_resource.toLowerCase();
+            } else if (booking.allocated_resource && booking.allocated_resource.includes('+')) {
+                initP1Res = booking.allocated_resource.split('+')[0].trim().toLowerCase();
+            } else if (booking.allocated_resource) {
+                 initP1Res = booking.allocated_resource.toLowerCase();
+            }
+
+            if (booking.phase2_res_idx) {
+                initP2Res = booking.phase2_res_idx.toLowerCase();
+            } else if (booking.phase2_resource) {
+                initP2Res = booking.phase2_resource.toLowerCase();
+            } else if (booking.allocated_resource && booking.allocated_resource.includes('+')) {
+                initP2Res = booking.allocated_resource.split('+')[1].trim().toLowerCase();
+            }
+
             setSelectedPhase1Res(initP1Res);
             setSelectedPhase2Res(initP2Res);
 
             let initSingleRes = 'auto';
-            if (booking.current_resource_id) initSingleRes = booking.current_resource_id.toLowerCase();
-            else if (booking.location) initSingleRes = booking.location.toLowerCase();
-            else if (contextResourceId) initSingleRes = contextResourceId.toLowerCase();
+            if (booking.current_resource_id) {
+                initSingleRes = booking.current_resource_id.toLowerCase();
+            } else if (booking.phase1_resource) {
+                initSingleRes = booking.phase1_resource.toLowerCase();
+            } else if (booking.allocated_resource && booking.allocated_resource.includes('+')) {
+                initSingleRes = booking.allocated_resource.split('+')[0].trim().toLowerCase();
+            } else if (booking.allocated_resource) {
+                initSingleRes = booking.allocated_resource.toLowerCase();
+            } else if (booking.location) {
+                initSingleRes = booking.location.toLowerCase();
+            } else if (contextResourceId) {
+                initSingleRes = contextResourceId.toLowerCase();
+            }
             setSelectedSingleRes(initSingleRes);
         }
     }, [isOpen, booking, meta, liveData, totalDuration, contextResourceId]);
@@ -624,7 +652,8 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                                         startTimeStr,
                                         switchTimeStr,
                                         phase1_res_idx: selectedPhase1Res === 'auto' ? null : selectedPhase1Res.toUpperCase(),
-                                        phase2_res_idx: selectedPhase2Res === 'auto' ? null : selectedPhase2Res.toUpperCase()
+                                        phase2_res_idx: selectedPhase2Res === 'auto' ? null : selectedPhase2Res.toUpperCase(),
+                                        flow: localFlow
                                     })}
                                     disabled={isSaveDisabled}
                                     className={`text-xs px-3 py-1.5 rounded font-bold border shadow-sm transition-all flex items-center ${isSaveDisabled ? 'bg-gray-200 text-gray-400 border-gray-300 cursor-not-allowed' : 'bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border-indigo-300'}`}
@@ -1030,22 +1059,13 @@ const TimelineView = ({ timelineData, onEditPhase, liveStatusData, staffList, st
     return (
         <div className="relative w-full h-[calc(100vh-170px)]">
 
-            {/* --- FAB Nút Trở về hiện tại --- */}
-            <button
-                onClick={() => scrollToNow(true)}
-                className="absolute top-4 right-4 z-[70] bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold px-3 py-2 rounded-full shadow-lg flex items-center gap-1.5 transform active:scale-95 transition-all border border-indigo-400"
-                title="Cuộn đến thời điểm hiện tại"
-            >
-                <i className="fas fa-crosshairs"></i> 回到現在
-            </button>
-
             {/* --- Kéo vùng Timeline vào trong Scroll Container --- */}
             <div ref={scrollContainerRef} className="bg-white rounded shadow border border-slate-200 h-full overflow-x-scroll overflow-y-auto relative custom-scrollbar pb-2">
                 <style>{`
-                    .custom-scrollbar::-webkit-scrollbar:horizontal { height: 25px !important; }
+                    .custom-scrollbar::-webkit-scrollbar:horizontal { height: 35px !important; }
                     .custom-scrollbar::-webkit-scrollbar:vertical { width: 14px !important; }
                     .custom-scrollbar::-webkit-scrollbar-track { background: #f1f5f9; border-radius: 4px; border: 1px solid #e2e8f0; }
-                    .custom-scrollbar::-webkit-scrollbar-thumb { background-color: #94a3b8; border-radius: 20px; border: 4px solid #f1f5f9; background-clip: content-box; }
+                    .custom-scrollbar::-webkit-scrollbar-thumb { background-color: #94a3b8; border-radius: 20px; border: 3px solid #f1f5f9; background-clip: content-box; }
                     .custom-scrollbar::-webkit-scrollbar-thumb:hover { background-color: #64748b; }
                     .custom-scrollbar::-webkit-scrollbar-corner { background: #f1f5f9; }
                     .edit-btn { opacity: 0; transition: opacity 0.2s, transform 0.1s; }
@@ -1070,7 +1090,11 @@ const TimelineView = ({ timelineData, onEditPhase, liveStatusData, staffList, st
                         </div>
                     )}
 
-                    <div className="flex sticky top-0 z-30 bg-slate-100 border-b border-slate-300 shadow-md h-[45px]">
+                    <div 
+                        className="flex sticky top-0 z-30 bg-slate-100 border-b border-slate-300 shadow-md h-[45px] cursor-pointer hover:bg-slate-200 transition-colors"
+                        onDoubleClick={() => scrollToNow(true)}
+                        title="雙擊回到現在 (Nhấp đúp để trở về hiện tại)"
+                    >
                         <div className="sticky left-0 top-0 z-40 bg-[#e2e8f0] border-r border-slate-300 flex items-center justify-center font-extrabold text-slate-700 text-sm shadow-[2px_0_5px_rgba(0,0,0,0.1)]"
                             style={{ width: `${LEFT_COL_WIDTH}px`, height: `${HEADER_HEIGHT}px` }}>
                             區域
@@ -1142,14 +1166,14 @@ const TimelineView = ({ timelineData, onEditPhase, liveStatusData, staffList, st
 
                                             let specialBorderClass = "border border-black/5";
 
-                                            if (isRunning) specialBorderClass = "border border-slate-300 shadow-md shadow-slate-200 z-20";
+                                            if (isRunning) specialBorderClass = "border-2 border-red-500 shadow-[0_0_8px_rgba(239,68,68,0.6)] z-20";
                                             else if (comboSequence === 'BF') specialBorderClass = "border-l-[6px] border-l-indigo-700 bf-indicator shadow-indigo-200";
 
                                             if (isTimeAnomaly) {
                                                 if (!isRunning) {
-                                                    specialBorderClass = "border-2 border-dashed border-orange-500 shadow-md shadow-orange-200 z-20";
+                                                    specialBorderClass = "ring-2 ring-orange-500 shadow-[0_0_10px_rgba(249,115,22,0.6)] animate-pulse z-20";
                                                 } else {
-                                                    specialBorderClass += " border-orange-400 border-dashed";
+                                                    specialBorderClass += " ring-2 ring-orange-400";
                                                 }
                                             }
 
