@@ -260,17 +260,137 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
         return bEnd > requestStart;
     });
 
-    // 2. Kiểm tra Nhân sự (Staff Capacity)
-    const supplyCount = getEligibleStaffCount(staffList, requestStart, requestStart + maxDuration);
+    // 2. Kiểm tra Nhân sự (Staff Capacity - V118.6 Đã đồng bộ Gender & Specific Staff Logic)
+    const availableStaffList = Object.values(staffList).filter(s => {
+        const status = parseStaffStatus(s);
+        if (!status.isAvailable) return false;
+        return (requestStart >= status.startMins && requestStart < status.endMins);
+    });
+
+    const normId = (id) => String(id || '').replace(/^0+/, '').trim().toUpperCase();
+
+    const supplyCount = availableStaffList.length;
+    const femaleSupply = availableStaffList.filter(s => s.gender === 'F' || s.gender === '女').length;
+    const maleSupply = availableStaffList.filter(s => s.gender === 'M' || s.gender === '男').length;
+
     let staffBusyCount = 0;
+    let femaleBusyCount = 0;
+    let maleBusyCount = 0;
+    let staffBusyPeriods = {};
+    
     relevantBookings.forEach(b => {
         const bS = getMinsFromTimeStr(b.startTimeString || b.startTime);
         const bE = bS + (b.duration || 60) + CONF.CLEANUP_BUFFER;
-        if (requestStart >= bS && requestStart < bE) staffBusyCount++;
+        
+        let staffsInBooking = b.assignedStaffs && b.assignedStaffs.length > 0 ? b.assignedStaffs : [b.staffName];
+        for (const stf of staffsInBooking) {
+            if (stf) {
+                const sId = normId(stf);
+                if (!staffBusyPeriods[sId]) staffBusyPeriods[sId] = [];
+                staffBusyPeriods[sId].push({ start: bS, end: bE });
+            }
+        }
+
+        if (requestStart >= bS && requestStart < bE) {
+            staffBusyCount += staffsInBooking.length;
+
+            for (const staffName of staffsInBooking) {
+                const sInfo = staffList[staffName] || Object.values(staffList).find(s => normId(s.name) === normId(staffName) || normId(s.id) === normId(staffName)) || {};
+                if (sInfo.gender === 'F' || sInfo.gender === '女' || sInfo.group === '女') femaleBusyCount++;
+                else if (sInfo.gender === 'M' || sInfo.gender === '男' || sInfo.group === '男') maleBusyCount++;
+            }
+        }
     });
 
+    let femaleReqCount = 0;
+    let maleReqCount = 0;
+    let specificStaffReqs = [];
+    
+    guestList.forEach(g => {
+        const req = g.staff;
+        const dur = (g.duration || 60);
+        if (req === 'FEMALE' || req === '女' || req === '女師') femaleReqCount++;
+        else if (req === 'MALE' || req === '男' || req === '男師') maleReqCount++;
+        else if (req && req !== '隨機' && req !== 'Any' && req !== 'undefined' && req !== 'null') {
+            const sId = normId(req);
+            specificStaffReqs.push({ req: sId, rawReq: req, duration: dur });
+        }
+    });
+
+    const reqCounts = {};
+    for (const specificReq of specificStaffReqs) {
+         reqCounts[specificReq.req] = (reqCounts[specificReq.req] || 0) + 1;
+    }
+    for (const [req, count] of Object.entries(reqCounts)) {
+         if (count > 1) {
+              return { pass: false, reason: `⚠️ 錯誤: 不可同時指派 ${count} 位客人給同一技師 ${req}。`, debug: {} };
+         }
+    }
+
+    for (const specificReq of specificStaffReqs) {
+        const reqId = specificReq.req; 
+        const rawName = specificReq.rawReq;
+        const dur = specificReq.duration;
+        const requiredEnd = requestStart + dur;
+        
+        const sInfo = staffList[reqId] || Object.values(staffList).find(s => normId(s.name) === reqId || normId(s.id) === reqId);
+        if (sInfo) {
+            const status = parseStaffStatus(sInfo);
+            if (!status.isAvailable || requestStart < status.startMins || requestStart >= status.endMins) {
+                return { pass: false, reason: `⚠️ 技師 ${rawName} 該時段未排班或已下班。`, debug: {} };
+            }
+            
+            let busyBlocks = staffBusyPeriods[reqId] || [];
+            busyBlocks.sort((a,b) => a.start - b.start);
+            
+            let isBusy = false;
+            for (const blk of busyBlocks) {
+                if (isOverlap(requestStart, requiredEnd, blk.start, blk.end)) {
+                    isBusy = true;
+                    break;
+                }
+            }
+            
+            if (isBusy) {
+                let nextMins = requestStart;
+                let found = false;
+                
+                for (let testMins = requestStart; testMins <= status.endMins - dur; testMins += 5) {
+                    let overlap = false;
+                    for (const blk of busyBlocks) {
+                        if (isOverlap(testMins, testMins + dur, blk.start, blk.end)) {
+                            overlap = true;
+                            testMins = Math.max(testMins, blk.end - 5); 
+                            break;
+                        }
+                    }
+                    if (!overlap) {
+                        nextMins = testMins;
+                        found = true;
+                        break;
+                    }
+                }
+                
+                if (found) {
+                     const timeStr = getTimeStrFromMins(nextMins);
+                     return { pass: false, reason: `⚠️ 技師 ${rawName} 該時段已有預約。最快可預約時間為: ${timeStr} 之後。`, debug: {} };
+                } else {
+                     return { pass: false, reason: `⚠️ 技師 ${rawName} 今日剩餘時段皆已滿。`, debug: {} };
+                }
+            }
+        }
+    }
+
+    if (femaleReqCount > 0 && (femaleBusyCount + femaleReqCount) > femaleSupply) {
+        return { pass: false, reason: `⚠️ 女技師不足 (Not enough female staffs)。女師總共: ${femaleSupply}, 忙碌中: ${femaleBusyCount}, 欲預約女師數: ${femaleReqCount}`, debug: {} };
+    }
+
+    if (maleReqCount > 0 && (maleBusyCount + maleReqCount) > maleSupply) {
+        return { pass: false, reason: `⚠️ 男技師不足 (Not enough male staffs)。男師總共: ${maleSupply}, 忙碌中: ${maleBusyCount}, 欲預約男師數: ${maleReqCount}`, debug: {} };
+    }
+
     if ((staffBusyCount + guestList.length) > supplyCount) {
-        return { pass: false, reason: `⚠️ 技師不足 (Not Enough Staff)。總共: ${supplyCount}, 忙碌中: ${staffBusyCount}, 新客: ${guestList.length}`, debug: {} };
+        return { pass: false, reason: `⚠️ 技師總數不足 (Not Enough Staff)。總共: ${supplyCount}, 忙碌中: ${staffBusyCount}, 新客: ${guestList.length}`, debug: {} };
     }
 
     // 3. Phân tích tài nguyên chống phân mảnh (Continuous Scan)
@@ -484,7 +604,18 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
     const normalizedQueryDate = normalizeDateStrict(dateStr);
     const filteredBookings = currentBookingsRaw.filter(b => {
         if (!b || !b.startTimeString) return false;
-        return normalizeDateStrict(b.startTimeString.split(' ')[0]) === normalizedQueryDate;
+        if (b.opDate) return normalizeDateStrict(b.opDate) === normalizedQueryDate;
+        
+        let rawDate = b.startTimeString.split(' ')[0];
+        let rawTime = b.startTimeString.split(' ')[1] || "12:00";
+        let tempOpDate = rawDate;
+        const hr = parseInt(rawTime.split(':')[0], 10);
+        if (!isNaN(hr) && hr < (CONF.OPEN_HOUR || 6)) {
+            const tempD = new Date(rawDate);
+            tempD.setDate(tempD.getDate() - 1);
+            tempOpDate = normalizeDateStrict(tempD);
+        }
+        return tempOpDate === normalizedQueryDate;
     });
 
     let maxGuestDuration = 0;

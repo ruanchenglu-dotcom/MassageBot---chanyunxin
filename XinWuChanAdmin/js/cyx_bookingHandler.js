@@ -318,7 +318,7 @@
                 }
             });
 
-            const supplyCount = Object.values(staffList).filter(s => {
+            const availableStaffList = Object.values(staffList).filter(s => {
                 if (s.off) return false;
                 const ss = getMinsFromTimeStr(s.start);
                 let se = getMinsFromTimeStr(s.end);
@@ -329,28 +329,143 @@
                 }
 
                 return (requestStart >= ss && requestStart < se);
-            }).length;
+            });
+
+            const normId = (id) => String(id || '').replace(/^0+/, '').trim().toUpperCase();
+
+            const supplyCount = availableStaffList.length;
+            const femaleSupply = availableStaffList.filter(s => s.gender === 'F' || s.gender === '女').length;
+            const maleSupply = availableStaffList.filter(s => s.gender === 'M' || s.gender === '男').length;
 
             let staffBusyCount = 0;
+            let femaleBusyCount = 0;
+            let maleBusyCount = 0;
+            let staffBusyPeriods = {}; // { '9': [{start, end}] }
+            
             relevantBookings.forEach(b => {
                 const bS = getMinsFromTimeStr(b.startTime);
                 const svcInfo = SERVICES[b.serviceCode] || { name: b.serviceName };
                 const storedFlow = b.originalData?.flowCode || b.flow;
                 const isCombo = isComboService(svcInfo, b.serviceName, storedFlow);
                 const { realDuration } = calculateRealDurations(b, b.duration || 60, isCombo);
-
                 const bE = bS + realDuration + CONF.CLEANUP_BUFFER;
 
-                // MULTI-STAFF FIX: Đếm tất cả thợ bận trong booking này thay vì chỉ đếm 1
-                let staffsInBooking = b.assignedStaffs && b.assignedStaffs.length > 0 ? b.assignedStaffs.length : 1;
+                let staffsInBooking = b.assignedStaffs && b.assignedStaffs.length > 0 ? b.assignedStaffs : [b.staffName];
+                
+                for (const stf of staffsInBooking) {
+                    if (stf) {
+                        const sId = normId(stf);
+                        if (!staffBusyPeriods[sId]) staffBusyPeriods[sId] = [];
+                        staffBusyPeriods[sId].push({ start: bS, end: bE });
+                    }
+                }
 
                 if (requestStart >= bS && requestStart < bE) {
-                    staffBusyCount += staffsInBooking;
+                    staffBusyCount += staffsInBooking.length;
+
+                    for (const staffName of staffsInBooking) {
+                        const sInfo = staffList[staffName] || Object.values(staffList).find(s => normId(s.name) === normId(staffName) || normId(s.id) === normId(staffName)) || {};
+                        if (sInfo.gender === 'F' || sInfo.gender === '女' || sInfo.group === '女') femaleBusyCount++;
+                        else if (sInfo.gender === 'M' || sInfo.gender === '男' || sInfo.group === '男') maleBusyCount++;
+                    }
                 }
             });
 
+            let femaleReqCount = 0;
+            let maleReqCount = 0;
+            let specificStaffReqs = [];
+            
+            guestList.forEach(g => {
+                const req = g.staff;
+                if (req === 'FEMALE' || req === '女' || req === '女師') femaleReqCount++;
+                else if (req === 'MALE' || req === '男' || req === '男師') maleReqCount++;
+                else if (req && req !== '隨機' && req !== 'Any' && req !== 'undefined' && req !== 'null') {
+                    const sId = normId(req);
+                    specificStaffReqs.push({ req: sId, rawReq: req, duration: (SERVICES[g.serviceCode] || { duration: 60 }).duration || 60 });
+                }
+            });
+
+            // 1. SPECIFIC STAFF DUPLICATE CHECK
+            const reqCounts = {};
+            for (const specificReq of specificStaffReqs) {
+                 reqCounts[specificReq.req] = (reqCounts[specificReq.req] || 0) + 1;
+            }
+            for (const [req, count] of Object.entries(reqCounts)) {
+                 if (count > 1) {
+                      return { pass: false, reason: `⚠️ 錯誤: 不可同時指派 ${count} 位客人給同一技師 ${req}。`, debug: {} };
+                 }
+            }
+
+            // 2. SPECIFIC STAFF SECURE CHECK & NEXT GAP PREDICTION
+            for (const specificReq of specificStaffReqs) {
+                const reqId = specificReq.req; 
+                const rawName = specificReq.rawReq;
+                const dur = specificReq.duration;
+                const requiredEnd = requestStart + dur;
+                
+                const sInfo = staffList[reqId] || Object.values(staffList).find(s => normId(s.name) === reqId || normId(s.id) === reqId);
+                if (sInfo) {
+                    const ss = getMinsFromTimeStr(sInfo.start);
+                    let se = getMinsFromTimeStr(sInfo.end);
+                    if (se < ss) se += 1440;
+                    
+                    if (sInfo.off || requestStart < ss || requestStart >= se) {
+                        return { pass: false, reason: `⚠️ 技師 ${rawName} 該時段未排班或已下班。`, debug: {} };
+                    }
+                    
+                    let busyBlocks = staffBusyPeriods[reqId] || [];
+                    busyBlocks.sort((a,b) => a.start - b.start);
+                    
+                    let isBusy = false;
+                    for (const blk of busyBlocks) {
+                        if (isOverlap(requestStart, requiredEnd, blk.start, blk.end)) {
+                            isBusy = true;
+                            break;
+                        }
+                    }
+                    
+                    if (isBusy) {
+                        let nextMins = requestStart;
+                        let found = false;
+                        
+                        for (let testMins = requestStart; testMins <= se - dur; testMins += 5) {
+                            let overlap = false;
+                            for (const blk of busyBlocks) {
+                                if (isOverlap(testMins, testMins + dur, blk.start, blk.end)) {
+                                    overlap = true;
+                                    testMins = Math.max(testMins, blk.end - 5); 
+                                    break;
+                                }
+                            }
+                            if (!overlap) {
+                                nextMins = testMins;
+                                found = true;
+                                break;
+                            }
+                        }
+                        
+                        if (found) {
+                             const timeStr = getTimeStrFromMins(nextMins);
+                             return { pass: false, reason: `⚠️ 技師 ${rawName} 該時段已有預約。最快可預約時間為: ${timeStr} 之後。`, debug: {} };
+                        } else {
+                             return { pass: false, reason: `⚠️ 技師 ${rawName} 今日剩餘時段皆已滿。`, debug: {} };
+                        }
+                    }
+                }
+            }
+
+            // 3. GENDER POOL CHECK
+            if (femaleReqCount > 0 && (femaleBusyCount + femaleReqCount) > femaleSupply) {
+                return { pass: false, reason: `⚠️ 女技師不足 (Not enough female staffs)。女師總共: ${femaleSupply}, 忙碌中: ${femaleBusyCount}, 欲預約女師數: ${femaleReqCount}`, debug: {} };
+            }
+
+            if (maleReqCount > 0 && (maleBusyCount + maleReqCount) > maleSupply) {
+                return { pass: false, reason: `⚠️ 男技師不足 (Not enough male staffs)。男師總共: ${maleSupply}, 忙碌中: ${maleBusyCount}, 欲預約男師數: ${maleReqCount}`, debug: {} };
+            }
+
+            // 4. OVERALL POOL CHECK
             if ((staffBusyCount + guestList.length) > supplyCount) {
-                return { pass: false, reason: `⚠️ 技師不足 (Not Enough Staff)。總共: ${supplyCount}, 忙碌中: ${staffBusyCount}, 新客: ${guestList.length}`, debug: {} };
+                return { pass: false, reason: `⚠️ 技師總數不足 (Not Enough Staff)。總共: ${supplyCount}, 忙碌中: ${staffBusyCount}, 新客: ${guestList.length}`, debug: {} };
             }
 
             // SIMULATION
@@ -1024,8 +1139,25 @@
             if (isInactive) return false;
 
             const rawDate = b.startTimeString.split(' ')[0];
-            const bDate = normalizeDateStrict(rawDate);
-            return bDate === targetDateStandard;
+            const rawTime = b.startTimeString.split(' ')[1] || "12:00";
+            
+            let bOpDate = b.opDate;
+            if (!bOpDate) {
+                bOpDate = rawDate;
+                const hr = parseInt(rawTime.split(':')[0], 10);
+                if (!isNaN(hr) && hr < (window.SYSTEM_CONFIG?.OPERATION_TIME?.OPEN_HOUR || 6)) {
+                    const parts = String(rawDate).split('/').join('-').split('-');
+                    if (parts.length === 3) {
+                        const tempD = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
+                        tempD.setDate(tempD.getDate() - 1);
+                        const y = tempD.getFullYear();
+                        const m = String(tempD.getMonth() + 1).padStart(2, '0');
+                        const dd = String(tempD.getDate()).padStart(2, '0');
+                        bOpDate = `${y}-${m}-${dd}`;
+                    }
+                }
+            }
+            return normalizeDateStrict(bOpDate) === targetDateStandard;
         }).map(b => {
             let isPastOrRunning = false;
             try { if (new Date(b.startTimeString) <= now) isPastOrRunning = true; } catch (e) { }
@@ -1082,7 +1214,7 @@
                 const rawStart = s['上班'] || s.shiftStart || s.start || "00:00";
                 const rawEnd = s['下班'] || s.shiftEnd || s.end || "00:00";
                 const dayStatus = s[targetDateStandard] || s[targetDateStandard.replace(/\//g, '-')] || "";
-                let isOff = (String(s.offDays || "").includes(targetDateStandard) || String(dayStatus).toUpperCase().includes('OFF'));
+                let isOff = (String(s.offDays || "").includes(targetDateStandard) || String(dayStatus).toUpperCase().includes('OFF') || String(dayStatus).toUpperCase() === 'X');
                 staffMap[sId] = {
                     id: sId, gender: s.gender, start: rawStart, end: rawEnd,
                     isStrictTime: (s.isStrictTime === true || String(s.isStrictTime).toUpperCase() === 'TRUE'), off: isOff
@@ -1165,11 +1297,15 @@
                     if (parts.length >= 2) { 
                         dateStr = parts[0].replace(/\//g, '-'); 
                         timeStr = parts[1].substring(0, 5); 
-                        // [V116.3 NÂNG CẤP]: Phục hồi Calendar Date cho UI hiển thị nhảy ngày
+                        // [V116.4 NÂNG CẤP]: Phục hồi Calendar Date - Sửa lỗi timezone lùi ngày
                         const hh = parseInt(timeStr.split(':')[0], 10);
                         if (hh >= 0 && hh <= 6) {
-                            let d = new Date(dateStr.replace(/-/g, '/')); d.setDate(d.getDate() + 1);
-                            dateStr = d.toISOString().split('T')[0];
+                            const dParts = dateStr.split('-');
+                            if (dParts.length === 3) {
+                                let d = new Date(parseInt(dParts[0], 10), parseInt(dParts[1], 10) - 1, parseInt(dParts[2], 10));
+                                d.setDate(d.getDate() + 1);
+                                dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+                            }
                         }
                     }
                 }
@@ -1203,13 +1339,16 @@
             fetchLiveServerData(true).then(data => { if (data) setServerData(data); });
         }, [editingBooking, initialDate, defaultService]);
 
-        // [V116.3 NÂNG CẤP]: Móc nối Dual-Date, chuyển đổi từ Calendar Date (UI) xuống Operational Date (Hệ Thống)
+        // [V116.4 NÂNG CẤP]: Móc nối Dual-Date, thủ công xử lý Date tránh lỗi GMT+8
         const getOpDate = (calDateStr, timeStr) => {
             const h = parseInt((timeStr || "12:00").toString().split(':')[0], 10);
             if (h >= 0 && h <= 6) {
-                let d = new Date(calDateStr.replace(/-/g, '/'));
-                d.setDate(d.getDate() - 1);
-                return d.toISOString().split('T')[0];
+                const parts = calDateStr.replace(/\//g, '-').split('-');
+                if (parts.length === 3) {
+                    let d = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
+                    d.setDate(d.getDate() - 1);
+                    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+                }
             }
             return calDateStr;
         };
@@ -1227,20 +1366,40 @@
                 const newMinute = type === 'MINUTE' ? value : parts[1];
                 let newDate = prev.date;
 
-                // [V116.3 NÂNG CẤP]: Dual-Date Mapping - Tự động nhảy ngày UI 
+                // [V116.6 NÂNG CẤP]: Trí tuệ nhận diện nhảy ngày theo Giờ Thực Tế (Phục vụ từ 0h đến trước giờ xem máy)
                 if (type === 'HOUR' && prev.date) {
-                    const oldHour = parseInt(parts[0], 10);
                     const selHour = parseInt(value, 10);
-                    if (selHour >= 0 && selHour <= 6 && (oldHour > 6 || isNaN(oldHour))) {
-                        let d = new Date(prev.date.replace(/-/g, '/')); d.setDate(d.getDate() + 1);
-                        newDate = d.toISOString().split('T')[0];
-                    } else if (oldHour >= 0 && oldHour <= 6 && selHour > 6) {
-                        let d = new Date(prev.date.replace(/-/g, '/')); d.setDate(d.getDate() - 1);
-                        newDate = d.toISOString().split('T')[0];
+                    const now = new Date();
+                    const currentHour = now.getHours();
+                    const dParts = prev.date.replace(/\//g, '-').split('-');
+                    
+                    if (dParts.length === 3) {
+                        const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+                        const tomorrowD = new Date(now); tomorrowD.setDate(tomorrowD.getDate() + 1);
+                        const tomorrowStr = `${tomorrowD.getFullYear()}-${String(tomorrowD.getMonth() + 1).padStart(2, '0')}-${String(tomorrowD.getDate()).padStart(2, '0')}`;
+
+                        if (prev.date === todayStr && selHour < currentHour) {
+                            newDate = tomorrowStr;
+                        } else if (prev.date === tomorrowStr && selHour >= currentHour) {
+                            newDate = todayStr;
+                        }
                     }
                 }
 
                 return { ...prev, date: newDate, time: `${newHour}:${newMinute}` };
+            });
+            setCheckResult(null); setSuggestions([]);
+        }, []);
+
+        const handleDateShift = useCallback((days) => {
+            setForm(prev => {
+                const dParts = prev.date.replace(/\//g, '-').split('-');
+                if (dParts.length === 3) {
+                    let d = new Date(parseInt(dParts[0], 10), parseInt(dParts[1], 10) - 1, parseInt(dParts[2], 10));
+                    d.setDate(d.getDate() + days);
+                    return { ...prev, date: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` };
+                }
+                return prev;
             });
             setCheckResult(null); setSuggestions([]);
         }, []);
@@ -1307,12 +1466,28 @@
                 const found = [];
                 const parts = form.time.split(':').map(Number);
                 let currMins = (parts[0] || 0) * 60 + (parts[1] || 0);
-                for (let i = 1; i <= 24; i++) {
-                    let nM = currMins + (i * 10); let h = Math.floor(nM / 60); let m = nM % 60; if (h >= 24) h -= 24;
+                for (let i = 1; i <= 48; i++) {
+                    let nM = currMins + (i * 10);
+                    let daysToAdd = Math.floor(nM / 1440);
+                    let localM = nM % 1440;
+                    let h = Math.floor(localM / 60); 
+                    let m = localM % 60;
                     let tStr = `${String(h).padStart(2, '0')}:${String(Math.floor(m / 10) * 10).padStart(2, '0')}`;
-                    const sugOpDate = getOpDate(form.date, tStr);
+                    
+                    let sugDate = form.date;
+                    if (daysToAdd > 0) {
+                        const dParts = sugDate.replace(/\//g, '-').split('-');
+                        if (dParts.length === 3) {
+                            let d = new Date(parseInt(dParts[0], 10), parseInt(dParts[1], 10) - 1, parseInt(dParts[2], 10));
+                            d.setDate(d.getDate() + daysToAdd);
+                            sugDate = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+                        }
+                    }
+
+                    const sugOpDate = getOpDate(sugDate, tStr);
                     if (callCoreAvailabilityCheck(sugOpDate, tStr, guestDetails, finalBookings, serverStaffList).valid) {
-                        found.push(tStr); if (found.length >= 4) break;
+                        found.push({ time: tStr, date: sugDate, daysToAdd });
+                        if (found.length >= 4) break;
                     }
                 }
                 setSuggestions(found);
@@ -1402,7 +1577,7 @@
                     sdt: form.custPhone || "",
                     dichVu: detailedGuests.map(g => g.service).join(','),
                     pax: form.pax,
-                    ngayDen: normalizeDateStrict(finalOpDate),
+                    ngayDen: normalizeDateStrict(form.date), // [V134.1 NÂNG CẤP] Use Calendar Date
                     gioDen: form.time,
                     nhanVien: detailedGuests[0].staff,
                     isOil: detailedGuests[0].isOil,
@@ -1482,9 +1657,50 @@
                 {/* --- MÀN HÌNH MODAL CHÍNH --- */}
                 <div className="fixed inset-0 bg-slate-900/90 z-[100] flex items-center justify-center p-2 sm:p-6">
                     <div className="bg-white w-full max-w-[1000px] rounded-2xl shadow-2xl flex flex-col h-[98vh] sm:h-[90vh] overflow-hidden animate-fadeIn">
-                        <div className={`${editingBooking ? 'bg-orange-600' : 'bg-[#0891b2]'} p-6 text-white flex justify-between items-center shrink-0`}>
-                            <h3 className="font-bold text-2xl">{editingBooking ? "✏️ 修改預約 (Edit)" : "📅 預約 (V116.2 MULTI-STAFF)"}</h3>
-                            <button onClick={onClose} className="text-4xl hover:text-red-100 leading-none">&times;</button>
+                        <div className={`${editingBooking ? 'bg-orange-600' : 'bg-[#0891b2]'} p-4 sm:p-6 text-white flex justify-between items-center shrink-0`}>
+                            <h3 className="font-bold text-xl sm:text-2xl whitespace-nowrap">{editingBooking ? "✏️ 修改預約 (Edit)" : "📅 預約 (V116.6 UI FIX)"}</h3>
+                            <div className="flex items-center gap-2 sm:gap-4 flex-wrap justify-end">
+                                {step === 'CHECK' && (
+                                    <>
+                                        {!checkResult ? (
+                                            <button 
+                                                onClick={performCheck} 
+                                                disabled={isChecking} 
+                                                className={`px-3 sm:px-5 py-1.5 sm:py-2 rounded-xl font-bold text-sm sm:text-lg shadow-lg border-2 transition-all flex items-center gap-2 ${isChecking ? 'bg-orange-800 border-orange-700 text-orange-300 cursor-not-allowed' : 'bg-yellow-400 text-yellow-900 border-yellow-200 hover:bg-yellow-300 shadow-[0_0_15px_rgba(250,204,21,0.4)]'}`}
+                                            >
+                                                {isChecking ? "⏳..." : "🔍 查詢空位 (Strict Scan)"}
+                                            </button>
+                                        ) : (
+                                            <div className="flex items-center gap-2 animate-fadeIn bg-white/10 p-1 sm:p-1.5 rounded-xl border border-white/20">
+                                                <div className="hidden sm:block px-3 py-1.5 rounded-lg border-2 font-bold text-sm sm:text-base whitespace-nowrap bg-green-100 text-green-800 border-green-400 shadow-[0_0_10px_rgba(74,222,128,0.5)]">
+                                                    {checkResult.status === 'OK' ? "✅ 此時段可預約" : checkResult.message}
+                                                </div>
+                                                
+                                                {checkResult.status === 'OK' ? (
+                                                    <button onClick={() => setStep('INFO')} className="px-3 sm:px-4 py-1.5 bg-emerald-500 text-white rounded-lg font-bold shadow-lg hover:bg-emerald-600 border border-emerald-400 whitespace-nowrap animate-pulse flex items-center gap-1">
+                                                        <span>下一步</span> <span>➡️</span>
+                                                    </button>
+                                                ) : (
+                                                    <button onClick={() => { setCheckResult(null); setSuggestions([]) }} className="px-3 sm:px-4 py-1.5 bg-gray-200 text-gray-700 rounded-lg font-bold shadow-md hover:bg-gray-300 border border-gray-400 whitespace-nowrap">
+                                                        🔄 Retry
+                                                    </button>
+                                                )}
+                                            </div>
+                                        )}
+                                    </>
+                                )}
+                                {step === 'INFO' && (
+                                    <div className="flex items-center gap-2 animate-fadeIn bg-white/10 p-1 sm:p-1.5 rounded-xl border border-white/20">
+                                        <button onClick={(e) => { e.preventDefault(); if (!isSubmitting) setStep('CHECK'); }} className="px-3 sm:px-4 py-1.5 bg-gray-200 text-gray-700 rounded-lg font-bold shadow-md hover:bg-gray-300 border border-gray-400 whitespace-nowrap flex items-center gap-1" disabled={isSubmitting}>
+                                            <span>⬅️</span> <span>返回 (Back)</span>
+                                        </button>
+                                        <button onClick={handleFinalSave} className="px-3 sm:px-4 py-1.5 bg-indigo-500 text-white rounded-lg font-bold shadow-lg hover:bg-indigo-600 border border-indigo-400 whitespace-nowrap flex items-center gap-1" disabled={isSubmitting}>
+                                            {isSubmitting ? "⏳ 處理中..." : (editingBooking ? "💾 保存修改" : "✅ 確認 (Confirm)")}
+                                        </button>
+                                    </div>
+                                )}
+                                <button onClick={onClose} className="text-4xl hover:text-red-100 leading-none ml-1 sm:ml-2">&times;</button>
+                            </div>
                         </div>
 
                         <div className="p-6 space-y-6 overflow-y-auto flex-1 custom-scrollbar">
@@ -1492,7 +1708,13 @@
                                 <>
                                     <div className="grid grid-cols-2 gap-4">
                                         <div>
-                                            <label className="text-lg font-bold text-gray-500 mb-1 block">日期 (Date)</label>
+                                            <div className="flex justify-between items-center mb-1">
+                                                <label className="text-lg font-bold text-gray-500 block">日期 (Date)</label>
+                                                <div className="flex gap-1.5 pl-2">
+                                                    <button onClick={(e) => { e.preventDefault(); handleDateShift(-1); }} className="w-10 h-8 flex items-center justify-center bg-slate-200 hover:bg-slate-300 text-slate-600 rounded-lg shadow-sm font-bold border border-slate-300 transition-colors tooltip tooltip-bottom" data-tip="Lùi 1 Ngày (Prev)">◀</button>
+                                                    <button onClick={(e) => { e.preventDefault(); handleDateShift(1); }} className="w-10 h-8 flex items-center justify-center bg-slate-200 hover:bg-slate-300 text-slate-600 rounded-lg shadow-sm font-bold border border-slate-300 transition-colors tooltip tooltip-bottom" data-tip="Tiến 1 Ngày (Next)">▶</button>
+                                                </div>
+                                            </div>
                                             <input type="date" className="w-full border-2 p-3 rounded-xl font-bold text-xl h-[64px] bg-slate-50" value={form.date} onChange={e => { setForm({ ...form, date: e.target.value }); setCheckResult(null); }} />
                                         </div>
                                         <div>
@@ -1554,67 +1776,37 @@
                                         ))}
                                     </div>
 
-                                    <div className="pt-4">
-                                        {!checkResult ?
-                                            <button onClick={performCheck} disabled={isChecking} className={`w-full text-white p-5 rounded-xl font-bold text-xl shadow-lg flex justify-center items-center ${isChecking ? 'bg-gray-400 cursor-not-allowed' : 'bg-cyan-600 hover:bg-cyan-700'}`}>
-                                                {isChecking ? "🔄 正在同步數據..." : "🔍 查詢空位 (Strict Scan)"}
-                                            </button>
-                                            :
-                                            <div className="space-y-4">
-                                                <div className={`p-5 rounded-xl text-center font-bold text-xl border-2 ${checkResult.status === 'OK' ? 'bg-green-100 text-green-700 border-green-400' : 'bg-red-50 text-red-700 border-red-300'}`}>{checkResult.message}</div>
-                                                {checkResult.status === 'FAIL' && suggestions.length > 0 && (
+                                    <div className="pt-2">
+                                        {checkResult && checkResult.status === 'FAIL' && (
+                                            <div className="space-y-4 animate-slideIn">
+                                                <div className="p-5 rounded-xl text-center font-bold text-xl border-2 bg-red-50 text-red-700 border-red-300">{checkResult.message}</div>
+                                                {suggestions.length > 0 && (
                                                     <div className="bg-yellow-50 p-4 rounded-xl border-2 border-yellow-300">
                                                         <div className="text-base font-bold text-yellow-800 mb-3">💡 建議時段 (Suggestions):</div>
                                                         <div className="flex gap-3 flex-wrap">
-                                                            {suggestions.map(t => (
-                                                                <button key={t} onClick={() => { setForm(f => ({ ...f, time: t })); setCheckResult(null); setSuggestions([]); }} className="px-5 py-2 bg-white border-2 border-yellow-400 text-yellow-900 rounded-lg font-bold text-lg hover:bg-yellow-200">
-                                                                    {t}
-                                                                </button>
-                                                            ))}
+                                                            {suggestions.map(s => {
+                                                                let displayLabel = s.time;
+                                                                if (s.daysToAdd > 0) {
+                                                                    const dParts = s.date.replace(/\//g, '-').split('-');
+                                                                    if (dParts.length === 3) displayLabel = `${dParts[1]}/${dParts[2]} ${s.time}`;
+                                                                }
+                                                                return (
+                                                                    <button key={`${s.date}-${s.time}`} onClick={() => { setForm(f => ({ ...f, time: s.time, date: s.date })); setCheckResult(null); setSuggestions([]); }} className="px-5 py-2 bg-white border-2 border-yellow-400 text-yellow-900 rounded-lg font-bold text-lg hover:bg-yellow-200 whitespace-nowrap">
+                                                                        {displayLabel}
+                                                                    </button>
+                                                                );
+                                                            })}
                                                         </div>
                                                     </div>
                                                 )}
-                                                <div className="flex gap-4">
-                                                    {checkResult.status === 'OK' ?
-                                                        <button onClick={() => setStep('INFO')} className="w-full bg-emerald-600 text-white p-5 rounded-xl font-bold text-xl shadow-lg animate-pulse hover:bg-emerald-700">➡️ 下一步 (Next)</button>
-                                                        :
-                                                        <button onClick={() => { setCheckResult(null); setSuggestions([]) }} className="w-full bg-gray-400 text-white p-5 rounded-xl font-bold text-xl hover:bg-gray-500">🔄 重新選擇 (Retry)</button>
-                                                    }
-                                                </div>
                                             </div>
-                                        }
+                                        )}
                                     </div>
                                 </>
                             )}
 
                             {step === 'INFO' && (
                                 <div className="space-y-6 animate-slideIn flex flex-col h-full">
-                                    <div className="bg-green-50 p-4 rounded-xl border-2 border-green-300 text-green-900 font-bold">
-                                        <div className="flex justify-between border-b-2 border-green-200 pb-3 mb-3 text-xl">
-                                            <span>{form.date}</span>
-                                            <span>{form.time}</span>
-                                        </div>
-                                        <div className="text-lg font-normal space-y-2">
-                                            {checkResult && checkResult.coreDetails && checkResult.coreDetails.map((d, i) => (
-                                                <div key={i} className="flex justify-between items-center bg-white p-2 rounded-lg border border-green-200 shadow-sm">
-                                                    <span>#{i + 1} {d.service}</span>
-                                                    <div className="flex flex-col items-end gap-1">
-                                                        <div className="flex gap-2">
-                                                            <span className="bg-green-100 px-3 py-1 rounded-md text-green-800 text-sm font-bold">{d.staff}</span>
-                                                            {d.flow === 'BF' && <span className="bg-orange-100 px-3 py-1 rounded-md text-orange-800 border border-orange-300 text-sm font-bold">⚠️ 先做身體</span>}
-                                                            {d.flow === 'FB' && <span className="bg-blue-100 px-3 py-1 rounded-md text-blue-800 border border-blue-300 text-sm font-bold">🦶 先做腳</span>}
-                                                        </div>
-                                                        {d.allocated && d.allocated.length > 0 && (
-                                                            <div className="text-sm text-gray-500 font-mono mt-1">
-                                                                📍 {d.allocated.join(' -> ')}
-                                                            </div>
-                                                        )}
-                                                    </div>
-                                                </div>
-                                            ))}
-                                        </div>
-                                    </div>
-
                                     <div>
                                         <label className="text-lg font-bold text-gray-500 mb-2 block">顧客姓名 (Name)</label>
                                         <div className="flex gap-3">
@@ -1691,14 +1883,32 @@
                                         </div>
                                     </div>
 
-                                    <div className="flex gap-4 pt-6 mt-auto">
-                                        <button onClick={(e) => { e.preventDefault(); if (!isSubmitting) setStep('CHECK'); }} className="flex-[1] bg-gray-200 p-5 rounded-xl font-bold text-gray-700 hover:bg-gray-300 text-xl" disabled={isSubmitting}>
-                                            ⬅️ 返回 (Back)
-                                        </button>
-                                        <button onClick={handleFinalSave} className="flex-[2] bg-indigo-600 text-white p-5 rounded-xl font-bold shadow-xl hover:bg-indigo-700 text-xl" disabled={isSubmitting}>
-                                            {isSubmitting ? "處理中..." : (editingBooking ? "💾 保存修改 (Save)" : "✅ 確認預約 (Confirm)")}
-                                        </button>
+                                    <div className="bg-green-50 p-4 rounded-xl border-2 border-green-300 text-green-900 font-bold mt-auto mb-4">
+                                        <div className="flex justify-between border-b-2 border-green-200 pb-3 mb-3 text-xl">
+                                            <span>{form.date}</span>
+                                            <span>{form.time}</span>
+                                        </div>
+                                        <div className="text-lg font-normal space-y-2">
+                                            {checkResult && checkResult.coreDetails && checkResult.coreDetails.map((d, i) => (
+                                                <div key={i} className="flex justify-between items-center bg-white p-2 rounded-lg border border-green-200 shadow-sm">
+                                                    <span>#{i + 1} {d.service}</span>
+                                                    <div className="flex flex-col items-end gap-1">
+                                                        <div className="flex gap-2">
+                                                            <span className="bg-green-100 px-3 py-1 rounded-md text-green-800 text-sm font-bold">{d.staff}</span>
+                                                            {d.flow === 'BF' && <span className="bg-orange-100 px-3 py-1 rounded-md text-orange-800 border border-orange-300 text-sm font-bold">⚠️ 先做身體</span>}
+                                                            {d.flow === 'FB' && <span className="bg-blue-100 px-3 py-1 rounded-md text-blue-800 border border-blue-300 text-sm font-bold">🦶 先做腳</span>}
+                                                        </div>
+                                                        {d.allocated && d.allocated.length > 0 && (
+                                                            <div className="text-sm text-gray-500 font-mono mt-1">
+                                                                📍 {d.allocated.join(' -> ')}
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
                                     </div>
+
                                 </div>
                             )}
                         </div>
@@ -1711,7 +1921,7 @@
     const overrideInterval = setInterval(() => {
         if (window.AvailabilityCheckModal !== NewAvailabilityCheckModal) {
             window.AvailabilityCheckModal = NewAvailabilityCheckModal;
-            console.log("♻️ AvailabilityModal Injected (V116.2 - SSOT, DURATION FIX, ID NORM & MULTI-STAFF)");
+            console.log("♻️ AvailabilityModal Injected (V116.6 - SMART DUAL-DATE, BUTTONS & UI FIX)");
         }
     }, 200);
     setTimeout(() => { clearInterval(overrideInterval); }, 5000);

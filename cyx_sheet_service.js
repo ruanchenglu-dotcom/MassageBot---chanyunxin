@@ -358,6 +358,16 @@ async function syncData() {
                     for (const key in STATE.SERVICES) { if (STATE.SERVICES[key].name === serviceStr) { serviceCode = key; break; } }
                 }
 
+                const rawTime = row[1] || "12:00";
+                const hr = parseInt(rawTime.split(':')[0], 10);
+                let computedOpDate = cleanDate; // Base is calendar date
+                // [V134.1 NÂNG CẤP] Derive internal Operation Date
+                if (!isNaN(hr) && hr < (SYSTEM_CONFIG.OPERATION_TIME.OPEN_HOUR || 6)) {
+                    const tempD = new Date(cleanDate);
+                    tempD.setDate(tempD.getDate() - 1);
+                    computedOpDate = normalizeDateStrict(tempD);
+                }
+
                 tempBookings.push({
                     rowId: i + 1,
                     startTimeString: `${cleanDate} ${row[1]}`,
@@ -376,7 +386,7 @@ async function syncData() {
                     pax: pax,
                     customerName: `${row[2]} (${row[6]})`,
                     serviceName: serviceStr, serviceCode: serviceCode,
-                    phone: row[6], date: cleanDate, status: status,
+                    phone: row[6], date: cleanDate, opDate: computedOpDate, status: status,
                     isRunning: isRunning, lineId: row[9],
                     isOil: isOilService,
                     phase1_duration: safeParseInt(row[24], null),
@@ -452,7 +462,7 @@ async function syncData() {
 
                     const cellValue = row[j] ? row[j].trim().toUpperCase() : "";
 
-                    if (cellValue === 'OFF') {
+                    if (cellValue === 'OFF' || cellValue === 'X') {
                         if (!tempScheduleMap[normalizedDate]) tempScheduleMap[normalizedDate] = [];
                         tempScheduleMap[normalizedDate].push(cleanName);
                         staffObj.offDays.push(normalizedDate);

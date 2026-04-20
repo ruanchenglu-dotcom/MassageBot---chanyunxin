@@ -587,8 +587,7 @@ const App = () => {
 
             Object.keys(localOverridesRef.current).forEach(rowId => {
                 const override = localOverridesRef.current[rowId];
-                if (override && override.storedLocation) {
-                    const targetResId = override.storedLocation;
+                if (override) {
                     let currentResId = null;
 
                     Object.keys(nextResourceState).forEach(key => {
@@ -597,9 +596,17 @@ const App = () => {
                         }
                     });
 
-                    if (currentResId && currentResId !== targetResId) {
-                        nextResourceState[targetResId] = nextResourceState[currentResId];
-                        delete nextResourceState[currentResId];
+                    if (currentResId) {
+                        if (override.phase1_duration !== undefined) nextResourceState[currentResId].booking.phase1_duration = override.phase1_duration;
+                        if (override.phase2_duration !== undefined) nextResourceState[currentResId].booking.phase2_duration = override.phase2_duration;
+                        if (override.startTimeString !== undefined) nextResourceState[currentResId].booking.startTimeString = override.startTimeString;
+                        if (override.duration !== undefined) nextResourceState[currentResId].booking.duration = override.duration;
+
+                        if (override.storedLocation && currentResId !== override.storedLocation) {
+                            const targetResId = override.storedLocation;
+                            nextResourceState[targetResId] = nextResourceState[currentResId];
+                            delete nextResourceState[currentResId];
+                        }
                     }
                 }
             });
@@ -1376,18 +1383,32 @@ const App = () => {
         const current = resourceState[resId]; if (!current) return;
         setSyncLock(true); setTimeout(() => setSyncLock(false), 5000);
 
-        const oldServiceStaff = current.booking.serviceStaff || current.booking.staffId;
-        const grpIdx = getGroupMemberIndex(resId, current.booking.rowId);
-        const newBooking = { ...current.booking };
+        const isSinglePaxCombo = (parseInt(current.booking.pax || 1, 10) === 1);
+        const rawGrpIdx = getGroupMemberIndex(resId, current.booking.rowId);
+        const grpIdx = isSinglePaxCombo ? 0 : rawGrpIdx;
 
-        if (grpIdx === 0) newBooking.serviceStaff = newStaffId;
-        else if (grpIdx === 1) newBooking.staffId2 = newStaffId;
-        else if (grpIdx === 2) newBooking.staffId3 = newStaffId;
-        else if (grpIdx === 3) newBooking.staffId4 = newStaffId;
-        else if (grpIdx === 4) newBooking.staffId5 = newStaffId;
-        else if (grpIdx === 5) newBooking.staffId6 = newStaffId;
+        let oldServiceStaff = current.booking.serviceStaff || current.booking.staffId || '隨機';
+        if (grpIdx === 1) oldServiceStaff = current.booking.staffId2 || '隨機';
+        else if (grpIdx === 2) oldServiceStaff = current.booking.staffId3 || '隨機';
+        else if (grpIdx === 3) oldServiceStaff = current.booking.staffId4 || '隨機';
+        else if (grpIdx === 4) oldServiceStaff = current.booking.staffId5 || '隨機';
+        else if (grpIdx === 5) oldServiceStaff = current.booking.staffId6 || '隨機';
 
-        const newState = { ...resourceState, [resId]: { ...current, booking: newBooking } };
+        const newState = { ...resourceState };
+        Object.keys(newState).forEach(key => {
+            const res = newState[key];
+            if (res && res.booking && String(res.booking.rowId) === String(current.booking.rowId)) {
+                const updatedBooking = { ...res.booking };
+                if (grpIdx === 0) { updatedBooking.serviceStaff = newStaffId; updatedBooking.staffId = newStaffId; }
+                else if (grpIdx === 1) updatedBooking.staffId2 = newStaffId;
+                else if (grpIdx === 2) updatedBooking.staffId3 = newStaffId;
+                else if (grpIdx === 3) updatedBooking.staffId4 = newStaffId;
+                else if (grpIdx === 4) updatedBooking.staffId5 = newStaffId;
+                else if (grpIdx === 5) updatedBooking.staffId6 = newStaffId;
+                newState[key] = { ...res, booking: updatedBooking };
+            }
+        });
+
         setResourceState(newState);
 
         const newStatusData = { ...statusData };
@@ -1474,24 +1495,27 @@ const App = () => {
         let effectiveStartTimeStr = startTimeStr;
 
         if (startTimeStr) {
-            const originalStartStr = targetBooking.startTimeString || "";
-            let datePart = originalStartStr.split(' ')[0];
-
-            if (!datePart) {
-                const now = new Date();
-                datePart = `${now.getFullYear()}/${String(now.getMonth() + 1).padStart(2, '0')}/${String(now.getDate()).padStart(2, '0')}`;
-            }
-            datePart = datePart.replace(/-/g, '/');
-
-            newStartTimeStringForSheet = `${datePart} ${startTimeStr}`;
-
+            let datePart = viewDate.replace(/-/g, '/');
             const parts = startTimeStr.split(':');
             const h = parseInt(parts[0], 10);
             const m = parseInt(parts[1], 10);
-            const dObj = new Date(datePart);
+            let dObj = new Date(datePart);
             if (!isNaN(dObj.getTime())) {
-                dObj.setHours(h, m, 0, 0);
-                newStartTimeIso = dObj.toISOString();
+                if (h < (window.SYSTEM_CONFIG?.OPERATION_TIME?.OPEN_HOUR || 6)) {
+                    dObj.setDate(dObj.getDate() + 1);
+                }
+                const y = dObj.getFullYear();
+                const mo = String(dObj.getMonth() + 1).padStart(2, '0');
+                const d = String(dObj.getDate()).padStart(2, '0');
+                datePart = `${y}/${mo}/${d}`;
+            }
+
+            newStartTimeStringForSheet = `${datePart} ${startTimeStr}`;
+
+            let dObjFinal = new Date(datePart);
+            if (!isNaN(dObjFinal.getTime())) {
+                dObjFinal.setHours(h, m, 0, 0);
+                newStartTimeIso = dObjFinal.toISOString();
             }
         } else {
             effectiveStartTimeStr = targetBooking.startTimeString ? targetBooking.startTimeString.split(' ')[1] : "12:00";
@@ -1561,8 +1585,6 @@ const App = () => {
         setResourceState(newState);
         if (!arg2 && controlCenterData) setControlCenterData(null);
 
-        fetchData('KEEP_OVERRIDES');
-
         const payload = {
             rowId,
             flow: currentFlow,
@@ -1588,6 +1610,7 @@ const App = () => {
         try {
             await universalSend('/api/update-booking-details', payload);
             await updateResource(newState);
+            fetchData('KEEP_OVERRIDES');
         } catch (e) {
             alert("⚠️ 儲存失敗！請檢查網路連線。");
         }
@@ -1604,24 +1627,27 @@ const App = () => {
         let newStartTimeStringForSheet = null;
 
         if (startTimeStr) {
-            const originalStartStr = targetBooking.startTimeString || "";
-            let datePart = originalStartStr.split(' ')[0];
-
-            if (!datePart) {
-                const now = window.getTaipeiDate ? window.getTaipeiDate() : new Date();
-                datePart = `${now.getFullYear()}/${String(now.getMonth() + 1).padStart(2, '0')}/${String(now.getDate()).padStart(2, '0')}`;
-            }
-            datePart = datePart.replace(/-/g, '/');
-
-            newStartTimeStringForSheet = `${datePart} ${startTimeStr}`;
-
+            let datePart = viewDate.replace(/-/g, '/');
             const parts = startTimeStr.split(':');
             const h = parseInt(parts[0], 10);
             const m = parseInt(parts[1], 10);
-            const dObj = new Date(datePart);
+            let dObj = new Date(datePart);
             if (!isNaN(dObj.getTime())) {
-                dObj.setHours(h, m, 0, 0);
-                newStartTimeIso = dObj.toISOString();
+                if (h < (window.SYSTEM_CONFIG?.OPERATION_TIME?.OPEN_HOUR || 6)) {
+                    dObj.setDate(dObj.getDate() + 1);
+                }
+                const y = dObj.getFullYear();
+                const mo = String(dObj.getMonth() + 1).padStart(2, '0');
+                const d = String(dObj.getDate()).padStart(2, '0');
+                datePart = `${y}/${mo}/${d}`;
+            }
+
+            newStartTimeStringForSheet = `${datePart} ${startTimeStr}`;
+
+            let dObjFinal = new Date(datePart);
+            if (!isNaN(dObjFinal.getTime())) {
+                dObjFinal.setHours(h, m, 0, 0);
+                newStartTimeIso = dObjFinal.toISOString();
             }
         }
 
@@ -1672,8 +1698,6 @@ const App = () => {
             setResourceState(newState);
         }
 
-        fetchData('KEEP_OVERRIDES');
-
         const payload = {
             rowId,
             is_locked: "TRUE",
@@ -1694,6 +1718,7 @@ const App = () => {
         try {
             await universalSend('/api/update-booking-details', payload);
             if (hasChanges) await updateResource(newState);
+            fetchData('KEEP_OVERRIDES');
         } catch (e) {
             alert("⚠️ 儲存失敗！請檢查網路連線。");
         }
@@ -1798,8 +1823,6 @@ const App = () => {
             });
         }
 
-        fetchData('KEEP_OVERRIDES');
-
         try {
             await universalSend('/api/update-booking-details', {
                 rowId: rowId,
@@ -1820,6 +1843,7 @@ const App = () => {
             if (hasRunningChanges) {
                 await updateResource(newState);
             }
+            fetchData('KEEP_OVERRIDES');
         } catch (e) {
             console.error("Sync flow error", e);
         }

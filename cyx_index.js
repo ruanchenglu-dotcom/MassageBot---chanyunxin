@@ -120,7 +120,7 @@ function findBestSlots(selectedDate, serviceCode, pax = 1, requireFemale = false
         }
     });
 
-    const relevantBookings = cachedBookings.filter(b => b.date === cleanSelectedDate && !b.status.includes('取消'));
+    const relevantBookings = cachedBookings.filter(b => b.opDate === cleanSelectedDate && !b.status.includes('取消'));
     const guestList = [];
     for (let i = 0; i < pax; i++) { guestList.push({ serviceCode: serviceCode, staffName: 'RANDOM', flow: null }); }
 
@@ -167,7 +167,7 @@ function generateTimeBubbles(selectedDate, serviceCode, specificStaffIds = null,
         }
     });
 
-    const relevantBookings = cachedBookings.filter(b => b.date === cleanSelectedDate && !b.status.includes('取消'));
+    const relevantBookings = cachedBookings.filter(b => b.opDate === cleanSelectedDate && !b.status.includes('取消'));
     const guestList = [];
     for (let i = 0; i < pax; i++) {
         let sId = 'RANDOM'; if (specificStaffIds && specificStaffIds.length > i) sId = specificStaffIds[i];
@@ -386,6 +386,13 @@ app.post('/api/admin-booking', async (req, res) => {
     const SERVICES = SheetService.getServices();
 
     if (cyx_data.ngayDen) cyx_data.ngayDen = SheetService.normalizeDateStrict(cyx_data.ngayDen);
+    let opDateCheck = cyx_data.ngayDen;
+    const adminHr = parseInt(cyx_data.gioDen ? cyx_data.gioDen.split(':')[0] : "12", 10);
+    if (!isNaN(adminHr) && adminHr < 6) {
+        const tempD = new Date(cyx_data.ngayDen);
+        tempD.setDate(tempD.getDate() - 1);
+        opDateCheck = SheetService.normalizeDateStrict(tempD);
+    }
 
     if (!cyx_data.serviceCode || cyx_data.serviceCode === "") {
         cyx_data.serviceCode = SheetService.smartFindServiceCode(cyx_data.dichVu);
@@ -395,7 +402,7 @@ app.post('/api/admin-booking', async (req, res) => {
     if (!cyx_data.flow && ResourceCore.checkRequestAvailability) {
         try {
             const staffListMap = {}; SheetService.getStaffList().forEach(s => { staffListMap[s.id] = s; });
-            const relevantBookings = SheetService.getBookings().filter(b => b.date === cyx_data.ngayDen && !b.status.includes('取消'));
+            const relevantBookings = SheetService.getBookings().filter(b => b.opDate === opDateCheck && !b.status.includes('取消'));
             let serviceCode = 'UNKNOWN';
             if (cyx_data.serviceCode) serviceCode = cyx_data.serviceCode;
             else for (const key in SERVICES) { if (SERVICES[key].name === cyx_data.dichVu) { serviceCode = key; break; } }
@@ -406,7 +413,7 @@ app.post('/api/admin-booking', async (req, res) => {
                     let sId = (cyx_data.nhanVien && cyx_data.nhanVien !== '隨機' && cyx_data.nhanVien !== 'ALL_STAFF') ? cyx_data.nhanVien : 'RANDOM';
                     guestList.push({ serviceCode: serviceCode, staffName: sId, flow: null });
                 }
-                const checkResult = ResourceCore.checkRequestAvailability(cyx_data.ngayDen, cyx_data.gioDen, guestList, relevantBookings, staffListMap);
+                const checkResult = ResourceCore.checkRequestAvailability(opDateCheck, cyx_data.gioDen, guestList, relevantBookings, staffListMap);
 
                 if (checkResult.feasible && checkResult.details && checkResult.details.length > 0) {
                     const optimalDetail = checkResult.details[0];
@@ -748,7 +755,7 @@ async function handleEvent(event) {
             guestList.push({ serviceCode: s.service, staffName: sId, flow: null });
         }
 
-        const relevantBookings = SheetService.getBookings().filter(b => b.date === s.date && !b.status.includes('取消'));
+        const relevantBookings = SheetService.getBookings().filter(b => b.opDate === s.date && !b.status.includes('取消'));
         const staffListMap = {}; SheetService.getStaffList().forEach(staff => { if (!staff.offDays.includes(s.date)) staffListMap[staff.id] = staff; });
 
         const checkResult = ResourceCore.checkRequestAvailability(s.date, s.time, guestList, relevantBookings, staffListMap);
