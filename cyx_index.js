@@ -348,6 +348,14 @@ app.use(express.urlencoded({ extended: true }));
 app.use(express.static(path.join(__dirname, 'public')));
 app.use('/admin2', express.static(path.join(__dirname, 'XinWuChanAdmin')));
 
+// Serve cyx_data.js dynamically to frontend so it doesn't 404
+app.get('/admin2/js/cyx_data.js', (req, res) => {
+    res.sendFile(path.join(__dirname, 'cyx_data.js'));
+});
+app.get('/js/cyx_data.js', (req, res) => {
+    res.sendFile(path.join(__dirname, 'cyx_data.js'));
+});
+
 // --- API: INFO ---
 app.get('/api/info', async (req, res) => {
     try {

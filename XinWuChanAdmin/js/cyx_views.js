@@ -27,6 +27,10 @@ const getOpenHour = () => {
     const config = getConfig();
     return (config.OPERATION_TIME && config.OPERATION_TIME.OPEN_HOUR !== undefined) ? config.OPERATION_TIME.OPEN_HOUR : 5;
 };
+const getCutOffHour = () => {
+    const config = getConfig();
+    return (config.OPERATION_TIME && config.OPERATION_TIME.CUT_OFF_HOUR !== undefined) ? config.OPERATION_TIME.CUT_OFF_HOUR : 2;
+};
 const getOpenMins = () => getOpenHour() * 60;
 const getRatesConfig = () => getConfig().RATES || { JIE_PRICE: 250, OIL_BONUS: 0 };
 const getBookingStatus = () => window.BOOKING_STATUS || {
@@ -1056,7 +1060,12 @@ const TimelineView = ({ timelineData, onEditPhase, liveStatusData, staffList, st
     }, []);
 
     const startHour = getOpenHour();
-    const endHour = startHour + 24;
+    const cutOffHour = getCutOffHour();
+    let calculatedEndHour = cutOffHour;
+    if (cutOffHour <= startHour) {
+        calculatedEndHour += 24;
+    }
+    const endHour = calculatedEndHour + 2; // + 120 mins
     const hours = Array.from({ length: endHour - startHour + 1 }, (_, i) => i + startHour);
 
     const PIXELS_PER_MIN = 2.2;

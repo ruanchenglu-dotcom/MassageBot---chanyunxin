@@ -53,9 +53,9 @@ const SYSTEM_CONFIG = {
         OPEN_HOUR: 8,        // Giờ bắt đầu Timeline (03:00 AM)
         CUT_OFF_HOUR: 2,     // Giờ chốt sổ ngày hôm sau (03:00 AM)
         MINUTES_PER_SLOT: 1, // Đơn vị chia nhỏ nhất trên Timeline
-        // Tự động tính tổng số phút vận hành trong ngày (24 tiếng = 1440 phút)
+        // Tự động tính tổng số phút vận hành trong ngày (24 tiếng = 1440 phút + 120 phút)
         get TOTAL_TIMELINE_MINS() {
-            let hours = (24 - this.OPEN_HOUR) + this.CUT_OFF_HOUR;
+            let hours = (24 - this.OPEN_HOUR) + this.CUT_OFF_HOUR + 2;
             return hours * 60;
         }
     },
