@@ -167,7 +167,6 @@ function generateTimeBubbles(selectedDate, serviceCode, specificStaffIds = null,
     });
 
     const relevantBookings = cachedBookings.filter(b => b.opDate === cleanSelectedDate && !b.status.includes('取消'));
-    let validSlots = [];
     const maxHour = 24 + getConfig().OPERATION_TIME.CUT_OFF_HOUR;
     for (let h = 8; h <= maxHour; h += 1) {
         const slotTime = new Date(sYear, sMonth - 1, sDay, h, 0, 0);
@@ -863,9 +862,9 @@ SheetService.syncMenuData()
     .then(() => SheetService.syncData());
 
 // 2. Auto Sync Interval & Error Tracking [V130 NÂNG CẤP]
-const SYNC_INTERVAL = SYSTEM_CONFIG.API_CONFIG.SYNC_INTERVAL || 30000; // Mặc định 30 giây
+const SYNC_INTERVAL = getConfig().API_CONFIG?.SYNC_INTERVAL || 30000; // Mặc định 30 giây
 const LONG_SYNC_INTERVAL = 600000; // Mặc định 10 phút (600,000ms)
-const MAX_RETRIES = SYSTEM_CONFIG.API_CONFIG.MAX_RETRIES || 3;
+const MAX_RETRIES = getConfig().API_CONFIG?.MAX_RETRIES || 3;
 let alarmSent = false; // Trạng thái đã gửi cảnh báo hay chưa
 
 // Chu kỳ siêu dài: Menu Data & Quick Notes (Cấu hình ít thay đổi)
