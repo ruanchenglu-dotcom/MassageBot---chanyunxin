@@ -174,10 +174,23 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
 
     const requestedStaff = booking.requestedStaff || booking.staffId || '隨機';
 
+    // State cho Chia Đơn 4 Ô
+    const [isSplitMode, setIsSplitMode] = useState(false);
+    const [selectedStaff2, setSelectedStaff2] = useState('隨機');
+    
+    // Khởi tạo blocks
+    const totalBlocks = window.getServiceBlocks ? window.getServiceBlocks(initCleanService) : 2;
+    const [blocks1, setBlocks1] = useState(booking.staff1_blocks || totalBlocks);
+
     const processedStaffList = useMemo(() => {
         const activeStaffList = staffList || window.STAFF_LIST || [];
         return getProcessedStaffList(activeStaffList, statusData, selectedStaff);
     }, [staffList, statusData, selectedStaff]);
+
+    const processedStaffList2 = useMemo(() => {
+        const activeStaffList = staffList || window.STAFF_LIST || [];
+        return getProcessedStaffList(activeStaffList, statusData, selectedStaff2);
+    }, [staffList, statusData, selectedStaff2]);
 
     const [showPaymentOptions, setShowPaymentOptions] = useState(false);
     const [startTimeStr, setStartTimeStr] = useState("12:00");
@@ -205,14 +218,24 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
 
             setSelectedService(booking.cleanServiceName || getCleanServiceName(booking.serviceName));
 
-            let activeStaff = booking.serviceStaff || '隨機';
+            let activeStaff = booking.serviceStaff || booking.staffId || '隨機';
             if (liveData && liveData.booking) {
-                const liveStaff = liveData.booking.serviceStaff;
+                const liveStaff = liveData.booking.serviceStaff || liveData.booking.staffId;
                 if (liveStaff && liveStaff !== 'undefined' && liveStaff !== 'null') {
                     activeStaff = liveStaff;
                 }
             }
             setSelectedStaff(activeStaff);
+
+            if (booking.staffId2 && booking.staffId2 !== 'undefined') {
+                setIsSplitMode(true);
+                setSelectedStaff2(booking.staffId2);
+                setBlocks1(booking.staff1_blocks || 1);
+            } else {
+                setIsSplitMode(false);
+                setSelectedStaff2('隨機');
+                setBlocks1(booking.staff1_blocks || totalBlocks);
+            }
 
             setShowPaymentOptions(false);
             setLocalFlow((meta && meta.sequence) ? meta.sequence : (booking.flow || 'FB'));
@@ -431,6 +454,53 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
     const isSingleFull = availableSingleResources.length === 0;
     const isSingleSaveDisabled = isSingleFull;
 
+    const checkStaffConflict = (newStaffId, requiredBlocks) => {
+        if (!newStaffId || newStaffId === '隨機') return null;
+
+        const nowTimestamp = new Date();
+        let currentMins = 0;
+        if (isRunning) {
+            currentMins = (nowTimestamp.getHours() * 60) + nowTimestamp.getMinutes();
+        } else {
+            currentMins = timeStrToMins(booking.startTime || '12:00');
+        }
+        
+        const requiredMins = totalBlocks ? (requiredBlocks / totalBlocks) * totalDuration : totalDuration;
+        
+        const conflictingBooking = (liveData?.bookings || []).find(b => {
+            if (String(b.rowId) === String(booking.rowId)) return false; 
+            if (b.status === 'COMPLETED' || b.status === 'CANCELLED') return false;
+            // Chỉ kiểm tra đơn cùng ngày
+            if (b.date !== booking.date) return false;
+            
+            // Có phải thợ này không?
+            const isBound = b.staffId === newStaffId || b.serviceStaff === newStaffId || 
+                            b.staffId2 === newStaffId || b.staffId3 === newStaffId ||
+                            b.requestedStaff === newStaffId;
+            if (!isBound) return false;
+
+            const bStart = timeStrToMins(b.startTime);
+            const bStartAdjusted = bStart < 360 ? bStart + 1440 : bStart;
+            const currentMinsAdjusted = currentMins < 360 ? currentMins + 1440 : currentMins;
+
+            // Kiểm tra xem khoảng thời gian (currentMins -> currentMins + requiredMins) 
+            // có lấn vào giờ bắt đầu của đơn kia không (bStart)
+            if (bStartAdjusted >= currentMinsAdjusted && bStartAdjusted < (currentMinsAdjusted + requiredMins)) {
+                return b;
+            }
+            
+            // Hoặc đơn kia đang diễn ra và chồng lấp:
+            const bDuration = parseInt(b.duration) || 60;
+            if (currentMinsAdjusted >= bStartAdjusted && currentMinsAdjusted < (bStartAdjusted + bDuration)) {
+                return b;
+            }
+
+            return false;
+        });
+
+        return conflictingBooking;
+    };
+
     return (
         <div className="fixed inset-0 z-[3000] flex items-center justify-center bg-black/70 backdrop-blur-sm animate-in fade-in duration-200 p-4">
             <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden border border-slate-300 flex flex-col max-h-[90vh] relative">
@@ -517,80 +587,151 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                 <div className="p-6 overflow-y-auto custom-scrollbar space-y-6 bg-slate-50 flex-1">
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 relative">
-                            <label className="text-xs font-bold text-slate-400 uppercase mb-1 block">選擇服務師傅</label>
-                            <div className="flex items-center justify-between mb-4 relative">
-                                <div className="relative flex-1 mr-2 bg-slate-50 border border-slate-200 rounded-lg">
-                                    <select
-                                        value={selectedStaff}
-                                        onChange={(e) => {
-                                            const newStaff = e.target.value;
-                                            const staffObj = staffList && staffList.find(s => s.id === newStaff);
-                                            const isMale = staffObj && (staffObj.gender === 'M' || staffObj.gender === '男');
-                                            const reqStaff = booking.requestedStaff || booking.staffId || '';
-                                            const needsFemale = reqStaff.includes('女') || reqStaff.includes('Female') || booking.isOil;
+                            {/* KHU VỰC 4 Ô (CHIA ĐƠN & SỐ TIẾT) */}
+                            <div className="mb-4">
+                                <label className="text-xs font-bold text-slate-400 uppercase mb-2 block">安排服務師傅與節數 (Blocks)</label>
+                                <div className="grid grid-cols-12 gap-3 mb-2">
+                                    {/* Ô TRÁI 1: CHỌN THỢ 1 */}
+                                    <div className="col-span-8 relative bg-slate-50 border border-slate-200 rounded-lg">
+                                        <select
+                                            value={selectedStaff}
+                                            onChange={(e) => {
+                                                const newStaff = e.target.value;
+                                                const staffObj = staffList && staffList.find(s => s.id === newStaff);
+                                                const isMale = staffObj && (staffObj.gender === 'M' || staffObj.gender === '男');
+                                                const reqStaff = booking.requestedStaff || booking.staffId || '';
+                                                const needsFemale = reqStaff.includes('女') || reqStaff.includes('Female') || booking.isOil;
 
-                                            if (needsFemale && isMale) {
-                                                if (!window.confirm(`⚠️ 警告：此客人有「限女」需求 (或為精油項目)，您確定要指派男師傅 [${newStaff}] 嗎？\n(Cảnh báo: Khách này yêu cầu Nữ, bạn có chắc chắn muốn xếp thợ Nam không?)`)) {
-                                                    return;
+                                                if (needsFemale && isMale) {
+                                                    if (!window.confirm(`⚠️ 警告：此客人有「限女」需求 (或為精油項目)，您確定要指派男師傅 [${newStaff}] 嗎？`)) {
+                                                        return;
+                                                    }
                                                 }
-                                            }
-                                            setSelectedStaff(newStaff);
-                                        }}
-                                        className="w-full text-xl font-black text-indigo-800 bg-transparent focus:outline-none focus:border-indigo-500 cursor-pointer appearance-none py-2 pl-3 pr-8 rounded-lg"
-                                    >
-                                        <option value="隨機">尚未安排 ({STATUS.WAITING})</option>
-                                        {processedStaffList.length === 0 && <option disabled>目前無空閒師傅</option>}
-                                        {(() => {
-                                            let readyCount = 0;
-                                            return processedStaffList.map(s => {
+
+                                                // --- Cảnh báo Overlap / Trùng lịch ---
+                                                const reqBlocks = isSplitMode ? blocks1 : totalBlocks;
+                                                const conflictWarning = checkStaffConflict(newStaff, reqBlocks);
+                                                if (conflictWarning) {
+                                                    const msg = `⚠️ 警告：師傅 [${newStaff}] 稍後 (${conflictWarning.startTime || '即將'}) 有指定客或預約客，剩餘時間不足以完成此服務。\n\n請問您確定要強制指派此師傅嗎？`;
+                                                    if (!window.confirm(msg)) {
+                                                        return;
+                                                    }
+                                                }
+
+                                                setSelectedStaff(newStaff);
+                                                // NẾU LÀ THAY THỢ (CHƯA CHIA ĐƠN HOẶC ĐÃ CHIA ĐƠN), KHI EDIT THỢ SẼ TRIGGER ĐỔI THỢ
+                                                if (isRunning) {
+                                                    if (window.confirm('確定要更換主服務師傅嗎？原師傅將恢復排班順序。')) {
+                                                        triggerAction('CHANGE_STAFF', { newStaff: newStaff });
+                                                    } else {
+                                                        setSelectedStaff(selectedStaff); // Revert
+                                                    }
+                                                } else {
+                                                    triggerAction('CHANGE_STAFF', { newStaff: newStaff });
+                                                }
+                                            }}
+                                            className="w-full text-lg font-black text-indigo-800 bg-transparent focus:outline-none cursor-pointer appearance-none py-2 pl-3 pr-8"
+                                        >
+                                            <option value="隨機">尚未安排 ({STATUS.WAITING})</option>
+                                            {processedStaffList.map(s => {
                                                 const val = typeof s === 'object' ? s.id : s;
                                                 const label = typeof s === 'object' ? (s.name || s.id) : s;
                                                 const st = statusData && statusData[val] ? statusData[val].status : '';
-                                                let prefix = '';
-                                                let suffix = '';
-
-                                                if (st === 'READY' || st === 'EAT' || st === 'OUT_SHORT') {
-                                                    readyCount++;
-                                                    prefix = `[#${readyCount}] `;
-                                                    if (st === 'READY') suffix = ' (待命)';
-                                                    else if (st === 'EAT') suffix = ' (用餐)';
-                                                    else if (st === 'OUT_SHORT') suffix = ' (外出)';
-                                                } else if (st === 'BUSY') {
-                                                    suffix = ' (忙碌)';
-                                                } else if (st === 'AWAY') {
-                                                    suffix = ' (未到)';
-                                                }
-
-                                                return <option key={val} value={val}>{prefix}{label}{suffix}</option>;
-                                            });
-                                        })()}
-                                    </select>
-                                    <div className="pointer-events-none absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400">
-                                        <i className="fas fa-chevron-down"></i>
+                                                let suffix = st === 'BUSY' ? ' (忙碌)' : st === 'AWAY' ? ' (未到)' : '';
+                                                return <option key={val} value={val}>{label}{suffix}</option>;
+                                            })}
+                                        </select>
+                                        <i className="fas fa-chevron-down absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none"></i>
+                                    </div>
+                                    {/* Ô PHẢI 1: SỐ TIẾT THỢ 1 */}
+                                    <div className="col-span-4 relative bg-slate-50 border border-slate-200 rounded-lg flex items-center">
+                                        <select
+                                            value={blocks1}
+                                            onChange={(e) => {
+                                                const b1 = parseInt(e.target.value);
+                                                setBlocks1(b1);
+                                                triggerAction('UPDATE_BLOCKS', { blocks1: b1, blocks2: totalBlocks - b1 });
+                                            }}
+                                            className="w-full text-center text-lg font-bold text-slate-700 bg-transparent focus:outline-none appearance-none"
+                                            disabled={!isSplitMode}
+                                        >
+                                            {Array.from({ length: totalBlocks }, (_, i) => i + 1).map(val => (
+                                                <option key={val} value={val}>{val} 節</option>
+                                            ))}
+                                        </select>
                                     </div>
                                 </div>
 
-                                {selectedStaff !== ((liveData?.booking?.serviceStaff) || booking.serviceStaff || '隨機') && (
-                                    <button
-                                        onClick={() => {
-                                            if (isRunning) {
-                                                if (window.confirm('確定要更換服務師傅嗎？原師傅將恢復排班順序。')) {
-                                                    triggerAction('CHANGE_STAFF', { newStaff: selectedStaff });
-                                                    setTimeout(() => alert('更換成功！計時器繼續運行。'), 300);
-                                                }
-                                            } else {
-                                                triggerAction('CHANGE_STAFF', { newStaff: selectedStaff });
-                                            }
-                                        }}
-                                        className={`absolute right-[85px] text-white text-xs font-bold px-3 py-1 rounded shadow animate-pulse transition-colors z-10 whitespace-nowrap ${isRunning ? 'bg-orange-500 hover:bg-orange-600' : 'bg-indigo-600 hover:bg-indigo-700'}`}
-                                    >
-                                        {isRunning ? <><i className="fas fa-exchange-alt mr-1"></i> 確認換師傅</> : '確認'}
-                                    </button>
-                                )}
+                                <div className="grid grid-cols-12 gap-3">
+                                    {/* Ô TRÁI 2: CHIA ĐƠN HOẶC THỢ 2 */}
+                                    <div className="col-span-8 relative">
+                                        {!isSplitMode ? (
+                                            <button 
+                                                onClick={() => {
+                                                    setIsSplitMode(true);
+                                                    setBlocks1(Math.max(1, totalBlocks - 1));
+                                                }} 
+                                                className="w-full text-sm bg-blue-50 text-blue-600 hover:bg-blue-100 py-2.5 rounded-lg font-bold transition-colors border border-blue-200 flex justify-center items-center"
+                                            >
+                                                <i className="fas fa-cut mr-2"></i> 拆單 (Chia Đơn)
+                                            </button>
+                                        ) : (
+                                            <div className="bg-orange-50 border border-orange-200 rounded-lg relative">
+                                                <select
+                                                    value={selectedStaff2}
+                                                    onChange={(e) => {
+                                                        const newStaff2 = e.target.value;
+                                                        
+                                                        if (newStaff2 !== '隨機') {
+                                                            const conflictWarning = checkStaffConflict(newStaff2, totalBlocks - blocks1);
+                                                            if (conflictWarning) {
+                                                                const msg = `⚠️ 警告：師傅 [${newStaff2}] 稍後 (${conflictWarning.startTime || '即將'}) 有指定客或預約客，剩餘時間不足以完成此服務。\n\n請問您確定要強制接手此單嗎？`;
+                                                                if (!window.confirm(msg)) {
+                                                                    return;
+                                                                }
+                                                            }
+                                                        }
 
-                                <button onClick={() => triggerAction('SPLIT')} className="shrink-0 text-xs bg-blue-50 text-blue-600 hover:bg-blue-100 px-3 py-2 rounded-lg font-bold transition-colors border border-blue-200">
-                                    <i className="fas fa-user-plus mr-1"></i> 加人
-                                </button>
+                                                        setSelectedStaff2(newStaff2);
+                                                        
+                                                        // TÍNH TOÁN NGAY KHI GÁN THỢ 2 VÀ ĐANG CHẠY
+                                                        if (isRunning && newStaff2 !== '隨機') {
+                                                            if (confirm(`確定要由 [${newStaff2}] 接手剩餘的 ${totalBlocks - blocks1} 節嗎？\n(主師傅將立即設為待命/READY)`)) {
+                                                                triggerAction('INLINE_SPLIT', { 
+                                                                    staff1: selectedStaff,
+                                                                    staff2: newStaff2, 
+                                                                    blocks1: blocks1, 
+                                                                    blocks2: totalBlocks - blocks1 
+                                                                });
+                                                            } else {
+                                                                setSelectedStaff2('隨機');
+                                                            }
+                                                        }
+                                                    }}
+                                                    className="w-full text-lg font-black text-orange-800 bg-transparent focus:outline-none cursor-pointer appearance-none py-2 pl-3 pr-8"
+                                                >
+                                                    <option value="隨機">選擇接手師傅...</option>
+                                                    {processedStaffList2.map(s => {
+                                                        const val = typeof s === 'object' ? s.id : s;
+                                                        const label = typeof s === 'object' ? (s.name || s.id) : s;
+                                                        const st = statusData && statusData[val] ? statusData[val].status : '';
+                                                        let suffix = st === 'BUSY' ? ' (忙碌)' : st === 'AWAY' ? ' (未到)' : '';
+                                                        return <option key={val} value={val}>{label}{suffix}</option>;
+                                                    })}
+                                                </select>
+                                                <i className="fas fa-chevron-down absolute right-3 top-1/2 -translate-y-1/2 text-orange-400 pointer-events-none"></i>
+                                            </div>
+                                        )}
+                                    </div>
+                                    {/* Ô PHẢI 2: SỐ TIẾT THỢ 2 */}
+                                    <div className="col-span-4 relative bg-slate-100 border border-slate-200 rounded-lg flex items-center justify-center opacity-80">
+                                        {isSplitMode ? (
+                                            <span className="text-lg font-bold text-slate-500">{totalBlocks - blocks1} 節</span>
+                                        ) : (
+                                            <span className="text-sm font-medium text-slate-400">接手</span>
+                                        )}
+                                    </div>
+                                </div>
                             </div>
 
                             <label className="text-xs font-bold text-slate-400 uppercase mb-1 block">服務項目</label>

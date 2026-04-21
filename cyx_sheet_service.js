@@ -381,6 +381,8 @@ async function syncData() {
                     serviceStaff: row[11],
                     staffId2: row[12],
                     staffId3: row[13],
+                    staff1_blocks: safeParseInt(row[14], null),
+                    staff2_blocks: safeParseInt(row[15], null),
                     isGuaSha: row[16] === "Yes",
                     adminNote: row[17] || "",
                     pax: pax,
@@ -712,6 +714,9 @@ async function updateBookingDetails(body) {
     if (staff3 !== undefined) {
         await updateCell('N', staff3);
     }
+
+    if (body.staff1_blocks !== undefined) await updateCell('O', body.staff1_blocks);
+    if (body.staff2_blocks !== undefined) await updateCell('P', body.staff2_blocks);
 
     if (body.isGuaSha !== undefined) {
         await updateCell('Q', body.isGuaSha ? "Yes" : "");

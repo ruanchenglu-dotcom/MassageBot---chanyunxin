@@ -2820,6 +2820,83 @@ const App = () => {
                 }
                 break;
 
+            case 'UPDATE_BLOCKS':
+                if (targetBooking) {
+                    const rowId = String(targetBooking.rowId);
+                    universalSend('/api/update-booking-details', {
+                        rowId: rowId,
+                        staff1_blocks: payload.blocks1,
+                        staff2_blocks: payload.blocks2,
+                        forceSync: true
+                    });
+                    
+                    if (controlCenterData && String(controlCenterData.booking.rowId) === rowId) {
+                        setControlCenterData(prev => ({
+                            ...prev,
+                            booking: { ...prev.booking, staff1_blocks: payload.blocks1, staff2_blocks: payload.blocks2 }
+                        }));
+                    }
+                }
+                break;
+                
+            case 'INLINE_SPLIT':
+                if (targetBooking && payload.staff2) {
+                    const staff1 = normalizeStaffId(payload.staff1);
+                    const staff2 = normalizeStaffId(payload.staff2);
+                    const rowId = String(targetBooking.rowId);
+
+                    setSyncLock(true); setTimeout(() => setSyncLock(false), 3000);
+
+                    // --- Trả thợ 1 về READY tính từ thời điểm chia đơn ---
+                    const newStatusData = { ...statusData };
+                    if (staff1 !== '隨機') {
+                        const oldStaffState = statusData[staff1];
+                        newStatusData[staff1] = {
+                            ...oldStaffState,
+                            status: 'READY',
+                            stafftime: Date.now() // !!! Tính từ thời điểm chia đơn !!!
+                        };
+                    }
+                    if (staff2 !== '隨機') {
+                        const newStaffState = statusData[staff2];
+                        newStatusData[staff2] = {
+                            ...newStaffState,
+                            status: 'BUSY',
+                            stafftime: Date.now()
+                        };
+                    }
+                    setStatusData(newStatusData);
+                    universalSend('/api/sync-staff-status', newStatusData);
+
+                    // --- Đổi người phục vụ hiện tại (active) của Resource thành Thợ 2 ---
+                    if (targetResourceId && resourceState[targetResourceId]) {
+                        const res = resourceState[targetResourceId];
+                        const updatedBooking = { ...res.booking, serviceStaff: staff2, staffId2: staff2, staff1_blocks: payload.blocks1, staff2_blocks: payload.blocks2 };
+                        const newState = { ...resourceState, [targetResourceId]: { ...res, booking: updatedBooking } };
+                        setResourceState(newState);
+                        universalSend('/api/sync-resource', newState);
+                    }
+
+                    if (controlCenterData && String(controlCenterData.booking.rowId) === rowId) {
+                        setControlCenterData(prev => ({
+                            ...prev,
+                            booking: { ...prev.booking, serviceStaff: staff2, staffId2: staff2, staff1_blocks: payload.blocks1, staff2_blocks: payload.blocks2 }
+                        }));
+                    }
+
+                    // --- Lưu Database ---
+                    universalSend('/api/update-booking-details', {
+                        rowId: rowId,
+                        staffId2: staff2, // Column M
+                        staff1_blocks: payload.blocks1, // Column O
+                        staff2_blocks: payload.blocks2, // Column P
+                        forceSync: true
+                    });
+                    
+                    fetchData(true);
+                }
+                break;
+
             case 'UPDATE_PHASE':
                 if (targetBooking && payload.phase1 !== undefined) {
                     handleSaveComboTime(

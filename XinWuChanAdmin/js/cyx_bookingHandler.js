@@ -1004,9 +1004,29 @@
                 })));
 
                 let staffAssignmentSuccess = true;
-                for (const item of newGuestBlocksMap) {
+                
+                // --- SMART NEEDS SORTING (V116.7 - ANTI-GREEDY ALLOCATION) ---
+                // Ưu tiên gán thợ theo mức độ khắt khe: Thợ Chỉ Định -> Nam/Nữ -> Random
+                const sortedGuestsForAllocation = [...newGuestBlocksMap].sort((a, b) => {
+                    const reqA = a.guest.staffName;
+                    const reqB = b.guest.staffName;
+                    const isStrictA = reqA && !['RANDOM', 'MALE', 'FEMALE', '隨機', 'Any', 'undefined', '男', '女', '男師', '女師'].includes(reqA);
+                    const isStrictB = reqB && !['RANDOM', 'MALE', 'FEMALE', '隨機', 'Any', 'undefined', '男', '女', '男師', '女師'].includes(reqB);
+                    
+                    if (isStrictA && !isStrictB) return -1;
+                    if (!isStrictA && isStrictB) return 1;
+                    
+                    // Nếu cùng ưu tiên (ví dụ cùng Nam/Nữ), duy trì thứ tự gốc
+                    return a.guest.idx - b.guest.idx;
+                });
+
+                for (const item of sortedGuestsForAllocation) {
                     const assignedStaff = findAvailableStaff(item.guest.staffName, item.blocks[0].start, item.blocks[item.blocks.length - 1].end, staffList, flatTimeline);
-                    if (!assignedStaff) { staffAssignmentSuccess = false; break; }
+                    if (!assignedStaff) { 
+                        staffAssignmentSuccess = false; 
+                        failureLog.push(`❌ 無法為客需 [${item.guest.staffName}] 找到合適技師`);
+                        break; 
+                    }
                     const detail = scenarioDetails.find(d => d.guestIndex === item.guest.idx);
                     if (detail) detail.staff = assignedStaff;
                     // Khi khách mới được phân thợ, cũng gán vào mảng assignedStaffs để check cho khách tiếp theo
@@ -1281,9 +1301,41 @@
             return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
         };
 
+        // --- NÂNG CẤP CA ĐÊM (OVERNIGHT SHIFT) ---
+        // initialDate truyền từ cyx_app.js vốn dĩ là Operation Date (VD: 02:30 sáng ngày 21 thì initialDate = 20)
+        // Ta cần phục hồi nó thành Physical Date (21) để Lễ tân hiển thị đúng
+        const getInitialPhysicalDate = () => {
+             let baseDateStr = initialDate;
+             let timeStr = getRoundedCurrentTime();
+             
+             // Nếu là Walk-in (tạo mới từ UI), initialDate được truyền vào (VD "2026-04-20")
+             // Nếu không có, dùng Date hiện tại theo timezone (không dùng ISOString() vì bị lệch UTC)
+             if (!baseDateStr) {
+                 const now = new Date();
+                 const y = now.getFullYear();
+                 const m = String(now.getMonth() + 1).padStart(2, '0');
+                 const d = String(now.getDate()).padStart(2, '0');
+                 baseDateStr = `${y}-${m}-${d}`;
+             }
+             
+             const openHour = window.SYSTEM_CONFIG?.OPERATION_TIME?.OPEN_HOUR || 6;
+             const hh = parseInt(timeStr.split(':')[0], 10);
+             
+             // Nếu giờ hiện tại < openHour, Physical Date LỚN HƠN Operation Date 1 ngày!
+             if (hh >= 0 && hh < openHour && initialDate) {
+                 const dParts = baseDateStr.split('-');
+                 if (dParts.length === 3) {
+                     let d = new Date(parseInt(dParts[0], 10), parseInt(dParts[1], 10) - 1, parseInt(dParts[2], 10));
+                     d.setDate(d.getDate() + 1);
+                     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+                 }
+             }
+             return baseDateStr;
+        };
+
         // --- TITLE STATE ---
         const [form, setForm] = useState({
-            date: initialDate || new Date().toISOString().slice(0, 10),
+            date: getInitialPhysicalDate(),
             time: getRoundedCurrentTime(), pax: 1, custName: '', custTitle: '', custPhone: '', adminNote: ''
         });
 
