@@ -81,12 +81,11 @@
         // --- 1. CẤU HÌNH HỆ THỐNG ĐỘNG (DYNAMIC SYSTEM CONFIG) ---
         const getSystemConfig = () => {
             const ext = window.SYSTEM_CONFIG || {};
-            // Quy mô chuẩn 9 ghế x 9 giường
             const scale = ext.SCALE || {};
             const opTime = ext.OPERATION_TIME || {};
             return {
-                MAX_CHAIRS: scale.MAX_CHAIRS || ext.MAX_CHAIRS || 9,
-                MAX_BEDS: scale.MAX_BEDS || ext.MAX_BEDS || 9,
+                MAX_CHAIRS: scale.MAX_CHAIRS || ext.MAX_CHAIRS,
+                MAX_BEDS: scale.MAX_BEDS || ext.MAX_BEDS,
                 MAX_TOTAL_GUESTS: ext.MAX_TOTAL_GUESTS || 18,
                 OPEN_HOUR: opTime.OPEN_HOUR || ext.OPEN_HOUR || 3,
                 CLEANUP_BUFFER: (ext.BUFFERS && ext.BUFFERS.CLEANUP_MINUTES) || ext.CLEANUP_BUFFER || 5,

@@ -24,7 +24,12 @@ const http = require('http');   // Thêm module http để phục vụ Anti-Hibe
 const ResourceCore = require('./cyx_resource_core');
 const StaffBot = require('./cyx_staff_bot');
 const SheetService = require('./cyx_sheet_service'); // Module Sheet Service: Single Source of Truth
-const { SYSTEM_CONFIG } = require('./cyx_data');     // Import Centralized Config
+
+// Lấy thông số cấu hình động từ cyx_data để tự động cập nhật không cần restart
+function getConfig() {
+    delete require.cache[require.resolve('./cyx_data.js')];
+    return require('./cyx_data.js').SYSTEM_CONFIG;
+}
 
 // --- 1. CẤU HÌNH HỆ THỐNG (SYSTEM CONFIG) ---
 const config = {
@@ -33,12 +38,6 @@ const config = {
 };
 
 const ID_BA_CHU = process.env.ID_BA_CHU;
-
-// Lấy thông số từ SYSTEM_CONFIG thay vì hardcode hoặc phụ thuộc hoàn toàn vào ResourceCore
-const MAX_CHAIRS = SYSTEM_CONFIG.SCALE.MAX_CHAIRS;
-const MAX_BEDS = SYSTEM_CONFIG.SCALE.MAX_BEDS;
-const CUT_OFF_HOUR = SYSTEM_CONFIG.OPERATION_TIME.CUT_OFF_HOUR;
-const OIL_BONUS = SYSTEM_CONFIG.FINANCE.OIL_BONUS;
 
 // --- 2. GLOBAL STATE (CACHE ONLY) ---
 let SERVER_RESOURCE_STATE = {};
@@ -125,7 +124,7 @@ function findBestSlots(selectedDate, serviceCode, pax = 1, requireFemale = false
     for (let i = 0; i < pax; i++) { guestList.push({ serviceCode: serviceCode, staffName: 'RANDOM', flow: null }); }
 
     let candidates = [];
-    const maxHour = 24 + CUT_OFF_HOUR;
+    const maxHour = 24 + getConfig().OPERATION_TIME.CUT_OFF_HOUR;
     for (let h = 8; h <= maxHour; h += 1) {
         const slotTime = new Date(sYear, sMonth - 1, sDay, h, 0, 0);
         if (slotTime.getTime() <= nowTaipei.getTime()) continue;
@@ -168,13 +167,8 @@ function generateTimeBubbles(selectedDate, serviceCode, specificStaffIds = null,
     });
 
     const relevantBookings = cachedBookings.filter(b => b.opDate === cleanSelectedDate && !b.status.includes('取消'));
-    const guestList = [];
-    for (let i = 0; i < pax; i++) {
-        let sId = 'RANDOM'; if (specificStaffIds && specificStaffIds.length > i) sId = specificStaffIds[i];
-        guestList.push({ serviceCode: serviceCode, staffName: sId, flow: null });
-    }
-
-    const maxHour = 24 + CUT_OFF_HOUR;
+    let validSlots = [];
+    const maxHour = 24 + getConfig().OPERATION_TIME.CUT_OFF_HOUR;
     for (let h = 8; h <= maxHour; h += 1) {
         const slotTime = new Date(sYear, sMonth - 1, sDay, h, 0, 0);
         if (slotTime.getTime() <= nowTaipei.getTime()) continue;
@@ -294,7 +288,7 @@ function createMenuFlexMessage() {
         const row = createRow(svc.name, svc.duration, svc.price);
         if (svc.category === 'COMBO') comboRows.push(row); else if (svc.category === 'FOOT') footRows.push(row); else bodyRows.push(row);
     });
-    return { "type": "bubble", "size": "mega", "body": { "type": "box", "layout": "vertical", "contents": [{ "type": "text", "text": "📜 服務價目表 (Menu)", "weight": "bold", "size": "xl", "color": "#1DB446", "align": "center", "margin": "md" }, { "type": "separator", "margin": "lg" }, { "type": "text", "text": "🔥 熱門套餐 (Combo)", "weight": "bold", "size": "md", "color": "#111111", "margin": "lg" }, ...comboRows, { "type": "text", "text": "👣 足底按摩 (Foot)", "weight": "bold", "size": "md", "color": "#111111", "margin": "lg" }, ...footRows, { "type": "text", "text": "🛏️ 身體指壓 (Body)", "weight": "bold", "size": "md", "color": "#111111", "margin": "lg" }, ...bodyRows, { "type": "separator", "margin": "xl" }, { "type": "text", "text": `⭐ 油推需加收 $${OIL_BONUS}，請詢問櫃台。`, "size": "xs", "color": "#aaaaaa", "margin": "md", "align": "center" }] }, "footer": { "type": "box", "layout": "vertical", "contents": [{ "type": "button", "style": "primary", "action": { "type": "message", "label": "📅 立即預約 (Book Now)", "text": "Action:Booking" } }] } };
+    return { "type": "bubble", "size": "mega", "body": { "type": "box", "layout": "vertical", "contents": [{ "type": "text", "text": "📜 服務價目表 (Menu)", "weight": "bold", "size": "xl", "color": "#1DB446", "align": "center", "margin": "md" }, { "type": "separator", "margin": "lg" }, { "type": "text", "text": "🔥 熱門套餐 (Combo)", "weight": "bold", "size": "md", "color": "#111111", "margin": "lg" }, ...comboRows, { "type": "text", "text": "👣 足底按摩 (Foot)", "weight": "bold", "size": "md", "color": "#111111", "margin": "lg" }, ...footRows, { "type": "text", "text": "🛏️ 身體指壓 (Body)", "weight": "bold", "size": "md", "color": "#111111", "margin": "lg" }, ...bodyRows, { "type": "separator", "margin": "xl" }, { "type": "text", "text": `⭐ 油推需加收 $${getConfig().FINANCE.OIL_BONUS}，請詢問櫃台。`, "size": "xs", "color": "#aaaaaa", "margin": "md", "align": "center" }] }, "footer": { "type": "box", "layout": "vertical", "contents": [{ "type": "button", "style": "primary", "action": { "type": "message", "label": "📅 立即預約 (Book Now)", "text": "Action:Booking" } }] } };
 }
 
 // =============================================================================
@@ -366,7 +360,7 @@ app.get('/api/info', async (req, res) => {
             staffList: SheetService.getStaffList(),
             bookings: SheetService.getBookings(),
             schedule: SheetService.getScheduleMap(),
-            resources: { chairs: MAX_CHAIRS, beds: MAX_BEDS },
+            resources: { chairs: getConfig().SCALE.MAX_CHAIRS, beds: getConfig().SCALE.MAX_BEDS },
             resourceState: SERVER_RESOURCE_STATE,
             staffStatus: SERVER_STAFF_STATUS,
             services: SheetService.getServices(),
@@ -645,7 +639,7 @@ async function handleEvent(event) {
             { "type": "button", "style": "primary", "color": "#333333", "margin": "sm", "action": { "type": "message", "label": "👉 指定特定號碼", "text": "Pref:SPECIFIC" } },
             { "type": "button", "style": "secondary", "margin": "sm", "action": { "type": "message", "label": "👩 指定女師傅 (無油)", "text": "Pref:FEMALE" } }
         ];
-        if (serviceType !== 'FOOT') buttons.push({ "type": "button", "style": "primary", "color": "#E91E63", "margin": "sm", "action": { "type": "message", "label": `💧 指定女師傅推油 (+$${OIL_BONUS})`, "text": "Pref:OIL" } });
+        if (serviceType !== 'FOOT') buttons.push({ "type": "button", "style": "primary", "color": "#E91E63", "margin": "sm", "action": { "type": "message", "label": `💧 指定女師傅推油 (+$${getConfig().FINANCE.OIL_BONUS})`, "text": "Pref:OIL" } });
         else buttons.push({ "type": "text", "text": "(足底按摩無油壓選項)", "size": "xs", "color": "#aaaaaa", "align": "center", "margin": "sm" });
         return client.replyMessage(event.replyToken, { type: 'flex', altText: '師傅', contents: { "type": "bubble", "body": { "type": "box", "layout": "vertical", "contents": buttons } } });
     }
@@ -743,7 +737,7 @@ async function handleEvent(event) {
         }
 
         let basePrice = SERVICES[s.service].price;
-        if (s.isOil) basePrice += OIL_BONUS;
+        if (s.isOil) basePrice += getConfig().FINANCE.OIL_BONUS;
         const totalPrice = basePrice * s.pax;
 
         let staffDisplay = '隨機'; if (s.selectedStaff && s.selectedStaff.length > 0) staffDisplay = s.selectedStaff.join(', '); else if (s.pref === 'FEMALE') staffDisplay = '女師傅'; else if (s.pref === 'MALE') staffDisplay = '男師傅'; else if (s.pref === 'OIL') staffDisplay = '女師傅(油)';

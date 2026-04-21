@@ -301,8 +301,8 @@ const App = () => {
 
     const getGroupMemberIndex = (targetResId, targetRowId) => {
         const allSlots = [];
-        const maxChairs = window.SYSTEM_CONFIG?.SCALE?.MAX_CHAIRS || 9;
-        const maxBeds = window.SYSTEM_CONFIG?.SCALE?.MAX_BEDS || 9;
+        const maxChairs = window.SYSTEM_CONFIG?.SCALE?.MAX_CHAIRS;
+        const maxBeds = window.SYSTEM_CONFIG?.SCALE?.MAX_BEDS;
         for (let i = 1; i <= maxChairs; i++) allSlots.push(`chair-${i}`);
         for (let i = 1; i <= maxBeds; i++) allSlots.push(`bed-${i}`);
         const groupSlots = allSlots.filter(slotId => {
@@ -571,10 +571,18 @@ const App = () => {
             setQuotaError(false);
 
             if (res.data.services) {
+                // Chỉ nhận danh sách dịch vụ, GIỮ NGUYÊN cấu hình hệ thống
                 window.DYNAMIC_PRICES_MAP = res.data.services;
                 window.SERVICES_DATA = res.data.services;
                 const uniqueNames = [...new Set(Object.values(res.data.services).map(s => s.name))];
                 window.SERVICES_LIST = uniqueNames;
+            }
+
+            // Đồng bộ config tự động từ Resource của API
+            if (res.data.resources) {
+                if (!window.SYSTEM_CONFIG) window.SYSTEM_CONFIG = { SCALE: {}, OPERATION_TIME: {}, LOGIC_RULES: {}, BUFFERS: {}, FINANCE: {} };
+                window.SYSTEM_CONFIG.SCALE.MAX_CHAIRS = res.data.resources.chairs || 9;
+                window.SYSTEM_CONFIG.SCALE.MAX_BEDS = res.data.resources.beds || 9;
             }
 
             const { bookings: apiBookings, staffList: apiStaff, resourceState: serverRes, staffStatus: serverStaff, quickNotes: apiQuickNotes } = res.data;
@@ -895,7 +903,7 @@ const App = () => {
 
                     if (!targetResId) {
                         const type = (b.forceResourceType === 'BED' || b.flow === 'BODYSINGLE') ? 'bed' : 'chair';
-                        const limit = type === 'chair' ? (window.SYSTEM_CONFIG?.SCALE?.MAX_CHAIRS || 9) : (window.SYSTEM_CONFIG?.SCALE?.MAX_BEDS || 9);
+                        const limit = type === 'chair' ? window.SYSTEM_CONFIG?.SCALE?.MAX_CHAIRS : window.SYSTEM_CONFIG?.SCALE?.MAX_BEDS;
                         for (let i = 1; i <= limit; i++) {
                             const tid = `${type}-${i}`;
                             if (!nextResourceState[tid]) { targetResId = tid; break; }
@@ -1118,8 +1126,8 @@ const App = () => {
             setTimelineData(timelineGrid);
 
             const allSlots = [];
-            const maxChairs = window.SYSTEM_CONFIG?.SCALE?.MAX_CHAIRS || 9;
-            const maxBeds = window.SYSTEM_CONFIG?.SCALE?.MAX_BEDS || 9;
+            const maxChairs = window.SYSTEM_CONFIG?.SCALE?.MAX_CHAIRS;
+            const maxBeds = window.SYSTEM_CONFIG?.SCALE?.MAX_BEDS;
             for (let i = 1; i <= maxChairs; i++) allSlots.push(`chair-${i}`);
             for (let i = 1; i <= maxBeds; i++) allSlots.push(`bed-${i}`);
 
@@ -1858,7 +1866,7 @@ const App = () => {
         if (isNaN(index)) return;
 
         const newIndex = index + direction;
-        const maxLimit = type === 'chair' ? (window.SYSTEM_CONFIG?.SCALE?.MAX_CHAIRS || 9) : (window.SYSTEM_CONFIG?.SCALE?.MAX_BEDS || 9);
+        const maxLimit = type === 'chair' ? window.SYSTEM_CONFIG?.SCALE?.MAX_CHAIRS : window.SYSTEM_CONFIG?.SCALE?.MAX_BEDS;
         if (newIndex < 1 || newIndex > maxLimit) return;
 
         const targetId = `${type}-${newIndex}`;
@@ -2559,7 +2567,7 @@ const App = () => {
             return;
         }
 
-        const limit = toType === 'chair' ? (window.SYSTEM_CONFIG?.SCALE?.MAX_CHAIRS || 9) : (window.SYSTEM_CONFIG?.SCALE?.MAX_BEDS || 9);
+        const limit = toType === 'chair' ? window.SYSTEM_CONFIG?.SCALE?.MAX_CHAIRS : window.SYSTEM_CONFIG?.SCALE?.MAX_BEDS;
         for (let i = 1; i <= limit; i++) {
             const targetId = `${toType}-${i}`;
             if (!resourceState[targetId]) {

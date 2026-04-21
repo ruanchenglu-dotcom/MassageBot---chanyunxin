@@ -20,45 +20,47 @@
 // PHẦN 1: LIÊN KẾT CẤU HÌNH TRUNG TÂM (cyx_data.js)
 // ============================================================================
 
-let SYSTEM_CONFIG = null;
-
-// Thử tải cyx_data.js trong môi trường Node.js (Backend)
-if (typeof require !== 'undefined') {
-    try {
-        const dataModule = require('./cyx_data.js');
-        SYSTEM_CONFIG = dataModule.SYSTEM_CONFIG;
-        console.log("✅ [CORE V118.0] Đã nạp thành công SYSTEM_CONFIG từ cyx_data.js (Backend)");
-    } catch (e) {
-        console.warn("⚠️ [CORE V118.0] Không tìm thấy file ./cyx_data.js qua require. Chờ Fallback.");
+function getSystemConfig() {
+    let dynamicConfig = null;
+    
+    // Thử tải cyx_data.js trong môi trường Node.js (Backend)
+    if (typeof require !== 'undefined') {
+        try {
+            // Delete cache for hot reload
+            delete require.cache[require.resolve('./cyx_data.js')];
+            const dataModule = require('./cyx_data.js');
+            dynamicConfig = dataModule.SYSTEM_CONFIG;
+        } catch (e) {
+            console.warn("⚠️ [CORE V118.0] Không tìm thấy file ./cyx_data.js qua require. Chờ Fallback.");
+        }
     }
+    
+    // Thử tải từ Global Window nếu chạy dưới dạng script trên trình duyệt (Frontend fallback)
+    if (!dynamicConfig && typeof window !== 'undefined' && window.SYSTEM_CONFIG) {
+        dynamicConfig = window.SYSTEM_CONFIG;
+    }
+    
+    // FALLBACK AN TOÀN TỐI HẬU (Phòng trường hợp file cyx_data.js bị lỗi/mất)
+    if (!dynamicConfig) {
+        dynamicConfig = {
+            SCALE: { MAX_CHAIRS: 9, MAX_BEDS: 9 },
+            OPERATION_TIME: { OPEN_HOUR: 3 },
+            BUFFERS: { CLEANUP_MINUTES: 5, TRANSITION_MINUTES: 5 },
+            LOGIC_RULES: { TOLERANCE: 1, CAPACITY_CHECK_STEP: 10 }
+        };
+    }
+    return dynamicConfig;
 }
 
-// Thử tải từ Global Window nếu chạy dưới dạng script trên trình duyệt (Frontend fallback)
-if (!SYSTEM_CONFIG && typeof window !== 'undefined' && window.SYSTEM_CONFIG) {
-    SYSTEM_CONFIG = window.SYSTEM_CONFIG;
-    console.log("✅ [CORE V118.0] Đã nạp thành công SYSTEM_CONFIG từ window (Frontend)");
-}
-
-// FALLBACK AN TOÀN TỐI HẬU (Phòng trường hợp file cyx_data.js bị lỗi/mất)
-if (!SYSTEM_CONFIG) {
-    console.error("❌ [CORE V118.0] CRITICAL: Không tìm thấy SYSTEM_CONFIG. Đang dùng Fallback mặc định 9-9.");
-    SYSTEM_CONFIG = {
-        SCALE: { MAX_CHAIRS: 9, MAX_BEDS: 9 },
-        OPERATION_TIME: { OPEN_HOUR: 3 },
-        BUFFERS: { CLEANUP_MINUTES: 5, TRANSITION_MINUTES: 5 },
-        LOGIC_RULES: { TOLERANCE: 1, CAPACITY_CHECK_STEP: 10 }
-    };
-}
-
-// Alias ánh xạ cấu hình để code phía dưới ngắn gọn và tương thích ngược
+// Alias ánh xạ cấu hình động để code phía dưới ngắn gọn và tương thích ngược, sử dụng getter
 const CONF = {
-    MAX_CHAIRS: SYSTEM_CONFIG.SCALE.MAX_CHAIRS,
-    MAX_BEDS: SYSTEM_CONFIG.SCALE.MAX_BEDS,
-    OPEN_HOUR: SYSTEM_CONFIG.OPERATION_TIME.OPEN_HOUR,
-    CLEANUP_BUFFER: SYSTEM_CONFIG.BUFFERS.CLEANUP_MINUTES,
-    TRANSITION_BUFFER: SYSTEM_CONFIG.BUFFERS.TRANSITION_MINUTES,
-    TOLERANCE: SYSTEM_CONFIG.LOGIC_RULES?.TOLERANCE || 1,
-    CAPACITY_CHECK_STEP: SYSTEM_CONFIG.LOGIC_RULES?.CAPACITY_CHECK_STEP || 10
+    get MAX_CHAIRS() { return getSystemConfig().SCALE.MAX_CHAIRS; },
+    get MAX_BEDS() { return getSystemConfig().SCALE.MAX_BEDS; },
+    get OPEN_HOUR() { return getSystemConfig().OPERATION_TIME.OPEN_HOUR; },
+    get CLEANUP_BUFFER() { return getSystemConfig().BUFFERS.CLEANUP_MINUTES; },
+    get TRANSITION_BUFFER() { return getSystemConfig().BUFFERS.TRANSITION_MINUTES; },
+    get TOLERANCE() { return getSystemConfig().LOGIC_RULES?.TOLERANCE || 1; },
+    get CAPACITY_CHECK_STEP() { return getSystemConfig().LOGIC_RULES?.CAPACITY_CHECK_STEP || 10; }
 };
 
 // ============================================================================

@@ -14,10 +14,19 @@
 const { useState, useEffect, useMemo, useRef } = React;
 
 // --- GLOBAL SYSTEM CONFIG GETTERS (FALLBACK TO DEFAULTS IF DATA.JS NOT READY) ---
-const getConfig = () => window.SYSTEM_CONFIG || {};
-const getMaxChairs = () => getConfig().MAX_CHAIRS || 9;
-const getMaxBeds = () => getConfig().MAX_BEDS || 9;
-const getOpenHour = () => getConfig().OPEN_HOUR !== undefined ? getConfig().OPEN_HOUR : 5;
+const getConfig = () => window.SYSTEM_CONFIG || { SCALE: {}, OPERATION_TIME: {} };
+const getMaxChairs = () => {
+    const config = getConfig();
+    return (config.SCALE && config.SCALE.MAX_CHAIRS) || config.MAX_CHAIRS;
+};
+const getMaxBeds = () => {
+    const config = getConfig();
+    return (config.SCALE && config.SCALE.MAX_BEDS) || config.MAX_BEDS;
+};
+const getOpenHour = () => {
+    const config = getConfig();
+    return (config.OPERATION_TIME && config.OPERATION_TIME.OPEN_HOUR !== undefined) ? config.OPERATION_TIME.OPEN_HOUR : 5;
+};
 const getOpenMins = () => getOpenHour() * 60;
 const getRatesConfig = () => getConfig().RATES || { JIE_PRICE: 250, OIL_BONUS: 0 };
 const getBookingStatus = () => window.BOOKING_STATUS || {
