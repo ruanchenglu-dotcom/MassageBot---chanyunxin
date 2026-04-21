@@ -43,15 +43,15 @@ const SYSTEM_CONFIG = {
 
     // Quy mô chi nhánh
     SCALE: {
-        MAX_CHAIRS: 6, // Số lượng ghế (足)
-        MAX_BEDS: 6,   // Số lượng giường (床)
+        MAX_CHAIRS: 9, // Số lượng ghế (腳)
+        MAX_BEDS: 9,   // Số lượng giường (床)
         get TOTAL_RESOURCES() { return this.MAX_CHAIRS + this.MAX_BEDS; }
     },
 
     // Quản lý thời gian vận hành
     OPERATION_TIME: {
-        OPEN_HOUR: 8,        // Giờ bắt đầu Timeline (03:00 AM)
-        CUT_OFF_HOUR: 2,     // Giờ chốt sổ ngày hôm sau (03:00 AM)
+        OPEN_HOUR: 5,        // Giờ bắt đầu Timeline (03:00 AM)
+        CUT_OFF_HOUR: 3,     // Giờ chốt sổ ngày hôm sau (03:00 AM)
         MINUTES_PER_SLOT: 1, // Đơn vị chia nhỏ nhất trên Timeline
         // Tự động tính tổng số phút vận hành trong ngày (24 tiếng = 1440 phút + 120 phút)
         get TOTAL_TIMELINE_MINS() {
@@ -82,7 +82,7 @@ const SYSTEM_CONFIG = {
 
     // Nhãn giao diện (Tiếng Trung Phồn Thể)
     UI_LABELS: {
-        CHAIR_PREFIX: '足',
+        CHAIR_PREFIX: '腳',
         BED_PREFIX: '床',
         MINUTES_UNIT: '分',
         PRICE_UNIT: '元',
