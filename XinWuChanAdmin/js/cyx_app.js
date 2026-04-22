@@ -443,7 +443,7 @@ const App = () => {
         const rowId = String(booking.rowId);
         const newDuration = parseInt(standardDuration, 10);
 
-        if (confirm(`💡 溫馨提示：請問確定要將時長強制同步為標準時間 (${newDuration} 分鐘) 嗎？\n(Sync to standard time)`)) {
+        if (confirm(`💡 溫馨提示：請問確定要將時長強制同步為標準時間 (${newDuration} 分鐘) 嗎？`)) {
             setSyncLock(true);
             setTimeout(() => setSyncLock(false), 3000);
 
@@ -1337,7 +1337,7 @@ const App = () => {
 
         } catch (e) {
             console.error("Inline update failed:", e);
-            alert("⚠️ 儲存失敗，請檢查網路連線。 (Update Failed)");
+            alert("⚠️ 儲存失敗，請檢查網路連線。");
         }
     };
 
@@ -1500,7 +1500,7 @@ const App = () => {
         const totalDuration = parseInt(targetBooking.duration || 100);
 
         if (isNaN(newPhase1Duration) || newPhase1Duration < 0 || newPhase1Duration > totalDuration) {
-            alert(`⚠️ 第一階段時間無效！(Phase 1 Time Invalid)`);
+            alert(`⚠️ 第一階段時間無效！`);
             return;
         }
 
@@ -2112,7 +2112,7 @@ const App = () => {
                     const targetPhysicalType = ghostTargetId.split('-')[0];
                     if (currentPhysicalType === targetPhysicalType) {
                         if (!silentMode) {
-                            alert(`⚠️ 預約錯誤 (Booking Error): Phase 1 (${currentPhysicalType === 'chair' ? '足部' : '身體'}) 和 Phase 2 (${targetPhysicalType === 'chair' ? '足部' : '身體'}) 不能在同一個區域！\n(套餐必須包含一個床位和一個足部區)\n請重新調整座位！`);
+                            alert(`⚠️ 預約錯誤: Phase 1 (${currentPhysicalType === 'chair' ? '足部' : '身體'}) 和 Phase 2 (${targetPhysicalType === 'chair' ? '足部' : '身體'}) 不能在同一個區域！\n(套餐必須包含一個床位和一個足部區)\n請重新調整座位！`);
                         }
                         setSyncLock(false);
                         return;
@@ -2138,7 +2138,7 @@ const App = () => {
                 if (!silentMode) {
                     const reqTxt = comboSequence === 'BF' ? '身體優先 (Body First)' : '腳底優先 (Foot First)';
                     const mustBe = comboSequence === 'BF' ? '【床 / Bed】' : '【足 / Chair】';
-                    alert(`⚠️ 服務流程錯誤 (Flow Error): \n您選擇的是 ${reqTxt}，第一階段必須在 ${mustBe}!\n請重新確定顧客位置！`);
+                    alert(`⚠️ 服務流程錯誤: \n您選擇的是 ${reqTxt}，第一階段必須在 ${mustBe}!\n請重新確定顧客位置！`);
                 }
                 setSyncLock(false);
                 return;
@@ -2179,7 +2179,7 @@ const App = () => {
             if (window.StaffSorter && window.StaffSorter.findBestStaffForSingle) {
                 foundStaff = window.StaffSorter.findBestStaffForSingle(current.booking, readyCandidates, statusData, bookings, currentMins);
             } else {
-                if (!silentMode) alert("⚠️ Lỗi hệ thống: Không tìm thấy StaffSorter module.");
+                if (!silentMode) alert("⚠️ 系統錯誤：找不到 StaffSorter 模組。");
                 setSyncLock(false); return;
             }
 
@@ -2338,7 +2338,7 @@ const App = () => {
         if (window.StaffSorter && window.StaffSorter.assignStaffForBatch) {
             assignments = window.StaffSorter.assignStaffForBatch(validItems, readyCandidates, nextStatusData, bookings, currentMins);
         } else {
-            alert("⚠️ Lỗi hệ thống: Không tìm thấy StaffSorter module.");
+            alert("⚠️ 系統錯誤：找不到 StaffSorter 模組。");
             setSyncLock(false); return;
         }
 
@@ -2741,9 +2741,9 @@ const App = () => {
                 alert(`✅ 結帳成功: $${totalAmount}`);
                 fetchData(true);
             } catch (e) {
-                alert("⚠️ 連線錯誤，請檢查網路！(Batch Failed)");
+                alert("⚠️ 連線錯誤，請檢查網路！");
             }
-        } catch (e) { alert("⚠️ 結帳發生錯誤，請截圖給開發者: " + e.message); }
+        } catch (e) { alert("⚠️ 結帳發生錯誤，請截圖給開發者：" + e.message); }
     };
 
     const handleControlAction = (actionType, payload) => {
@@ -3090,7 +3090,7 @@ const App = () => {
 
                         // NẾU THỢ ĐÃ BỊ KẸT Ở 1 TRONG CÁC CỘT CỦA CA "b" -> CHẶN ĐỨNG
                         if (staffCols.includes(reqStaff)) {
-                            alert(`❌ 技師 ${reqStaff} 於此時段已被預約 (Đang phục vụ ca khác)`);
+                            alert(`❌ 技師 ${reqStaff} 於此時段已被預約`);
                             return; // Chặn đứng flow lưu data
                         }
                     }
@@ -3208,6 +3208,7 @@ const App = () => {
                         bookings={todaysBookings}
                         onCancelBooking={handleManualUpdateStatus}
                         onInlineUpdate={handleInlineUpdate}
+                        staffList={staffList}
                     />
                 )}
 

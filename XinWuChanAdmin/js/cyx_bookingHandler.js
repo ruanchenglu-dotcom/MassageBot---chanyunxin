@@ -1550,7 +1550,7 @@
             if (e) e.preventDefault(); if (isSubmitting) return;
 
             const finalCustName = (form.custName.trim() + (form.custTitle || '')).trim();
-            if (!finalCustName) { alert("⚠️ 請輸入顧客姓名 (Enter Name)!"); return; }
+            if (!finalCustName) { alert("⚠️ 請輸入顧客姓名！"); return; }
 
             setIsSubmitting(true);
             try {
@@ -1560,7 +1560,7 @@
                 const finalCheck = callCoreAvailabilityCheck(finalOpDate, form.time, guestDetails, checkBookings, serverData?.staff || safeStaffList);
 
                 if (!finalCheck.valid) {
-                    alert("⚠️ 數據已變更，無法預約: " + finalCheck.reason);
+                    alert("⚠️ 數據已變更，無法預約：" + finalCheck.reason);
                     setIsSubmitting(false);
                     return;
                 }
@@ -1661,7 +1661,7 @@
                     forceGlobalRefresh();
                     setTimeout(() => { onClose(); setIsSubmitting(false); }, 500);
                 }
-            } catch (err) { alert("儲存失敗: " + err.message); setIsSubmitting(false); }
+            } catch (err) { alert("儲存失敗：" + err.message); setIsSubmitting(false); }
         };
 
         const HOURS_LIST = ['05', '06', '07', '08', '09', '10', '11', '12', '13', '14', '15', '16', '17', '18', '19', '20', '21', '22', '23', '00', '01', '02', '03', '04'];

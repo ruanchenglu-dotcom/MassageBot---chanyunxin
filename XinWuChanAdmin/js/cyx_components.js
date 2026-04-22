@@ -4,6 +4,42 @@
 
 const { useState, useEffect, useMemo, useRef } = React;
 
+// --- CUSTOM 24H TIME PICKER (TO REPLACE NATIVE OS-DEPENDENT <INPUT TYPE="TIME">) ---
+const TimePicker24H = ({ value, onChange, className }) => {
+    const val = value || "00:00";
+    const [h, m] = val.split(":");
+
+    return (
+        <div className={`flex items-center justify-between bg-white ${className || 'border rounded p-1'} focus-within:ring-2 focus-within:ring-blue-200 transition-all cursor-pointer`}>
+            <div className="flex items-center justify-center w-full">
+                <select 
+                    value={h || "00"} 
+                    onChange={e => onChange(`${e.target.value}:${m || "00"}`)}
+                    className="appearance-none bg-transparent text-center font-mono outline-none cursor-pointer hover:bg-slate-100 rounded w-full"
+                    style={{ textAlignLast: 'center' }}
+                >
+                    {Array.from({length: 24}, (_, i) => String(i).padStart(2, '0')).map(hour => (
+                        <option key={hour} value={hour}>{hour}</option>
+                    ))}
+                </select>
+                <span className="font-bold text-gray-500 mx-1">:</span>
+                <select 
+                    value={m || "00"} 
+                    onChange={e => onChange(`${h || "00"}:${e.target.value}`)}
+                    className="appearance-none bg-transparent text-center font-mono outline-none cursor-pointer hover:bg-slate-100 rounded w-full"
+                    style={{ textAlignLast: 'center' }}
+                >
+                    {Array.from({length: 60}, (_, i) => String(i).padStart(2, '0')).map(minute => (
+                        <option key={minute} value={minute}>{minute}</option>
+                    ))}
+                </select>
+            </div>
+            <i className="fas fa-clock text-gray-400 ml-2 pointer-events-none"></i>
+        </div>
+    );
+};
+window.TimePicker24H = TimePicker24H;
+
 // --- GLOBAL SYSTEM CONFIG GETTERS ---
 const getBookingStatus = () => window.BOOKING_STATUS || {
     WAITING: '等待中',
@@ -112,7 +148,7 @@ window.StaffCard3D = StaffCard3D;
  * 3. CHECKIN BOARD (技師管理看板) 
  * ============================================================================
  */
-const AbsenceCheckModal = ({ data, staffList, bookings, onClose }) => {
+const AbsenceCheckModal = ({ data, staffList, bookings, onClose, onConfirm }) => {
     const { staffId, staffName, type } = data; // 'LATE', 'EARLY', 'OUT'
     const [time1, setTime1] = React.useState('');
     const [time2, setTime2] = React.useState('');
@@ -134,14 +170,14 @@ const AbsenceCheckModal = ({ data, staffList, bookings, onClose }) => {
         const nowMins = safeTimeToMins(nowStr);
         
         if (type === 'LATE') {
-            if (!time1) return alert('Vui lòng nhập giờ đến!');
+            if (!time1) return alert('請輸入到達時間！');
             absStart = 0;
             absEnd = safeTimeToMins(time1);
         } else if (type === 'EARLY') {
             absStart = nowMins;
             absEnd = 24 * 60 + 5 * 60;
         } else {
-            if (!time1 || !time2) return alert('Vui lòng nhập giờ bắt đầu và kết thúc!');
+            if (!time1 || !time2) return alert('請輸入開始和結束時間！');
             absStart = safeTimeToMins(time1);
             absEnd = safeTimeToMins(time2);
         }
@@ -170,7 +206,7 @@ const AbsenceCheckModal = ({ data, staffList, bookings, onClose }) => {
         }
 
         if (hasDesignated) {
-            setResult({ ok: false, msg: `❌ Không thể vắng mặt! Thợ có khách lúc ${conflictBooking.startTimeString.split(' ')[1] || conflictBooking.startTimeString}.` });
+            setResult({ ok: false, msg: `❌ 無法請假！該技師在 ${conflictBooking.startTimeString.split(' ')[1] || conflictBooking.startTimeString} 有預約。` });
             return;
         }
 
@@ -194,9 +230,10 @@ const AbsenceCheckModal = ({ data, staffList, bookings, onClose }) => {
         }
 
         if (shortage) {
-            setResult({ ok: false, msg: `❌ Không đủ nhân sự! Khách đông hơn số thợ còn lại.` });
+            setResult({ ok: false, msg: `❌ 人手不足！顧客數量多於可用技師。` });
         } else {
-            setResult({ ok: true, msg: `✅ Có thể vắng mặt! Lịch trống và đủ thợ.` });
+            const successMsg = type === 'LATE' ? `✅ 可以！請盡量早點到！` : `✅ 可外出！時段空閒且技師充足。`;
+            setResult({ ok: true, msg: successMsg });
         }
     };
 
@@ -204,43 +241,48 @@ const AbsenceCheckModal = ({ data, staffList, bookings, onClose }) => {
         <div className="fixed inset-0 bg-slate-900/80 z-[70] flex items-center justify-center p-4 backdrop-blur-sm">
             <div className="bg-white rounded-xl shadow-2xl w-full max-w-md overflow-hidden">
                 <div className="bg-blue-600 p-4 flex justify-between items-center text-white">
-                    <h3 className="font-bold text-xl">
+                    <h3 className="font-bold text-2xl">
                         {type === 'LATE' ? '晚到登記' : type === 'EARLY' ? '早退登記' : '外出登記'} - {staffName}
                     </h3>
-                    <button onClick={onClose} className="hover:text-red-300"><i className="fas fa-times text-xl"></i></button>
+                    <button onClick={onClose} className="hover:text-red-300"><i className="fas fa-times text-2xl"></i></button>
                 </div>
-                <div className="p-6 space-y-4">
+                <div className="p-6 space-y-5">
                     {type === 'LATE' && (
                         <div>
-                            <label className="block text-sm font-bold text-gray-700 mb-1">預計到達時間</label>
-                            <input type="time" value={time1} onChange={e => setTime1(e.target.value)} className="w-full border-2 rounded p-2 text-lg" />
+                            <label className="block text-lg font-bold text-gray-700 mb-2">預計到達時間</label>
+                            <TimePicker24H value={time1} onChange={setTime1} className="w-full border-2 rounded p-3 text-2xl" />
                         </div>
                     )}
                     {type === 'OUT' && (
                         <div className="grid grid-cols-2 gap-4">
                             <div>
-                                <label className="block text-sm font-bold text-gray-700 mb-1">開始時間</label>
-                                <input type="time" value={time1} onChange={e => setTime1(e.target.value)} className="w-full border-2 rounded p-2 text-lg" />
+                                <label className="block text-lg font-bold text-gray-700 mb-2">開始時間</label>
+                                <TimePicker24H value={time1} onChange={setTime1} className="w-full border-2 rounded p-3 text-2xl" />
                             </div>
                             <div>
-                                <label className="block text-sm font-bold text-gray-700 mb-1">結束時間</label>
-                                <input type="time" value={time2} onChange={e => setTime2(e.target.value)} className="w-full border-2 rounded p-2 text-lg" />
+                                <label className="block text-lg font-bold text-gray-700 mb-2">結束時間</label>
+                                <TimePicker24H value={time2} onChange={setTime2} className="w-full border-2 rounded p-3 text-2xl" />
                             </div>
                         </div>
                     )}
                     {type === 'EARLY' && (
-                        <div className="text-gray-700 font-bold bg-gray-100 p-3 rounded text-center text-sm">
+                        <div className="text-gray-700 font-bold bg-gray-100 p-4 rounded text-center text-lg">
                             系統將自動檢查從現在到下班時間的預約狀況。
                         </div>
                     )}
                     
-                    <button onClick={handleCheck} className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded shadow-md mt-4 text-lg">
+                    <button onClick={handleCheck} className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-4 rounded shadow-md mt-6 text-2xl">
                         檢查空檔
                     </button>
 
                     {result && (
-                        <div className={`p-4 rounded-lg font-bold border-2 text-center mt-4 ${result.ok ? 'bg-green-50 text-green-700 border-green-200' : 'bg-red-50 text-red-700 border-red-200'}`}>
+                        <div className={`p-4 rounded-lg font-bold border-2 text-center mt-4 ${result.ok ? 'bg-green-50 text-green-700 border-green-200' : 'bg-red-50 text-red-700 border-red-200'} text-xl`}>
                             {result.msg}
+                            {result.ok && onConfirm && (
+                                <button onClick={() => onConfirm(type, time1, time2)} className="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-3 rounded shadow-md mt-4 text-xl">
+                                    確認並更新時間
+                                </button>
+                            )}
                         </div>
                     )}
                 </div>
@@ -406,21 +448,34 @@ const CheckInBoard = ({ staffList, statusData, onClose, onUpdateStatus, bookings
 
     return (
         <div className="fixed inset-0 bg-slate-900/80 z-[60] flex items-center justify-center p-4 backdrop-blur-sm">
-            {absenceData && <AbsenceCheckModal data={absenceData} staffList={staffList} bookings={bookings} onClose={() => setAbsenceData(null)} />}
-            <div className="bg-white w-full max-w-7xl rounded-t-xl shadow-2xl modal-animate flex flex-col max-h-[90vh] overflow-hidden">
+            {absenceData && <AbsenceCheckModal data={absenceData} staffList={staffList} bookings={bookings} onClose={() => setAbsenceData(null)} onConfirm={(type, time1, time2) => {
+                if (type === 'LATE') {
+                    handleShiftChange(absenceData.staffId, 'start', time1);
+                } else if (type === 'OUT') {
+                    handleShiftChange(absenceData.staffId, 'outStart', time1);
+                    handleShiftChange(absenceData.staffId, 'outEnd', time2);
+                }
+                setAbsenceData(null);
+            }} />}
+            <div className="bg-white w-full max-w-[95vw] rounded-t-xl shadow-2xl modal-animate flex flex-col max-h-[90vh] overflow-hidden">
                 <div className="p-4 bg-[#7e22ce] text-white flex justify-between items-center shrink-0 shadow-md">
                     <h2 className="text-2xl font-bold flex gap-2 items-center"><i className="fas fa-user-clock"></i> 技師管理看板</h2>
-                    <button onClick={onClose} className="hover:text-red-300 bg-white/10 rounded-full w-10 h-10 flex items-center justify-center"><i className="fas fa-times text-2xl"></i></button>
+                    <div className="flex gap-4 items-center">
+                        <button onClick={() => setLocalShifts({})} className="bg-white/20 hover:bg-white/30 px-4 py-2 rounded-lg font-bold flex items-center gap-2 transition-all shadow-sm">
+                            <i className="fas fa-sync-alt"></i> 恢復預設時間
+                        </button>
+                        <button onClick={onClose} className="hover:text-red-300 bg-white/10 rounded-full w-10 h-10 flex items-center justify-center"><i className="fas fa-times text-2xl"></i></button>
+                    </div>
                 </div>
-                <div className="grid gap-2 bg-slate-100 p-4 font-bold text-slate-700 text-base border-b sticky top-0 z-10 shadow-sm" style={{ gridTemplateColumns: 'repeat(14, minmax(0, 1fr))' }}>
+                <div className="grid gap-2 bg-slate-100 p-4 font-bold text-slate-700 text-lg border-b sticky top-0 z-10 shadow-sm" style={{ gridTemplateColumns: 'repeat(16, minmax(0, 1fr))' }}>
                     <div className="col-span-2 text-center border-r border-slate-300">姓名</div>
                     <div className="col-span-2 text-center text-emerald-700 border-r border-slate-300">💰 薪資</div>
                     <div className="col-span-2 text-center border-r border-slate-300">上班時間</div>
                     <div className="col-span-2 text-center border-r border-slate-300">下班時間</div>
                     <div className="col-span-3 text-center border-r border-slate-300">操作</div>
-                    <div className="col-span-1 text-center border-r border-slate-300">狀態</div>
                     <div className="col-span-1 text-center border-r border-slate-300 text-blue-700">準時下班</div>
-                    <div className="col-span-1 text-center text-orange-600">外出</div>
+                    <div className="col-span-3 text-center border-r border-slate-300 text-orange-600">外出</div>
+                    <div className="col-span-1 text-center">狀態</div>
                 </div>
                 <div className="overflow-y-auto flex-1 p-2 space-y-2 bg-white custom-scrollbar">
                     {sortedStaffList.map(s => {
@@ -432,66 +487,71 @@ const CheckInBoard = ({ staffList, statusData, onClose, onUpdateStatus, bookings
                         
                         const displayStart = localShifts[s.id]?.start || s.shiftStart || '';
                         const displayEnd = localShifts[s.id]?.end || s.shiftEnd || '';
-                        const hasLocalOverride = localShifts[s.id] !== undefined;
+                        const displayOutStart = localShifts[s.id]?.outStart || '';
+                        const displayOutEnd = localShifts[s.id]?.outEnd || '';
 
                         return (
-                            <div key={s.id} className="grid gap-2 items-center py-3 px-2 border-b border-gray-100 hover:bg-slate-50 transition-all group" style={{ gridTemplateColumns: 'repeat(14, minmax(0, 1fr))' }}>
+                            <div key={s.id} className="grid gap-2 items-center py-3 px-2 border-b border-gray-100 hover:bg-slate-50 transition-all group" style={{ gridTemplateColumns: 'repeat(16, minmax(0, 1fr))' }}>
                                 <div className="col-span-2 text-center font-black text-2xl text-slate-800 flex items-center justify-center gap-2">
                                     {s.name}
                                     <span className="text-xs text-gray-400 font-normal opacity-50 group-hover:opacity-100 hidden lg:inline">#{s.id}</span>
                                 </div>
                                 <div className="col-span-2 text-center">
-                                    <span className={`px-3 py-1.5 rounded text-lg font-black border shadow-sm ${finalIncome > 0 ? 'bg-emerald-100 text-emerald-700 border-emerald-200' : 'bg-gray-50 text-gray-300 border-gray-100'}`}>
+                                    <span className={`px-3 py-1.5 rounded text-xl font-black border shadow-sm ${finalIncome > 0 ? 'bg-emerald-100 text-emerald-700 border-emerald-200' : 'bg-gray-50 text-gray-300 border-gray-100'}`}>
                                         ${finalIncome.toLocaleString()}
                                     </span>
                                 </div>
                                 <div className="col-span-2 flex items-center justify-center gap-1">
-                                    <input type="time" value={displayStart} onChange={(e) => handleShiftChange(s.id, 'start', e.target.value)} className="font-mono text-xl text-slate-600 font-bold border rounded p-1 w-24 text-center" />
-                                    {hasLocalOverride && <button onClick={() => resetShift(s.id)} className="text-gray-400 hover:text-blue-500" title="Khôi phục giờ gốc"><i className="fas fa-sync-alt"></i></button>}
+                                    <TimePicker24H value={displayStart} onChange={(val) => handleShiftChange(s.id, 'start', val)} className="font-mono text-2xl text-slate-600 font-bold border rounded p-1 w-32 text-center" />
                                 </div>
                                 <div className="col-span-2 flex items-center justify-center gap-1">
-                                    <input type="time" value={displayEnd} onChange={(e) => handleShiftChange(s.id, 'end', e.target.value)} className="font-mono text-xl text-slate-600 font-bold border rounded p-1 w-24 text-center" />
-                                    {hasLocalOverride && <button onClick={() => resetShift(s.id)} className="text-gray-400 hover:text-blue-500" title="Khôi phục giờ gốc"><i className="fas fa-sync-alt"></i></button>}
+                                    <TimePicker24H value={displayEnd} onChange={(val) => handleShiftChange(s.id, 'end', val)} className="font-mono text-2xl text-slate-600 font-bold border rounded p-1 w-32 text-center" />
                                 </div>
                                 <div className="col-span-3 flex justify-center gap-2 items-center">
                                     {isWorking ? (
                                         <div className="flex items-center gap-2">
-                                            <span className="font-mono font-bold text-sm text-slate-500 bg-gray-100 px-1 py-1 rounded border">
+                                            <span className="font-mono font-bold text-base text-slate-500 bg-gray-100 px-2 py-1.5 rounded border">
                                                 {new Date(current.checkInTime).toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' })}
                                             </span>
-                                            <button onClick={() => toggleCheckIn(s.id)} className="text-red-500 hover:bg-red-500 hover:text-white border border-red-200 rounded px-3 py-1.5 flex items-center justify-center transition-all shadow-sm active:scale-95 text-sm font-bold whitespace-nowrap" title="下班"><i className="fas fa-sign-out-alt mr-1"></i>下班</button>
+                                            <button onClick={() => toggleCheckIn(s.id)} className="text-red-500 hover:bg-red-500 hover:text-white border border-red-200 rounded px-4 py-2 flex items-center justify-center transition-all shadow-sm active:scale-95 text-base font-bold whitespace-nowrap" title="下班"><i className="fas fa-sign-out-alt mr-1"></i>下班</button>
                                         </div>
                                     ) : (
-                                        <button onClick={() => toggleCheckIn(s.id)} className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded font-black shadow-md transition-all active:scale-95 flex items-center gap-1 text-sm whitespace-nowrap">
+                                        <button onClick={() => toggleCheckIn(s.id)} className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded font-black shadow-md transition-all active:scale-95 flex items-center gap-1 text-base whitespace-nowrap">
                                             <i className="fas fa-sign-in-alt"></i>打卡
                                         </button>
                                     )}
-                                    <button onClick={() => setAbsenceData({ staffId: s.id, staffName: s.name, type: 'LATE' })} className="bg-purple-100 text-purple-700 hover:bg-purple-200 px-2 py-1.5 rounded font-bold text-sm whitespace-nowrap border border-purple-200" title="Đến muộn">晚到</button>
-                                    <button onClick={() => setAbsenceData({ staffId: s.id, staffName: s.name, type: 'EARLY' })} className="bg-orange-100 text-orange-700 hover:bg-orange-200 px-2 py-1.5 rounded font-bold text-sm whitespace-nowrap border border-orange-200" title="Về sớm">早退</button>
+                                    <button onClick={() => setAbsenceData({ staffId: s.id, staffName: s.name, type: 'LATE' })} className="bg-purple-100 text-purple-700 hover:bg-purple-200 px-3 py-2 rounded font-bold text-base whitespace-nowrap border border-purple-200" title="晚到">晚到</button>
+                                    <button onClick={() => setAbsenceData({ staffId: s.id, staffName: s.name, type: 'EARLY' })} className="bg-orange-100 text-orange-700 hover:bg-orange-200 px-3 py-2 rounded font-bold text-base whitespace-nowrap border border-orange-200" title="早退">早退</button>
                                 </div>
-                                <div className="col-span-1 text-center">
+                                <div className="col-span-1 flex justify-center items-center border-r pr-2">
+                                    <label className="flex items-center justify-center w-full h-full cursor-pointer hover:bg-blue-50 rounded">
+                                        <input type="checkbox" className="w-6 h-6 text-blue-600 border-2 border-gray-300 rounded accent-blue-600" checked={isOnTime} onChange={() => toggleOntimeLeave(s.id, isOnTime)} />
+                                    </label>
+                                </div>
+                                <div className="col-span-3 flex items-center border-r pr-2 gap-2 justify-center">
+                                    <button onClick={() => setAbsenceData({ staffId: s.id, staffName: s.name, type: 'OUT' })} className="bg-yellow-100 text-yellow-700 hover:bg-yellow-200 shrink-0 w-12 h-12 rounded-full flex items-center justify-center font-bold shadow-sm" title="外出">
+                                        <i className="fas fa-walking text-2xl"></i>
+                                    </button>
+                                    {(displayOutStart || displayOutEnd) && (
+                                        <div className="flex flex-col text-sm font-bold text-orange-700 bg-orange-50 px-2 py-1 rounded border border-orange-200 whitespace-nowrap text-left leading-tight">
+                                            <span>出: {displayOutStart}</span>
+                                            <span>回: {displayOutEnd}</span>
+                                        </div>
+                                    )}
+                                </div>
+                                <div className="col-span-1 text-center pl-2">
                                     <div className="relative">
                                         <select disabled={!isWorking} value={current.status} onChange={(e) => { const n = { ...statusData, [s.id]: { ...current, status: e.target.value } }; onUpdateStatus(n); }}
-                                            className={`w-full appearance-none border-2 py-1.5 pl-6 pr-2 rounded font-bold cursor-pointer outline-none text-sm shadow-sm ${isWorking ? 'border-purple-300 text-purple-800 bg-white' : 'bg-gray-100 text-gray-400 border-transparent'}`}>
+                                            className={`w-full appearance-none border-2 py-2 pl-8 pr-2 rounded font-bold cursor-pointer outline-none text-base shadow-sm ${isWorking ? 'border-purple-300 text-purple-800 bg-white' : 'bg-gray-100 text-gray-400 border-transparent'}`}>
                                             <option value="AWAY">⚪ 未到</option>
                                             <option value="READY">🟣 待命</option>
                                             <option value="EAT">🟠 用餐</option>
                                             <option value="OUT_SHORT" className="text-green-700 font-bold">🟢 外出</option>
                                         </select>
-                                        <div className="absolute left-2 top-1/2 -translate-y-1/2 pointer-events-none">
-                                            <div className={`w-2.5 h-2.5 rounded-full ring-1 ring-white ${current.status === 'READY' ? 'bg-purple-600' : current.status === 'EAT' ? 'bg-orange-500' : current.status === 'OUT_SHORT' ? 'bg-green-500' : 'bg-gray-400'}`}></div>
+                                        <div className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none">
+                                            <div className={`w-3 h-3 rounded-full ring-1 ring-white ${current.status === 'READY' ? 'bg-purple-600' : current.status === 'EAT' ? 'bg-orange-500' : current.status === 'OUT_SHORT' ? 'bg-green-500' : 'bg-gray-400'}`}></div>
                                         </div>
                                     </div>
-                                </div>
-                                <div className="col-span-1 flex justify-center items-center border-l pl-2">
-                                    <label className="flex items-center justify-center w-full h-full cursor-pointer hover:bg-blue-50 rounded">
-                                        <input type="checkbox" className="w-5 h-5 text-blue-600 border-2 border-gray-300 rounded accent-blue-600" checked={isOnTime} onChange={() => toggleOntimeLeave(s.id, isOnTime)} />
-                                    </label>
-                                </div>
-                                <div className="col-span-1 flex justify-center items-center border-l pl-2">
-                                    <button onClick={() => setAbsenceData({ staffId: s.id, staffName: s.name, type: 'OUT' })} className="bg-yellow-100 text-yellow-700 hover:bg-yellow-200 w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm shadow-sm" title="Ra ngoài">
-                                        <i className="fas fa-walking text-lg"></i>
-                                    </button>
                                 </div>
                             </div>
                         )
@@ -665,7 +725,7 @@ const AvailabilityCheckModal = ({ onClose, onSave, staffList, bookings, initialD
                     {step === 'CHECK' && (
                         <>
                             <div className="grid grid-cols-2 gap-3">
-                                <div><label className="text-xs font-bold text-gray-500">預約時間</label><input type="time" className="w-full border p-2 rounded font-bold text-lg" value={form.time} onChange={e => { setForm({ ...form, time: e.target.value }); setCheckResult(null); }} /></div>
+                                <div><label className="text-xs font-bold text-gray-500">預約時間</label><TimePicker24H className="w-full border p-2 rounded font-bold text-lg" value={form.time} onChange={val => { setForm({ ...form, time: val }); setCheckResult(null); }} /></div>
                                 <div>
                                     <label className="text-xs font-bold text-gray-500">人數</label>
                                     <select className="w-full border p-2 rounded font-bold" value={form.pax} onChange={e => { setForm({ ...form, pax: parseInt(e.target.value) }); setCheckResult(null); }}>

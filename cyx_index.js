@@ -476,11 +476,11 @@ app.post('/api/admin-booking', async (req, res) => {
 // --- API: INLINE UPDATE BOOKING ROW ---
 app.post('/api/inline-update-booking', async (req, res) => {
     try {
-        const { rowId, updatedcyx_data } = req.body;
-        if (!rowId || !updatedcyx_data) {
-            return res.status(400).json({ success: false, error: 'Thiếu thông欠 rowId hoặc updatedcyx_data' });
+        const { rowId, updatedData } = req.body;
+        if (!rowId || !updatedData) {
+            return res.status(400).json({ success: false, error: 'Thiếu thông欠 rowId hoặc updatedData' });
         }
-        await SheetService.updateInlineBooking(rowId, updatedcyx_data);
+        await SheetService.updateInlineBooking(rowId, updatedData);
         res.json({ success: true, message: 'Cập nhật thành công (Update Success)' });
     } catch (e) {
         console.error('[INLINE UPDATE ERROR]', e);

@@ -7,7 +7,7 @@
 (function () {
     const { useState, useEffect } = React;
 
-    const BookingListView = ({ bookings, onCancelBooking, onInlineUpdate }) => {
+    const BookingListView = ({ bookings, onCancelBooking, onInlineUpdate, staffList }) => {
         // Đảm bảo bookings luôn là mảng an toàn
         const safeBookings = Array.isArray(bookings) ? bookings : [];
 
@@ -82,7 +82,7 @@
         // Gửi dữ liệu đã sửa lên Component Cha (app.js)
         const saveChanges = () => {
             if (!onInlineUpdate) {
-                alert("Lỗi cấu hình: Thiếu hàm onInlineUpdate từ Component cha.");
+                alert("設定錯誤：缺少父組件的 onInlineUpdate 函數。");
                 cancelEditing();
                 return;
             }
@@ -181,17 +181,74 @@
                                 }
 
                                 // --- CHẾ ĐỘ CHỈNH SỬA (EDIT MODE) ---
+                                // Lấy danh sách thợ khả dụng cho dropdown
+                                let availableStaffOptions = [];
+                                if (staffList && window.StaffSorter) {
+                                    // Hàm chuyển đổi thời gian nội bộ
+                                    const getMins = (timeStr) => {
+                                        if (!timeStr) return 0;
+                                        const [h, m] = timeStr.split(':').map(Number);
+                                        let totalMins = (h * 60) + m;
+                                        const openHour = window.SYSTEM_CONFIG?.OPERATION_TIME?.OPEN_HOUR || 5;
+                                        if (h < openHour) totalMins += 1440;
+                                        return totalMins;
+                                    };
+                                    // Hàm tính thời lượng
+                                    const getDuration = (serviceName) => {
+                                        if (!serviceName) return 60;
+                                        const match = serviceName.match(/(190|180|130|120|100|90|70|60|50|45|40|30)/);
+                                        if (match) return parseInt(match[0], 10);
+                                        return 60;
+                                    };
+
+                                    const editBookingMins = getMins(editFormData.time);
+                                    const editDur = getDuration(editFormData.service);
+                                    
+                                    const mockBooking = {
+                                        ...b,
+                                        serviceName: editFormData.service,
+                                        isOil: editFormData.isOil,
+                                        duration: editDur,
+                                        startTimeMins: editBookingMins
+                                    };
+
+                                    availableStaffOptions = staffList.filter(staff => {
+                                        // 1. Kiểm tra điều kiện giới tính/loại dịch vụ
+                                        if (!window.StaffSorter.checkCompatibility(staff, mockBooking, '隨機')) return false;
+                                        // 2. Kiểm tra trùng lịch tương lai
+                                        if (window.StaffSorter.checkFutureAvailability) {
+                                            const canServe = window.StaffSorter.checkFutureAvailability(
+                                                staff.id, editDur, safeBookings, editBookingMins, b.rowId, editFormData.phone
+                                            );
+                                            if (!canServe) return false;
+                                        }
+                                        return true;
+                                    });
+                                }
+
                                 return (
                                     <tr key={`edit-${b.rowId}`} className="bg-yellow-50 shadow-inner border-y-2 border-orange-300">
                                         <td className="p-2"><input type="date" className="w-full border border-gray-300 p-2 rounded focus:ring-2 focus:ring-orange-400 outline-none" value={editFormData.date} onChange={e => handleInputChange('date', e.target.value)} /></td>
-                                        <td className="p-2"><input type="time" className="w-full border border-gray-300 p-2 rounded font-mono font-bold focus:ring-2 focus:ring-orange-400 outline-none" value={editFormData.time} onChange={e => handleInputChange('time', e.target.value)} /></td>
+                                        <td className="p-2"><window.TimePicker24H className="w-full border border-gray-300 p-1 rounded font-mono outline-none" value={editFormData.time} onChange={val => handleInputChange('time', val)} /></td>
                                         <td className="p-2"><input type="text" className="w-full border border-gray-300 p-2 rounded font-bold focus:ring-2 focus:ring-orange-400 outline-none" value={editFormData.name} onChange={e => handleInputChange('name', e.target.value)} /></td>
                                         <td className="p-2"><select className="w-full border border-gray-300 p-2 rounded focus:ring-2 focus:ring-orange-400 outline-none max-w-[200px]" value={editFormData.service} onChange={e => handleInputChange('service', e.target.value)}>{servicesList.map(s => <option key={s} value={s}>{s}</option>)}</select></td>
                                         <td className="p-2 text-center"><input type="checkbox" className="w-5 h-5 accent-orange-500 cursor-pointer" checked={editFormData.isOil} onChange={e => handleInputChange('isOil', e.target.checked)} /></td>
-                                        <td className="p-2 text-center"><input type="number" min="1" max={dynamicMaxPax} className="w-16 border border-gray-300 p-2 rounded text-center focus:ring-2 focus:ring-orange-400 outline-none" value={editFormData.pax} onChange={e => handleInputChange('pax', e.target.value)} /></td>
+                                        <td className="p-2 text-center"><input type="number" min="1" max={dynamicMaxPax} disabled={true} className="w-16 border border-gray-300 p-2 rounded text-center outline-none bg-gray-100 text-gray-500 cursor-not-allowed" value={editFormData.pax} onChange={e => handleInputChange('pax', e.target.value)} /></td>
                                         <td className="p-2"><input type="text" className="w-full border border-gray-300 p-2 rounded font-mono focus:ring-2 focus:ring-orange-400 outline-none min-w-[120px]" placeholder="09xx..." value={editFormData.phone} onChange={e => handleInputChange('phone', e.target.value)} /></td>
                                         <td className="p-2"><select className="w-full border border-gray-300 p-2 rounded font-bold focus:ring-2 focus:ring-orange-400 outline-none" value={editFormData.status} onChange={e => handleInputChange('status', e.target.value)}>{statusOptions.map(s => <option key={s} value={s}>{s}</option>)}</select></td>
-                                        <td className="p-2"><input type="text" className="w-24 border border-gray-300 p-2 rounded font-bold text-indigo-700 focus:ring-2 focus:ring-orange-400 outline-none" value={editFormData.staff} onChange={e => handleInputChange('staff', e.target.value)} placeholder="隨機" /></td>
+                                        <td className="p-2">
+                                            <select className="w-full min-w-[80px] border border-gray-300 p-2 rounded font-bold text-indigo-700 focus:ring-2 focus:ring-orange-400 outline-none" value={editFormData.staff} onChange={e => handleInputChange('staff', e.target.value)}>
+                                                <option value="隨機">隨機</option>
+                                                <option value="男師">男師</option>
+                                                <option value="女師">女師</option>
+                                                {availableStaffOptions.map(s => (
+                                                    <option key={s.id} value={s.id}>{s.name || s.id}</option>
+                                                ))}
+                                                {editFormData.staff && !['隨機', '男師', '女師', '男', '女'].includes(editFormData.staff) && !availableStaffOptions.find(s => String(s.id) === String(editFormData.staff)) && (
+                                                    <option value={editFormData.staff}>{editFormData.staff} (不符合)</option>
+                                                )}
+                                            </select>
+                                        </td>
 
                                         <td className="p-2 text-center sticky right-0 bg-yellow-50 z-10 border-l border-orange-200">
                                             <div className="flex flex-col gap-1">

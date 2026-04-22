@@ -689,7 +689,7 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                                                 }} 
                                                 className="w-full text-sm bg-blue-50 text-blue-600 hover:bg-blue-100 py-2.5 rounded-lg font-bold transition-colors border border-blue-200 flex justify-center items-center"
                                             >
-                                                <i className="fas fa-cut mr-2"></i> 拆單 (Chia Đơn)
+                                                <i className="fas fa-cut mr-2"></i> 拆單
                                             </button>
                                         ) : (
                                             <div className="bg-orange-50 border border-orange-200 rounded-lg relative">
@@ -1027,7 +1027,7 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                             </button>
                         )}
                         <button onClick={handleFinishRequest} className="bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold shadow-lg shadow-blue-200 flex flex-col items-center justify-center transform active:scale-95 transition-all"><i className="fas fa-check-circle text-xl mb-0.5"></i><span className="text-xs">結帳 ({STATUS.COMPLETED})</span></button>
-                        <button onClick={() => { if (confirm('確定要取消嗎？ / Are you sure?')) triggerAction('CANCEL'); }} className="bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 rounded-xl font-bold flex flex-col items-center justify-center transform active:scale-95 transition-all"><i className="fas fa-trash-alt text-xl mb-0.5"></i><span className="text-xs">取消 ({STATUS.CANCELLED})</span></button>
+                        <button onClick={() => { if (confirm('確定要取消嗎？')) triggerAction('CANCEL'); }} className="bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 rounded-xl font-bold flex flex-col items-center justify-center transform active:scale-95 transition-all"><i className="fas fa-trash-alt text-xl mb-0.5"></i><span className="text-xs">取消 ({STATUS.CANCELLED})</span></button>
                     </div>
                 </div>
 
@@ -1330,7 +1330,7 @@ const TimelineView = ({ timelineData, onEditPhase, liveStatusData, staffList, st
                                                     else if (resIndex === 6) staffName = booking.staffId6 || '隨機';
                                                 }
                                             } else {
-                                                // Single Booking Split Phase Override (Chia Đơn)
+                                                // Single Booking Split Phase Override (拆單)
                                                 if (slot.meta && slot.meta.isCombo && slot.meta.phase === 2 && booking.staffId2 && booking.staffId2 !== '隨機' && booking.staffId2 !== 'undefined' && booking.staffId2 !== 'null') {
                                                     staffName = booking.staffId2;
                                                 }
@@ -1891,7 +1891,7 @@ const ResourceCard = ({ id, type, index, data, busyStaffIds, onAction, onSelect,
                                     const needsFemale = reqStaff.includes('女') || reqStaff.includes('Female') || data.booking.isOil;
 
                                     if (needsFemale && isMale) {
-                                        if (!window.confirm(`⚠️ 警告：此客人有「限女」需求 (或為精油項目)，您確定要指派男師傅 [${newStaff}] 嗎？\n(Cảnh báo: Khách này yêu cầu Nữ, bạn có chắc chắn muốn xếp thợ Nam không?)`)) {
+                                        if (!window.confirm(`⚠️ 警告：此客人有「限女」需求 (或為精油項目)，您確定要指派男師傅 [${newStaff}] 嗎？`)) {
                                             return;
                                         }
                                     }
