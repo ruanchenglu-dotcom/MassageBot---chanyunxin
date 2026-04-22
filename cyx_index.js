@@ -373,7 +373,8 @@ app.get('/api/info', async (req, res) => {
             services: SheetService.getServices(),
             lastUpdated: SheetService.getLastSyncTime(),
             isSystemHealthy: SheetService.getIsSystemHealthy(),
-            matrixDebug: SheetService.getMatrixDebug()
+            matrixDebug: SheetService.getMatrixDebug(),
+            blacklist: SheetService.getBlacklist()
         });
     } catch (error) { res.status(500).json({ error: "Internal Server Error" }); }
 });

@@ -27,7 +27,8 @@ const {
     STAFF_SHEET_NAME,
     MENU_SHEET_NAME,
     STAFF_LIST_SHEET_NAME,
-    SALARY_LOG_SHEET_NAME
+    SALARY_LOG_SHEET_NAME,
+    BLACKLIST_SHEET_NAME
 } = SYSTEM_CONFIG.SHEET_NAMES;
 
 // --- CONFIGURATION ---
@@ -68,6 +69,7 @@ let STATE = {
     dateColumnMap: {},
     SERVICES: SERVICES_DATA || ResourceCore.SERVICES || {},
     QUICK_NOTES: [],
+    BLACKLIST: [],
     lastSyncTime: new Date(0),
     isSystemHealthy: false,
     isSyncing: false,
@@ -216,6 +218,7 @@ async function init() {
         console.log("[SHEET SERVICE] Đang khởi tạo dữ liệu ban đầu...");
         await syncQuickNotes();
         await syncMenuData();
+        await syncBlacklist();
         await syncData();
         console.log("[SHEET SERVICE] Khởi tạo hoàn tất!");
     } catch (error) {
@@ -304,11 +307,33 @@ async function syncMenuData() {
     } catch (e) { console.error('[MENU ERROR]', e); }
 }
 
+async function syncBlacklist() {
+    try {
+        if (!BLACKLIST_SHEET_NAME) return;
+        const res = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: `${BLACKLIST_SHEET_NAME}!A2:B` });
+        const rows = res.data.values;
+        if (!rows || rows.length === 0) {
+            STATE.BLACKLIST = [];
+            return;
+        }
+        const bl = [];
+        rows.forEach(row => {
+            const name = row[0] ? row[0].toString().trim() : '';
+            const phone = row[1] ? row[1].toString().trim().replace(/\D/g, '') : '';
+            if (phone) {
+                bl.push({ name, phone });
+            }
+        });
+        STATE.BLACKLIST = bl;
+    } catch (e) { console.error('[BLACKLIST ERROR]', e); }
+}
+
 async function syncData() {
     if (STATE.isSyncing) { return; }
 
     try {
         STATE.isSyncing = true;
+        await syncBlacklist();
 
         const resBooking = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: `${BOOKING_SHEET_NAME}!A:AE` });
         const rowsBooking = resBooking.data.values;
@@ -1103,6 +1128,7 @@ module.exports = {
     getIsSystemHealthy: () => STATE.isSystemHealthy,
     getMatrixDebug: () => STATE.LAST_CALCULATED_MATRIX,
     getQuickNotes: () => STATE.QUICK_NOTES,
+    getBlacklist: () => STATE.BLACKLIST,
     getConsecutiveErrors: () => STATE.consecutiveSyncErrors,
 
     syncMenuData,

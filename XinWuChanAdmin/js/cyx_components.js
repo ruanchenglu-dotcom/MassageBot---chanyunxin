@@ -690,6 +690,19 @@ const AvailabilityCheckModal = ({ onClose, onSave, staffList, bookings, initialD
 
     const handleFinalSave = () => {
         if (!form.custName || !form.custPhone) { alert("請輸入姓名和電話"); return; }
+        
+        const blacklist = window.SYSTEM_DATA?.blacklist || [];
+        if (blacklist.length > 0 && form.custPhone) {
+            const cleanPhone = form.custPhone.trim().replace(/\D/g, '');
+            if (cleanPhone) {
+                const isBlacklisted = blacklist.some(b => b.phone === cleanPhone);
+                if (isBlacklisted) {
+                    alert("⚠️ 此電話號碼已列入黑名單，拒絕預約！");
+                    return;
+                }
+            }
+        }
+
         const bookingData = {
             hoTen: form.custName,
             sdt: form.custPhone,

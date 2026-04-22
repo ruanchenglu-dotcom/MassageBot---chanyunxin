@@ -1,10 +1,9 @@
-Khởi động Browser Agent, mở ứng dụng web ở localhost.
+Khởi động Browser Agent, mở ứng dụng web ở localhost. 
+taskkill /F /IM node.exe 
+node cyx_index.js
 
-phân tích bằng tiếng việt.giao diện app UX/UI tiếng trung phồn thể,không chứa ngôn ngữ khác.lên kế hoạch nâng cấp chi tiết và ghi rõ các file cần nâng cấp, không viết code vội để tôi duyệt trước.
+phân tích bằng tiếng việt.giao diện ngôn ngữ UX/UI tiếng trung phồn thể,không chứa ngôn ngữ khác.lên kế hoạch nâng cấp chi tiết và ghi rõ các file cần nâng cấp, không viết code vội để tôi duyệt trước.
 
-[Approve / Chấp thuận].phân tích bằng tiếng việt.giao diện app UX/UI tiếng trung phồn thể không chứa ngôn ngữ khác. ok hãy tiến hành nâng cấp các file và nhớ giữ lại các tính năng còn lại hoạt động như cũ nhé.
-
-hiện tại tôi phát hiện matrix là đúng nhưng khi tính năng vẽ bị chồng lên khách khác và không hiển thị vị trí ghế giường cụ thể mà để là tự động như ảnh. đúng ra phải tìm vị trí trống xác định cụ thể như ảnh 2 mới đúng.hãy tìm giải pháp nâng cấp nhé.phân tích bằng tiếng việt.giao diện app UX/UI tiếng trung phồn thể.lên kế hoạch nâng cấp chi tiết và ghi rõ các file cần nâng cấp, không viết code vội để tôi duyệt trước.
-nthnnhi2301@gmail.com
+[Approve / Chấp thuận].giao diện ngôn ngữ app UX/UI tiếng trung phồn thể không chứa ngôn ngữ khác. ok hãy tiến hành nâng cấp các file và nhớ giữ lại các tính năng còn lại hoạt động như cũ nhé.
 
 

@@ -37,6 +37,7 @@ const SYSTEM_CONFIG = {
 
         // Các sheet bổ sung (dựa trên cấu trúc tab hiện tại)
         STAFF_LIST_SHEET_NAME: 'name',      // Danh sách hồ sơ kỹ thuật viên
+        BLACKLIST_SHEET_NAME: '黑名單',     // Danh sách đen khách hàng
     },
 
     // Quy mô chi nhánh

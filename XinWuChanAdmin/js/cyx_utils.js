@@ -184,10 +184,15 @@
         return 0;
     };
 
-    window.getOilPrice = (isOil) => {
-        const oilRate = (CONFIG.FINANCE && CONFIG.FINANCE.OIL_BONUS) || 100;
-        if (isOil === true || isOil === 'true' || isOil === 'Yes' || isOil === '是') return oilRate;
-        return 0;
+    window.getOilPrice = (isOilFlagOrString) => {
+        let isOil = false;
+        if (typeof isOilFlagOrString === 'boolean') isOil = isOilFlagOrString;
+        else if (typeof isOilFlagOrString === 'string' && (isOilFlagOrString === 'true' || isOilFlagOrString === 'Yes' || isOilFlagOrString === '是' || isOilFlagOrString.includes('油') || isOilFlagOrString.includes('Oil'))) isOil = true;
+        
+        if (!isOil) return 0;
+        
+        const oilRate = (CONFIG.FINANCE && CONFIG.FINANCE.OIL_BONUS !== undefined) ? CONFIG.FINANCE.OIL_BONUS : 0;
+        return oilRate;
     };
 
     window.stringToColor = (str) => {

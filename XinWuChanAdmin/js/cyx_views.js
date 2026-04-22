@@ -129,7 +129,12 @@ window.getOilPrice = (isOilFlagOrString) => {
     let isOil = false;
     if (typeof isOilFlagOrString === 'boolean') isOil = isOilFlagOrString;
     else if (typeof isOilFlagOrString === 'string' && (isOilFlagOrString.includes('油') || isOilFlagOrString.includes('Oil'))) isOil = true;
-    return isOil ? 200 : 0;
+    
+    if (!isOil) return 0;
+    
+    const config = window.SYSTEM_CONFIG || {};
+    const finance = config.FINANCE || {};
+    return finance.OIL_BONUS !== undefined ? finance.OIL_BONUS : 0;
 };
 
 // --- HÀM KIỂM TRA DỊCH VỤ CẠO GIÓ/GIÁC HƠI ---
