@@ -63,35 +63,7 @@ const StaffCard3D = ({ s, statusData, resourceState, queueIndex, isForcedBusy })
     const local = safeStatusData[s.id] || { status: 'AWAY' };
     let displayStatus = local.status;
 
-    let actualActiveBooking = null;
-    const staffId = String(s.id).trim();
-    const staffName = String(s.name).trim();
-
-    const activeRes = Object.values(resourceState || {}).find(r => {
-        if (!r.isRunning || r.isPaused || r.isPreview === true) return false;
-        const b = r.booking || {};
-        const workerList = [
-            b.serviceStaff, b.staffId, b.technician,
-            b.staffId2, b.staffId3, b.staffId4, b.staffId5, b.staffId6
-        ].map(val => String(val || '').trim());
-        return workerList.includes(staffId) || workerList.includes(staffName);
-    });
-
-    if (activeRes) { displayStatus = 'BUSY'; actualActiveBooking = activeRes.booking; }
     if (isForcedBusy) { displayStatus = 'BUSY'; }
-
-    let isCurrentlyWorkingDesignated = false;
-    if (displayStatus === 'BUSY' && actualActiveBooking) {
-        const b = actualActiveBooking;
-        // CHỈ KIỂM TRA CỘT I (staffId) theo yêu cầu nâng cấp
-        const requestFields = [b.staffId];
-        isCurrentlyWorkingDesignated = requestFields.some(req => {
-            const reqStr = String(req || '').trim();
-            const randomKeywords = ['隨機', 'RANDOM', 'MALE', 'FEMALE', '男', '女', 'ANY', 'NULL', 'UNDEFINED', '', '不指定', '安排', '現場'];
-            if (randomKeywords.some(kw => reqStr.toUpperCase() === kw || reqStr.includes('隨機'))) return false;
-            return reqStr === staffId || reqStr === staffName;
-        });
-    }
 
     const hasUpcoming = s.hasUpcomingDesignated === true;
 

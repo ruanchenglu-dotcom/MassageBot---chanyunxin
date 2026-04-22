@@ -1,6 +1,6 @@
 // File: js/cyx_staffSorter.js
-// Phiên bản: V13.4 (Nâng cấp: SSOT - Giới hạn quét đích danh Cột I "指定師傅" trong enrichStaffListWithDesignated)
-// Cập nhật: 2026-04-15 - Sửa logic quét thợ khách đoàn & kết hợp trạng thái (已取消, 已完成, 進行中)
+// Phiên bản: V13.5 (Nâng cấp: Sửa lỗi Ghost Booking & Time Window Shift khi Random Auto-Assign)
+// Cập nhật: 2026-04-22 - Bỏ qua booking đã Hủy/Xong khi tính thời gian trùng lịch; truyền đúng startMins của booking thay vì giờ thực tại
 
 (function () {
     console.log("🚀 StaffSorter Module: Loaded (V13.4 - SSOT Auto-Assign & Strict Column I Sync + ID Normalization)");
@@ -21,21 +21,7 @@
             return str;
         },
 
-        isActuallyBusy: (staffId, resourceState) => {
-            if (!resourceState) return false;
-            const normStaffId = StaffSorter.normalizeStaffId(staffId);
-
-            return Object.values(resourceState).some(r => {
-                if (!r.isRunning || r.isPaused || r.isPreview === true) return false;
-                const b = r.booking || {};
-                const keys = [
-                    b.serviceStaff, b.staffId, b.ServiceStaff, b.technician,
-                    b.staffId2, b.staffId3, b.staffId4, b.staffId5, b.staffId6
-                ];
-                // So sánh bằng ID đã được chuẩn hóa
-                return keys.some(k => StaffSorter.normalizeStaffId(k) === normStaffId);
-            });
-        },
+        // Hàm isActuallyBusy đã được loại bỏ do thay đổi quy tắc xác định trạng thái hoàn toàn dựa trên staffstatus.
 
         getStaffIdFromPaymentItem: (item) => {
             const b = item.booking;
@@ -106,16 +92,14 @@
 
             safeStaffList.forEach(s => {
                 const currentStat = safeStatus[s.id] || { status: 'AWAY' };
+                const staffstatus = currentStat.status; // Quy tắc mới: phụ thuộc hoàn toàn vào biến này
 
-                if (StaffSorter.isActuallyBusy(s.id, safeRes) || currentStat.status === 'BUSY') {
+                if (staffstatus === 'BUSY') {
                     busyList.push(s);
+                } else if (staffstatus === 'READY' || staffstatus === 'EAT' || staffstatus === 'OUT_SHORT') {
+                    readyList.push(s);
                 } else {
-                    const status = currentStat.status;
-                    if (status === 'READY' || status === 'EAT' || status === 'OUT_SHORT') {
-                        readyList.push(s);
-                    } else {
-                        awayList.push(s);
-                    }
+                    awayList.push(s);
                 }
             });
 
@@ -214,6 +198,12 @@
             const normStaffId = StaffSorter.normalizeStaffId(staffId);
 
             for (const b of allBookings) {
+                // [V13.5 FIX] Loại bỏ các ca đã Hủy, đã Hoàn Thành khỏi thuật toán kiểm tra trùng lịch xung đột
+                const statusStr = String(b.status || '');
+                if (statusStr === '已取消' || statusStr === '已完成' || statusStr.toLowerCase().includes('cancel') || statusStr.includes('完成')) {
+                    continue;
+                }
+
                 // Bỏ qua chính booking hiện tại hoặc những booking đi cùng nhóm khách đoàn
                 if (b.id === currentRowId || (currentPhone && b.phone === currentPhone)) continue;
 
@@ -245,6 +235,7 @@
         findBestStaffForSingle: (booking, readyCandidates, statusData, allBookings, currentMins) => {
             const req = booking.serviceStaff || booking.staffId || booking.requestedStaff || '隨機';
             const duration = parseInt(booking.duration || 60);
+            const bookingStartTime = parseInt(booking.startTimeMins) || currentMins;
 
             let bestStaff = null;
             let highestScore = -1;
@@ -252,7 +243,7 @@
             for (const staff of readyCandidates) {
                 if (!StaffSorter.checkCompatibility(staff, booking, req)) continue;
 
-                if (!StaffSorter.checkFutureAvailability(staff.id, duration, allBookings, currentMins, booking.id, booking.phone)) {
+                if (!StaffSorter.checkFutureAvailability(staff.id, duration, allBookings, bookingStartTime, booking.id, booking.phone)) {
                     continue;
                 }
 
@@ -288,10 +279,11 @@
                 unassignedItems.forEach((item, idx) => {
                     const req = item.booking?.serviceStaff || item.booking?.staffId || item.booking?.requestedStaff || '隨機';
                     const duration = parseInt(item.booking?.duration || 60);
+                    const bookingStartTime = parseInt(item.booking?.startTimeMins) || currentMins;
 
                     // A. Bộ Lọc Cơ Bản (Tẩy chay khách không thoả mãn)
                     if (!StaffSorter.checkCompatibility(staff, item.booking, req)) return;
-                    if (!StaffSorter.checkFutureAvailability(staff.id, duration, allBookings, currentMins, item.booking.id, item.booking.phone)) return;
+                    if (!StaffSorter.checkFutureAvailability(staff.id, duration, allBookings, bookingStartTime, item.booking.id, item.booking.phone)) return;
 
                     // B. Chấm Điểm Giá Trị Của Yêu Cầu Khách Hàng
                     // Ví dụ: Nam không nên nhận khách Random, hãy để dành Random cho nữ và nhận khách Nam!

@@ -907,7 +907,10 @@ async function batchUpdateMultipleBookings(updatesArray) {
             const resourceType = body.resource_type !== undefined ? body.resource_type : body.resourceType;
             if (resourceType !== undefined) dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!AD${rowId}`, values: [[resourceType ? String(resourceType).toUpperCase() : ""]] });
 
-            if (body.final_price !== undefined) dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!V${rowId}`, values: [[body.final_price]] });
+            if (body.final_price !== undefined) {
+                dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!V${rowId}`, values: [[body.final_price]] });
+                console.log(`[SHEET_UPDATE] Ghi giá tiền $${body.final_price} vào V${rowId}`);
+            }
 
             let bookingData = STATE.cachedBookings.find(b => b.rowId == rowId);
             let totalDuration = bookingData ? bookingData.duration : (safeParseInt(body.duration, 60));

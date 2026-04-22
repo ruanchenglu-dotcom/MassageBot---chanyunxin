@@ -2632,19 +2632,42 @@ const App = () => {
                 const statusColEnglish = `Status${statusNum}`;
                 if (!updatesByRow[rid]) { 
                     updatesByRow[rid] = { rowId: rid, forceSync: true, originalBooking: b }; 
-                    if (finalPricesMap[rid] !== undefined) {
-                        updatesByRow[rid].final_price = finalPricesMap[rid];
+                    
+                    let finalP = finalPricesMap[rid];
+                    if (finalP === undefined) {
+                        finalP = finalPricesMap[Number(rid)];
+                    }
+                    if (finalP !== undefined) {
+                        updatesByRow[rid].final_price = finalP;
+                        console.log(`[CHECKOUT] Gán giá tiền cho Row ${rid}: $${finalP}`);
+                    } else {
+                        console.warn(`[CHECKOUT WARNING] Không tìm thấy giá tiền cho Row ${rid} trong:`, finalPricesMap);
                     }
                 }
                 updatesByRow[rid][statusColEnglish] = APP_STATUS.COMPLETED;
 
                 let staffId = null;
-                if (targetIndex === 0) staffId = b.serviceStaff || b.staffId;
-                else if (targetIndex === 1) staffId = b.staffId2;
-                else if (targetIndex === 2) staffId = b.staffId3;
-                else if (targetIndex === 3) staffId = b.staffId4;
-                else if (targetIndex === 4) staffId = b.staffId5;
-                else if (targetIndex === 5) staffId = b.staffId6;
+                
+                // [Nâng Cấp V134.1] Hỗ trợ INLINE_SPLIT (Chia Đơn)
+                // Nếu đây là 1 ca chia đơn (có staffId2 và thời lượng blocks của staff 2), thì người thực hiện bước cuối cùng trước tính tiền là staff 2.
+                // Tránh tình trạng check out nhầm staff 1 (người đã được trả về READY lúc tiến hành chia đơn).
+                const isInlineSplit = b.staffId2 && String(b.staffId2).trim() !== 'undefined' && String(b.staffId2).trim() !== '' && b.staff2_blocks !== undefined && b.staff2_blocks !== null;
+                
+                if (isInlineSplit) {
+                    staffId = b.staffId2;
+                } else {
+                    if (targetIndex === 0) staffId = b.serviceStaff || b.staffId;
+                    else if (targetIndex === 1) staffId = b.staffId2;
+                    else if (targetIndex === 2) staffId = b.staffId3;
+                    else if (targetIndex === 3) staffId = b.staffId4;
+                    else if (targetIndex === 4) staffId = b.staffId5;
+                    else if (targetIndex === 5) staffId = b.staffId6;
+                    
+                    // Fallback bảo vệ trong trường hợp rớt index (Lấy serviceStaff hiện tại)
+                    if (!staffId || String(staffId).trim() === 'undefined' || String(staffId).trim() === '') {
+                        staffId = b.serviceStaff || b.staffId;
+                    }
+                }
 
                 if (staffId && staffId !== '隨機' && staffId !== 'undefined') {
                     // [V120 Tính Năng] Vá lỗi khoảng trắng (Whitespace Bug). Làm sạch dữ liệu của Thợ trước khi lưu vào danh sách chờ Thanh toán.
@@ -2681,22 +2704,13 @@ const App = () => {
             Object.assign(newStatusData, finalStatusData);
 
             Object.values(updatesByRow).forEach(updatePayload => {
-                const booking = updatePayload.originalBooking;
-                const staffCols = [booking.serviceStaff || booking.staffId, booking.staffId2, booking.staffId3, booking.staffId4, booking.staffId5, booking.staffId6];
-                let activeSlotsCount = 0; let finishedSlotsCount = 0;
-                staffCols.forEach((staffName, idx) => {
-                    if (staffName && staffName !== 'undefined' && staffName !== 'null' && staffName.trim() !== '') {
-                        activeSlotsCount++;
-                        const key = `Status${idx + 1}`;
-                        const isNewCompletion = updatePayload[key] && updatePayload[key].includes('完成');
-                        const wasAlreadyDone = booking[key] && (booking[key].includes('完成') || booking[key].includes('Done') || booking[key].includes('✅') || booking[key].includes(APP_STATUS.COMPLETED));
-                        if (isNewCompletion || wasAlreadyDone) finishedSlotsCount++;
-                    }
-                });
-                if (activeSlotsCount > 0 && finishedSlotsCount >= activeSlotsCount) {
-                    updatePayload.mainStatus = APP_STATUS.COMPLETED;
+                // [Nâng cấp & Sửa Lỗi] Bất cứ khi nào thu ngân bấm Xác nhận Thanh toán, luôn đánh dấu Hàng là Hoàn Thành Toàn Bộ
+                // (Bỏ qua đếm số lượng Phase/Thợ vì thợ Phase 1 đã được trả về READY lúc Chia Đơn)
+                updatePayload.mainStatus = APP_STATUS.COMPLETED;
+                
+                if (updatePayload.originalBooking !== undefined) {
+                    delete updatePayload.originalBooking;
                 }
-                delete updatePayload.originalBooking;
             });
 
             updateResource(newState); updateStaffStatus(newStatusData); setBillingData(null);
@@ -2866,26 +2880,37 @@ const App = () => {
 
                     setSyncLock(true); setTimeout(() => setSyncLock(false), 3000);
 
-                    // --- Trả thợ 1 về READY tính từ thời điểm chia đơn ---
-                    const newStatusData = { ...statusData };
-                    if (staff1 !== '隨機') {
-                        const oldStaffState = statusData[staff1];
-                        newStatusData[staff1] = {
-                            ...oldStaffState,
-                            status: 'READY',
-                            stafftime: Date.now() // !!! Tính từ thời điểm chia đơn !!!
-                        };
-                    }
-                    if (staff2 !== '隨機') {
-                        const newStaffState = statusData[staff2];
-                        newStatusData[staff2] = {
-                            ...newStaffState,
-                            status: 'BUSY',
-                            stafftime: Date.now()
-                        };
-                    }
-                    setStatusData(newStatusData);
-                    universalSend('/api/sync-staff-status', newStatusData);
+                    // --- Sử dụng StaffSorter.processCheckout để tính toán Queue cho Thợ 1 ---
+                    (async () => {
+                        let newStatusData = { ...statusData };
+                        const baseTime = Date.now();
+
+                        if (staff1 !== '隨機') {
+                            const duration1 = window.getSafeDuration ? window.getSafeDuration(targetBooking.serviceName, targetBooking.duration) : 60;
+                            const blocks1 = payload.blocks1 || 1;
+                            const totalB = (payload.blocks1 || 1) + (payload.blocks2 || 1);
+                            const calcDuration = (duration1 * blocks1) / totalB || (duration1 / 2);
+
+                            const checkoutInfo = [{ staffId: staff1, duration: calcDuration, blocks: blocks1 }];
+                            
+                            if (window.StaffSorter && window.StaffSorter.processCheckout) {
+                                newStatusData = await window.StaffSorter.processCheckout(checkoutInfo, newStatusData, staffList, baseTime, false);
+                            } else {
+                                newStatusData[staff1] = { ...newStatusData[staff1], status: 'READY', stafftime: baseTime };
+                            }
+                        }
+
+                        if (staff2 !== '隨機') {
+                            if (window.StaffSorter && window.StaffSorter.processStartWork) {
+                                newStatusData = await window.StaffSorter.processStartWork([staff2], newStatusData, baseTime);
+                            } else {
+                                newStatusData[staff2] = { ...newStatusData[staff2], status: 'BUSY', stafftime: baseTime };
+                            }
+                        }
+
+                        setStatusData(newStatusData);
+                        universalSend('/api/sync-staff-status', newStatusData);
+                    })();
 
                     // --- Đổi người phục vụ hiện tại (active) của Resource thành Thợ 2 ---
                     if (targetResourceId && resourceState[targetResourceId]) {

@@ -818,6 +818,9 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                             <div className="flex items-start justify-between gap-4">
                                 <div className="flex-1 relative flex flex-col items-center">
                                     <label className={`block w-full text-xs font-bold mb-1 text-center transition-colors ${isBodyFirstLocal ? 'text-orange-600' : 'text-indigo-600'}`}>PHASE 1 ({isBodyFirstLocal ? '身' : '足'})</label>
+                                    <div className="text-[11px] font-bold text-slate-500 mb-1 text-center bg-slate-100/50 py-0.5 px-2 rounded-full border border-slate-200">
+                                        負責師傅: <span className="text-indigo-600 ml-1">{selectedStaff}</span>
+                                    </div>
                                     <input type="number" value={phase1} onChange={(e) => handleChangeP1(e.target.value)} className={`w-full text-center text-3xl font-black border-b-2 focus:outline-none bg-transparent transition-colors ${isBodyFirstLocal ? 'text-orange-900 border-orange-200 focus:border-orange-600' : 'text-indigo-900 border-indigo-200 focus:border-indigo-600'}`} />
                                     <span className="block text-center text-xs text-gray-400 mt-1">分鐘</span>
 
@@ -881,6 +884,13 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
 
                                 <div className="flex-1 relative flex flex-col items-center">
                                     <label className={`block w-full text-xs font-bold mb-1 text-center transition-colors ${isBodyFirstLocal ? 'text-indigo-600' : 'text-orange-600'}`}>PHASE 2 ({isBodyFirstLocal ? '足' : '身'})</label>
+                                    <div className="text-[11px] font-bold text-slate-500 mb-1 text-center bg-slate-100/50 py-0.5 px-2 rounded-full border border-slate-200">
+                                        {isSplitMode ? (
+                                            <>接手師傅: <span className="text-orange-600 ml-1">{selectedStaff2}</span></>
+                                        ) : (
+                                            <>負責師傅: <span className="text-indigo-600 ml-1">{selectedStaff}</span></>
+                                        )}
+                                    </div>
                                     <input type="number" value={phase2} onChange={(e) => handleChangeP2(e.target.value)} className={`w-full text-center text-3xl font-black border-b-2 focus:outline-none bg-transparent transition-colors ${isBodyFirstLocal ? 'text-indigo-900 border-indigo-200 focus:border-indigo-600' : 'text-orange-900 border-orange-200 focus:border-orange-600'}`} />
                                     <span className="block text-center text-xs text-gray-400 mt-1">分鐘</span>
 
@@ -1299,6 +1309,31 @@ const TimelineView = ({ timelineData, onEditPhase, liveStatusData, staffList, st
 
                                             let staffName = booking.serviceStaff || booking.staffId || booking.ServiceStaff || '隨機';
                                             if (staffName === 'undefined' || staffName === 'null') staffName = '隨機';
+                                            
+                                            // [SPLIT BOOKING UPGRADE & V116.5 GROUP FIX]: 
+                                            // Handle Group Bookings where `staffId2` is ACTUALLY Guest 2's staff, NOT Phase 2's staff!
+                                            const isGroup = parseInt(booking.pax || 1, 10) > 1;
+                                            if (isGroup) {
+                                                // Group Booking: Use the resource index to pull the EXACT correct staff.
+                                                // This matches cyx_app.js logic mapping grpIdx -> newBooking.staffIdN
+                                                const match = String(row.id).match(/-(\d+)$/);
+                                                if (match) {
+                                                    const resIndex = parseInt(match[1], 10);
+                                                    if (resIndex === 1) staffName = booking.serviceStaff || booking.staffId || '隨機';
+                                                    else if (resIndex === 2) staffName = booking.staffId2 || '隨機';
+                                                    else if (resIndex === 3) staffName = booking.staffId3 || '隨機';
+                                                    else if (resIndex === 4) staffName = booking.staffId4 || '隨機';
+                                                    else if (resIndex === 5) staffName = booking.staffId5 || '隨機';
+                                                    else if (resIndex === 6) staffName = booking.staffId6 || '隨機';
+                                                }
+                                            } else {
+                                                // Single Booking Split Phase Override (Chia Đơn)
+                                                if (slot.meta && slot.meta.isCombo && slot.meta.phase === 2 && booking.staffId2 && booking.staffId2 !== '隨機' && booking.staffId2 !== 'undefined' && booking.staffId2 !== 'null') {
+                                                    staffName = booking.staffId2;
+                                                }
+                                            }
+
+
                                             const displayStaff = staffName;
 
                                             const rawStatus = booking?.status || '';
