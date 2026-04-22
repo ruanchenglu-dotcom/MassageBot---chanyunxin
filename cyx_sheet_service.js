@@ -741,6 +741,8 @@ async function updateBookingDetails(body) {
     const resourceType = body.resource_type !== undefined ? body.resource_type : body.resourceType;
     if (resourceType !== undefined) await updateCell('AD', resourceType ? String(resourceType).toUpperCase() : "");
 
+    if (body.final_price !== undefined) await updateCell('V', body.final_price);
+
     let bookingData = STATE.cachedBookings.find(b => b.rowId == rowId);
     let totalDuration = bookingData ? bookingData.duration : (safeParseInt(body.duration, 60));
     let currentLockState = bookingData ? bookingData.isManualLocked : false;
@@ -904,6 +906,8 @@ async function batchUpdateMultipleBookings(updatesArray) {
 
             const resourceType = body.resource_type !== undefined ? body.resource_type : body.resourceType;
             if (resourceType !== undefined) dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!AD${rowId}`, values: [[resourceType ? String(resourceType).toUpperCase() : ""]] });
+
+            if (body.final_price !== undefined) dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!V${rowId}`, values: [[body.final_price]] });
 
             let bookingData = STATE.cachedBookings.find(b => b.rowId == rowId);
             let totalDuration = bookingData ? bookingData.duration : (safeParseInt(body.duration, 60));

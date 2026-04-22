@@ -1627,13 +1627,22 @@
             const handleToggleMax = async (resId) => { const res = resourceState[resId]; if (!res) return; updateResource({ ...resourceState, [resId]: { ...res, isMaxMode: !res.isMaxMode } }); };
             const handleToggleSequence = async (resId) => { const res = resourceState[resId]; if (!res || !res.comboMeta) return; const newSeq = res.comboMeta.sequence === 'FB' ? 'BF' : 'FB'; updateResource({ ...resourceState, [resId]: { ...res, comboMeta: { ...res.comboMeta, sequence: newSeq } } }); }
             
-            const handleConfirmPayment = async (itemsToPay, totalAmount) => {
+            const handleConfirmPayment = async (itemsToPay, totalAmount, finalPricesMap = {}) => {
                 try {
                     setSyncLock(true);
                     setTimeout(() => setSyncLock(false), 5000); 
 
                     const uniqueRowIds = [...new Set(itemsToPay.map(i => i.booking.rowId))];
-                    for (const rid of uniqueRowIds) { await axios.post('/api/update-status', { rowId: rid, status: '✅ 完成' }); }
+                    
+                    const payloads = uniqueRowIds.map(rid => {
+                        return {
+                            rowId: rid,
+                            status: '✅ 完成', 
+                            final_price: finalPricesMap[rid] !== undefined ? finalPricesMap[rid] : null
+                        };
+                    });
+                    
+                    await axios.post('/api/batch-process-bookings', { payloads, forceSync: true });
                     
                     const newState = { ...resourceState };
                     const newStatusData = { ...statusData }; 

@@ -1667,7 +1667,13 @@
         const HOURS_LIST = ['05', '06', '07', '08', '09', '10', '11', '12', '13', '14', '15', '16', '17', '18', '19', '20', '21', '22', '23', '00', '01', '02', '03', '04'];
         const MINUTES_STEP = ['00', '10', '20', '30', '40', '50'];
         const [cH, cM] = (form.time || "12:00").split(':');
-        const paxOptions = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18];
+        
+        let dynamicMaxPax = 18;
+        if (typeof CoreKernel !== 'undefined' && CoreKernel.getSystemConfig) {
+            const config = CoreKernel.getSystemConfig();
+            dynamicMaxPax = config.MAX_TOTAL_GUESTS || ((config.MAX_CHAIRS || 6) + (config.MAX_BEDS || 6));
+        }
+        const paxOptions = Array.from({ length: dynamicMaxPax }, (_, i) => i + 1);
 
         return (
             <>

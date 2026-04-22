@@ -33,6 +33,12 @@
         // Danh sách trạng thái chuẩn cho Dropdown trong chế độ Edit
         const statusOptions = Object.values(STATUS);
 
+        // Tính toán maxPax linh hoạt
+        const config = window.SYSTEM_CONFIG || { SCALE: {} };
+        const maxChairs = (config.SCALE && config.SCALE.MAX_CHAIRS) || config.MAX_CHAIRS || 6;
+        const maxBeds = (config.SCALE && config.SCALE.MAX_BEDS) || config.MAX_BEDS || 6;
+        const dynamicMaxPax = maxChairs + maxBeds;
+
         // Kích hoạt chế độ chỉnh sửa cho một dòng
         const startEditing = (booking) => {
             setEditingRowId(booking.rowId);
@@ -182,7 +188,7 @@
                                         <td className="p-2"><input type="text" className="w-full border border-gray-300 p-2 rounded font-bold focus:ring-2 focus:ring-orange-400 outline-none" value={editFormData.name} onChange={e => handleInputChange('name', e.target.value)} /></td>
                                         <td className="p-2"><select className="w-full border border-gray-300 p-2 rounded focus:ring-2 focus:ring-orange-400 outline-none max-w-[200px]" value={editFormData.service} onChange={e => handleInputChange('service', e.target.value)}>{servicesList.map(s => <option key={s} value={s}>{s}</option>)}</select></td>
                                         <td className="p-2 text-center"><input type="checkbox" className="w-5 h-5 accent-orange-500 cursor-pointer" checked={editFormData.isOil} onChange={e => handleInputChange('isOil', e.target.checked)} /></td>
-                                        <td className="p-2 text-center"><input type="number" min="1" max="10" className="w-16 border border-gray-300 p-2 rounded text-center focus:ring-2 focus:ring-orange-400 outline-none" value={editFormData.pax} onChange={e => handleInputChange('pax', e.target.value)} /></td>
+                                        <td className="p-2 text-center"><input type="number" min="1" max={dynamicMaxPax} className="w-16 border border-gray-300 p-2 rounded text-center focus:ring-2 focus:ring-orange-400 outline-none" value={editFormData.pax} onChange={e => handleInputChange('pax', e.target.value)} /></td>
                                         <td className="p-2"><input type="text" className="w-full border border-gray-300 p-2 rounded font-mono focus:ring-2 focus:ring-orange-400 outline-none min-w-[120px]" placeholder="09xx..." value={editFormData.phone} onChange={e => handleInputChange('phone', e.target.value)} /></td>
                                         <td className="p-2"><select className="w-full border border-gray-300 p-2 rounded font-bold focus:ring-2 focus:ring-orange-400 outline-none" value={editFormData.status} onChange={e => handleInputChange('status', e.target.value)}>{statusOptions.map(s => <option key={s} value={s}>{s}</option>)}</select></td>
                                         <td className="p-2"><input type="text" className="w-24 border border-gray-300 p-2 rounded font-bold text-indigo-700 focus:ring-2 focus:ring-orange-400 outline-none" value={editFormData.staff} onChange={e => handleInputChange('staff', e.target.value)} placeholder="隨機" /></td>

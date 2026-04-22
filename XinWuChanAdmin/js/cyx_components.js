@@ -378,6 +378,11 @@ const AvailabilityCheckModal = ({ onClose, onSave, staffList, bookings, initialD
     const STATUS = getBookingStatus();
     const [step, setStep] = useState('CHECK');
     const [checkResult, setCheckResult] = useState(null);
+
+    const config = window.SYSTEM_CONFIG || { SCALE: {} };
+    const maxChairs = (config.SCALE && config.SCALE.MAX_CHAIRS) || config.MAX_CHAIRS || 6;
+    const maxBeds = (config.SCALE && config.SCALE.MAX_BEDS) || config.MAX_BEDS || 6;
+    const paxOptionsArr = Array.from({ length: maxChairs + maxBeds }, (_, i) => i + 1);
     const [form, setForm] = useState({
         time: getRoundedCurrentTime(),
         service: (window.SERVICES_LIST && window.SERVICES_LIST.length > 2) ? window.SERVICES_LIST[2] : "Foot Massage",
@@ -515,7 +520,7 @@ const AvailabilityCheckModal = ({ onClose, onSave, staffList, bookings, initialD
                                 <div>
                                     <label className="text-xs font-bold text-gray-500">人數</label>
                                     <select className="w-full border p-2 rounded font-bold" value={form.pax} onChange={e => { setForm({ ...form, pax: parseInt(e.target.value) }); setCheckResult(null); }}>
-                                        {[1, 2, 3, 4, 5, 6, 7, 8, 9].map(n => <option key={n} value={n}>{n} 位</option>)}
+                                        {paxOptionsArr.map(n => <option key={n} value={n}>{n} 位</option>)}
                                     </select>
                                 </div>
                             </div>
@@ -583,11 +588,26 @@ const BillingModal = ({ activeItem, relatedItems, onConfirm, onCancel }) => {
     const [step, setStep] = useState('CONFIRM'); // Bỏ qua step CHOICE thừa thãi
     const [targetItems, setTargetItems] = useState(hasGroup ? [activeItem, ...relatedItems] : [activeItem]);
 
-    const calculateTotal = (list) => list.reduce((sum, item) => {
-        const getP = window.getPrice ? window.getPrice(item.booking.serviceName) : 0;
-        const getO = window.getOilPrice ? window.getOilPrice(item.booking.isOil || (item.booking.serviceName && (item.booking.serviceName.includes('油') || item.booking.serviceName.includes('Oil')))) : 0;
-        return sum + getP + getO;
-    }, 0);
+    const [finalPrices, setFinalPrices] = useState({});
+    const [editingPriceId, setEditingPriceId] = useState(null);
+    const [cashGiven, setCashGiven] = useState('');
+
+    useEffect(() => {
+        const initialPrices = {};
+        targetItems.forEach(item => {
+            const b = item.booking || {};
+            const getP = window.getPrice ? window.getPrice(b.serviceName) : 0;
+            const getO = window.getOilPrice ? window.getOilPrice(b.isOil || (b.serviceName && (b.serviceName.includes('油') || b.serviceName.includes('Oil')))) : 0;
+            initialPrices[b.rowId] = getP + getO;
+        });
+        setFinalPrices(initialPrices);
+    }, [targetItems]);
+
+    const calculateTotal = () => {
+        return targetItems.reduce((sum, item) => {
+            return sum + (finalPrices[item.booking.rowId] || 0);
+        }, 0);
+    };
 
     if (step === 'CHOICE') {
         return (
@@ -611,6 +631,10 @@ const BillingModal = ({ activeItem, relatedItems, onConfirm, onCancel }) => {
         )
     }
 
+    const totalAmount = calculateTotal();
+    const cashVal = parseInt(cashGiven) || 0;
+    const changeAmount = cashVal >= totalAmount ? cashVal - totalAmount : (cashGiven ? (cashVal - totalAmount) : 0);
+
     return (
         <div className="fixed inset-0 bg-slate-900/90 z-[90] flex items-center justify-center p-4">
             <div className="bg-white w-full max-w-md rounded-2xl shadow-2xl modal-animate overflow-hidden flex flex-col max-h-[90vh]">
@@ -618,25 +642,61 @@ const BillingModal = ({ activeItem, relatedItems, onConfirm, onCancel }) => {
                 <div className="p-6 flex-1 overflow-y-auto custom-scrollbar">
                     <div className="space-y-3">{targetItems.map(item => {
                         const b = item.booking || {};
-                        const getP = window.getPrice ? window.getPrice(b.serviceName) : 0;
-                        const getO = window.getOilPrice ? window.getOilPrice(b.isOil || (b.serviceName && b.serviceName.includes('油'))) : 0;
-                        const price = getP + getO;
                         const staffDisplay = b.serviceStaff || b.staffId || b.ServiceStaff || b.StaffId || b.technician || '隨機';
+                        const isEditing = editingPriceId === b.rowId;
+                        const currentPrice = finalPrices[b.rowId] !== undefined ? finalPrices[b.rowId] : 0;
 
                         return (
-                            <div key={item.resourceId} className="flex items-center p-3 rounded-lg border border-slate-200 bg-slate-50">
-                                <div className="flex-1">
-                                    <div className="font-bold text-slate-800 flex items-center gap-2">{b.customerName} <span className="text-xs text-white bg-indigo-500 px-1.5 py-0.5 rounded shadow-sm">{staffDisplay}</span></div>
-                                    <div className="text-xs text-gray-500 mt-1">{b.serviceName}</div>
+                            <div key={item.resourceId} className="flex flex-col p-3 rounded-lg border border-slate-200 bg-slate-50">
+                                <div className="flex items-center justify-between">
+                                    <div className="flex-1">
+                                        <div className="font-bold text-slate-800 flex items-center gap-2">{b.customerName} <span className="text-xs text-white bg-indigo-500 px-1.5 py-0.5 rounded shadow-sm">{staffDisplay}</span></div>
+                                        <div className="text-xs text-gray-500 mt-1">{b.serviceName}</div>
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                        {isEditing ? (
+                                            <input
+                                                type="number"
+                                                className="w-20 font-mono font-bold text-xl text-emerald-700 bg-white border-2 border-emerald-400 rounded px-1 outline-none text-right"
+                                                value={currentPrice}
+                                                onChange={(e) => setFinalPrices({...finalPrices, [b.rowId]: parseInt(e.target.value) || 0})}
+                                                onBlur={() => setEditingPriceId(null)}
+                                                autoFocus
+                                            />
+                                        ) : (
+                                            <div className="font-mono font-bold text-xl text-slate-700">${currentPrice}</div>
+                                        )}
+                                        <button onClick={() => setEditingPriceId(isEditing ? null : b.rowId)} className="text-gray-400 hover:text-emerald-600 transition-colors p-1" title="手動輸入">
+                                            <i className={`fas ${isEditing ? 'fa-check' : 'fa-pen'}`}></i>
+                                        </button>
+                                    </div>
                                 </div>
-                                <div className="font-mono font-bold text-xl text-slate-700">${price}</div>
                             </div>
                         );
                     })}</div>
                 </div>
                 <div className="p-5 border-t bg-white shadow-[0_-5px_15px_rgba(0,0,0,0.05)]">
-                    <div className="flex justify-between items-end mb-4"><span className="text-gray-500 font-bold text-lg">總金額:</span><span className="text-5xl font-black text-emerald-600 tracking-tight">${calculateTotal(targetItems)}</span></div>
-                    <button onClick={() => onConfirm(targetItems, calculateTotal(targetItems))} className="w-full p-4 rounded-xl font-bold bg-emerald-600 text-white hover:bg-emerald-700 shadow-lg text-lg flex justify-center items-center gap-2 transition-transform hover:scale-[1.02]">✅ 確認收款</button>
+                    <div className="flex items-center justify-between mb-3 bg-slate-50 p-3 rounded-lg border border-slate-200">
+                        <span className="text-slate-600 font-bold text-sm">客付金額</span>
+                        <div className="flex items-center">
+                            <span className="text-slate-500 font-bold mr-1">$</span>
+                            <input 
+                                type="number" 
+                                placeholder="0" 
+                                value={cashGiven} 
+                                onChange={(e) => setCashGiven(e.target.value)}
+                                className="w-24 text-right bg-white border border-slate-300 rounded p-1 font-mono font-bold text-lg text-slate-800 focus:outline-none focus:border-emerald-500"
+                            />
+                        </div>
+                    </div>
+                    {cashGiven && (
+                        <div className={`flex justify-between items-center mb-3 px-3 ${changeAmount < 0 ? 'text-red-500' : 'text-blue-600'}`}>
+                            <span className="font-bold text-sm">找零:</span>
+                            <span className="font-mono font-bold text-xl">${changeAmount}</span>
+                        </div>
+                    )}
+                    <div className="flex justify-between items-end mb-4"><span className="text-gray-500 font-bold text-lg">總金額:</span><span className="text-5xl font-black text-emerald-600 tracking-tight">${totalAmount}</span></div>
+                    <button onClick={() => onConfirm(targetItems, totalAmount, finalPrices)} className="w-full p-4 rounded-xl font-bold bg-emerald-600 text-white hover:bg-emerald-700 shadow-lg text-lg flex justify-center items-center gap-2 transition-transform hover:scale-[1.02]">✅ 確認收款</button>
                     <button onClick={onCancel} className="w-full py-3 text-gray-400 font-bold hover:text-gray-600 mt-2">返回</button>
                 </div>
             </div>
