@@ -148,11 +148,39 @@
     // 3. TÍNH TOÁN GIÁ & LOGIC COMBO
     // ========================================================================
 
-    window.getPrice = (name) => {
-        if (!name) return 0;
-        if (window.SERVICES_DATA && window.SERVICES_DATA[name]) {
-            return window.SERVICES_DATA[name].price;
+    window.getPrice = (nameOrCode) => {
+        if (!nameOrCode) return 0;
+        // 1. TÌM TRỰC TIẾP QUA MÃ DỊCH VỤ (VD: A3, F2)
+        if (window.SERVICES_DATA && window.SERVICES_DATA[nameOrCode]) {
+            return window.SERVICES_DATA[nameOrCode].price;
         }
+        
+        const cleanQuery = String(nameOrCode).replace(/\s+/g, '').toLowerCase();
+
+        // 2. NẾU KHÔNG TÌM THẤY THEO MÃ, TÌM THEO TÊN TRONG TRƯỜNG HỢP TRUYỀN VÀO TÊN (VD: 套餐(120分))
+        if (window.SERVICES_LIST && window.SERVICES_DATA) {
+            for (let code of window.SERVICES_LIST) {
+                const data = window.SERVICES_DATA[code];
+                if (data && data.name) {
+                    const cleanDataName = String(data.name).replace(/\s+/g, '').toLowerCase();
+                    if (cleanQuery === cleanDataName || cleanDataName.includes(cleanQuery) || cleanQuery.includes(cleanDataName)) {
+                        return data.price;
+                    }
+                }
+            }
+        }
+
+        // 3. FALLBACK THEO BẢNG GIÁ ĐỘNG NẾU CÓ
+        if (window.DYNAMIC_PRICES_MAP) {
+            const found = Object.values(window.DYNAMIC_PRICES_MAP).find(s => {
+                const sName = String(s.name || '').replace(/\s+/g, '').toLowerCase();
+                return sName === cleanQuery || sName.includes(cleanQuery) || cleanQuery.includes(sName);
+            });
+            if (found && typeof found.price === 'number') {
+                return found.price;
+            }
+        }
+
         return 0;
     };
 

@@ -123,16 +123,7 @@ const getCleanServiceName = (rawName) => {
 };
 window.getCleanServiceName = getCleanServiceName;
 
-window.getPrice = (serviceName) => {
-    const cleanName = getCleanServiceName(serviceName);
-    if (window.DYNAMIC_PRICES_MAP) {
-        const found = Object.values(window.DYNAMIC_PRICES_MAP).find(s => s.name === cleanName);
-        if (found && typeof found.price === 'number') {
-            return found.price;
-        }
-    }
-    return 0;
-};
+// Hàm window.getPrice đã được chuyển sang cyx_utils.js làm Single Source Of Truth
 
 window.getOilPrice = (isOilFlagOrString) => {
     let isOil = false;
@@ -404,19 +395,31 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
 
     useEffect(() => {
         if (selectedPhase1Res !== 'auto' && selectedPhase1Res !== 'full' && !availableP1Resources.includes(selectedPhase1Res)) {
-            setSelectedPhase1Res('auto');
+            if (availableP1Resources.length > 0) {
+                setSelectedPhase1Res(availableP1Resources[0]);
+            } else {
+                setSelectedPhase1Res('auto');
+            }
         }
     }, [availableP1Resources, selectedPhase1Res]);
 
     useEffect(() => {
         if (selectedPhase2Res !== 'auto' && selectedPhase2Res !== 'full' && !availableP2Resources.includes(selectedPhase2Res)) {
-            setSelectedPhase2Res('auto');
+            if (availableP2Resources.length > 0) {
+                setSelectedPhase2Res(availableP2Resources[0]);
+            } else {
+                setSelectedPhase2Res('auto');
+            }
         }
     }, [availableP2Resources, selectedPhase2Res]);
 
     useEffect(() => {
         if (selectedSingleRes !== 'auto' && selectedSingleRes !== 'full' && !availableSingleResources.includes(selectedSingleRes)) {
-            setSelectedSingleRes('auto');
+            if (availableSingleResources.length > 0) {
+                setSelectedSingleRes(availableSingleResources[0]);
+            } else {
+                setSelectedSingleRes('auto');
+            }
         }
     }, [availableSingleResources, selectedSingleRes]);
 

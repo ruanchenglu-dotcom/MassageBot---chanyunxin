@@ -37,8 +37,6 @@ const SYSTEM_CONFIG = {
 
         // Các sheet bổ sung (dựa trên cấu trúc tab hiện tại)
         STAFF_LIST_SHEET_NAME: 'name',      // Danh sách hồ sơ kỹ thuật viên
-        SALARY_SHEET_NAME: 'Salary',        // Bảng lương
-        SALARY_LOG_SHEET_NAME: 'SalaryLog'  // Lịch sử thanh toán lương/hoa hồng
     },
 
     // Quy mô chi nhánh

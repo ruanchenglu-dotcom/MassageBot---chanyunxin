@@ -542,6 +542,13 @@ app.post('/api/update-staff-config', async (req, res) => {
     } catch (e) { res.status(500).json({ success: false, error: e.message }); }
 });
 
+app.get('/api/today-salary', async (req, res) => {
+    try {
+        const salaryData = await SheetService.getTodaySalary();
+        res.json({ success: true, data: salaryData });
+    } catch (e) { res.status(500).json({ success: false, error: e.message }); }
+});
+
 // =============================================================================
 // PHẦN 5: LINE EVENT HANDLER (BOT KHÁCH HÀNG)
 // =============================================================================

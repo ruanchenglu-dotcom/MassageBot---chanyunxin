@@ -889,6 +889,9 @@ async function batchUpdateMultipleBookings(updatesArray) {
             const staff3 = body['服務師傅3'] || body.ServiceStaff3 || body.staff3 || body.staffId3;
             if (staff3 !== undefined) dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!N${rowId}`, values: [[staff3]] });
 
+            if (body.staff1_blocks !== undefined) dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!O${rowId}`, values: [[body.staff1_blocks]] });
+            if (body.staff2_blocks !== undefined) dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!P${rowId}`, values: [[body.staff2_blocks]] });
+
             if (body.isGuaSha !== undefined) dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!Q${rowId}`, values: [[body.isGuaSha ? "Yes" : ""]] });
             if (body.adminNote !== undefined) dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!R${rowId}`, values: [[body.adminNote]] });
 
@@ -1064,6 +1067,28 @@ async function syncDailySalary(dateStr, staffDataList) {
     } catch (e) { console.error('[SALARY ERROR]', e); }
 }
 
+async function getTodaySalary() {
+    try {
+        const res = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: `今天薪資!A3:D` });
+        const rows = res.data.values;
+        let salaryMap = {};
+        if (rows && rows.length > 0) {
+            rows.forEach(row => {
+                const staffId = row[0];
+                const salaryStr = row[3];
+                if (staffId && salaryStr !== undefined) {
+                    const cleanSalary = salaryStr.toString().replace(/[^0-9.-]+/g,"");
+                    salaryMap[staffId.toString().trim()] = parseInt(cleanSalary) || 0;
+                }
+            });
+        }
+        return salaryMap;
+    } catch (e) {
+        console.error('[GET TODAY SALARY ERROR]', e);
+        return {};
+    }
+}
+
 // =============================================================================
 // PHẦN 5: EXPORTS
 // =============================================================================
@@ -1084,6 +1109,7 @@ module.exports = {
     syncData,
     syncQuickNotes,
     syncDailySalary,
+    getTodaySalary,
     ghiVaoSheet,
     updateBookingStatus,
     updateBookingDetails,

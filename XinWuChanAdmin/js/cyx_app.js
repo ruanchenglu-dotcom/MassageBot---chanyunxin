@@ -238,6 +238,7 @@ const App = () => {
 
     // Modal States
     const [showCheckIn, setShowCheckIn] = useState(false);
+    const [salaryData, setSalaryData] = useState({});
     const [showAvailability, setShowAvailability] = useState(false);
     const [selectedSlot, setSelectedSlot] = useState(null);
     const [billingData, setBillingData] = useState(null);
@@ -261,6 +262,16 @@ const App = () => {
     useEffect(() => {
         resourceStateRef.current = resourceState;
     }, [resourceState]);
+
+    useEffect(() => {
+        if (showCheckIn) {
+            axios.get('/api/today-salary').then(res => {
+                if (res.data && res.data.success) {
+                    setSalaryData(res.data.data || {});
+                }
+            }).catch(e => console.error("Fetch salary error", e));
+        }
+    }, [showCheckIn]);
 
     // 2. HELPER FUNCTIONS
     const getScheduledStartTimeISO = (booking) => {
@@ -2671,10 +2682,19 @@ const App = () => {
 
                 if (staffId && staffId !== '隨機' && staffId !== 'undefined') {
                     // [V120 Tính Năng] Vá lỗi khoảng trắng (Whitespace Bug). Làm sạch dữ liệu của Thợ trước khi lưu vào danh sách chờ Thanh toán.
-                    const cleanStaffId = String(staffId).trim();
+                    const cleanStaffId = window.normalizeStaffId ? window.normalizeStaffId(staffId) : String(staffId).trim();
                     const duration = window.getSafeDuration(b.serviceName, b.duration);
                     const blocks = getServiceBlocks(b.serviceName);
                     checkoutStaffInfo.push({ staffId: cleanStaffId, duration, blocks });
+
+                    // [Nâng cấp] Ghi nhận số tiết cho ca bình thường
+                    if (!isInlineSplit) {
+                        if (targetIndex === 0) {
+                            updatesByRow[rid].staff1_blocks = blocks;
+                        } else if (targetIndex === 1) {
+                            updatesByRow[rid].staff2_blocks = blocks;
+                        }
+                    }
                 }
 
                 if (resId && newState[resId]) {
@@ -3203,7 +3223,7 @@ const App = () => {
                 )}
             </main>
 
-            {showCheckIn && window.CheckInBoard && <window.CheckInBoard staffList={staffList} statusData={statusData} onUpdateStatus={updateStaffStatus} onClose={() => setShowCheckIn(false)} bookings={todaysBookings} />}
+            {showCheckIn && window.CheckInBoard && <window.CheckInBoard staffList={staffList} statusData={statusData} onUpdateStatus={updateStaffStatus} onClose={() => setShowCheckIn(false)} bookings={todaysBookings} salaryData={salaryData} />}
             {showAvailability && window.AvailabilityCheckModal && <window.AvailabilityCheckModal onClose={() => setShowAvailability(false)} onSave={handleWalkInSave} staffList={staffList} bookings={bookings} initialDate={viewDate} />}
             {comboStartData && window.ComboStartModal && <window.ComboStartModal onConfirm={confirmComboStart} onCancel={() => setComboStartData(null)} bookingName={comboStartData.booking.serviceName} />}
 
