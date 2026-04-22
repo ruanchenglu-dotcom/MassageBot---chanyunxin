@@ -2587,7 +2587,7 @@ const App = () => {
 
     const handleToggleMax = async (resId) => { const res = resourceState[resId]; if (!res) return; updateResource({ ...resourceState, [resId]: { ...res, isMaxMode: !res.isMaxMode } }); };
 
-    const handleConfirmPayment = async (itemsToPay, totalAmount) => {
+    const handleConfirmPayment = async (itemsToPay, totalAmount, finalPricesMap = {}) => {
         try {
             setSyncLock(true); setTimeout(() => setSyncLock(false), 5000);
             const newState = { ...resourceState };
@@ -2630,7 +2630,12 @@ const App = () => {
 
                 const statusNum = targetIndex + 1;
                 const statusColEnglish = `Status${statusNum}`;
-                if (!updatesByRow[rid]) { updatesByRow[rid] = { rowId: rid, forceSync: true, originalBooking: b }; }
+                if (!updatesByRow[rid]) { 
+                    updatesByRow[rid] = { rowId: rid, forceSync: true, originalBooking: b }; 
+                    if (finalPricesMap[rid] !== undefined) {
+                        updatesByRow[rid].final_price = finalPricesMap[rid];
+                    }
+                }
                 updatesByRow[rid][statusColEnglish] = APP_STATUS.COMPLETED;
 
                 let staffId = null;
@@ -2695,10 +2700,16 @@ const App = () => {
             });
 
             updateResource(newState); updateStaffStatus(newStatusData); setBillingData(null);
-            const apiCalls = Object.values(updatesByRow).map(payload => axios.post('/api/update-booking-details', payload));
-
-            await Promise.all(apiCalls); alert(`✅ 結帳成功: $${totalAmount}`);
-        } catch (e) { alert("⚠️ 連線錯誤，請檢查網路！"); }
+            
+            const payloads = Object.values(updatesByRow);
+            try {
+                await axios.post('/api/batch-process-bookings', { payloads, forceSync: true });
+                alert(`✅ 結帳成功: $${totalAmount}`);
+                fetchData(true);
+            } catch (e) {
+                alert("⚠️ 連線錯誤，請檢查網路！(Batch Failed)");
+            }
+        } catch (e) { alert("⚠️ 結帳發生錯誤，請截圖給開發者: " + e.message); }
     };
 
     const handleControlAction = (actionType, payload) => {

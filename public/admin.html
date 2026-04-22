@@ -574,17 +574,28 @@
         };
 
         const BillingModal = ({ activeItem, relatedItems, onConfirm, onCancel }) => {
-            const hasGroup = relatedItems.length > 0;
-            const [step, setStep] = useState(hasGroup ? 'CHOICE' : 'CONFIRM');
-            const [targetItems, setTargetItems] = useState(hasGroup ? [] : [activeItem]);
-            
-            useEffect(() => {
-                if (hasGroup) setStep('CHOICE');
-                else setStep('CONFIRM');
-                setTargetItems([activeItem]);
-            }, [hasGroup, activeItem]);
+            const hasGroup = relatedItems && relatedItems.length > 0;
+            const [step, setStep] = useState('CONFIRM');
+            const [targetItems, setTargetItems] = useState(hasGroup ? [activeItem, ...relatedItems] : [activeItem]);
 
-            const calculateTotal = (list) => list.reduce((sum, item) => sum + getPrice(item.booking.serviceName) + getOilPrice(item.booking.isOil || (item.booking.serviceName && (item.booking.serviceName.includes('油') || item.booking.serviceName.includes('Oil')))), 0);
+            const [finalPrices, setFinalPrices] = useState({});
+            const [editingPriceId, setEditingPriceId] = useState(null);
+            const [cashGiven, setCashGiven] = useState('');
+
+            useEffect(() => {
+                const initialPrices = {};
+                targetItems.forEach(item => {
+                    const b = item.booking || {};
+                    const getP = getPrice(b.serviceName);
+                    const getO = getOilPrice(b.isOil || (b.serviceName && (b.serviceName.includes('油') || b.serviceName.includes('Oil'))));
+                    initialPrices[b.rowId] = getP + getO;
+                });
+                setFinalPrices(initialPrices);
+            }, [targetItems]);
+
+            const calculateTotal = () => {
+                return targetItems.reduce((sum, item) => sum + (finalPrices[item.booking.rowId] || 0), 0);
+            };
 
             if (step === 'CHOICE') {
                 return (
@@ -593,8 +604,14 @@
                             <h3 className="text-2xl font-black text-slate-800 mb-2">發現同組客人</h3>
                             <p className="text-gray-500 mb-6">共有 <span className="font-bold text-blue-600">{relatedItems.length + 1}</span> 位客人在現場</p>
                             <div className="grid grid-cols-2 gap-4 w-full mb-4">
-                                <button onClick={() => { setTargetItems([activeItem]); setStep('CONFIRM'); }} className="flex flex-col items-center p-5 rounded-xl border-2 border-gray-200 hover:border-emerald-500 hover:bg-emerald-50 transition-all"><span className="text-3xl mb-2">👤</span><span className="font-bold text-slate-700">個別結帳</span></button>
-                                <button onClick={() => { setTargetItems([activeItem, ...relatedItems]); setStep('CONFIRM'); }} className="flex flex-col items-center p-5 rounded-xl border-2 border-blue-200 bg-blue-50 hover:bg-blue-100 hover:border-blue-300 transition-all shadow-md"><span className="text-3xl mb-2">👥</span><span className="font-bold text-blue-700">合併結帳</span></button>
+                                <button onClick={() => { setTargetItems([activeItem]); setStep('CONFIRM'); }} className="flex flex-col items-center p-5 rounded-xl border-2 border-gray-200 hover:border-emerald-500 hover:bg-emerald-50 transition-all group">
+                                    <span className="text-3xl mb-2 group-hover:scale-110 transition-transform">👤</span>
+                                    <span className="font-bold text-slate-700">個別結帳</span>
+                                </button>
+                                <button onClick={() => { setTargetItems([activeItem, ...relatedItems]); setStep('CONFIRM'); }} className="flex flex-col items-center p-5 rounded-xl border-2 border-blue-200 bg-blue-50 hover:bg-blue-100 hover:border-blue-300 transition-all shadow-md group">
+                                    <span className="text-3xl mb-2 group-hover:scale-110 transition-transform">👥</span>
+                                    <span className="font-bold text-blue-700">合併結帳</span>
+                                </button>
                             </div>
                             <button onClick={onCancel} className="text-gray-400 font-bold hover:text-gray-600">取消</button>
                         </div>
@@ -602,16 +619,72 @@
                 )
             }
 
+            const totalAmount = calculateTotal();
+            const cashVal = parseInt(cashGiven) || 0;
+            const changeAmount = cashVal >= totalAmount ? cashVal - totalAmount : (cashGiven ? (cashVal - totalAmount) : 0);
+
             return (
                 <div className="fixed inset-0 bg-slate-900/90 z-[90] flex items-center justify-center p-4">
                     <div className="bg-white w-full max-w-md rounded-2xl shadow-2xl modal-animate overflow-hidden flex flex-col max-h-[90vh]">
                         <div className="bg-emerald-600 p-4 text-white text-center shrink-0"><h3 className="text-xl font-bold flex justify-center items-center gap-2"><i className="fas fa-file-invoice-dollar"></i> 結帳清單</h3></div>
-                        <div className="p-6 flex-1 overflow-y-auto">
-                            <div className="space-y-3">{targetItems.map(item => { const b = item.booking; const price = getPrice(b.serviceName) + getOilPrice(b.isOil || (b.serviceName && b.serviceName.includes('油'))); return (<div key={item.resourceId} className="flex items-center p-3 rounded-lg border border-slate-200 bg-slate-50"><div className="flex-1"><div className="font-bold text-slate-800 flex items-center gap-2">{b.customerName} <span className="text-xs text-white bg-indigo-500 px-1.5 py-0.5 rounded shadow-sm">{b.serviceStaff || b.staffId}</span></div><div className="text-xs text-gray-500 mt-1">{b.serviceName}</div></div><div className="font-mono font-bold text-xl text-slate-700">${price}</div></div>); })}</div>
+                        <div className="p-6 flex-1 overflow-y-auto custom-scrollbar">
+                            <div className="space-y-3">{targetItems.map(item => {
+                                const b = item.booking || {};
+                                const staffDisplay = b.serviceStaff || b.staffId || b.ServiceStaff || b.StaffId || b.technician || '隨機';
+                                const isEditing = editingPriceId === b.rowId;
+                                const currentPrice = finalPrices[b.rowId] !== undefined ? finalPrices[b.rowId] : 0;
+
+                                return (
+                                    <div key={item.resourceId} className="flex flex-col p-3 rounded-lg border border-slate-200 bg-slate-50">
+                                        <div className="flex items-center justify-between">
+                                            <div className="flex-1">
+                                                <div className="font-bold text-slate-800 flex items-center gap-2">{b.customerName} <span className="text-xs text-white bg-indigo-500 px-1.5 py-0.5 rounded shadow-sm">{staffDisplay}</span></div>
+                                                <div className="text-xs text-gray-500 mt-1">{b.serviceName}</div>
+                                            </div>
+                                            <div className="flex items-center gap-2">
+                                                {isEditing ? (
+                                                    <input
+                                                        type="number"
+                                                        className="w-20 font-mono font-bold text-xl text-emerald-700 bg-white border-2 border-emerald-400 rounded px-1 outline-none text-right"
+                                                        value={currentPrice}
+                                                        onChange={(e) => setFinalPrices({...finalPrices, [b.rowId]: parseInt(e.target.value) || 0})}
+                                                        onBlur={() => setEditingPriceId(null)}
+                                                        autoFocus
+                                                    />
+                                                ) : (
+                                                    <div className="font-mono font-bold text-xl text-slate-700">${currentPrice}</div>
+                                                )}
+                                                <button onClick={() => setEditingPriceId(isEditing ? null : b.rowId)} className="text-gray-400 hover:text-emerald-600 transition-colors p-1" title="手動輸入">
+                                                    <i className={`fas ${isEditing ? 'fa-check' : 'fa-pen'}`}></i>
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                );
+                            })}</div>
                         </div>
                         <div className="p-5 border-t bg-white shadow-[0_-5px_15px_rgba(0,0,0,0.05)]">
-                            <div className="flex justify-between items-end mb-4"><span className="text-gray-500 font-bold text-lg">總金額:</span><span className="text-5xl font-black text-emerald-600 tracking-tight">${calculateTotal(targetItems)}</span></div>
-                            <button onClick={() => onConfirm(targetItems, calculateTotal(targetItems))} className="w-full p-4 rounded-xl font-bold bg-emerald-600 text-white hover:bg-emerald-700 shadow-lg text-lg flex justify-center items-center gap-2">✅ 確認收款</button>
+                            <div className="flex items-center justify-between mb-3 bg-slate-50 p-3 rounded-lg border border-slate-200">
+                                <span className="text-slate-600 font-bold text-sm">客付金額</span>
+                                <div className="flex items-center">
+                                    <span className="text-slate-500 font-bold mr-1">$</span>
+                                    <input 
+                                        type="number" 
+                                        placeholder="0" 
+                                        value={cashGiven} 
+                                        onChange={(e) => setCashGiven(e.target.value)}
+                                        className="w-24 text-right bg-white border border-slate-300 rounded p-1 font-mono font-bold text-lg text-slate-800 focus:outline-none focus:border-emerald-500"
+                                    />
+                                </div>
+                            </div>
+                            {cashGiven && (
+                                <div className={`flex justify-between items-center mb-3 px-3 ${changeAmount < 0 ? 'text-red-500' : 'text-blue-600'}`}>
+                                    <span className="font-bold text-sm">找零:</span>
+                                    <span className="font-mono font-bold text-xl">${changeAmount}</span>
+                                </div>
+                            )}
+                            <div className="flex justify-between items-end mb-4"><span className="text-gray-500 font-bold text-lg">總金額:</span><span className="text-5xl font-black text-emerald-600 tracking-tight">${totalAmount}</span></div>
+                            <button onClick={() => onConfirm(targetItems, totalAmount, finalPrices)} className="w-full p-4 rounded-xl font-bold bg-emerald-600 text-white hover:bg-emerald-700 shadow-lg text-lg flex justify-center items-center gap-2 transition-transform hover:scale-[1.02]">✅ 確認收款</button>
                             <button onClick={onCancel} className="w-full py-3 text-gray-400 font-bold hover:text-gray-600 mt-2">返回</button>
                         </div>
                     </div>

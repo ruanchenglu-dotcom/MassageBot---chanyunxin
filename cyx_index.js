@@ -525,6 +525,8 @@ app.post('/api/batch-process-bookings', async (req, res) => {
         if (!req.body || !Array.isArray(req.body.payloads)) {
             return res.status(400).json({ success: false, error: 'Invalid payload format (expected an array called payloads)' });
         }
+        console.log("=== BATCH CHECKOUT PAYLOADS ===");
+        console.log(JSON.stringify(req.body.payloads, null, 2));
         await SheetService.batchUpdateMultipleBookings(req.body.payloads);
         res.json({ success: true });
     } catch (e) { 
