@@ -590,7 +590,7 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                             <i className="fas fa-exclamation-triangle text-orange-500"></i>
                             <span className="text-orange-800 text-sm font-bold">時長異常:</span>
                             <span className="text-slate-600 text-sm">
-                                紀錄 <span className="line-through opacity-70">{booking.duration}分</span>
+                                紀錄 <span className="line-through opacity-70">{booking.duration + (booking.anomalyDiff || 0)}分</span>
                                 <i className="fas fa-arrow-right mx-1 text-xs text-slate-400"></i>
                                 標準 <span className="font-bold text-red-500">{booking.standardDuration}分</span>
                             </span>
@@ -791,7 +791,7 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                                     總共:
                                     {booking.isTimeAnomaly ? (
                                         <>
-                                            <span className="line-through opacity-50">{booking.duration}</span>
+                                            <span className="line-through opacity-50">{booking.duration + (booking.anomalyDiff || 0)}</span>
                                             <span className="text-red-400 font-bold">{totalDuration}</span>
                                         </>
                                     ) : (

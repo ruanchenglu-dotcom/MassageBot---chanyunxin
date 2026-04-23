@@ -1065,19 +1065,19 @@
     // ========================================================================
     // PHẦN 2: DATA FETCHER
     // ========================================================================
-    const fetchLiveServerData = async (isForceRefresh = false) => {
-        const apiUrl = window.API_URL || window.GAS_API_URL || (window.CONFIG && window.CONFIG.API_URL);
-        if (!apiUrl) { console.warn("⚠️ Warning: API_URL missing."); return null; }
-        try {
-            const params = [`_t=${new Date().getTime()}`];
-            if (isForceRefresh) params.push('forceRefresh=true');
-            const targetUrl = apiUrl.includes('?') ? `${apiUrl}&${params.join('&')}` : `${apiUrl}?${params.join('&')}`;
-            const response = await fetch(targetUrl);
-            const data = await response.json();
-            if (data && data.staff && data.bookings) return data;
-            return null;
-        } catch (err) { console.error("❌ Fetch Failed", err); return null; }
-    };
+        const fetchLiveServerData = async (isForceRefresh = false) => {
+            const apiUrl = window.API_URL || window.GAS_API_URL || (window.CONFIG && window.CONFIG.API_URL);
+            if (!apiUrl) { console.warn("⚠️ Warning: API_URL missing."); return null; }
+            try {
+                const params = [`_t=${new Date().getTime()}`];
+                if (isForceRefresh) params.push('forceRefresh=true');
+                const targetUrl = apiUrl.includes('?') ? `${apiUrl}&${params.join('&')}` : `${apiUrl}?${params.join('&')}`;
+                const response = await fetch(targetUrl);
+                const data = await response.json();
+                if (data && data.staffList && data.bookings) return data;
+                return null;
+            } catch (err) { console.error("❌ Fetch Failed", err); return null; }
+        };
 
     // ========================================================================
     // PHẦN 3: BRIDGE LOGIC & REACT COMPONENT

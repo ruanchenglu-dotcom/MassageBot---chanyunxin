@@ -747,6 +747,17 @@ async function handleEvent(event) {
     // [V134 NÂNG CẤP] Xử lý rẽ nhánh an toàn tại bước cuối cùng của luồng đặt lịch
     if (userState[userId] && userState[userId].step === 'PHONE') {
         const sdt = normalizePhoneNumber(text); const s = userState[userId];
+        
+        // --- BƯỚC QUAN TRỌNG: CHECK BLACKLIST TRƯỚC KHI CHO ĐẶT ---
+        const blacklist = SheetService.getBlacklist() || [];
+        if (sdt && blacklist.some(b => b.phone === sdt)) {
+            delete userState[userId]; // Xóa session
+            return client.replyMessage(event.replyToken, { 
+                type: 'text', 
+                text: "⚠️ 抱歉，此電話號碼已被系統限制預約功能，無法完成線上預約。如有疑問請直接致電櫃台處理，謝謝。" 
+            });
+        }
+
         let finalDate = s.date;
         const hour = parseInt(s.time.split(':')[0]);
         if (hour < 8) {

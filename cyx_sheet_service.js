@@ -228,7 +228,7 @@ async function init() {
 
 async function syncQuickNotes() {
     try {
-        const res = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: `${STAFF_LIST_SHEET_NAME}!N2:N` });
+        const res = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: `${STAFF_LIST_SHEET_NAME}!V2:V` });
         const rows = res.data.values;
         if (!rows || rows.length === 0) {
             STATE.QUICK_NOTES = [];
@@ -354,14 +354,18 @@ async function syncData() {
                 let duration = 60; let type = 'BED'; let category = 'BODY'; let price = 0;
                 let foundService = false;
 
-                for (const key in STATE.SERVICES) {
-                    if (serviceStr.includes(STATE.SERVICES[key].name.split('(')[0])) {
-                        duration = STATE.SERVICES[key].duration;
-                        type = STATE.SERVICES[key].type;
-                        category = STATE.SERVICES[key].category;
-                        price = STATE.SERVICES[key].price;
-                        foundService = true; break;
-                    }
+                let serviceCode = row[20];
+                if (!serviceCode || serviceCode === '') {
+                    serviceCode = smartFindServiceCode(serviceStr) || '';
+                }
+
+                if (serviceCode && STATE.SERVICES[serviceCode]) {
+                    const svcDef = STATE.SERVICES[serviceCode];
+                    duration = svcDef.duration;
+                    type = svcDef.type;
+                    category = svcDef.category;
+                    price = svcDef.price;
+                    foundService = true;
                 }
 
                 if (!foundService) {
@@ -378,10 +382,8 @@ async function syncData() {
 
                 const requestedStaff = row[8] || '隨機';
 
-                let serviceCode = row[20];
-                if (!serviceCode || serviceCode === '') {
-                    for (const key in STATE.SERVICES) { if (STATE.SERVICES[key].name === serviceStr) { serviceCode = key; break; } }
-                }
+                // serviceCode logic is now handled above.
+
 
                 const rawTime = row[1] || "12:00";
                 const hr = parseInt(rawTime.split(':')[0], 10);

@@ -596,11 +596,14 @@ const App = () => {
                 window.SYSTEM_CONFIG.SCALE.MAX_BEDS = res.data.resources.beds || 9;
             }
 
-            const { bookings: apiBookings, staffList: apiStaff, resourceState: serverRes, staffStatus: serverStaff, quickNotes: apiQuickNotes } = res.data;
+            const { bookings: apiBookings, staffList: apiStaff, resourceState: serverRes, staffStatus: serverStaff, quickNotes: apiQuickNotes, blacklist: apiBlacklist } = res.data;
 
             if (apiQuickNotes) {
                 window.QUICK_NOTES = apiQuickNotes;
             }
+
+            if (!window.SYSTEM_DATA) window.SYSTEM_DATA = {};
+            if (apiBlacklist) window.SYSTEM_DATA.blacklist = apiBlacklist;
 
             let nextResourceState = { ...(serverRes || {}) };
 
