@@ -374,7 +374,8 @@ app.get('/api/info', async (req, res) => {
             lastUpdated: SheetService.getLastSyncTime(),
             isSystemHealthy: SheetService.getIsSystemHealthy(),
             matrixDebug: SheetService.getMatrixDebug(),
-            blacklist: SheetService.getBlacklist()
+            blacklist: SheetService.getBlacklist(),
+            quickNotes: SheetService.getQuickNotes()
         });
     } catch (error) { res.status(500).json({ error: "Internal Server Error" }); }
 });
@@ -464,7 +465,8 @@ app.post('/api/admin-booking', async (req, res) => {
         trangThai: '已預約', pax: cyx_data.pax || 1, isOil: cyx_data.isOil || false,
         guestDetails: cyx_data.guestDetails,
         phase1_duration: cyx_data.phase1_duration, phase2_duration: cyx_data.phase2_duration,
-        isManualLocked: cyx_data.isManualLocked, flow: cyx_data.flow, serviceCode: cyx_data.serviceCode
+        isManualLocked: cyx_data.isManualLocked, flow: cyx_data.flow, serviceCode: cyx_data.serviceCode,
+        adminNote: cyx_data.adminNote
     });
 
     if (isSaved) {
