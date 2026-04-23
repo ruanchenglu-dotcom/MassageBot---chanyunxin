@@ -45,7 +45,8 @@ const getBookingStatus = () => window.BOOKING_STATUS || {
     WAITING: '等待中',
     SERVING: '服務中',
     COMPLETED: '已完成',
-    CANCELLED: '已取消'
+    CANCELLED: '已取消',
+    NOSHOW: '爽約'
 };
 
 /**
@@ -360,7 +361,7 @@ const CheckInBoard = ({ staffList, statusData, onClose, onUpdateStatus, bookings
         });
         const safeBookings = Array.isArray(bookings) ? bookings : [];
         safeBookings.forEach(b => {
-            if (b.status && (b.status.includes('取消') || b.status.includes('❌') || b.status === STATUS.CANCELLED)) return;
+            if (b.status && (b.status.includes('取消') || b.status.includes('爽約') || b.status.toUpperCase().includes('NOSHOW') || b.status.includes('❌') || b.status === STATUS.CANCELLED || b.status === STATUS.NOSHOW)) return;
             let potentialRawStrings = [b.staffId, b.serviceStaff, b.technician, b.staffId2, b.staffId3, b.staffId4, b.staffId5, b.staffId6];
             const distinctNames = potentialRawStrings.join(',').split(/[,，\s/]+/).map(s => s.trim()).filter(s => s && s !== 'null' && s !== 'undefined');
             const validNames = [...new Set(distinctNames)].filter(name => {
@@ -618,7 +619,7 @@ const AvailabilityCheckModal = ({ onClose, onSave, staffList, bookings, initialD
         const todays = safeBookings.filter(b => {
             if (window.isWithinOperationalDay && b.startTimeString) {
                 return window.isWithinOperationalDay(b.startTimeString.split(' ')[0], b.startTimeString.split(' ')[1], initialDate) &&
-                    !b.status.includes('取消') && !b.status.includes('完成') && b.status !== STATUS.CANCELLED && b.status !== STATUS.COMPLETED;
+                    !b.status.includes('取消') && !b.status.includes('爽約') && !b.status.toUpperCase().includes('NOSHOW') && !b.status.includes('完成') && b.status !== STATUS.CANCELLED && b.status !== STATUS.COMPLETED && b.status !== STATUS.NOSHOW;
             }
             return false;
         });

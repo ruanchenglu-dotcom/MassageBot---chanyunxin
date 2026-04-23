@@ -810,7 +810,7 @@ const App = () => {
                     isForcedSingle: isForcedSingle,
 
                     isRunningStatus: (rawStatus.includes('Running') || rawStatus.includes('服務中') || rawStatus.toLowerCase().includes('running') || rawStatus.includes(APP_STATUS.SERVING)),
-                    isDoneStatus: (rawStatus.includes('完成') || rawStatus.includes('Done') || rawStatus.includes('✅') || rawStatus.toLowerCase().includes('cancel') || rawStatus.includes('取消') || rawStatus.includes(APP_STATUS.COMPLETED) || rawStatus.includes(APP_STATUS.CANCELLED)),
+                    isDoneStatus: (rawStatus.includes('完成') || rawStatus.includes('Done') || rawStatus.includes('✅') || rawStatus.toLowerCase().includes('cancel') || rawStatus.includes('取消') || rawStatus.includes('爽約') || rawStatus.toUpperCase().includes('NOSHOW') || rawStatus.includes(APP_STATUS.COMPLETED) || rawStatus.includes(APP_STATUS.CANCELLED) || rawStatus.includes(APP_STATUS.NOSHOW)),
                     storedLocation: computedStoredLocation,
 
                     standardDuration: standardDur,
@@ -834,7 +834,7 @@ const App = () => {
             const relevantBookings = cleanBookings.filter(b => {
                 const safeStatus = String(b.status || '');
                 return window.isWithinOperationalDay(b.startTimeString.split(' ')[0], b.startTimeString.split(' ')[1], viewDate) &&
-                    !safeStatus.toLowerCase().includes('cancel') && !safeStatus.includes('取消') && !safeStatus.includes(APP_STATUS.CANCELLED);
+                    !safeStatus.toLowerCase().includes('cancel') && !safeStatus.includes('取消') && !safeStatus.includes('爽約') && !safeStatus.toUpperCase().includes('NOSHOW') && !safeStatus.includes(APP_STATUS.CANCELLED) && !safeStatus.includes(APP_STATUS.NOSHOW);
             });
 
             if (apiStaff && apiStaff.length > 0) {
@@ -2552,6 +2552,23 @@ const App = () => {
                 delete n[id]; updateResource(n); fetchData();
             }
         }
+        else if (action === 'noshow_midway') {
+            if (confirm('確定要設為爽約嗎？\n此操作會標記為「爽約」並釋放此位置。')) {
+                const ridStr = String(current.booking.rowId);
+                if (localOverridesRef.current[ridStr]) {
+                    delete localOverridesRef.current[ridStr];
+                }
+
+                await axios.post('/api/update-status', { rowId: current.booking.rowId, status: APP_STATUS.NOSHOW });
+                const n = { ...resourceState };
+                const staffId = current.booking.serviceStaff || current.booking.staffId;
+                if (staffId !== '隨機' && statusData[staffId]) {
+                    const newStatus = { ...statusData, [staffId]: { status: 'READY', checkInTime: Date.now(), stafftime: Date.now() } };
+                    updateStaffStatus(newStatus);
+                }
+                delete n[id]; updateResource(n); fetchData();
+            }
+        }
         else if (action === 'finish') {
             const related = findRelatedForCheckout(current.booking, id);
             if (related.length > 0) {
@@ -2833,6 +2850,20 @@ const App = () => {
                 setControlCenterData(null);
                 break;
 
+            case 'NOSHOW':
+                if (targetResourceId && resourceState[targetResourceId] && !resourceState[targetResourceId].isPreview) {
+                    handleResourceAction(targetResourceId, 'noshow_midway');
+                } else if (targetBooking) {
+                    if (confirm('確定要設為爽約嗎？\n(若為團體客，將設整組預約為爽約)')) {
+                        const ridStr = String(targetBooking.rowId);
+                        if (localOverridesRef.current[ridStr]) delete localOverridesRef.current[ridStr];
+                        axios.post('/api/update-status', { rowId: targetBooking.rowId, status: APP_STATUS.NOSHOW })
+                            .then(() => fetchData(true))
+                            .catch(() => alert('爽約設定失敗，請檢查網路。'));
+                    }
+                }
+                setControlCenterData(null);
+                break;
             case 'SPLIT':
                 if (targetResourceId) setSplitData({ resourceId: targetResourceId });
                 setControlCenterData(null);

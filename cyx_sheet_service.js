@@ -38,6 +38,7 @@ const SHEET_ID = process.env.SHEET_ID;
 const STATUS_KEYWORDS = {
     RUNNING: ['Running', '服務中', 'Serving', '🟡'],
     CANCELLED: ['取消', 'Cancelled', 'Cancel', '❌'],
+    NOSHOW: ['爽約', 'Noshow', 'No Show'],
     WAITING: ['Waiting', 'chờ', 'waiting'],
     DONE: ['Done', 'hoàn thành', 'Completed', '✅']
 };
@@ -345,7 +346,7 @@ async function syncData() {
                 if (!row[0] || !row[1]) continue;
 
                 const status = row[7] || '已預約';
-                if (STATUS_KEYWORDS.CANCELLED.some(k => status.includes(k))) continue;
+                if (STATUS_KEYWORDS.CANCELLED.some(k => status.includes(k)) || (STATUS_KEYWORDS.NOSHOW && STATUS_KEYWORDS.NOSHOW.some(k => status.includes(k)))) continue;
                 const isRunning = checkIsRunning(status);
                 const cleanDate = normalizeDateStrict(row[0]);
                 if (!cleanDate) continue;

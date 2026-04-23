@@ -27,7 +27,8 @@
             WAITING: '等待中',
             SERVING: '服務中',
             COMPLETED: '已完成',
-            CANCELLED: '已取消'
+            CANCELLED: '已取消',
+            NOSHOW: '爽約'
         };
 
         // Danh sách trạng thái chuẩn cho Dropdown trong chế độ Edit
@@ -140,11 +141,13 @@
                                     const bStatus = b.status || '';
                                     const isDone = bStatus === STATUS.COMPLETED || bStatus.includes('完成') || bStatus.includes('✅');
                                     const isCancelled = bStatus === STATUS.CANCELLED || bStatus.includes('取消') || bStatus.includes('Cancel');
+                                    const isNoShow = bStatus === STATUS.NOSHOW || bStatus.includes('爽約') || bStatus.toUpperCase().includes('NOSHOW');
                                     const isServing = bStatus === STATUS.SERVING || bStatus.includes('服務') || bStatus.includes('Running');
 
                                     // Render màu sắc (Badge Color)
                                     let statusClass = 'bg-yellow-100 text-yellow-700 border border-yellow-200'; // Default: WAITING (等待中)
                                     if (isCancelled) statusClass = 'bg-red-100 text-red-700 border border-red-200';
+                                    else if (isNoShow) statusClass = 'bg-orange-100 text-orange-700 border border-orange-200';
                                     else if (isDone) statusClass = 'bg-gray-200 text-gray-600 border border-gray-300';
                                     else if (isServing) statusClass = 'bg-green-100 text-green-700 border border-green-200';
 

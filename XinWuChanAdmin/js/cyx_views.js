@@ -1016,23 +1016,24 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
 
                 {/* ACTION FOOTER */}
                 <div className="p-4 bg-white border-t border-slate-200 shrink-0">
-                    <div className="grid grid-cols-4 gap-3">
+                    <div className={`grid gap-3 ${!isRunning && isGroupBooking ? 'grid-cols-5' : 'grid-cols-4'}`}>
                         {!isRunning ? (
                             isGroupBooking ? (
                                 <>
-                                    <button onClick={() => triggerAction('START', { scope: 'INDIVIDUAL' })} className="col-span-1 bg-white border-2 border-green-600 text-green-700 hover:bg-green-50 rounded-xl font-bold text-sm shadow-sm flex flex-col items-center justify-center transform active:scale-95 transition-all"><i className="fas fa-play mb-1"></i> 開始(個人)</button>
-                                    <button onClick={() => triggerAction('START', { scope: 'GROUP' })} className="col-span-1 bg-green-600 hover:bg-green-700 text-white rounded-xl font-bold text-sm shadow-lg shadow-green-200 flex flex-col items-center justify-center transform active:scale-95 transition-all"><i className="fas fa-users mb-1"></i> 開始(全體)</button>
+                                    <button onClick={() => triggerAction('START', { scope: 'INDIVIDUAL' })} className="col-span-1 bg-white border-2 border-green-600 text-green-700 hover:bg-green-50 rounded-xl font-bold text-sm shadow-sm flex flex-col items-center justify-center transform active:scale-95 transition-all"><i className="fas fa-play mb-1"></i> <span className="text-xs">開始(個人)</span></button>
+                                    <button onClick={() => triggerAction('START', { scope: 'GROUP' })} className="col-span-1 bg-green-600 hover:bg-green-700 text-white rounded-xl font-bold text-sm shadow-lg shadow-green-200 flex flex-col items-center justify-center transform active:scale-95 transition-all"><i className="fas fa-users mb-1"></i> <span className="text-xs">開始(全體)</span></button>
                                 </>
                             ) : (
-                                <button onClick={() => triggerAction('START', { scope: 'INDIVIDUAL' })} className="col-span-2 bg-green-600 hover:bg-green-700 text-white py-3 rounded-xl font-bold text-lg shadow-lg shadow-green-200 flex items-center justify-center gap-2 transform active:scale-95 transition-all"><i className="fas fa-play"></i> 開始</button>
+                                <button onClick={() => triggerAction('START', { scope: 'INDIVIDUAL' })} className="col-span-1 bg-green-600 hover:bg-green-700 text-white py-2 rounded-xl font-bold shadow-lg shadow-green-200 flex flex-col items-center justify-center transform active:scale-95 transition-all"><i className="fas fa-play text-xl mb-0.5"></i><span className="text-xs">開始</span></button>
                             )
                         ) : (
-                            <button onClick={() => triggerAction('PAUSE')} className={`col-span-2 text-white py-3 rounded-xl font-bold text-lg shadow-lg flex items-center justify-center gap-2 transform active:scale-95 transition-all ${isPaused ? 'bg-green-500' : 'bg-yellow-500 hover:bg-yellow-600'}`}>
-                                {isPaused ? <><i className="fas fa-play"></i> 繼續</> : <><i className="fas fa-pause"></i> 暫停</>}
+                            <button onClick={() => triggerAction('PAUSE')} className={`col-span-1 text-white py-2 rounded-xl font-bold shadow-lg flex flex-col items-center justify-center transform active:scale-95 transition-all ${isPaused ? 'bg-green-500' : 'bg-yellow-500 hover:bg-yellow-600'}`}>
+                                {isPaused ? <><i className="fas fa-play text-xl mb-0.5"></i><span className="text-xs">繼續</span></> : <><i className="fas fa-pause text-xl mb-0.5"></i><span className="text-xs">暫停</span></>}
                             </button>
                         )}
-                        <button onClick={handleFinishRequest} className="bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold shadow-lg shadow-blue-200 flex flex-col items-center justify-center transform active:scale-95 transition-all"><i className="fas fa-check-circle text-xl mb-0.5"></i><span className="text-xs">結帳 ({STATUS.COMPLETED})</span></button>
-                        <button onClick={() => { if (confirm('確定要取消嗎？')) triggerAction('CANCEL'); }} className="bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 rounded-xl font-bold flex flex-col items-center justify-center transform active:scale-95 transition-all"><i className="fas fa-trash-alt text-xl mb-0.5"></i><span className="text-xs">取消 ({STATUS.CANCELLED})</span></button>
+                        <button onClick={handleFinishRequest} className="col-span-1 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold shadow-lg shadow-blue-200 flex flex-col items-center justify-center transform active:scale-95 transition-all"><i className="fas fa-check-circle text-xl mb-0.5"></i><span className="text-xs">結帳 ({STATUS.COMPLETED})</span></button>
+                        <button onClick={() => { if (confirm('確定要取消嗎？')) triggerAction('CANCEL'); }} className="col-span-1 bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 rounded-xl font-bold flex flex-col items-center justify-center transform active:scale-95 transition-all"><i className="fas fa-trash-alt text-xl mb-0.5"></i><span className="text-xs">取消 ({STATUS.CANCELLED})</span></button>
+                        <button onClick={() => { if (confirm('確定要設為爽約嗎？')) triggerAction('NOSHOW'); }} className="col-span-1 bg-orange-50 hover:bg-orange-100 text-orange-600 border border-orange-200 rounded-xl font-bold flex flex-col items-center justify-center transform active:scale-95 transition-all"><i className="fas fa-user-slash text-xl mb-0.5"></i><span className="text-xs">爽約 ({STATUS.NOSHOW})</span></button>
                     </div>
                 </div>
 
@@ -1299,7 +1300,7 @@ const TimelineView = ({ timelineData, onEditPhase, liveStatusData, staffList, st
                                             if (!booking) return null;
 
                                             const rawStatusStr = String(booking.status || '');
-                                            const isCancelled = rawStatusStr.includes('取消') || rawStatusStr.toUpperCase().includes('CANCEL') || booking.isDoneStatus === true || rawStatusStr === STATUS.CANCELLED;
+                                            const isCancelled = rawStatusStr.includes('取消') || rawStatusStr.includes('爽約') || rawStatusStr.toUpperCase().includes('NOSHOW') || rawStatusStr.toUpperCase().includes('CANCEL') || booking.isDoneStatus === true || rawStatusStr === STATUS.CANCELLED || rawStatusStr === STATUS.NOSHOW;
                                             if (isCancelled) return null;
 
                                             let startMins = slot.start;

@@ -105,7 +105,8 @@ const BOOKING_STATUS = {
     WAITING: '等待中',     // Đang chờ tới lượt
     SERVING: '服務中',     // Đang trong quá trình phục vụ
     COMPLETED: '已完成',   // Đã hoàn thành xong dịch vụ
-    CANCELLED: '已取消'    // Đã hủy lịch
+    CANCELLED: '已取消',   // Đã hủy lịch
+    NOSHOW: '爽約'         // Khách không đến
 };
 
 const DYNAMIC_PRICES_MAP = null;
