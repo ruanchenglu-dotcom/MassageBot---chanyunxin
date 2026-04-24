@@ -124,8 +124,9 @@ function findBestSlots(selectedDate, serviceCode, pax = 1, requireFemale = false
     for (let i = 0; i < pax; i++) { guestList.push({ serviceCode: serviceCode, staffName: 'RANDOM', flow: null }); }
 
     let candidates = [];
-    const maxHour = 24 + getConfig().OPERATION_TIME.CUT_OFF_HOUR;
-    for (let h = 8; h <= maxHour; h += 1) {
+    const openHour = getConfig().OPERATION_TIME.OPEN_HOUR;
+    const maxHour = 24 + getConfig().OPERATION_TIME.CUT_OFF_HOUR + 2;
+    for (let h = openHour; h <= maxHour; h += 1) {
         const slotTime = new Date(sYear, sMonth - 1, sDay, h, 0, 0);
         if (slotTime.getTime() <= nowTaipei.getTime()) continue;
 
@@ -167,8 +168,17 @@ function generateTimeBubbles(selectedDate, serviceCode, specificStaffIds = null,
     });
 
     const relevantBookings = cachedBookings.filter(b => b.opDate === cleanSelectedDate && !b.status.includes('取消'));
-    const maxHour = 24 + getConfig().OPERATION_TIME.CUT_OFF_HOUR;
-    for (let h = 8; h <= maxHour; h += 1) {
+
+    const guestList = [];
+    for (let i = 0; i < pax; i++) {
+        let sId = 'RANDOM';
+        if (specificStaffIds && specificStaffIds.length > i) sId = specificStaffIds[i];
+        guestList.push({ serviceCode: serviceCode, staffName: sId, flow: null });
+    }
+
+    const openHour = getConfig().OPERATION_TIME.OPEN_HOUR;
+    const maxHour = 24 + getConfig().OPERATION_TIME.CUT_OFF_HOUR + 2;
+    for (let h = openHour; h <= maxHour; h += 1) {
         const slotTime = new Date(sYear, sMonth - 1, sDay, h, 0, 0);
         if (slotTime.getTime() <= nowTaipei.getTime()) continue;
 
@@ -182,7 +192,7 @@ function generateTimeBubbles(selectedDate, serviceCode, specificStaffIds = null,
     const formatTime = (h) => { const hourInt = Math.floor(h); if (hourInt < 24) return `${hourInt.toString().padStart(2, '0')}:00`; return `${(hourInt - 24).toString().padStart(2, '0')}:00 (凌晨)`; };
     const formatValue = (h) => { const hourInt = Math.floor(h); const displayH = hourInt < 24 ? hourInt : hourInt - 24; return `${displayH.toString().padStart(2, '0')}:00`; }
     const groups = [
-        { name: '🌞 早安 (Morning)', slots: validSlots.filter(h => h >= 8 && h < 12) },
+        { name: '🌞 早安 (Morning)', slots: validSlots.filter(h => h >= openHour && h < 12) },
         { name: '☀️ 午後 (Afternoon)', slots: validSlots.filter(h => h >= 12 && h < 18) },
         { name: '🌙 晚安 (Evening)', slots: validSlots.filter(h => h >= 18 && h < 24) },
         { name: '✨ 深夜 (Late Night)', slots: validSlots.filter(h => h >= 24 && h <= maxHour) }

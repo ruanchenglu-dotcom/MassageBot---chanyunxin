@@ -91,7 +91,7 @@ window.ErrorBoundary = ErrorBoundary;
  * 2. STAFF CARD 3D (技師卡片) - CẬP NHẬT GIAO DIỆN & LOGIC CỘT I
  * ============================================================================
  */
-const StaffCard3D = ({ s, statusData, resourceState, queueIndex, isForcedBusy }) => {
+const StaffCard3D = ({ s, statusData, resourceState, queueIndex, isForcedBusy, onMoveStaff }) => {
     if (!s) return null;
 
     const genderStr = String(s.gender || '').toUpperCase();
@@ -121,24 +121,48 @@ const StaffCard3D = ({ s, statusData, resourceState, queueIndex, isForcedBusy })
     // 3. Trạng thái BUSY: Giữ tuyệt đối cardStyle 'st-busy' gốc, không thay đổi customClass (Đã xóa logic override bóng cam)
 
     return (
-        <div className={`card-3d ${cardStyle} ${customClass} flex flex-col items-center justify-center relative p-0 overflow-hidden transition-all duration-300`}>
-
-
-            {queueIndex !== undefined && (displayStatus === 'READY' || displayStatus === 'BUSY') && (
-                <div className={`queue-badge ${displayStatus === 'BUSY' ? '!bg-slate-700 !text-white' : 'animate-bounce-slow'}`}>
-                    {queueIndex + 1}
+        <div className="relative group flex items-center justify-center">
+            {queueIndex !== undefined && displayStatus === 'READY' && onMoveStaff && (
+                <div className="absolute -top-3 left-1/2 -translate-x-1/2 z-20 flex transition-opacity opacity-0 group-hover:opacity-100">
+                    <button 
+                        onClick={(e) => { e.stopPropagation(); onMoveStaff(s.id, 'LEFT'); }} 
+                        title="向左移" 
+                        className="text-red-500 hover:text-white hover:bg-red-500 bg-white border border-red-200 rounded-sm w-5 h-4 flex items-center justify-center cursor-pointer shadow-sm active:scale-95 transition-colors"
+                    >
+                        <i className="fas fa-caret-left text-[12px]"></i>
+                    </button>
                 </div>
             )}
 
-            {(displayStatus === 'EAT' || displayStatus === 'OUT_SHORT') && (
-                <div className="absolute top-0 left-0 w-full bg-black/30 text-white text-[10px] font-bold text-center z-10">
-                    {displayStatus === 'EAT' ? '用餐' : '外出'}
-                </div>
-            )}
+            <div className={`card-3d ${cardStyle} ${customClass} flex flex-col items-center justify-center relative p-0 overflow-hidden transition-all duration-300`}>
+                {queueIndex !== undefined && (displayStatus === 'READY' || displayStatus === 'BUSY') && (
+                    <div className={`queue-badge ${displayStatus === 'BUSY' ? '!bg-slate-700 !text-white' : 'animate-bounce-slow'}`}>
+                        {queueIndex + 1}
+                    </div>
+                )}
 
-            <div className={`font-black text-2xl text-center leading-none w-full select-none flex-1 flex items-center justify-center break-words px-0.5 relative z-0 ${displayStatus === 'READY' && hasUpcoming ? 'text-black' : 'text-slate-800'}`}>
-                {s.name}
+                {(displayStatus === 'EAT' || displayStatus === 'OUT_SHORT') && (
+                    <div className="absolute top-0 left-0 w-full bg-black/30 text-white text-[10px] font-bold text-center z-10">
+                        {displayStatus === 'EAT' ? '用餐' : '外出'}
+                    </div>
+                )}
+
+                <div className={`font-black text-2xl text-center leading-none w-full select-none flex-1 flex items-center justify-center break-words px-0.5 relative z-0 ${displayStatus === 'READY' && hasUpcoming ? 'text-black' : 'text-slate-800'}`}>
+                    {s.name}
+                </div>
             </div>
+
+            {queueIndex !== undefined && displayStatus === 'READY' && onMoveStaff && (
+                <div className="absolute -bottom-3 left-1/2 -translate-x-1/2 z-20 flex transition-opacity opacity-0 group-hover:opacity-100">
+                    <button 
+                        onClick={(e) => { e.stopPropagation(); onMoveStaff(s.id, 'RIGHT'); }} 
+                        title="向右移" 
+                        className="text-red-500 hover:text-white hover:bg-red-500 bg-white border border-red-200 rounded-sm w-5 h-4 flex items-center justify-center cursor-pointer shadow-sm active:scale-95 transition-colors"
+                    >
+                        <i className="fas fa-caret-right text-[12px]"></i>
+                    </button>
+                </div>
+            )}
         </div>
     )
 };

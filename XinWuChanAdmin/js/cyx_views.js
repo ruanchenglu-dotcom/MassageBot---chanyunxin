@@ -642,8 +642,9 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                                                 setSelectedStaff(newStaff);
                                                 // NẾU LÀ THAY THỢ (CHƯA CHIA ĐƠN HOẶC ĐÃ CHIA ĐƠN), KHI EDIT THỢ SẼ TRIGGER ĐỔI THỢ
                                                 if (isRunning) {
-                                                    if (window.confirm('確定要更換主服務師傅嗎？原師傅將恢復排班順序。')) {
-                                                        triggerAction('CHANGE_STAFF', { newStaff: newStaff });
+                                                    if (window.confirm('確定要更換主服務師傅嗎？')) {
+                                                        const returnToLast = window.confirm('請問原師傅的排班順位該如何處置？\n\n[確定/OK]：排到待命列表【最後一位】\n[取消/Cancel]：恢復【原來的排班順位】');
+                                                        triggerAction('CHANGE_STAFF', { newStaff: newStaff, returnToLast: returnToLast });
                                                     } else {
                                                         setSelectedStaff(selectedStaff); // Revert
                                                     }

@@ -1400,7 +1400,48 @@ const App = () => {
         setSplitData(null);
     };
 
-    const handleStaffChange = async (resId, rawNewStaffId) => {
+    const handleManualMoveStaff = async (staffId, direction) => {
+        const readyStaffIds = [...staffList]
+            .filter(s => {
+                const stat = statusData[s.id] || { status: 'AWAY' };
+                return stat.status === 'READY' || stat.status === 'EAT' || stat.status === 'OUT_SHORT';
+            })
+            .sort((a, b) => {
+                const timeA = statusData[a.id]?.stafftime || Number.MAX_SAFE_INTEGER;
+                const timeB = statusData[b.id]?.stafftime || Number.MAX_SAFE_INTEGER;
+                return timeA - timeB;
+            })
+            .map(s => s.id);
+
+        const currentIndex = readyStaffIds.indexOf(staffId);
+        if (currentIndex === -1) return;
+
+        let targetIndex = -1;
+        if (direction === 'LEFT') {
+            targetIndex = currentIndex + 1;
+        } else if (direction === 'RIGHT') {
+            targetIndex = currentIndex - 1;
+        }
+
+        if (targetIndex >= 0 && targetIndex < readyStaffIds.length) {
+            const targetStaffId = readyStaffIds[targetIndex];
+            
+            const currentStaffTime = statusData[staffId].stafftime;
+            const targetStaffTime = statusData[targetStaffId].stafftime;
+
+            const newStatusData = {
+                ...statusData,
+                [staffId]: { ...statusData[staffId], stafftime: targetStaffTime },
+                [targetStaffId]: { ...statusData[targetStaffId], stafftime: currentStaffTime }
+            };
+
+            setStatusData(newStatusData);
+            setSyncLock(true); setTimeout(() => setSyncLock(false), 2000);
+            await axios.post('/api/sync-staff-status', newStatusData);
+        }
+    };
+
+    const handleStaffChange = async (resId, rawNewStaffId, returnToLast = false) => {
         const newStaffId = normalizeStaffId(rawNewStaffId);
         const current = resourceState[resId]; if (!current) return;
         setSyncLock(true); setTimeout(() => setSyncLock(false), 5000);
@@ -1439,10 +1480,24 @@ const App = () => {
             const oldStaffState = statusData[oldServiceStaff];
             let restoredTime = Date.now();
 
-            if (oldStaffState?.previousStafftime) {
-                restoredTime = oldStaffState.previousStafftime;
-            } else if (current.startTime) {
-                restoredTime = new Date(current.startTime).getTime();
+            if (returnToLast) {
+                let maxReadyTime = 0;
+                if (staffList) {
+                    staffList.forEach(s => {
+                        const stat = statusData[s.id] || { status: 'AWAY' };
+                        if (stat.status === 'READY' || stat.status === 'EAT' || stat.status === 'OUT_SHORT') {
+                            const st = stat.stafftime || 0;
+                            if (st > maxReadyTime) maxReadyTime = st;
+                        }
+                    });
+                }
+                restoredTime = maxReadyTime > 0 ? maxReadyTime + 100 : Date.now();
+            } else {
+                if (oldStaffState?.previousStafftime) {
+                    restoredTime = oldStaffState.previousStafftime;
+                } else if (current.startTime) {
+                    restoredTime = new Date(current.startTime).getTime();
+                }
             }
 
             newStatusData[oldServiceStaff] = {
@@ -2882,7 +2937,7 @@ const App = () => {
                     payload.newStaff = normalizeStaffId(payload.newStaff);
 
                     if (targetResourceId && resourceState[targetResourceId]) {
-                        handleStaffChange(targetResourceId, payload.newStaff);
+                        handleStaffChange(targetResourceId, payload.newStaff, payload.returnToLast);
                     } else {
                         const rowId = String(targetBooking.rowId);
                         setSyncLock(true); setTimeout(() => setSyncLock(false), 3000);
@@ -3230,7 +3285,7 @@ const App = () => {
                             {busyStaff.map(s => window.StaffCard3D && <window.StaffCard3D key={s.id} s={s} statusData={statusData} resourceState={resourceState} isForcedBusy={true} />)}
                         </div>
                         <div className="flex flex-row-reverse gap-1 pl-2">
-                            {visualReadyStaff.map((s, idx) => { const qIdx = readyQueue.indexOf(s.id); return window.StaffCard3D && <window.StaffCard3D key={s.id} s={s} statusData={statusData} resourceState={resourceState} queueIndex={qIdx !== -1 ? qIdx : undefined} />; })}
+                            {visualReadyStaff.map((s, idx) => { const qIdx = readyQueue.indexOf(s.id); return window.StaffCard3D && <window.StaffCard3D key={s.id} s={s} statusData={statusData} resourceState={resourceState} queueIndex={qIdx !== -1 ? qIdx : undefined} onMoveStaff={handleManualMoveStaff} />; })}
                         </div>
                     </div>
                 </div>

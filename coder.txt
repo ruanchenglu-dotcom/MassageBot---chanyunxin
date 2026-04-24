@@ -1,5 +1,6 @@
 Khởi động Browser Agent, mở ứng dụng web ở localhost. 
 taskkill /F /IM node.exe 
+./len "time"
 node cyx_index.js
 
 phân tích bằng tiếng việt.giao diện ngôn ngữ UX/UI tiếng trung phồn thể,không chứa ngôn ngữ khác.lên kế hoạch nâng cấp chi tiết và ghi rõ các file cần nâng cấp, không viết code vội để tôi duyệt trước.

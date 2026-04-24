@@ -62,7 +62,7 @@
                 name: cleanName,
                 service: booking.serviceName || '',
                 isOil: booking.isOil || (booking.serviceName || '').includes('油'),
-                pax: booking.pax || 1,
+                isGuaSha: booking.isGuaSha === true || booking.isGuaSha === 'Yes',
                 phone: realPhone,
                 status: booking.status || STATUS.WAITING,
                 staff: booking.staffId || '隨機'
@@ -95,7 +95,7 @@
                 hoTen: editFormData.name,
                 dichVu: editFormData.service,
                 isOil: editFormData.isOil,
-                pax: parseInt(editFormData.pax) || 1,
+                isGuaSha: editFormData.isGuaSha,
                 sdt: editFormData.phone,
                 trangThai: editFormData.status,
                 nhanVien: editFormData.staff
@@ -116,7 +116,7 @@
                                 <th className="p-4 border-b border-slate-200 whitespace-nowrap">姓名</th>
                                 <th className="p-4 border-b border-slate-200 whitespace-nowrap">項目</th>
                                 <th className="p-4 border-b border-slate-200 text-center whitespace-nowrap">油推</th>
-                                <th className="p-4 border-b border-slate-200 text-center whitespace-nowrap">人數</th>
+                                <th className="p-4 border-b border-slate-200 text-center whitespace-nowrap">刮痧</th>
                                 <th className="p-4 border-b border-slate-200 whitespace-nowrap">電話</th>
                                 <th className="p-4 border-b border-slate-200 whitespace-nowrap">狀態</th>
                                 <th className="p-4 border-b border-slate-200 whitespace-nowrap">指定師傅</th>
@@ -166,7 +166,7 @@
                                             <td className="p-4 whitespace-nowrap font-bold text-gray-800 text-lg">{name}</td>
                                             <td className="p-4 whitespace-nowrap text-gray-700 font-medium">{b.serviceName}</td>
                                             <td className="p-4 whitespace-nowrap text-center">{isOil ? <span className="text-purple-600 font-bold text-lg">💧</span> : ''}</td>
-                                            <td className="p-4 whitespace-nowrap text-center font-bold text-gray-700">{b.pax}</td>
+                                            <td className="p-4 whitespace-nowrap text-center">{b.isGuaSha ? <span className="text-red-500 font-bold text-lg">✅</span> : ''}</td>
                                             <td className="p-4 whitespace-nowrap font-mono text-gray-600">{realPhone}</td>
                                             <td className="p-4 whitespace-nowrap"><span className={`px-3 py-1 rounded-full text-sm font-bold shadow-sm ${statusClass}`}>{bStatus}</span></td>
                                             <td className="p-4 whitespace-nowrap"><span className="bg-indigo-50 text-indigo-700 px-3 py-1 rounded text-sm font-bold border border-indigo-100">{b.staffId}</span></td>
@@ -236,7 +236,7 @@
                                         <td className="p-2"><input type="text" className="w-full border border-gray-300 p-2 rounded font-bold focus:ring-2 focus:ring-orange-400 outline-none" value={editFormData.name} onChange={e => handleInputChange('name', e.target.value)} /></td>
                                         <td className="p-2"><select className="w-full border border-gray-300 p-2 rounded focus:ring-2 focus:ring-orange-400 outline-none max-w-[200px]" value={editFormData.service} onChange={e => handleInputChange('service', e.target.value)}>{servicesList.map(s => <option key={s} value={s}>{s}</option>)}</select></td>
                                         <td className="p-2 text-center"><input type="checkbox" className="w-5 h-5 accent-orange-500 cursor-pointer" checked={editFormData.isOil} onChange={e => handleInputChange('isOil', e.target.checked)} /></td>
-                                        <td className="p-2 text-center"><input type="number" min="1" max={dynamicMaxPax} disabled={true} className="w-16 border border-gray-300 p-2 rounded text-center outline-none bg-gray-100 text-gray-500 cursor-not-allowed" value={editFormData.pax} onChange={e => handleInputChange('pax', e.target.value)} /></td>
+                                        <td className="p-2 text-center"><input type="checkbox" className="w-5 h-5 accent-red-500 cursor-pointer" checked={editFormData.isGuaSha} onChange={e => handleInputChange('isGuaSha', e.target.checked)} /></td>
                                         <td className="p-2"><input type="text" className="w-full border border-gray-300 p-2 rounded font-mono focus:ring-2 focus:ring-orange-400 outline-none min-w-[120px]" placeholder="09xx..." value={editFormData.phone} onChange={e => handleInputChange('phone', e.target.value)} /></td>
                                         <td className="p-2"><select className="w-full border border-gray-300 p-2 rounded font-bold focus:ring-2 focus:ring-orange-400 outline-none" value={editFormData.status} onChange={e => handleInputChange('status', e.target.value)}>{statusOptions.map(s => <option key={s} value={s}>{s}</option>)}</select></td>
                                         <td className="p-2">
