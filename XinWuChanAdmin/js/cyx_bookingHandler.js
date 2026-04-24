@@ -1620,6 +1620,8 @@
                         allocated_resource: allocatedRes,
                         phase1_resource: phase1Res,
                         phase2_resource: phase2Res,
+                        phase1_res_idx: phase1Res,
+                        phase2_res_idx: phase2Res,
                         resource_type: explicitResourceType
                     };
                 });
@@ -1656,6 +1658,8 @@
                     ghiChu: noteStr,
                     adminNote: form.adminNote,
                     guestDetails: detailedGuests,
+                    flow: detailedGuests[0].flowCode,
+                    flowCode: detailedGuests[0].flowCode,
                     mainFlow: detailedGuests[0].flowCode,
                     phase1_duration: detailedGuests[0].phase1_duration,
                     phase2_duration: detailedGuests[0].phase2_duration,

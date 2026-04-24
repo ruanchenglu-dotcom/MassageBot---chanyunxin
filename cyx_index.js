@@ -412,7 +412,10 @@ app.post('/api/admin-booking', async (req, res) => {
         console.log(`[API ADMIN] Auto-mapped Service Code: ${cyx_data.serviceCode}`);
     }
 
-    if (!cyx_data.flow && ResourceCore.checkRequestAvailability) {
+    const hasExistingAllocation = cyx_data.guestDetails && cyx_data.guestDetails.length > 0 && 
+                                  (cyx_data.guestDetails[0].phase1_res_idx || cyx_data.guestDetails[0].phase1_resource);
+
+    if (!cyx_data.flow && !hasExistingAllocation && ResourceCore.checkRequestAvailability) {
         try {
             const staffListMap = {}; SheetService.getStaffList().forEach(s => { staffListMap[s.id] = s; });
             const relevantBookings = SheetService.getBookings().filter(b => b.opDate === opDateCheck && !b.status.includes('取消'));
@@ -452,12 +455,15 @@ app.post('/api/admin-booking', async (req, res) => {
                             resource_type: optimalFlow === 'FOOTSINGLE' ? 'CHAIR' : (optimalFlow === 'BODYSINGLE' ? 'BED' : 'COMBO')
                         });
                     } else {
-                        if (cyx_data.guestDetails[0]) {
-                            cyx_data.guestDetails[0].phase1_res_idx = optimalDetail.phase1_res_idx;
-                            cyx_data.guestDetails[0].phase2_res_idx = optimalDetail.phase2_res_idx;
-                            if (!cyx_data.guestDetails[0].flow) cyx_data.guestDetails[0].flow = optimalFlow;
-                            if (!cyx_data.guestDetails[0].resource_type) {
-                                cyx_data.guestDetails[0].resource_type = optimalFlow === 'FOOTSINGLE' ? 'CHAIR' : (optimalFlow === 'BODYSINGLE' ? 'BED' : 'COMBO');
+                        for (let i = 0; i < cyx_data.guestDetails.length; i++) {
+                            const detail = checkResult.details[i] || optimalDetail;
+                            if (detail) {
+                                cyx_data.guestDetails[i].phase1_res_idx = detail.phase1_res_idx || cyx_data.guestDetails[i].phase1_res_idx;
+                                cyx_data.guestDetails[i].phase2_res_idx = detail.phase2_res_idx || cyx_data.guestDetails[i].phase2_res_idx;
+                                if (!cyx_data.guestDetails[i].flow) cyx_data.guestDetails[i].flow = detail.flow || optimalFlow;
+                                if (!cyx_data.guestDetails[i].resource_type) {
+                                    cyx_data.guestDetails[i].resource_type = (detail.flow || optimalFlow) === 'FOOTSINGLE' ? 'CHAIR' : ((detail.flow || optimalFlow) === 'BODYSINGLE' ? 'BED' : 'COMBO');
+                                }
                             }
                         }
                     }
