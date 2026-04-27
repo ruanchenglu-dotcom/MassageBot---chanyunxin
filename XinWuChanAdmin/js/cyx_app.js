@@ -1086,11 +1086,22 @@ const App = () => {
 
             Object.values(groupedPending).forEach(group => {
                 group.sort((a, b) => parseInt(a.rowId) - parseInt(b.rowId));
-                const first = group[0];
-                const isForceSingle = first.forceResourceType !== null;
-                const isCombo = !isForceSingle && (first.category === 'COMBO' || (first.serviceName && first.serviceName.includes('套餐')));
-                if (isCombo) listCombosGroups.push(group);
-                else group.forEach(b => listSingles.push(b));
+                
+                const comboSubGroup = [];
+                group.forEach(b => {
+                    const isForceSingle = b.forceResourceType !== null;
+                    const isCombo = !isForceSingle && (b.category === 'COMBO' || (b.serviceName && b.serviceName.includes('套餐')));
+                    
+                    if (isCombo) {
+                        comboSubGroup.push(b);
+                    } else {
+                        listSingles.push(b);
+                    }
+                });
+                
+                if (comboSubGroup.length > 0) {
+                    listCombosGroups.push(comboSubGroup);
+                }
             });
 
             const sortFn = (a, b) => safeTimeToMins(a.startTimeString) - safeTimeToMins(b.startTimeString);

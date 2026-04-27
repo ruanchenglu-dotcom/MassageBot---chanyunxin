@@ -14,6 +14,8 @@
         // State quản lý Inline Editing
         const [editingRowId, setEditingRowId] = useState(null);
         const [editFormData, setEditFormData] = useState({});
+        const [scanStatus, setScanStatus] = useState(null);
+        const [scanMessage, setScanMessage] = useState('');
 
         // Lấy dữ liệu cấu hình từ window (do data.js cung cấp)
         const servicesList = window.SERVICES_LIST || [
@@ -43,6 +45,8 @@
         // Kích hoạt chế độ chỉnh sửa cho một dòng
         const startEditing = (booking) => {
             setEditingRowId(booking.rowId);
+            setScanStatus(null);
+            setScanMessage('');
 
             // Xử lý tách chuỗi để hiển thị trên form cho đúng (Ngày và Giờ)
             const dateTimeParts = (booking.startTimeString || ' ').split(' ');
@@ -73,11 +77,129 @@
         const cancelEditing = () => {
             setEditingRowId(null);
             setEditFormData({});
+            setScanStatus(null);
+            setScanMessage('');
         };
 
         // Xử lý thay đổi dữ liệu trong ô input
         const handleInputChange = (field, value) => {
             setEditFormData(prev => ({ ...prev, [field]: value }));
+            setScanStatus(null);
+            setScanMessage('');
+        };
+
+        // Hàm kiểm tra khả dụng (Strict Scan)
+        const performStrictCheck = () => {
+            const getMins = (timeStr) => {
+                if (!timeStr) return 0;
+                const [h, m] = timeStr.split(':').map(Number);
+                let totalMins = (h * 60) + m;
+                const openHour = window.SYSTEM_CONFIG?.OPERATION_TIME?.OPEN_HOUR || 5;
+                if (h < openHour) totalMins += 1440;
+                return totalMins;
+            };
+            const getDuration = (serviceName) => {
+                if (!serviceName) return 60;
+                const match = serviceName.match(/(190|180|130|120|100|90|70|60|50|45|40|30)/);
+                if (match) return parseInt(match[0], 10);
+                return 60;
+            };
+
+            const startMins = getMins(editFormData.time);
+            const duration = getDuration(editFormData.service);
+            const endMins = startMins + duration;
+
+            // Lọc ra các booking của ngày đang sửa (Bỏ qua chính nó)
+            const todays = safeBookings.filter(b => {
+                if (b.rowId === editingRowId) return false;
+                const bStatus = b.status || '';
+                const isCancelled = bStatus === STATUS.CANCELLED || bStatus.includes('取消') || bStatus.includes('Cancel');
+                const isNoShow = bStatus === STATUS.NOSHOW || bStatus.includes('爽約') || bStatus.toUpperCase().includes('NOSHOW');
+                const isDone = bStatus === STATUS.COMPLETED || bStatus.includes('完成') || bStatus.includes('✅');
+                
+                return !isCancelled && !isNoShow && !isDone;
+            });
+
+            // 1. Staff Capacity Check
+            const totalStaffCapacity = (staffList || []).length;
+            let maxConcurrency = 0;
+            
+            for (let t = startMins; t < endMins; t += 5) {
+                let currentLoad = 0;
+                todays.forEach(b => {
+                    const bTimeStr = (b.startTimeString || ' ').split(' ')[1] || '00:00';
+                    const bStart = getMins(bTimeStr);
+                    const bEnd = bStart + getDuration(b.serviceName);
+                    if (t >= bStart && t < bEnd) {
+                        currentLoad += (parseInt(b.pax, 10) || 1);
+                    }
+                });
+                // Current editing row (assuming 1 pax per row in list view, or we should use editFormData.pax if we add it, for now assume 1 as it is single row edit)
+                const currentBookingObj = safeBookings.find(b => b.rowId === editingRowId);
+                const currentPax = currentBookingObj ? (parseInt(currentBookingObj.pax, 10) || 1) : 1;
+                const totalLoadAtT = currentLoad + currentPax;
+                if (totalLoadAtT > maxConcurrency) maxConcurrency = totalLoadAtT;
+            }
+
+            if (maxConcurrency > totalStaffCapacity) {
+                setScanStatus('FAILED');
+                setScanMessage(`❌ 技師不足`);
+                return;
+            }
+
+            // 2. Resource Check
+            let chairOccupied = 0;
+            let bedOccupied = 0;
+            todays.forEach(b => {
+                const bTimeStr = (b.startTimeString || ' ').split(' ')[1] || '00:00';
+                const bStart = getMins(bTimeStr);
+                const bEnd = bStart + getDuration(b.serviceName);
+                if (startMins < bEnd && endMins > bStart) {
+                    const bPax = parseInt(b.pax, 10) || 1;
+                    if ((b.serviceName || '').includes('足') || b.type === 'CHAIR') chairOccupied += bPax;
+                    else bedOccupied += bPax;
+                    if (b.category === 'COMBO') { bedOccupied += bPax; chairOccupied += bPax; }
+                }
+            });
+
+            const isChair = editFormData.service.includes('足');
+            const currentBookingObj = safeBookings.find(b => b.rowId === editingRowId);
+            const currentPax = currentBookingObj ? (parseInt(currentBookingObj.pax, 10) || 1) : 1;
+
+            if (isChair && chairOccupied + currentPax > maxChairs) {
+                setScanStatus('FAILED');
+                setScanMessage("❌ 足底區客滿");
+                return;
+            } else if (!isChair && bedOccupied + currentPax > maxBeds) {
+                setScanStatus('FAILED');
+                setScanMessage("❌ 指壓區客滿");
+                return;
+            }
+
+            // 3. Specific Staff Check
+            const reqStaff = editFormData.staff;
+            if (reqStaff && reqStaff !== '隨機' && reqStaff !== '男' && reqStaff !== '女' && reqStaff !== '男師' && reqStaff !== '女師') {
+                const isStaffBooked = todays.some(b => {
+                    const bTimeStr = (b.startTimeString || ' ').split(' ')[1] || '00:00';
+                    const bStart = getMins(bTimeStr);
+                    const bEnd = bStart + getDuration(b.serviceName);
+                    const isTimeConflict = (startMins < bEnd && endMins > bStart);
+                    
+                    const staffCols = [b.serviceStaff, b.staffId, b.staffId2, b.staffId3, b.technician];
+                    // Clean staff IDs for comparison
+                    const cleanReqStaff = (window.normalizeStaffId ? window.normalizeStaffId(reqStaff) : reqStaff.trim()).toUpperCase();
+                    return isTimeConflict && staffCols.some(s => s && (window.normalizeStaffId ? window.normalizeStaffId(s) : s.trim()).toUpperCase() === cleanReqStaff);
+                });
+
+                if (isStaffBooked) {
+                    setScanStatus('FAILED');
+                    setScanMessage(`❌ 該技師時段忙碌`);
+                    return;
+                }
+            }
+
+            setScanStatus('OK');
+            setScanMessage('✅ 檢查通過，可儲存');
         };
 
         // Gửi dữ liệu đã sửa lên Component Cha (app.js)
@@ -255,12 +377,23 @@
 
                                         <td className="p-2 text-center sticky right-0 bg-yellow-50 z-10 border-l border-orange-200">
                                             <div className="flex flex-col gap-1">
-                                                <button onClick={saveChanges} className="bg-green-500 text-white hover:bg-green-600 px-3 py-1.5 rounded font-bold text-sm shadow-sm transition-colors">
-                                                    💾 儲存
-                                                </button>
+                                                {scanStatus !== 'OK' ? (
+                                                    <button onClick={performStrictCheck} className="bg-blue-600 text-white hover:bg-blue-700 px-3 py-1.5 rounded font-bold text-sm shadow-sm transition-colors animate-pulse">
+                                                        🔍 查詢空位
+                                                    </button>
+                                                ) : (
+                                                    <button onClick={saveChanges} className="bg-green-500 text-white hover:bg-green-600 px-3 py-1.5 rounded font-bold text-sm shadow-sm transition-colors">
+                                                        💾 儲存
+                                                    </button>
+                                                )}
                                                 <button onClick={cancelEditing} className="bg-gray-400 text-white hover:bg-gray-500 px-3 py-1 rounded font-bold text-xs shadow-sm transition-colors">
                                                     取消
                                                 </button>
+                                                {scanMessage && (
+                                                    <div className={`text-xs font-bold mt-1 ${scanStatus === 'OK' ? 'text-green-600' : 'text-red-600'}`}>
+                                                        {scanMessage}
+                                                    </div>
+                                                )}
                                             </div>
                                         </td>
                                     </tr>

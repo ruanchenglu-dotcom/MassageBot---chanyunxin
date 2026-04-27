@@ -476,9 +476,19 @@ const CheckInBoard = ({ staffList, statusData, onClose, onUpdateStatus, bookings
             {absenceData && <AbsenceCheckModal data={absenceData} staffList={staffList} bookings={bookings} onClose={() => setAbsenceData(null)} onConfirm={(type, time1, time2) => {
                 if (type === 'LATE') {
                     handleShiftChange(absenceData.staffId, 'start', time1);
+                    const currentStatus = (statusData && statusData[absenceData.staffId]) ? statusData[absenceData.staffId] : {};
+                    onUpdateStatus({
+                        ...statusData,
+                        [absenceData.staffId]: { ...currentStatus, lateStart: time1 }
+                    });
                 } else if (type === 'OUT') {
                     handleShiftChange(absenceData.staffId, 'outStart', time1);
                     handleShiftChange(absenceData.staffId, 'outEnd', time2);
+                    const currentStatus = (statusData && statusData[absenceData.staffId]) ? statusData[absenceData.staffId] : {};
+                    onUpdateStatus({
+                        ...statusData,
+                        [absenceData.staffId]: { ...currentStatus, outStart: time1, outEnd: time2, status: 'OUT_SHORT' }
+                    });
                 }
                 setAbsenceData(null);
             }} />}
@@ -486,7 +496,17 @@ const CheckInBoard = ({ staffList, statusData, onClose, onUpdateStatus, bookings
                 <div className="p-4 bg-[#7e22ce] text-white flex justify-between items-center shrink-0 shadow-md">
                     <h2 className="text-2xl font-bold flex gap-2 items-center"><i className="fas fa-user-clock"></i> 技師管理看板</h2>
                     <div className="flex gap-4 items-center">
-                        <button onClick={() => setLocalShifts({})} className="bg-white/20 hover:bg-white/30 px-4 py-2 rounded-lg font-bold flex items-center gap-2 transition-all shadow-sm">
+                        <button onClick={() => {
+                            setLocalShifts({});
+                            const clearedStatus = {};
+                            Object.keys(statusData || {}).forEach(k => {
+                                clearedStatus[k] = { ...statusData[k] };
+                                delete clearedStatus[k].outStart;
+                                delete clearedStatus[k].outEnd;
+                                delete clearedStatus[k].lateStart;
+                            });
+                            if (Object.keys(clearedStatus).length > 0) onUpdateStatus(clearedStatus);
+                        }} className="bg-white/20 hover:bg-white/30 px-4 py-2 rounded-lg font-bold flex items-center gap-2 transition-all shadow-sm">
                             <i className="fas fa-sync-alt"></i> 恢復預設時間
                         </button>
                         <button onClick={onClose} className="hover:text-red-300 bg-white/10 rounded-full w-10 h-10 flex items-center justify-center"><i className="fas fa-times text-2xl"></i></button>
@@ -510,10 +530,10 @@ const CheckInBoard = ({ staffList, statusData, onClose, onUpdateStatus, bookings
                         const finalIncome = (salaryData && salaryData[s.id] !== undefined) ? salaryData[s.id] : internalIncome;
                         const isOnTime = (current.isOntimeLeave !== undefined) ? current.isOntimeLeave : (s.isStrictTime === true);
                         
-                        const displayStart = localShifts[s.id]?.start || s.shiftStart || '';
+                        const displayStart = localShifts[s.id]?.start || current.lateStart || s.shiftStart || '';
                         const displayEnd = localShifts[s.id]?.end || s.shiftEnd || '';
-                        const displayOutStart = localShifts[s.id]?.outStart || '';
-                        const displayOutEnd = localShifts[s.id]?.outEnd || '';
+                        const displayOutStart = localShifts[s.id]?.outStart || current.outStart || '';
+                        const displayOutEnd = localShifts[s.id]?.outEnd || current.outEnd || '';
 
                         return (
                             <div key={s.id} className="grid gap-2 items-center py-3 px-2 border-b border-gray-100 hover:bg-slate-50 transition-all group" style={{ gridTemplateColumns: 'repeat(16, minmax(0, 1fr))' }}>

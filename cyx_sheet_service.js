@@ -824,6 +824,27 @@ async function updateInlineBooking(rowId, updatedData) {
             }
             dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!D${rowId}`, values: [[svcName]] });
             dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!U${rowId}`, values: [[sCode]] });
+            
+            if (sCode && STATE.SERVICES[sCode]) {
+                const svcDef = STATE.SERVICES[sCode];
+                let newFlow = 'BODYSINGLE';
+                let newResType = 'BED';
+                
+                if (svcDef.category === 'COMBO') {
+                    newFlow = 'FB';
+                    newResType = 'COMBO';
+                } else if (svcDef.category === 'FOOT') {
+                    newFlow = 'FOOTSINGLE';
+                    newResType = 'CHAIR';
+                }
+                
+                dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!Y${rowId}`, values: [[""]] }); 
+                dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!Z${rowId}`, values: [[""]] }); 
+                dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!AA${rowId}`, values: [[newFlow]] });
+                dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!AB${rowId}`, values: [[""]] }); 
+                dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!AC${rowId}`, values: [[""]] }); 
+                dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!AD${rowId}`, values: [[newResType]] });
+            }
         }
         if (updatedData.isOil !== undefined) {
             dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!E${rowId}`, values: [[updatedData.isOil ? "Yes" : ""]] });
