@@ -124,8 +124,9 @@
                 let h = parseInt(parts[0], 10);
                 let m = parseInt(parts[1], 10);
                 if (isNaN(h) || isNaN(m)) return -1;
-                // [V116.3 NÂNG CẤP]: Phóng chiếu giờ rạng sáng cho thuật toán ca đêm (0h-6h)
-                if (h <= 6) h += 24;
+                // [V118.2] Phóng chiếu giờ rạng sáng cho thuật toán vắt chéo ngày (0h-8h)
+                // Đảm bảo các hàm isOverlap hoạt động chính xác với ca xuyên đêm.
+                if (h < 8) h += 24;
                 return (h * 60) + m;
             } catch (e) { return -1; }
         }
@@ -321,13 +322,19 @@
                 if (s.off) return false;
                 const ss = getMinsFromTimeStr(s.start);
                 let se = getMinsFromTimeStr(s.end);
-                
-                // [FRONTEND V116.3] Fix Overnight Shifts (Ca Xuyên Đêm)
+
+                // [FRONTEND V118] Thuật toán Phân đoạn Ca Đêm
                 if (se < ss) {
                     se += 1440;
                 }
 
-                return (requestStart >= ss && requestStart < se);
+                let inMain = (requestStart >= ss && requestStart < se);
+                let inTail = false;
+                if (se > 1440) {
+                    const origSe = se - 1440;
+                    inTail = (requestStart >= 0 && requestStart < origSe);
+                }
+                return inMain || inTail;
             });
 
             const normId = (id) => String(id || '').replace(/^0+/, '').trim().toUpperCase();
@@ -340,7 +347,7 @@
             let femaleBusyCount = 0;
             let maleBusyCount = 0;
             let staffBusyPeriods = {}; // { '9': [{start, end}] }
-            
+
             relevantBookings.forEach(b => {
                 const bS = getMinsFromTimeStr(b.startTime);
                 const svcInfo = SERVICES[b.serviceCode] || { name: b.serviceName };
@@ -350,7 +357,7 @@
                 const bE = bS + realDuration + CONF.CLEANUP_BUFFER;
 
                 let staffsInBooking = b.assignedStaffs && b.assignedStaffs.length > 0 ? b.assignedStaffs : [b.staffName];
-                
+
                 for (const stf of staffsInBooking) {
                     if (stf) {
                         const sId = normId(stf);
@@ -373,7 +380,7 @@
             let femaleReqCount = 0;
             let maleReqCount = 0;
             let specificStaffReqs = [];
-            
+
             guestList.forEach(g => {
                 const req = g.staff;
                 if (req === 'FEMALE' || req === '女' || req === '女師') femaleReqCount++;
@@ -387,34 +394,34 @@
             // 1. SPECIFIC STAFF DUPLICATE CHECK
             const reqCounts = {};
             for (const specificReq of specificStaffReqs) {
-                 reqCounts[specificReq.req] = (reqCounts[specificReq.req] || 0) + 1;
+                reqCounts[specificReq.req] = (reqCounts[specificReq.req] || 0) + 1;
             }
             for (const [req, count] of Object.entries(reqCounts)) {
-                 if (count > 1) {
-                      return { pass: false, reason: `⚠️ 錯誤: 不可同時指派 ${count} 位客人給同一技師 ${req}。`, debug: {} };
-                 }
+                if (count > 1) {
+                    return { pass: false, reason: `⚠️ 錯誤: 不可同時指派 ${count} 位客人給同一技師 ${req}。`, debug: {} };
+                }
             }
 
             // 2. SPECIFIC STAFF SECURE CHECK & NEXT GAP PREDICTION
             for (const specificReq of specificStaffReqs) {
-                const reqId = specificReq.req; 
+                const reqId = specificReq.req;
                 const rawName = specificReq.rawReq;
                 const dur = specificReq.duration;
                 const requiredEnd = requestStart + dur;
-                
+
                 const sInfo = staffList[reqId] || Object.values(staffList).find(s => normId(s.name) === reqId || normId(s.id) === reqId);
                 if (sInfo) {
                     const ss = getMinsFromTimeStr(sInfo.start);
                     let se = getMinsFromTimeStr(sInfo.end);
                     if (se < ss) se += 1440;
-                    
+
                     if (sInfo.off || requestStart < ss || requestStart >= se) {
                         return { pass: false, reason: `⚠️ 技師 ${rawName} 該時段未排班或已下班。`, debug: {} };
                     }
-                    
+
                     let busyBlocks = staffBusyPeriods[reqId] || [];
-                    busyBlocks.sort((a,b) => a.start - b.start);
-                    
+                    busyBlocks.sort((a, b) => a.start - b.start);
+
                     let isBusy = false;
                     for (const blk of busyBlocks) {
                         if (isOverlap(requestStart, requiredEnd, blk.start, blk.end)) {
@@ -422,17 +429,17 @@
                             break;
                         }
                     }
-                    
+
                     if (isBusy) {
                         let nextMins = requestStart;
                         let found = false;
-                        
+
                         for (let testMins = requestStart; testMins <= se - dur; testMins += 5) {
                             let overlap = false;
                             for (const blk of busyBlocks) {
                                 if (isOverlap(testMins, testMins + dur, blk.start, blk.end)) {
                                     overlap = true;
-                                    testMins = Math.max(testMins, blk.end - 5); 
+                                    testMins = Math.max(testMins, blk.end - 5);
                                     break;
                                 }
                             }
@@ -442,12 +449,12 @@
                                 break;
                             }
                         }
-                        
+
                         if (found) {
-                             const timeStr = getTimeStrFromMins(nextMins);
-                             return { pass: false, reason: `⚠️ 技師 ${rawName} 該時段已有預約。最快可預約時間為: ${timeStr} 之後。`, debug: {} };
+                            const timeStr = getTimeStrFromMins(nextMins);
+                            return { pass: false, reason: `⚠️ 技師 ${rawName} 該時段已有預約。最快可預約時間為: ${timeStr} 之後。`, debug: {} };
                         } else {
-                             return { pass: false, reason: `⚠️ 技師 ${rawName} 今日剩餘時段皆已滿。`, debug: {} };
+                            return { pass: false, reason: `⚠️ 技師 ${rawName} 今日剩餘時段皆已滿。`, debug: {} };
                         }
                     }
                 }
@@ -605,18 +612,33 @@
                 let shiftEnd = getMinsFromTimeStr(staffInfo.end);
                 if (shiftStart === -1 || shiftEnd === -1) return false;
 
-                // [FRONTEND V116.3] Fix Overnight Shifts (Ca Xuyên Đêm)
+                // [FRONTEND V118] Thuật toán Phân đoạn Ca Đêm
                 if (shiftEnd < shiftStart) {
                     shiftEnd += 1440;
                 }
 
-                if ((start + CONF.TOLERANCE) < shiftStart) return false;
                 const isStrict = staffInfo.isStrictTime === true;
-                if (isStrict) {
-                    if ((end - CONF.TOLERANCE) > shiftEnd) return false;
+                let inMain = true;
+                if ((start + CONF.TOLERANCE) < shiftStart) inMain = false;
+                else if (isStrict) {
+                    if ((end - CONF.TOLERANCE) > shiftEnd) inMain = false;
                 } else {
-                    if (start > shiftEnd) return false;
+                    if (start >= shiftEnd) inMain = false;
                 }
+
+                let inTail = false;
+                if (shiftEnd > 1440) {
+                    const origEnd = shiftEnd - 1440;
+                    inTail = true;
+                    if (start < 0) inTail = false;
+                    else if (isStrict) {
+                        if ((end - CONF.TOLERANCE) > origEnd) inTail = false;
+                    } else {
+                        if (start >= origEnd) inTail = false;
+                    }
+                }
+
+                if (!inMain && !inTail) return false;
 
                 // MULTI-STAFF FIX: Kiểm tra xem name có nằm trong mảng thợ của bất kỳ booking nào đang bận không
                 for (const b of busyList) {
@@ -1003,7 +1025,7 @@
                 })));
 
                 let staffAssignmentSuccess = true;
-                
+
                 // --- SMART NEEDS SORTING (V116.7 - ANTI-GREEDY ALLOCATION) ---
                 // Ưu tiên gán thợ theo mức độ khắt khe: Thợ Chỉ Định -> Nam/Nữ -> Random
                 const sortedGuestsForAllocation = [...newGuestBlocksMap].sort((a, b) => {
@@ -1011,20 +1033,20 @@
                     const reqB = b.guest.staffName;
                     const isStrictA = reqA && !['RANDOM', 'MALE', 'FEMALE', '隨機', 'Any', 'undefined', '男', '女', '男師', '女師'].includes(reqA);
                     const isStrictB = reqB && !['RANDOM', 'MALE', 'FEMALE', '隨機', 'Any', 'undefined', '男', '女', '男師', '女師'].includes(reqB);
-                    
+
                     if (isStrictA && !isStrictB) return -1;
                     if (!isStrictA && isStrictB) return 1;
-                    
+
                     // Nếu cùng ưu tiên (ví dụ cùng Nam/Nữ), duy trì thứ tự gốc
                     return a.guest.idx - b.guest.idx;
                 });
 
                 for (const item of sortedGuestsForAllocation) {
                     const assignedStaff = findAvailableStaff(item.guest.staffName, item.blocks[0].start, item.blocks[item.blocks.length - 1].end, staffList, flatTimeline);
-                    if (!assignedStaff) { 
-                        staffAssignmentSuccess = false; 
+                    if (!assignedStaff) {
+                        staffAssignmentSuccess = false;
                         failureLog.push(`❌ 無法為客需 [${item.guest.staffName}] 找到合適技師`);
-                        break; 
+                        break;
                     }
                     const detail = scenarioDetails.find(d => d.guestIndex === item.guest.idx);
                     if (detail) detail.staff = assignedStaff;
@@ -1065,19 +1087,19 @@
     // ========================================================================
     // PHẦN 2: DATA FETCHER
     // ========================================================================
-        const fetchLiveServerData = async (isForceRefresh = false) => {
-            const apiUrl = window.API_URL || window.GAS_API_URL || (window.CONFIG && window.CONFIG.API_URL);
-            if (!apiUrl) { console.warn("⚠️ Warning: API_URL missing."); return null; }
-            try {
-                const params = [`_t=${new Date().getTime()}`];
-                if (isForceRefresh) params.push('forceRefresh=true');
-                const targetUrl = apiUrl.includes('?') ? `${apiUrl}&${params.join('&')}` : `${apiUrl}?${params.join('&')}`;
-                const response = await fetch(targetUrl);
-                const data = await response.json();
-                if (data && data.staffList && data.bookings) return data;
-                return null;
-            } catch (err) { console.error("❌ Fetch Failed", err); return null; }
-        };
+    const fetchLiveServerData = async (isForceRefresh = false) => {
+        const apiUrl = window.API_URL || window.GAS_API_URL || (window.CONFIG && window.CONFIG.API_URL);
+        if (!apiUrl) { console.warn("⚠️ Warning: API_URL missing."); return null; }
+        try {
+            const params = [`_t=${new Date().getTime()}`];
+            if (isForceRefresh) params.push('forceRefresh=true');
+            const targetUrl = apiUrl.includes('?') ? `${apiUrl}&${params.join('&')}` : `${apiUrl}?${params.join('&')}`;
+            const response = await fetch(targetUrl);
+            const data = await response.json();
+            if (data && data.staffList && data.bookings) return data;
+            return null;
+        } catch (err) { console.error("❌ Fetch Failed", err); return null; }
+    };
 
     // ========================================================================
     // PHẦN 3: BRIDGE LOGIC & REACT COMPONENT
@@ -1159,23 +1181,8 @@
 
             const rawDate = b.startTimeString.split(' ')[0];
             const rawTime = b.startTimeString.split(' ')[1] || "12:00";
-            
-            let bOpDate = b.opDate;
-            if (!bOpDate) {
-                bOpDate = rawDate;
-                const hr = parseInt(rawTime.split(':')[0], 10);
-                if (!isNaN(hr) && hr < (window.SYSTEM_CONFIG?.OPERATION_TIME?.OPEN_HOUR || 6)) {
-                    const parts = String(rawDate).split('/').join('-').split('-');
-                    if (parts.length === 3) {
-                        const tempD = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
-                        tempD.setDate(tempD.getDate() - 1);
-                        const y = tempD.getFullYear();
-                        const m = String(tempD.getMonth() + 1).padStart(2, '0');
-                        const dd = String(tempD.getDate()).padStart(2, '0');
-                        bOpDate = `${y}-${m}-${dd}`;
-                    }
-                }
-            }
+
+            let bOpDate = b.opDate || rawDate;
             return normalizeDateStrict(bOpDate) === targetDateStandard;
         }).map(b => {
             let isPastOrRunning = false;
@@ -1304,32 +1311,19 @@
         // initialDate truyền từ cyx_app.js vốn dĩ là Operation Date (VD: 02:30 sáng ngày 21 thì initialDate = 20)
         // Ta cần phục hồi nó thành Physical Date (21) để Lễ tân hiển thị đúng
         const getInitialPhysicalDate = () => {
-             let baseDateStr = initialDate;
-             let timeStr = getRoundedCurrentTime();
-             
-             // Nếu là Walk-in (tạo mới từ UI), initialDate được truyền vào (VD "2026-04-20")
-             // Nếu không có, dùng Date hiện tại theo timezone (không dùng ISOString() vì bị lệch UTC)
-             if (!baseDateStr) {
-                 const now = new Date();
-                 const y = now.getFullYear();
-                 const m = String(now.getMonth() + 1).padStart(2, '0');
-                 const d = String(now.getDate()).padStart(2, '0');
-                 baseDateStr = `${y}-${m}-${d}`;
-             }
-             
-             const openHour = window.SYSTEM_CONFIG?.OPERATION_TIME?.OPEN_HOUR || 6;
-             const hh = parseInt(timeStr.split(':')[0], 10);
-             
-             // Nếu giờ hiện tại < openHour, Physical Date LỚN HƠN Operation Date 1 ngày!
-             if (hh >= 0 && hh < openHour && initialDate) {
-                 const dParts = baseDateStr.split('-');
-                 if (dParts.length === 3) {
-                     let d = new Date(parseInt(dParts[0], 10), parseInt(dParts[1], 10) - 1, parseInt(dParts[2], 10));
-                     d.setDate(d.getDate() + 1);
-                     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-                 }
-             }
-             return baseDateStr;
+            let baseDateStr = initialDate;
+
+            // Nếu là Walk-in (tạo mới từ UI), initialDate được truyền vào (VD "2026-04-20")
+            // Nếu không có, dùng Date hiện tại theo timezone (không dùng ISOString() vì bị lệch UTC)
+            if (!baseDateStr) {
+                const now = new Date();
+                const y = now.getFullYear();
+                const m = String(now.getMonth() + 1).padStart(2, '0');
+                const d = String(now.getDate()).padStart(2, '0');
+                baseDateStr = `${y}-${m}-${d}`;
+            }
+
+            return baseDateStr;
         };
 
         // --- TITLE STATE ---
@@ -1345,19 +1339,9 @@
                 let timeStr = getRoundedCurrentTime(); let dateStr = initialDate;
                 if (editingBooking.startTimeString) {
                     const parts = editingBooking.startTimeString.split(' ');
-                    if (parts.length >= 2) { 
-                        dateStr = parts[0].replace(/\//g, '-'); 
-                        timeStr = parts[1].substring(0, 5); 
-                        // [V116.4 NÂNG CẤP]: Phục hồi Calendar Date - Sửa lỗi timezone lùi ngày
-                        const hh = parseInt(timeStr.split(':')[0], 10);
-                        if (hh >= 0 && hh <= 6) {
-                            const dParts = dateStr.split('-');
-                            if (dParts.length === 3) {
-                                let d = new Date(parseInt(dParts[0], 10), parseInt(dParts[1], 10) - 1, parseInt(dParts[2], 10));
-                                d.setDate(d.getDate() + 1);
-                                dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-                            }
-                        }
+                    if (parts.length >= 2) {
+                        dateStr = parts[0].replace(/\//g, '-');
+                        timeStr = parts[1].substring(0, 5);
                     }
                 }
 
@@ -1390,19 +1374,7 @@
             fetchLiveServerData(true).then(data => { if (data) setServerData(data); });
         }, [editingBooking, initialDate, defaultService]);
 
-        // [V116.4 NÂNG CẤP]: Móc nối Dual-Date, thủ công xử lý Date tránh lỗi GMT+8
-        const getOpDate = (calDateStr, timeStr) => {
-            const h = parseInt((timeStr || "12:00").toString().split(':')[0], 10);
-            if (h >= 0 && h <= 6) {
-                const parts = calDateStr.replace(/\//g, '-').split('-');
-                if (parts.length === 3) {
-                    let d = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
-                    d.setDate(d.getDate() - 1);
-                    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-                }
-            }
-            return calDateStr;
-        };
+
 
         const safeQuickNotes = useMemo(() => {
             const rawList = serverData?.quickNotes || window.QUICK_NOTES || [];
@@ -1423,7 +1395,7 @@
                     const now = new Date();
                     const currentHour = now.getHours();
                     const dParts = prev.date.replace(/\//g, '-').split('-');
-                    
+
                     if (dParts.length === 3) {
                         const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
                         const tomorrowD = new Date(now); tomorrowD.setDate(tomorrowD.getDate() + 1);
@@ -1508,8 +1480,7 @@
             let localBookingsList = safeBookings;
             let finalBookings = mergeBookingData(serverBookingsList, localBookingsList);
             if (editingBooking) { finalBookings = finalBookings.filter(b => b.rowId !== editingBooking.rowId); }
-            const opDateCheck = getOpDate(form.date, form.time);
-            const res = callCoreAvailabilityCheck(opDateCheck, form.time, guestDetails, finalBookings, serverStaffList);
+            const res = callCoreAvailabilityCheck(form.date, form.time, guestDetails, finalBookings, serverStaffList);
             if (res.valid) {
                 setCheckResult({ status: 'OK', message: "✅ 此時段可預約 (Available)", coreDetails: res.details, debug: res.debug });
             } else {
@@ -1521,10 +1492,10 @@
                     let nM = currMins + (i * 10);
                     let daysToAdd = Math.floor(nM / 1440);
                     let localM = nM % 1440;
-                    let h = Math.floor(localM / 60); 
+                    let h = Math.floor(localM / 60);
                     let m = localM % 60;
                     let tStr = `${String(h).padStart(2, '0')}:${String(Math.floor(m / 10) * 10).padStart(2, '0')}`;
-                    
+
                     let sugDate = form.date;
                     if (daysToAdd > 0) {
                         const dParts = sugDate.replace(/\//g, '-').split('-');
@@ -1535,8 +1506,7 @@
                         }
                     }
 
-                    const sugOpDate = getOpDate(sugDate, tStr);
-                    if (callCoreAvailabilityCheck(sugOpDate, tStr, guestDetails, finalBookings, serverStaffList).valid) {
+                    if (callCoreAvailabilityCheck(sugDate, tStr, guestDetails, finalBookings, serverStaffList).valid) {
                         found.push({ time: tStr, date: sugDate, daysToAdd });
                         if (found.length >= 4) break;
                     }
@@ -1568,8 +1538,7 @@
             try {
                 let checkBookings = mergeBookingData(serverData?.bookings || [], safeBookings);
                 if (editingBooking) checkBookings = checkBookings.filter(b => b.rowId !== editingBooking.rowId);
-                const finalOpDate = getOpDate(form.date, form.time);
-                const finalCheck = callCoreAvailabilityCheck(finalOpDate, form.time, guestDetails, checkBookings, serverData?.staff || safeStaffList);
+                const finalCheck = callCoreAvailabilityCheck(form.date, form.time, guestDetails, checkBookings, serverData?.staff || safeStaffList);
 
                 if (!finalCheck.valid) {
                     alert("⚠️ 數據已變更，無法預約：" + finalCheck.reason);
@@ -1683,7 +1652,7 @@
         const HOURS_LIST = ['05', '06', '07', '08', '09', '10', '11', '12', '13', '14', '15', '16', '17', '18', '19', '20', '21', '22', '23', '00', '01', '02', '03', '04'];
         const MINUTES_STEP = ['00', '10', '20', '30', '40', '50'];
         const [cH, cM] = (form.time || "12:00").split(':');
-        
+
         let dynamicMaxPax = 18;
         if (typeof CoreKernel !== 'undefined' && CoreKernel.getSystemConfig) {
             const config = CoreKernel.getSystemConfig();
@@ -1729,16 +1698,16 @@
 
                 {/* --- MÀN HÌNH MODAL CHÍNH --- */}
                 <div className="fixed inset-0 bg-slate-900/90 z-[100] flex items-center justify-center p-2 sm:p-6">
-                    <div className="bg-white w-full max-w-[1000px] rounded-2xl shadow-2xl flex flex-col h-[98vh] sm:h-[90vh] overflow-hidden animate-fadeIn">
+                    <div className="bg-white w-full max-w-[1200px] rounded-2xl shadow-2xl flex flex-col h-[98vh] sm:h-[90vh] overflow-hidden animate-fadeIn">
                         <div className={`${editingBooking ? 'bg-orange-600' : 'bg-[#0891b2]'} p-4 sm:p-6 text-white flex justify-between items-center shrink-0`}>
                             <h3 className="font-bold text-xl sm:text-2xl whitespace-nowrap">{editingBooking ? "✏️ 修改預約 (Edit)" : "📅 預約 (V116.6 UI FIX)"}</h3>
                             <div className="flex items-center gap-2 sm:gap-4 flex-wrap justify-end">
                                 {step === 'CHECK' && (
                                     <>
                                         {!checkResult ? (
-                                            <button 
-                                                onClick={performCheck} 
-                                                disabled={isChecking} 
+                                            <button
+                                                onClick={performCheck}
+                                                disabled={isChecking}
                                                 className={`px-3 sm:px-5 py-1.5 sm:py-2 rounded-xl font-bold text-sm sm:text-lg shadow-lg border-2 transition-all flex items-center gap-2 ${isChecking ? 'bg-orange-800 border-orange-700 text-orange-300 cursor-not-allowed' : 'bg-yellow-400 text-yellow-900 border-yellow-200 hover:bg-yellow-300 shadow-[0_0_15px_rgba(250,204,21,0.4)]'}`}
                                             >
                                                 {isChecking ? "⏳..." : "🔍 查詢空位 (Strict Scan)"}
@@ -1748,7 +1717,7 @@
                                                 <div className="hidden sm:block px-3 py-1.5 rounded-lg border-2 font-bold text-sm sm:text-base whitespace-nowrap bg-green-100 text-green-800 border-green-400 shadow-[0_0_10px_rgba(74,222,128,0.5)]">
                                                     {checkResult.status === 'OK' ? "✅ 此時段可預約" : checkResult.message}
                                                 </div>
-                                                
+
                                                 {checkResult.status === 'OK' ? (
                                                     <button onClick={() => setStep('INFO')} className="px-3 sm:px-4 py-1.5 bg-emerald-500 text-white rounded-lg font-bold shadow-lg hover:bg-emerald-600 border border-emerald-400 whitespace-nowrap animate-pulse flex items-center gap-1">
                                                         <span>下一步</span> <span>➡️</span>
@@ -1808,6 +1777,33 @@
                                         </div>
                                     </div>
 
+                                    <div className="pt-2">
+                                        {checkResult && checkResult.status === 'FAIL' && (
+                                            <div className="space-y-4 animate-slideIn">
+                                                <div className="p-5 rounded-xl text-center font-bold text-xl border-2 bg-red-50 text-red-700 border-red-300">{checkResult.message}</div>
+                                                {suggestions.length > 0 && (
+                                                    <div className="bg-yellow-50 p-4 rounded-xl border-2 border-yellow-300">
+                                                        <div className="text-base font-bold text-yellow-800 mb-3">💡 建議時段 (Suggestions):</div>
+                                                        <div className="flex gap-3 flex-wrap">
+                                                            {suggestions.map(s => {
+                                                                let displayLabel = s.time;
+                                                                if (s.daysToAdd > 0) {
+                                                                    const dParts = s.date.replace(/\//g, '-').split('-');
+                                                                    if (dParts.length === 3) displayLabel = `${dParts[1]}/${dParts[2]} ${s.time}`;
+                                                                }
+                                                                return (
+                                                                    <button key={`${s.date}-${s.time}`} onClick={() => { setForm(f => ({ ...f, time: s.time, date: s.date })); setCheckResult(null); setSuggestions([]); }} className="px-5 py-2 bg-white border-2 border-yellow-400 text-yellow-900 rounded-lg font-bold text-lg hover:bg-yellow-200 whitespace-nowrap">
+                                                                        {displayLabel}
+                                                                    </button>
+                                                                );
+                                                            })}
+                                                        </div>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        )}
+                                    </div>
+
                                     <div>
                                         <label className="text-lg font-bold text-gray-500 mb-1 block">人數 (Pax)</label>
                                         <select className="w-full border-2 p-3 rounded-xl font-bold text-xl text-center h-[64px] bg-slate-50" value={form.pax} onChange={e => handlePaxChange(e.target.value)}>
@@ -1847,33 +1843,6 @@
                                                 </button>
                                             </div>
                                         ))}
-                                    </div>
-
-                                    <div className="pt-2">
-                                        {checkResult && checkResult.status === 'FAIL' && (
-                                            <div className="space-y-4 animate-slideIn">
-                                                <div className="p-5 rounded-xl text-center font-bold text-xl border-2 bg-red-50 text-red-700 border-red-300">{checkResult.message}</div>
-                                                {suggestions.length > 0 && (
-                                                    <div className="bg-yellow-50 p-4 rounded-xl border-2 border-yellow-300">
-                                                        <div className="text-base font-bold text-yellow-800 mb-3">💡 建議時段 (Suggestions):</div>
-                                                        <div className="flex gap-3 flex-wrap">
-                                                            {suggestions.map(s => {
-                                                                let displayLabel = s.time;
-                                                                if (s.daysToAdd > 0) {
-                                                                    const dParts = s.date.replace(/\//g, '-').split('-');
-                                                                    if (dParts.length === 3) displayLabel = `${dParts[1]}/${dParts[2]} ${s.time}`;
-                                                                }
-                                                                return (
-                                                                    <button key={`${s.date}-${s.time}`} onClick={() => { setForm(f => ({ ...f, time: s.time, date: s.date })); setCheckResult(null); setSuggestions([]); }} className="px-5 py-2 bg-white border-2 border-yellow-400 text-yellow-900 rounded-lg font-bold text-lg hover:bg-yellow-200 whitespace-nowrap">
-                                                                        {displayLabel}
-                                                                    </button>
-                                                                );
-                                                            })}
-                                                        </div>
-                                                    </div>
-                                                )}
-                                            </div>
-                                        )}
                                     </div>
                                 </>
                             )}

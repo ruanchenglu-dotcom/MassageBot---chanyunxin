@@ -1365,7 +1365,8 @@ const TimelineView = ({ timelineData, onEditPhase, liveStatusData, staffList, st
                                                 const switchStr = window.formatMinutesToTime(slot.start + p1Dur);
                                                 timeLabel = switchStr;
                                             } else {
-                                                timeLabel = duration;
+                                                const transitionMins = window.SYSTEM_CONFIG?.BUFFERS?.TRANSITION_MINUTES || 5;
+                                                timeLabel = window.formatMinutesToTime(slot.end + transitionMins);
                                             }
 
                                             let specialBorderClass = "border border-black/5";

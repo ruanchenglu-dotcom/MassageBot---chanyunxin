@@ -22,7 +22,7 @@
 
 function getSystemConfig() {
     let dynamicConfig = null;
-    
+
     // Thử tải cyx_data.js trong môi trường Node.js (Backend)
     if (typeof require !== 'undefined') {
         try {
@@ -34,12 +34,12 @@ function getSystemConfig() {
             console.warn("⚠️ [CORE V118.0] Không tìm thấy file ./cyx_data.js qua require. Chờ Fallback.");
         }
     }
-    
+
     // Thử tải từ Global Window nếu chạy dưới dạng script trên trình duyệt (Frontend fallback)
     if (!dynamicConfig && typeof window !== 'undefined' && window.SYSTEM_CONFIG) {
         dynamicConfig = window.SYSTEM_CONFIG;
     }
-    
+
     // FALLBACK AN TOÀN TỐI HẬU (Phòng trường hợp file cyx_data.js bị lỗi/mất)
     if (!dynamicConfig) {
         dynamicConfig = {
@@ -133,9 +133,8 @@ function getMinsFromTimeStr(timeStr) {
         let m = parseInt(parts[1], 10);
 
         if (isNaN(h) || isNaN(m)) return -1;
-        // [V116.3 NÂNG CẤP]: Mở rộng giờ ca đêm lên tới 06:00 sáng, chống lỗi 03:00
-        if (h <= 6) h += 24;
-
+        // [V118.2] Phóng chiếu giờ rạng sáng cho thuật toán vắt chéo ngày (0h-8h)
+        if (h < 8) h += 24;
         return (h * 60) + m;
     } catch (e) { return -1; }
 }
@@ -231,8 +230,22 @@ function getEligibleStaffCount(staffList, currentTimeMins, requiredEndTime) {
         const status = parseStaffStatus(info);
         if (!status.isAvailable) continue;
         const shiftStart = status.startMins; const shiftEnd = status.endMins;
-        if (currentTimeMins >= shiftStart && currentTimeMins < shiftEnd) {
-            if (status.isStrict && shiftEnd < (requiredEndTime - CONF.TOLERANCE)) continue;
+        // [CORE V118.1] Thuật toán Phân đoạn Ca Đêm
+        let inMain = true;
+        if (currentTimeMins < shiftStart) inMain = false;
+        else if (status.isStrict && shiftEnd < (requiredEndTime - CONF.TOLERANCE)) inMain = false;
+        else if (currentTimeMins >= shiftEnd) inMain = false;
+
+        let inTail = false;
+        if (shiftEnd > 1440) {
+            const origEnd = shiftEnd - 1440;
+            inTail = true;
+            if (currentTimeMins < 0) inTail = false;
+            else if (status.isStrict && origEnd < (requiredEndTime - CONF.TOLERANCE)) inTail = false;
+            else if (currentTimeMins >= origEnd) inTail = false;
+        }
+
+        if (inMain || inTail) {
             count++;
         }
     }
@@ -266,7 +279,14 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
     const availableStaffList = Object.values(staffList).filter(s => {
         const status = parseStaffStatus(s);
         if (!status.isAvailable) return false;
-        return (requestStart >= status.startMins && requestStart < status.endMins);
+        // [CORE V118.0] Thuật toán Phân đoạn Ca Đêm
+        let inMain = (requestStart >= status.startMins && requestStart < status.endMins);
+        let inTail = false;
+        if (status.endMins > 1440) {
+            const origEnd = status.endMins - 1440;
+            inTail = (requestStart >= 0 && requestStart < origEnd);
+        }
+        return inMain || inTail;
     });
 
     const normId = (id) => String(id || '').replace(/^0+/, '').trim().toUpperCase();
@@ -279,11 +299,11 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
     let femaleBusyCount = 0;
     let maleBusyCount = 0;
     let staffBusyPeriods = {};
-    
+
     relevantBookings.forEach(b => {
         const bS = getMinsFromTimeStr(b.startTimeString || b.startTime);
         const bE = bS + (b.duration || 60) + CONF.CLEANUP_BUFFER;
-        
+
         let staffsInBooking = b.assignedStaffs && b.assignedStaffs.length > 0 ? b.assignedStaffs : [b.staffName];
         for (const stf of staffsInBooking) {
             if (stf) {
@@ -307,7 +327,7 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
     let femaleReqCount = 0;
     let maleReqCount = 0;
     let specificStaffReqs = [];
-    
+
     guestList.forEach(g => {
         const req = g.staff;
         const dur = (g.duration || 60);
@@ -321,30 +341,38 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
 
     const reqCounts = {};
     for (const specificReq of specificStaffReqs) {
-         reqCounts[specificReq.req] = (reqCounts[specificReq.req] || 0) + 1;
+        reqCounts[specificReq.req] = (reqCounts[specificReq.req] || 0) + 1;
     }
     for (const [req, count] of Object.entries(reqCounts)) {
-         if (count > 1) {
-              return { pass: false, reason: `⚠️ 錯誤: 不可同時指派 ${count} 位客人給同一技師 ${req}。`, debug: {} };
-         }
+        if (count > 1) {
+            return { pass: false, reason: `⚠️ 錯誤: 不可同時指派 ${count} 位客人給同一技師 ${req}。`, debug: {} };
+        }
     }
 
     for (const specificReq of specificStaffReqs) {
-        const reqId = specificReq.req; 
+        const reqId = specificReq.req;
         const rawName = specificReq.rawReq;
         const dur = specificReq.duration;
         const requiredEnd = requestStart + dur;
-        
+
         const sInfo = staffList[reqId] || Object.values(staffList).find(s => normId(s.name) === reqId || normId(s.id) === reqId);
         if (sInfo) {
             const status = parseStaffStatus(sInfo);
-            if (!status.isAvailable || requestStart < status.startMins || requestStart >= status.endMins) {
-                return { pass: false, reason: `⚠️ 技師 ${rawName} 該時段未排班或已下班。`, debug: {} };
+            // [CORE V118.0] Thuật toán Phân đoạn Ca Đêm
+            let inMain = (requestStart >= status.startMins && requestStart < status.endMins);
+            let inTail = false;
+            if (status.endMins > 1440) {
+                const origEnd = status.endMins - 1440;
+                inTail = (requestStart >= 0 && requestStart < origEnd);
             }
             
+            if (!status.isAvailable || (!inMain && !inTail)) {
+                return { pass: false, reason: `⚠️ 技師 ${rawName} 該時段未排班或已下班。`, debug: {} };
+            }
+
             let busyBlocks = staffBusyPeriods[reqId] || [];
-            busyBlocks.sort((a,b) => a.start - b.start);
-            
+            busyBlocks.sort((a, b) => a.start - b.start);
+
             let isBusy = false;
             for (const blk of busyBlocks) {
                 if (isOverlap(requestStart, requiredEnd, blk.start, blk.end)) {
@@ -352,17 +380,17 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
                     break;
                 }
             }
-            
+
             if (isBusy) {
                 let nextMins = requestStart;
                 let found = false;
-                
+
                 for (let testMins = requestStart; testMins <= status.endMins - dur; testMins += 5) {
                     let overlap = false;
                     for (const blk of busyBlocks) {
                         if (isOverlap(testMins, testMins + dur, blk.start, blk.end)) {
                             overlap = true;
-                            testMins = Math.max(testMins, blk.end - 5); 
+                            testMins = Math.max(testMins, blk.end - 5);
                             break;
                         }
                     }
@@ -372,12 +400,12 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
                         break;
                     }
                 }
-                
+
                 if (found) {
-                     const timeStr = getTimeStrFromMins(nextMins);
-                     return { pass: false, reason: `⚠️ 技師 ${rawName} 該時段已有預約。最快可預約時間為: ${timeStr} 之後。`, debug: {} };
+                    const timeStr = getTimeStrFromMins(nextMins);
+                    return { pass: false, reason: `⚠️ 技師 ${rawName} 該時段已有預約。最快可預約時間為: ${timeStr} 之後。`, debug: {} };
                 } else {
-                     return { pass: false, reason: `⚠️ 技師 ${rawName} 今日剩餘時段皆已滿。`, debug: {} };
+                    return { pass: false, reason: `⚠️ 技師 ${rawName} 今日剩餘時段皆已滿。`, debug: {} };
                 }
             }
         }
@@ -537,9 +565,28 @@ function findAvailableStaff(staffReq, start, end, staffListRef, busyList) {
         if (!status.isAvailable) return false;
 
         const shiftStart = status.startMins; const shiftEnd = status.endMins;
-        if ((start + CONF.TOLERANCE) < shiftStart) return false;
-        if (status.isStrict) { if ((end - CONF.TOLERANCE) > shiftEnd) return false; }
-        else { if (start > shiftEnd) return false; }
+        // [CORE V118.0] Thuật toán Phân đoạn Ca Đêm
+        let inMain = true;
+        if ((start + CONF.TOLERANCE) < shiftStart) inMain = false;
+        else if (status.isStrict) {
+            if ((end - CONF.TOLERANCE) > shiftEnd) inMain = false;
+        } else {
+            if (start >= shiftEnd) inMain = false;
+        }
+
+        let inTail = false;
+        if (shiftEnd > 1440) {
+            const origEnd = shiftEnd - 1440;
+            inTail = true;
+            if (start < 0) inTail = false;
+            else if (status.isStrict) {
+                if ((end - CONF.TOLERANCE) > origEnd) inTail = false;
+            } else {
+                if (start >= origEnd) inTail = false;
+            }
+        }
+
+        if (!inMain && !inTail) return false;
 
         for (const b of busyList) { if (b.staffName === name && isOverlap(start, end, b.start, b.end)) return false; }
 
@@ -607,7 +654,7 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
     const filteredBookings = currentBookingsRaw.filter(b => {
         if (!b || !b.startTimeString) return false;
         if (b.opDate) return normalizeDateStrict(b.opDate) === normalizedQueryDate;
-        
+
         let rawDate = b.startTimeString.split(' ')[0];
         let rawTime = b.startTimeString.split(' ')[1] || "12:00";
         let tempOpDate = rawDate;
