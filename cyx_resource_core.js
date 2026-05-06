@@ -722,10 +722,14 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
 
         if (isRunning) {
             if (b.allocated_resource) { const match = b.allocated_resource.toString().match(/(\d+)/); if (match) anchorIndex = parseInt(match[0]); }
+            else if (b.location) { const match = b.location.toString().match(/(\d+)/); if (match) anchorIndex = parseInt(match[0]); }
+            else if (b.current_resource_id) { const match = b.current_resource_id.toString().match(/(\d+)/); if (match) anchorIndex = parseInt(match[0]); }
             else if (b.rowId && typeof b.rowId === 'string' && (b.rowId.includes('BED') || b.rowId.includes('CHAIR'))) { const match = b.rowId.toString().match(/(\d+)/); if (match) anchorIndex = parseInt(match[0]); }
         } else {
             if (b._virtualInheritanceIndex) anchorIndex = b._virtualInheritanceIndex;
             else if (b.allocated_resource) { const match = b.allocated_resource.toString().match(/(\d+)/); if (match) anchorIndex = parseInt(match[0]); }
+            else if (b.location) { const match = b.location.toString().match(/(\d+)/); if (match) anchorIndex = parseInt(match[0]); }
+            else if (b.current_resource_id) { const match = b.current_resource_id.toString().match(/(\d+)/); if (match) anchorIndex = parseInt(match[0]); }
         }
 
         const isLockedRaw = b.originalData?.isManualLocked || b.isManualLocked;
@@ -768,6 +772,10 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
         } else {
             processedB.flow = storedFlow;
             let rType = (storedFlow === 'FOOTSINGLE') ? 'CHAIR' : 'BED';
+            let resHint = (b.allocated_resource || b.location || b.current_resource_id || "").toString().toUpperCase();
+            if (resHint.includes('CHAIR') || resHint.includes('足')) rType = 'CHAIR';
+            else if (resHint.includes('BED') || resHint.includes('床')) rType = 'BED';
+            
             processedB.blocks.push({ start: bStart, end: bStart + duration, type: rType, forcedIndex: anchorIndex });
         }
         existingBookingsProcessed.push(processedB);
