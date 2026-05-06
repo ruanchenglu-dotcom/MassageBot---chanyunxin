@@ -357,45 +357,51 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
         return false;
     };
 
-    const availableP1Resources = useMemo(() => {
+    const { availableP1Resources, p1ResourcesData } = useMemo(() => {
         const type = isBodyFirstLocal ? 'bed' : 'chair';
         const maxCount = type === 'bed' ? getMaxBeds() : getMaxChairs();
-        const list = [];
+        const availList = [];
+        const allList = [];
         for (let i = 1; i <= maxCount; i++) {
             const resId = `${type}-${i}`;
             const isOverlap = checkOverlap(resId, startMins, switchMins, booking?.rowId);
-            if (!isOverlap) list.push(resId);
+            allList.push({ id: resId, isAvailable: !isOverlap });
+            if (!isOverlap) availList.push(resId);
         }
-        return list;
+        return { availableP1Resources: availList, p1ResourcesData: allList };
     }, [isBodyFirstLocal, startMins, switchMins, timelineData, booking?.rowId]);
 
-    const availableP2Resources = useMemo(() => {
+    const { availableP2Resources, p2ResourcesData } = useMemo(() => {
         const type = isBodyFirstLocal ? 'chair' : 'bed';
         const p2Start = switchMins + 5;
         const maxCount = type === 'bed' ? getMaxBeds() : getMaxChairs();
-        const list = [];
+        const availList = [];
+        const allList = [];
         for (let i = 1; i <= maxCount; i++) {
             const resId = `${type}-${i}`;
             const isOverlap = checkOverlap(resId, p2Start, endMins, booking?.rowId);
-            if (!isOverlap) list.push(resId);
+            allList.push({ id: resId, isAvailable: !isOverlap });
+            if (!isOverlap) availList.push(resId);
         }
-        return list;
+        return { availableP2Resources: availList, p2ResourcesData: allList };
     }, [isBodyFirstLocal, switchMins, endMins, timelineData, booking?.rowId]);
 
-    const availableSingleResources = useMemo(() => {
+    const { availableSingleResources, singleResourcesData } = useMemo(() => {
         let type = 'bed';
         if (booking.forceResourceType === 'CHAIR' || booking.flow === 'FOOTSINGLE') type = 'chair';
         else if (booking.forceResourceType === 'BED' || booking.flow === 'BODYSINGLE') type = 'bed';
         else if (contextResourceId) type = contextResourceId.split('-')[0];
 
         const maxCount = type === 'bed' ? getMaxBeds() : getMaxChairs();
-        const list = [];
+        const availList = [];
+        const allList = [];
         for (let i = 1; i <= maxCount; i++) {
             const resId = `${type}-${i}`;
             const isOverlap = checkOverlap(resId, startMins, endMins, booking?.rowId);
-            if (!isOverlap) list.push(resId);
+            allList.push({ id: resId, isAvailable: !isOverlap });
+            if (!isOverlap) availList.push(resId);
         }
-        return list;
+        return { availableSingleResources: availList, singleResourcesData: allList };
     }, [booking, contextResourceId, startMins, endMins, timelineData]);
 
     useEffect(() => {
@@ -847,18 +853,13 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                                             disabled={isP1Full}
                                             className={`w-full text-xs font-bold appearance-none bg-slate-50 border rounded-md py-1.5 pl-2 pr-6 focus:outline-none focus:border-indigo-400 cursor-pointer shadow-sm transition-colors ${isP1Full ? 'bg-red-50 border-red-300 text-red-600 cursor-not-allowed' : (selectedPhase1Res !== 'auto' ? 'border-indigo-300 bg-indigo-50 text-indigo-700' : 'border-slate-200 text-slate-700')}`}
                                         >
-                                            {isP1Full ? (
-                                                <option value="full">⛔️ 該時段已滿</option>
-                                            ) : (
-                                                <>
-                                                    <option value="auto">🤖 自動安排 (Auto)</option>
-                                                    {availableP1Resources.map(resId => (
-                                                        <option key={resId} value={resId}>
-                                                            {resId.replace('bed-', '🛏️ 床 ').replace('chair-', '👣 足 ')}
-                                                        </option>
-                                                    ))}
-                                                </>
-                                            )}
+                                            {isP1Full && <option value="full">⛔️ 該時段已滿</option>}
+                                            {!isP1Full && <option value="auto">🤖 自動安排 (Auto)</option>}
+                                            {p1ResourcesData.map(res => (
+                                                <option key={res.id} value={res.id} disabled={!res.isAvailable}>
+                                                    {res.id.replace('bed-', '🛏️ 床 ').replace('chair-', '👣 足 ')} {res.isAvailable ? '' : '(已佔用)'}
+                                                </option>
+                                            ))}
                                         </select>
                                         <div className="pointer-events-none absolute right-2 top-1/2 transform -translate-y-1/2 text-gray-400 text-[10px]">
                                             <i className="fas fa-chevron-down"></i>
@@ -917,18 +918,13 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                                             disabled={isP2Full}
                                             className={`w-full text-xs font-bold appearance-none bg-slate-50 border rounded-md py-1.5 pl-2 pr-6 focus:outline-none focus:border-indigo-400 cursor-pointer shadow-sm transition-colors ${isP2Full ? 'bg-red-50 border-red-300 text-red-600 cursor-not-allowed' : (selectedPhase2Res !== 'auto' ? 'border-indigo-300 bg-indigo-50 text-indigo-700' : 'border-slate-200 text-slate-700')}`}
                                         >
-                                            {isP2Full ? (
-                                                <option value="full">⛔️ 該時段已滿</option>
-                                            ) : (
-                                                <>
-                                                    <option value="auto">🤖 自動安排 (Auto)</option>
-                                                    {availableP2Resources.map(resId => (
-                                                        <option key={resId} value={resId}>
-                                                            {resId.replace('bed-', '🛏️ 床 ').replace('chair-', '👣 足 ')}
-                                                        </option>
-                                                    ))}
-                                                </>
-                                            )}
+                                            {isP2Full && <option value="full">⛔️ 該時段已滿</option>}
+                                            {!isP2Full && <option value="auto">🤖 自動安排 (Auto)</option>}
+                                            {p2ResourcesData.map(res => (
+                                                <option key={res.id} value={res.id} disabled={!res.isAvailable}>
+                                                    {res.id.replace('bed-', '🛏️ 床 ').replace('chair-', '👣 足 ')} {res.isAvailable ? '' : '(已佔用)'}
+                                                </option>
+                                            ))}
                                         </select>
                                         <div className="pointer-events-none absolute right-2 top-1/2 transform -translate-y-1/2 text-gray-400 text-[10px]">
                                             <i className="fas fa-chevron-down"></i>
@@ -993,18 +989,13 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                                         disabled={isSingleFull}
                                         className={`w-full text-sm font-bold appearance-none bg-slate-50 border rounded-md py-2 pl-3 pr-8 focus:outline-none focus:border-emerald-400 cursor-pointer shadow-sm transition-colors ${isSingleFull ? 'bg-red-50 border-red-300 text-red-600 cursor-not-allowed' : (selectedSingleRes !== 'auto' ? 'border-emerald-300 bg-emerald-50 text-emerald-700' : 'border-slate-200 text-slate-700')}`}
                                     >
-                                        {isSingleFull ? (
-                                            <option value="full">⛔️ 該時段已滿</option>
-                                        ) : (
-                                            <>
-                                                <option value="auto">🤖 自動安排 (Auto)</option>
-                                                {availableSingleResources.map(resId => (
-                                                    <option key={resId} value={resId}>
-                                                        {resId.replace('bed-', '🛏️ 床 ').replace('chair-', '👣 足 ')}
-                                                    </option>
-                                                ))}
-                                            </>
-                                        )}
+                                        {isSingleFull && <option value="full">⛔️ 該時段已滿</option>}
+                                        {!isSingleFull && <option value="auto">🤖 自動安排 (Auto)</option>}
+                                        {singleResourcesData.map(res => (
+                                            <option key={res.id} value={res.id} disabled={!res.isAvailable}>
+                                                {res.id.replace('bed-', '🛏️ 床 ').replace('chair-', '👣 足 ')} {res.isAvailable ? '' : '(已佔用)'}
+                                            </option>
+                                        ))}
                                     </select>
                                     <div className="pointer-events-none absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 text-[10px]">
                                         <i className="fas fa-chevron-down"></i>

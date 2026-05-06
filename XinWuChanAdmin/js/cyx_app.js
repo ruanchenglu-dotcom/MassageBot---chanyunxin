@@ -435,7 +435,15 @@ const App = () => {
     };
 
     const universalSend = async (endpoint, payload) => {
-        try { await axios.post(endpoint, payload); } catch (e) { console.log("Universal send check (ignore):", e); }
+        try { 
+            const res = await axios.post(endpoint, payload);
+            if (res.data && res.data.error) throw new Error(res.data.error);
+            return { success: true, data: res.data };
+        } catch (e) { 
+            console.log("Universal send check (ignore):", e); 
+            const errorMsg = (e.response && e.response.data && e.response.data.error) ? e.response.data.error : e.message;
+            return { success: false, error: errorMsg };
+        }
     };
 
     const handleForceFixDuration = async (booking, standardDuration) => {
@@ -1356,16 +1364,27 @@ const App = () => {
                 if (updatedData.phase2_duration !== undefined) localOverridesRef.current[String(rowId)].phase2_duration = updatedData.phase2_duration;
             }
 
-            await axios.post('/api/inline-update-booking', {
+            const res = await axios.post('/api/inline-update-booking', {
                 rowId: rowId,
                 updatedData: updatedData
             });
+
+            if (res.data && res.data.error) {
+                throw new Error(res.data.error);
+            }
 
             fetchData(true);
 
         } catch (e) {
             console.error("Inline update failed:", e);
-            alert("⚠️ 儲存失敗，請檢查網路連線。");
+            const errorMsg = (e.response && e.response.data && e.response.data.error) ? e.response.data.error : e.message;
+            if (errorMsg && errorMsg.includes('RESOURCE_CONFLICT')) {
+                const parts = errorMsg.split('|');
+                alert(`⚠️ 儲存失敗！\n\n【衝突警告】\n該位置在該時段已經被「${parts[2] || '其他顧客'}」佔用。\n請重新選擇其他空閒位置！`);
+            } else {
+                alert("⚠️ 儲存失敗，請檢查網路連線。");
+            }
+            fetchData(true); // Revert changes
         }
     };
 
@@ -1737,11 +1756,19 @@ const App = () => {
         }
 
         try {
-            await universalSend('/api/update-booking-details', payload);
+            const res = await universalSend('/api/update-booking-details', payload);
+            if (!res.success) throw new Error(res.error);
             await updateResource(newState);
             fetchData('KEEP_OVERRIDES');
         } catch (e) {
-            alert("⚠️ 儲存失敗！請檢查網路連線。");
+            const errorMsg = e.message || "";
+            if (errorMsg.includes('RESOURCE_CONFLICT')) {
+                const parts = errorMsg.split('|');
+                alert(`⚠️ 儲存失敗！\n\n【衝突警告】\n您選擇的 ${parts[1] || '該位置'} 在該時段已經被「${parts[2] || '其他顧客'}」佔用 (已佔用)。\n\n請重新選擇其他空閒位置！`);
+            } else {
+                alert("⚠️ 儲存失敗！請檢查網路連線。");
+            }
+            fetchData(true); // Revert UI overrides
         }
     };
 
@@ -1845,11 +1872,19 @@ const App = () => {
         }
 
         try {
-            await universalSend('/api/update-booking-details', payload);
+            const res = await universalSend('/api/update-booking-details', payload);
+            if (!res.success) throw new Error(res.error);
             if (hasChanges) await updateResource(newState);
             fetchData('KEEP_OVERRIDES');
         } catch (e) {
-            alert("⚠️ 儲存失敗！請檢查網路連線。");
+            const errorMsg = e.message || "";
+            if (errorMsg.includes('RESOURCE_CONFLICT')) {
+                const parts = errorMsg.split('|');
+                alert(`⚠️ 儲存失敗！\n\n【衝突警告】\n您選擇的 ${parts[1] || '該位置'} 在該時段已經被「${parts[2] || '其他顧客'}」佔用 (已佔用)。\n\n請重新選擇其他空閒位置！`);
+            } else {
+                alert("⚠️ 儲存失敗！請檢查網路連線。");
+            }
+            fetchData(true);
         }
     };
 
@@ -1953,7 +1988,7 @@ const App = () => {
         }
 
         try {
-            await universalSend('/api/update-booking-details', {
+            const res = await universalSend('/api/update-booking-details', {
                 rowId: rowId,
                 flow: targetFlow,
                 flow_code: targetFlow,
@@ -1969,12 +2004,21 @@ const App = () => {
                 isManualLocked: true,
                 forceSync: true
             });
+            if (!res.success) throw new Error(res.error);
             if (hasRunningChanges) {
                 await updateResource(newState);
             }
             fetchData('KEEP_OVERRIDES');
         } catch (e) {
             console.error("Sync flow error", e);
+            const errorMsg = e.message || "";
+            if (errorMsg.includes('RESOURCE_CONFLICT')) {
+                const parts = errorMsg.split('|');
+                alert(`⚠️ 儲存失敗！\n\n【衝突警告】\n您選擇的 ${parts[1] || '該位置'} 在該時段已經被「${parts[2] || '其他顧客'}」佔用 (已佔用)。\n\n請重新選擇其他空閒位置！`);
+            } else {
+                alert("⚠️ 儲存失敗！請檢查網路連線。");
+            }
+            fetchData(true);
         }
     };
 
@@ -2038,7 +2082,7 @@ const App = () => {
                 fetchData(true);
 
                 try {
-                    await universalSend('/api/update-booking-details', {
+                    const res = await universalSend('/api/update-booking-details', {
                         rowId: rowId,
                         current_resource_id: targetId,
                         record_location: true,
@@ -2046,9 +2090,17 @@ const App = () => {
                         ...(isPhase2 && { phase2_res_idx: targetId.toUpperCase(), phase2Resource: targetId.toUpperCase() }),
                         forceSync: true
                     });
+                    if (!res.success) throw new Error(res.error);
                     await updateResource(newState);
                 } catch (e) {
-                    alert("⚠️ 轉換位置時發生連線錯誤！");
+                    const errorMsg = e.message || "";
+                    if (errorMsg.includes('RESOURCE_CONFLICT')) {
+                        const parts = errorMsg.split('|');
+                        alert(`⚠️ 轉換位置失敗！\n\n【衝突警告】\n目標位置 ${parts[1] || '該位置'} 在該時段已經被「${parts[2] || '其他顧客'}」佔用。\n\n請重新選擇！`);
+                    } else {
+                        alert("⚠️ 轉換位置時發生連線錯誤！");
+                    }
+                    fetchData(true);
                 }
             }
         } else if (isPrediction) {
@@ -2077,7 +2129,7 @@ const App = () => {
             fetchData(true);
 
             try {
-                await universalSend('/api/update-booking-details', {
+                const res = await universalSend('/api/update-booking-details', {
                     rowId: rowId,
                     current_resource_id: targetId,
                     location: targetId,
@@ -2085,8 +2137,16 @@ const App = () => {
                     ...(isPhase2 && { phase2_res_idx: targetId.toUpperCase(), phase2Resource: targetId.toUpperCase() }),
                     forceSync: true
                 });
+                if (!res.success) throw new Error(res.error);
             } catch (e) {
-                alert("⚠️ 轉換位置時發生連線錯誤！");
+                const errorMsg = e.message || "";
+                if (errorMsg.includes('RESOURCE_CONFLICT')) {
+                    const parts = errorMsg.split('|');
+                    alert(`⚠️ 轉換位置失敗！\n\n【衝突警告】\n目標位置 ${parts[1] || '該位置'} 在該時段已經被「${parts[2] || '其他顧客'}」佔用。\n\n請重新選擇！`);
+                } else {
+                    alert("⚠️ 轉換位置時發生連線錯誤！");
+                }
+                fetchData(true);
             }
         }
     };

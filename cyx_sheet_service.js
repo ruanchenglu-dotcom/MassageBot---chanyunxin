@@ -698,9 +698,103 @@ async function updateBookingStatus(rowId, newStatus) {
     } catch (e) { console.error('Update Status Error:', e); return false; }
 }
 
+function _checkOverlapConflict(rowId, dateStr, timeStr, duration, phase1Res, phase2Res, p1Dur, p2Dur, flow) {
+    if (!phase1Res && !phase2Res) return null;
+    
+    const startMins = ResourceCore.getMinsFromTimeStr(timeStr);
+    if (startMins === -1) return null;
+    
+    const durMins = safeParseInt(duration, 60);
+    const p1 = safeParseInt(p1Dur, Math.floor(durMins / 2));
+    const p2 = safeParseInt(p2Dur, durMins - p1);
+    
+    let blocks = [];
+    if (flow === 'BF' || flow === 'FB') {
+        if (phase1Res) blocks.push({ start: startMins, end: startMins + p1, res: phase1Res });
+        if (phase2Res) blocks.push({ start: startMins + p1 + ResourceCore.CONFIG.TRANSITION_BUFFER, end: startMins + durMins, res: phase2Res });
+    } else {
+        const res = phase1Res || phase2Res;
+        if (res) blocks.push({ start: startMins, end: startMins + durMins, res: res });
+    }
+    
+    const bookingsOnDate = STATE.cachedBookings.filter(b => 
+        normalizeDateStrict(b.opDate || b.startTimeString) === normalizeDateStrict(dateStr) 
+        && b.rowId != rowId
+    );
+    
+    for (const b of bookingsOnDate) {
+        if (!b.status) continue;
+        const statusLower = b.status.toLowerCase();
+        const inactiveKeywords = ['cancel', 'hủy', 'huỷ', 'finish', 'done', 'xong', 'check-out', 'checkout', '取消', '完成', '空'];
+        let isActive = true;
+        for (const kw of inactiveKeywords) { if (statusLower.includes(kw)) { isActive = false; break; } }
+        if (!isActive) continue;
+        
+        const bStartMins = ResourceCore.getMinsFromTimeStr(b.startTimeString || b.startTime);
+        if (bStartMins === -1) continue;
+        
+        const bDurMins = safeParseInt(b.duration, 60);
+        let bP1 = safeParseInt(b.phase1_duration, Math.floor(bDurMins / 2));
+        let bP2 = safeParseInt(b.phase2_duration, bDurMins - bP1);
+        let bFlow = b.flow || (b.originalData ? b.originalData.flow : null);
+        
+        let bBlocks = [];
+        if (bFlow === 'BF' || bFlow === 'FB') {
+            if (b.phase1_res_idx) bBlocks.push({ start: bStartMins, end: bStartMins + bP1, res: b.phase1_res_idx });
+            if (b.phase2_res_idx) bBlocks.push({ start: bStartMins + bP1 + ResourceCore.CONFIG.TRANSITION_BUFFER, end: bStartMins + bDurMins, res: b.phase2_res_idx });
+        } else {
+            const bRes = b.phase1_res_idx || b.phase2_res_idx || b.allocated_resource;
+            if (bRes) bBlocks.push({ start: bStartMins, end: bStartMins + bDurMins, res: bRes });
+        }
+        
+        for (const blk of blocks) {
+            if (!blk.res) continue;
+            for (const bBlk of bBlocks) {
+                if (bBlk.res && bBlk.res.toUpperCase() === blk.res.toUpperCase()) {
+                    const safeEndA = blk.end - ResourceCore.CONFIG.TOLERANCE;
+                    const safeEndB = bBlk.end - ResourceCore.CONFIG.TOLERANCE;
+                    if ((blk.start < safeEndB) && (bBlk.start < safeEndA)) {
+                        return { conflictId: b.rowId, conflictName: b.hoTen || b.customerName, resource: blk.res };
+                    }
+                }
+            }
+        }
+    }
+    return null;
+}
+
 async function updateBookingDetails(body) {
     const rowId = body.rowId;
     if (!rowId) throw new Error('Missing rowId');
+
+    let bookingData = STATE.cachedBookings.find(b => b.rowId == rowId);
+    let totalDuration = bookingData ? bookingData.duration : (safeParseInt(body.duration, 60));
+
+    let phase1Res = body.phase1_res_idx !== undefined ? body.phase1_res_idx : (body.phase1_resource !== undefined ? body.phase1_resource : body.phase1Resource);
+    if (phase1Res === undefined && (body.location !== undefined || body.current_resource_id !== undefined)) {
+        phase1Res = body.location !== undefined ? body.location : body.current_resource_id;
+    }
+    const phase2Res = body.phase2_res_idx !== undefined ? body.phase2_res_idx : (body.phase2_resource !== undefined ? body.phase2_resource : body.phase2Resource);
+    
+    // [V135] GUARDRAIL: Check Resource Overlap before allowing manual override
+    let checkDate = body.date || (bookingData ? (bookingData.opDate || bookingData.startTimeString) : null);
+    let checkTime = body.startTime || (bookingData ? (bookingData.startTimeString || bookingData.startTime) : null);
+    if (checkDate && checkTime && (phase1Res || phase2Res)) {
+        let p1Dur = body.phase1_duration !== undefined ? body.phase1_duration : (bookingData ? bookingData.phase1_duration : null);
+        let p2Dur = body.phase2_duration !== undefined ? body.phase2_duration : (bookingData ? bookingData.phase2_duration : null);
+        let flow = body.flow || body.flow_code || (bookingData ? bookingData.flow : null);
+        
+        // If checking a combo but durations are missing, estimate them
+        if (flow === 'BF' || flow === 'FB') {
+            if (!p1Dur) p1Dur = Math.floor(totalDuration / 2);
+            if (!p2Dur) p2Dur = totalDuration - p1Dur;
+        }
+
+        const conflict = _checkOverlapConflict(rowId, checkDate, checkTime, totalDuration, phase1Res, phase2Res, p1Dur, p2Dur, flow);
+        if (conflict) {
+            throw new Error(`RESOURCE_CONFLICT|${conflict.resource}|${conflict.conflictName}`);
+        }
+    }
 
     const updateCell = async (col, val) => {
         await sheets.spreadsheets.values.update({
@@ -757,13 +851,7 @@ async function updateBookingDetails(body) {
     const flowVal = body.flow || body.flow_code;
     if (flowVal !== undefined) await updateCell('AA', flowVal);
 
-    let phase1Res = body.phase1_res_idx !== undefined ? body.phase1_res_idx : (body.phase1_resource !== undefined ? body.phase1_resource : body.phase1Resource);
-    if (phase1Res === undefined && (body.location !== undefined || body.current_resource_id !== undefined)) {
-        phase1Res = body.location !== undefined ? body.location : body.current_resource_id;
-    }
     if (phase1Res !== undefined) await updateCell('AB', phase1Res);
-
-    const phase2Res = body.phase2_res_idx !== undefined ? body.phase2_res_idx : (body.phase2_resource !== undefined ? body.phase2_resource : body.phase2Resource);
     if (phase2Res !== undefined) await updateCell('AC', phase2Res);
 
     const resourceType = body.resource_type !== undefined ? body.resource_type : body.resourceType;
@@ -771,8 +859,6 @@ async function updateBookingDetails(body) {
 
     if (body.final_price !== undefined) await updateCell('V', body.final_price);
 
-    let bookingData = STATE.cachedBookings.find(b => b.rowId == rowId);
-    let totalDuration = bookingData ? bookingData.duration : (safeParseInt(body.duration, 60));
     let currentLockState = bookingData ? bookingData.isManualLocked : false;
     let hasManualPhaseChange = false;
 
@@ -804,6 +890,32 @@ async function updateInlineBooking(rowId, updatedData) {
         if (timeVal.length > 5) timeVal = timeVal.substring(0, 5);
 
         let sCode = smartFindServiceCode(updatedData.dichVu) || "";
+        
+        // [V135] GUARDRAIL: Check Resource Overlap for Inline Update
+        let bookingData = STATE.cachedBookings.find(b => b.rowId == rowId);
+        if (bookingData) {
+            let checkDate = updatedData.ngayDen !== undefined ? formattedDate : (bookingData.opDate || bookingData.startTimeString);
+            let checkTime = updatedData.gioDen !== undefined ? timeVal : (bookingData.startTimeString || bookingData.startTime);
+            let totalDuration = updatedData.duration !== undefined ? updatedData.duration : bookingData.duration;
+            let phase1Res = bookingData.phase1_res_idx || bookingData.allocated_resource;
+            let phase2Res = bookingData.phase2_res_idx;
+            
+            // If service changed, resources will be cleared, so no need to check overlap for old resources
+            if (updatedData.dichVu !== undefined) {
+                phase1Res = null; phase2Res = null;
+            }
+
+            if (checkDate && checkTime && (phase1Res || phase2Res)) {
+                let p1Dur = updatedData.phase1_duration !== undefined ? updatedData.phase1_duration : bookingData.phase1_duration;
+                let p2Dur = updatedData.phase2_duration !== undefined ? updatedData.phase2_duration : bookingData.phase2_duration;
+                let flow = bookingData.flow;
+                
+                const conflict = _checkOverlapConflict(rowId, checkDate, checkTime, totalDuration, phase1Res, phase2Res, p1Dur, p2Dur, flow);
+                if (conflict) {
+                    throw new Error(`RESOURCE_CONFLICT|${conflict.resource}|${conflict.conflictName}`);
+                }
+            }
+        }
 
         const dataToUpdate = [];
 
