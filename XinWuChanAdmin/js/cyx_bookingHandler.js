@@ -306,17 +306,50 @@
                 const svcInfo = SERVICES[b.serviceCode] || { name: b.serviceName };
                 const storedFlow = b.originalData?.flowCode || b.flow;
                 const isCombo = isComboService(svcInfo, b.serviceName, storedFlow);
-                const { realDuration } = calculateRealDurations(b, b.duration || 60, isCombo);
+                const { p1, realDuration } = calculateRealDurations(b, b.duration || 60, isCombo);
 
-                const rId = b.allocated_resource || b.rowId || "";
+                const rIdStr = (b.phase1_res_idx || "") + " " + (b.phase2_res_idx || "") + " " + (b.allocated_resource || b.rowId || "");
+                const matches = [...rIdStr.matchAll(/((?:BED|CHAIR)[-_ ]?\d+)/gi)].map(m => m[1].toUpperCase());
+                const uniqueMatches = [...new Set(matches)];
 
-                const laneMatch = rId.toString().match(/(BED|CHAIR)[-_ ]?(\d+)/i);
-                if (laneMatch) {
-                    const type = laneMatch[1].toUpperCase().includes('BED') ? 'BED' : 'CHAIR';
-                    const idx = parseInt(laneMatch[2]) - 1;
-                    if (resourceMap[type] && resourceMap[type][idx]) {
-                        resourceMap[type][idx].push({ start: bStart, end: bStart + realDuration + CONF.CLEANUP_BUFFER });
+                if (isCombo && uniqueMatches.length >= 2) {
+                    let res1, res2;
+                    if (storedFlow === 'BF') {
+                        res1 = uniqueMatches.find(r => r.includes('BED')) || uniqueMatches[0];
+                        res2 = uniqueMatches.find(r => r.includes('CHAIR')) || uniqueMatches[1];
+                    } else if (storedFlow === 'FB') {
+                        res1 = uniqueMatches.find(r => r.includes('CHAIR')) || uniqueMatches[0];
+                        res2 = uniqueMatches.find(r => r.includes('BED')) || uniqueMatches[1];
+                    } else {
+                        res1 = uniqueMatches[0];
+                        res2 = uniqueMatches[1];
                     }
+                    
+                    const pushToMap = (res, startT, endT) => {
+                        if (!res) return;
+                        const laneMatch = res.match(/(BED|CHAIR)[-_ ]?(\d+)/i);
+                        if (laneMatch) {
+                            const type = laneMatch[1].toUpperCase().includes('BED') ? 'BED' : 'CHAIR';
+                            const idx = parseInt(laneMatch[2]) - 1;
+                            if (resourceMap[type] && resourceMap[type][idx]) {
+                                resourceMap[type][idx].push({ start: startT, end: endT });
+                            }
+                        }
+                    };
+                    
+                    pushToMap(res1, bStart, bStart + p1 + CONF.CLEANUP_BUFFER);
+                    pushToMap(res2, bStart + p1 + CONF.TRANSITION_BUFFER, bStart + realDuration + CONF.CLEANUP_BUFFER);
+                } else {
+                    uniqueMatches.forEach(res => {
+                        const laneMatch = res.match(/(BED|CHAIR)[-_ ]?(\d+)/i);
+                        if (laneMatch) {
+                            const type = laneMatch[1].toUpperCase().includes('BED') ? 'BED' : 'CHAIR';
+                            const idx = parseInt(laneMatch[2]) - 1;
+                            if (resourceMap[type] && resourceMap[type][idx]) {
+                                resourceMap[type][idx].push({ start: bStart, end: bStart + realDuration + CONF.CLEANUP_BUFFER });
+                            }
+                        }
+                    });
                 }
             });
 

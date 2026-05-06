@@ -739,9 +739,28 @@ function _checkOverlapConflict(rowId, dateStr, timeStr, duration, phase1Res, pha
         let bFlow = b.flow || (b.originalData ? b.originalData.flow : null);
         
         let bBlocks = [];
-        if (bFlow === 'BF' || bFlow === 'FB') {
-            if (b.phase1_res_idx) bBlocks.push({ start: bStartMins, end: bStartMins + bP1, res: b.phase1_res_idx });
-            if (b.phase2_res_idx) bBlocks.push({ start: bStartMins + bP1 + ResourceCore.CONFIG.TRANSITION_BUFFER, end: bStartMins + bDurMins, res: b.phase2_res_idx });
+        const isCombo = bFlow === 'BF' || bFlow === 'FB' || (b.allocated_resource && String(b.allocated_resource).includes('+'));
+        
+        if (isCombo) {
+            let res1 = b.phase1_res_idx;
+            let res2 = b.phase2_res_idx;
+            
+            if (!res1 || !res2) {
+                const bResStr = b.allocated_resource || "";
+                const matches = [...bResStr.toString().matchAll(/((?:BED|CHAIR)[-_ ]?\d+)/gi)].map(m => m[1].toUpperCase());
+                if (bFlow === 'BF') {
+                    if (!res1) res1 = matches.find(r => r.includes('BED')) || matches[0];
+                    if (!res2) res2 = matches.find(r => r.includes('CHAIR')) || matches[1];
+                } else if (bFlow === 'FB') {
+                    if (!res1) res1 = matches.find(r => r.includes('CHAIR')) || matches[0];
+                    if (!res2) res2 = matches.find(r => r.includes('BED')) || matches[1];
+                } else {
+                    if (!res1) res1 = matches[0];
+                    if (!res2) res2 = matches[1];
+                }
+            }
+            if (res1) bBlocks.push({ start: bStartMins, end: bStartMins + bP1, res: res1 });
+            if (res2) bBlocks.push({ start: bStartMins + bP1 + ResourceCore.CONFIG.TRANSITION_BUFFER, end: bStartMins + bDurMins, res: res2 });
         } else {
             const bRes = b.phase1_res_idx || b.phase2_res_idx || b.allocated_resource;
             if (bRes) bBlocks.push({ start: bStartMins, end: bStartMins + bDurMins, res: bRes });
@@ -750,11 +769,15 @@ function _checkOverlapConflict(rowId, dateStr, timeStr, duration, phase1Res, pha
         for (const blk of blocks) {
             if (!blk.res) continue;
             for (const bBlk of bBlocks) {
-                if (bBlk.res && bBlk.res.toUpperCase() === blk.res.toUpperCase()) {
-                    const safeEndA = blk.end - ResourceCore.CONFIG.TOLERANCE;
-                    const safeEndB = bBlk.end - ResourceCore.CONFIG.TOLERANCE;
-                    if ((blk.start < safeEndB) && (bBlk.start < safeEndA)) {
-                        return { conflictId: b.rowId, conflictName: b.hoTen || b.customerName, resource: blk.res };
+                if (bBlk.res) {
+                    const bBlkResArray = [...bBlk.res.toString().toUpperCase().matchAll(/((?:BED|CHAIR)[-_ ]?\d+)/gi)].map(m => m[1]);
+                    const blkResClean = blk.res.toString().toUpperCase().trim();
+                    if (bBlkResArray.includes(blkResClean) || bBlk.res.toString().toUpperCase() === blkResClean) {
+                        const safeEndA = blk.end - ResourceCore.CONFIG.TOLERANCE;
+                        const safeEndB = bBlk.end - ResourceCore.CONFIG.TOLERANCE;
+                        if ((blk.start < safeEndB) && (bBlk.start < safeEndA)) {
+                            return { conflictId: b.rowId, conflictName: b.hoTen || b.customerName, resource: blk.res };
+                        }
                     }
                 }
             }
