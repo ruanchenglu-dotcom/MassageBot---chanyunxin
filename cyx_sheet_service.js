@@ -829,17 +829,27 @@ async function updateInlineBooking(rowId, updatedData) {
                 const svcDef = STATE.SERVICES[sCode];
                 let newFlow = 'BODYSINGLE';
                 let newResType = 'BED';
+                let duration = updatedData.duration || svcDef.duration || 60;
+                let phase1_dur = duration;
+                let phase2_dur = "";
                 
                 if (svcDef.category === 'COMBO') {
                     newFlow = 'FB';
                     newResType = 'COMBO';
+                    if (updatedData.phase1_duration !== undefined) {
+                        phase1_dur = updatedData.phase1_duration;
+                        phase2_dur = updatedData.phase2_duration !== undefined ? updatedData.phase2_duration : duration - phase1_dur;
+                    } else {
+                        phase1_dur = Math.floor(duration / 2);
+                        phase2_dur = duration - phase1_dur;
+                    }
                 } else if (svcDef.category === 'FOOT') {
                     newFlow = 'FOOTSINGLE';
                     newResType = 'CHAIR';
                 }
                 
-                dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!Y${rowId}`, values: [[""]] }); 
-                dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!Z${rowId}`, values: [[""]] }); 
+                dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!Y${rowId}`, values: [[phase1_dur]] }); 
+                dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!Z${rowId}`, values: [[phase2_dur]] }); 
                 dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!AA${rowId}`, values: [[newFlow]] });
                 dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!AB${rowId}`, values: [[""]] }); 
                 dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!AC${rowId}`, values: [[""]] }); 

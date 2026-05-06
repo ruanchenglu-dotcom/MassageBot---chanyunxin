@@ -1326,6 +1326,15 @@ const App = () => {
                     const newStandardDur = extractStandardDuration(updatedData.dichVu) || window.getSafeDuration(updatedData.dichVu, currentBooking.duration);
                     if (newStandardDur > 0) {
                         updatedData.duration = newStandardDur;
+                        const isCombo = updatedData.dichVu.includes('套餐') || (window.SERVICES_DATA && window.SERVICES_DATA[updatedData.dichVu] && window.SERVICES_DATA[updatedData.dichVu].category === 'COMBO');
+                        if (isCombo) {
+                            const split = getSmartSplit(currentBooking, newStandardDur, true, 'FB');
+                            updatedData.phase1_duration = split.phase1;
+                            updatedData.phase2_duration = split.phase2;
+                        } else {
+                            updatedData.phase1_duration = newStandardDur;
+                            updatedData.phase2_duration = "";
+                        }
                     }
                 }
             }
@@ -1337,9 +1346,14 @@ const App = () => {
             setSyncLock(true);
             setTimeout(() => setSyncLock(false), 3000);
 
+            if (!localOverridesRef.current[String(rowId)]) localOverridesRef.current[String(rowId)] = {};
             if (updatedData.adminNote !== undefined) {
-                if (!localOverridesRef.current[String(rowId)]) localOverridesRef.current[String(rowId)] = {};
                 localOverridesRef.current[String(rowId)].adminNote = updatedData.adminNote;
+            }
+            if (updatedData.dichVu) {
+                if (updatedData.duration !== undefined) localOverridesRef.current[String(rowId)].duration = updatedData.duration;
+                if (updatedData.phase1_duration !== undefined) localOverridesRef.current[String(rowId)].phase1_duration = updatedData.phase1_duration;
+                if (updatedData.phase2_duration !== undefined) localOverridesRef.current[String(rowId)].phase2_duration = updatedData.phase2_duration;
             }
 
             await axios.post('/api/inline-update-booking', {
@@ -1543,10 +1557,37 @@ const App = () => {
     const handleServiceChange = async (resId, newServiceName) => {
         const current = resourceState[resId]; if (!current) return;
         const newDef = window.SERVICES_DATA[newServiceName]; if (!newDef) return;
-        const updatedBooking = { ...current.booking, serviceName: newServiceName, duration: newDef.duration, type: newDef.type, category: newDef.category };
+        
+        let newDuration = newDef.duration || 60;
+        let phase1_duration = newDuration;
+        let phase2_duration = "";
+        
+        const isCombo = newServiceName.includes('套餐') || newDef.category === 'COMBO';
+        if (isCombo) {
+            const split = getSmartSplit(current.booking, newDuration, true, 'FB');
+            phase1_duration = split.phase1;
+            phase2_duration = split.phase2;
+        }
+
+        const updatedBooking = { 
+            ...current.booking, 
+            serviceName: newServiceName, 
+            duration: newDuration, 
+            type: newDef.type, 
+            category: newDef.category,
+            phase1_duration: phase1_duration,
+            phase2_duration: phase2_duration
+        };
         const newState = { ...resourceState, [resId]: { ...current, booking: updatedBooking } };
         setResourceState(newState);
-        await axios.post('/api/update-booking-details', { rowId: current.booking.rowId, serviceName: newServiceName });
+        
+        await axios.post('/api/update-booking-details', { 
+            rowId: current.booking.rowId, 
+            serviceName: newServiceName,
+            duration: newDuration,
+            phase1_duration: phase1_duration,
+            phase2_duration: phase2_duration
+        });
         await updateResource(newState);
     };
 

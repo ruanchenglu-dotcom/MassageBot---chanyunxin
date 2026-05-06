@@ -199,17 +199,19 @@
             let p1 = Math.floor(defaultDuration / 2);
             let p2 = defaultDuration - p1;
 
-            if (booking.phase1_duration !== undefined && booking.phase1_duration !== null && !isNaN(booking.phase1_duration)) {
-                p1 = parseInt(booking.phase1_duration, 10);
-            } else if (booking.originalData?.phase1_duration !== undefined && !isNaN(booking.originalData.phase1_duration)) {
-                p1 = parseInt(booking.originalData.phase1_duration, 10);
-            }
+            const parseDuration = (val) => {
+                if (val === undefined || val === null) return null;
+                const strVal = String(val).trim();
+                if (strVal === "") return null;
+                const num = parseInt(strVal, 10);
+                return isNaN(num) ? null : num;
+            };
 
-            if (booking.phase2_duration !== undefined && booking.phase2_duration !== null && !isNaN(booking.phase2_duration)) {
-                p2 = parseInt(booking.phase2_duration, 10);
-            } else if (booking.originalData?.phase2_duration !== undefined && !isNaN(booking.originalData.phase2_duration)) {
-                p2 = parseInt(booking.originalData.phase2_duration, 10);
-            }
+            const parsedP1 = parseDuration(booking.phase1_duration) ?? parseDuration(booking.originalData?.phase1_duration);
+            if (parsedP1 !== null) p1 = parsedP1;
+
+            const parsedP2 = parseDuration(booking.phase2_duration) ?? parseDuration(booking.originalData?.phase2_duration);
+            if (parsedP2 !== null) p2 = parsedP2;
 
             const realDuration = isCombo ? (p1 + p2 + CONF.TRANSITION_BUFFER) : defaultDuration;
             return { p1, p2, realDuration };
