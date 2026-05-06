@@ -759,13 +759,30 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
                 else if (b._impliedFlow === 'BF') isBodyFirst = true;
             }
 
+            // --- V118.3 FIX: Bóc tách chính xác p1Index và p2Index ---
+            let p1Index = null;
+            let p2Index = null;
+            if (b.phase1_res_idx) { const m = b.phase1_res_idx.match(/(\d+)/); if (m) p1Index = parseInt(m[0], 10); }
+            if (b.phase2_res_idx) { const m = b.phase2_res_idx.match(/(\d+)/); if (m) p2Index = parseInt(m[0], 10); }
+            
+            if (!p1Index || !p2Index) {
+                if (b.allocated_resource && b.allocated_resource.includes('+')) {
+                    const parts = b.allocated_resource.split('+');
+                    if (parts[0]) { const m1 = parts[0].match(/(\d+)/); if (m1) p1Index = parseInt(m1[0], 10); }
+                    if (parts[1]) { const m2 = parts[1].match(/(\d+)/); if (m2) p2Index = parseInt(m2[0], 10); }
+                }
+            }
+            if (!p1Index) p1Index = anchorIndex;
+            if (!p2Index) p2Index = anchorIndex;
+            // --------------------------------------------------------
+
             if (isBodyFirst) {
-                processedB.blocks.push({ start: bStart, end: p1End, type: 'BED', forcedIndex: anchorIndex });
-                processedB.blocks.push({ start: p2Start, end: bStart + duration, type: 'CHAIR', forcedIndex: anchorIndex });
+                processedB.blocks.push({ start: bStart, end: p1End, type: 'BED', forcedIndex: p1Index });
+                processedB.blocks.push({ start: p2Start, end: p2Start + p2, type: 'CHAIR', forcedIndex: p2Index });
                 processedB.flow = 'BF';
             } else {
-                processedB.blocks.push({ start: bStart, end: p1End, type: 'CHAIR', forcedIndex: anchorIndex });
-                processedB.blocks.push({ start: p2Start, end: bStart + duration, type: 'BED', forcedIndex: anchorIndex });
+                processedB.blocks.push({ start: bStart, end: p1End, type: 'CHAIR', forcedIndex: p1Index });
+                processedB.blocks.push({ start: p2Start, end: p2Start + p2, type: 'BED', forcedIndex: p2Index });
                 processedB.flow = 'FB';
             }
             processedB.p1_current = p1; processedB.p2_current = p2;
