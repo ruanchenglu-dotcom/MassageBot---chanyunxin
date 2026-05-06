@@ -92,6 +92,48 @@ function getNext15Days() {
     return days.reverse();
 }
 
+// --- BỘ LỌC TUYỆT ĐỐI ±8 TIẾNG (Chống vẽ đè ca đêm) ---
+function prepareBookingsForTimeline(bookings, opDateCheck) {
+    const dParts = opDateCheck.replace(/\//g, '-').split('-');
+    const refDateObj = new Date(parseInt(dParts[0], 10), parseInt(dParts[1], 10) - 1, parseInt(dParts[2], 10), 0, 0, 0);
+    const refTimeMs = refDateObj.getTime();
+    
+    // We want bookings from a 48-hour window around opDateCheck to cover all possible +-8h slots
+    const MIN_MS = refTimeMs - (12 * 60 * 60 * 1000);
+    const MAX_MS = refTimeMs + (36 * 60 * 60 * 1000);
+    
+    return bookings.filter(b => {
+        if (!b || !b.startTimeString) return false;
+        const isInactive = b.status && (
+            b.status.includes('hủy') || b.status.includes('Cancel') || b.status.includes('取消') ||
+            b.status.includes('完成') || b.status.includes('Done') || b.status.includes('✅')
+        );
+        if (isInactive) return false;
+        
+        let bDateObj;
+        try { bDateObj = new Date(b.startTimeString.replace(/\//g, '-')); } catch(e) {}
+        if (!bDateObj || isNaN(bDateObj.getTime())) {
+            let bOpDate = b.opDate || b.startTimeString.split(' ')[0];
+            return SheetService.normalizeDateStrict(bOpDate) === opDateCheck;
+        }
+        
+        const bTimeMs = bDateObj.getTime();
+        return bTimeMs >= MIN_MS && bTimeMs <= MAX_MS;
+    }).map(b => {
+        let bDateObj = new Date(b.startTimeString.replace(/\//g, '-'));
+        const diffMins = Math.round((bDateObj.getTime() - refTimeMs) / 60000);
+        
+        let h_final = Math.floor(diffMins / 60);
+        let m = diffMins % 60;
+        if (m < 0) { m += 60; h_final -= 1; }
+        
+        let h_str = h_final < 8 ? h_final - 24 : h_final;
+        let mappedStartTime = `${h_str}:${String(m).padStart(2, '0')}`;
+        
+        return { ...b, startTimeString: mappedStartTime, startTime: mappedStartTime, originalStartTime: b.startTimeString };
+    });
+}
+
 // Thuật toán tìm giờ trống tốt nhất (Sử dụng ResourceCore)
 function findBestSlots(selectedDate, serviceCode, pax = 1, requireFemale = false, requireMale = false) {
     const STAFF_LIST = SheetService.getStaffList();
@@ -119,7 +161,7 @@ function findBestSlots(selectedDate, serviceCode, pax = 1, requireFemale = false
         }
     });
 
-    const relevantBookings = cachedBookings.filter(b => b.opDate === cleanSelectedDate && !b.status.includes('取消'));
+    const relevantBookings = prepareBookingsForTimeline(cachedBookings, cleanSelectedDate);
     const guestList = [];
     for (let i = 0; i < pax; i++) { guestList.push({ serviceCode: serviceCode, staffName: 'RANDOM', flow: null }); }
 
@@ -167,7 +209,7 @@ function generateTimeBubbles(selectedDate, serviceCode, specificStaffIds = null,
         }
     });
 
-    const relevantBookings = cachedBookings.filter(b => b.opDate === cleanSelectedDate && !b.status.includes('取消'));
+    const relevantBookings = prepareBookingsForTimeline(cachedBookings, cleanSelectedDate);
 
     const guestList = [];
     for (let i = 0; i < pax; i++) {
@@ -418,7 +460,7 @@ app.post('/api/admin-booking', async (req, res) => {
     if (!cyx_data.flow && !hasExistingAllocation && ResourceCore.checkRequestAvailability) {
         try {
             const staffListMap = {}; SheetService.getStaffList().forEach(s => { staffListMap[s.id] = s; });
-            const relevantBookings = SheetService.getBookings().filter(b => b.opDate === opDateCheck && !b.status.includes('取消'));
+            const relevantBookings = prepareBookingsForTimeline(SheetService.getBookings(), opDateCheck);
             let serviceCode = 'UNKNOWN';
             if (cyx_data.serviceCode) serviceCode = cyx_data.serviceCode;
             else for (const key in SERVICES) { if (SERVICES[key].name === cyx_data.dichVu) { serviceCode = key; break; } }

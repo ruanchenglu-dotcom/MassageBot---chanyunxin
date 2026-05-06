@@ -1168,6 +1168,20 @@
         });
 
         const targetDateStandard = normalizeDateStrict(date);
+        
+        // --- XỬ LÝ THEO QUY TẮC TUYỆT ĐỐI ±8 TIẾNG ---
+        const reqDateParts = targetDateStandard.replace(/\//g, '-').split('-');
+        const reqTimeParts = (time || "12:00").split(':');
+        const reqDateObj = new Date(parseInt(reqDateParts[0], 10), parseInt(reqDateParts[1], 10) - 1, parseInt(reqDateParts[2], 10), parseInt(reqTimeParts[0], 10), parseInt(reqTimeParts[1], 10), 0);
+        const reqTimeMs = reqDateObj.getTime();
+
+        const EIGHT_HOURS_MS = 8 * 60 * 60 * 1000;
+
+        let reqH = parseInt(reqTimeParts[0], 10);
+        let reqM = parseInt(reqTimeParts[1], 10);
+        if (reqH < 8) reqH += 24;
+        const reqMinsCore = (reqH * 60) + reqM;
+
         const coreBookings = (Array.isArray(bookings) ? bookings : []).filter(b => {
             if (!b || !b.startTimeString) return false;
 
@@ -1179,14 +1193,42 @@
             );
             if (isInactive) return false;
 
-            const rawDate = b.startTimeString.split(' ')[0];
-            const rawTime = b.startTimeString.split(' ')[1] || "12:00";
+            let bDateObj;
+            try { 
+                bDateObj = new Date(b.startTimeString.replace(/\//g, '-')); 
+            } catch (e) {}
 
-            let bOpDate = b.opDate || rawDate;
-            return normalizeDateStrict(bOpDate) === targetDateStandard;
+            if (!bDateObj || isNaN(bDateObj.getTime())) {
+                const rawDate = b.startTimeString.split(' ')[0];
+                let bOpDate = b.opDate || rawDate;
+                return normalizeDateStrict(bOpDate) === targetDateStandard;
+            }
+
+            const diffMs = bDateObj.getTime() - reqTimeMs;
+            return Math.abs(diffMs) <= EIGHT_HOURS_MS;
         }).map(b => {
             let isPastOrRunning = false;
-            try { if (new Date(b.startTimeString) <= now) isPastOrRunning = true; } catch (e) { }
+            let bDateObjRaw;
+            try { bDateObjRaw = new Date(b.startTimeString.replace(/\//g, '-')); } catch (e) {}
+            
+            if (bDateObjRaw && !isNaN(bDateObjRaw.getTime())) {
+                if (bDateObjRaw.getTime() <= now.getTime()) isPastOrRunning = true;
+            } else {
+                try { if (new Date(b.startTimeString) <= now) isPastOrRunning = true; } catch (e) { }
+            }
+            
+            // Tính toán Fake StartTime
+            let mappedStartTime = b.startTimeString;
+            if (bDateObjRaw && !isNaN(bDateObjRaw.getTime())) {
+                const diffMins = Math.round((bDateObjRaw.getTime() - reqTimeMs) / 60000);
+                const targetMins = reqMinsCore + diffMins;
+                let h_final = Math.floor(targetMins / 60);
+                let m_final = targetMins % 60;
+                if (m_final < 0) { m_final += 60; h_final -= 1; }
+                let h_str = h_final < 8 ? h_final - 24 : h_final;
+                mappedStartTime = `${h_str}:${String(m_final).padStart(2, '0')}`;
+            }
+
             let serverLockSignal = b.isManualLocked;
             if (serverLockSignal === undefined && b.originalData) serverLockSignal = b.originalData.isManualLocked;
             const isExplicitlyLocked = (serverLockSignal === true || String(serverLockSignal).toUpperCase() === 'TRUE' || serverLockSignal === 1);
@@ -1218,7 +1260,7 @@
 
             return {
                 serviceCode: b.serviceCode || b.serviceName, serviceName: b.serviceName,
-                startTime: b.startTimeString, duration: parseInt(b.duration) || 60,
+                startTime: mappedStartTime, duration: parseInt(b.duration) || 60,
                 staffName: primaryStaff,
                 assignedStaffs: normalizedStaffs, // MẢNG THỢ MỚI
                 rowId: b.rowId,
