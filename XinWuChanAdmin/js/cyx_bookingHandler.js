@@ -614,16 +614,29 @@
                 lane.occupied.sort((a, b) => a.start - b.start);
                 return lane.id;
             }
-            tryAllocate(type, start, end, ownerId, preferredIndex = null) {
+            tryAllocate(type, start, end, ownerId, preferredIndex = null, isForced = false) {
                 const resourceGroup = this.lanes[type];
                 if (!resourceGroup) return null;
 
                 if (preferredIndex !== null && preferredIndex > 0 && preferredIndex <= resourceGroup.length) {
                     const targetLane = resourceGroup[preferredIndex - 1];
-                    if (this.checkLaneFree(targetLane, start, end).free) {
+                    // --- V118.4 BUG FIX: Dù có trùng lịch (checkLaneFree = false), nếu là isForced (đã được ấn định từ trước),
+                    // bắt buộc phải nhét vào targetLane để phục dựng chính xác lịch sử, tránh tạo Bóng Ma nhảy sang ghế khác! ---
+                    if (isForced || this.checkLaneFree(targetLane, start, end).free) {
                         return this.allocateToLane(targetLane, start, end, ownerId);
                     }
                 }
+                
+                // --- V118.4 GREEDY PRIORITY: Ưu tiên quét các ghế/giường RỖNG HOÀN TOÀN (0 block) ---
+                for (let lane of resourceGroup) {
+                    if (lane.occupied.length === 0) {
+                        if (this.checkLaneFree(lane, start, end).free) {
+                            return this.allocateToLane(lane, start, end, ownerId);
+                        }
+                    }
+                }
+
+                // --- V118.4 XẾP CHỖ KHE HỞ (Gaps): Nếu không có rỗng hoàn toàn, tìm chỗ vừa vặn ---
                 for (let lane of resourceGroup) {
                     const check = this.checkLaneFree(lane, start, end);
                     if (check.free) {
@@ -633,6 +646,7 @@
                         this.blockLog.push(`❌ ${lane.id} 被 ${check.blocker.ownerId} (${blockerTime}) 擋住`);
                     }
                 }
+                
                 return null;
             }
         }
@@ -864,7 +878,7 @@
                     else if (isRunning && b.allocated_resource && (b.allocated_resource.includes('BED') || b.allocated_resource.includes('BODY'))) isBodyFirst = true;
                     if (b._impliedFlow === 'BF') isBodyFirst = true;
 
-                    // --- V118.3 FIX: Bóc tách chính xác p1Index và p2Index ---
+                    // --- V118.4 FIX: Chống Bóng Ma Toạ Độ (Anti-Ghost Coordinates) ---
                     let p1Index = null;
                     let p2Index = null;
                     if (b.phase1_res_idx) { const m = b.phase1_res_idx.match(/(\d+)/); if (m) p1Index = parseInt(m[0], 10); }
@@ -873,12 +887,14 @@
                     if (!p1Index || !p2Index) {
                         if (b.allocated_resource && b.allocated_resource.includes('+')) {
                             const parts = b.allocated_resource.split('+');
-                            if (parts[0]) { const m1 = parts[0].match(/(\d+)/); if (m1) p1Index = parseInt(m1[0], 10); }
-                            if (parts[1]) { const m2 = parts[1].match(/(\d+)/); if (m2) p2Index = parseInt(m2[0], 10); }
+                            if (!p1Index && parts[0]) { const m1 = parts[0].match(/(\d+)/); if (m1) p1Index = parseInt(m1[0], 10); }
+                            if (!p2Index && parts[1]) { const m2 = parts[1].match(/(\d+)/); if (m2) p2Index = parseInt(m2[0], 10); }
                         }
                     }
+                    // Chỉ dùng anchorIndex (từ allocated_resource chung) làm toạ độ dự phòng.
                     if (!p1Index) p1Index = anchorIndex;
-                    if (!p2Index) p2Index = anchorIndex;
+                    // NẾU đang chạy (isRunning), không được tự ý điền p2Index bằng anchorIndex vì sẽ làm khối Phase 2 đè nhầm lên Phase 1 của người khác (Bóng Ma).
+                    if (!p2Index && !isRunning) p2Index = anchorIndex;
                     // --------------------------------------------------------
 
                     if (isBodyFirst) {
@@ -942,7 +958,8 @@
                     let allocatedSlots = [];
                     for (const block of exB.blocks) {
                         const realEnd = block.end + CONF.CLEANUP_BUFFER;
-                        const slotId = matrix.tryAllocate(block.type, block.start, realEnd, exB.id, block.forcedIndex);
+                        // --- V118.4 FIX: Ép buộc đặt chỗ (isForced = true) cho các Booking đã có sẵn ---
+                        const slotId = matrix.tryAllocate(block.type, block.start, realEnd, exB.id, block.forcedIndex, true);
                         if (!slotId) { placedSuccessfully = false; break; }
                         allocatedSlots.push(slotId);
                     }
@@ -1112,6 +1129,42 @@
                 }
 
                 if (!staffAssignmentSuccess) { scenarioFailed = true; continue; }
+
+                // --- V118.4 DOUBLE-CHECK GUARDRAIL: Chống Bóng Ma Đè Lịch ---
+                let collisionDetected = false;
+                for (const item of sortedGuestsForAllocation) {
+                    const detail = scenarioDetails.find(d => d.guestIndex === item.guest.idx);
+                    if (!detail || !detail.allocated) continue;
+                    
+                    for (let i = 0; i < item.blocks.length; i++) {
+                        const block = item.blocks[i];
+                        const assignedLaneId = detail.allocated[i];
+                        if (!assignedLaneId) continue;
+
+                        const match = assignedLaneId.match(/(BED|CHAIR)[-_ ]?(\d+)/i);
+                        if (match) {
+                            const rType = match[1].toUpperCase();
+                            const rIdx = parseInt(match[2], 10) - 1;
+                            if (resourceMap[rType] && resourceMap[rType][rIdx]) {
+                                for (const existing of resourceMap[rType][rIdx]) {
+                                    if (isOverlap(block.start, block.end + CONF.CLEANUP_BUFFER, existing.start, existing.end)) {
+                                        collisionDetected = true;
+                                        failureLog.push(`❌ 嚴重衝突: 系統試圖將客需安排至已被佔用的 ${assignedLaneId}。請刷新頁面或檢查資料。`);
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                        if (collisionDetected) break;
+                    }
+                    if (collisionDetected) break;
+                }
+
+                if (collisionDetected) {
+                    scenarioFailed = true;
+                    continue;
+                }
+                // -------------------------------------------------------------
 
                 successfulScenario = { details: scenarioDetails, updates: scenarioUpdates, matrixDump: matrix.lanes };
                 break;
