@@ -46,7 +46,7 @@ function getSystemConfig() {
             SCALE: { MAX_CHAIRS: 9, MAX_BEDS: 9 },
             OPERATION_TIME: { OPEN_HOUR: 3 },
             BUFFERS: { CLEANUP_MINUTES: 5, TRANSITION_MINUTES: 5 },
-            LOGIC_RULES: { TOLERANCE: 1, CAPACITY_CHECK_STEP: 10 }
+            LOGIC_RULES: { TOLERANCE: 5, CAPACITY_CHECK_STEP: 10 }
         };
     }
     return dynamicConfig;

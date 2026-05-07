@@ -70,7 +70,8 @@ const SYSTEM_CONFIG = {
         STAFF_ID_MODE: 'NUMBER',         // Sử dụng số thay vì họ tên (ID Numbers)
         USE_TIME_PRECISION: true,        // Sử dụng miliseconds để xếp hàng công bằng
         SHORT_SERVICE_NO_PRIORITY: true, // Dịch vụ 1 block (35-40p) không được ưu tiên về đầu hàng
-        AUTO_SYNC_GOOGLE_SHEETS: true
+        AUTO_SYNC_GOOGLE_SHEETS: true,
+        TOLERANCE: 5                     // Mức độ ưu tiên khớp giờ nối tiếp liền kề (hủy bỏ buffer)
     },
 
     // Cấu hình tối ưu hóa API & Mạng

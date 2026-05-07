@@ -90,7 +90,7 @@
                 OPEN_HOUR: opTime.OPEN_HOUR || ext.OPEN_HOUR || 3,
                 CLEANUP_BUFFER: (ext.BUFFERS && ext.BUFFERS.CLEANUP_MINUTES) || ext.CLEANUP_BUFFER || 5,
                 TRANSITION_BUFFER: (ext.BUFFERS && ext.BUFFERS.TRANSITION_MINUTES) || ext.TRANSITION_BUFFER || 5,
-                TOLERANCE: ext.TOLERANCE || 1,
+                TOLERANCE: (ext.LOGIC_RULES && ext.LOGIC_RULES.TOLERANCE) || ext.TOLERANCE || 1,
                 MAX_TIMELINE_MINS: opTime.TOTAL_TIMELINE_MINS || ext.MAX_TIMELINE_MINS || 1440,
                 CAPACITY_CHECK_STEP: ext.CAPACITY_CHECK_STEP || 10
             };
