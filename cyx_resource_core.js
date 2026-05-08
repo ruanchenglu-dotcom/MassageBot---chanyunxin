@@ -265,7 +265,31 @@ function checkLaneContinuity(laneOccupiedArr, start, end) {
     return true;
 }
 
-function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBookingsRaw, staffList, queryDateStr) {
+function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBookingsRaw, staffList, queryDateStr, isSimulation = false) {
+    // Helper to trigger smart search if not in simulation
+    const triggerSmartFailure = (reasonMsg) => {
+        if (isSimulation) return { pass: false, reason: reasonMsg };
+        
+        let foundMins = -1;
+        let searchStart = Math.max(requestStart + 10, 0); 
+        
+        // Quét đến cuối ngày hoặc ca đêm (1440 + 360 = 1800)
+        for (let t = searchStart; t <= 1800; t += 10) {
+            let sim = validateGlobalCapacity(t, maxDuration, guestList, currentBookingsRaw, staffList, queryDateStr, true);
+            if (sim.pass) {
+                foundMins = t;
+                break;
+            }
+        }
+        
+        if (foundMins !== -1) {
+            const timeStr = getTimeStrFromMins(foundMins);
+            return { pass: false, reason: `${reasonMsg}\n💡 智能建議：最快可完整安排 (含所有階段) 的時間為 ${timeStr} 之後。`, debug: {} };
+        } else {
+            return { pass: false, reason: `${reasonMsg}\n⚠️ 今日後續時段已無足夠資源可完整安排此預約。`, debug: {} };
+        }
+    };
+
     // 1. Lọc Booking hợp lệ
     const relevantBookings = currentBookingsRaw.filter(b => {
         const bStart = getMinsFromTimeStr(b.startTimeString || b.startTime);
@@ -345,6 +369,7 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
     }
     for (const [req, count] of Object.entries(reqCounts)) {
         if (count > 1) {
+            if (isSimulation) return { pass: false, reason: 'Duplicate staff assigned' };
             return { pass: false, reason: `⚠️ 錯誤: 不可同時指派 ${count} 位客人給同一技師 ${req}。`, debug: {} };
         }
     }
@@ -367,7 +392,7 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
             }
             
             if (!status.isAvailable || (!inMain && !inTail)) {
-                return { pass: false, reason: `⚠️ 技師 ${rawName} 該時段未排班或已下班。`, debug: {} };
+                return triggerSmartFailure(`⚠️ 技師 ${rawName} 該時段未排班或已下班。`);
             }
 
             let busyBlocks = staffBusyPeriods[reqId] || [];
@@ -382,45 +407,21 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
             }
 
             if (isBusy) {
-                let nextMins = requestStart;
-                let found = false;
-
-                for (let testMins = requestStart; testMins <= status.endMins - dur; testMins += 5) {
-                    let overlap = false;
-                    for (const blk of busyBlocks) {
-                        if (isOverlap(testMins, testMins + dur, blk.start, blk.end)) {
-                            overlap = true;
-                            testMins = Math.max(testMins, blk.end - 5);
-                            break;
-                        }
-                    }
-                    if (!overlap) {
-                        nextMins = testMins;
-                        found = true;
-                        break;
-                    }
-                }
-
-                if (found) {
-                    const timeStr = getTimeStrFromMins(nextMins);
-                    return { pass: false, reason: `⚠️ 技師 ${rawName} 該時段已有預約。最快可預約時間為: ${timeStr} 之後。`, debug: {} };
-                } else {
-                    return { pass: false, reason: `⚠️ 技師 ${rawName} 今日剩餘時段皆已滿。`, debug: {} };
-                }
+                return triggerSmartFailure(`⚠️ 技師 ${rawName} 該時段已有預約。`);
             }
         }
     }
 
     if (femaleReqCount > 0 && (femaleBusyCount + femaleReqCount) > femaleSupply) {
-        return { pass: false, reason: `⚠️ 女技師不足。女師總共: ${femaleSupply}, 忙碌中: ${femaleBusyCount}, 欲預約女師數: ${femaleReqCount}`, debug: {} };
+        return triggerSmartFailure(`⚠️ 女技師不足。女師總共: ${femaleSupply}, 忙碌中: ${femaleBusyCount}, 欲預約女師數: ${femaleReqCount}`);
     }
 
     if (maleReqCount > 0 && (maleBusyCount + maleReqCount) > maleSupply) {
-        return { pass: false, reason: `⚠️ 男技師不足。男師總共: ${maleSupply}, 忙碌中: ${maleBusyCount}, 欲預約男師數: ${maleReqCount}`, debug: {} };
+        return triggerSmartFailure(`⚠️ 男技師不足。男師總共: ${maleSupply}, 忙碌中: ${maleBusyCount}, 欲預約男師數: ${maleReqCount}`);
     }
 
     if ((staffBusyCount + guestList.length) > supplyCount) {
-        return { pass: false, reason: `⚠️ 技師總數不足。總共: ${supplyCount}, 忙碌中: ${staffBusyCount}, 新客: ${guestList.length}`, debug: {} };
+        return triggerSmartFailure(`⚠️ 技師總數不足。總共: ${supplyCount}, 忙碌中: ${staffBusyCount}, 新客: ${guestList.length}`);
     }
 
     // 3. Phân tích tài nguyên chống phân mảnh (Continuous Scan)
@@ -485,7 +486,7 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
             }
 
             if (!successBF && !successFB) {
-                return { pass: false, reason: `⚠️ 在 ${getTimeStrFromMins(requestStart)} 沒有足夠的連續空位 (Continuous Gap) 給套餐。`, debug: { msg: "Logic V118.0 detected gap fragmentation." } };
+                return triggerSmartFailure(`⚠️ 在 ${getTimeStrFromMins(requestStart)} 沒有足夠的連續空位 (Continuous Gap) 給套餐。`);
             }
 
         } else {
@@ -503,7 +504,7 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
             if (foundIdx !== -1) {
                 simulationMap[rType][foundIdx].push({ start: requestStart, end: requestStart + duration + CONF.CLEANUP_BUFFER });
             } else {
-                return { pass: false, reason: `⚠️ 已經沒有連續 ${duration} 分鐘的空${rType === 'BED' ? '床位' : '座位'}。`, debug: {} };
+                return triggerSmartFailure(`⚠️ 已經沒有連續 ${duration} 分鐘的空${rType === 'BED' ? '床位' : '座位'}。`);
             }
         }
     }
