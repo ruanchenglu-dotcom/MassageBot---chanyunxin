@@ -542,15 +542,14 @@ class VirtualMatrix {
 
         if (preferredIndex !== null && preferredIndex > 0 && preferredIndex <= resourceGroup.length) {
             const targetLane = resourceGroup[preferredIndex - 1];
-            // --- V118.4 BUG FIX: Dù có trùng lịch (checkLaneFree = false), nếu là isForced (đã được ấn định từ trước),
-            // bắt buộc phải nhét vào targetLane để phục dựng chính xác lịch sử, tránh tạo Bóng Ma nhảy sang ghế khác! ---
             if (isForced || this.checkLaneFree(targetLane, start, end).free) {
                 return this.allocateToLane(targetLane, start, end, ownerId);
             }
         }
         
-        // --- V118.4 GREEDY PRIORITY: Ưu tiên quét các ghế/giường RỖNG HOÀN TOÀN (0 block) ---
-        for (let lane of resourceGroup) {
+        let sortedLanes = [...resourceGroup].sort((a, b) => a.occupied.length - b.occupied.length);
+
+        for (let lane of sortedLanes) {
             if (lane.occupied.length === 0) {
                 if (this.checkLaneFree(lane, start, end).free) {
                     return this.allocateToLane(lane, start, end, ownerId);
@@ -558,13 +557,14 @@ class VirtualMatrix {
             }
         }
 
-        // --- V118.4 XẾP CHỖ KHE HỞ (Gaps): Nếu không có rỗng hoàn toàn, tìm chỗ vừa vặn ---
-        for (let lane of resourceGroup) {
-            const check = this.checkLaneFree(lane, start, end);
-            if (check.free) {
-                return this.allocateToLane(lane, start, end, ownerId);
-            } else {
-                this.blockLog.push(`❌ ${lane.id} 被 ${check.blocker.ownerId} 擋住`);
+        for (let lane of sortedLanes) {
+            if (lane.occupied.length > 0) {
+                const check = this.checkLaneFree(lane, start, end);
+                if (check.free) {
+                    return this.allocateToLane(lane, start, end, ownerId);
+                } else {
+                    this.blockLog.push(`❌ ${lane.id} 被 ${check.blocker.ownerId} 擋住`);
+                }
             }
         }
         
@@ -739,16 +739,15 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
         let anchorIndex = null;
         const isRunning = (b.status || '').toLowerCase().includes('running');
 
-        if (isRunning) {
-            if (b.allocated_resource) { const match = b.allocated_resource.toString().match(/(\d+)/); if (match) anchorIndex = parseInt(match[0]); }
-            else if (b.location) { const match = b.location.toString().match(/(\d+)/); if (match) anchorIndex = parseInt(match[0]); }
-            else if (b.current_resource_id) { const match = b.current_resource_id.toString().match(/(\d+)/); if (match) anchorIndex = parseInt(match[0]); }
-            else if (b.rowId && typeof b.rowId === 'string' && (b.rowId.includes('BED') || b.rowId.includes('CHAIR'))) { const match = b.rowId.toString().match(/(\d+)/); if (match) anchorIndex = parseInt(match[0]); }
-        } else {
-            if (b._virtualInheritanceIndex) anchorIndex = b._virtualInheritanceIndex;
-            else if (b.allocated_resource) { const match = b.allocated_resource.toString().match(/(\d+)/); if (match) anchorIndex = parseInt(match[0]); }
-            else if (b.location) { const match = b.location.toString().match(/(\d+)/); if (match) anchorIndex = parseInt(match[0]); }
-            else if (b.current_resource_id) { const match = b.current_resource_id.toString().match(/(\d+)/); if (match) anchorIndex = parseInt(match[0]); }
+        // [V118.5 FIX] LUÔN ưu tiên lấy toạ độ thực tế (allocated_resource, location, v.v.) thay vì _virtualInheritanceIndex
+        // Điều này ngăn chặn Bóng Ma Toạ Độ do thuật toán gom nhóm tự gán lại index sai lầm.
+        if (b.allocated_resource) { const match = b.allocated_resource.toString().match(/(\d+)/); if (match) anchorIndex = parseInt(match[0]); }
+        else if (b.location) { const match = b.location.toString().match(/(\d+)/); if (match) anchorIndex = parseInt(match[0]); }
+        else if (b.current_resource_id) { const match = b.current_resource_id.toString().match(/(\d+)/); if (match) anchorIndex = parseInt(match[0]); }
+        else if (b.rowId && typeof b.rowId === 'string' && (b.rowId.includes('BED') || b.rowId.includes('CHAIR'))) { const match = b.rowId.toString().match(/(\d+)/); if (match) anchorIndex = parseInt(match[0]); }
+        
+        if (!anchorIndex && b._virtualInheritanceIndex && !isRunning) {
+            anchorIndex = b._virtualInheritanceIndex;
         }
 
         const isLockedRaw = b.originalData?.isManualLocked || b.isManualLocked;
@@ -791,11 +790,10 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
                     if (!p2Index && parts[1]) { const m2 = parts[1].match(/(\d+)/); if (m2) p2Index = parseInt(m2[0], 10); }
                 }
             }
-            // Chỉ dùng anchorIndex (từ allocated_resource chung) làm toạ độ dự phòng.
+            // Chỉ dùng anchorIndex (từ allocated_resource chung) làm toạ độ dự phòng cho Phase 1.
             if (!p1Index) p1Index = anchorIndex;
-            // NẾU đang chạy (isRunning), không được tự ý điền p2Index bằng anchorIndex vì sẽ làm khối Phase 2 đè nhầm lên Phase 1 của người khác (Bóng Ma).
-            if (!p2Index && !isRunning) p2Index = anchorIndex;
-            // --------------------------------------------------------
+            // [V118.5 FIX] Xoá bỏ việc gán mù quáng p2Index = anchorIndex để tránh hiện tượng Bóng Ma Đè Lịch (ép Phase 2 đè lên vị trí của khách khác).
+            // NẾU p2Index không có sẵn, hệ thống sẽ tự động quét chỗ trống dựa trên thuật toán Xếp Chỗ (Sort Lanes by Utilization).
 
             if (isBodyFirst) {
                 processedB.blocks.push({ start: bStart, end: p1End, type: 'BED', forcedIndex: p1Index });

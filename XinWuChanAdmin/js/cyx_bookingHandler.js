@@ -627,8 +627,12 @@
                     }
                 }
                 
-                // --- V118.4 GREEDY PRIORITY: Ưu tiên quét các ghế/giường RỖNG HOÀN TOÀN (0 block) ---
-                for (let lane of resourceGroup) {
+                // [V118.5 FIX] Tối ưu hoá "Sort Lanes by Utilization": Luôn ưu tiên lane có ít lịch nhất
+                // Sao chép mảng lane để không làm thay đổi thứ tự gốc của resourceGroup
+                let sortedLanes = [...resourceGroup].sort((a, b) => a.occupied.length - b.occupied.length);
+
+                // Bước 1: Ưu tiên quét các ghế/giường RỖNG HOÀN TOÀN (0 block)
+                for (let lane of sortedLanes) {
                     if (lane.occupied.length === 0) {
                         if (this.checkLaneFree(lane, start, end).free) {
                             return this.allocateToLane(lane, start, end, ownerId);
@@ -636,14 +640,16 @@
                     }
                 }
 
-                // --- V118.4 XẾP CHỖ KHE HỞ (Gaps): Nếu không có rỗng hoàn toàn, tìm chỗ vừa vặn ---
-                for (let lane of resourceGroup) {
-                    const check = this.checkLaneFree(lane, start, end);
-                    if (check.free) {
-                        return this.allocateToLane(lane, start, end, ownerId);
-                    } else {
-                        const blockerTime = `${getTimeStrFromMins(check.blocker.start)}-${getTimeStrFromMins(check.blocker.end)}`;
-                        this.blockLog.push(`❌ ${lane.id} 被 ${check.blocker.ownerId} (${blockerTime}) 擋住`);
+                // Bước 2: XẾP CHỖ KHE HỞ (Gaps): Tìm chỗ vừa vặn theo thứ tự lane thưa thớt nhất
+                for (let lane of sortedLanes) {
+                    if (lane.occupied.length > 0) {
+                        const check = this.checkLaneFree(lane, start, end);
+                        if (check.free) {
+                            return this.allocateToLane(lane, start, end, ownerId);
+                        } else {
+                            const blockerTime = `${getTimeStrFromMins(check.blocker.start)}-${getTimeStrFromMins(check.blocker.end)}`;
+                            this.blockLog.push(`❌ ${lane.id} 被 ${check.blocker.ownerId} (${blockerTime}) 擋住`);
+                        }
                     }
                 }
                 
@@ -892,11 +898,10 @@
                             if (!p2Index && parts[1]) { const m2 = parts[1].match(/(\d+)/); if (m2) p2Index = parseInt(m2[0], 10); }
                         }
                     }
-                    // Chỉ dùng anchorIndex (từ allocated_resource chung) làm toạ độ dự phòng.
+                    // Chỉ dùng anchorIndex (từ allocated_resource chung) làm toạ độ dự phòng cho Phase 1.
                     if (!p1Index) p1Index = anchorIndex;
-                    // NẾU đang chạy (isRunning), không được tự ý điền p2Index bằng anchorIndex vì sẽ làm khối Phase 2 đè nhầm lên Phase 1 của người khác (Bóng Ma).
-                    if (!p2Index && !isRunning) p2Index = anchorIndex;
-                    // --------------------------------------------------------
+                    // [V118.5 FIX] Xoá bỏ việc gán mù quáng p2Index = anchorIndex để tránh hiện tượng Bóng Ma Đè Lịch (ép Phase 2 đè lên vị trí của khách khác).
+                    // NẾU p2Index không có sẵn, hệ thống sẽ tự động quét chỗ trống dựa trên thuật toán Xếp Chỗ (Sort Lanes by Utilization).
 
                     if (isBodyFirst) {
                         processedB.blocks.push({ start: bStart, end: p1End, type: 'BED', forcedIndex: p1Index });
