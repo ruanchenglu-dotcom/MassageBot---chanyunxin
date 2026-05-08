@@ -497,16 +497,16 @@
 
             // 3. GENDER POOL CHECK
             if (femaleReqCount > 0 && (femaleBusyCount + femaleReqCount) > femaleSupply) {
-                return { pass: false, reason: `⚠️ 女技師不足 (Not enough female staffs)。女師總共: ${femaleSupply}, 忙碌中: ${femaleBusyCount}, 欲預約女師數: ${femaleReqCount}`, debug: {} };
+                return { pass: false, reason: `⚠️ 女技師不足。女師總共: ${femaleSupply}, 忙碌中: ${femaleBusyCount}, 欲預約女師數: ${femaleReqCount}`, debug: {} };
             }
 
             if (maleReqCount > 0 && (maleBusyCount + maleReqCount) > maleSupply) {
-                return { pass: false, reason: `⚠️ 男技師不足 (Not enough male staffs)。男師總共: ${maleSupply}, 忙碌中: ${maleBusyCount}, 欲預約男師數: ${maleReqCount}`, debug: {} };
+                return { pass: false, reason: `⚠️ 男技師不足。男師總共: ${maleSupply}, 忙碌中: ${maleBusyCount}, 欲預約男師數: ${maleReqCount}`, debug: {} };
             }
 
             // 4. OVERALL POOL CHECK
             if ((staffBusyCount + guestList.length) > supplyCount) {
-                return { pass: false, reason: `⚠️ 技師總數不足 (Not Enough Staff)。總共: ${supplyCount}, 忙碌中: ${staffBusyCount}, 新客: ${guestList.length}`, debug: {} };
+                return { pass: false, reason: `⚠️ 技師總數不足。總共: ${supplyCount}, 忙碌中: ${staffBusyCount}, 新客: ${guestList.length}`, debug: {} };
             }
 
             // SIMULATION
@@ -588,7 +588,7 @@
                     }
                 }
             }
-            return { pass: true, debug: { msg: "V116.1 Continuous Scan Passed" } };
+            return { pass: true, debug: { msg: "V116.1 Continuous Scan Passed" }, resourceMap: resourceMap };
         }
 
         // --- MATRIX ENGINE ---
@@ -755,7 +755,7 @@
         function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRaw, staffList) {
             const CONF = getSystemConfig();
             const requestStartMins = getMinsFromTimeStr(timeStr);
-            if (requestStartMins === -1) return { feasible: false, reason: "❌ 錯誤: 時間格式無效 (Invalid Time)" };
+            if (requestStartMins === -1) return { feasible: false, reason: "❌ 錯誤：時間格式無效" };
 
             let maxGuestDuration = 0;
             guestList.forEach(g => {
@@ -774,8 +774,9 @@
             );
 
             if (!guardrailCheck.pass) {
-                return { feasible: false, reason: `${guardrailCheck.reason}`, debug: guardrailCheck.debug };
+                return { feasible: false, reason: guardrailCheck.reason, debug: guardrailCheck.debug };
             }
+            const resourceMap = guardrailCheck.resourceMap || { 'BED': [], 'CHAIR': [] };
 
             // GIAI ĐOẠN A: TIỀN XỬ LÝ
             let sortedRaw = [...currentBookingsRaw].sort((a, b) => {
@@ -1181,7 +1182,7 @@
                 };
             } else {
                 const debugReason = failureLog.slice(-2).join(' | ');
-                const failMessage = debugReason ? `❌ Matrix Full. Details: ${debugReason}` : "❌ 已額滿 (Full - Matrix Logic)";
+                const failMessage = debugReason ? `❌ 系統滿載：${debugReason}` : "❌ 已額滿（系統滿載）";
                 return { feasible: false, reason: failMessage, debug: guardrailCheck.debug };
             }
         }
