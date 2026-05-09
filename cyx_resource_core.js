@@ -152,7 +152,7 @@ function isOverlap(startA, endA, startB, endB) {
 }
 
 function isActiveBookingStatus(statusRaw) {
-    if (!statusRaw) return false;
+    if (!statusRaw) return true; // CẦN ĐƯỢC COI LÀ ACTIVE nếu status trống
     const s = statusRaw.toString().toLowerCase().trim();
     const inactiveKeywords = ['cancel', 'hủy', 'huỷ', 'finish', 'done', 'xong', 'check-out', 'checkout', '取消', '完成', '空'];
     for (const kw of inactiveKeywords) { if (s.includes(kw)) return false; }
@@ -925,8 +925,8 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
             let matrixSqueeze = new VirtualMatrix();
             let updatesProposed = [];
 
-            const hardBookings = existingBookingsProcessed.filter(b => !b.isElastic);
-            hardBookings.forEach(hb => { hb.blocks.forEach(blk => matrixSqueeze.tryAllocate(blk.type, blk.start, blk.end + CONF.CLEANUP_BUFFER, hb.id, blk.forcedIndex)); });
+        const hardBookings = existingBookingsProcessed.filter(b => !b.isElastic);
+        hardBookings.forEach(hb => { hb.blocks.forEach(blk => matrixSqueeze.tryAllocate(blk.type, blk.start, blk.end, hb.id, blk.forcedIndex, true)); });
 
             let squeezeScenarioPossible = true;
             let squeezeAllocationsMap = [];

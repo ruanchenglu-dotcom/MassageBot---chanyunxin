@@ -147,7 +147,7 @@
 
         // --- BỘ LỌC TRẠNG THÁI SSOT ---
         function isActiveBookingStatus(statusRaw) {
-            if (!statusRaw) return false;
+            if (!statusRaw) return true; // CẦN ĐƯỢC COI LÀ ACTIVE nếu status trống
             const s = statusRaw.toString().toLowerCase().trim();
             const STATUS = getBookingStatus();
 
@@ -840,20 +840,22 @@
 
                 const ownerName = b.originalData?.customerName || b.originalData?.hoTen || b.rowId || "Guest";
 
-                if (isRunning) {
-                    if (b.allocated_resource) {
-                        const match = b.allocated_resource.toString().match(/(\d+)/);
-                        if (match) anchorIndex = parseInt(match[0]);
-                    } else if (b.rowId && typeof b.rowId === 'string' && (b.rowId.includes('BED') || b.rowId.includes('CHAIR'))) {
-                        const match = b.rowId.toString().match(/(\d+)/);
-                        if (match) anchorIndex = parseInt(match[0]);
-                    }
-                } else {
-                    if (b._virtualInheritanceIndex) anchorIndex = b._virtualInheritanceIndex;
-                    else if (b.allocated_resource) {
-                        const match = b.allocated_resource.toString().match(/(\d+)/);
-                        if (match) anchorIndex = parseInt(match[0]);
-                    }
+                if (b.allocated_resource) {
+                    const match = b.allocated_resource.toString().match(/(\d+)/);
+                    if (match) anchorIndex = parseInt(match[0]);
+                } else if (b.location) {
+                    const match = b.location.toString().match(/(\d+)/);
+                    if (match) anchorIndex = parseInt(match[0]);
+                } else if (b.current_resource_id) {
+                    const match = b.current_resource_id.toString().match(/(\d+)/);
+                    if (match) anchorIndex = parseInt(match[0]);
+                } else if (b.rowId && typeof b.rowId === 'string' && (b.rowId.includes('BED') || b.rowId.includes('CHAIR'))) {
+                    const match = b.rowId.toString().match(/(\d+)/);
+                    if (match) anchorIndex = parseInt(match[0]);
+                }
+                
+                if (!anchorIndex && b._virtualInheritanceIndex && !isRunning) {
+                    anchorIndex = b._virtualInheritanceIndex;
                 }
 
                 // Dùng hàm Helper tính chính xác toàn bộ p1, p2 và tổng thời lượng thực.
@@ -1036,7 +1038,7 @@
                     let updatesProposed = [];
                     const hardBookings = existingBookingsProcessed.filter(b => !b.isElastic);
                     hardBookings.forEach(hb => {
-                        hb.blocks.forEach(blk => matrixSqueeze.tryAllocate(blk.type, blk.start, blk.end + CONF.CLEANUP_BUFFER, hb.id, blk.forcedIndex));
+                        hb.blocks.forEach(blk => matrixSqueeze.tryAllocate(blk.type, blk.start, blk.end, hb.id, blk.forcedIndex, true));
                     });
                     let squeezeScenarioPossible = true;
                     for (const item of newGuestBlocksMap) {
