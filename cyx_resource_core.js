@@ -202,6 +202,36 @@ function inferFlowFromService(serviceObj, fallbackFlow = null) {
     return 'BODYSINGLE';
 }
 
+function detectResourceType(serviceObj) {
+    if (!serviceObj) return 'CHAIR';
+    if (serviceObj.type === 'BED' || serviceObj.type === 'CHAIR') return serviceObj.type;
+    const name = (serviceObj.name || '').toUpperCase();
+    if (name.match(/BODY|指壓|油|BED|TOAN THAN|全身|油壓|SPA|BACK/)) return 'BED';
+    return 'CHAIR';
+}
+
+function calculateRealDurations(booking, defaultDuration, isCombo) {
+    let p1 = Math.floor(defaultDuration / 2);
+    let p2 = defaultDuration - p1;
+
+    const parseDuration = (val) => {
+        if (val === undefined || val === null) return null;
+        const strVal = String(val).trim();
+        if (strVal === "") return null;
+        const num = parseInt(strVal, 10);
+        return isNaN(num) ? null : num;
+    };
+
+    const parsedP1 = parseDuration(booking.phase1_duration) ?? parseDuration(booking.originalData?.phase1_duration);
+    if (parsedP1 !== null) p1 = parsedP1;
+
+    const parsedP2 = parseDuration(booking.phase2_duration) ?? parseDuration(booking.originalData?.phase2_duration);
+    if (parsedP2 !== null) p2 = parsedP2;
+
+    const realDuration = isCombo ? (p1 + p2 + CONF.TRANSITION_BUFFER) : defaultDuration;
+    return { p1, p2, realDuration };
+}
+
 function parseStaffStatus(staffInfo) {
     if (!staffInfo) return { isAvailable: false };
     let isOff = false;
@@ -432,16 +462,53 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
 
     relevantBookings.forEach(b => {
         const bStart = getMinsFromTimeStr(b.startTimeString || b.startTime);
-        const duration = b.duration || 60;
-        const rId = b.allocated_resource || b.rowId || "";
-        const laneMatch = rId.toString().match(/(BED|CHAIR)[-_ ]?(\d+)/i);
+        const svcInfo = getServiceInfo(b.serviceCode, b.serviceName);
+        const storedFlow = b.originalData?.flowCode || b.flow;
+        const isCombo = isComboService(svcInfo, b.serviceName, storedFlow);
+        const { p1, realDuration } = calculateRealDurations(b, b.duration || 60, isCombo);
 
-        if (laneMatch) {
-            const type = laneMatch[1].toUpperCase().includes('BED') ? 'BED' : 'CHAIR';
-            const idx = parseInt(laneMatch[2]) - 1;
-            if (resourceMap[type] && resourceMap[type][idx]) {
-                resourceMap[type][idx].push({ start: bStart, end: bStart + duration + CONF.CLEANUP_BUFFER });
+        const rIdStr = (b.phase1_res_idx || "") + " " + (b.phase2_res_idx || "") + " " + (b.allocated_resource || "") + " " + (b.location || "") + " " + (b.current_resource_id || "") + " " + (b.rowId || "");
+        const matches = [...rIdStr.matchAll(/((?:BED|CHAIR|床|足)[-_ ]?\d+)/gi)].map(m => m[1].toUpperCase());
+        const uniqueMatches = [...new Set(matches)];
+
+        if (isCombo && uniqueMatches.length >= 2) {
+            let res1, res2;
+            if (storedFlow === 'BF') {
+                res1 = uniqueMatches.find(r => r.includes('BED') || r.includes('床')) || uniqueMatches[0];
+                res2 = uniqueMatches.find(r => r.includes('CHAIR') || r.includes('足')) || uniqueMatches[1];
+            } else if (storedFlow === 'FB') {
+                res1 = uniqueMatches.find(r => r.includes('CHAIR') || r.includes('足')) || uniqueMatches[0];
+                res2 = uniqueMatches.find(r => r.includes('BED') || r.includes('床')) || uniqueMatches[1];
+            } else {
+                res1 = uniqueMatches[0];
+                res2 = uniqueMatches[1];
             }
+            
+            const pushToMap = (res, startT, endT) => {
+                if (!res) return;
+                const laneMatch = res.match(/(BED|CHAIR|床|足)[-_ ]?(\d+)/i);
+                if (laneMatch) {
+                    const type = (laneMatch[1].toUpperCase().includes('BED') || laneMatch[1].includes('床')) ? 'BED' : 'CHAIR';
+                    const idx = parseInt(laneMatch[2]) - 1;
+                    if (resourceMap[type] && resourceMap[type][idx]) {
+                        resourceMap[type][idx].push({ start: startT, end: endT });
+                    }
+                }
+            };
+            
+            pushToMap(res1, bStart, bStart + p1 + CONF.CLEANUP_BUFFER);
+            pushToMap(res2, bStart + p1 + CONF.TRANSITION_BUFFER, bStart + realDuration + CONF.CLEANUP_BUFFER);
+        } else {
+            uniqueMatches.forEach(res => {
+                const laneMatch = res.match(/(BED|CHAIR|床|足)[-_ ]?(\d+)/i);
+                if (laneMatch) {
+                    const type = (laneMatch[1].toUpperCase().includes('BED') || laneMatch[1].includes('床')) ? 'BED' : 'CHAIR';
+                    const idx = parseInt(laneMatch[2]) - 1;
+                    if (resourceMap[type] && resourceMap[type][idx]) {
+                        resourceMap[type][idx].push({ start: bStart, end: bStart + realDuration + CONF.CLEANUP_BUFFER });
+                    }
+                }
+            });
         }
     });
 
