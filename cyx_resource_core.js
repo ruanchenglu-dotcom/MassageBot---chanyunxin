@@ -469,7 +469,21 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
 
         const rIdStr = (b.phase1_res_idx || "") + " " + (b.phase2_res_idx || "") + " " + (b.allocated_resource || "") + " " + (b.location || "") + " " + (b.current_resource_id || "") + " " + (b.rowId || "");
         const matches = [...rIdStr.matchAll(/((?:BED|CHAIR|床|足)[-_ ]?\d+)/gi)].map(m => m[1].toUpperCase());
-        const uniqueMatches = [...new Set(matches)];
+        let uniqueMatches = [...new Set(matches)];
+
+        // [V118.8 FIX] Hỗ trợ trích xuất số ghế/giường nếu chuỗi chỉ có số đơn thuần (phòng ngừa Bóng Ma Toạ Độ)
+        if (uniqueMatches.length === 0) {
+            const backupMatches = [...rIdStr.matchAll(/(\d+)/gi)].map(m => m[1]);
+            let inferredType = 'CHAIR';
+            if (svcInfo) {
+                if (svcInfo.type === 'BED' || svcInfo.type === 'CHAIR') inferredType = svcInfo.type;
+                else {
+                    const name = (svcInfo.name || '').toUpperCase();
+                    if (name.match(/BODY|指壓|油|BED|TOAN THAN|全身|油壓|SPA|BACK/)) inferredType = 'BED';
+                }
+            }
+            uniqueMatches = [...new Set(backupMatches)].map(num => `${inferredType}-${num}`);
+        }
 
         if (isCombo && uniqueMatches.length >= 2) {
             let res1, res2;
@@ -741,9 +755,17 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
     if (requestStartMins === -1) return { feasible: false, reason: "❌ 錯誤：時間格式無效" };
 
     const normalizedQueryDate = normalizeDateStrict(dateStr);
+    const hrReq = parseInt(timeStr.split(':')[0], 10);
+    let shiftedQueryDate = normalizedQueryDate;
+    if (!isNaN(hrReq) && hrReq < (CONF.OPEN_HOUR || 6)) {
+        const tempD = new Date(normalizedQueryDate.replace(/\//g, '-'));
+        tempD.setDate(tempD.getDate() - 1);
+        shiftedQueryDate = normalizeDateStrict(tempD);
+    }
+
     const filteredBookings = currentBookingsRaw.filter(b => {
         if (!b || !b.startTimeString) return false;
-        if (b.opDate) return normalizeDateStrict(b.opDate) === normalizedQueryDate;
+        if (b.opDate) return normalizeDateStrict(b.opDate) === shiftedQueryDate;
 
         let rawDate = b.startTimeString.split(' ')[0];
         let rawTime = b.startTimeString.split(' ')[1] || "12:00";
@@ -754,7 +776,7 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
             tempD.setDate(tempD.getDate() - 1);
             tempOpDate = normalizeDateStrict(tempD);
         }
-        return tempOpDate === normalizedQueryDate;
+        return tempOpDate === shiftedQueryDate;
     });
 
     let maxGuestDuration = 0;

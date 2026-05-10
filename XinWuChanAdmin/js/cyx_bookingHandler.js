@@ -333,7 +333,21 @@
 
                 const rIdStr = (b.phase1_res_idx || "") + " " + (b.phase2_res_idx || "") + " " + (b.allocated_resource || "") + " " + (b.location || "") + " " + (b.current_resource_id || "") + " " + (b.rowId || "");
                 const matches = [...rIdStr.matchAll(/((?:BED|CHAIR|床|足)[-_ ]?\d+)/gi)].map(m => m[1].toUpperCase());
-                const uniqueMatches = [...new Set(matches)];
+                let uniqueMatches = [...new Set(matches)];
+
+                // [V118.8 FIX] Hỗ trợ trích xuất số ghế/giường nếu chuỗi chỉ có số đơn thuần (phòng ngừa Bóng Ma Toạ Độ)
+                if (uniqueMatches.length === 0) {
+                    const backupMatches = [...rIdStr.matchAll(/(\d+)/gi)].map(m => m[1]);
+                    let inferredType = 'CHAIR';
+                    if (svcInfo) {
+                        if (svcInfo.type === 'BED' || svcInfo.type === 'CHAIR') inferredType = svcInfo.type;
+                        else {
+                            const name = (svcInfo.name || '').toUpperCase();
+                            if (name.match(/BODY|指壓|油|BED|TOAN THAN|全身|油壓|SPA|BACK/)) inferredType = 'BED';
+                        }
+                    }
+                    uniqueMatches = [...new Set(backupMatches)].map(num => `${inferredType}-${num}`);
+                }
 
                 if (isCombo && uniqueMatches.length >= 2) {
                     let res1, res2;
@@ -1015,13 +1029,24 @@
                 let conflictFound = false;
                 for (const item of newGuestBlocksMap) {
                     let guestAllocations = [];
+                    const useSuggestedLanes = guardrailCheck.suggestedLanes && guardrailCheck.suggestedLanes[item.guest.idx];
                     let preferredIdx = null;
-                    if (newGuestHalfSize > 0 && newGuests.length >= 2) {
+
+                    if (!useSuggestedLanes && newGuestHalfSize > 0 && newGuests.length >= 2) {
                         preferredIdx = (item.guest.idx % newGuestHalfSize) + 1;
                         if (maxBF === 2 && (numBF === 0 || numBF === 2)) preferredIdx = item.guest.idx + 1;
                     }
+
                     for (const block of item.blocks) {
-                        const slotId = matrix.tryAllocate(block.type, block.start, block.end, `NEW_GUEST_${item.guest.idx}`, preferredIdx);
+                        let specificPrefIdx = preferredIdx;
+                        let isPrefForced = false;
+
+                        if (useSuggestedLanes) {
+                            specificPrefIdx = guardrailCheck.suggestedLanes[item.guest.idx][block.type] || preferredIdx;
+                            if (specificPrefIdx !== null) isPrefForced = true;
+                        }
+
+                        const slotId = matrix.tryAllocate(block.type, block.start, block.end, `NEW_GUEST_${item.guest.idx}`, specificPrefIdx, isPrefForced);
                         if (!slotId) { conflictFound = true; break; }
                         guestAllocations.push(slotId);
                     }
@@ -1039,13 +1064,24 @@
                     });
                     let squeezeScenarioPossible = true;
                     for (const item of newGuestBlocksMap) {
+                        const useSuggestedLanes = guardrailCheck.suggestedLanes && guardrailCheck.suggestedLanes[item.guest.idx];
                         let preferredIdxSqueeze = null;
-                        if (newGuestHalfSize > 0 && newGuests.length >= 2) {
+
+                        if (!useSuggestedLanes && newGuestHalfSize > 0 && newGuests.length >= 2) {
                             preferredIdxSqueeze = (item.guest.idx % newGuestHalfSize) + 1;
                             if (maxBF === 2 && (numBF === 0 || numBF === 2)) preferredIdxSqueeze = item.guest.idx + 1;
                         }
+
                         for (const block of item.blocks) {
-                            if (!matrixSqueeze.tryAllocate(block.type, block.start, block.end, `NEW_GUEST_${item.guest.idx}`, preferredIdxSqueeze)) {
+                            let specificPrefIdx = preferredIdxSqueeze;
+                            let isPrefForced = false;
+
+                            if (useSuggestedLanes) {
+                                specificPrefIdx = guardrailCheck.suggestedLanes[item.guest.idx][block.type] || preferredIdxSqueeze;
+                                if (specificPrefIdx !== null) isPrefForced = true;
+                            }
+
+                            if (!matrixSqueeze.tryAllocate(block.type, block.start, block.end, `NEW_GUEST_${item.guest.idx}`, specificPrefIdx, isPrefForced)) {
                                 squeezeScenarioPossible = false; break;
                             }
                         }
