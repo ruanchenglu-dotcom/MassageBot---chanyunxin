@@ -511,12 +511,14 @@
 
             // SIMULATION
             const simulationMap = JSON.parse(JSON.stringify(resourceMap));
+            const suggestedLanes = {}; // [NEW V118.6]
 
             for (let i = 0; i < guestList.length; i++) {
                 const g = guestList[i];
                 const svc = SERVICES[g.serviceCode] || { duration: 60 };
                 const duration = svc.duration || 60;
                 const isCombo = isComboService(svc, g.serviceCode, g.flowCode);
+                const guestIdKey = g.idx !== undefined ? g.idx : i; // Đảm bảo đúng index
 
                 if (isCombo) {
                     const p1 = Math.floor(duration / 2);
@@ -539,6 +541,7 @@
                         successBF = true;
                         simulationMap.BED[bedIdx].push({ start: tStart, end: tStart + p1 + CONF.CLEANUP_BUFFER });
                         simulationMap.CHAIR[chairIdx].push({ start: tSwitch, end: tSwitch + p2 + CONF.CLEANUP_BUFFER });
+                        suggestedLanes[guestIdKey] = { BED: bedIdx + 1, CHAIR: chairIdx + 1 };
                     } else {
                         chairIdx = -1; bedIdx = -1;
                         for (let c = 0; c < CONF.MAX_CHAIRS; c++) {
@@ -552,6 +555,7 @@
                             successFB = true;
                             simulationMap.CHAIR[chairIdx].push({ start: tStart, end: tStart + p1 + CONF.CLEANUP_BUFFER });
                             simulationMap.BED[bedIdx].push({ start: tSwitch, end: tSwitch + p2 + CONF.CLEANUP_BUFFER });
+                            suggestedLanes[guestIdKey] = { CHAIR: chairIdx + 1, BED: bedIdx + 1 };
                         }
                     }
 
@@ -575,12 +579,13 @@
 
                     if (foundIdx !== -1) {
                         simulationMap[rType][foundIdx].push({ start: requestStart, end: requestStart + duration + CONF.CLEANUP_BUFFER });
+                        suggestedLanes[guestIdKey] = { [rType]: foundIdx + 1 };
                     } else {
                         return triggerSmartFailure(`⚠️ 已經沒有連續 ${duration} 分鐘的空${rType === 'BED' ? '床位' : '座位'}。`);
                     }
                 }
             }
-            return { pass: true, debug: { msg: "V116.1 Continuous Scan Passed" }, resourceMap: resourceMap };
+            return { pass: true, debug: { msg: "V118.6 Continuous Scan Passed" }, resourceMap: resourceMap, suggestedLanes: suggestedLanes };
         }
 
         // --- MATRIX ENGINE ---

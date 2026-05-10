@@ -514,6 +514,7 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
 
     // Mô phỏng luồng khách mới
     const simulationMap = JSON.parse(JSON.stringify(resourceMap));
+    const suggestedLanes = {}; // [NEW V118.6] Lưu lại toạ độ gợi ý chính xác
 
     for (let i = 0; i < guestList.length; i++) {
         const g = guestList[i];
@@ -521,6 +522,7 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
         const duration = svc.duration || 60;
         const explicitFlow = g.flowCode || null;
         const isCombo = isComboService(svc, g.serviceCode, explicitFlow);
+        const guestIdKey = g.idx !== undefined ? g.idx : i; // Đảm bảo mapping đúng index của khách
 
         if (isCombo) {
             const p1 = Math.floor(duration / 2);
@@ -539,6 +541,7 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
                 successBF = true;
                 simulationMap.BED[bedIdx].push({ start: tStart, end: tStart + p1 + CONF.CLEANUP_BUFFER });
                 simulationMap.CHAIR[chairIdx].push({ start: tSwitch, end: tSwitch + p2 + CONF.CLEANUP_BUFFER });
+                suggestedLanes[guestIdKey] = { BED: bedIdx + 1, CHAIR: chairIdx + 1 };
             } else {
                 // Kịch bản B: Chân Trước (CHAIR -> BED)
                 chairIdx = -1; bedIdx = -1;
@@ -549,6 +552,7 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
                     successFB = true;
                     simulationMap.CHAIR[chairIdx].push({ start: tStart, end: tStart + p1 + CONF.CLEANUP_BUFFER });
                     simulationMap.BED[bedIdx].push({ start: tSwitch, end: tSwitch + p2 + CONF.CLEANUP_BUFFER });
+                    suggestedLanes[guestIdKey] = { CHAIR: chairIdx + 1, BED: bedIdx + 1 };
                 }
             }
 
@@ -570,12 +574,13 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
 
             if (foundIdx !== -1) {
                 simulationMap[rType][foundIdx].push({ start: requestStart, end: requestStart + duration + CONF.CLEANUP_BUFFER });
+                suggestedLanes[guestIdKey] = { [rType]: foundIdx + 1 };
             } else {
                 return triggerSmartFailure(`⚠️ 已經沒有連續 ${duration} 分鐘的空${rType === 'BED' ? '床位' : '座位'}。`);
             }
         }
     }
-    return { pass: true, debug: { msg: "V118.0 Continuous Scan Passed" }, resourceMap: resourceMap };
+    return { pass: true, debug: { msg: "V118.0 Continuous Scan Passed" }, resourceMap: resourceMap, suggestedLanes: suggestedLanes };
 }
 
 // ============================================================================
@@ -967,13 +972,26 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
         let conflictFound = false;
         for (const item of newGuestBlocksMap) {
             let guestAllocations = [];
+            
+            // [V118.6 FIX] Cầu nối dữ liệu: Sử dụng toạ độ đề xuất từ bộ kiểm tra Continuous Scan để loại bỏ Bóng Ma Toạ Độ
+            const useSuggestedLanes = guardrailCheck.suggestedLanes && guardrailCheck.suggestedLanes[item.guest.idx];
             let preferredIdx = null;
-            if (newGuestHalfSize > 0 && newGuests.length >= 2) {
+
+            if (!useSuggestedLanes && newGuestHalfSize > 0 && newGuests.length >= 2) {
                 preferredIdx = (item.guest.idx % newGuestHalfSize) + 1;
                 if (maxBF === 2 && (numBF === 0 || numBF === 2)) preferredIdx = item.guest.idx + 1;
             }
+
             for (const block of item.blocks) {
-                const slotId = matrix.tryAllocate(block.type, block.start, block.end, `NEW_GUEST_${item.guest.idx}`, preferredIdx);
+                let specificPrefIdx = preferredIdx;
+                let isPrefForced = false;
+
+                if (useSuggestedLanes) {
+                    specificPrefIdx = guardrailCheck.suggestedLanes[item.guest.idx][block.type] || preferredIdx;
+                    if (specificPrefIdx !== null) isPrefForced = true; // Bắt buộc ưu tiên toạ độ đã được xác minh là an toàn
+                }
+
+                const slotId = matrix.tryAllocate(block.type, block.start, block.end, `NEW_GUEST_${item.guest.idx}`, specificPrefIdx, isPrefForced);
                 if (!slotId) { conflictFound = true; break; }
                 guestAllocations.push(slotId);
             }
@@ -998,14 +1016,25 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
             let squeezeScenarioPossible = true;
             let squeezeAllocationsMap = [];
             for (const item of newGuestBlocksMap) {
+                const useSuggestedLanes = guardrailCheck.suggestedLanes && guardrailCheck.suggestedLanes[item.guest.idx];
                 let preferredIdxSqueeze = null;
-                if (newGuestHalfSize > 0 && newGuests.length >= 2) {
+
+                if (!useSuggestedLanes && newGuestHalfSize > 0 && newGuests.length >= 2) {
                     preferredIdxSqueeze = (item.guest.idx % newGuestHalfSize) + 1;
                     if (maxBF === 2 && (numBF === 0 || numBF === 2)) preferredIdxSqueeze = item.guest.idx + 1;
                 }
+
                 let guestSqueezeAllocations = [];
                 for (const block of item.blocks) {
-                    const slotId = matrixSqueeze.tryAllocate(block.type, block.start, block.end, `NEW_GUEST_${item.guest.idx}`, preferredIdxSqueeze);
+                    let specificPrefIdx = preferredIdxSqueeze;
+                    let isPrefForced = false;
+
+                    if (useSuggestedLanes) {
+                        specificPrefIdx = guardrailCheck.suggestedLanes[item.guest.idx][block.type] || preferredIdxSqueeze;
+                        if (specificPrefIdx !== null) isPrefForced = true;
+                    }
+
+                    const slotId = matrixSqueeze.tryAllocate(block.type, block.start, block.end, `NEW_GUEST_${item.guest.idx}`, specificPrefIdx, isPrefForced);
                     if (!slotId) { squeezeScenarioPossible = false; break; }
                     guestSqueezeAllocations.push(slotId);
                 }
