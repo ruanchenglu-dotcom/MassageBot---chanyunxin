@@ -1411,6 +1411,10 @@
                 assignedStaffs: normalizedStaffs, // MẢNG THỢ MỚI
                 rowId: b.rowId,
                 allocated_resource: b.resourceId || b.allocated_resource || b.rowId,
+                location: b.location || (b.originalData ? b.originalData.location : null),
+                current_resource_id: b.current_resource_id || (b.originalData ? b.originalData.current_resource_id : null),
+                phase1_res_idx: b.phase1_res_idx || (b.originalData ? b.originalData.phase1_res_idx : null),
+                phase2_res_idx: b.phase2_res_idx || (b.originalData ? b.originalData.phase2_res_idx : null),
                 originalData: b, isManualLocked: finalLockState,
                 phase1_duration: b.phase1_duration !== undefined ? parseInt(b.phase1_duration) : (b.originalData?.phase1_duration ? parseInt(b.originalData.phase1_duration) : null),
                 phase2_duration: b.phase2_duration !== undefined ? parseInt(b.phase2_duration) : (b.originalData?.phase2_duration ? parseInt(b.originalData.phase2_duration) : null),

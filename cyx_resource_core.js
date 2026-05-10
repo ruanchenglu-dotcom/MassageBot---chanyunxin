@@ -485,44 +485,65 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
             uniqueMatches = [...new Set(backupMatches)].map(num => `${inferredType}-${num}`);
         }
 
-        if (isCombo && uniqueMatches.length >= 2) {
-            let res1, res2;
-            if (storedFlow === 'BF') {
-                res1 = uniqueMatches.find(r => r.includes('BED') || r.includes('床')) || uniqueMatches[0];
-                res2 = uniqueMatches.find(r => r.includes('CHAIR') || r.includes('足')) || uniqueMatches[1];
-            } else if (storedFlow === 'FB') {
-                res1 = uniqueMatches.find(r => r.includes('CHAIR') || r.includes('足')) || uniqueMatches[0];
-                res2 = uniqueMatches.find(r => r.includes('BED') || r.includes('床')) || uniqueMatches[1];
-            } else {
-                res1 = uniqueMatches[0];
-                res2 = uniqueMatches[1];
+        const pushToMapFallback = (type, startT, endT) => {
+            let found = false;
+            let limit = (type === 'BED') ? CONF.MAX_BEDS : CONF.MAX_CHAIRS;
+            for (let i = 0; i < limit; i++) {
+                if (resourceMap[type] && resourceMap[type][i] && checkLaneContinuity(resourceMap[type][i], startT, endT - CONF.CLEANUP_BUFFER)) {
+                    resourceMap[type][i].push({ start: startT, end: endT });
+                    found = true;
+                    break;
+                }
             }
-            
-            const pushToMap = (res, startT, endT) => {
-                if (!res) return;
+            if (!found && resourceMap[type] && resourceMap[type][0]) {
+                resourceMap[type][0].push({ start: startT, end: endT });
+            }
+        };
+
+        const pushToMap = (res, startT, endT, fallbackType) => {
+            let success = false;
+            if (res) {
                 const laneMatch = res.match(/(BED|CHAIR|床|足)[-_ ]?(\d+)/i);
                 if (laneMatch) {
                     const type = (laneMatch[1].toUpperCase().includes('BED') || laneMatch[1].includes('床')) ? 'BED' : 'CHAIR';
                     const idx = parseInt(laneMatch[2]) - 1;
                     if (resourceMap[type] && resourceMap[type][idx]) {
                         resourceMap[type][idx].push({ start: startT, end: endT });
+                        success = true;
                     }
                 }
-            };
+            }
+            if (!success && fallbackType) {
+                pushToMapFallback(fallbackType, startT, endT);
+            }
+        };
+
+        if (isCombo && uniqueMatches.length >= 2) {
+            let res1, res2;
+            let type1 = 'BED'; let type2 = 'CHAIR';
+            if (storedFlow === 'BF') {
+                res1 = uniqueMatches.find(r => r.includes('BED') || r.includes('床')) || uniqueMatches[0];
+                res2 = uniqueMatches.find(r => r.includes('CHAIR') || r.includes('足')) || uniqueMatches[1];
+            } else if (storedFlow === 'FB') {
+                res1 = uniqueMatches.find(r => r.includes('CHAIR') || r.includes('足')) || uniqueMatches[0];
+                res2 = uniqueMatches.find(r => r.includes('BED') || r.includes('床')) || uniqueMatches[1];
+                type1 = 'CHAIR'; type2 = 'BED';
+            } else {
+                res1 = uniqueMatches[0];
+                res2 = uniqueMatches[1];
+            }
             
-            pushToMap(res1, bStart, bStart + p1 + CONF.CLEANUP_BUFFER);
-            pushToMap(res2, bStart + p1 + CONF.TRANSITION_BUFFER, bStart + realDuration + CONF.CLEANUP_BUFFER);
+            pushToMap(res1, bStart, bStart + p1 + CONF.CLEANUP_BUFFER, type1);
+            pushToMap(res2, bStart + p1 + CONF.TRANSITION_BUFFER, bStart + realDuration + CONF.CLEANUP_BUFFER, type2);
         } else {
-            uniqueMatches.forEach(res => {
-                const laneMatch = res.match(/(BED|CHAIR|床|足)[-_ ]?(\d+)/i);
-                if (laneMatch) {
-                    const type = (laneMatch[1].toUpperCase().includes('BED') || laneMatch[1].includes('床')) ? 'BED' : 'CHAIR';
-                    const idx = parseInt(laneMatch[2]) - 1;
-                    if (resourceMap[type] && resourceMap[type][idx]) {
-                        resourceMap[type][idx].push({ start: bStart, end: bStart + realDuration + CONF.CLEANUP_BUFFER });
-                    }
-                }
-            });
+            let rType = (inferFlowFromService(svcInfo, storedFlow) === 'FOOTSINGLE') ? 'CHAIR' : 'BED';
+            if (uniqueMatches.length > 0) {
+                uniqueMatches.forEach(res => {
+                    pushToMap(res, bStart, bStart + realDuration + CONF.CLEANUP_BUFFER, rType);
+                });
+            } else {
+                pushToMapFallback(rType, bStart, bStart + realDuration + CONF.CLEANUP_BUFFER);
+            }
         }
     });
 
