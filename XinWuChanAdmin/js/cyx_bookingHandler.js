@@ -1677,18 +1677,74 @@
                 setCheckResult({ status: 'OK', message: "✅ 此時段可預約 (Available)", coreDetails: res.details, debug: res.debug });
             } else {
                 setCheckResult({ status: 'FAIL', message: res.reason, debug: res.debug });
+                // NÂNG CẤP V118.9: Thuật toán gợi ý thời gian thông minh dựa trên CLEANUP_MINUTES & TRANSITION_MINUTES
                 const found = [];
                 const parts = form.time.split(':').map(Number);
                 let currMins = (parts[0] || 0) * 60 + (parts[1] || 0);
-                for (let i = 1; i <= 48; i++) {
-                    let nM = currMins + (i * 10);
+                
+                // Lấy thông số đệm từ cấu hình
+                const ext = window.SYSTEM_CONFIG || (typeof CoreKernel !== 'undefined' ? CoreKernel.CONFIG : {});
+                const CLEANUP_BUFFER = (ext.BUFFERS && ext.BUFFERS.CLEANUP_MINUTES) || ext.CLEANUP_BUFFER || 5;
+                const TRANSITION_BUFFER = (ext.BUFFERS && ext.BUFFERS.TRANSITION_MINUTES) || ext.TRANSITION_BUFFER || 5;
+
+                let candidateMins = [];
+
+                // 1. Dựng các mốc ứng viên theo chu kỳ 10 phút (Dự phòng trường hợp quán rỗng)
+                for (let i = 1; i <= 24; i++) {
+                    candidateMins.push(currMins + (i * 10));
+                }
+
+                // 2. Thu thập thời gian kết thúc của các đơn đang chiếm dụng
+                const reqDate = form.date.replace(/\//g, '-');
+                finalBookings.forEach(b => {
+                    let bDate = b.opDate;
+                    if (!bDate && b.startTimeString) {
+                        bDate = b.startTimeString.split(' ')[0].replace(/\//g, '-');
+                    }
+                    if (bDate === reqDate) {
+                        let bTime = b.startTimeString ? b.startTimeString.split(' ')[1] : b.startTime;
+                        if (bTime) {
+                            let [hStr, mStr] = bTime.split(':');
+                            let h = parseInt(hStr, 10);
+                            let m = parseInt(mStr, 10);
+                            if (!isNaN(h) && !isNaN(m)) {
+                                let startMins = h * 60 + m;
+                                let duration = parseInt(b.duration, 10) || 60;
+                                let endMins = startMins + duration;
+
+                                // Gợi ý khách mới vào ngay sau khi giường/ghế được dọn dẹp hoặc chuyển tiếp
+                                candidateMins.push(endMins + CLEANUP_BUFFER);
+                                candidateMins.push(endMins + TRANSITION_BUFFER);
+                                
+                                // Lấy thêm mốc kết thúc của Phase 1 nếu là Combo
+                                let p1Dur = parseInt(b.phase1_duration, 10);
+                                if (isNaN(p1Dur) && b.originalData && b.originalData.phase1_duration) {
+                                    p1Dur = parseInt(b.originalData.phase1_duration, 10);
+                                }
+                                if (!isNaN(p1Dur) && p1Dur > 0) {
+                                    candidateMins.push(startMins + p1Dur + CLEANUP_BUFFER);
+                                    candidateMins.push(startMins + p1Dur + TRANSITION_BUFFER);
+                                }
+                            }
+                        }
+                    }
+                });
+
+                // 3. Lọc và sắp xếp các mốc thời gian ứng viên
+                let uniqueCandidates = [...new Set(candidateMins)]
+                    .filter(mins => mins > currMins)
+                    .sort((a, b) => a - b);
+
+                // 4. Kiểm tra sự khả dụng của từng mốc
+                for (let nM of uniqueCandidates) {
                     let daysToAdd = Math.floor(nM / 1440);
                     let localM = nM % 1440;
                     let h = Math.floor(localM / 60);
                     let m = localM % 60;
-                    let tStr = `${String(h).padStart(2, '0')}:${String(Math.floor(m / 10) * 10).padStart(2, '0')}`;
-
+                    
+                    let tStr = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
                     let sugDate = form.date;
+                    
                     if (daysToAdd > 0) {
                         const dParts = sugDate.replace(/\//g, '-').split('-');
                         if (dParts.length === 3) {
@@ -1699,7 +1755,9 @@
                     }
 
                     if (callCoreAvailabilityCheck(sugDate, tStr, guestDetails, finalBookings, serverStaffList).valid) {
-                        found.push({ time: tStr, date: sugDate, daysToAdd });
+                        if (!found.some(f => f.time === tStr && f.date === sugDate)) {
+                            found.push({ time: tStr, date: sugDate, daysToAdd });
+                        }
                         if (found.length >= 4) break;
                     }
                 }

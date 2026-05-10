@@ -986,8 +986,22 @@ async function updateInlineBooking(rowId, updatedData) {
                 dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!Y${rowId}`, values: [[phase1_dur]] }); 
                 dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!Z${rowId}`, values: [[phase2_dur]] }); 
                 dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!AA${rowId}`, values: [[newFlow]] });
-                dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!AB${rowId}`, values: [[""]] }); 
-                dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!AC${rowId}`, values: [[""]] }); 
+                
+                let oldCategory = null;
+                if (bookingData && bookingData.serviceCode && STATE.SERVICES[bookingData.serviceCode]) {
+                    oldCategory = STATE.SERVICES[bookingData.serviceCode].category;
+                } else if (bookingData && bookingData.category) {
+                    oldCategory = bookingData.category;
+                } else if (bookingData && bookingData.flow) {
+                    if (bookingData.flow === 'FOOTSINGLE') oldCategory = 'FOOT';
+                    else if (bookingData.flow === 'BODYSINGLE') oldCategory = 'BODY';
+                    else if (bookingData.flow === 'FB' || bookingData.flow === 'BF') oldCategory = 'COMBO';
+                }
+
+                if (oldCategory !== svcDef.category) {
+                    dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!AB${rowId}`, values: [[""]] }); 
+                    dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!AC${rowId}`, values: [[""]] }); 
+                }
                 dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!AD${rowId}`, values: [[newResType]] });
             }
         }

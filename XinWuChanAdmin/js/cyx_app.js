@@ -78,7 +78,7 @@ const getServiceBlocks = (serviceName) => {
 // --- HELPER: BÓC TÁCH THỜI GIAN CHUẨN TỪ TÊN DỊCH VỤ ---
 const extractStandardDuration = (serviceName) => {
     if (!serviceName) return null;
-    const match = serviceName.match(/(190|180|130|120|100|90|70|60|50|45|40|30)/);
+    const match = serviceName.match(/(190|180|170|160|150|140|130|120|110|100|90|80|75|70|65|60|55|50|45|40|35|30)/);
     if (match) {
         return parseInt(match[0], 10);
     }
