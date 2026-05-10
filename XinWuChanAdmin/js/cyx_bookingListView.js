@@ -198,6 +198,36 @@
                 }
             }
 
+            // 4. Specific Resource Check (Coordinate Check)
+            const currentRes = currentBookingObj ? (currentBookingObj.phase1_res_idx || currentBookingObj.allocated_resource) : null;
+            if (currentRes) {
+                const oldService = currentBookingObj.serviceName || '';
+                const newService = editFormData.service || '';
+                // Giữ nguyên category nếu cả 2 cùng có hoặc cùng không có chữ '足' (Tương đối chính xác cho Foot/Body)
+                const isSameCategory = (oldService.includes('足') && newService.includes('足')) || (!oldService.includes('足') && !newService.includes('足'));
+
+                if (isSameCategory) {
+                    const isResConflict = todays.some(b => {
+                        const bTimeStr = (b.startTimeString || ' ').split(' ')[1] || '00:00';
+                        const bStart = getMins(bTimeStr);
+                        const bEnd = bStart + getDuration(b.serviceName);
+                        const isTimeConflict = (startMins < bEnd && endMins > bStart);
+                        
+                        const bResStr = b.phase1_res_idx || b.allocated_resource || '';
+                        const bResArray = [...bResStr.toString().matchAll(/((?:BED|CHAIR)[-_ ]?\d+)/gi)].map(m => m[1].toUpperCase());
+                        const currentResClean = currentRes.toString().toUpperCase().trim();
+                        
+                        return isTimeConflict && (bResArray.includes(currentResClean) || bResStr.toString().toUpperCase() === currentResClean);
+                    });
+
+                    if (isResConflict) {
+                        setScanStatus('FAILED');
+                        setScanMessage(`❌ 原座位時段衝突`);
+                        return;
+                    }
+                }
+            }
+
             setScanStatus('OK');
             setScanMessage('✅ 檢查通過，可儲存');
         };

@@ -923,9 +923,27 @@ async function updateInlineBooking(rowId, updatedData) {
             let phase1Res = bookingData.phase1_res_idx || bookingData.allocated_resource;
             let phase2Res = bookingData.phase2_res_idx;
             
-            // If service changed, resources will be cleared, so no need to check overlap for old resources
+            // Nếu thay đổi dịch vụ, chỉ gỡ resource nếu Category thực sự thay đổi
             if (updatedData.dichVu !== undefined) {
-                phase1Res = null; phase2Res = null;
+                let newCategory = null;
+                if (sCode && STATE.SERVICES[sCode]) {
+                    newCategory = STATE.SERVICES[sCode].category;
+                }
+                
+                let oldCategory = null;
+                if (bookingData.serviceCode && STATE.SERVICES[bookingData.serviceCode]) {
+                    oldCategory = STATE.SERVICES[bookingData.serviceCode].category;
+                } else if (bookingData.category) {
+                    oldCategory = bookingData.category;
+                } else if (bookingData.flow) {
+                    if (bookingData.flow === 'FOOTSINGLE') oldCategory = 'FOOT';
+                    else if (bookingData.flow === 'BODYSINGLE') oldCategory = 'BODY';
+                    else if (bookingData.flow === 'FB' || bookingData.flow === 'BF') oldCategory = 'COMBO';
+                }
+
+                if (oldCategory !== newCategory) {
+                    phase1Res = null; phase2Res = null;
+                }
             }
 
             if (checkDate && checkTime && (phase1Res || phase2Res)) {
