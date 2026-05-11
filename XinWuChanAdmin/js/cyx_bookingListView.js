@@ -53,9 +53,11 @@
             const datePart = dateTimeParts[0].replace(/\//g, '-'); // Format YYYY-MM-DD cho input date
             const timePart = dateTimeParts[1] ? dateTimeParts[1].substring(0, 5) : '12:00'; // Format HH:MM
 
-            // Xử lý tách chuỗi tên (bỏ phần (1/2) nếu có)
-            const rawName = booking.customerName || '';
-            const cleanName = rawName.split('(')[0].trim();
+            // Xử lý tách chuỗi tên và giữ lại phần đuôi số lượng (ví dụ: (5/9))
+            const rawName = booking.originalName || booking.customerName || '';
+            const nameMatch = rawName.match(/^(.*?)(?:\s*(\(\d+\/\d+\)))?$/);
+            const cleanName = nameMatch && nameMatch[1] ? nameMatch[1].trim() : rawName.split('(')[0].trim();
+            const seqSuffix = nameMatch && nameMatch[2] ? nameMatch[2] : '';
 
             // SỬA LỖI SỐ ĐIỆN THOẠI: Lấy trực tiếp từ các trường phone/sdt
             const realPhone = booking.phone || booking.sdt || booking.custPhone || '';
@@ -64,6 +66,7 @@
                 date: datePart,
                 time: timePart,
                 name: cleanName,
+                nameSuffix: seqSuffix,
                 service: booking.serviceName || '',
                 isOil: booking.isOil || (booking.serviceName || '').includes('油'),
                 isGuaSha: booking.isGuaSha === true || booking.isGuaSha === 'Yes',
@@ -298,7 +301,7 @@
             const payload = {
                 ngayDen: editFormData.date.replace(/-/g, '/'), // Chuyển lại về YYYY/MM/DD
                 gioDen: editFormData.time,
-                hoTen: editFormData.name,
+                hoTen: editFormData.nameSuffix ? `${editFormData.name} ${editFormData.nameSuffix}`.trim() : editFormData.name,
                 dichVu: editFormData.service,
                 isOil: editFormData.isOil,
                 isGuaSha: editFormData.isGuaSha,
@@ -336,8 +339,7 @@
 
                                 // --- CHẾ ĐỘ HIỂN THỊ (VIEW MODE) ---
                                 if (!isEditingThisRow) {
-                                    const nameParts = (b.customerName || '').split('(');
-                                    const name = nameParts[0].trim();
+                                    const name = b.originalName || (b.customerName || '').split('(')[0].trim();
 
                                     // Hiển thị SĐT thật
                                     const realPhone = b.phone || b.sdt || b.custPhone || '';
@@ -439,7 +441,12 @@
                                     <tr key={`edit-${b.rowId}`} className="bg-yellow-50 shadow-inner border-y-2 border-orange-300">
                                         <td className="p-2"><input type="date" className="w-full border border-gray-300 p-2 rounded focus:ring-2 focus:ring-orange-400 outline-none" value={editFormData.date} onChange={e => handleInputChange('date', e.target.value)} /></td>
                                         <td className="p-2"><window.TimePicker24H className="w-full border border-gray-300 p-1 rounded font-mono outline-none" value={editFormData.time} onChange={val => handleInputChange('time', val)} /></td>
-                                        <td className="p-2"><input type="text" className="w-full border border-gray-300 p-2 rounded font-bold focus:ring-2 focus:ring-orange-400 outline-none" value={editFormData.name} onChange={e => handleInputChange('name', e.target.value)} /></td>
+                                        <td className="p-2">
+                                            <div className="flex items-center gap-1">
+                                                <input type="text" className="w-full border border-gray-300 p-2 rounded font-bold focus:ring-2 focus:ring-orange-400 outline-none" value={editFormData.name} onChange={e => handleInputChange('name', e.target.value)} />
+                                                {editFormData.nameSuffix && <span className="text-gray-500 font-mono text-sm whitespace-nowrap">{editFormData.nameSuffix}</span>}
+                                            </div>
+                                        </td>
                                         <td className="p-2"><select className="w-full border border-gray-300 p-2 rounded focus:ring-2 focus:ring-orange-400 outline-none max-w-[200px]" value={editFormData.service} onChange={e => handleInputChange('service', e.target.value)}>{servicesList.map(s => <option key={s} value={s}>{s}</option>)}</select></td>
                                         <td className="p-2 text-center"><input type="checkbox" className="w-5 h-5 accent-orange-500 cursor-pointer" checked={editFormData.isOil} onChange={e => handleInputChange('isOil', e.target.checked)} /></td>
                                         <td className="p-2 text-center"><input type="checkbox" className="w-5 h-5 accent-red-500 cursor-pointer" checked={editFormData.isGuaSha} onChange={e => handleInputChange('isGuaSha', e.target.checked)} /></td>

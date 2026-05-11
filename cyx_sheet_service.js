@@ -415,6 +415,7 @@ async function syncData() {
                     adminNote: row[17] || "",
                     pax: pax,
                     customerName: `${row[2]} (${row[6]})`,
+                    originalName: row[2],
                     serviceName: serviceStr, serviceCode: serviceCode,
                     phone: row[6], date: cleanDate, opDate: computedOpDate, status: status,
                     isRunning: isRunning, lineId: row[9],
