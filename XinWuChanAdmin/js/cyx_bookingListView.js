@@ -100,7 +100,7 @@
             };
             const getDuration = (serviceName) => {
                 if (!serviceName) return 60;
-                const match = serviceName.match(/(190|180|130|120|100|90|70|60|50|45|40|30)/);
+                const match = serviceName.match(/(190|180|170|160|150|140|130|120|110|100|90|80|75|70|65|60|55|50|45|40|35|30)/);
                 if (match) return parseInt(match[0], 10);
                 return 60;
             };
@@ -108,6 +108,42 @@
             const startMins = getMins(editFormData.time);
             const duration = getDuration(editFormData.service);
             const endMins = startMins + duration;
+
+            // Lấy danh mục dịch vụ thông minh (Smart Category Detection)
+            const getServiceCategory = (serviceName) => {
+                if (!serviceName) return 'BODY';
+                if (window.SERVICES_DATA) {
+                    for (const code in window.SERVICES_DATA) {
+                        const sData = window.SERVICES_DATA[code];
+                        if (serviceName.includes(sData.name) || sData.name.includes(serviceName)) {
+                            return sData.category;
+                        }
+                    }
+                }
+                if (serviceName.includes('套餐') || serviceName.includes('招牌') || serviceName.includes('COMBO')) return 'COMBO';
+                if (serviceName.includes('足') || serviceName.includes('腳底') || serviceName.includes('FOOT')) return 'FOOT';
+                return 'BODY';
+            };
+
+            const editServiceCategory = getServiceCategory(editFormData.service);
+            const currentBookingObj = safeBookings.find(b => b.rowId === editingRowId);
+            const currentPax = currentBookingObj ? (parseInt(currentBookingObj.pax, 10) || 1) : 1;
+
+            // Tính toán khoảng thời gian cho từng Phase nếu là Combo
+            let editPhase1End = startMins + duration;
+            let isComboEdit = editServiceCategory === 'COMBO';
+            
+            if (isComboEdit) {
+                const getSmartSplit = window.getComboSplit || ((dur) => {
+                    if (dur === 130) return { phase1: 70, phase2: 60 };
+                    if (dur === 120) return { phase1: 70, phase2: 50 };
+                    if (dur === 110) return { phase1: 70, phase2: 40 };
+                    if (dur === 100) return { phase1: 60, phase2: 40 };
+                    return { phase1: Math.floor(dur / 2), phase2: dur - Math.floor(dur / 2) };
+                });
+                const split = getSmartSplit(duration);
+                editPhase1End = startMins + split.phase1;
+            }
 
             // Lọc ra các booking của ngày đang sửa (Bỏ qua chính nó)
             const todays = safeBookings.filter(b => {
@@ -124,21 +160,55 @@
             const totalStaffCapacity = (staffList || []).length;
             let maxConcurrency = 0;
             
+            // 2. Resource Check (Tách biệt theo từng Phase 5 phút)
+            let maxChairOcc = 0;
+            let maxBedOcc = 0;
+
             for (let t = startMins; t < endMins; t += 5) {
                 let currentLoad = 0;
+                let currentChairLoad = 0;
+                let currentBedLoad = 0;
+
                 todays.forEach(b => {
                     const bTimeStr = (b.startTimeString || ' ').split(' ')[1] || '00:00';
                     const bStart = getMins(bTimeStr);
-                    const bEnd = bStart + getDuration(b.serviceName);
+                    const bDur = getDuration(b.serviceName);
+                    const bEnd = bStart + bDur;
+                    const bPax = parseInt(b.pax, 10) || 1;
+                    const bCat = getServiceCategory(b.serviceName);
+                    
                     if (t >= bStart && t < bEnd) {
-                        currentLoad += (parseInt(b.pax, 10) || 1);
+                        currentLoad += bPax;
+
+                        if (bCat === 'COMBO') {
+                            const bSplit = window.getComboSplit ? window.getComboSplit(bDur) : { phase1: Math.floor(bDur/2) };
+                            const bPhase1Dur = b.phase1_duration ? parseInt(b.phase1_duration) : bSplit.phase1;
+                            const bMid = bStart + bPhase1Dur;
+                            if (t < bMid) currentChairLoad += bPax;
+                            else currentBedLoad += bPax;
+                        } else if (bCat === 'FOOT' || b.type === 'CHAIR') {
+                            currentChairLoad += bPax;
+                        } else {
+                            currentBedLoad += bPax;
+                        }
                     }
                 });
-                // Current editing row (assuming 1 pax per row in list view, or we should use editFormData.pax if we add it, for now assume 1 as it is single row edit)
-                const currentBookingObj = safeBookings.find(b => b.rowId === editingRowId);
-                const currentPax = currentBookingObj ? (parseInt(currentBookingObj.pax, 10) || 1) : 1;
+
+                // Cộng thêm Booking đang edit
                 const totalLoadAtT = currentLoad + currentPax;
                 if (totalLoadAtT > maxConcurrency) maxConcurrency = totalLoadAtT;
+
+                if (isComboEdit) {
+                    if (t < editPhase1End) currentChairLoad += currentPax;
+                    else currentBedLoad += currentPax;
+                } else if (editServiceCategory === 'FOOT') {
+                    currentChairLoad += currentPax;
+                } else {
+                    currentBedLoad += currentPax;
+                }
+
+                if (currentChairLoad > maxChairOcc) maxChairOcc = currentChairLoad;
+                if (currentBedLoad > maxBedOcc) maxBedOcc = currentBedLoad;
             }
 
             if (maxConcurrency > totalStaffCapacity) {
@@ -147,30 +217,12 @@
                 return;
             }
 
-            // 2. Resource Check
-            let chairOccupied = 0;
-            let bedOccupied = 0;
-            todays.forEach(b => {
-                const bTimeStr = (b.startTimeString || ' ').split(' ')[1] || '00:00';
-                const bStart = getMins(bTimeStr);
-                const bEnd = bStart + getDuration(b.serviceName);
-                if (startMins < bEnd && endMins > bStart) {
-                    const bPax = parseInt(b.pax, 10) || 1;
-                    if ((b.serviceName || '').includes('足') || b.type === 'CHAIR') chairOccupied += bPax;
-                    else bedOccupied += bPax;
-                    if (b.category === 'COMBO') { bedOccupied += bPax; chairOccupied += bPax; }
-                }
-            });
-
-            const isChair = editFormData.service.includes('足');
-            const currentBookingObj = safeBookings.find(b => b.rowId === editingRowId);
-            const currentPax = currentBookingObj ? (parseInt(currentBookingObj.pax, 10) || 1) : 1;
-
-            if (isChair && chairOccupied + currentPax > maxChairs) {
+            if (maxChairOcc > maxChairs) {
                 setScanStatus('FAILED');
                 setScanMessage("❌ 足底區客滿");
                 return;
-            } else if (!isChair && bedOccupied + currentPax > maxBeds) {
+            }
+            if (maxBedOcc > maxBeds) {
                 setScanStatus('FAILED');
                 setScanMessage("❌ 指壓區客滿");
                 return;
@@ -202,9 +254,11 @@
             const currentRes = currentBookingObj ? (currentBookingObj.phase1_res_idx || currentBookingObj.allocated_resource) : null;
             if (currentRes) {
                 const oldService = currentBookingObj.serviceName || '';
-                const newService = editFormData.service || '';
-                // Giữ nguyên category nếu cả 2 cùng có hoặc cùng không có chữ '足' (Tương đối chính xác cho Foot/Body)
-                const isSameCategory = (oldService.includes('足') && newService.includes('足')) || (!oldService.includes('足') && !newService.includes('足'));
+                const oldCat = getServiceCategory(oldService);
+                
+                // Nâng cấp: Bỏ qua kiểm tra trùng tọa độ nếu chuyển đổi sang Combo hoặc từ Combo về Single
+                // (Vì backend sẽ tự động tháo tọa độ cũ để VirtualMatrix xếp lại vị trí mới hoàn hảo)
+                const isSameCategory = (oldCat === editServiceCategory) && (editServiceCategory !== 'COMBO');
 
                 if (isSameCategory) {
                     const isResConflict = todays.some(b => {
@@ -351,7 +405,7 @@
                                     // Hàm tính thời lượng
                                     const getDuration = (serviceName) => {
                                         if (!serviceName) return 60;
-                                        const match = serviceName.match(/(190|180|130|120|100|90|70|60|50|45|40|30)/);
+                                        const match = serviceName.match(/(190|180|170|160|150|140|130|120|110|100|90|80|75|70|65|60|55|50|45|40|35|30)/);
                                         if (match) return parseInt(match[0], 10);
                                         return 60;
                                     };

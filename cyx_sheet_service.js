@@ -1017,8 +1017,40 @@ async function updateInlineBooking(rowId, updatedData) {
                 }
 
                 if (oldCategory !== svcDef.category) {
-                    dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!AB${rowId}`, values: [[""]] }); 
-                    dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!AC${rowId}`, values: [[""]] }); 
+                    let bestPhase1 = "";
+                    let bestPhase2 = "";
+                    
+                    if (bookingData && typeof ResourceCore !== 'undefined' && ResourceCore.checkRequestAvailability) {
+                        const opDate = updatedData.ngayDen !== undefined ? formattedDate : (bookingData.opDate || bookingData.startTimeString);
+                        const opTime = updatedData.gioDen !== undefined ? timeVal : (bookingData.startTimeString || bookingData.startTime);
+                        
+                        const staffListMap = {}; 
+                        STATE.STAFF_LIST.forEach(s => { staffListMap[s.id] = s; });
+                        
+                        const relevantBookings = STATE.cachedBookings.filter(b => 
+                            normalizeDateStrict(b.opDate || b.startTimeString) === normalizeDateStrict(opDate) && b.rowId != rowId
+                        );
+
+                        const guestList = [{
+                            serviceCode: sCode,
+                            staffName: updatedData.nhanVien || bookingData.requestedStaff || '隨機',
+                            flow: newFlow
+                        }];
+
+                        try {
+                            const checkResult = ResourceCore.checkRequestAvailability(normalizeDateStrict(opDate), opTime, guestList, relevantBookings, staffListMap);
+                            if (checkResult.feasible && checkResult.details && checkResult.details.length > 0) {
+                                bestPhase1 = checkResult.details[0].phase1_res_idx || "";
+                                bestPhase2 = checkResult.details[0].phase2_res_idx || "";
+                                console.log(`[AUTO-ALLOCATE] Inline Update found new resources for Row ${rowId}: ${bestPhase1}, ${bestPhase2}`);
+                            }
+                        } catch (err) {
+                            console.error("[AUTO-ALLOCATE ERROR]", err);
+                        }
+                    }
+
+                    dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!AB${rowId}`, values: [[bestPhase1]] }); 
+                    dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!AC${rowId}`, values: [[bestPhase2]] }); 
                 }
                 dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!AD${rowId}`, values: [[newResType]] });
             }
