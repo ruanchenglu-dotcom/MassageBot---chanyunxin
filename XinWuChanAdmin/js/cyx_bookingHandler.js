@@ -638,29 +638,17 @@
                     }
                 }
                 
-                // [V118.5 FIX] Tối ưu hoá "Sort Lanes by Utilization": Luôn ưu tiên lane có ít lịch nhất
-                // Sao chép mảng lane để không làm thay đổi thứ tự gốc của resourceGroup
-                let sortedLanes = [...resourceGroup].sort((a, b) => a.occupied.length - b.occupied.length);
+                // [V118.9 FIX] 恢復「從上到下緊湊排列」(Top-Down Packing) 邏輯，取消空位優先分配以避免視覺空隙。
+                // 不再根據 occupied.length 進行排序，而是保留原始順序 (CHAIR-1, CHAIR-2...) 進行分配。
+                let sortedLanes = [...resourceGroup];
 
-                // Bước 1: Ưu tiên quét các ghế/giường RỖNG HOÀN TOÀN (0 block)
                 for (let lane of sortedLanes) {
-                    if (lane.occupied.length === 0) {
-                        if (this.checkLaneFree(lane, start, end).free) {
-                            return this.allocateToLane(lane, start, end, ownerId);
-                        }
-                    }
-                }
-
-                // Bước 2: XẾP CHỖ KHE HỞ (Gaps): Tìm chỗ vừa vặn theo thứ tự lane thưa thớt nhất
-                for (let lane of sortedLanes) {
-                    if (lane.occupied.length > 0) {
-                        const check = this.checkLaneFree(lane, start, end);
-                        if (check.free) {
-                            return this.allocateToLane(lane, start, end, ownerId);
-                        } else {
-                            const blockerTime = `${getTimeStrFromMins(check.blocker.start)}-${getTimeStrFromMins(check.blocker.end)}`;
-                            this.blockLog.push(`❌ ${lane.id} 被 ${check.blocker.ownerId} (${blockerTime}) 擋住`);
-                        }
+                    const check = this.checkLaneFree(lane, start, end);
+                    if (check.free) {
+                        return this.allocateToLane(lane, start, end, ownerId);
+                    } else {
+                        const blockerTime = `${getTimeStrFromMins(check.blocker.start)}-${getTimeStrFromMins(check.blocker.end)}`;
+                        this.blockLog.push(`❌ ${lane.id} 被 ${check.blocker.ownerId} (${blockerTime}) 擋住`);
                     }
                 }
                 

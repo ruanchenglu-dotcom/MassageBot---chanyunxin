@@ -654,24 +654,16 @@ class VirtualMatrix {
             }
         }
         
-        let sortedLanes = [...resourceGroup].sort((a, b) => a.occupied.length - b.occupied.length);
+        // [V118.9 FIX] 恢復「從上到下緊湊排列」(Top-Down Packing) 邏輯，取消空位優先分配以避免視覺空隙。
+        // 不再根據 occupied.length 進行排序，而是保留原始順序 (CHAIR-1, CHAIR-2...) 進行分配。
+        let sortedLanes = [...resourceGroup];
 
         for (let lane of sortedLanes) {
-            if (lane.occupied.length === 0) {
-                if (this.checkLaneFree(lane, start, end).free) {
-                    return this.allocateToLane(lane, start, end, ownerId);
-                }
-            }
-        }
-
-        for (let lane of sortedLanes) {
-            if (lane.occupied.length > 0) {
-                const check = this.checkLaneFree(lane, start, end);
-                if (check.free) {
-                    return this.allocateToLane(lane, start, end, ownerId);
-                } else {
-                    this.blockLog.push(`❌ ${lane.id} 被 ${check.blocker.ownerId} 擋住`);
-                }
+            const check = this.checkLaneFree(lane, start, end);
+            if (check.free) {
+                return this.allocateToLane(lane, start, end, ownerId);
+            } else {
+                this.blockLog.push(`❌ ${lane.id} 被 ${check.blocker.ownerId} 擋住`);
             }
         }
         
