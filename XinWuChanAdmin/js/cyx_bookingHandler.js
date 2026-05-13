@@ -1017,7 +1017,8 @@
                 let conflictFound = false;
                 for (const item of newGuestBlocksMap) {
                     let guestAllocations = [];
-                    const useSuggestedLanes = guardrailCheck.suggestedLanes && guardrailCheck.suggestedLanes[item.guest.idx];
+                    // [V118.10 FIX] 關閉 suggestedLanes 強制綁定，讓 Top-Down Packing 能夠在交叉安排 (BF/FB) 時自然填補空隙。
+                    const useSuggestedLanes = false;
                     let preferredIdx = null;
 
                     if (!useSuggestedLanes && newGuestHalfSize > 0 && newGuests.length >= 2) {
@@ -1052,7 +1053,8 @@
                     });
                     let squeezeScenarioPossible = true;
                     for (const item of newGuestBlocksMap) {
-                        const useSuggestedLanes = guardrailCheck.suggestedLanes && guardrailCheck.suggestedLanes[item.guest.idx];
+                        // [V118.10 FIX] 關閉 suggestedLanes 強制綁定
+                        const useSuggestedLanes = false;
                         let preferredIdxSqueeze = null;
 
                         if (!useSuggestedLanes && newGuestHalfSize > 0 && newGuests.length >= 2) {

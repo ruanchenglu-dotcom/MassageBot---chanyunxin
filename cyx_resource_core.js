@@ -1008,8 +1008,8 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
         for (const item of newGuestBlocksMap) {
             let guestAllocations = [];
             
-            // [V118.6 FIX] Cầu nối dữ liệu: Sử dụng toạ độ đề xuất từ bộ kiểm tra Continuous Scan để loại bỏ Bóng Ma Toạ Độ
-            const useSuggestedLanes = guardrailCheck.suggestedLanes && guardrailCheck.suggestedLanes[item.guest.idx];
+            // [V118.10 FIX] 關閉 suggestedLanes 強制綁定，讓 Top-Down Packing 能夠在交叉安排 (BF/FB) 時自然填補空隙。
+            const useSuggestedLanes = false;
             let preferredIdx = null;
 
             if (!useSuggestedLanes && newGuestHalfSize > 0 && newGuests.length >= 2) {
@@ -1051,7 +1051,8 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
             let squeezeScenarioPossible = true;
             let squeezeAllocationsMap = [];
             for (const item of newGuestBlocksMap) {
-                const useSuggestedLanes = guardrailCheck.suggestedLanes && guardrailCheck.suggestedLanes[item.guest.idx];
+                // [V118.10 FIX] 關閉 suggestedLanes 強制綁定
+                const useSuggestedLanes = false;
                 let preferredIdxSqueeze = null;
 
                 if (!useSuggestedLanes && newGuestHalfSize > 0 && newGuests.length >= 2) {
