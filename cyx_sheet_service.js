@@ -909,6 +909,14 @@ async function updateInlineBooking(rowId, updatedData) {
     try {
         if (!rowId) throw new Error("RowID is required");
 
+        const getRes = await sheets.spreadsheets.values.get({
+            spreadsheetId: SHEET_ID,
+            range: `${BOOKING_SHEET_NAME}!A${rowId}:AE${rowId}`
+        });
+        
+        let row = (getRes.data.values && getRes.data.values[0]) ? [...getRes.data.values[0]] : [];
+        while (row.length < 31) row.push("");
+
         const formattedDate = normalizeDateStrict(updatedData.ngayDen);
         let timeVal = updatedData.gioDen || "";
         if (timeVal.length > 5) timeVal = timeVal.substring(0, 5);
@@ -959,25 +967,46 @@ async function updateInlineBooking(rowId, updatedData) {
             }
         }
 
-        const dataToUpdate = [];
-
         if (formattedDate) {
-            dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!A${rowId}`, values: [[formattedDate]] });
-            dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!S${rowId}`, values: [[formattedDate]] });
+            row[0] = formattedDate;
+            row[18] = formattedDate;
         }
         if (timeVal) {
-            dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!B${rowId}`, values: [[timeVal]] });
+            row[1] = timeVal;
         }
         if (updatedData.hoTen !== undefined) {
-            dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!C${rowId}`, values: [[updatedData.hoTen]] });
+            row[2] = updatedData.hoTen;
         }
+        if (updatedData.isOil !== undefined) {
+            row[4] = updatedData.isOil ? "Yes" : "";
+        }
+        if (updatedData.pax !== undefined) {
+            row[5] = updatedData.pax;
+        }
+        if (updatedData.sdt !== undefined) {
+            row[6] = updatedData.sdt;
+        }
+        if (updatedData.trangThai !== undefined) {
+            row[7] = updatedData.trangThai;
+        }
+        if (updatedData.nhanVien !== undefined) {
+            row[8] = updatedData.nhanVien;
+        }
+        if (updatedData.isGuaSha !== undefined) {
+            row[16] = updatedData.isGuaSha ? "Yes" : "";
+        }
+        if (updatedData.adminNote !== undefined) {
+            row[17] = updatedData.adminNote;
+        }
+
         if (updatedData.dichVu !== undefined) {
             let svcName = updatedData.dichVu;
-            if (updatedData.isOil && !svcName.includes("油推")) {
+            let isOil = updatedData.isOil !== undefined ? updatedData.isOil : (row[4] === "Yes");
+            if (isOil && !svcName.includes("油推")) {
                 svcName += getOilSuffixText();
             }
-            dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!D${rowId}`, values: [[svcName]] });
-            dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!U${rowId}`, values: [[sCode]] });
+            row[3] = svcName;
+            row[20] = sCode;
             
             if (sCode && STATE.SERVICES[sCode]) {
                 const svcDef = STATE.SERVICES[sCode];
@@ -1002,9 +1031,9 @@ async function updateInlineBooking(rowId, updatedData) {
                     newResType = 'CHAIR';
                 }
                 
-                dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!Y${rowId}`, values: [[phase1_dur]] }); 
-                dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!Z${rowId}`, values: [[phase2_dur]] }); 
-                dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!AA${rowId}`, values: [[newFlow]] });
+                row[24] = phase1_dur;
+                row[25] = phase2_dur;
+                row[26] = newFlow;
                 
                 let oldCategory = null;
                 if (bookingData && bookingData.serviceCode && STATE.SERVICES[bookingData.serviceCode]) {
@@ -1050,44 +1079,37 @@ async function updateInlineBooking(rowId, updatedData) {
                         }
                     }
 
-                    dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!AB${rowId}`, values: [[bestPhase1]] }); 
-                    dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!AC${rowId}`, values: [[bestPhase2]] }); 
+                    row[27] = bestPhase1;
+                    row[28] = bestPhase2;
                 }
-                dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!AD${rowId}`, values: [[newResType]] });
+                row[29] = newResType;
+            }
+        } else {
+            if (updatedData.duration !== undefined) {
+                let currentFlow = row[26] || "";
+                if (currentFlow === 'FB' || currentFlow === 'BF') {
+                    let phase1_dur = updatedData.phase1_duration !== undefined ? updatedData.phase1_duration : Math.floor(updatedData.duration / 2);
+                    let phase2_dur = updatedData.phase2_duration !== undefined ? updatedData.phase2_duration : updatedData.duration - phase1_dur;
+                    row[24] = phase1_dur;
+                    row[25] = phase2_dur;
+                } else {
+                    row[24] = updatedData.duration;
+                    row[25] = "";
+                }
+            } else {
+                if (updatedData.phase1_duration !== undefined) row[24] = updatedData.phase1_duration;
+                if (updatedData.phase2_duration !== undefined) row[25] = updatedData.phase2_duration;
             }
         }
-        if (updatedData.isOil !== undefined) {
-            dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!E${rowId}`, values: [[updatedData.isOil ? "Yes" : ""]] });
-        }
-        if (updatedData.isGuaSha !== undefined) {
-            dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!Q${rowId}`, values: [[updatedData.isGuaSha ? "Yes" : ""]] });
-        }
-        if (updatedData.adminNote !== undefined) {
-            dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!R${rowId}`, values: [[updatedData.adminNote]] });
-        }
-        if (updatedData.pax !== undefined) {
-            dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!F${rowId}`, values: [[updatedData.pax]] });
-        }
-        if (updatedData.sdt !== undefined) {
-            dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!G${rowId}`, values: [[updatedData.sdt]] });
-        }
-        if (updatedData.trangThai !== undefined) {
-            dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!H${rowId}`, values: [[updatedData.trangThai]] });
-        }
-        if (updatedData.nhanVien !== undefined) {
-            dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!I${rowId}`, values: [[updatedData.nhanVien]] });
-        }
 
-        if (dataToUpdate.length > 0) {
-            await sheets.spreadsheets.values.batchUpdate({
-                spreadsheetId: SHEET_ID,
-                requestBody: {
-                    valueInputOption: 'USER_ENTERED',
-                    data: dataToUpdate
-                }
-            });
-            console.log(`[INLINE UPDATE] Success for Row: ${rowId}`);
-        }
+        await sheets.spreadsheets.values.update({
+            spreadsheetId: SHEET_ID,
+            range: `${BOOKING_SHEET_NAME}!A${rowId}:AE${rowId}`,
+            valueInputOption: 'USER_ENTERED',
+            requestBody: { values: [[...row]] }
+        });
+        
+        console.log(`[INLINE UPDATE FULL ROW] Success for Row: ${rowId}`);
 
         triggerSyncDebounced();
         return true;
