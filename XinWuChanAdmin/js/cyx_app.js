@@ -194,17 +194,29 @@ const detectFlowFromNote = (note, guestIndex) => {
 
 // --- HELPER: DATA DRIVEN SPLIT ---
 const getSmartSplit = (booking, totalDuration, isMaxMode, sequence) => {
-    if (booking.phase1_duration !== undefined && booking.phase1_duration !== null && booking.phase1_duration > 0 &&
-        booking.phase2_duration !== undefined && booking.phase2_duration !== null) {
-        return {
-            phase1: parseInt(booking.phase1_duration),
-            phase2: parseInt(booking.phase2_duration)
-        };
+    const oldTotalDuration = booking.duration ? parseInt(booking.duration) : null;
+    
+    // Only reuse existing phase splits if the total duration hasn't changed
+    if (oldTotalDuration === totalDuration) {
+        if (booking.phase1_duration !== undefined && booking.phase1_duration !== null && booking.phase1_duration > 0 &&
+            booking.phase2_duration !== undefined && booking.phase2_duration !== null) {
+            
+            if (parseInt(booking.phase1_duration) + parseInt(booking.phase2_duration) === totalDuration) {
+                return {
+                    phase1: parseInt(booking.phase1_duration),
+                    phase2: parseInt(booking.phase2_duration)
+                };
+            }
+        }
+        if (booking.phase1_duration && booking.phase1_duration > 0) {
+            const p1 = parseInt(booking.phase1_duration);
+            if (p1 <= totalDuration) {
+                return { phase1: p1, phase2: totalDuration - p1 };
+            }
+        }
     }
-    if (booking.phase1_duration && booking.phase1_duration > 0) {
-        const p1 = parseInt(booking.phase1_duration);
-        return { phase1: p1, phase2: totalDuration - p1 };
-    }
+    
+    // If duration changed or no valid split found, recalculate from scratch
     return window.getComboSplit(totalDuration, isMaxMode, sequence, null);
 };
 
@@ -1600,14 +1612,28 @@ const App = () => {
         const newState = { ...resourceState, [resId]: { ...current, booking: updatedBooking } };
         setResourceState(newState);
         
-        await axios.post('/api/update-booking-details', { 
-            rowId: current.booking.rowId, 
-            serviceName: newServiceName,
-            duration: newDuration,
-            phase1_duration: phase1_duration,
-            phase2_duration: phase2_duration
-        });
-        await updateResource(newState);
+        try {
+            await axios.post('/api/inline-update-booking', { 
+                rowId: current.booking.rowId, 
+                updatedData: {
+                    dichVu: newServiceName,
+                    duration: newDuration,
+                    phase1_duration: phase1_duration,
+                    phase2_duration: phase2_duration
+                }
+            });
+            fetchData(true);
+        } catch (e) {
+            console.error("Service change failed:", e);
+            const errorMsg = (e.response && e.response.data && e.response.data.error) ? e.response.data.error : e.message;
+            if (errorMsg && errorMsg.includes('RESOURCE_CONFLICT')) {
+                const parts = errorMsg.split('|');
+                alert(`⚠️ 儲存失敗！\n\n【衝突警告】\n該位置在該時段已經被「${parts[2] || '其他顧客'}」佔用。\n請重新選擇其他空閒位置！`);
+            } else {
+                alert("⚠️ 儲存失敗，請檢查網路連線。");
+            }
+            fetchData(true);
+        }
     };
 
     const handleSaveComboTime = async (arg1, arg2 = null, startTimeStr = null, switchTimeStr = null, customP1Res = null, customP2Res = null, overrideFlow = null) => {
@@ -3425,7 +3451,7 @@ const App = () => {
                 )}
             </main>
 
-            {showCheckIn && window.CheckInBoard && <window.CheckInBoard staffList={staffList} statusData={statusData} onUpdateStatus={updateStaffStatus} onClose={() => setShowCheckIn(false)} bookings={todaysBookings} salaryData={salaryData} />}
+            {showCheckIn && window.CheckInBoard && <window.CheckInBoard staffList={staffList} statusData={statusData} onUpdateStatus={updateStaffStatus} onClose={() => setShowCheckIn(false)} bookings={todaysBookings} salaryData={salaryData} viewDate={viewDate} />}
             {showAvailability && window.AvailabilityCheckModal && <window.AvailabilityCheckModal onClose={() => setShowAvailability(false)} onSave={handleWalkInSave} staffList={staffList} bookings={bookings} initialDate={viewDate} />}
             {comboStartData && window.ComboStartModal && <window.ComboStartModal onConfirm={confirmComboStart} onCancel={() => setComboStartData(null)} bookingName={comboStartData.booking.serviceName} />}
 
@@ -3564,6 +3590,7 @@ const App = () => {
                     statusData={statusData}
                     timelineData={timelineData}
                     resourceState={resourceState}
+                    bookings={bookings}
                 />
             )}
         </div>

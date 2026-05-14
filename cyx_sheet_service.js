@@ -942,7 +942,7 @@ async function updateInlineBooking(rowId, updatedData) {
                     else if (bookingData.flow === 'FB' || bookingData.flow === 'BF') oldCategory = 'COMBO';
                 }
 
-                if (oldCategory !== newCategory) {
+                if (oldCategory !== newCategory || bookingData.serviceCode !== sCode) {
                     phase1Res = null; phase2Res = null;
                 }
             }
@@ -1017,7 +1017,7 @@ async function updateInlineBooking(rowId, updatedData) {
                     else if (bookingData.flow === 'FB' || bookingData.flow === 'BF') oldCategory = 'COMBO';
                 }
 
-                if (oldCategory !== svcDef.category) {
+                if (oldCategory !== svcDef.category || bookingData.serviceCode !== sCode) {
                     let bestPhase1 = "";
                     let bestPhase2 = "";
                     

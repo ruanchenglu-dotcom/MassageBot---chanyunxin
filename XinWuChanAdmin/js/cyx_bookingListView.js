@@ -231,25 +231,72 @@
                 return;
             }
 
-            // 3. Specific Staff Check
+            // 3. Specific Staff Check & Gender Check
             const reqStaff = editFormData.staff;
-            if (reqStaff && reqStaff !== '隨機' && reqStaff !== '男' && reqStaff !== '女' && reqStaff !== '男師' && reqStaff !== '女師') {
-                const isStaffBooked = todays.some(b => {
-                    const bTimeStr = (b.startTimeString || ' ').split(' ')[1] || '00:00';
-                    const bStart = getMins(bTimeStr);
-                    const bEnd = bStart + getDuration(b.serviceName);
-                    const isTimeConflict = (startMins < bEnd && endMins > bStart);
-                    
-                    const staffCols = [b.serviceStaff, b.staffId, b.staffId2, b.staffId3, b.technician];
-                    // Clean staff IDs for comparison
-                    const cleanReqStaff = (window.normalizeStaffId ? window.normalizeStaffId(reqStaff) : reqStaff.trim()).toUpperCase();
-                    return isTimeConflict && staffCols.some(s => s && (window.normalizeStaffId ? window.normalizeStaffId(s) : s.trim()).toUpperCase() === cleanReqStaff);
-                });
+            
+            if (reqStaff && reqStaff !== '隨機') {
+                const checkStaffBusy = (staffId) => {
+                    const cleanTargetStaff = (window.normalizeStaffId ? window.normalizeStaffId(staffId) : staffId.trim()).toUpperCase();
+                    return todays.some(b => {
+                        const bTimeStr = (b.startTimeString || ' ').split(' ')[1] || '00:00';
+                        const bStart = getMins(bTimeStr);
+                        const bEnd = bStart + getDuration(b.serviceName);
+                        const isTimeConflict = (startMins < bEnd && endMins > bStart);
+                        
+                        const staffCols = [b.serviceStaff, b.staffId, b.staffId2, b.staffId3, b.technician];
+                        return isTimeConflict && staffCols.some(s => s && (window.normalizeStaffId ? window.normalizeStaffId(s) : s.trim()).toUpperCase() === cleanTargetStaff);
+                    });
+                };
 
-                if (isStaffBooked) {
-                    setScanStatus('FAILED');
-                    setScanMessage(`❌ 該技師時段忙碌`);
-                    return;
+                const isStaffAvailable = (staffInfo) => {
+                    if (!staffInfo || staffInfo.off) return false;
+                    if (!staffInfo.start || !staffInfo.end) return false;
+                    
+                    const shiftStart = getMins(staffInfo.start);
+                    let shiftEnd = getMins(staffInfo.end);
+                    if (shiftEnd < shiftStart) shiftEnd += 1440;
+                    
+                    return (startMins >= shiftStart && startMins < shiftEnd);
+                };
+
+                const isGenderReq = ['男', '女', '男師', '女師', 'MALE', 'FEMALE'].includes(reqStaff);
+                
+                if (isGenderReq) {
+                    const reqGender = (reqStaff === '男' || reqStaff === '男師' || reqStaff === 'MALE') ? 'M' : 'F';
+                    const genderStaff = (staffList || []).filter(s => {
+                        const sGender = s.gender || s.group || '';
+                        return sGender === reqGender || sGender === (reqGender === 'M' ? '男' : '女');
+                    });
+                    
+                    const hasAvailable = genderStaff.some(s => isStaffAvailable(s) && !checkStaffBusy(s.id));
+                    
+                    if (!hasAvailable) {
+                        setScanStatus('FAILED');
+                        setScanMessage(reqGender === 'M' ? `❌ 該時段無可用的男技師` : `❌ 該時段無可用的女技師`);
+                        return;
+                    }
+                } else {
+                    const cleanReqStaff = (window.normalizeStaffId ? window.normalizeStaffId(reqStaff) : reqStaff.trim()).toUpperCase();
+                    const targetStaff = (staffList || []).find(s => (window.normalizeStaffId ? window.normalizeStaffId(s.id) : s.id.trim()).toUpperCase() === cleanReqStaff);
+                    
+                    if (targetStaff) {
+                        if (targetStaff.off) {
+                            setScanStatus('FAILED');
+                            setScanMessage(`❌ 該技師今日休假`);
+                            return;
+                        }
+                        if (!isStaffAvailable(targetStaff)) {
+                            setScanStatus('FAILED');
+                            setScanMessage(`❌ 該技師不在班表時間內`);
+                            return;
+                        }
+                    }
+                    
+                    if (checkStaffBusy(reqStaff)) {
+                        setScanStatus('FAILED');
+                        setScanMessage(`❌ 該技師時段忙碌`);
+                        return;
+                    }
                 }
             }
 

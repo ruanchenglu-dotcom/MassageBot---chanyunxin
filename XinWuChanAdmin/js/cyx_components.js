@@ -173,10 +173,13 @@ window.StaffCard3D = StaffCard3D;
  * 3. CHECKIN BOARD (技師管理看板) 
  * ============================================================================
  */
-const AbsenceCheckModal = ({ data, staffList, bookings, onClose, onConfirm }) => {
+const AbsenceCheckModal = ({ data, staffList, bookings, statusData, localShifts, onClose, onConfirm, viewDate }) => {
     const { staffId, staffName, type } = data; // 'LATE', 'EARLY', 'OUT'
+    const baseDateStr = viewDate || new Date().toISOString().split('T')[0];
     const [time1, setTime1] = React.useState('');
     const [time2, setTime2] = React.useState('');
+    const [date1, setDate1] = React.useState(baseDateStr);
+    const [date2, setDate2] = React.useState(baseDateStr);
     const [result, setResult] = React.useState(null);
 
     const safeTimeToMins = (timeStr) => {
@@ -189,22 +192,60 @@ const AbsenceCheckModal = ({ data, staffList, bookings, onClose, onConfirm }) =>
         return h * 60 + m + (h < 5 ? 1440 : 0);
     };
 
+    const getExactMins = (dateStr, timeStr, baseDateStr) => {
+        if (!timeStr) return 0;
+        const [h, m] = timeStr.split(':').map(Number);
+        let daysOffset = 0;
+        if (dateStr && baseDateStr) {
+            const d1 = new Date(dateStr.replace(/\//g, '-')); d1.setHours(0,0,0,0);
+            const d2 = new Date(baseDateStr.replace(/\//g, '-')); d2.setHours(0,0,0,0);
+            daysOffset = Math.round((d1 - d2) / 86400000);
+        }
+        return daysOffset * 1440 + (h || 0) * 60 + (m || 0);
+    };
+
+    const getBookingMins = (dateTimeStr) => {
+        if (!dateTimeStr) return 0;
+        const parts = dateTimeStr.split(' ');
+        let dStr = baseDateStr, tStr = parts[0];
+        if (parts.length > 1) { dStr = parts[0]; tStr = parts[1]; }
+        return getExactMins(dStr, tStr, baseDateStr);
+    };
+
     const handleCheck = () => {
         let absStart, absEnd;
-        const nowStr = new Date().toLocaleTimeString('en-US', {hour12: false, hour: '2-digit', minute: '2-digit'});
-        const nowMins = safeTimeToMins(nowStr);
+        const now = new Date();
+        const nowD = now.toISOString().split('T')[0];
+        const nowT = now.toLocaleTimeString('en-US', {hour12: false, hour: '2-digit', minute: '2-digit'});
         
         if (type === 'LATE') {
             if (!time1) return alert('請輸入到達時間！');
-            absStart = 0;
-            absEnd = safeTimeToMins(time1);
+            const leavingStaff = staffList.find(s => window.normalizeStaffId(s.id) === window.normalizeStaffId(staffId));
+            const safeLocalShifts = localShifts || {};
+            const sStartStr = safeLocalShifts[staffId]?.start || leavingStaff?.shiftStart || '00:00';
+            absStart = getExactMins(baseDateStr, sStartStr, baseDateStr);
+            absEnd = getExactMins(date1, time1, baseDateStr);
+            if (absEnd < absStart) absEnd += 1440;
         } else if (type === 'EARLY') {
-            absStart = nowMins;
-            absEnd = 24 * 60 + 5 * 60;
+            absStart = getExactMins(nowD, nowT, baseDateStr);
+            let staffEndStr = '29:00'; 
+            let sStartStr = '00:00';
+            const leavingStaff = staffList.find(s => window.normalizeStaffId(s.id) === window.normalizeStaffId(staffId));
+            if (leavingStaff) {
+                 const safeLocalShifts = localShifts || {};
+                 staffEndStr = safeLocalShifts[staffId]?.end || leavingStaff.shiftEnd || '24:00';
+                 sStartStr = safeLocalShifts[staffId]?.start || leavingStaff.shiftStart || '00:00';
+            }
+            let staffEndMins = getExactMins(baseDateStr, staffEndStr, baseDateStr);
+            let staffStartMins = getExactMins(baseDateStr, sStartStr, baseDateStr);
+            if (staffEndMins <= staffStartMins) staffEndMins += 1440;
+            absEnd = Math.min(staffEndMins, staffStartMins + 24 * 60);
+            if (absEnd < absStart) absEnd = absStart;
         } else {
             if (!time1 || !time2) return alert('請輸入開始和結束時間！');
-            absStart = safeTimeToMins(time1);
-            absEnd = safeTimeToMins(time2);
+            absStart = getExactMins(date1, time1, baseDateStr);
+            absEnd = getExactMins(date2, time2, baseDateStr);
+            if (absEnd <= absStart) absEnd += 1440;
         }
 
         let hasDesignated = false;
@@ -217,7 +258,7 @@ const AbsenceCheckModal = ({ data, staffList, bookings, onClose, onConfirm }) =>
         });
 
         for (const b of activeBookings) {
-            const bStart = safeTimeToMins(b.startTimeString);
+            const bStart = getBookingMins(b.startTimeString);
             const bEnd = bStart + parseInt(b.duration || 60);
             if (bStart < absEnd && bEnd > absStart) {
                 const staffKeys = [b.serviceStaff, b.staffId, b.staffId2, b.staffId3, b.requestedStaff, b.technician];
@@ -236,28 +277,64 @@ const AbsenceCheckModal = ({ data, staffList, bookings, onClose, onConfirm }) =>
         }
 
         let shortage = false;
-        const availableStaffCount = staffList.filter(s => {
-            if (window.normalizeStaffId(s.id) === window.normalizeStaffId(staffId)) return false;
-            return s.status !== 'OFF' && s.status !== 'AWAY';
-        }).length;
+        let shortageMsg = '';
+        const safeStatusData = statusData || {};
+        const safeLocalShifts = localShifts || {};
 
         for (let t = absStart; t < absEnd; t += 10) {
             let currentLoad = 0;
             for (const b of activeBookings) {
-                const bStart = safeTimeToMins(b.startTimeString);
+                const bStart = getBookingMins(b.startTimeString);
                 const bEnd = bStart + parseInt(b.duration || 60);
                 if (t >= bStart && t < bEnd) currentLoad += parseInt(b.pax || 1);
             }
-            if (currentLoad > availableStaffCount) {
+            
+            let availableStaffAtT = 0;
+            for (const s of staffList) {
+                if (window.normalizeStaffId(s.id) === window.normalizeStaffId(staffId)) continue;
+                
+                const sStatus = safeStatusData[s.id] || { status: 'AWAY' };
+                if (sStatus.status === 'OFF' || (s.off === true && sStatus.status === 'AWAY')) continue;
+                
+                const sStartStr = safeLocalShifts[s.id]?.start || sStatus.lateStart || s.shiftStart || '00:00';
+                const sEndStr = safeLocalShifts[s.id]?.end || s.shiftEnd || '24:00';
+                
+                let sStartMins = getExactMins(baseDateStr, sStartStr, baseDateStr);
+                let sEndMins = getExactMins(baseDateStr, sEndStr, baseDateStr);
+                if (sEndMins <= sStartMins) sEndMins += 1440;
+                
+                if (t >= sStartMins && t < sEndMins) {
+                    let isOut = false;
+                    const outStartStr = safeLocalShifts[s.id]?.outStart || sStatus.outStart;
+                    const outEndStr = safeLocalShifts[s.id]?.outEnd || sStatus.outEnd;
+                    if (outStartStr && outEndStr) {
+                        let outStartMins = getExactMins(baseDateStr, outStartStr, baseDateStr);
+                        let outEndMins = getExactMins(baseDateStr, outEndStr, baseDateStr);
+                        if (outEndMins <= outStartMins) outEndMins += 1440;
+                        if (t >= outStartMins && t < outEndMins) isOut = true;
+                    }
+                    if (!isOut) availableStaffAtT++;
+                }
+            }
+
+            if (currentLoad > availableStaffAtT) {
                 shortage = true;
+                const displayH = Math.floor(t/60) % 24;
+                const displayM = t % 60;
+                const dayStr = t >= 1440 ? '(隔日) ' : '';
+                const timeStr = `${dayStr}${String(displayH).padStart(2,'0')}:${String(displayM).padStart(2,'0')}`;
+                shortageMsg = `❌ 人手不足！在 ${timeStr} 時段，顧客數量(${currentLoad}人)多於可用技師(${availableStaffAtT}人)。`;
                 break;
             }
         }
 
         if (shortage) {
-            setResult({ ok: false, msg: `❌ 人手不足！顧客數量多於可用技師。` });
+            setResult({ ok: false, msg: shortageMsg });
         } else {
-            const successMsg = type === 'LATE' ? `✅ 可以！請盡量早點到！` : `✅ 可外出！時段空閒且技師充足。`;
+            let successMsg = `✅ 可操作！時段空閒且技師充足。`;
+            if (type === 'LATE') successMsg = `✅ 可以！請盡量早點到！`;
+            else if (type === 'EARLY') successMsg = `✅ 可早退！時段空閒且技師充足。`;
+            else if (type === 'OUT') successMsg = `✅ 可外出！時段空閒且技師充足。`;
             setResult({ ok: true, msg: successMsg });
         }
     };
@@ -274,19 +351,28 @@ const AbsenceCheckModal = ({ data, staffList, bookings, onClose, onConfirm }) =>
                 <div className="p-6 space-y-5">
                     {type === 'LATE' && (
                         <div>
-                            <label className="block text-lg font-bold text-gray-700 mb-2">預計到達時間</label>
-                            <TimePicker24H value={time1} onChange={setTime1} className="w-full border-2 rounded p-3 text-2xl" />
+                            <label className="block text-lg font-bold text-gray-700 mb-2">預計到達日期與時間</label>
+                            <div className="flex gap-4">
+                                <input type="date" value={date1} onChange={e => setDate1(e.target.value)} className="w-1/2 border-2 rounded p-3 text-xl text-gray-700 font-bold" />
+                                <TimePicker24H value={time1} onChange={setTime1} className="w-1/2 border-2 rounded p-3 text-2xl" />
+                            </div>
                         </div>
                     )}
                     {type === 'OUT' && (
                         <div className="grid grid-cols-2 gap-4">
                             <div>
-                                <label className="block text-lg font-bold text-gray-700 mb-2">開始時間</label>
-                                <TimePicker24H value={time1} onChange={setTime1} className="w-full border-2 rounded p-3 text-2xl" />
+                                <label className="block text-lg font-bold text-gray-700 mb-2">開始日期與時間</label>
+                                <div className="flex flex-col gap-2">
+                                    <input type="date" value={date1} onChange={e => setDate1(e.target.value)} className="w-full border-2 rounded p-2 text-base text-gray-700 font-bold" />
+                                    <TimePicker24H value={time1} onChange={setTime1} className="w-full border-2 rounded p-2 text-xl" />
+                                </div>
                             </div>
                             <div>
-                                <label className="block text-lg font-bold text-gray-700 mb-2">結束時間</label>
-                                <TimePicker24H value={time2} onChange={setTime2} className="w-full border-2 rounded p-3 text-2xl" />
+                                <label className="block text-lg font-bold text-gray-700 mb-2">結束日期與時間</label>
+                                <div className="flex flex-col gap-2">
+                                    <input type="date" value={date2} onChange={e => setDate2(e.target.value)} className="w-full border-2 rounded p-2 text-base text-gray-700 font-bold" />
+                                    <TimePicker24H value={time2} onChange={setTime2} className="w-full border-2 rounded p-2 text-xl" />
+                                </div>
                             </div>
                         </div>
                     )}
@@ -317,7 +403,7 @@ const AbsenceCheckModal = ({ data, staffList, bookings, onClose, onConfirm }) =>
 };
 window.AbsenceCheckModal = AbsenceCheckModal;
 
-const CheckInBoard = ({ staffList, statusData, onClose, onUpdateStatus, bookings, salaryData }) => {
+const CheckInBoard = ({ staffList, statusData, onClose, onUpdateStatus, bookings, salaryData, viewDate }) => {
     const STATUS = getBookingStatus();
     const safeStaffList = Array.isArray(staffList) ? staffList : [];
 
@@ -473,7 +559,7 @@ const CheckInBoard = ({ staffList, statusData, onClose, onUpdateStatus, bookings
 
     return (
         <div className="fixed inset-0 bg-slate-900/80 z-[60] flex items-center justify-center p-4 backdrop-blur-sm">
-            {absenceData && <AbsenceCheckModal data={absenceData} staffList={staffList} bookings={bookings} onClose={() => setAbsenceData(null)} onConfirm={(type, time1, time2) => {
+            {absenceData && <AbsenceCheckModal data={absenceData} staffList={staffList} bookings={bookings} statusData={statusData} localShifts={localShifts} viewDate={viewDate} onClose={() => setAbsenceData(null)} onConfirm={(type, time1, time2) => {
                 if (type === 'LATE') {
                     handleShiftChange(absenceData.staffId, 'start', time1);
                     const currentStatus = (statusData && statusData[absenceData.staffId]) ? statusData[absenceData.staffId] : {};

@@ -147,7 +147,7 @@ const checkGuaShaService = (booking) => {
 // ============================================================================
 // 0. BOOKING CONTROL MODAL (SUPER MODAL)
 // ============================================================================
-const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveData, contextResourceId, staffList, statusData, timelineData, resourceState }) => {
+const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveData, contextResourceId, staffList, statusData, timelineData, resourceState, bookings }) => {
     if (!isOpen || !booking) return null;
     const STATUS = getBookingStatus();
 
@@ -178,6 +178,8 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
 
     const initCleanService = booking.cleanServiceName || getCleanServiceName(booking.serviceName);
     const [selectedService, setSelectedService] = useState(initCleanService);
+    const [scanServiceStatus, setScanServiceStatus] = useState(null);
+    const [scanServiceMessage, setScanServiceMessage] = useState('');
 
     const [selectedStaff, setSelectedStaff] = useState('隨機');
 
@@ -370,6 +372,225 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
         }
         return { availableP1Resources: availList, p1ResourcesData: allList };
     }, [isBodyFirstLocal, startMins, switchMins, timelineData, booking?.rowId]);
+
+    const performServiceCheck = () => {
+        const getDuration = (serviceName) => {
+            if (!serviceName) return 60;
+            const match = serviceName.match(/(190|180|170|160|150|140|130|120|110|100|90|80|75|70|65|60|55|50|45|40|35|30)/);
+            if (match) return parseInt(match[0], 10);
+            return window.getSafeDuration ? window.getSafeDuration(serviceName, booking.duration) : 60;
+        };
+
+        const newDuration = getDuration(selectedService);
+        const endMins = startMins + newDuration;
+
+        const getServiceCategory = (serviceName) => {
+            if (!serviceName) return 'BODY';
+            if (window.SERVICES_DATA) {
+                for (const code in window.SERVICES_DATA) {
+                    const sData = window.SERVICES_DATA[code];
+                    if (serviceName.includes(sData.name) || sData.name.includes(serviceName)) return sData.category;
+                }
+            }
+            if (serviceName.includes('套餐') || serviceName.includes('招牌') || serviceName.includes('COMBO')) return 'COMBO';
+            if (serviceName.includes('足') || serviceName.includes('腳底') || serviceName.includes('FOOT')) return 'FOOT';
+            return 'BODY';
+        };
+
+        const editServiceCategory = getServiceCategory(selectedService);
+        const currentPax = parseInt(booking.pax, 10) || 1;
+
+        let editPhase1End = startMins + newDuration;
+        let isComboEdit = editServiceCategory === 'COMBO';
+        
+        if (isComboEdit) {
+            const getSmartSplit = window.getComboSplit || ((dur) => {
+                if (dur === 130) return { phase1: 70, phase2: 60 };
+                if (dur === 120) return { phase1: 70, phase2: 50 };
+                if (dur === 110) return { phase1: 70, phase2: 40 };
+                if (dur === 100) return { phase1: 60, phase2: 40 };
+                return { phase1: Math.floor(dur / 2), phase2: dur - Math.floor(dur / 2) };
+            });
+            const split = getSmartSplit(newDuration);
+            editPhase1End = startMins + split.phase1;
+        }
+
+        const safeBookings = Array.isArray(bookings) ? bookings : [];
+        const todays = safeBookings.filter(b => {
+            if (String(b.rowId) === String(booking.rowId)) return false;
+            const bStatus = b.status || '';
+            const isCancelled = bStatus === STATUS.CANCELLED || bStatus.includes('取消') || bStatus.includes('Cancel');
+            const isNoShow = bStatus === STATUS.NOSHOW || bStatus.includes('爽約') || bStatus.toUpperCase().includes('NOSHOW');
+            const isDone = bStatus === STATUS.COMPLETED || bStatus.includes('完成') || bStatus.includes('✅');
+            return !isCancelled && !isNoShow && !isDone;
+        });
+
+        const totalStaffCapacity = (staffList || []).length;
+        let maxConcurrency = 0;
+        let maxChairOcc = 0;
+        let maxBedOcc = 0;
+
+        for (let t = startMins; t < endMins; t += 5) {
+            let currentLoad = 0;
+            let currentChairLoad = 0;
+            let currentBedLoad = 0;
+
+            todays.forEach(b => {
+                const bTimeStr = (b.startTimeString || ' ').split(' ')[1] || '00:00';
+                const bStart = timeStrToMins(bTimeStr);
+                const bDur = getDuration(b.serviceName);
+                const bEnd = bStart + bDur;
+                const bPax = parseInt(b.pax, 10) || 1;
+                const bCat = getServiceCategory(b.serviceName);
+                
+                if (t >= bStart && t < bEnd) {
+                    currentLoad += bPax;
+
+                    if (bCat === 'COMBO') {
+                        const bSplit = window.getComboSplit ? window.getComboSplit(bDur) : { phase1: Math.floor(bDur/2) };
+                        const bPhase1Dur = b.phase1_duration ? parseInt(b.phase1_duration) : bSplit.phase1;
+                        const bMid = bStart + bPhase1Dur;
+                        if (t < bMid) currentChairLoad += bPax;
+                        else currentBedLoad += bPax;
+                    } else if (bCat === 'FOOT' || b.type === 'CHAIR') {
+                        currentChairLoad += bPax;
+                    } else {
+                        currentBedLoad += bPax;
+                    }
+                }
+            });
+
+            const totalLoadAtT = currentLoad + currentPax;
+            if (totalLoadAtT > maxConcurrency) maxConcurrency = totalLoadAtT;
+
+            if (isComboEdit) {
+                if (t < editPhase1End) currentChairLoad += currentPax;
+                else currentBedLoad += currentPax;
+            } else if (editServiceCategory === 'FOOT') {
+                currentChairLoad += currentPax;
+            } else {
+                currentBedLoad += currentPax;
+            }
+
+            if (currentChairLoad > maxChairOcc) maxChairOcc = currentChairLoad;
+            if (currentBedLoad > maxBedOcc) maxBedOcc = currentBedLoad;
+        }
+
+        if (maxConcurrency > totalStaffCapacity) {
+            setScanServiceStatus('FAILED');
+            setScanServiceMessage(`❌ 技師不足`);
+            return;
+        }
+
+        if (maxChairOcc > getMaxChairs()) {
+            setScanServiceStatus('FAILED');
+            setScanServiceMessage("❌ 足底區客滿");
+            return;
+        }
+        if (maxBedOcc > getMaxBeds()) {
+            setScanServiceStatus('FAILED');
+            setScanServiceMessage("❌ 指壓區客滿");
+            return;
+        }
+
+        const reqStaff = selectedStaff;
+        if (reqStaff && reqStaff !== '隨機') {
+            const checkStaffBusy = (staffId) => {
+                const cleanTargetStaff = (window.normalizeStaffId ? window.normalizeStaffId(staffId) : staffId.trim()).toUpperCase();
+                return todays.some(b => {
+                    const bTimeStr = (b.startTimeString || ' ').split(' ')[1] || '00:00';
+                    const bStart = timeStrToMins(bTimeStr);
+                    const bEnd = bStart + getDuration(b.serviceName);
+                    const isTimeConflict = (startMins < bEnd && endMins > bStart);
+                    
+                    const staffCols = [b.serviceStaff, b.staffId, b.staffId2, b.staffId3, b.technician];
+                    return isTimeConflict && staffCols.some(s => s && (window.normalizeStaffId ? window.normalizeStaffId(s) : s.trim()).toUpperCase() === cleanTargetStaff);
+                });
+            };
+
+            const isStaffAvailable = (staffInfo) => {
+                if (!staffInfo || staffInfo.off) return false;
+                if (!staffInfo.start || !staffInfo.end) return false;
+                
+                const shiftStart = timeStrToMins(staffInfo.start);
+                let shiftEnd = timeStrToMins(staffInfo.end);
+                if (shiftEnd < shiftStart) shiftEnd += 1440;
+                
+                return (startMins >= shiftStart && startMins < shiftEnd);
+            };
+
+            const isGenderReq = ['男', '女', '男師', '女師', 'MALE', 'FEMALE'].includes(reqStaff);
+            
+            if (isGenderReq) {
+                const reqGender = (reqStaff === '男' || reqStaff === '男師' || reqStaff === 'MALE') ? 'M' : 'F';
+                const genderStaff = (staffList || []).filter(s => {
+                    const sGender = s.gender || s.group || '';
+                    return sGender === reqGender || sGender === (reqGender === 'M' ? '男' : '女');
+                });
+                
+                const hasAvailable = genderStaff.some(s => isStaffAvailable(s) && !checkStaffBusy(s.id));
+                
+                if (!hasAvailable) {
+                    setScanServiceStatus('FAILED');
+                    setScanServiceMessage(reqGender === 'M' ? `❌ 該時段無可用的男技師` : `❌ 該時段無可用的女技師`);
+                    return;
+                }
+            } else {
+                const cleanReqStaff = (window.normalizeStaffId ? window.normalizeStaffId(reqStaff) : reqStaff.trim()).toUpperCase();
+                const targetStaff = (staffList || []).find(s => (window.normalizeStaffId ? window.normalizeStaffId(s.id) : s.id.trim()).toUpperCase() === cleanReqStaff);
+                
+                if (targetStaff) {
+                    if (targetStaff.off) {
+                        setScanServiceStatus('FAILED');
+                        setScanServiceMessage(`❌ 該技師今日休假`);
+                        return;
+                    }
+                    if (!isStaffAvailable(targetStaff)) {
+                        setScanServiceStatus('FAILED');
+                        setScanServiceMessage(`❌ 該技師不在班表時間內`);
+                        return;
+                    }
+                }
+                
+                if (checkStaffBusy(reqStaff)) {
+                    setScanServiceStatus('FAILED');
+                    setScanServiceMessage(`❌ 該技師時段忙碌`);
+                    return;
+                }
+            }
+        }
+
+        const currentRes = contextResourceId || booking.current_resource_id || booking.allocated_resource || booking.phase1_res_idx;
+        if (currentRes) {
+            const oldService = booking.serviceName || '';
+            const oldCat = getServiceCategory(oldService);
+            const isSameCategory = (oldCat === editServiceCategory) && (editServiceCategory !== 'COMBO');
+
+            if (isSameCategory) {
+                const isResConflict = todays.some(b => {
+                    const bTimeStr = (b.startTimeString || ' ').split(' ')[1] || '00:00';
+                    const bStart = timeStrToMins(bTimeStr);
+                    const bEnd = bStart + getDuration(b.serviceName);
+                    const isTimeConflict = (startMins < bEnd && endMins > bStart);
+                    
+                    const bResStr = b.phase1_res_idx || b.allocated_resource || b.current_resource_id || '';
+                    const bResArray = [...bResStr.toString().matchAll(/((?:BED|CHAIR)[-_ ]?\d+)/gi)].map(m => m[1].toUpperCase());
+                    const currentResClean = currentRes.toString().toUpperCase().trim();
+                    
+                    return isTimeConflict && (bResArray.includes(currentResClean) || bResStr.toString().toUpperCase() === currentResClean);
+                });
+
+                if (isResConflict) {
+                    setScanServiceStatus('FAILED');
+                    setScanServiceMessage(`❌ 原座位時段衝突`);
+                    return;
+                }
+            }
+        }
+
+        setScanServiceStatus('OK');
+        setScanServiceMessage('✅ 檢查通過，可儲存');
+    };
 
     const { availableP2Resources, p2ResourcesData } = useMemo(() => {
         const type = isBodyFirstLocal ? 'chair' : 'bed';
@@ -769,6 +990,8 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                                     onChange={(e) => {
                                         const newSvc = e.target.value;
                                         setSelectedService(newSvc);
+                                        setScanServiceStatus(null);
+                                        setScanServiceMessage('');
                                         if (newSvc.includes('油推') && selectedStaff === '隨機') {
                                             setSelectedStaff('女');
                                         }
@@ -781,11 +1004,24 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                                     <i className="fas fa-chevron-down"></i>
                                 </div>
                                 {selectedService !== (booking.cleanServiceName || getCleanServiceName(booking.serviceName)) && (
-                                    <button onClick={() => triggerAction('CHANGE_SERVICE', { newService: selectedService })} className="absolute right-8 top-1.5 bottom-1.5 bg-indigo-600 text-white text-xs font-bold px-3 rounded hover:bg-indigo-700 animate-pulse">
-                                        確認
-                                    </button>
+                                    <>
+                                        {scanServiceStatus !== 'OK' ? (
+                                            <button onClick={performServiceCheck} className="absolute right-8 top-1.5 bottom-1.5 bg-blue-600 text-white text-xs font-bold px-3 rounded hover:bg-blue-700 animate-pulse">
+                                                🔍 查詢
+                                            </button>
+                                        ) : (
+                                            <button onClick={() => triggerAction('UPDATE_SERVICE', { newService: selectedService })} className="absolute right-8 top-1.5 bottom-1.5 bg-green-500 text-white text-xs font-bold px-3 rounded hover:bg-green-600">
+                                                💾 保存
+                                            </button>
+                                        )}
+                                    </>
                                 )}
                             </div>
+                            {scanServiceMessage && selectedService !== (booking.cleanServiceName || getCleanServiceName(booking.serviceName)) && (
+                                <div className={`text-xs font-bold mt-1 ${scanServiceStatus === 'OK' ? 'text-green-600' : 'text-red-600'}`}>
+                                    {scanServiceMessage}
+                                </div>
+                            )}
                         </div>
 
                         <div className="bg-slate-800 rounded-xl p-4 text-white relative overflow-hidden flex flex-col justify-center items-center shadow-inner">
