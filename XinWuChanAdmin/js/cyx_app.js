@@ -1616,7 +1616,15 @@ const App = () => {
             await axios.post('/api/inline-update-booking', { 
                 rowId: current.booking.rowId, 
                 updatedData: {
+                    ngayDen: current.booking.date || current.booking.opDate,
+                    gioDen: current.booking.startTimeString ? current.booking.startTimeString.split(' ')[1] : current.booking.startTime,
+                    hoTen: current.booking.customerName,
                     dichVu: newServiceName,
+                    isOil: current.booking.isOil,
+                    isGuaSha: current.booking.isGuaSha,
+                    sdt: current.booking.sdt || current.booking.phone,
+                    trangThai: current.booking.status,
+                    nhanVien: current.booking.requestedStaff || current.booking.staffId || current.booking.serviceStaff,
                     duration: newDuration,
                     phase1_duration: phase1_duration,
                     phase2_duration: phase2_duration
