@@ -1395,8 +1395,10 @@ const App = () => {
             if (errorMsg && errorMsg.includes('RESOURCE_CONFLICT')) {
                 const parts = errorMsg.split('|');
                 Swal.fire('系統提示', `⚠️ 儲存失敗！\n\n【衝突警告】\n該位置在該時段已經被「${parts[2] || '其他顧客'}」佔用。\n請重新選擇其他空閒位置！`, 'warning');
+            } else if (errorMsg && (errorMsg.includes('⚠️') || errorMsg.includes('失敗') || errorMsg.includes('錯誤'))) {
+                Swal.fire('系統提示', errorMsg, 'warning');
             } else {
-                Swal.fire('系統提示', "⚠️ 儲存失敗，請檢查網路連線。", 'warning');
+                Swal.fire('系統提示', errorMsg || "⚠️ 儲存失敗，請檢查網路連線。", 'warning');
             }
             fetchData(true); // Đảm bảo lấy lại dữ liệu thật nếu lỗi
         }
