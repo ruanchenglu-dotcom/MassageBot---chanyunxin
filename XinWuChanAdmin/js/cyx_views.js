@@ -565,15 +565,12 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
             const oldService = booking.serviceName || '';
             const oldCat = getServiceCategory(oldService);
             const isSameCategory = (oldCat === editServiceCategory) && (editServiceCategory !== 'COMBO');
-            const oldDuration = parseInt(booking.duration) || getDuration(oldService);
-            const isStrictShrink = (newDuration <= oldDuration);
 
-            if (isSameCategory && !isStrictShrink) {
+            if (isSameCategory) {
                 const isResConflict = todays.some(b => {
                     const bTimeStr = (b.startTimeString || ' ').split(' ')[1] || '00:00';
                     const bStart = timeStrToMins(bTimeStr);
-                    const bDur = parseInt(b.duration) || getDuration(b.serviceName);
-                    const bEnd = bStart + bDur;
+                    const bEnd = bStart + getDuration(b.serviceName);
                     const isTimeConflict = (startMins < bEnd && endMins > bStart);
                     
                     const bResStr = b.phase1_res_idx || b.allocated_resource || b.current_resource_id || '';

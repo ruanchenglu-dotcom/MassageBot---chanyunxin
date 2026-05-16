@@ -309,15 +309,12 @@
                 // Nâng cấp: Bỏ qua kiểm tra trùng tọa độ nếu chuyển đổi sang Combo hoặc từ Combo về Single
                 // (Vì backend sẽ tự động tháo tọa độ cũ để VirtualMatrix xếp lại vị trí mới hoàn hảo)
                 const isSameCategory = (oldCat === editServiceCategory) && (editServiceCategory !== 'COMBO');
-                const oldDuration = parseInt(currentBookingObj.duration) || getDuration(oldService);
-                const isStrictShrink = (duration <= oldDuration);
 
-                if (isSameCategory && !isStrictShrink) {
+                if (isSameCategory) {
                     const isResConflict = todays.some(b => {
                         const bTimeStr = (b.startTimeString || ' ').split(' ')[1] || '00:00';
                         const bStart = getMins(bTimeStr);
-                        const bDur = parseInt(b.duration) || getDuration(b.serviceName);
-                        const bEnd = bStart + bDur;
+                        const bEnd = bStart + getDuration(b.serviceName);
                         const isTimeConflict = (startMins < bEnd && endMins > bStart);
                         
                         const bResStr = b.phase1_res_idx || b.allocated_resource || '';
