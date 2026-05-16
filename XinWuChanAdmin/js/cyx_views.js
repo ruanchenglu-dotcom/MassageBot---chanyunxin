@@ -566,7 +566,7 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
             const oldCat = getServiceCategory(oldService);
             const isSameCategory = (oldCat === editServiceCategory) && (editServiceCategory !== 'COMBO');
             const oldDuration = parseInt(booking.duration) || getDuration(oldService);
-            const isStrictShrink = (editDuration <= oldDuration);
+            const isStrictShrink = (newDuration <= oldDuration);
 
             if (isSameCategory && !isStrictShrink) {
                 const isResConflict = todays.some(b => {

@@ -310,7 +310,7 @@
                 // (Vì backend sẽ tự động tháo tọa độ cũ để VirtualMatrix xếp lại vị trí mới hoàn hảo)
                 const isSameCategory = (oldCat === editServiceCategory) && (editServiceCategory !== 'COMBO');
                 const oldDuration = parseInt(currentBookingObj.duration) || getDuration(oldService);
-                const isStrictShrink = (editDuration <= oldDuration);
+                const isStrictShrink = (duration <= oldDuration);
 
                 if (isSameCategory && !isStrictShrink) {
                     const isResConflict = todays.some(b => {
