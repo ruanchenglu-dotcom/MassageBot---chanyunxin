@@ -177,11 +177,7 @@
                     const bStart = getMins(bTimeStr);
                     const bDur = getDuration(b.serviceName);
                     const bEnd = bStart + bDur;
-                    let bPax = parseInt(b.pax, 10) || 1;
-                    const nameStr = b.originalName || b.customerName || '';
-                    if (nameStr.match(/\(\d+\/\d+\)/)) {
-                        bPax = 1;
-                    }
+                    const bPax = parseInt(b.pax, 10) || 1;
                     const bCat = getServiceCategory(b.serviceName);
                     
                     if (t >= bStart && t < bEnd) {
@@ -191,14 +187,8 @@
                             const bSplit = window.getComboSplit ? window.getComboSplit(bDur) : { phase1: Math.floor(bDur/2) };
                             const bPhase1Dur = b.phase1_duration ? parseInt(b.phase1_duration) : bSplit.phase1;
                             const bMid = bStart + bPhase1Dur;
-                            const bFlow = b.flow || 'FB';
-                            if (t < bMid) {
-                                if (bFlow === 'BF') currentBedLoad += bPax;
-                                else currentChairLoad += bPax;
-                            } else {
-                                if (bFlow === 'BF') currentChairLoad += bPax;
-                                else currentBedLoad += bPax;
-                            }
+                            if (t < bMid) currentChairLoad += bPax;
+                            else currentBedLoad += bPax;
                         } else if (bCat === 'FOOT' || b.type === 'CHAIR') {
                             currentChairLoad += bPax;
                         } else {
@@ -211,16 +201,9 @@
                 const totalLoadAtT = currentLoad + currentPax;
                 if (totalLoadAtT > maxConcurrency) maxConcurrency = totalLoadAtT;
 
-                const isBodyFirstEdit = currentBookingObj && currentBookingObj.flow === 'BF';
-
                 if (isComboEdit) {
-                    if (t < editPhase1End) {
-                        if (isBodyFirstEdit) currentBedLoad += currentPax;
-                        else currentChairLoad += currentPax;
-                    } else {
-                        if (isBodyFirstEdit) currentChairLoad += currentPax;
-                        else currentBedLoad += currentPax;
-                    }
+                    if (t < editPhase1End) currentChairLoad += currentPax;
+                    else currentBedLoad += currentPax;
                 } else if (editServiceCategory === 'FOOT') {
                     currentChairLoad += currentPax;
                 } else {
