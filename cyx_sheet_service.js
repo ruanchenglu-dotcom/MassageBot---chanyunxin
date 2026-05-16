@@ -1050,7 +1050,33 @@ async function updateInlineBooking(rowId, updatedData) {
                     let bestPhase1 = "";
                     let bestPhase2 = "";
                     
-                    if (bookingData && typeof ResourceCore !== 'undefined' && ResourceCore.checkRequestAvailability) {
+                    // [V135.1] SMART RESOURCE RETENTION: Kế thừa vị trí hợp lệ thay vì xóa rỗng
+                    let oldRes1 = bookingData ? (bookingData.phase1_res_idx || bookingData.allocated_resource || "") : "";
+                    let oldRes2 = bookingData ? (bookingData.phase2_res_idx || "") : "";
+                    
+                    let oldBeds = [oldRes1, oldRes2].filter(r => r && r.toUpperCase().includes('BED'));
+                    let oldChairs = [oldRes1, oldRes2].filter(r => r && r.toUpperCase().includes('CHAIR'));
+
+                    if (newFlow === 'BODYSINGLE') {
+                        if (oldBeds.length > 0) bestPhase1 = oldBeds[0];
+                    } else if (newFlow === 'FOOTSINGLE') {
+                        if (oldChairs.length > 0) bestPhase1 = oldChairs[0];
+                    } else if (newFlow === 'FB') {
+                        if (oldChairs.length > 0) bestPhase1 = oldChairs[0];
+                        if (oldBeds.length > 0) bestPhase2 = oldBeds[0];
+                    } else if (newFlow === 'BF') {
+                        if (oldBeds.length > 0) bestPhase1 = oldBeds[0];
+                        if (oldChairs.length > 0) bestPhase2 = oldChairs[0];
+                    }
+                    
+                    let needsAutoAllocate = false;
+                    if (newFlow === 'BODYSINGLE' || newFlow === 'FOOTSINGLE') {
+                        if (!bestPhase1) needsAutoAllocate = true;
+                    } else if (newFlow === 'FB' || newFlow === 'BF') {
+                        if (!bestPhase1 || !bestPhase2) needsAutoAllocate = true;
+                    }
+                    
+                    if (needsAutoAllocate && bookingData && typeof ResourceCore !== 'undefined' && ResourceCore.checkRequestAvailability) {
                         const opDate = updatedData.ngayDen !== undefined ? formattedDate : (bookingData.opDate || bookingData.startTimeString);
                         const opTime = updatedData.gioDen !== undefined ? timeVal : (bookingData.startTimeString || bookingData.startTime);
                         
@@ -1070,9 +1096,13 @@ async function updateInlineBooking(rowId, updatedData) {
                         try {
                             const checkResult = ResourceCore.checkRequestAvailability(normalizeDateStrict(opDate), opTime, guestList, relevantBookings, staffListMap);
                             if (checkResult.feasible && checkResult.details && checkResult.details.length > 0) {
-                                bestPhase1 = checkResult.details[0].phase1_res_idx || "";
-                                bestPhase2 = checkResult.details[0].phase2_res_idx || "";
-                                console.log(`[AUTO-ALLOCATE] Inline Update found new resources for Row ${rowId}: ${bestPhase1}, ${bestPhase2}`);
+                                let autoP1 = checkResult.details[0].phase1_res_idx || "";
+                                let autoP2 = checkResult.details[0].phase2_res_idx || "";
+                                
+                                if (!bestPhase1) bestPhase1 = autoP1;
+                                if (!bestPhase2 && (newFlow === 'FB' || newFlow === 'BF')) bestPhase2 = autoP2;
+                                
+                                console.log(`[AUTO-ALLOCATE] Inline Update found supplemental resources for Row ${rowId}: ${autoP1}, ${autoP2}`);
                             }
                         } catch (err) {
                             console.error("[AUTO-ALLOCATE ERROR]", err);

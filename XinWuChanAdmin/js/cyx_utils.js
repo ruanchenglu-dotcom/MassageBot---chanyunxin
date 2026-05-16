@@ -36,10 +36,21 @@
         if (window.SERVICES_DATA && window.SERVICES_DATA[serviceName]) {
             return window.SERVICES_DATA[serviceName].duration;
         }
-        if (window.SERVICES_LIST) {
-            const key = window.SERVICES_LIST.find(k => serviceName.includes(k));
+        if (window.SERVICES_LIST && window.SERVICES_DATA) {
+            const key = window.SERVICES_LIST.find(k => String(serviceName).includes(k));
             if (key && window.SERVICES_DATA[key]) {
                 return window.SERVICES_DATA[key].duration;
+            }
+            
+            const cleanName = String(serviceName).replace(/\s+/g, '').toLowerCase();
+            for (let code of window.SERVICES_LIST) {
+                const data = window.SERVICES_DATA[code];
+                if (data && data.name) {
+                    const cleanDataName = String(data.name).replace(/\s+/g, '').toLowerCase();
+                    if (cleanName === cleanDataName || cleanDataName.includes(cleanName) || cleanName.includes(cleanDataName)) {
+                        return data.duration;
+                    }
+                }
             }
         }
         return fallbackDuration || 60;
@@ -212,6 +223,11 @@
         let p1 = (customPhase1 !== null && !isNaN(customPhase1) && customPhase1 > 0)
             ? parseInt(customPhase1)
             : Math.floor(dur / 2);
+            
+        if (p1 >= dur && dur > 0) {
+            p1 = Math.floor(dur / 2);
+        }
+        
         let p2 = dur - p1;
 
         if (sequence === 'BF') {
