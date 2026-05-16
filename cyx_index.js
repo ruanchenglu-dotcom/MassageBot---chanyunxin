@@ -413,7 +413,7 @@ app.get('/api/info', async (req, res) => {
     try {
         const isForceRefresh = req.query.forceRefresh === 'true';
         if (isForceRefresh) {
-            await SheetService.synccyx_data();
+            await SheetService.syncData();
         }
         res.json({
             staffList: SheetService.getStaffList(),

@@ -463,7 +463,7 @@ const App = () => {
         const rowId = String(booking.rowId);
         const newDuration = parseInt(standardDuration, 10);
 
-        if (confirm(`💡 溫馨提示：請問確定要將時長強制同步為標準時間 (${newDuration} 分鐘) 嗎？`)) {
+        Swal.fire({ title: '確認', text: `💡 溫馨提示：請問確定要將時長強制同步為標準時間 (${newDuration} 分鐘) 嗎？`, icon: 'warning', showCancelButton: true, confirmButtonText: '確定', cancelButtonText: '取消' }).then((res) => { if (res.isConfirmed) { 
             setSyncLock(true);
             setTimeout(() => setSyncLock(false), 3000);
 
@@ -473,7 +473,7 @@ const App = () => {
                 const split = getSmartSplit(booking, newDuration, true, booking.flow || 'FB');
                 newP1 = split.phase1;
                 newP2 = split.phase2;
-            } else {
+             } }) else {
                 newP1 = null;
                 newP2 = null;
             }
@@ -512,7 +512,7 @@ const App = () => {
                 }
                 await universalSend('/api/update-booking-details', updatePayload);
             } catch (e) {
-                alert("💡 溫馨提示：資料同步發生異常，請幫忙確認一下網路連線喔！");
+                Swal.fire('系統提示', "💡 溫馨提示：資料同步發生異常，請幫忙確認一下網路連線喔！", 'warning');
             }
         }
     };
@@ -1385,18 +1385,18 @@ const App = () => {
                 throw new Error(res.data.error);
             }
 
-            fetchData(true);
+            fetchData(false);
 
         } catch (e) {
             console.error("Inline update failed:", e);
             const errorMsg = (e.response && e.response.data && e.response.data.error) ? e.response.data.error : e.message;
             if (errorMsg && errorMsg.includes('RESOURCE_CONFLICT')) {
                 const parts = errorMsg.split('|');
-                alert(`⚠️ 儲存失敗！\n\n【衝突警告】\n該位置在該時段已經被「${parts[2] || '其他顧客'}」佔用。\n請重新選擇其他空閒位置！`);
+                Swal.fire('系統提示', `⚠️ 儲存失敗！\n\n【衝突警告】\n該位置在該時段已經被「${parts[2] || '其他顧客'}」佔用。\n請重新選擇其他空閒位置！`, 'warning');
             } else {
-                alert("⚠️ 儲存失敗，請檢查網路連線。");
+                Swal.fire('系統提示', "⚠️ 儲存失敗，請檢查網路連線。", 'warning');
             }
-            fetchData(true); // Revert changes
+            fetchData(false); // Revert changes
         }
     };
 
@@ -1435,7 +1435,7 @@ const App = () => {
         }
 
         if (!targetProp) {
-            alert("⚠️ 該預約已達最大技師數量限制 (6人)。");
+            Swal.fire('系統提示', "⚠️ 該預約已達最大技師數量限制 (6人)。", 'warning');
             setSyncLock(false);
             return;
         }
@@ -1582,67 +1582,10 @@ const App = () => {
         if (grpIdx === 5) { primaryKey = "服務師傅6"; fallbackKey = "ServiceStaff6"; }
 
         const payload = { rowId: current.booking.rowId, [primaryKey]: newStaffId, [fallbackKey]: newStaffId, [`staff${grpIdx + 1}`]: newStaffId, technician: newStaffId, forceSync: true };
-        try { await universalSend('/api/update-booking-details', payload); await updateResource(newState); } catch (e) { alert("⚠️ 同步失敗！請檢查網路連線。"); }
+        try { await universalSend('/api/update-booking-details', payload); await updateResource(newState); } catch (e) { Swal.fire('系統提示', "⚠️ 同步失敗！請檢查網路連線。", 'warning'); }
     };
 
-    const handleServiceChange = async (resId, newServiceName) => {
-        const current = resourceState[resId]; if (!current) return;
-        const newDef = window.SERVICES_DATA[newServiceName]; if (!newDef) return;
-        
-        let newDuration = newDef.duration || 60;
-        let phase1_duration = newDuration;
-        let phase2_duration = "";
-        
-        const isCombo = newServiceName.includes('套餐') || newDef.category === 'COMBO';
-        if (isCombo) {
-            const split = getSmartSplit(current.booking, newDuration, true, 'FB');
-            phase1_duration = split.phase1;
-            phase2_duration = split.phase2;
-        }
 
-        const updatedBooking = { 
-            ...current.booking, 
-            serviceName: newServiceName, 
-            duration: newDuration, 
-            type: newDef.type, 
-            category: newDef.category,
-            phase1_duration: phase1_duration,
-            phase2_duration: phase2_duration
-        };
-        const newState = { ...resourceState, [resId]: { ...current, booking: updatedBooking } };
-        setResourceState(newState);
-        
-        try {
-            await axios.post('/api/inline-update-booking', { 
-                rowId: current.booking.rowId, 
-                updatedData: {
-                    ngayDen: current.booking.date || current.booking.opDate,
-                    gioDen: current.booking.startTimeString ? current.booking.startTimeString.split(' ')[1] : current.booking.startTime,
-                    hoTen: current.booking.customerName,
-                    dichVu: newServiceName,
-                    isOil: current.booking.isOil,
-                    isGuaSha: current.booking.isGuaSha,
-                    sdt: current.booking.sdt || current.booking.phone,
-                    trangThai: current.booking.status,
-                    nhanVien: current.booking.requestedStaff || current.booking.staffId || current.booking.serviceStaff,
-                    duration: newDuration,
-                    phase1_duration: phase1_duration,
-                    phase2_duration: phase2_duration
-                }
-            });
-            fetchData(true);
-        } catch (e) {
-            console.error("Service change failed:", e);
-            const errorMsg = (e.response && e.response.data && e.response.data.error) ? e.response.data.error : e.message;
-            if (errorMsg && errorMsg.includes('RESOURCE_CONFLICT')) {
-                const parts = errorMsg.split('|');
-                alert(`⚠️ 儲存失敗！\n\n【衝突警告】\n該位置在該時段已經被「${parts[2] || '其他顧客'}」佔用。\n請重新選擇其他空閒位置！`);
-            } else {
-                alert("⚠️ 儲存失敗，請檢查網路連線。");
-            }
-            fetchData(true);
-        }
-    };
 
     const handleSaveComboTime = async (arg1, arg2 = null, startTimeStr = null, switchTimeStr = null, customP1Res = null, customP2Res = null, overrideFlow = null) => {
         let newPhase1Duration = 0;
@@ -1663,7 +1606,7 @@ const App = () => {
         const totalDuration = parseInt(targetBooking.duration || 100);
 
         if (isNaN(newPhase1Duration) || newPhase1Duration < 0 || newPhase1Duration > totalDuration) {
-            alert(`⚠️ 第一階段時間無效！`);
+            Swal.fire('系統提示', `⚠️ 第一階段時間無效！`, 'warning');
             return;
         }
 
@@ -1798,11 +1741,11 @@ const App = () => {
             const errorMsg = e.message || "";
             if (errorMsg.includes('RESOURCE_CONFLICT')) {
                 const parts = errorMsg.split('|');
-                alert(`⚠️ 儲存失敗！\n\n【衝突警告】\n您選擇的 ${parts[1] || '該位置'} 在該時段已經被「${parts[2] || '其他顧客'}」佔用 (已佔用)。\n\n請重新選擇其他空閒位置！`);
+                Swal.fire('系統提示', `⚠️ 儲存失敗！\n\n【衝突警告】\n您選擇的 ${parts[1] || '該位置'} 在該時段已經被「${parts[2] || '其他顧客'}」佔用 (已佔用)。\n\n請重新選擇其他空閒位置！`, 'warning');
             } else {
-                alert("⚠️ 儲存失敗！請檢查網路連線。");
+                Swal.fire('系統提示', "⚠️ 儲存失敗！請檢查網路連線。", 'warning');
             }
-            fetchData(true); // Revert UI overrides
+            fetchData(false); // Revert UI overrides
         }
     };
 
@@ -1914,11 +1857,11 @@ const App = () => {
             const errorMsg = e.message || "";
             if (errorMsg.includes('RESOURCE_CONFLICT')) {
                 const parts = errorMsg.split('|');
-                alert(`⚠️ 儲存失敗！\n\n【衝突警告】\n您選擇的 ${parts[1] || '該位置'} 在該時段已經被「${parts[2] || '其他顧客'}」佔用 (已佔用)。\n\n請重新選擇其他空閒位置！`);
+                Swal.fire('系統提示', `⚠️ 儲存失敗！\n\n【衝突警告】\n您選擇的 ${parts[1] || '該位置'} 在該時段已經被「${parts[2] || '其他顧客'}」佔用 (已佔用)。\n\n請重新選擇其他空閒位置！`, 'warning');
             } else {
-                alert("⚠️ 儲存失敗！請檢查網路連線。");
+                Swal.fire('系統提示', "⚠️ 儲存失敗！請檢查網路連線。", 'warning');
             }
-            fetchData(true);
+            fetchData(false);
         }
     };
 
@@ -2048,11 +1991,11 @@ const App = () => {
             const errorMsg = e.message || "";
             if (errorMsg.includes('RESOURCE_CONFLICT')) {
                 const parts = errorMsg.split('|');
-                alert(`⚠️ 儲存失敗！\n\n【衝突警告】\n您選擇的 ${parts[1] || '該位置'} 在該時段已經被「${parts[2] || '其他顧客'}」佔用 (已佔用)。\n\n請重新選擇其他空閒位置！`);
+                Swal.fire('系統提示', `⚠️ 儲存失敗！\n\n【衝突警告】\n您選擇的 ${parts[1] || '該位置'} 在該時段已經被「${parts[2] || '其他顧客'}」佔用 (已佔用)。\n\n請重新選擇其他空閒位置！`, 'warning');
             } else {
-                alert("⚠️ 儲存失敗！請檢查網路連線。");
+                Swal.fire('系統提示', "⚠️ 儲存失敗！請檢查網路連線。", 'warning');
             }
-            fetchData(true);
+            fetchData(false);
         }
     };
 
@@ -2090,7 +2033,7 @@ const App = () => {
         }
 
         if (isClash) {
-            alert(`⚠️ 目標位置在該時段已有其他預約！無法移動。`);
+            Swal.fire('系統提示', `⚠️ 目標位置在該時段已有其他預約！無法移動。`, 'warning');
             return;
         }
 
@@ -2113,7 +2056,7 @@ const App = () => {
                 newState[targetId] = currentSlotData;
 
                 setResourceState(newState);
-                fetchData(true);
+                fetchData(false);
 
                 try {
                     const res = await universalSend('/api/update-booking-details', {
@@ -2130,11 +2073,11 @@ const App = () => {
                     const errorMsg = e.message || "";
                     if (errorMsg.includes('RESOURCE_CONFLICT')) {
                         const parts = errorMsg.split('|');
-                        alert(`⚠️ 轉換位置失敗！\n\n【衝突警告】\n目標位置 ${parts[1] || '該位置'} 在該時段已經被「${parts[2] || '其他顧客'}」佔用。\n\n請重新選擇！`);
+                        Swal.fire('系統提示', `⚠️ 轉換位置失敗！\n\n【衝突警告】\n目標位置 ${parts[1] || '該位置'} 在該時段已經被「${parts[2] || '其他顧客'}」佔用。\n\n請重新選擇！`, 'warning');
                     } else {
-                        alert("⚠️ 轉換位置時發生連線錯誤！");
+                        Swal.fire('系統提示', "⚠️ 轉換位置時發生連線錯誤！", 'warning');
                     }
-                    fetchData(true);
+                    fetchData(false);
                 }
             }
         } else if (isPrediction) {
@@ -2151,7 +2094,7 @@ const App = () => {
 
             if (found) {
                 setResourceState(newState);
-                fetchData(true);
+                fetchData(false);
                 updateResource(newState).catch(() => console.error('Sync failed'));
             }
         } else {
@@ -2160,7 +2103,7 @@ const App = () => {
             if (isPhase1) localOverridesRef.current[rowId].phase1_res_idx = targetId.toUpperCase();
             if (isPhase2) localOverridesRef.current[rowId].phase2_res_idx = targetId.toUpperCase();
 
-            fetchData(true);
+            fetchData(false);
 
             try {
                 const res = await universalSend('/api/update-booking-details', {
@@ -2176,11 +2119,11 @@ const App = () => {
                 const errorMsg = e.message || "";
                 if (errorMsg.includes('RESOURCE_CONFLICT')) {
                     const parts = errorMsg.split('|');
-                    alert(`⚠️ 轉換位置失敗！\n\n【衝突警告】\n目標位置 ${parts[1] || '該位置'} 在該時段已經被「${parts[2] || '其他顧客'}」佔用。\n\n請重新選擇！`);
+                    Swal.fire('系統提示', `⚠️ 轉換位置失敗！\n\n【衝突警告】\n目標位置 ${parts[1] || '該位置'} 在該時段已經被「${parts[2] || '其他顧客'}」佔用。\n\n請重新選擇！`, 'warning');
                 } else {
-                    alert("⚠️ 轉換位置時發生連線錯誤！");
+                    Swal.fire('系統提示', "⚠️ 轉換位置時發生連線錯誤！", 'warning');
                 }
-                fetchData(true);
+                fetchData(false);
             }
         }
     };
@@ -2264,13 +2207,13 @@ const App = () => {
             }
 
             if (current && current.isRunning) {
-                if (!silentMode) alert(`⚠️ 位置 ${id} 忙碌中 (Running)!`);
+                if (!silentMode) Swal.fire('系統提示', `⚠️ 位置 ${id} 忙碌中 (Running)!`, 'warning');
                 return;
             }
         }
 
         if (!current) {
-            if (!silentMode) alert("⚠️ 系統錯誤：找不到位置資料。");
+            if (!silentMode) Swal.fire('系統提示', "⚠️ 系統錯誤：找不到位置資料。", 'warning');
             return;
         }
 
@@ -2316,7 +2259,7 @@ const App = () => {
                     const targetPhysicalType = ghostTargetId.split('-')[0];
                     if (currentPhysicalType === targetPhysicalType) {
                         if (!silentMode) {
-                            alert(`⚠️ 預約錯誤: Phase 1 (${currentPhysicalType === 'chair' ? '足部' : '身體'}) 和 Phase 2 (${targetPhysicalType === 'chair' ? '足部' : '身體'}) 不能在同一個區域！\n(套餐必須包含一個床位和一個足部區)\n請重新調整座位！`);
+                            Swal.fire('系統提示', `⚠️ 預約錯誤: Phase 1 (${currentPhysicalType === 'chair' ? '足部' : '身體'}) 和 Phase 2 (${targetPhysicalType === 'chair' ? '足部' : '身體'}) 不能在同一個區域！\n(套餐必須包含一個床位和一個足部區)\n請重新調整座位！`, 'warning');
                         }
                         setSyncLock(false);
                         return;
@@ -2342,7 +2285,7 @@ const App = () => {
                 if (!silentMode) {
                     const reqTxt = comboSequence === 'BF' ? '身體優先 (Body First)' : '腳底優先 (Foot First)';
                     const mustBe = comboSequence === 'BF' ? '【床 / Bed】' : '【足 / Chair】';
-                    alert(`⚠️ 服務流程錯誤: \n您選擇的是 ${reqTxt}，第一階段必須在 ${mustBe}!\n請重新確定顧客位置！`);
+                    Swal.fire('系統提示', `⚠️ 服務流程錯誤: \n您選擇的是 ${reqTxt}，第一階段必須在 ${mustBe}!\n請重新確定顧客位置！`, 'warning');
                 }
                 setSyncLock(false);
                 return;
@@ -2351,7 +2294,7 @@ const App = () => {
             const type = id.split('-')[0];
             const force = current.booking.forceResourceType === 'CHAIR' ? 'chair' : 'bed';
             if (type !== force) {
-                if (!silentMode) alert(`⚠️ 位置錯誤：此顧客必須安排在 ${force === 'chair' ? '足部區' : '身體區'}!`);
+                if (!silentMode) Swal.fire('系統提示', `⚠️ 位置錯誤：此顧客必須安排在 ${force === 'chair' ? '足部區' : '身體區'}!`, 'warning');
                 setSyncLock(false);
                 return;
             }
@@ -2359,7 +2302,7 @@ const App = () => {
 
         if (['隨機', '男', '女', 'Oil'].some(k => designatedStaff.includes(k))) {
             if (!staffList || staffList.length === 0) {
-                if (!silentMode) alert("⚠️ 員工資料為空，請稍後再試！");
+                if (!silentMode) Swal.fire('系統提示', "⚠️ 員工資料為空，請稍後再試！", 'warning');
                 setSyncLock(false); return;
             }
 
@@ -2383,13 +2326,13 @@ const App = () => {
             if (window.StaffSorter && window.StaffSorter.findBestStaffForSingle) {
                 foundStaff = window.StaffSorter.findBestStaffForSingle(current.booking, readyCandidates, statusData, bookings, currentMins);
             } else {
-                if (!silentMode) alert("⚠️ 系統錯誤：找不到 StaffSorter 模組。");
+                if (!silentMode) Swal.fire('系統提示', "⚠️ 系統錯誤：找不到 StaffSorter 模組。", 'warning');
                 setSyncLock(false); return;
             }
 
             if (!foundStaff) {
                 const genderMsg = designatedStaff.includes('男') ? " (男)" : designatedStaff.includes('女') ? " (女)" : "";
-                if (!silentMode) alert(`⚠️ 系統提示: 找不到符合條件的技師${genderMsg}（可能因未來已有預約或條件不符）！\n\n系統無法自動分派，請手動指派技師。`);
+                if (!silentMode) Swal.fire('系統提示', `⚠️ 系統提示: 找不到符合條件的技師${genderMsg}（可能因未來已有預約或條件不符）！\n\n系統無法自動分派，請手動指派技師。`, 'warning');
                 setSyncLock(false); return;
             }
             finalServiceStaff = normalizeStaffId(foundStaff.id);
@@ -2542,7 +2485,7 @@ const App = () => {
         if (window.StaffSorter && window.StaffSorter.assignStaffForBatch) {
             assignments = window.StaffSorter.assignStaffForBatch(validItems, readyCandidates, nextStatusData, bookings, currentMins);
         } else {
-            alert("⚠️ 系統錯誤：找不到 StaffSorter 模組。");
+            Swal.fire('系統提示', "⚠️ 系統錯誤：找不到 StaffSorter 模組。", 'warning');
             setSyncLock(false); return;
         }
 
@@ -2712,7 +2655,7 @@ const App = () => {
 
         if (failedToStartCount > 0) {
             const failedNames = unassignedItems.map(item => item.booking.customerName.split('(')[0].trim()).join(', ');
-            alert(`⚠️ 系統提示: 檢測到 ${failedToStartCount} 位客人無法自動分配。\n\n▶ 原因分析: 目前無符合條件的待命技師，或資源(床/椅)已被佔用。\n▶ 影響名單: ${failedNames}\n\n請以手動方式為這幾位客人安排任務。`);
+            Swal.fire('系統提示', `⚠️ 系統提示: 檢測到 ${failedToStartCount} 位客人無法自動分配。\n\n▶ 原因分析: 目前無符合條件的待命技師，或資源(床/椅)已被佔用。\n▶ 影響名單: ${failedNames}\n\n請以手動方式為這幾位客人安排任務。`, 'warning');
         }
 
         setResourceState(nextResourceState);
@@ -2735,13 +2678,13 @@ const App = () => {
             executeStart(id, null);
         }
         else if (action === 'pause') { updateResource({ ...resourceState, [id]: { ...current, isPaused: !current.isPaused } }); }
-        else if (action === 'cancel') { if (confirm('確定將顧客從位置移除？')) { const n = { ...resourceState }; delete n[id]; updateResource(n); } }
+        else if (action === 'cancel') { Swal.fire({ title: '確認', text: '確定將顧客從位置移除？', icon: 'warning', showCancelButton: true, confirmButtonText: '確定', cancelButtonText: '取消' }).then((res) => { if (res.isConfirmed) {  const n = { ...resourceState  } }); delete n[id]; updateResource(n); } }
         else if (action === 'cancel_midway') {
-            if (confirm('確定要棄單 (Drop)？\n此操作會標記為「取消」並釋放此位置。')) {
+            Swal.fire({ title: '確認', text: '確定要棄單 (Drop)？\n此操作會標記為「取消」並釋放此位置。', icon: 'warning', showCancelButton: true, confirmButtonText: '確定', cancelButtonText: '取消' }).then((res) => { if (res.isConfirmed) { 
                 const ridStr = String(current.booking.rowId);
                 if (localOverridesRef.current[ridStr]) {
                     delete localOverridesRef.current[ridStr];
-                }
+                 } })
 
                 await axios.post('/api/update-status', { rowId: current.booking.rowId, status: APP_STATUS.CANCELLED });
                 const n = { ...resourceState };
@@ -2754,11 +2697,11 @@ const App = () => {
             }
         }
         else if (action === 'noshow_midway') {
-            if (confirm('確定要設為爽約嗎？\n此操作會標記為「爽約」並釋放此位置。')) {
+            Swal.fire({ title: '確認', text: '確定要設為爽約嗎？\n此操作會標記為「爽約」並釋放此位置。', icon: 'warning', showCancelButton: true, confirmButtonText: '確定', cancelButtonText: '取消' }).then((res) => { if (res.isConfirmed) { 
                 const ridStr = String(current.booking.rowId);
                 if (localOverridesRef.current[ridStr]) {
                     delete localOverridesRef.current[ridStr];
-                }
+                 } })
 
                 await axios.post('/api/update-status', { rowId: current.booking.rowId, status: APP_STATUS.NOSHOW });
                 const n = { ...resourceState };
@@ -2795,7 +2738,7 @@ const App = () => {
         const targetTypeString = toType === 'chair' ? 'CHAIR' : 'BED';
 
         if (isStrict && requiredType !== targetTypeString) {
-            alert(`⛔️ 阻擋：此服務限定為 ${requiredType === 'CHAIR' ? '足部' : '身體'}，無法轉場至 ${targetTypeString === 'CHAIR' ? '足部' : '身體'}！`);
+            Swal.fire('系統提示', `⛔️ 阻擋：此服務限定為 ${requiredType === 'CHAIR' ? '足部' : '身體'}，無法轉場至 ${targetTypeString === 'CHAIR' ? '足部' : '身體'}！`, 'warning');
             return;
         }
 
@@ -2814,7 +2757,7 @@ const App = () => {
                 return;
             }
         }
-        alert(`該區域 (${toType === 'chair' ? '足部區' : '身體區'}) 已無空位！`);
+        Swal.fire('系統提示', `該區域 (${toType === 'chair' ? '足部區' : '身體區'}) 已無空位！`, 'warning');
     };
 
     const handleToggleMax = async (resId) => { const res = resourceState[resId]; if (!res) return; updateResource({ ...resourceState, [resId]: { ...res, isMaxMode: !res.isMaxMode } }); };
@@ -2959,12 +2902,12 @@ const App = () => {
             const payloads = Object.values(updatesByRow);
             try {
                 await axios.post('/api/batch-process-bookings', { payloads, forceSync: true });
-                alert(`✅ 結帳成功: $${totalAmount}`);
-                fetchData(true);
+                Swal.fire('系統提示', `✅ 結帳成功: $${totalAmount}`, 'success');
+                fetchData(false);
             } catch (e) {
-                alert("⚠️ 連線錯誤，請檢查網路！");
+                Swal.fire('系統提示', "⚠️ 連線錯誤，請檢查網路！", 'warning');
             }
-        } catch (e) { alert("⚠️ 結帳發生錯誤，請截圖給開發者：" + e.message); }
+        } catch (e) { Swal.fire('系統提示', "⚠️ 結帳發生錯誤，請截圖給開發者：" + e.message, 'error'); }
     };
 
     const handleControlAction = (actionType, payload) => {
@@ -2986,7 +2929,7 @@ const App = () => {
             case 'START':
                 if (targetResourceId) {
                     if (resourceState[targetResourceId] && resourceState[targetResourceId].isRunning) {
-                        alert(`⚠️ 位置 ${targetResourceId} 忙碌中！請選擇其他座位。`);
+                        Swal.fire('系統提示', `⚠️ 位置 ${targetResourceId} 忙碌中！請選擇其他座位。`, 'warning');
                     } else {
                         const relatedWaiters = findRelatedWaitingBookings(targetBooking, targetResourceId);
 
@@ -3001,7 +2944,7 @@ const App = () => {
                         }
                     }
                 } else {
-                    alert("⚠️ 請先將此訂單拖入座位/床位再開始！");
+                    Swal.fire('系統提示', "⚠️ 請先將此訂單拖入座位/床位再開始！", 'warning');
                 }
                 setControlCenterData(null);
                 break;
@@ -3040,12 +2983,12 @@ const App = () => {
                 if (targetResourceId && resourceState[targetResourceId] && !resourceState[targetResourceId].isPreview) {
                     handleResourceAction(targetResourceId, 'cancel_midway');
                 } else if (targetBooking) {
-                    if (confirm('確定要取消此預約嗎？\n(若為團體客，將取消整組預約)')) {
+                    Swal.fire({ title: '確認', text: '確定要取消此預約嗎？\n(若為團體客，將取消整組預約)', icon: 'warning', showCancelButton: true, confirmButtonText: '確定', cancelButtonText: '取消' }).then((res) => { if (res.isConfirmed) { 
                         const ridStr = String(targetBooking.rowId);
                         if (localOverridesRef.current[ridStr]) delete localOverridesRef.current[ridStr];
-                        axios.post('/api/update-status', { rowId: targetBooking.rowId, status: APP_STATUS.CANCELLED })
-                            .then(() => fetchData(true))
-                            .catch(() => alert('取消失敗，請檢查網路。'));
+                        axios.post('/api/update-status', { rowId: targetBooking.rowId, status: APP_STATUS.CANCELLED  } }))
+                            .then(() => fetchData(false))
+                            .catch(() => Swal.fire('系統提示', '取消失敗，請檢查網路。', 'warning'));
                     }
                 }
                 setControlCenterData(null);
@@ -3055,12 +2998,12 @@ const App = () => {
                 if (targetResourceId && resourceState[targetResourceId] && !resourceState[targetResourceId].isPreview) {
                     handleResourceAction(targetResourceId, 'noshow_midway');
                 } else if (targetBooking) {
-                    if (confirm('確定要設為爽約嗎？\n(若為團體客，將設整組預約為爽約)')) {
+                    Swal.fire({ title: '確認', text: '確定要設為爽約嗎？\n(若為團體客，將設整組預約為爽約)', icon: 'warning', showCancelButton: true, confirmButtonText: '確定', cancelButtonText: '取消' }).then((res) => { if (res.isConfirmed) { 
                         const ridStr = String(targetBooking.rowId);
                         if (localOverridesRef.current[ridStr]) delete localOverridesRef.current[ridStr];
-                        axios.post('/api/update-status', { rowId: targetBooking.rowId, status: APP_STATUS.NOSHOW })
-                            .then(() => fetchData(true))
-                            .catch(() => alert('爽約設定失敗，請檢查網路。'));
+                        axios.post('/api/update-status', { rowId: targetBooking.rowId, status: APP_STATUS.NOSHOW  } }))
+                            .then(() => fetchData(false))
+                            .catch(() => Swal.fire('系統提示', '爽約設定失敗，請檢查網路。', 'warning'));
                     }
                 }
                 setControlCenterData(null);
@@ -3071,8 +3014,19 @@ const App = () => {
                 break;
 
             case 'UPDATE_SERVICE':
-                if (targetResourceId && payload.newService) {
-                    handleServiceChange(targetResourceId, payload.newService);
+                if (payload.newService && targetBooking) {
+                    const updatedData = {
+                        ngayDen: targetBooking.date || targetBooking.opDate,
+                        gioDen: targetBooking.startTimeString ? targetBooking.startTimeString.split(' ')[1] : targetBooking.startTime,
+                        hoTen: targetBooking.originalName || targetBooking.customerName,
+                        dichVu: payload.newService,
+                        isOil: targetBooking.isOil,
+                        isGuaSha: targetBooking.isGuaSha,
+                        sdt: targetBooking.sdt || targetBooking.phone,
+                        trangThai: targetBooking.status,
+                        nhanVien: targetBooking.requestedStaff || targetBooking.staffId || targetBooking.serviceStaff
+                    };
+                    handleInlineUpdate(targetBooking.rowId, updatedData);
                 }
                 setControlCenterData(null);
                 break;
@@ -3103,7 +3057,7 @@ const App = () => {
                             staff1: payload.newStaff,
                             forceSync: true
                         });
-                        fetchData(true);
+                        fetchData(false);
                     }
                 }
                 break;
@@ -3192,7 +3146,7 @@ const App = () => {
                         forceSync: true
                     });
                     
-                    fetchData(true);
+                    fetchData(false);
                 }
                 break;
 
@@ -3325,7 +3279,7 @@ const App = () => {
 
                         // NẾU THỢ ĐÃ BỊ KẸT Ở 1 TRONG CÁC CỘT CỦA CA "b" -> CHẶN ĐỨNG
                         if (staffCols.includes(reqStaff)) {
-                            alert(`❌ 技師 ${reqStaff} 於此時段已被預約`);
+                            Swal.fire('系統提示', `❌ 技師 ${reqStaff} 於此時段已被預約`, 'warning');
                             return; // Chặn đứng flow lưu data
                         }
                     }
@@ -3337,14 +3291,14 @@ const App = () => {
         try {
             await axios.post('/api/admin-booking', data);
             setShowAvailability(false);
-            fetchData(true);
+            fetchData(false);
         } catch (error) {
             console.error("Booking Save Error:", error);
-            alert("⚠️ 儲存失敗，請檢查網路連線。");
+            Swal.fire('系統提示', "⚠️ 儲存失敗，請檢查網路連線。", 'warning');
         }
     };
 
-    const handleManualUpdateStatus = async (rowId, status) => { if (confirm('確認更新狀態?')) { await axios.post('/api/update-status', { rowId, status }); fetchData(); } };
+    const handleManualUpdateStatus = async (rowId, status) => { Swal.fire({ title: '確認', text: '確認更新狀態?', icon: 'warning', showCancelButton: true, confirmButtonText: '確定', cancelButtonText: '取消' }).then((res) => { if (res.isConfirmed) {  await axios.post('/api/update-status', { rowId, status  } })); fetchData(); } };
     const handleRetryConnection = () => { setQuotaError(false); fetchData(true); };
 
     const safeStaffList = useMemo(() => staffList || [], [staffList]);

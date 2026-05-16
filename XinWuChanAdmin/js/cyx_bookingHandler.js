@@ -1760,7 +1760,7 @@
             if (e) e.preventDefault(); if (isSubmitting) return;
 
             const finalCustName = (form.custName.trim() + (form.custTitle || '')).trim();
-            if (!finalCustName) { alert("⚠️ 請輸入顧客姓名！"); return; }
+            if (!finalCustName) { Swal.fire('系統提示', '⚠️ 請輸入顧客姓名！', 'warning'); return; }
 
             const blacklist = serverData?.blacklist || window.SYSTEM_DATA?.blacklist || [];
             if (blacklist.length > 0 && form.custPhone) {
@@ -1768,7 +1768,7 @@
                 if (cleanPhone) {
                     const isBlacklisted = blacklist.some(b => b.phone === cleanPhone);
                     if (isBlacklisted) {
-                        alert("⚠️ 此電話號碼已列入黑名單，拒絕預約！");
+                        Swal.fire('系統提示', '⚠️ 此電話號碼已列入黑名單，拒絕預約！', 'error');
                         return;
                     }
                 }
@@ -1781,7 +1781,7 @@
                 const finalCheck = callCoreAvailabilityCheck(form.date, form.time, guestDetails, checkBookings, serverData?.staff || safeStaffList);
 
                 if (!finalCheck.valid) {
-                    alert("⚠️ 數據已變更，無法預約：" + finalCheck.reason);
+                    Swal.fire('系統提示', "⚠️ 數據已變更，無法預約：" + finalCheck.reason, 'error');
                     setIsSubmitting(false);
                     return;
                 }
@@ -1886,7 +1886,7 @@
                     forceGlobalRefresh();
                     setTimeout(() => { onClose(); setIsSubmitting(false); }, 500);
                 }
-            } catch (err) { alert("儲存失敗：" + err.message); setIsSubmitting(false); }
+            } catch (err) { Swal.fire('系統提示', "儲存失敗：" + err.message, 'error'); setIsSubmitting(false); }
         };
 
         const HOURS_LIST = ['05', '06', '07', '08', '09', '10', '11', '12', '13', '14', '15', '16', '17', '18', '19', '20', '21', '22', '23', '00', '01', '02', '03', '04'];

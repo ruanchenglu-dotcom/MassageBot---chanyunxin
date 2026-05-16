@@ -219,7 +219,7 @@ const AbsenceCheckModal = ({ data, staffList, bookings, statusData, localShifts,
         const nowT = now.toLocaleTimeString('en-US', {hour12: false, hour: '2-digit', minute: '2-digit'});
         
         if (type === 'LATE') {
-            if (!time1) return alert('請輸入到達時間！');
+            if (!time1) { Swal.fire('系統提示', '請輸入到達時間！', 'warning'); return; }
             const leavingStaff = staffList.find(s => window.normalizeStaffId(s.id) === window.normalizeStaffId(staffId));
             const safeLocalShifts = localShifts || {};
             const sStartStr = safeLocalShifts[staffId]?.start || leavingStaff?.shiftStart || '00:00';
@@ -242,7 +242,7 @@ const AbsenceCheckModal = ({ data, staffList, bookings, statusData, localShifts,
             absEnd = Math.min(staffEndMins, staffStartMins + 24 * 60);
             if (absEnd < absStart) absEnd = absStart;
         } else {
-            if (!time1 || !time2) return alert('請輸入開始和結束時間！');
+            if (!time1 || !time2) { Swal.fire('系統提示', '請輸入開始和結束時間！', 'warning'); return; }
             absStart = getExactMins(date1, time1, baseDateStr);
             absEnd = getExactMins(date2, time2, baseDateStr);
             if (absEnd <= absStart) absEnd += 1440;
@@ -820,7 +820,7 @@ const AvailabilityCheckModal = ({ onClose, onSave, staffList, bookings, initialD
     };
 
     const handleFinalSave = () => {
-        if (!form.custName || !form.custPhone) { alert("請輸入姓名和電話"); return; }
+        if (!form.custName || !form.custPhone) { Swal.fire('系統提示', '請輸入姓名和電話', 'warning'); return; }
         
         const blacklist = window.SYSTEM_DATA?.blacklist || [];
         if (blacklist.length > 0 && form.custPhone) {
@@ -828,7 +828,7 @@ const AvailabilityCheckModal = ({ onClose, onSave, staffList, bookings, initialD
             if (cleanPhone) {
                 const isBlacklisted = blacklist.some(b => b.phone === cleanPhone);
                 if (isBlacklisted) {
-                    alert("⚠️ 此電話號碼已列入黑名單，拒絕預約！");
+                    Swal.fire('系統提示', '⚠️ 此電話號碼已列入黑名單，拒絕預約！', 'error');
                     return;
                 }
             }

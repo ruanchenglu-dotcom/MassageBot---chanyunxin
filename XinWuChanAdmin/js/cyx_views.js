@@ -565,12 +565,15 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
             const oldService = booking.serviceName || '';
             const oldCat = getServiceCategory(oldService);
             const isSameCategory = (oldCat === editServiceCategory) && (editServiceCategory !== 'COMBO');
+            const oldDuration = parseInt(booking.duration) || getDuration(oldService);
+            const isStrictShrink = (editDuration <= oldDuration);
 
-            if (isSameCategory) {
+            if (isSameCategory && !isStrictShrink) {
                 const isResConflict = todays.some(b => {
                     const bTimeStr = (b.startTimeString || ' ').split(' ')[1] || '00:00';
                     const bStart = timeStrToMins(bTimeStr);
-                    const bEnd = bStart + getDuration(b.serviceName);
+                    const bDur = parseInt(b.duration) || getDuration(b.serviceName);
+                    const bEnd = bStart + bDur;
                     const isTimeConflict = (startMins < bEnd && endMins > bStart);
                     
                     const bResStr = b.phase1_res_idx || b.allocated_resource || b.current_resource_id || '';
@@ -843,7 +846,7 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                                     <div className="col-span-8 relative bg-slate-50 border border-slate-200 rounded-lg">
                                         <select
                                             value={selectedStaff}
-                                            onChange={(e) => {
+                                            onChange={async (e) => {
                                                 const newStaff = e.target.value;
                                                 const staffObj = staffList && staffList.find(s => s.id === newStaff);
                                                 const isMale = staffObj && (staffObj.gender === 'M' || staffObj.gender === '男');
@@ -851,7 +854,8 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                                                 const needsFemale = reqStaff.includes('女') || reqStaff.includes('Female') || booking.isOil;
 
                                                 if (needsFemale && isMale) {
-                                                    if (!window.confirm(`⚠️ 警告：此客人有「限女」需求 (或為精油項目)，您確定要指派男師傅 [${newStaff}] 嗎？`)) {
+                                                    const res1 = await Swal.fire({ title: '警告', text: `此客人有「限女」需求 (或為精油項目)，您確定要指派男師傅 [${newStaff}] 嗎？`, icon: 'warning', showCancelButton: true, confirmButtonText: '確定', cancelButtonText: '取消' });
+                                                    if (!res1.isConfirmed) {
                                                         return;
                                                     }
                                                 }
@@ -860,8 +864,9 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                                                 const reqBlocks = isSplitMode ? blocks1 : totalBlocks;
                                                 const conflictWarning = checkStaffConflict(newStaff, reqBlocks);
                                                 if (conflictWarning) {
-                                                    const msg = `⚠️ 警告：師傅 [${newStaff}] 稍後 (${conflictWarning.startTime || '即將'}) 有指定客或預約客，剩餘時間不足以完成此服務。\n\n請問您確定要強制指派此師傅嗎？`;
-                                                    if (!window.confirm(msg)) {
+                                                    const msg = `師傅 [${newStaff}] 稍後 (${conflictWarning.startTime || '即將'}) 有指定客或預約客，剩餘時間不足以完成此服務。\n\n請問您確定要強制指派此師傅嗎？`;
+                                                    const res2 = await Swal.fire({ title: '警告', text: msg, icon: 'warning', showCancelButton: true, confirmButtonText: '確定', cancelButtonText: '取消' });
+                                                    if (!res2.isConfirmed) {
                                                         return;
                                                     }
                                                 }
@@ -869,9 +874,10 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                                                 setSelectedStaff(newStaff);
                                                 // NẾU LÀ THAY THỢ (CHƯA CHIA ĐƠN HOẶC ĐÃ CHIA ĐƠN), KHI EDIT THỢ SẼ TRIGGER ĐỔI THỢ
                                                 if (isRunning) {
-                                                    if (window.confirm('確定要更換主服務師傅嗎？')) {
-                                                        const returnToLast = window.confirm('請問原師傅的排班順位該如何處置？\n\n[確定/OK]：排到待命列表【最後一位】\n[取消/Cancel]：恢復【原來的排班順位】');
-                                                        triggerAction('CHANGE_STAFF', { newStaff: newStaff, returnToLast: returnToLast });
+                                                    const res3 = await Swal.fire({ title: '確認', text: '確定要更換主服務師傅嗎？', icon: 'question', showCancelButton: true, confirmButtonText: '確定', cancelButtonText: '取消' });
+                                                    if (res3.isConfirmed) {
+                                                        const res4 = await Swal.fire({ title: '排班順位處置', text: '請問原師傅的排班順位該如何處置？\n\n[確定]：排到待命列表【最後一位】\n[取消]：恢復【原來的排班順位】', icon: 'question', showCancelButton: true, confirmButtonText: '確定', cancelButtonText: '取消' });
+                                                        triggerAction('CHANGE_STAFF', { newStaff: newStaff, returnToLast: res4.isConfirmed });
                                                     } else {
                                                         setSelectedStaff(selectedStaff); // Revert
                                                     }
@@ -928,14 +934,15 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                                             <div className="bg-orange-50 border border-orange-200 rounded-lg relative">
                                                 <select
                                                     value={selectedStaff2}
-                                                    onChange={(e) => {
+                                                    onChange={async (e) => {
                                                         const newStaff2 = e.target.value;
                                                         
                                                         if (newStaff2 !== '隨機') {
                                                             const conflictWarning = checkStaffConflict(newStaff2, totalBlocks - blocks1);
                                                             if (conflictWarning) {
-                                                                const msg = `⚠️ 警告：師傅 [${newStaff2}] 稍後 (${conflictWarning.startTime || '即將'}) 有指定客或預約客，剩餘時間不足以完成此服務。\n\n請問您確定要強制接手此單嗎？`;
-                                                                if (!window.confirm(msg)) {
+                                                                const msg = `師傅 [${newStaff2}] 稍後 (${conflictWarning.startTime || '即將'}) 有指定客或預約客，剩餘時間不足以完成此服務。\n\n請問您確定要強制接手此單嗎？`;
+                                                                const res1 = await Swal.fire({ title: '警告', text: msg, icon: 'warning', showCancelButton: true, confirmButtonText: '確定', cancelButtonText: '取消' });
+                                                                if (!res1.isConfirmed) {
                                                                     return;
                                                                 }
                                                             }
@@ -945,7 +952,8 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                                                         
                                                         // TÍNH TOÁN NGAY KHI GÁN THỢ 2 VÀ ĐANG CHẠY
                                                         if (isRunning && newStaff2 !== '隨機') {
-                                                            if (confirm(`確定要由 [${newStaff2}] 接手剩餘的 ${totalBlocks - blocks1} 節嗎？\n(主師傅將立即設為待命/READY)`)) {
+                                                            const res2 = await Swal.fire({ title: '確認', text: `確定要由 [${newStaff2}] 接手剩餘的 ${totalBlocks - blocks1} 節嗎？\n(主師傅將立即設為待命/READY)`, icon: 'question', showCancelButton: true, confirmButtonText: '確定', cancelButtonText: '取消' });
+                                                            if (res2.isConfirmed) {
                                                                 triggerAction('INLINE_SPLIT', { 
                                                                     staff1: selectedStaff,
                                                                     staff2: newStaff2, 
@@ -1260,8 +1268,8 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                             </button>
                         )}
                         <button onClick={handleFinishRequest} className="col-span-1 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold shadow-lg shadow-blue-200 flex flex-col items-center justify-center transform active:scale-95 transition-all"><i className="fas fa-check-circle text-xl mb-0.5"></i><span className="text-xs">結帳 ({STATUS.COMPLETED})</span></button>
-                        <button onClick={() => { if (confirm('確定要取消嗎？')) triggerAction('CANCEL'); }} className="col-span-1 bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 rounded-xl font-bold flex flex-col items-center justify-center transform active:scale-95 transition-all"><i className="fas fa-trash-alt text-xl mb-0.5"></i><span className="text-xs">取消 ({STATUS.CANCELLED})</span></button>
-                        <button onClick={() => { if (confirm('確定要設為爽約嗎？')) triggerAction('NOSHOW'); }} className="col-span-1 bg-orange-50 hover:bg-orange-100 text-orange-600 border border-orange-200 rounded-xl font-bold flex flex-col items-center justify-center transform active:scale-95 transition-all"><i className="fas fa-user-slash text-xl mb-0.5"></i><span className="text-xs">爽約 ({STATUS.NOSHOW})</span></button>
+                        <button onClick={() => { Swal.fire({ title: '確認', text: '確定要取消嗎？', icon: 'warning', showCancelButton: true, confirmButtonText: '確定', cancelButtonText: '取消' }).then(res => { if(res.isConfirmed) triggerAction('CANCEL'); }); }} className="col-span-1 bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 rounded-xl font-bold flex flex-col items-center justify-center transform active:scale-95 transition-all"><i className="fas fa-trash-alt text-xl mb-0.5"></i><span className="text-xs">取消 ({STATUS.CANCELLED})</span></button>
+                        <button onClick={() => { Swal.fire({ title: '確認', text: '確定要設為爽約嗎？', icon: 'warning', showCancelButton: true, confirmButtonText: '確定', cancelButtonText: '取消' }).then(res => { if(res.isConfirmed) triggerAction('NOSHOW'); }); }} className="col-span-1 bg-orange-50 hover:bg-orange-100 text-orange-600 border border-orange-200 rounded-xl font-bold flex flex-col items-center justify-center transform active:scale-95 transition-all"><i className="fas fa-user-slash text-xl mb-0.5"></i><span className="text-xs">爽約 ({STATUS.NOSHOW})</span></button>
                     </div>
                 </div>
 
@@ -2116,7 +2124,7 @@ const ResourceCard = ({ id, type, index, data, busyStaffIds, onAction, onSelect,
                             <select
                                 className={`text-xl font-black text-center bg-transparent focus:outline-none cursor-pointer appearance-none pl-2 pr-5 transition-colors ${staffDisplay === '隨機' ? 'text-gray-400 hover:bg-slate-50' : 'text-slate-800 hover:bg-slate-50'}`}
                                 value={staffDisplay}
-                                onChange={(e) => {
+                                onChange={async (e) => {
                                     e.stopPropagation();
                                     const newStaff = e.target.value;
 
@@ -2126,15 +2134,17 @@ const ResourceCard = ({ id, type, index, data, busyStaffIds, onAction, onSelect,
                                     const needsFemale = reqStaff.includes('女') || reqStaff.includes('Female') || data.booking.isOil;
 
                                     if (needsFemale && isMale) {
-                                        if (!window.confirm(`⚠️ 警告：此客人有「限女」需求 (或為精油項目)，您確定要指派男師傅 [${newStaff}] 嗎？`)) {
+                                        const res1 = await Swal.fire({ title: '警告', text: `此客人有「限女」需求 (或為精油項目)，您確定要指派男師傅 [${newStaff}] 嗎？`, icon: 'warning', showCancelButton: true, confirmButtonText: '確定', cancelButtonText: '取消' });
+                                        if (!res1.isConfirmed) {
                                             return;
                                         }
                                     }
 
                                     if (data.isRunning && !isPreview) {
-                                        if (window.confirm('確定要更換服務師傅嗎？原師傅將恢復排班順序。')) {
+                                        const res2 = await Swal.fire({ title: '確認', text: '確定要更換服務師傅嗎？原師傅將恢復排班順序。', icon: 'question', showCancelButton: true, confirmButtonText: '確定', cancelButtonText: '取消' });
+                                        if (res2.isConfirmed) {
                                             onStaffChange(id, newStaff);
-                                            setTimeout(() => alert('更換成功！計時器繼續運行。'), 300);
+                                            setTimeout(() => Swal.fire('系統提示', '更換成功！計時器繼續運行。', 'success'), 300);
                                         }
                                     } else {
                                         onStaffChange(id, newStaff);
@@ -2258,7 +2268,7 @@ const ResourceCard = ({ id, type, index, data, busyStaffIds, onAction, onSelect,
                             <button
                                 onClick={(e) => {
                                     e.stopPropagation();
-                                    alert("⛔️ 系統提示：\n\n套餐會自動安排轉場，不支援手動跨區轉場，以免破壞時程邏輯與造成錯誤！\n\n(若需更換同區座位，請在時間軸使用上下箭頭移動)");
+                                    Swal.fire('系統提示', "⛔️ 系統提示：\n\n套餐會自動安排轉場，不支援手動跨區轉場，以免破壞時程邏輯與造成錯誤！\n\n(若需更換同區座位，請在時間軸使用上下箭頭移動)", 'warning');
                                 }}
                                 className="py-1.5 rounded font-bold text-slate-500 bg-slate-200 cursor-not-allowed flex items-center justify-center text-xs shadow"
                             >
