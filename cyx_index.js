@@ -661,12 +661,21 @@ app.get('/api/today-salary', async (req, res) => {
 // PHẦN 5: LINE EVENT HANDLER (BOT KHÁCH HÀNG)
 // =============================================================================
 
+function askHasPref(userId, guestIndex, event, client) {
+    const buttons = [
+        { "type": "text", "text": `💆 第 ${guestIndex + 1} 位貴賓是否需要指定師傅？`, "weight": "bold", "size": "md", "align": "center", "color": "#1DB446" },
+        { "type": "separator", "margin": "md" },
+        { "type": "button", "style": "secondary", "margin": "sm", "action": { "type": "message", "label": "🎲 不指定", "text": `HasPref:${guestIndex}:NO` } },
+        { "type": "button", "style": "primary", "color": "#E91E63", "margin": "sm", "action": { "type": "message", "label": "🎯 我要指定", "text": `HasPref:${guestIndex}:YES` } }
+    ];
+    return client.replyMessage(event.replyToken, { type: 'flex', altText: `第 ${guestIndex + 1} 位貴賓是否指定`, contents: { "type": "bubble", "body": { "type": "box", "layout": "vertical", "contents": buttons } } });
+}
+
 function askGuestPref(userId, guestIndex, event, client) {
     const s = userState[userId];
     const buttons = [
-        { "type": "text", "text": `💆 請選擇第 ${guestIndex + 1} 位貴賓的師傅需求`, "weight": "bold", "size": "md", "align": "center", "color": "#1DB446" },
+        { "type": "text", "text": `💆 請選擇第 ${guestIndex + 1} 位貴賓的指定方式`, "weight": "bold", "size": "md", "align": "center", "color": "#1DB446" },
         { "type": "separator", "margin": "md" },
-        { "type": "button", "style": "secondary", "margin": "sm", "action": { "type": "message", "label": "🎲 不指定 (隨機)", "text": `GuestPref:${guestIndex}:RANDOM` } },
         { "type": "button", "style": "secondary", "margin": "sm", "action": { "type": "message", "label": "👨 指定男師傅", "text": `GuestPref:${guestIndex}:MALE` } },
         { "type": "button", "style": "primary", "color": "#333333", "margin": "sm", "action": { "type": "message", "label": "👉 指定特定號碼", "text": `GuestPref:${guestIndex}:SPECIFIC` } },
         { "type": "button", "style": "secondary", "margin": "sm", "action": { "type": "message", "label": "👩 指定女師傅 (無油)", "text": `GuestPref:${guestIndex}:FEMALE` } }
@@ -825,8 +834,28 @@ async function handleEvent(event) {
 
     if (text.startsWith('Pax:')) {
         if (!userState[userId]) return client.replyMessage(event.replyToken, { type: 'text', text: '⚠️ 連線逾時，請重新點擊「立即預約」。' });
-        const num = parseInt(text.split(':')[1]); const currentState = userState[userId]; currentState.pax = num; currentState.guestPrefs = []; currentState.step = 'GUEST_PREF'; userState[userId] = currentState;
-        return askGuestPref(userId, 0, event, client);
+        const num = parseInt(text.split(':')[1]); const currentState = userState[userId]; currentState.pax = num; currentState.guestPrefs = []; currentState.step = 'HAS_PREF'; userState[userId] = currentState;
+        return askHasPref(userId, 0, event, client);
+    }
+
+    if (text.startsWith('HasPref:')) {
+        if (!userState[userId]) return client.replyMessage(event.replyToken, { type: 'text', text: '⚠️ 連線逾時，請重新點擊「立即預約」。' });
+        const parts = text.split(':');
+        const gIdx = parseInt(parts[1]);
+        const choice = parts[2];
+        const s = userState[userId];
+        
+        if (choice === 'NO') {
+            s.guestPrefs[gIdx] = { type: 'RANDOM' };
+            if (gIdx + 1 < s.pax) {
+                return askHasPref(userId, gIdx + 1, event, client);
+            } else {
+                return proceedAfterGuestPrefs(userId, event, client);
+            }
+        } else if (choice === 'YES') {
+            s.step = 'GUEST_PREF';
+            return askGuestPref(userId, gIdx, event, client);
+        }
     }
 
     if (text.startsWith('GuestPref:')) {
@@ -845,7 +874,8 @@ async function handleEvent(event) {
         } else {
             s.guestPrefs[gIdx] = { type: pref };
             if (gIdx + 1 < s.pax) {
-                return askGuestPref(userId, gIdx + 1, event, client);
+                s.step = 'HAS_PREF';
+                return askHasPref(userId, gIdx + 1, event, client);
             } else {
                 return proceedAfterGuestPrefs(userId, event, client);
             }
@@ -860,8 +890,8 @@ async function handleEvent(event) {
         s.guestPrefs[gIdx] = { type: 'SPECIFIC', staffId: staffId };
         
         if (gIdx + 1 < s.pax) {
-            s.step = 'GUEST_PREF';
-            return askGuestPref(userId, gIdx + 1, event, client);
+            s.step = 'HAS_PREF';
+            return askHasPref(userId, gIdx + 1, event, client);
         } else {
             return proceedAfterGuestPrefs(userId, event, client);
         }
