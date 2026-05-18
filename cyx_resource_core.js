@@ -845,7 +845,6 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
         let duration = b.duration || svcInfo.duration || 60;
         let anchorIndex = null;
         const isRunning = (b.status || '').toLowerCase().includes('running');
-        let anchorIndex = null;
 
         // [V135 FIX] LUÔN ưu tiên lấy toạ độ thực tế một cách toàn diện như Guardrail
         // Điều này ngăn chặn Bóng Ma Toạ Độ do Matrix gán nhầm ghế/giường đã có khách.
