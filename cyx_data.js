@@ -42,15 +42,15 @@ const SYSTEM_CONFIG = {
 
     // Quy mô chi nhánh
     SCALE: {
-        MAX_CHAIRS: 9, // Số lượng ghế (腳)
-        MAX_BEDS: 9,   // Số lượng giường (床)
+        MAX_CHAIRS: 6, // Số lượng ghế (腳)
+        MAX_BEDS: 6,   // Số lượng giường (床)
         get TOTAL_RESOURCES() { return this.MAX_CHAIRS + this.MAX_BEDS; }
     },
 
     // Quản lý thời gian vận hành
     OPERATION_TIME: {
-        OPEN_HOUR: 5,        // Giờ bắt đầu Timeline (03:00 AM)
-        CUT_OFF_HOUR: 3,     // Giờ chốt sổ ngày hôm sau (03:00 AM)
+        OPEN_HOUR: 8,        // Giờ bắt đầu Timeline (03:00 AM)
+        CUT_OFF_HOUR: 2,     // Giờ chốt sổ ngày hôm sau (03:00 AM)
         MINUTES_PER_SLOT: 1, // Đơn vị chia nhỏ nhất trên Timeline
         // Tự động tính tổng số phút vận hành trong ngày (24 tiếng = 1440 phút + 120 phút)
         get TOTAL_TIMELINE_MINS() {
@@ -113,15 +113,15 @@ const BOOKING_STATUS = {
 const DYNAMIC_PRICES_MAP = null;
 
 const SERVICES_DATA = {
-    'A3': { name: '套餐 (120分)', duration: 120, price: 1200, type: 'BED', category: 'COMBO', blocks: 3, commission: 250 },
-    'A2': { name: '套餐 (70分)', duration: 70, price: 800, type: 'BED', category: 'COMBO', blocks: 2, commission: 250 },
+    'A3': { name: '套餐 (100分)', duration: 100, price: 999, type: 'BED', category: 'COMBO', blocks: 3, commission: 250 },
+    'A2': { name: '套餐 (70分)', duration: 70, price: 900, type: 'BED', category: 'COMBO', blocks: 2, commission: 250 },
 
-    'F3': { name: '腳底按摩 (110分)', duration: 110, price: 1200, type: 'CHAIR', category: 'FOOT', blocks: 3, commission: 250 },
-    'F2': { name: '腳底按摩 (70分)', duration: 70, price: 800, type: 'CHAIR', category: 'FOOT', blocks: 2, commission: 250 },
+    'F3': { name: '腳底按摩 (90分)', duration: 90, price: 1200, type: 'CHAIR', category: 'FOOT', blocks: 3, commission: 250 },
+    'F2': { name: '腳底按摩 (70分)', duration: 70, price: 900, type: 'CHAIR', category: 'FOOT', blocks: 2, commission: 250 },
     'F1': { name: '腳底按摩 (40分)', duration: 40, price: 500, type: 'CHAIR', category: 'FOOT', blocks: 1, commission: 250 },
 
-    'B3': { name: '身體按摩 (110分)', duration: 110, price: 1200, type: 'BED', category: 'BODY', blocks: 3, commission: 250 },
-    'B2': { name: '身體按摩 (70分)', duration: 70, price: 800, type: 'BED', category: 'BODY', blocks: 2, commission: 250 },
+    'B3': { name: '身體按摩 (90分)', duration: 90, price: 1200, type: 'BED', category: 'BODY', blocks: 3, commission: 250 },
+    'B2': { name: '身體按摩 (70分)', duration: 70, price: 900, type: 'BED', category: 'BODY', blocks: 2, commission: 250 },
     'B1': { name: '身體按摩 (35分)', duration: 35, price: 500, type: 'BED', category: 'BODY', blocks: 1, commission: 250 },
 
     'C1': { name: '拔罐/刮痧 (35分)', duration: 35, price: 500, type: 'BED', category: 'ADDON', blocks: 1, commission: 250 },
