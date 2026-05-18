@@ -19,6 +19,7 @@ const cors = require('cors');
 const path = require('path');
 const https = require('https'); // Thêm module https để phục vụ Anti-Hibernation
 const http = require('http');   // Thêm module http để phục vụ Anti-Hibernation
+const fs = require('fs');       // Thêm module fs để lưu trữ trạng thái nhắc nhở
 
 // --- IMPORT MODULES ---
 const ResourceCore = require('./cyx_resource_core');
@@ -1089,6 +1090,254 @@ async function handleEvent(event) {
     return client.replyMessage(event.replyToken, { type: 'flex', altText: '預約服務', contents: { "type": "bubble", "body": { "type": "box", "layout": "vertical", "contents": [{ "type": "text", "text": "您好 👋", "weight": "bold", "size": "lg", "align": "center" }, { "type": "text", "text": "請問您是要預約按摩服務嗎？", "wrap": true, "size": "sm", "color": "#555555", "align": "center", "margin": "md" }] }, "footer": { "type": "box", "layout": "horizontal", "spacing": "sm", "contents": [{ "type": "button", "style": "primary", "action": { "type": "message", "label": "✅ 立即預約 (Book)", "text": "Action:Booking" } }, { "type": "button", "style": "secondary", "action": { "type": "message", "label": "📄 服務價目 (Menu)", "text": "Menu" } }] } } });
 }
 
+// =============================================================================
+// PHẦN 6: AUTO REMINDER LOGIC (Nhắc nhở tự động 8h, 1h, 30m)
+// =============================================================================
+const REMINDERS_FILE = 'cyx_reminders.json';
+let sentReminders = {};
+
+function loadReminders() {
+    try {
+        if (!fs.existsSync(REMINDERS_FILE)) {
+            fs.writeFileSync(REMINDERS_FILE, JSON.stringify({}), 'utf8');
+        } else {
+            const data = fs.readFileSync(REMINDERS_FILE, 'utf8');
+            sentReminders = JSON.parse(data || '{}');
+        }
+    } catch (e) {
+        console.error('[REMINDER] Error loading reminders:', e);
+    }
+}
+
+function saveReminders() {
+    try {
+        fs.writeFileSync(REMINDERS_FILE, JSON.stringify(sentReminders, null, 2), 'utf8');
+    } catch (e) {
+        console.error('[REMINDER] Error saving reminders:', e);
+    }
+}
+
+loadReminders(); // Tải trạng thái nhắc nhở khi khởi động
+
+function createReminderFlex(booking, type) {
+    let headerText = "溫馨提醒：您的預約即將到來！";
+    let bodyText = "";
+    
+    if (type === '8h') {
+        bodyText = "距離您的預約大約還有 8 小時，期待您的光臨！";
+    } else if (type === '1h') {
+        bodyText = "距離您的預約還有 1 小時，請提早出發，以免耽誤您的寶貴時間。";
+    } else if (type === '30m') {
+        bodyText = "距離您的預約僅剩 30 分鐘，我們已經為您準備好服務，不見不散！";
+    }
+
+    return {
+        "type": "flex",
+        "altText": "預約提醒通知",
+        "contents": {
+            "type": "bubble",
+            "size": "mega",
+            "header": {
+                "type": "box",
+                "layout": "vertical",
+                "backgroundColor": "#1DB446",
+                "contents": [
+                    {
+                        "type": "text",
+                        "text": "📅 預約提醒",
+                        "weight": "bold",
+                        "color": "#ffffff",
+                        "size": "xl",
+                        "align": "center"
+                    }
+                ]
+            },
+            "body": {
+                "type": "box",
+                "layout": "vertical",
+                "contents": [
+                    {
+                        "type": "text",
+                        "text": headerText,
+                        "weight": "bold",
+                        "size": "md",
+                        "color": "#333333",
+                        "wrap": true
+                    },
+                    {
+                        "type": "separator",
+                        "margin": "md"
+                    },
+                    {
+                        "type": "box",
+                        "layout": "vertical",
+                        "margin": "md",
+                        "spacing": "sm",
+                        "contents": [
+                            {
+                                "type": "box",
+                                "layout": "horizontal",
+                                "contents": [
+                                    { "type": "text", "text": "👤 貴賓", "color": "#aaaaaa", "size": "sm", "flex": 2 },
+                                    { "type": "text", "text": booking.customerName || "貴賓", "color": "#333333", "size": "sm", "weight": "bold", "flex": 5, "wrap": true }
+                                ]
+                            },
+                            {
+                                "type": "box",
+                                "layout": "horizontal",
+                                "contents": [
+                                    { "type": "text", "text": "⏰ 時間", "color": "#aaaaaa", "size": "sm", "flex": 2 },
+                                    { "type": "text", "text": booking.startTimeString || booking.startTime || "", "color": "#E63946", "size": "sm", "weight": "bold", "flex": 5, "wrap": true }
+                                ]
+                            },
+                            {
+                                "type": "box",
+                                "layout": "horizontal",
+                                "contents": [
+                                    { "type": "text", "text": "💆 服務", "color": "#aaaaaa", "size": "sm", "flex": 2 },
+                                    { "type": "text", "text": booking.serviceName || "精選服務", "color": "#333333", "size": "sm", "weight": "bold", "flex": 5, "wrap": true }
+                                ]
+                            },
+                            {
+                                "type": "box",
+                                "layout": "horizontal",
+                                "contents": [
+                                    { "type": "text", "text": "🛠️ 技師", "color": "#aaaaaa", "size": "sm", "flex": 2 },
+                                    { "type": "text", "text": booking.staffName || booking.requestedStaff || "隨機", "color": "#333333", "size": "sm", "weight": "bold", "flex": 5, "wrap": true }
+                                ]
+                            }
+                        ]
+                    },
+                    {
+                        "type": "separator",
+                        "margin": "md"
+                    },
+                    {
+                        "type": "text",
+                        "text": bodyText,
+                        "wrap": true,
+                        "size": "sm",
+                        "color": "#555555",
+                        "margin": "md"
+                    }
+                ]
+            }
+        }
+    };
+}
+
+async function checkAndSendReminders() {
+    const isSystemHealthy = SheetService.getIsSystemHealthy();
+    if (!isSystemHealthy) return;
+
+    const bookings = SheetService.getBookings();
+    if (!bookings || bookings.length === 0) return;
+
+    const nowTaipei = SheetService.getTaipeiNow();
+    let isChanged = false;
+
+    for (const b of bookings) {
+        if (!b.lineId) continue;
+        
+        // Bỏ qua các booking đã hủy hoặc hoàn thành
+        const status = (b.status || '').toLowerCase();
+        const inactiveKeywords = ['hủy', 'cancel', '取消', 'hoàn thành', 'done', '完成', '✅', '❌'];
+        const isInactive = inactiveKeywords.some(kw => status.includes(kw));
+        if (isInactive) continue;
+
+        let bookingDateStr = b.opDate || b.date;
+        let timeStr = b.startTime;
+        
+        // Ưu tiên dùng startTimeString
+        if (b.startTimeString && b.startTimeString.includes(' ')) {
+            const parts = b.startTimeString.split(' ');
+            bookingDateStr = parts[0];
+            timeStr = parts[1];
+        }
+        
+        if (!bookingDateStr || !timeStr) continue;
+
+        const dateParts = bookingDateStr.replace(/-/g, '/').split('/');
+        const timeParts = timeStr.split(':');
+        
+        if (dateParts.length < 3 || timeParts.length < 2) continue;
+
+        const bookingTime = new Date(
+            parseInt(dateParts[0]), 
+            parseInt(dateParts[1]) - 1, 
+            parseInt(dateParts[2]), 
+            parseInt(timeParts[0]), 
+            parseInt(timeParts[1]), 
+            0
+        );
+
+        const timeDiffMins = (bookingTime.getTime() - nowTaipei.getTime()) / 60000;
+
+        const reminderKey = `Row${b.rowId}_${bookingDateStr}_${timeStr}`;
+
+        if (!sentReminders[reminderKey]) {
+            sentReminders[reminderKey] = { '8h': false, '1h': false, '30m': false };
+        }
+
+        const history = sentReminders[reminderKey];
+
+        // Mốc 8 tiếng (<= 480 && > 60)
+        if (timeDiffMins <= 480 && timeDiffMins > 60 && !history['8h']) {
+            try {
+                const flexMsg = createReminderFlex(b, '8h');
+                await client.pushMessage(b.lineId, flexMsg);
+                history['8h'] = true;
+                isChanged = true;
+                console.log(`[REMINDER] Sent 8h reminder to ${b.customerName} (${b.lineId})`);
+            } catch (e) { console.error(`[REMINDER] Error sending 8h to ${b.lineId}`, e); }
+        }
+        // Mốc 1 tiếng (<= 60 && > 30)
+        else if (timeDiffMins <= 60 && timeDiffMins > 30 && !history['1h']) {
+            try {
+                const flexMsg = createReminderFlex(b, '1h');
+                await client.pushMessage(b.lineId, flexMsg);
+                history['1h'] = true;
+                history['8h'] = true; 
+                isChanged = true;
+                console.log(`[REMINDER] Sent 1h reminder to ${b.customerName} (${b.lineId})`);
+            } catch (e) { console.error(`[REMINDER] Error sending 1h to ${b.lineId}`, e); }
+        }
+        // Mốc 30 phút (<= 30 && > 0)
+        else if (timeDiffMins <= 30 && timeDiffMins > 0 && !history['30m']) {
+            try {
+                const flexMsg = createReminderFlex(b, '30m');
+                await client.pushMessage(b.lineId, flexMsg);
+                history['30m'] = true;
+                history['1h'] = true; 
+                history['8h'] = true; 
+                isChanged = true;
+                console.log(`[REMINDER] Sent 30m reminder to ${b.customerName} (${b.lineId})`);
+            } catch (e) { console.error(`[REMINDER] Error sending 30m to ${b.lineId}`, e); }
+        }
+    }
+
+    if (isChanged) {
+        // Dọn dẹp cache cũ (quá 24 giờ)
+        const oldThresholdMins = -24 * 60;
+        for (const key of Object.keys(sentReminders)) {
+            const parts = key.split('_');
+            if (parts.length >= 3) {
+                const dateParts = parts[1].split('/');
+                const timeParts = parts[2].split(':');
+                if (dateParts.length >= 3 && timeParts.length >= 2) {
+                    const bTime = new Date(parseInt(dateParts[0]), parseInt(dateParts[1]) - 1, parseInt(dateParts[2]), parseInt(timeParts[0]), parseInt(timeParts[1]), 0);
+                    const diff = (bTime.getTime() - nowTaipei.getTime()) / 60000;
+                    if (diff < oldThresholdMins) {
+                        delete sentReminders[key];
+                    }
+                }
+            }
+        }
+        saveReminders();
+    }
+}
+
+
 // 1. Initial Sync (Khởi động đồng bộ)
 SheetService.syncMenuData()
     .then(() => SheetService.syncQuickNotes())
@@ -1109,6 +1358,9 @@ setInterval(async () => {
 // Chu kỳ ngắn: Cập nhật Lịch hẹn Booking & Trạng thái Nhân viên
 setInterval(async () => {
     await SheetService.syncData();
+    
+    // Gọi tính năng tự động nhắc nhở (Auto Reminders)
+    await checkAndSendReminders();
     const errors = SheetService.getConsecutiveErrors();
 
     if (errors >= MAX_RETRIES && !alarmSent) {
