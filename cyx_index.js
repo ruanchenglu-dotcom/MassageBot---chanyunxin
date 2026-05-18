@@ -175,7 +175,7 @@ function findBestSlots(selectedDate, serviceCode, guestPrefs, travelTime = 0) {
     const maxHour = 23;
     const minTimeMs = nowTaipei.getTime() + (travelTime * 60000);
 
-    for (let h = openHour; h <= maxHour; h += 1) {
+    for (let h = 0; h < 24; h += 1) {
         for (let m = 0; m < 60; m += 20) {
             const slotTime = new Date(sYear, sMonth - 1, sDay, h, m, 0);
             if (slotTime.getTime() <= minTimeMs) continue;
@@ -229,7 +229,7 @@ function generateTimeBubbles(selectedDate, serviceCode, guestPrefs, travelTime =
     const maxHour = 23;
     const minTimeMs = nowTaipei.getTime() + (travelTime * 60000);
 
-    for (let h = openHour; h <= maxHour; h += 1) {
+    for (let h = 0; h < 24; h += 1) {
         for (let m = 0; m < 60; m += 20) {
             const slotTime = new Date(sYear, sMonth - 1, sDay, h, m, 0);
             if (slotTime.getTime() <= minTimeMs) continue;
@@ -245,6 +245,7 @@ function generateTimeBubbles(selectedDate, serviceCode, guestPrefs, travelTime =
     validSlots.sort((a, b) => (a.h * 60 + a.m) - (b.h * 60 + b.m));
 
     const groups = [
+        { name: '🦉 凌晨', slots: validSlots.filter(v => v.h >= 0 && v.h < openHour) },
         { name: '🌞 早安', slots: validSlots.filter(v => v.h >= openHour && v.h < 12) },
         { name: '☀️ 午後', slots: validSlots.filter(v => v.h >= 12 && v.h < 18) },
         { name: '🌙 晚安', slots: validSlots.filter(v => v.h >= 18 && v.h <= 23) }
