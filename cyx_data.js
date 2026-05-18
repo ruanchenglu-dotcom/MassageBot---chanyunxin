@@ -128,6 +128,7 @@ const SERVICES_DATA = {
     'C2': { name: '修指甲/修腳皮 (35分)', duration: 35, price: 500, type: 'CHAIR', category: 'ADDON', blocks: 1, commission: 250 }
 };
 
+
 const SERVICES_LIST = Object.keys(SERVICES_DATA);
 
 // ============================================================================
