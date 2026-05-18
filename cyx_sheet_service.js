@@ -901,6 +901,26 @@ async function updateBookingDetails(body) {
         await updateCell('AE', finalLockString);
     }
 
+    // === [V136 OPTIMISTIC CACHE UPDATE] 防衝突機制 ===
+    if (bookingData) {
+        if (phase1Res !== undefined) bookingData.phase1_res_idx = phase1Res;
+        if (phase2Res !== undefined) bookingData.phase2_res_idx = phase2Res;
+        if (phase1Res || phase2Res) {
+            bookingData.allocated_resource = phase1Res && phase2Res ? `${phase1Res}+${phase2Res}` : (phase1Res || "");
+        }
+        if (body.duration !== undefined) bookingData.duration = parseInt(body.duration);
+        if (body.phase1_duration !== undefined) bookingData.phase1_duration = body.phase1_duration;
+        if (body.phase2_duration !== undefined) bookingData.phase2_duration = body.phase2_duration;
+        if (flowVal !== undefined) bookingData.flow = flowVal;
+        if (resourceType !== undefined) bookingData.resource_type = resourceType;
+        if (body.serviceName !== undefined) bookingData.serviceName = body.serviceName;
+        
+        if (body.phase1_duration !== undefined || body.phase2_duration !== undefined) {
+            bookingData.duration = parseInt(bookingData.phase1_duration || 0) + parseInt(bookingData.phase2_duration || 0);
+        }
+    }
+    // ===============================================
+
     if (body.forceSync) triggerSyncDebounced(100); else triggerSyncDebounced();
     return true;
 }
@@ -1117,6 +1137,36 @@ async function updateInlineBooking(rowId, updatedData) {
             }
         }
 
+        // === [V136 OPTIMISTIC CACHE UPDATE] 防衝突機制 ===
+        // Cập nhật bộ nhớ đệm ngay trước khi gọi API Google Sheet để request đồng thời không bị dính dữ liệu cũ
+        if (bookingData) {
+            if (row[27] !== undefined) bookingData.phase1_res_idx = row[27];
+            if (row[28] !== undefined) bookingData.phase2_res_idx = row[28];
+            if (row[27] || row[28]) {
+                bookingData.allocated_resource = row[27] && row[28] ? `${row[27]}+${row[28]}` : (row[27] || "");
+            }
+            if (row[26]) bookingData.flow = row[26];
+            if (row[24] !== undefined) bookingData.phase1_duration = row[24];
+            if (row[25] !== undefined) bookingData.phase2_duration = row[25];
+            bookingData.duration = parseInt(row[24] || 0) + parseInt(row[25] || 0);
+            if (row[29]) bookingData.resource_type = row[29];
+            if (sCode) bookingData.serviceCode = sCode;
+            if (row[3]) bookingData.serviceName = row[3];
+            
+            let oldCategory = bookingData.category;
+            if (!oldCategory && bookingData.serviceCode && STATE.SERVICES[bookingData.serviceCode]) {
+                oldCategory = STATE.SERVICES[bookingData.serviceCode].category;
+            }
+            if (sCode && STATE.SERVICES[sCode]) {
+                bookingData.category = STATE.SERVICES[sCode].category;
+            } else if (bookingData.flow) {
+                if (bookingData.flow === 'FOOTSINGLE') bookingData.category = 'FOOT';
+                else if (bookingData.flow === 'BODYSINGLE') bookingData.category = 'BODY';
+                else if (bookingData.flow === 'FB' || bookingData.flow === 'BF') bookingData.category = 'COMBO';
+            }
+        }
+        // ===============================================
+
         await sheets.spreadsheets.values.update({
             spreadsheetId: SHEET_ID,
             range: `${BOOKING_SHEET_NAME}!A${rowId}:AE${rowId}`,
@@ -1234,6 +1284,26 @@ async function batchUpdateMultipleBookings(updatesArray) {
             if (finalLockString !== currentLockString || body.isManualLocked !== undefined || hasManualPhaseChange) {
                 dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!AE${rowId}`, values: [[finalLockString]] });
             }
+
+            // === [V136 OPTIMISTIC CACHE UPDATE] 防衝突機制 ===
+            if (bookingData) {
+                if (phase1Res !== undefined) bookingData.phase1_res_idx = phase1Res;
+                if (phase2Res !== undefined) bookingData.phase2_res_idx = phase2Res;
+                if (phase1Res || phase2Res) {
+                    bookingData.allocated_resource = phase1Res && phase2Res ? `${phase1Res}+${phase2Res}` : (phase1Res || "");
+                }
+                if (body.duration !== undefined) bookingData.duration = parseInt(body.duration);
+                if (body.phase1_duration !== undefined) bookingData.phase1_duration = body.phase1_duration;
+                if (body.phase2_duration !== undefined) bookingData.phase2_duration = body.phase2_duration;
+                if (flowVal !== undefined) bookingData.flow = flowVal;
+                if (resourceType !== undefined) bookingData.resource_type = resourceType;
+                if (body.serviceName !== undefined) bookingData.serviceName = body.serviceName;
+                
+                if (body.phase1_duration !== undefined || body.phase2_duration !== undefined) {
+                    bookingData.duration = parseInt(bookingData.phase1_duration || 0) + parseInt(bookingData.phase2_duration || 0);
+                }
+            }
+            // ===============================================
         });
 
         if (dataToUpdate.length > 0) {
