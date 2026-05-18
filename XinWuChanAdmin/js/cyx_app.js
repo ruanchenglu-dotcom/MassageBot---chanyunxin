@@ -3529,7 +3529,7 @@ const App = () => {
                     statusData={statusData}
                     timelineData={timelineData}
                     resourceState={resourceState}
-                    bookings={bookings}
+                    bookings={todaysBookings}
                 />
             )}
         </div>

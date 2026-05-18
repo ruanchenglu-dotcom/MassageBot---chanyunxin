@@ -387,6 +387,7 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
         const getServiceCategory = (serviceName) => {
             if (!serviceName) return 'BODY';
             if (window.SERVICES_DATA) {
+                if (window.SERVICES_DATA[serviceName]) return window.SERVICES_DATA[serviceName].category;
                 for (const code in window.SERVICES_DATA) {
                     const sData = window.SERVICES_DATA[code];
                     if (serviceName.includes(sData.name) || sData.name.includes(serviceName)) return sData.category;
@@ -430,6 +431,14 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
         let maxChairOcc = 0;
         let maxBedOcc = 0;
 
+        // [V110.0 FIX] Tính toán thông tin dịch vụ cũ của khách này (để so sánh load)
+        const oldDur = window.getSafeDuration ? window.getSafeDuration(booking.serviceName, booking.duration) : 60;
+        const oldEndMins = startMins + oldDur;
+        const oldCat = getServiceCategory(booking.serviceName);
+        const oldSplit = window.getComboSplit ? window.getComboSplit(oldDur) : { phase1: Math.floor(oldDur/2) };
+        const oldP1Dur = booking.phase1_duration !== undefined ? parseInt(booking.phase1_duration) : oldSplit.phase1;
+        const oldMidMins = startMins + oldP1Dur;
+
         for (let t = startMins; t < endMins; t += 5) {
             let currentLoad = 0;
             let currentChairLoad = 0;
@@ -448,49 +457,101 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
 
                     if (bCat === 'COMBO') {
                         const bSplit = window.getComboSplit ? window.getComboSplit(bDur) : { phase1: Math.floor(bDur/2) };
-                        const bPhase1Dur = b.phase1_duration ? parseInt(b.phase1_duration) : bSplit.phase1;
+                        const bPhase1Dur = b.phase1_duration !== undefined ? parseInt(b.phase1_duration) : bSplit.phase1;
                         const bMid = bStart + bPhase1Dur;
-                        if (t < bMid) currentChairLoad += bPax;
-                        else currentBedLoad += bPax;
-                    } else if (bCat === 'FOOT' || b.type === 'CHAIR') {
-                        currentChairLoad += bPax;
+                        const isBF = b.flow === 'BF';
+                        if (t < bMid) {
+                            if (isBF) currentBedLoad += bPax;
+                            else currentChairLoad += bPax;
+                        } else {
+                            if (isBF) currentChairLoad += bPax;
+                            else currentBedLoad += bPax;
+                        }
                     } else {
-                        currentBedLoad += bPax;
+                        let actualResType = null;
+                        const resIdx = b.phase1_res_idx || b.allocated_resource || b.current_resource_id || b.location || '';
+                        if (resIdx.toUpperCase().includes('CHAIR') || resIdx.includes('足')) {
+                            actualResType = 'CHAIR';
+                        } else if (resIdx.toUpperCase().includes('BED') || resIdx.includes('床')) {
+                            actualResType = 'BED';
+                        }
+
+                        if (actualResType === 'CHAIR' || bCat === 'FOOT' || b.type === 'CHAIR' || b.forceResourceType === 'CHAIR') {
+                            currentChairLoad += bPax;
+                        } else if (actualResType === 'BED') {
+                            currentBedLoad += bPax;
+                        } else {
+                            currentBedLoad += bPax;
+                        }
                     }
                 }
             });
 
-            const totalLoadAtT = currentLoad + currentPax;
-            if (totalLoadAtT > maxConcurrency) maxConcurrency = totalLoadAtT;
-
+            // Logic tính tải của dịch vụ MỚI tại thời điểm t
+            let willBeOnChair = false;
+            let willBeOnBed = false;
             if (isComboEdit) {
-                if (t < editPhase1End) currentChairLoad += currentPax;
-                else currentBedLoad += currentPax;
+                if (t < editPhase1End) {
+                    if (isBodyFirstLocal) willBeOnBed = true;
+                    else willBeOnChair = true;
+                } else {
+                    if (isBodyFirstLocal) willBeOnChair = true;
+                    else willBeOnBed = true;
+                }
             } else if (editServiceCategory === 'FOOT') {
-                currentChairLoad += currentPax;
+                willBeOnChair = true;
             } else {
-                currentBedLoad += currentPax;
+                willBeOnBed = true;
             }
 
+            if (willBeOnChair) currentChairLoad += currentPax;
+            if (willBeOnBed) currentBedLoad += currentPax;
+
+            const totalLoadAtT = currentLoad + currentPax;
+            if (totalLoadAtT > maxConcurrency) maxConcurrency = totalLoadAtT;
             if (currentChairLoad > maxChairOcc) maxChairOcc = currentChairLoad;
             if (currentBedLoad > maxBedOcc) maxBedOcc = currentBedLoad;
-        }
 
-        if (maxConcurrency > totalStaffCapacity) {
-            setScanServiceStatus('FAILED');
-            setScanServiceMessage(`❌ 技師不足`);
-            return;
-        }
+            // Logic tính tải của dịch vụ CŨ tại thời điểm t (để so sánh)
+            let wasOnChair = false;
+            let wasOnBed = false;
+            if (t >= startMins && t < oldEndMins) {
+                if (oldCat === 'COMBO') {
+                    const oldIsBF = ((meta && meta.sequence) ? meta.sequence : (booking.flow || 'FB')) === 'BF';
+                    if (t < oldMidMins) {
+                        if (oldIsBF) wasOnBed = true;
+                        else wasOnChair = true;
+                    } else {
+                        if (oldIsBF) wasOnChair = true;
+                        else wasOnBed = true;
+                    }
+                } else if (oldCat === 'FOOT' || booking.type === 'CHAIR') {
+                    wasOnChair = true;
+                } else {
+                    wasOnBed = true;
+                }
+            }
 
-        if (maxChairOcc > getMaxChairs()) {
-            setScanServiceStatus('FAILED');
-            setScanServiceMessage("❌ 足底區客滿");
-            return;
-        }
-        if (maxBedOcc > getMaxBeds()) {
-            setScanServiceStatus('FAILED');
-            setScanServiceMessage("❌ 指壓區客滿");
-            return;
+            // Chỉ block nếu việc edit tạo thêm gánh nặng mới tại thời điểm t
+            const isNewLoadHigher = (t >= oldEndMins); 
+            const isNewChairHigher = (willBeOnChair && !wasOnChair);
+            const isNewBedHigher = (willBeOnBed && !wasOnBed);
+
+            if (totalLoadAtT > totalStaffCapacity && isNewLoadHigher) {
+                setScanServiceStatus('FAILED');
+                setScanServiceMessage(`❌ 技師不足`);
+                return;
+            }
+            if (currentChairLoad > getMaxChairs() && isNewChairHigher) {
+                setScanServiceStatus('FAILED');
+                setScanServiceMessage("❌ 足底區客滿");
+                return;
+            }
+            if (currentBedLoad > getMaxBeds() && isNewBedHigher) {
+                setScanServiceStatus('FAILED');
+                setScanServiceMessage("❌ 床區客滿");
+                return;
+            }
         }
 
         const reqStaff = selectedStaff;
