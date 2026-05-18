@@ -387,7 +387,7 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
         const dur = (g.duration || 60);
         if (req === 'FEMALE' || req === '女' || req === '女師') femaleReqCount++;
         else if (req === 'MALE' || req === '男' || req === '男師') maleReqCount++;
-        else if (req && req !== '隨機' && req !== 'Any' && req !== 'undefined' && req !== 'null') {
+        else if (req && req !== 'RANDOM' && req !== '隨機' && req !== 'Any' && req !== 'undefined' && req !== 'null') {
             const sId = normId(req);
             specificStaffReqs.push({ req: sId, rawReq: req, duration: dur });
         }
