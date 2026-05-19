@@ -1132,6 +1132,12 @@ function createReminderFlex(booking, type) {
         bodyText = "距離您的預約僅剩 30 分鐘，我們已經為您準備好服務，不見不散！";
     }
 
+    let displayName = booking.customerName || "貴賓";
+    // Xóa các hậu tố như (1/6) hoặc (Số điện thoại) để chỉ hiển thị tên khách
+    if (displayName.includes('(')) {
+        displayName = displayName.split('(')[0].trim();
+    }
+
     return {
         "type": "flex",
         "altText": "預約提醒通知",
@@ -1180,7 +1186,7 @@ function createReminderFlex(booking, type) {
                                 "layout": "horizontal",
                                 "contents": [
                                     { "type": "text", "text": "👤 貴賓", "color": "#aaaaaa", "size": "sm", "flex": 2 },
-                                    { "type": "text", "text": booking.customerName || "貴賓", "color": "#333333", "size": "sm", "weight": "bold", "flex": 5, "wrap": true }
+                                    { "type": "text", "text": displayName, "color": "#333333", "size": "sm", "weight": "bold", "flex": 5, "wrap": true }
                                 ]
                             },
                             {
@@ -1274,7 +1280,9 @@ async function checkAndSendReminders() {
 
         const timeDiffMins = (bookingTime.getTime() - nowTaipei.getTime()) / 60000;
 
-        const reminderKey = `Row${b.rowId}_${bookingDateStr}_${timeStr}`;
+        const safePhone = b.phone ? String(b.phone).replace(/\|/g, '-') : 'noPhone';
+        const safeLineId = b.lineId ? String(b.lineId).replace(/\|/g, '-') : 'noLineId';
+        const reminderKey = `Group|${safeLineId}|${safePhone}|${bookingDateStr}|${timeStr}`;
 
         if (!sentReminders[reminderKey]) {
             sentReminders[reminderKey] = { '8h': false, '1h': false, '30m': false };
@@ -1321,10 +1329,26 @@ async function checkAndSendReminders() {
         // Dọn dẹp cache cũ (quá 24 giờ)
         const oldThresholdMins = -24 * 60;
         for (const key of Object.keys(sentReminders)) {
-            const parts = key.split('_');
-            if (parts.length >= 3) {
-                const dateParts = parts[1].split('/');
-                const timeParts = parts[2].split(':');
+            let dateStr, timeStr;
+            
+            if (key.startsWith('Group|')) {
+                const parts = key.split('|');
+                if (parts.length >= 5) {
+                    dateStr = parts[3];
+                    timeStr = parts[4];
+                }
+            } else {
+                // Tương thích ngược với định dạng cũ: Row123_2026/05/19_18:00
+                const parts = key.split('_');
+                if (parts.length >= 3) {
+                    dateStr = parts[parts.length - 2];
+                    timeStr = parts[parts.length - 1];
+                }
+            }
+
+            if (dateStr && timeStr) {
+                const dateParts = dateStr.split('/');
+                const timeParts = timeStr.split(':');
                 if (dateParts.length >= 3 && timeParts.length >= 2) {
                     const bTime = new Date(parseInt(dateParts[0]), parseInt(dateParts[1]) - 1, parseInt(dateParts[2]), parseInt(timeParts[0]), parseInt(timeParts[1]), 0);
                     const diff = (bTime.getTime() - nowTaipei.getTime()) / 60000;
@@ -1332,6 +1356,9 @@ async function checkAndSendReminders() {
                         delete sentReminders[key];
                     }
                 }
+            } else {
+                // Xóa các key bị hỏng hoặc không xác định
+                delete sentReminders[key];
             }
         }
         saveReminders();
