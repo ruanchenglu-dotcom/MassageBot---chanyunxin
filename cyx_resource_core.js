@@ -330,30 +330,19 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
     });
 
     // 2. Kiểm tra Nhân sự (Staff Capacity - V118.6 Đã đồng bộ Gender & Specific Staff Logic)
-    const availableStaffList = Object.values(staffList).filter(s => {
-        const status = parseStaffStatus(s);
-        if (!status.isAvailable) return false;
-        // [CORE V118.0] Thuật toán Phân đoạn Ca Đêm
-        let inMain = (requestStart >= status.startMins && requestStart < status.endMins);
-        let inTail = false;
-        if (status.endMins > 1440) {
-            const origEnd = status.endMins - 1440;
-            inTail = (requestStart >= 0 && requestStart < origEnd);
-        }
-        return inMain || inTail;
-    });
-
     const normId = (id) => String(id || '').replace(/^0+/, '').trim().toUpperCase();
 
-    const supplyCount = availableStaffList.length;
-    const femaleSupply = availableStaffList.filter(s => s.gender === 'F' || s.gender === '女').length;
-    const maleSupply = availableStaffList.filter(s => s.gender === 'M' || s.gender === '男').length;
+    // [NEW] Tạo danh sách các điểm chạm thời gian (Time Points) để quét liên tục (Continuous Scan)
+    let timePoints = new Set();
+    timePoints.add(requestStart);
+    
+    guestList.forEach(g => {
+        const svcInfo = getServiceInfo(g.serviceCode, g.serviceName);
+        const dur = svcInfo.duration || 60;
+        timePoints.add(requestStart + dur);
+    });
 
-    let staffBusyCount = 0;
-    let femaleBusyCount = 0;
-    let maleBusyCount = 0;
     let staffBusyPeriods = {};
-
     relevantBookings.forEach(b => {
         const bS = getMinsFromTimeStr(b.startTimeString || b.startTime);
         const bE = bS + (b.duration || 60) + CONF.CLEANUP_BUFFER;
@@ -366,28 +355,89 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
                 staffBusyPeriods[sId].push({ start: bS, end: bE });
             }
         }
-
-        if (requestStart >= bS && requestStart < bE) {
-            staffBusyCount += staffsInBooking.length;
-
-            for (const staffName of staffsInBooking) {
-                const sInfo = staffList[staffName] || Object.values(staffList).find(s => normId(s.name) === normId(staffName) || normId(s.id) === normId(staffName)) || {};
-                if (sInfo.gender === 'F' || sInfo.gender === '女' || sInfo.group === '女') femaleBusyCount++;
-                else if (sInfo.gender === 'M' || sInfo.gender === '男' || sInfo.group === '男') maleBusyCount++;
-            }
-        }
+        
+        // Thêm các điểm đầu/cuối của booking cũ nếu nó rơi vào khung giờ khách mới đang xét
+        if (bS > requestStart && bS < requestStart + maxDuration) timePoints.add(bS);
+        if (bE > requestStart && bE < requestStart + maxDuration) timePoints.add(bE);
     });
 
-    let femaleReqCount = 0;
-    let maleReqCount = 0;
-    let specificStaffReqs = [];
+    let sortedPoints = Array.from(timePoints).sort((a, b) => a - b);
 
+    // [NEW] Thuật toán Interval Overlap Continuous Scan cho Nhân sự
+    for (let i = 0; i < sortedPoints.length - 1; i++) {
+        let tCheck = sortedPoints[i];
+        
+        let currentStaffBusy = 0;
+        let currentFemaleBusy = 0;
+        let currentMaleBusy = 0;
+        
+        relevantBookings.forEach(b => {
+            const bS = getMinsFromTimeStr(b.startTimeString || b.startTime);
+            const bE = bS + (b.duration || 60) + CONF.CLEANUP_BUFFER;
+            let staffsInBooking = b.assignedStaffs && b.assignedStaffs.length > 0 ? b.assignedStaffs : [b.staffName];
+            
+            if (tCheck >= bS && tCheck < bE) {
+                currentStaffBusy += staffsInBooking.length;
+                for (const staffName of staffsInBooking) {
+                    const sInfo = staffList[staffName] || Object.values(staffList).find(s => normId(s.name) === normId(staffName) || normId(s.id) === normId(staffName)) || {};
+                    if (sInfo.gender === 'F' || sInfo.gender === '女' || sInfo.group === '女') currentFemaleBusy++;
+                    else if (sInfo.gender === 'M' || sInfo.gender === '男' || sInfo.group === '男') currentMaleBusy++;
+                }
+            }
+        });
+        
+        let newGuestsActive = 0;
+        let newFemaleReq = 0;
+        let newMaleReq = 0;
+        
+        guestList.forEach(g => {
+            const svcInfo = getServiceInfo(g.serviceCode, g.serviceName);
+            const dur = svcInfo.duration || 60;
+            if (tCheck >= requestStart && tCheck < requestStart + dur) {
+                newGuestsActive++;
+                const req = g.staff;
+                // Nếu khách chọn dầu (OIL), mặc định yêu cầu nữ (trừ khi có config khác)
+                if (req === 'FEMALE' || req === '女' || req === '女師' || req === 'OIL') newFemaleReq++;
+                else if (req === 'MALE' || req === '男' || req === '男師') newMaleReq++;
+            }
+        });
+
+        // Đếm số nhân viên ĐANG LÀM VIỆC tại đúng thời điểm tCheck (đã trừ lúc hết ca)
+        const currentAvailableStaff = Object.values(staffList).filter(s => {
+            const status = parseStaffStatus(s);
+            if (!status.isAvailable) return false;
+            let inMain = (tCheck >= status.startMins && tCheck < status.endMins);
+            let inTail = false;
+            if (status.endMins > 1440) {
+                const origEnd = status.endMins - 1440;
+                inTail = (tCheck >= 0 && tCheck < origEnd);
+            }
+            return inMain || inTail;
+        });
+
+        const currentSupplyCount = currentAvailableStaff.length;
+        const currentFemaleSupply = currentAvailableStaff.filter(s => s.gender === 'F' || s.gender === '女').length;
+        const currentMaleSupply = currentAvailableStaff.filter(s => s.gender === 'M' || s.gender === '男').length;
+        
+        if (newFemaleReq > 0 && (currentFemaleBusy + newFemaleReq) > currentFemaleSupply) {
+            return triggerSmartFailure(`⚠️ 該時段女技師不足。女師總共: ${currentFemaleSupply}, 忙碌中: ${currentFemaleBusy}, 欲預約: ${newFemaleReq}`);
+        }
+        if (newMaleReq > 0 && (currentMaleBusy + newMaleReq) > currentMaleSupply) {
+            return triggerSmartFailure(`⚠️ 該時段男技師不足。男師總共: ${currentMaleSupply}, 忙碌中: ${currentMaleBusy}, 欲預約: ${newMaleReq}`);
+        }
+        if ((currentStaffBusy + newGuestsActive) > currentSupplyCount) {
+            return triggerSmartFailure(`⚠️ 該時段技師總數不足。總共: ${currentSupplyCount}, 忙碌中: ${currentStaffBusy}, 新客: ${newGuestsActive}`);
+        }
+    }
+
+    // Kiểm tra trùng lịch cho nhân viên ĐƯỢC CHỈ ĐỊNH cụ thể (Specific Staff)
+    let specificStaffReqs = [];
     guestList.forEach(g => {
         const req = g.staff;
-        const dur = (g.duration || 60);
-        if (req === 'FEMALE' || req === '女' || req === '女師') femaleReqCount++;
-        else if (req === 'MALE' || req === '男' || req === '男師') maleReqCount++;
-        else if (req && req !== 'RANDOM' && req !== '隨機' && req !== 'Any' && req !== 'undefined' && req !== 'null') {
+        const svcInfo = getServiceInfo(g.serviceCode, g.serviceName);
+        const dur = svcInfo.duration || 60;
+        if (req && req !== 'RANDOM' && req !== '隨機' && req !== 'Any' && req !== 'undefined' && req !== 'null' 
+            && req !== 'FEMALE' && req !== 'MALE' && req !== '女' && req !== '男' && req !== '女師' && req !== '男師' && req !== 'OIL') {
             const sId = normId(req);
             specificStaffReqs.push({ req: sId, rawReq: req, duration: dur });
         }
@@ -440,18 +490,6 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
                 return triggerSmartFailure(`⚠️ 技師 ${rawName} 該時段已有預約。`);
             }
         }
-    }
-
-    if (femaleReqCount > 0 && (femaleBusyCount + femaleReqCount) > femaleSupply) {
-        return triggerSmartFailure(`⚠️ 女技師不足。女師總共: ${femaleSupply}, 忙碌中: ${femaleBusyCount}, 欲預約女師數: ${femaleReqCount}`);
-    }
-
-    if (maleReqCount > 0 && (maleBusyCount + maleReqCount) > maleSupply) {
-        return triggerSmartFailure(`⚠️ 男技師不足。男師總共: ${maleSupply}, 忙碌中: ${maleBusyCount}, 欲預約男師數: ${maleReqCount}`);
-    }
-
-    if ((staffBusyCount + guestList.length) > supplyCount) {
-        return triggerSmartFailure(`⚠️ 技師總數不足。總共: ${supplyCount}, 忙碌中: ${staffBusyCount}, 新客: ${guestList.length}`);
     }
 
     // 3. Phân tích tài nguyên chống phân mảnh (Continuous Scan)
