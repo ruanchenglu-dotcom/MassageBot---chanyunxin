@@ -389,17 +389,24 @@ const App = () => {
         const currentRowId = String(currentBooking.rowId);
         const currentPhone = getNormalizedPhone(currentBooking);
 
-        const mappedFromResource = Object.keys(resourceState)
-            .filter(k => k !== excludeResourceId && !resourceState[k].isRunning && resourceState[k].isPreview === true)
-            .map(k => ({ resourceId: k, booking: resourceState[k].booking }))
-            .filter(item => {
-                const otherBooking = item.booking;
-                // LOẠI BỎ CHÍNH NÓ (Ngăn bóng ma Phase 2 của Combo tự nhận diện)
-                if (String(otherBooking.rowId) === currentRowId) return false;
-                // TIÊU CHÍ DUY NHẤT: Bắt buộc chỉ gộp nhóm bằng Số điện thoại lớn hơn= 4 ký tự
-                if (currentPhone && currentPhone.length >= 4 && currentPhone === getNormalizedPhone(otherBooking)) return true;
-                return false;
-            });
+        const mappedFromResource = [];
+        const seenMappedRowIds = new Set([currentRowId]); // LOẠI BỎ CHÍNH NÓ (Ngăn bóng ma Phase 2 của Combo tự nhận diện)
+        
+        Object.keys(resourceState).forEach(k => {
+            if (k !== excludeResourceId && !resourceState[k].isRunning && resourceState[k].isPreview === true) {
+                const otherBooking = resourceState[k].booking;
+                const otherRowId = String(otherBooking.rowId);
+                const otherPhone = getNormalizedPhone(otherBooking);
+                
+                if (!seenMappedRowIds.has(otherRowId)) {
+                    // TIÊU CHÍ DUY NHẤT: Bắt buộc chỉ gộp nhóm bằng Số điện thoại lớn hơn= 4 ký tự
+                    if (currentPhone && currentPhone.length >= 4 && currentPhone === otherPhone) {
+                        seenMappedRowIds.add(otherRowId);
+                        mappedFromResource.push({ resourceId: k, booking: otherBooking });
+                    }
+                }
+            }
+        });
 
         const mappedRowIds = new Set(mappedFromResource.map(m => String(m.booking.rowId)));
         mappedRowIds.add(currentRowId);
@@ -446,18 +453,25 @@ const App = () => {
         const currentRowId = String(currentBooking.rowId);
         const currentPhone = getNormalizedPhone(currentBooking);
 
-        return Object.keys(resourceState)
-            .filter(k => k !== excludeResourceId && (resourceState[k].isRunning || resourceState[k].isPreview === true))
-            .map(k => ({ resourceId: k, booking: resourceState[k].booking }))
-            .filter(item => {
-                const otherBooking = item.booking;
+        const relatedItems = [];
+        const seenRowIds = new Set([currentRowId]); // LOẠI BỎ CHÍNH NÓ LÚC CHECKOUT: Không đếm nó là 1 khách hàng đi cùng
+        
+        Object.keys(resourceState).forEach(k => {
+            if (k !== excludeResourceId && (resourceState[k].isRunning || resourceState[k].isPreview === true)) {
+                const otherBooking = resourceState[k].booking;
                 const otherRowId = String(otherBooking.rowId);
                 const otherPhone = getNormalizedPhone(otherBooking);
-                // LOẠI BỎ CHÍNH NÓ LÚC CHECKOUT: Không đếm nó là 1 khách hàng đi cùng
-                if (otherRowId === currentRowId) return false;
-                if (currentPhone && currentPhone.length >= 4 && currentPhone === otherPhone) return true;
-                return false;
-            });
+                
+                if (!seenRowIds.has(otherRowId)) {
+                    if (currentPhone && currentPhone.length >= 4 && currentPhone === otherPhone) {
+                        seenRowIds.add(otherRowId);
+                        relatedItems.push({ resourceId: k, booking: otherBooking });
+                    }
+                }
+            }
+        });
+        
+        return relatedItems;
     };
 
     const universalSend = async (endpoint, payload) => {
@@ -932,9 +946,36 @@ const App = () => {
                     if (freshData) {
                         res.booking = { ...res.booking, ...freshData };
                         activeSignatures.add(getBookingSignature(freshData));
+                        
+                        // [V136 NÂNG CẤP] Dò tìm sự thay đổi vị trí vật lý để sửa key
+                        let expectedKey = key;
+                        if (res.comboMeta && res.comboMeta.phase === 2) {
+                            if (freshData.phase2_res_idx) expectedKey = freshData.phase2_res_idx.toLowerCase();
+                        } else {
+                            if (freshData.phase1_res_idx) expectedKey = freshData.phase1_res_idx.toLowerCase();
+                            else if (freshData.storedLocation) expectedKey = freshData.storedLocation.toLowerCase();
+                            else if (freshData.current_resource_id) expectedKey = freshData.current_resource_id.toLowerCase();
+                            else if (freshData.location) expectedKey = freshData.location.toLowerCase();
+                        }
+
+                        if (expectedKey && expectedKey !== key) {
+                            if (!window._keysToMove) window._keysToMove = [];
+                            window._keysToMove.push({ oldKey: key, newKey: expectedKey });
+                        }
                     }
                 }
             });
+
+            // Thực hiện di dời key an toàn
+            if (window._keysToMove && window._keysToMove.length > 0) {
+                window._keysToMove.forEach(({ oldKey, newKey }) => {
+                    if (!nextResourceState[newKey] || !nextResourceState[newKey].isRunning || String(nextResourceState[newKey].booking?.rowId) === String(nextResourceState[oldKey].booking?.rowId)) {
+                        nextResourceState[newKey] = nextResourceState[oldKey];
+                        delete nextResourceState[oldKey];
+                    }
+                });
+                window._keysToMove = [];
+            }
 
             relevantBookings.forEach(b => {
                 if (b.isRunningStatus) {
@@ -1738,6 +1779,8 @@ const App = () => {
         if (newStartTimeStringForSheet) {
             payload.startTimeString = newStartTimeStringForSheet;
             payload.gioDen = startTimeStr;
+            payload.startTime = startTimeStr;
+            payload.date = newStartTimeStringForSheet.split(' ')[0];
         }
 
         try {
@@ -1828,6 +1871,8 @@ const App = () => {
         if (newStartTimeStringForSheet) {
             payload.startTimeString = newStartTimeStringForSheet;
             payload.gioDen = startTimeStr;
+            payload.startTime = startTimeStr;
+            payload.date = newStartTimeStringForSheet.split(' ')[0];
         }
 
         try {

@@ -827,12 +827,19 @@ async function updateBookingDetails(body) {
         });
     };
 
-    if (body.date) {
-        const formattedDate = normalizeDateStrict(body.date);
+    let finalDate = body.date;
+    if (!finalDate && body.startTimeString) {
+        finalDate = body.startTimeString.split(' ')[0];
+    }
+    
+    if (finalDate) {
+        const formattedDate = normalizeDateStrict(finalDate);
         await updateCell('A', formattedDate); await updateCell('S', formattedDate);
     }
-    if (body.startTime) {
-        let timeVal = body.startTime; if (timeVal.length > 5) timeVal = timeVal.substring(0, 5);
+    
+    let finalStartTime = body.startTime || body.gioDen;
+    if (finalStartTime) {
+        let timeVal = finalStartTime; if (timeVal.length > 5) timeVal = timeVal.substring(0, 5);
         await updateCell('B', timeVal);
     }
     if (body.customerName) await updateCell('C', body.customerName);
