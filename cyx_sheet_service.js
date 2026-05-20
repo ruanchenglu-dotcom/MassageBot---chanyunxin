@@ -970,7 +970,12 @@ async function updateInlineBooking(rowId, updatedData) {
                     else if (bookingData.flow === 'FB' || bookingData.flow === 'BF') oldCategory = 'COMBO';
                 }
 
-                if (oldCategory !== newCategory || bookingData.serviceCode !== sCode) {
+                // [NÂNG CẤP COMBO]: Nếu chuyển sang COMBO và đã có vị trí Phase 1 thì giữ nguyên
+                if (newCategory === 'COMBO' && phase1Res) {
+                    if (oldCategory !== newCategory) {
+                        phase2Res = null; // Cần tìm thêm vị trí cho Phase 2
+                    }
+                } else if (oldCategory !== newCategory) {
                     phase1Res = null; phase2Res = null;
                 }
             }
@@ -1067,10 +1072,48 @@ async function updateInlineBooking(rowId, updatedData) {
                 }
 
                 if (oldCategory !== svcDef.category || bookingData.serviceCode !== sCode) {
-                    let bestPhase1 = "";
+                    let bestPhase1 = bookingData ? (bookingData.phase1_res_idx || bookingData.allocated_resource || "") : "";
                     let bestPhase2 = "";
-                    
-                    if (bookingData && typeof ResourceCore !== 'undefined' && ResourceCore.checkRequestAvailability) {
+                    let isComboUpgrade = (svcDef.category === 'COMBO');
+
+                    if (isComboUpgrade && bestPhase1) {
+                        // [NÂNG CẤP COMBO]: Đã có vị trí, chỉ tìm vị trí đối nghịch cho Phase 2
+                        let isP1Chair = bestPhase1.toUpperCase().includes('CHAIR') || bestPhase1.includes('足');
+                        let isP1Bed = bestPhase1.toUpperCase().includes('BED') || bestPhase1.includes('床');
+                        
+                        if (isP1Chair) {
+                            newFlow = 'FB';
+                            row[26] = newFlow;
+                        } else if (isP1Bed) {
+                            newFlow = 'BF';
+                            row[26] = newFlow;
+                            // Hoán đổi thời lượng vì Flow đổi
+                            const temp = row[24]; row[24] = row[25]; row[25] = temp;
+                            phase1_dur = row[24]; phase2_dur = row[25];
+                        }
+
+                        const opDate = updatedData.ngayDen !== undefined ? formattedDate : (bookingData.opDate || bookingData.startTimeString);
+                        const opTime = updatedData.gioDen !== undefined ? timeVal : (bookingData.startTimeString || bookingData.startTime);
+                        
+                        // Tìm vị trí Phase 2
+                        let targetResType = newFlow === 'FB' ? 'BED' : 'CHAIR';
+                        let maxCount = targetResType === 'BED' ? (SYSTEM_CONFIG.SCALE.MAX_BEDS || 12) : (SYSTEM_CONFIG.SCALE.MAX_CHAIRS || 12);
+                        
+                        let foundP2 = false;
+                        for (let i = 1; i <= maxCount; i++) {
+                            let testRes = `${targetResType}-${i}`;
+                            const conflict = _checkOverlapConflict(rowId, opDate, opTime, duration, bestPhase1, testRes, phase1_dur, phase2_dur, newFlow);
+                            if (!conflict) {
+                                bestPhase2 = testRes;
+                                foundP2 = true;
+                                break;
+                            }
+                        }
+
+                        if (!foundP2) {
+                            throw new Error("⚠️ 更改失敗：該時段已無空床位/座位可供套餐使用。");
+                        }
+                    } else if (bookingData && typeof ResourceCore !== 'undefined' && ResourceCore.checkRequestAvailability) {
                         const opDate = updatedData.ngayDen !== undefined ? formattedDate : (bookingData.opDate || bookingData.startTimeString);
                         const opTime = updatedData.gioDen !== undefined ? timeVal : (bookingData.startTimeString || bookingData.startTime);
                         
@@ -1119,7 +1162,7 @@ async function updateInlineBooking(rowId, updatedData) {
                             } else {
                                 // STRICT VALIDATION: Chặn lưu dữ liệu và ném ra lỗi nếu thuật toán thất bại (hết giường)
                                 console.warn(`[STRICT AUTO-ALLOCATE FAILED] ${checkResult.reason}`);
-                                throw new Error(checkResult.reason || "⚠️ 更改失敗：該時段已無連續空床位。");
+                                throw new Error(checkResult.reason || "⚠️ 更改失敗：該時段已無連續空床位/座位。");
                             }
                         } catch (err) {
                             console.error("[AUTO-ALLOCATE ERROR]", err);

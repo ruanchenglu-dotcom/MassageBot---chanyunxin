@@ -438,6 +438,10 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
         let maxChairOcc = 0;
         let maxBedOcc = 0;
 
+        const cleanCurrentStaff = (window.normalizeStaffId ? window.normalizeStaffId(booking.serviceStaff || booking.staffId || '') : (booking.serviceStaff || booking.staffId || '').trim()).toUpperCase();
+        const cleanSelectedStaff = (window.normalizeStaffId ? window.normalizeStaffId(selectedStaff || '') : (selectedStaff || '').trim()).toUpperCase();
+        const isAlreadyAssignedToCurrent = (cleanSelectedStaff !== '' && cleanSelectedStaff !== '隨機' && cleanSelectedStaff === cleanCurrentStaff);
+
         // [V110.0 FIX] Tính toán thông tin dịch vụ cũ của khách này (để so sánh load)
         const oldDur = window.getSafeDuration ? window.getSafeDuration(booking.serviceName, booking.duration) : 60;
         const oldEndMins = startMins + oldDur;
@@ -544,7 +548,7 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
             const isNewChairHigher = (willBeOnChair && !wasOnChair);
             const isNewBedHigher = (willBeOnBed && !wasOnBed);
 
-            if (totalLoadAtT > totalStaffCapacity && isNewLoadHigher) {
+            if (totalLoadAtT > totalStaffCapacity && isNewLoadHigher && !isAlreadyAssignedToCurrent) {
                 setScanServiceStatus('FAILED');
                 setScanServiceMessage(`❌ 技師不足`);
                 return;
@@ -608,12 +612,12 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                 const targetStaff = (staffList || []).find(s => (window.normalizeStaffId ? window.normalizeStaffId(s.id) : s.id.trim()).toUpperCase() === cleanReqStaff);
                 
                 if (targetStaff) {
-                    if (targetStaff.off) {
+                    if (targetStaff.off && !isAlreadyAssignedToCurrent) {
                         setScanServiceStatus('FAILED');
                         setScanServiceMessage(`❌ 該技師今日休假`);
                         return;
                     }
-                    if (!isStaffAvailable(targetStaff)) {
+                    if (!isStaffAvailable(targetStaff) && !isAlreadyAssignedToCurrent) {
                         setScanServiceStatus('FAILED');
                         setScanServiceMessage(`❌ 該技師不在班表時間內`);
                         return;
@@ -1067,6 +1071,18 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                                         setScanServiceMessage('');
                                         if (newSvc.includes('油推') && selectedStaff === '隨機') {
                                             setSelectedStaff('女');
+                                        }
+                                        
+                                        // [NÂNG CẤP COMBO]: Khóa Flow dựa theo vị trí Phase 1 hiện tại khi chuyển sang Combo
+                                        const isNewCombo = newSvc.includes('套餐') || newSvc.includes('招牌') || newSvc.toUpperCase().includes('COMBO') || 
+                                                           (window.SERVICES_DATA && window.SERVICES_DATA[newSvc] && window.SERVICES_DATA[newSvc].category === 'COMBO');
+                                        if (isNewCombo && selectedPhase1Res && selectedPhase1Res !== 'auto' && selectedPhase1Res !== 'full') {
+                                            const p1ResUpper = selectedPhase1Res.toUpperCase();
+                                            if (p1ResUpper.includes('CHAIR') || p1ResUpper.includes('足')) {
+                                                setLocalFlow('FB');
+                                            } else if (p1ResUpper.includes('BED') || p1ResUpper.includes('床')) {
+                                                setLocalFlow('BF');
+                                            }
                                         }
                                     }}
                                     className="w-full text-lg font-bold text-slate-700 bg-slate-50 border border-slate-200 rounded-lg py-2 pl-3 pr-8 focus:outline-none focus:border-indigo-500 appearance-none"
