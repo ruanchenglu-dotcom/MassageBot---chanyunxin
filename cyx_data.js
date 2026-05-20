@@ -113,9 +113,10 @@ const BOOKING_STATUS = {
 const DYNAMIC_PRICES_MAP = null;
 
 const SERVICES_DATA = {
-    'A4': { name: '套餐 (130分)', duration: 130, price: 1500, type: 'BED', category: 'COMBO', blocks: 4, commission: 250 },
 
     'A3': { name: '套餐 (100分)', duration: 100, price: 999, type: 'BED', category: 'COMBO', blocks: 3, commission: 250 },
+    'A4': { name: '套餐 (130分)', duration: 130, price: 1500, type: 'BED', category: 'COMBO', blocks: 4, commission: 250 },
+
     'A2': { name: '套餐 (70分)', duration: 70, price: 900, type: 'BED', category: 'COMBO', blocks: 2, commission: 250 },
 
     'F3': { name: '腳底按摩 (90分)', duration: 90, price: 1200, type: 'CHAIR', category: 'FOOT', blocks: 3, commission: 250 },
