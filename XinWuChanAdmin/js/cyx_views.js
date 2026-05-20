@@ -189,9 +189,16 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
     const [isSplitMode, setIsSplitMode] = useState(false);
     const [selectedStaff2, setSelectedStaff2] = useState('隨機');
     
-    // Khởi tạo blocks
-    const totalBlocks = window.getServiceBlocks ? window.getServiceBlocks(initCleanService) : 2;
+    // Khởi tạo blocks (Tự động cập nhật khi selectedService thay đổi)
+    const totalBlocks = window.getServiceBlocks ? window.getServiceBlocks(selectedService) : 2;
     const [blocks1, setBlocks1] = useState(booking.staff1_blocks || totalBlocks);
+
+    // Tự động điều chỉnh lại số tiết nếu dịch vụ mới có số tiết nhỏ hơn
+    useEffect(() => {
+        if (blocks1 > totalBlocks) {
+            setBlocks1(totalBlocks);
+        }
+    }, [totalBlocks, blocks1]);
 
     const processedStaffList = useMemo(() => {
         const activeStaffList = staffList || window.STAFF_LIST || [];
