@@ -557,6 +557,26 @@ const CheckInBoard = ({ staffList, statusData, onClose, onUpdateStatus, bookings
         });
     };
 
+    const handleCheckInTimeChange = (id, newTimeString) => {
+        const current = (statusData && statusData[id]) ? statusData[id] : {};
+        if (!current.checkInTime) return;
+        
+        const [hours, minutes] = newTimeString.split(':').map(Number);
+        const dateObj = new Date(current.checkInTime);
+        dateObj.setHours(hours, minutes, 0, 0);
+        const newTimeMs = dateObj.getTime();
+        
+        const newState = {
+            ...statusData,
+            [id]: {
+                ...current,
+                checkInTime: newTimeMs,
+                stafftime: newTimeMs
+            }
+        };
+        onUpdateStatus(newState);
+    };
+
     return (
         <div className="fixed inset-0 bg-slate-900/80 z-[60] flex items-center justify-center p-4 backdrop-blur-sm">
             {absenceData && <AbsenceCheckModal data={absenceData} staffList={staffList} bookings={bookings} statusData={statusData} localShifts={localShifts} viewDate={viewDate} onClose={() => setAbsenceData(null)} onConfirm={(type, time1, time2) => {
@@ -641,9 +661,11 @@ const CheckInBoard = ({ staffList, statusData, onClose, onUpdateStatus, bookings
                                 <div className="col-span-3 flex justify-center gap-2 items-center">
                                     {isWorking ? (
                                         <div className="flex items-center gap-2">
-                                            <span className="font-mono font-bold text-base text-slate-500 bg-gray-100 px-2 py-1.5 rounded border">
-                                                {new Date(current.checkInTime).toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' })}
-                                            </span>
+                                            <TimePicker24H 
+                                                value={new Date(current.checkInTime).toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' })} 
+                                                onChange={(val) => handleCheckInTimeChange(s.id, val)} 
+                                                className="font-mono text-2xl text-slate-600 font-bold border rounded p-1 w-32 text-center bg-gray-50" 
+                                            />
                                             <button onClick={() => toggleCheckIn(s.id)} className="text-red-500 hover:bg-red-500 hover:text-white border border-red-200 rounded px-4 py-2 flex items-center justify-center transition-all shadow-sm active:scale-95 text-base font-bold whitespace-nowrap" title="下班"><i className="fas fa-sign-out-alt mr-1"></i>下班</button>
                                         </div>
                                     ) : (
