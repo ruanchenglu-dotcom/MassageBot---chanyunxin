@@ -1102,7 +1102,20 @@ async function updateInlineBooking(rowId, updatedData) {
                             if (checkResult.feasible && checkResult.details && checkResult.details.length > 0 && checkResult.details[0].phase1_res_idx) {
                                 bestPhase1 = checkResult.details[0].phase1_res_idx || "";
                                 bestPhase2 = checkResult.details[0].phase2_res_idx || "";
-                                console.log(`[STRICT AUTO-ALLOCATE] Inline Update found new resources for Row ${rowId}: ${bestPhase1}, ${bestPhase2}`);
+                                
+                                // [V138 FIX] Cập nhật lại Flow và Đảo ngược thời lượng nếu ResourceCore quyết định thay đổi Flow
+                                if (checkResult.details[0].flow) {
+                                    const finalFlow = checkResult.details[0].flow;
+                                    if (finalFlow !== newFlow && (finalFlow === 'BF' || finalFlow === 'FB')) {
+                                        // Flow bị đảo ngược -> Hoán đổi thời gian của Phase 1 và Phase 2
+                                        const temp = row[24];
+                                        row[24] = row[25];
+                                        row[25] = temp;
+                                    }
+                                    row[26] = finalFlow;
+                                }
+                                
+                                console.log(`[STRICT AUTO-ALLOCATE] Inline Update found new resources for Row ${rowId}: ${bestPhase1}, ${bestPhase2}, Flow: ${row[26]}`);
                             } else {
                                 // STRICT VALIDATION: Chặn lưu dữ liệu và ném ra lỗi nếu thuật toán thất bại (hết giường)
                                 console.warn(`[STRICT AUTO-ALLOCATE FAILED] ${checkResult.reason}`);
