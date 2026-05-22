@@ -481,8 +481,350 @@ app.get('/api/info', async (req, res) => {
     } catch (error) { res.status(500).json({ error: "Internal Server Error" }); }
 });
 
+// --- API: STAFF LOGIN ---
+app.post('/api/staff-login', (req, res) => {
+    try {
+        const { staffId, pin } = req.body;
+        const configPin = process.env.STAFF_PORTAL_PIN || '8888';
+        
+        if (!staffId || !pin) {
+            return res.status(400).json({ error: "技師工號與密碼不能為空" });
+        }
+        
+        if (pin.toString().trim() !== configPin.toString().trim()) {
+            return res.status(401).json({ error: "安全密碼錯誤" });
+        }
+        
+        // Chuẩn hóa staffId
+        const cleanId = String(staffId).trim().toUpperCase();
+        const normalizeStaffId = (id) => {
+            if (!id) return "";
+            const strId = String(id).trim();
+            if (/^0+\d+$/.test(strId)) return parseInt(strId, 10).toString();
+            return strId;
+        };
+        const normTarget = normalizeStaffId(cleanId);
+        
+        const staffList = SheetService.getStaffList() || [];
+        const found = staffList.find(s => {
+            const sId = normalizeStaffId(s.id).toUpperCase();
+            const sName = String(s.name || '').trim().toUpperCase();
+            return sId === normTarget || sName === normTarget;
+        });
+        
+        if (!found) {
+            return res.status(404).json({ error: "查無此技師工號" });
+        }
+        
+        res.json({
+            success: true,
+            staff: {
+                id: found.id,
+                name: found.name,
+                gender: found.gender || 'F',
+                start: found.start,
+                end: found.end,
+                off: found.off
+            }
+        });
+    } catch (e) {
+        console.error("Staff login error:", e);
+        res.status(500).json({ error: "Internal Server Error" });
+    }
+});
+
+// --- API: STAFF SCHEDULE ---
+app.get('/api/staff-schedule', async (req, res) => {
+    try {
+        const rawStaffId = req.query.staffId;
+        if (!rawStaffId) {
+            return res.status(400).json({ error: "缺少技師工號" });
+        }
+        
+        // Chuẩn hóa staffId
+        const normalizeStaffId = (id) => {
+            if (!id) return "";
+            const strId = String(id).trim();
+            if (/^0+\d+$/.test(strId)) return parseInt(strId, 10).toString();
+            return strId;
+        };
+        const targetId = normalizeStaffId(rawStaffId).toUpperCase();
+        
+        // 1. Lấy thông tin kỹ thuật viên
+        const staffList = SheetService.getStaffList() || [];
+        const staffInfo = staffList.find(s => normalizeStaffId(s.id).toUpperCase() === targetId);
+        
+        if (!staffInfo) {
+            return res.status(404).json({ error: "找不到該技師的排班資訊" });
+        }
+        
+        // 2. Lấy danh sách booking trong ngày hôm nay
+        const bookings = SheetService.getBookings() || [];
+        const staffStatusMap = SERVER_STAFF_STATUS || {};
+        const currentStaffStatus = staffStatusMap[staffInfo.id] || { status: staffInfo.off ? 'AWAY' : 'READY', stafftime: Date.now() };
+        
+        // 3. Lọc bookings liên quan đến kỹ thuật viên này
+        const myBookings = [];
+        
+        // Helper lọc
+        bookings.forEach(b => {
+            // Loại bỏ các booking đã bị hủy hoặc noshow hoặc done
+            const statusRaw = String(b.status || '');
+            const isCancelled = statusRaw.toLowerCase().includes('cancel') || statusRaw.includes('取消') || statusRaw.includes('爽約') || statusRaw.toUpperCase().includes('NOSHOW');
+            const isDone = statusRaw.includes('完成') || statusRaw.includes('Done') || statusRaw.includes('✅');
+            
+            if (isCancelled || isDone) return;
+            
+            // So khớp tên/id kỹ thuật viên
+            const staffCols = [
+                b.serviceStaff, b.staffId, b.staffId2, b.staffId3, 
+                b.staffId4, b.staffId5, b.staffId6, b.ServiceStaff, b.technician
+            ].map(s => s ? normalizeStaffId(s).toUpperCase() : '');
+            
+            if (staffCols.includes(targetId)) {
+                myBookings.push(b);
+            }
+        });
+        
+        // 4. Xử lý chi tiết từng booking (thời gian bắt đầu, kết thúc, vị trí) cho kỹ thuật viên này
+        // Tương tự logic getSmartSplit trên client và ResourceCore
+        const scheduleSlots = [];
+        
+        const openHour = getConfig().OPERATION_TIME?.OPEN_HOUR || 5;
+        const timeStrToMins = (str) => {
+            if (!str) return -1;
+            try {
+                if (str.includes(' ')) str = str.split(' ')[1];
+                const parts = str.split(':');
+                let h = parseInt(parts[0], 10);
+                let m = parseInt(parts[1], 10);
+                if (h < openHour) h += 24;
+                return h * 60 + m;
+            } catch (e) { return -1; }
+        };
+        const minsToTimeStr = (mins) => {
+            let h = Math.floor(mins / 60);
+            let m = mins % 60;
+            if (h >= 24) h -= 24;
+            return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+        };
+        
+        // Duyệt qua từng booking của nhân viên này để tính toán slot cụ thể
+        myBookings.forEach(b => {
+            const startMins = timeStrToMins(b.startTime || b.gioDen);
+            if (startMins === -1) return;
+            
+            const duration = parseInt(b.duration) || 60;
+            const isCombo = b.category === 'COMBO' || (b.serviceName && b.serviceName.includes('套餐'));
+            
+            // Chia giai đoạn
+            let p1 = Math.floor(duration / 2);
+            let p2 = duration - p1;
+            if (b.phase1_duration !== undefined && b.phase1_duration !== "" && b.phase1_duration !== null) {
+                p1 = parseInt(b.phase1_duration);
+            }
+            if (b.phase2_duration !== undefined && b.phase2_duration !== "" && b.phase2_duration !== null) {
+                p2 = parseInt(b.phase2_duration);
+            }
+            
+            const transitionBuffer = getConfig().BUFFERS?.TRANSITION_MINUTES || 5;
+            const realDuration = isCombo ? (p1 + p2 + transitionBuffer) : duration;
+            const endMins = startMins + realDuration;
+            
+            // Xác định kỹ thuật viên này đảm nhận vai trò gì (Staff 1, 2, hay 3...)
+            const staffCols = [
+                b.serviceStaff, b.staffId, b.staffId2, b.staffId3, 
+                b.staffId4, b.staffId5, b.staffId6, b.ServiceStaff, b.technician
+            ].map(s => s ? normalizeStaffId(s).toUpperCase() : '');
+            
+            let staffIndex = 0; // 0 là staff1, 1 là staff2...
+            for (let i = 0; i < staffCols.length; i++) {
+                if (staffCols[i] === targetId) {
+                    if (i < 2 || i === 7 || i === 8) staffIndex = 0; // serviceStaff, staffId, ServiceStaff, technician
+                    else if (i === 2) staffIndex = 1; // staffId2
+                    else if (i === 3) staffIndex = 2; // staffId3
+                    else if (i === 4) staffIndex = 3; // staffId4
+                    else if (i === 5) staffIndex = 4; // staffId5
+                    else if (i === 6) staffIndex = 5; // staffId6
+                    break;
+                }
+            }
+            
+            // Lấy phân bổ tài nguyên thực tế cho khách hàng tương ứng với index này
+            // b.guestDetails chứa phân bổ tài nguyên của từng khách trong nhóm
+            const guestIndex = Math.min(staffIndex, (b.guestDetails || []).length - 1);
+            const guestDetail = (b.guestDetails && b.guestDetails.length > 0) ? b.guestDetails[Math.max(0, guestIndex)] : null;
+            
+            let phase1Location = guestDetail ? (guestDetail.phase1_res_idx || guestDetail.phase1_resource || b.phase1_res_idx || b.location || b.current_resource_id) : (b.phase1_res_idx || b.location || b.current_resource_id);
+            let phase2Location = guestDetail ? (guestDetail.phase2_res_idx || guestDetail.phase2_resource || b.phase2_res_idx) : b.phase2_res_idx;
+            
+            if (!phase1Location && b.allocated_resource) {
+                phase1Location = b.allocated_resource.split('+')[0].trim();
+            }
+            if (!phase2Location && b.allocated_resource && b.allocated_resource.includes('+')) {
+                phase2Location = b.allocated_resource.split('+')[1].trim();
+            }
+            
+            const seq = b.flow || 'FB';
+            
+            if (isCombo) {
+                // Ca Combo: Gồm hai phase riêng biệt
+                const p1EndMins = startMins + p1;
+                const p2StartMins = p1EndMins + transitionBuffer;
+                const p2EndMins = p2StartMins + p2;
+                
+                // Add Phase 1 slot
+                scheduleSlots.push({
+                    bookingId: b.rowId,
+                    customerName: b.customerName || '顧客',
+                    serviceName: b.serviceName || '項目',
+                    phase: 1,
+                    startTime: minsToTimeStr(startMins),
+                    endTime: minsToTimeStr(p1EndMins),
+                    startMins: startMins,
+                    endMins: p1EndMins,
+                    location: phase1Location ? phase1Location.toUpperCase() : '座位',
+                    isCombo: true,
+                    status: b.status
+                });
+                
+                // Add Phase 2 slot
+                scheduleSlots.push({
+                    bookingId: b.rowId,
+                    customerName: b.customerName || '顧客',
+                    serviceName: b.serviceName || '項目',
+                    phase: 2,
+                    startTime: minsToTimeStr(p2StartMins),
+                    endTime: minsToTimeStr(p2EndMins),
+                    startMins: p2StartMins,
+                    endMins: p2EndMins,
+                    location: phase2Location ? phase2Location.toUpperCase() : '床位',
+                    isCombo: true,
+                    status: b.status
+                });
+            } else {
+                // Ca đơn lẻ (Single)
+                scheduleSlots.push({
+                    bookingId: b.rowId,
+                    customerName: b.customerName || '顧客',
+                    serviceName: b.serviceName || '項目',
+                    phase: 1,
+                    startTime: minsToTimeStr(startMins),
+                    endTime: minsToTimeStr(endMins),
+                    startMins: startMins,
+                    endMins: endMins,
+                    location: phase1Location ? phase1Location.toUpperCase() : (b.flow === 'BODYSINGLE' ? '床位' : '座位'),
+                    isCombo: false,
+                    status: b.status
+                });
+            }
+        });
+        
+        // Sắp xếp các slot theo thời gian
+        scheduleSlots.sort((a, b) => a.startMins - b.startMins);
+        
+        // 5. Xác định vị trí hiện tại và ca bận tiếp theo để tạo cảnh báo dịch chuyển
+        const nowObj = (typeof getTaipeiDate === 'function') ? getTaipeiDate() : new Date();
+        const currentMins = nowObj.getHours() * 60 + nowObj.getMinutes() + (nowObj.getHours() < openHour ? 1440 : 0);
+        
+        let currentSlot = null;
+        let nextSlot = null;
+        
+        for (let i = 0; i < scheduleSlots.length; i++) {
+            const slot = scheduleSlots[i];
+            if (currentMins >= slot.startMins && currentMins < slot.endMins) {
+                currentSlot = slot;
+            } else if (slot.startMins > currentMins) {
+                if (!nextSlot || slot.startMins < nextSlot.startMins) {
+                    nextSlot = slot;
+                }
+            }
+        }
+        
+        // 6. Tính toán cảnh báo dịch chuyển (Transitions)
+        // Nếu vị trí ca tiếp theo khác vị trí hiện tại -> Đưa ra nhắc nhở dịch chuyển vị trí làm việc
+        let transitionAlert = null;
+        if (currentSlot && nextSlot && currentSlot.location !== nextSlot.location) {
+            transitionAlert = {
+                fromLocation: currentSlot.location,
+                toLocation: nextSlot.location,
+                switchTime: currentSlot.endTime,
+                nextCustomer: nextSlot.customerName,
+                message: `⚠️ 轉移提醒：請於 ${currentSlot.endTime} 結束當前服務後，移至 ${nextSlot.location} 服務 ${nextSlot.customerName}`
+            };
+        } else if (!currentSlot && nextSlot) {
+            // Nếu hiện tại đang rảnh nhưng sắp có ca mới
+            transitionAlert = {
+                fromLocation: '空閒',
+                toLocation: nextSlot.location,
+                switchTime: nextSlot.startTime,
+                nextCustomer: nextSlot.customerName,
+                message: `📢 下一任務提醒：請於 ${nextSlot.startTime} 前，至 ${nextSlot.location} 準備服務 ${nextSlot.customerName}`
+            };
+        }
+        
+        res.json({
+            staff: {
+                id: staffInfo.id,
+                name: staffInfo.name,
+                start: staffInfo.start,
+                end: staffInfo.end,
+                off: staffInfo.off,
+                status: currentStaffStatus.status || 'READY'
+            },
+            currentSlot: currentSlot,
+            nextSlot: nextSlot,
+            scheduleSlots: scheduleSlots,
+            transitionAlert: transitionAlert,
+            lastUpdated: SheetService.getLastSyncTime()
+        });
+        
+    } catch (e) {
+        console.error("Staff schedule fetch error:", e);
+        res.status(500).json({ error: "Internal Server Error" });
+    }
+});
+
 app.post('/api/sync-resource', (req, res) => { SERVER_RESOURCE_STATE = req.body; res.json({ success: true }); });
 app.post('/api/sync-staff-status', (req, res) => { SERVER_STAFF_STATUS = req.body; res.json({ success: true }); });
+
+// --- API: UPDATE SINGLE STAFF STATUS ---
+app.post('/api/update-single-staff-status', (req, res) => {
+    try {
+        const { staffId, status } = req.body;
+        if (!staffId || !status) {
+            return res.status(400).json({ error: "缺少技師工號或工作狀態" });
+        }
+        
+        // Chuẩn hóa staffId
+        const normalizeStaffId = (id) => {
+            if (!id) return "";
+            const strId = String(id).trim();
+            if (/^0+\d+$/.test(strId)) return parseInt(strId, 10).toString();
+            return strId;
+        };
+        const targetId = normalizeStaffId(staffId);
+        
+        // Kiểm tra xem SERVER_STAFF_STATUS có được khởi tạo chưa
+        if (typeof SERVER_STAFF_STATUS !== 'object' || SERVER_STAFF_STATUS === null) {
+            SERVER_STAFF_STATUS = {};
+        }
+        
+        // Cập nhật trạng thái
+        SERVER_STAFF_STATUS[targetId] = {
+            status: status,
+            stafftime: Date.now()
+        };
+        
+        res.json({ 
+            success: true, 
+            staffStatus: SERVER_STAFF_STATUS[targetId] 
+        });
+    } catch (e) {
+        console.error("Update single staff status error:", e);
+        res.status(500).json({ error: "Internal Server Error" });
+    }
+});
 
 // --- API: ADMIN BOOKING ---
 app.post('/api/admin-booking', async (req, res) => {

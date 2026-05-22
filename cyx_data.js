@@ -93,7 +93,7 @@ const SYSTEM_CONFIG = {
     // Tham số tài chính
     FINANCE: {
         DEFAULT_JIE_PRICE: 250, // Giá 1 tiết cơ bản
-        OIL_BONUS: 0            // Thưởng tinh dầu
+        OIL_BONUS: 200            // Thưởng tinh dầu
     }
 };
 

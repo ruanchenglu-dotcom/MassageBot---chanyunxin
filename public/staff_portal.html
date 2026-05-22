@@ -1,0 +1,1261 @@
+<!DOCTYPE html>
+<html lang="zh-HK">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>技師行動工作平台</title>
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@300;400;500;700;900&family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- SweetAlert2 -->
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <!-- Axios -->
+    <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+
+    <style>
+        :root {
+            --primary: #a855f7;
+            --primary-glow: rgba(168, 85, 247, 0.4);
+            --bg-gradient: radial-gradient(circle at 50% 50%, #1e1b4b, #090514);
+            --glass-bg: rgba(255, 255, 255, 0.04);
+            --glass-border: rgba(255, 255, 255, 0.08);
+            --glass-border-hover: rgba(255, 255, 255, 0.15);
+            --text-main: #f8fafc;
+            --text-muted: #94a3b8;
+            
+            /* Status Colors */
+            --color-ready: #10b981;
+            --color-ready-glow: rgba(16, 185, 129, 0.3);
+            --color-busy: #ef4444;
+            --color-busy-glow: rgba(239, 68, 68, 0.3);
+            --color-eat: #f59e0b;
+            --color-eat-glow: rgba(245, 158, 11, 0.3);
+            --color-away: #64748b;
+            --color-away-glow: rgba(100, 116, 139, 0.3);
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        body {
+            font-family: 'Outfit', 'Noto Sans TC', sans-serif;
+            background: var(--bg-gradient);
+            color: var(--text-main);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: flex-start;
+            overflow-x: hidden;
+            position: relative;
+        }
+
+        /* Animated Background Orbs */
+        .orb {
+            position: absolute;
+            border-radius: 50%;
+            filter: blur(100px);
+            z-index: 0;
+            opacity: 0.15;
+            pointer-events: none;
+        }
+        .orb-1 {
+            width: 300px;
+            height: 300px;
+            background: var(--primary);
+            top: 10%;
+            left: -100px;
+        }
+        .orb-2 {
+            width: 250px;
+            height: 250px;
+            background: var(--color-ready);
+            bottom: 15%;
+            right: -100px;
+        }
+
+        #app-container {
+            width: 100%;
+            max-width: 480px;
+            min-height: 100vh;
+            padding: 20px 16px 40px 16px;
+            z-index: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        /* Glassmorphism Card Base */
+        .glass-card {
+            background: var(--glass-bg);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid var(--glass-border);
+            border-radius: 24px;
+            padding: 24px;
+            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.4);
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        /* --- LOGIN PAGE --- */
+        .login-wrap {
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: stretch;
+            min-height: calc(100vh - 40px);
+            gap: 30px;
+        }
+
+        .login-logo {
+            text-align: center;
+            margin-bottom: 10px;
+        }
+
+        .login-logo i {
+            font-size: 3.5rem;
+            background: linear-gradient(135deg, var(--primary), #d946ef);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            filter: drop-shadow(0 4px 8px var(--primary-glow));
+            margin-bottom: 15px;
+        }
+
+        .login-logo h1 {
+            font-size: 1.8rem;
+            font-weight: 900;
+            letter-spacing: 2px;
+            background: linear-gradient(to right, #ffffff, #c084fc);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .login-logo p {
+            color: var(--text-muted);
+            font-size: 0.9rem;
+            margin-top: 8px;
+        }
+
+        .form-group {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            margin-bottom: 20px;
+        }
+
+        .form-group label {
+            font-size: 0.85rem;
+            font-weight: 500;
+            color: var(--text-muted);
+            letter-spacing: 1px;
+            text-transform: uppercase;
+            padding-left: 4px;
+        }
+
+        .input-control {
+            background: rgba(0, 0, 0, 0.2);
+            border: 1px solid var(--glass-border);
+            border-radius: 16px;
+            padding: 16px;
+            color: var(--text-main);
+            font-family: inherit;
+            font-size: 1.1rem;
+            font-weight: 500;
+            outline: none;
+            transition: all 0.2s;
+            text-align: center;
+            letter-spacing: 2px;
+        }
+
+        .input-control:focus {
+            border-color: var(--primary);
+            box-shadow: 0 0 0 3px var(--primary-glow);
+            background: rgba(0, 0, 0, 0.3);
+        }
+
+        .btn-submit {
+            background: linear-gradient(135deg, var(--primary), #c084fc);
+            border: none;
+            border-radius: 16px;
+            padding: 16px;
+            color: white;
+            font-size: 1.1rem;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.2s;
+            box-shadow: 0 4px 15px var(--primary-glow);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 10px;
+            width: 100%;
+        }
+
+        .btn-submit:active {
+            transform: scale(0.98);
+            box-shadow: 0 2px 8px var(--primary-glow);
+        }
+
+        /* --- PORTAL MAIN PAGE --- */
+        .portal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 16px 20px;
+        }
+
+        .staff-profile {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .avatar-ring {
+            width: 48px;
+            height: 48px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, var(--primary), #db2777);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-weight: 800;
+            font-size: 1.2rem;
+            box-shadow: 0 0 15px var(--primary-glow);
+        }
+
+        .profile-info h2 {
+            font-size: 1.1rem;
+            font-weight: 700;
+        }
+
+        .profile-info p {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+        }
+
+        .btn-logout {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid var(--glass-border);
+            border-radius: 12px;
+            width: 40px;
+            height: 40px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            color: var(--text-muted);
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .btn-logout:active {
+            transform: scale(0.9);
+            background: rgba(239, 68, 68, 0.2);
+            color: #ef4444;
+            border-color: rgba(239, 68, 68, 0.3);
+        }
+
+        /* --- STATUS SELECTOR --- */
+        .status-card {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+
+        .section-title {
+            font-size: 0.9rem;
+            font-weight: 700;
+            color: var(--text-muted);
+            letter-spacing: 1px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .sync-btn {
+            background: none;
+            border: none;
+            color: var(--primary);
+            font-size: 0.85rem;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            font-weight: 600;
+        }
+
+        .sync-btn i.spin {
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            100% { transform: rotate(360deg); }
+        }
+
+        .status-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 12px;
+        }
+
+        .status-btn {
+            border-radius: 16px;
+            padding: 14px 10px;
+            border: 1px solid var(--glass-border);
+            background: rgba(0, 0, 0, 0.2);
+            color: var(--text-muted);
+            cursor: pointer;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            font-weight: 700;
+            font-size: 0.95rem;
+        }
+
+        .status-btn i {
+            font-size: 1.2rem;
+            transition: transform 0.3s;
+        }
+
+        .status-btn:active {
+            transform: scale(0.95);
+        }
+
+        /* Ready Status Active */
+        .status-btn.state-ready.active {
+            border-color: var(--color-ready);
+            background: rgba(16, 185, 129, 0.15);
+            color: var(--color-ready);
+            box-shadow: 0 0 15px var(--color-ready-glow);
+        }
+        .status-btn.state-ready.active i {
+            color: var(--color-ready);
+            transform: scale(1.1);
+        }
+
+        /* Busy Status Active */
+        .status-btn.state-busy.active {
+            border-color: var(--color-busy);
+            background: rgba(239, 68, 68, 0.15);
+            color: var(--color-busy);
+            box-shadow: 0 0 15px var(--color-busy-glow);
+        }
+        .status-btn.state-busy.active i {
+            color: var(--color-busy);
+            transform: scale(1.1);
+        }
+
+        /* Eating Status Active */
+        .status-btn.state-eat.active {
+            border-color: var(--color-eat);
+            background: rgba(245, 158, 11, 0.15);
+            color: var(--color-eat);
+            box-shadow: 0 0 15px var(--color-eat-glow);
+        }
+        .status-btn.state-eat.active i {
+            color: var(--color-eat);
+            transform: scale(1.1);
+        }
+
+        /* Away Status Active */
+        .status-btn.state-away.active {
+            border-color: var(--color-away);
+            background: rgba(100, 116, 139, 0.15);
+            color: var(--text-main);
+            box-shadow: 0 0 15px var(--color-away-glow);
+        }
+        .status-btn.state-away.active i {
+            color: #cbd5e1;
+            transform: scale(1.1);
+        }
+
+        /* --- CURRENT TASK CARD --- */
+        .current-task-card {
+            background: linear-gradient(135deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.01));
+            border-left: 4px solid var(--primary);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .current-task-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+
+        .task-badge {
+            background: var(--primary-glow);
+            border: 1px solid rgba(168, 85, 247, 0.3);
+            color: #d8b4fe;
+            padding: 4px 10px;
+            border-radius: 20px;
+            font-size: 0.75rem;
+            font-weight: 700;
+            letter-spacing: 0.5px;
+        }
+
+        .countdown-timer {
+            font-size: 0.85rem;
+            color: #f472b6;
+            font-weight: 700;
+            background: rgba(244, 114, 182, 0.1);
+            padding: 4px 10px;
+            border-radius: 20px;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+
+        .countdown-timer i {
+            animation: pulse 1s infinite alternate;
+        }
+
+        @keyframes pulse {
+            0% { opacity: 0.4; }
+            100% { opacity: 1; }
+        }
+
+        .task-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 16px;
+        }
+
+        .task-item {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .task-item-label {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            font-weight: 500;
+        }
+
+        .task-item-value {
+            font-size: 1.05rem;
+            font-weight: 700;
+            color: var(--text-main);
+        }
+
+        .location-highlight {
+            font-size: 1.3rem;
+            font-weight: 900;
+            background: linear-gradient(135deg, #38bdf8, #818cf8);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .no-task-state {
+            text-align: center;
+            padding: 20px 0;
+            color: var(--text-muted);
+            font-size: 0.95rem;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .no-task-state i {
+            font-size: 2.2rem;
+            color: rgba(255, 255, 255, 0.1);
+        }
+
+        /* --- TRANSITION ALERT BANNER --- */
+        .transition-alert {
+            background: rgba(239, 68, 68, 0.08);
+            border: 1px solid rgba(239, 68, 68, 0.2);
+            border-radius: 20px;
+            padding: 16px 20px;
+            display: flex;
+            align-items: flex-start;
+            gap: 14px;
+            animation: pulseAlert 2.5s infinite;
+        }
+
+        @keyframes pulseAlert {
+            0%, 100% {
+                border-color: rgba(239, 68, 68, 0.2);
+                box-shadow: 0 0 10px rgba(239, 68, 68, 0.1);
+                background: rgba(239, 68, 68, 0.08);
+            }
+            50% {
+                border-color: rgba(239, 68, 68, 0.7);
+                box-shadow: 0 0 20px rgba(239, 68, 68, 0.4);
+                background: rgba(239, 68, 68, 0.18);
+            }
+        }
+
+        .transition-icon {
+            font-size: 1.4rem;
+            color: #f87171;
+            padding-top: 2px;
+        }
+
+        .transition-body {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .transition-title {
+            font-size: 0.95rem;
+            font-weight: 800;
+            color: #f87171;
+            letter-spacing: 0.5px;
+        }
+
+        .transition-desc {
+            font-size: 0.85rem;
+            line-height: 1.4;
+            color: #fca5a5;
+            font-weight: 500;
+        }
+
+        /* --- TIMELINE SCHEDULE --- */
+        .timeline-card {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        .timeline-list {
+            position: relative;
+            padding-left: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 24px;
+        }
+
+        .timeline-list::before {
+            content: '';
+            position: absolute;
+            left: 5px;
+            top: 10px;
+            bottom: 10px;
+            width: 2px;
+            background: rgba(255, 255, 255, 0.08);
+        }
+
+        .timeline-node {
+            position: relative;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .timeline-dot {
+            position: absolute;
+            left: -20px;
+            top: 6px;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: var(--glass-border);
+            border: 2px solid #090514;
+            transition: all 0.3s;
+        }
+
+        .timeline-node.active .timeline-dot {
+            background: var(--primary);
+            box-shadow: 0 0 10px var(--primary-glow);
+            transform: scale(1.2);
+        }
+
+        .timeline-node.completed .timeline-dot {
+            background: var(--color-away);
+        }
+
+        .timeline-time-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .timeline-time {
+            font-size: 1rem;
+            font-weight: 700;
+            color: var(--text-main);
+            font-family: 'Outfit', sans-serif;
+        }
+
+        .timeline-phase-tag {
+            font-size: 0.7rem;
+            padding: 2px 8px;
+            border-radius: 10px;
+            font-weight: 700;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid var(--glass-border);
+            color: var(--text-muted);
+        }
+
+        .timeline-node.active .timeline-phase-tag {
+            background: rgba(168, 85, 247, 0.15);
+            border-color: rgba(168, 85, 247, 0.3);
+            color: #d8b4fe;
+        }
+
+        .timeline-content {
+            background: rgba(0, 0, 0, 0.15);
+            border: 1px solid var(--glass-border);
+            border-radius: 16px;
+            padding: 14px 16px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            transition: all 0.2s;
+        }
+
+        .timeline-node.active .timeline-content {
+            background: rgba(255, 255, 255, 0.03);
+            border-color: rgba(168, 85, 247, 0.25);
+        }
+
+        .timeline-info {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .timeline-cust {
+            font-size: 0.95rem;
+            font-weight: 700;
+        }
+
+        .timeline-service {
+            font-size: 0.78rem;
+            color: var(--text-muted);
+        }
+
+        .timeline-loc {
+            font-size: 0.95rem;
+            font-weight: 800;
+            color: #38bdf8;
+            background: rgba(56, 189, 248, 0.1);
+            padding: 4px 10px;
+            border-radius: 12px;
+        }
+
+        .empty-timeline {
+            text-align: center;
+            color: var(--text-muted);
+            font-size: 0.9rem;
+            padding: 30px 0;
+        }
+
+        /* --- FOOTER --- */
+        .portal-footer {
+            text-align: center;
+            color: rgba(255, 255, 255, 0.15);
+            font-size: 0.75rem;
+            margin-top: 10px;
+            letter-spacing: 0.5px;
+        }
+
+        /* Hide elements helper */
+        .hidden {
+            display: none !important;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Background Orbs -->
+    <div class="orb orb-1"></div>
+    <div class="orb orb-2"></div>
+
+    <div id="app-container">
+        
+        <!-- ==================== LOGIN SCREEN ==================== -->
+        <div id="login-screen" class="login-wrap">
+            <div class="login-logo">
+                <i class="fa-solid fa-spa"></i>
+                <h1>技師專用工作平台</h1>
+                <p>請輸入技師工號及安全密碼以存取您的今日時程</p>
+            </div>
+
+            <div class="glass-card">
+                <form id="login-form" onsubmit="handleLogin(event)">
+                    <div class="form-group">
+                        <label for="staff-id-input">技師工號</label>
+                        <input type="text" id="staff-id-input" class="input-control" placeholder="例如：01 或 A01" required autocomplete="username">
+                    </div>
+                    <div class="form-group" style="margin-bottom: 30px;">
+                        <label for="pin-input">安全密碼</label>
+                        <input type="password" id="pin-input" class="input-control" placeholder="請輸入密碼" required autocomplete="current-password">
+                    </div>
+                    <button type="submit" class="btn-submit">
+                        <span>確認登入</span>
+                        <i class="fa-solid fa-arrow-right-to-bracket"></i>
+                    </button>
+                </form>
+            </div>
+            
+            <div class="portal-footer">
+                &copy; 技師排班暨工作站系統 · 繁體中文版
+            </div>
+        </div>
+
+        <!-- ==================== MAIN PORTAL SCREEN ==================== -->
+        <div id="portal-screen" class="hidden" style="display: flex; flex-direction: column; gap: 20px;">
+            
+            <!-- HEADER -->
+            <div class="glass-card portal-header">
+                <div class="staff-profile">
+                    <div class="avatar-ring" id="staff-avatar">A</div>
+                    <div class="profile-info">
+                        <h2 id="staff-name-display">技師名稱</h2>
+                        <p id="staff-shift-display">今日班表：讀取中...</p>
+                    </div>
+                </div>
+                <button class="btn-logout" onclick="handleLogout()" title="登出">
+                    <i class="fa-solid fa-right-from-bracket"></i>
+                </button>
+            </div>
+
+            <!-- STATUS CONTROLLER -->
+            <div class="glass-card status-card">
+                <div class="section-title">
+                    <span>工作狀態</span>
+                    <button class="sync-btn" onclick="fetchScheduleData(true)">
+                        <i class="fa-solid fa-rotate" id="sync-icon"></i>
+                        <span>重新整理</span>
+                    </button>
+                </div>
+                <div class="status-grid">
+                    <button class="status-btn state-ready" onclick="updateWorkStatus('READY')">
+                        <i class="fa-solid fa-circle-check"></i>
+                        <span>空閒中</span>
+                    </button>
+                    <button class="status-btn state-busy" onclick="updateWorkStatus('BUSY')">
+                        <i class="fa-solid fa-user-clock"></i>
+                        <span>服務中</span>
+                    </button>
+                    <button class="status-btn state-eat" onclick="updateWorkStatus('EAT')">
+                        <i class="fa-solid fa-bowl-food"></i>
+                        <span>用餐中</span>
+                    </button>
+                    <button class="status-btn state-away" onclick="updateWorkStatus('AWAY')">
+                        <i class="fa-solid fa-mug-hot"></i>
+                        <span>休息中</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- TRANSITION ALERT BANNER -->
+            <div class="transition-alert hidden" id="transition-banner">
+                <div class="transition-icon">
+                    <i class="fa-solid fa-circle-exclamation"></i>
+                </div>
+                <div class="transition-body">
+                    <div class="transition-title">換位提醒</div>
+                    <div class="transition-desc" id="transition-message">請於 15:30 結束當前服務後，移至 Bed-5 服務顧客。</div>
+                </div>
+            </div>
+
+            <!-- CURRENT TASK CARD -->
+            <div class="glass-card current-task-card">
+                <div class="current-task-header">
+                    <span class="section-title">當前任務</span>
+                    <span class="task-badge" id="current-task-badge">進行中</span>
+                    <span class="countdown-timer hidden" id="task-countdown">
+                        <i class="fa-solid fa-hourglass-half"></i>
+                        <span id="countdown-text">剩餘 00 分鐘</span>
+                    </span>
+                </div>
+                
+                <div id="current-task-detail">
+                    <div class="task-grid">
+                        <div class="task-item">
+                            <span class="task-item-label">顧客名稱</span>
+                            <span class="task-item-value" id="curr-customer">讀取中...</span>
+                        </div>
+                        <div class="task-item">
+                            <span class="task-item-label">工作位置</span>
+                            <span class="task-item-value location-highlight" id="curr-location">讀取中...</span>
+                        </div>
+                        <div class="task-item" style="grid-column: span 2;">
+                            <span class="task-item-label">服務項目</span>
+                            <span class="task-item-value" id="curr-service">讀取中...</span>
+                        </div>
+                        <div class="task-item" style="grid-column: span 2;">
+                            <span class="task-item-label">服務時間</span>
+                            <span class="task-item-value" id="curr-time">讀取中...</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="no-task-state hidden" id="current-task-empty">
+                    <i class="fa-solid fa-moon"></i>
+                    <span>當前無服務任務，請保持空閒狀態以候客</span>
+                </div>
+            </div>
+
+            <!-- TODAY'S TIMELINE -->
+            <div class="glass-card timeline-card">
+                <div class="section-title">今日排程</div>
+                <div class="timeline-list" id="timeline-container">
+                    <!-- Nodes injected via JS -->
+                </div>
+                <div class="empty-timeline hidden" id="timeline-empty">
+                    今日無服務排程
+                </div>
+            </div>
+
+            <!-- FOOTER -->
+            <div class="portal-footer">
+                資料更新時間：<span id="last-update-time">-</span><br>
+                &copy; 技師排班暨工作站系統 · 繁體中文版
+            </div>
+
+        </div>
+
+    </div>
+
+    <script>
+        // Store session state
+        let currentStaff = null;
+        let scheduleInterval = null;
+        let countdownInterval = null;
+        let lastKnownData = null;
+
+        // Auto initialization
+        window.addEventListener('DOMContentLoaded', () => {
+            const savedStaff = localStorage.getItem('massage_staff_session');
+            if (savedStaff) {
+                try {
+                    currentStaff = JSON.parse(savedStaff);
+                    showPortalScreen();
+                } catch (e) {
+                    localStorage.removeItem('massage_staff_session');
+                    showLoginScreen();
+                }
+            } else {
+                showLoginScreen();
+            }
+        });
+
+        function showLoginScreen() {
+            document.getElementById('login-screen').classList.remove('hidden');
+            document.getElementById('portal-screen').classList.add('hidden');
+            if (scheduleInterval) clearInterval(scheduleInterval);
+            if (countdownInterval) clearInterval(countdownInterval);
+        }
+
+        function showPortalScreen() {
+            document.getElementById('login-screen').classList.add('hidden');
+            document.getElementById('portal-screen').classList.remove('hidden');
+            
+            // Set basic profile info
+            const avatarChar = currentStaff.name ? currentStaff.name.charAt(0) : currentStaff.id;
+            document.getElementById('staff-avatar').innerText = avatarChar;
+            document.getElementById('staff-name-display').innerText = `${currentStaff.name || '技師'} (${currentStaff.id})`;
+            
+            // Initial data fetch
+            fetchScheduleData();
+            
+            // Set intervals for refreshing (every 15 seconds)
+            if (scheduleInterval) clearInterval(scheduleInterval);
+            scheduleInterval = setInterval(() => fetchScheduleData(false), 15000);
+        }
+
+        // Handle Login Submission
+        async function handleLogin(e) {
+            e.preventDefault();
+            const staffId = document.getElementById('staff-id-input').value.trim();
+            const pin = document.getElementById('pin-input').value.trim();
+            const submitBtn = e.target.querySelector('button[type="submit"]');
+
+            if (!staffId || !pin) {
+                Swal.fire({
+                    icon: 'warning',
+                    title: '欄位未完成',
+                    text: '請填寫技師工號與安全密碼！',
+                    confirmButtonText: '確定',
+                    background: '#1e1b4b',
+                    color: '#f8fafc',
+                    confirmButtonColor: '#a855f7'
+                });
+                return;
+            }
+
+            try {
+                submitBtn.disabled = true;
+                submitBtn.querySelector('span').innerText = '驗證中...';
+                
+                const response = await axios.post('/api/staff-login', { staffId, pin });
+                
+                if (response.data && response.data.success) {
+                    currentStaff = response.data.staff;
+                    localStorage.setItem('massage_staff_session', JSON.stringify(currentStaff));
+                    
+                    Swal.fire({
+                        icon: 'success',
+                        title: '登入成功',
+                        text: `歡迎回來，${currentStaff.name || currentStaff.id} 技師！`,
+                        timer: 1500,
+                        showConfirmButton: false,
+                        background: '#1e1b4b',
+                        color: '#f8fafc'
+                    });
+
+                    setTimeout(() => {
+                        showPortalScreen();
+                        submitBtn.disabled = false;
+                        submitBtn.querySelector('span').innerText = '確認登入';
+                    }, 1500);
+                }
+            } catch (err) {
+                console.error(err);
+                const errMsg = err.response && err.response.data && err.response.data.error 
+                    ? err.response.data.error 
+                    : '與伺服器連線失敗，請稍後再試！';
+                
+                Swal.fire({
+                    icon: 'error',
+                    title: '登入失敗',
+                    text: errMsg,
+                    confirmButtonText: '重試',
+                    background: '#1e1b4b',
+                    color: '#f8fafc',
+                    confirmButtonColor: '#ef4444'
+                });
+                submitBtn.disabled = false;
+                submitBtn.querySelector('span').innerText = '確認登入';
+            }
+        }
+
+        // Handle Logout
+        function handleLogout() {
+            Swal.fire({
+                title: '確認登出？',
+                text: '您將登出系統並需要重新輸入密碼。',
+                icon: 'question',
+                showCancelButton: true,
+                confirmButtonText: '確定登出',
+                cancelButtonText: '取消',
+                background: '#1e1b4b',
+                color: '#f8fafc',
+                confirmButtonColor: '#ef4444',
+                cancelButtonColor: '#64748b'
+            }).then((result) => {
+                if (result.isConfirmed) {
+                    localStorage.removeItem('massage_staff_session');
+                    currentStaff = null;
+                    showLoginScreen();
+                }
+            });
+        }
+
+        // Fetch Schedule from API
+        async function fetchScheduleData(showLoading = false) {
+            if (!currentStaff) return;
+            
+            const syncIcon = document.getElementById('sync-icon');
+            if (syncIcon) syncIcon.classList.add('spin');
+            
+            let loadingAlert = null;
+            if (showLoading) {
+                loadingAlert = Swal.fire({
+                    title: '同步排程中...',
+                    allowOutsideClick: false,
+                    showConfirmButton: false,
+                    background: '#1e1b4b',
+                    color: '#f8fafc',
+                    didOpen: () => {
+                        Swal.showLoading();
+                    }
+                });
+            }
+
+            try {
+                const res = await axios.get(`/api/staff-schedule?staffId=${encodeURIComponent(currentStaff.id)}`);
+                const data = res.data;
+                lastKnownData = data;
+                
+                if (loadingAlert) loadingAlert.close();
+                
+                // 1. Update Shift Display
+                const shiftEl = document.getElementById('staff-shift-display');
+                if (data.staff && data.staff.off) {
+                    shiftEl.innerText = '今日排班：休假';
+                } else if (data.staff && data.staff.start && data.staff.end) {
+                    shiftEl.innerText = `今日班表：${data.staff.start} - ${data.staff.end}`;
+                } else {
+                    shiftEl.innerText = '今日班表：無排班記錄';
+                }
+
+                // 2. Update Status buttons states
+                updateStatusUI(data.staff ? data.staff.status : 'READY');
+
+                // 3. Update Current Task Card
+                updateCurrentTaskUI(data.currentSlot);
+
+                // 4. Update Transition Alert Banner
+                updateTransitionAlertUI(data.transitionAlert);
+
+                // 5. Update Timeline
+                updateTimelineUI(data.scheduleSlots);
+
+                // 6. Update Last sync time
+                const now = new Date();
+                document.getElementById('last-update-time').innerText = now.toLocaleTimeString('zh-HK', { hour12: false });
+
+            } catch (err) {
+                console.error("Fetch schedule error:", err);
+                if (loadingAlert) loadingAlert.close();
+                
+                if (showLoading) {
+                    Swal.fire({
+                        icon: 'error',
+                        title: '載入失敗',
+                        text: '無法取得最新排程，請檢查網路連線後再試。',
+                        confirmButtonText: '確定',
+                        background: '#1e1b4b',
+                        color: '#f8fafc',
+                        confirmButtonColor: '#ef4444'
+                    });
+                }
+            } finally {
+                if (syncIcon) {
+                    setTimeout(() => syncIcon.classList.remove('spin'), 500);
+                }
+            }
+        }
+
+        // Helper: Convert locations to Traditional Chinese
+        function formatLocation(loc) {
+            if (!loc) return '座位';
+            let cleanLoc = String(loc).trim().toUpperCase();
+            cleanLoc = cleanLoc.replace('CHAIR-', '座位 ').replace('CHAIR', '座位');
+            cleanLoc = cleanLoc.replace('BED-', '床位 ').replace('BED', '床位');
+            cleanLoc = cleanLoc.replace('ROOM-', '房間 ').replace('ROOM', '房間');
+            return cleanLoc;
+        }
+
+        // Update active work status on Backend
+        async function updateWorkStatus(newStatus) {
+            if (!currentStaff) return;
+            
+            // Check button state first. If already active, skip to prevent redundant calls
+            const btn = document.querySelector(`.status-btn.state-${newStatus.toLowerCase()}`);
+            if (btn && btn.classList.contains('active')) return;
+
+            try {
+                // Pre-update UI for snappier feedback
+                updateStatusUI(newStatus);
+                
+                const response = await axios.post('/api/update-single-staff-status', {
+                    staffId: currentStaff.id,
+                    status: newStatus
+                });
+                
+                if (response.data && response.data.success) {
+                    // Success silently, status is verified
+                }
+            } catch (err) {
+                console.error("Update status error:", err);
+                // Rollback to previous state on failure
+                if (lastKnownData && lastKnownData.staff) {
+                    updateStatusUI(lastKnownData.staff.status);
+                }
+                
+                Swal.fire({
+                    icon: 'error',
+                    title: '狀態變更失敗',
+                    text: '伺服器連線異常，無法更新您的工作狀態。',
+                    confirmButtonText: '確定',
+                    background: '#1e1b4b',
+                    color: '#f8fafc',
+                    confirmButtonColor: '#ef4444'
+                });
+            }
+        }
+
+        // Update UI of status button grid
+        function updateStatusUI(status) {
+            // Remove active classes
+            document.querySelectorAll('.status-btn').forEach(btn => btn.classList.remove('active'));
+            
+            // Map status keys to class names
+            const btnClass = `.status-btn.state-${status.toLowerCase()}`;
+            const targetBtn = document.querySelector(btnClass);
+            if (targetBtn) {
+                targetBtn.classList.add('active');
+            }
+        }
+
+        // Update UI of Current Task Card
+        function updateCurrentTaskUI(slot) {
+            const detailContainer = document.getElementById('current-task-detail');
+            const emptyContainer = document.getElementById('current-task-empty');
+            const countdownContainer = document.getElementById('task-countdown');
+            
+            if (countdownInterval) clearInterval(countdownInterval);
+
+            if (!slot) {
+                detailContainer.classList.add('hidden');
+                emptyContainer.classList.remove('hidden');
+                countdownContainer.classList.add('hidden');
+                document.getElementById('current-task-badge').innerText = '空閒';
+                document.getElementById('current-task-badge').className = 'task-badge';
+                document.getElementById('current-task-badge').style.background = 'var(--color-ready-glow)';
+                document.getElementById('current-task-badge').style.borderColor = 'rgba(16, 185, 129, 0.3)';
+                document.getElementById('current-task-badge').style.color = '#a7f3d0';
+                return;
+            }
+
+            // Has active service
+            detailContainer.classList.remove('hidden');
+            emptyContainer.classList.add('hidden');
+            
+            document.getElementById('current-task-badge').innerText = slot.isCombo ? `複合套餐 (階段 ${slot.phase})` : '單項服務';
+            document.getElementById('current-task-badge').className = 'task-badge';
+            document.getElementById('current-task-badge').style.background = 'var(--primary-glow)';
+            document.getElementById('current-task-badge').style.borderColor = 'rgba(168, 85, 247, 0.3)';
+            document.getElementById('current-task-badge').style.color = '#d8b4fe';
+
+            document.getElementById('curr-customer').innerText = slot.customerName || '顧客';
+            document.getElementById('curr-location').innerText = formatLocation(slot.location);
+            document.getElementById('curr-service').innerText = slot.serviceName || '健康按摩項目';
+            document.getElementById('curr-time').innerText = `${slot.startTime} - ${slot.endTime}`;
+
+            // Handle countdown calculation
+            startCountdown(slot.endTime);
+        }
+
+        // Real-time Countdown Timer logic
+        function startCountdown(endTimeStr) {
+            const countdownContainer = document.getElementById('task-countdown');
+            const countdownText = document.getElementById('countdown-text');
+
+            const updateTimer = () => {
+                const now = new Date();
+                const currentMinutes = now.getHours() * 60 + now.getMinutes();
+
+                // Convert endTimeStr "HH:MM" to minutes
+                const parts = endTimeStr.split(':');
+                const endHrs = parseInt(parts[0], 10);
+                const endMins = parseInt(parts[1], 10);
+                
+                // Handle past-midnight shifts simply
+                let targetMins = endHrs * 60 + endMins;
+                let currentMins = currentMinutes;
+                
+                if (endHrs < 5 && now.getHours() >= 12) targetMins += 1440; // End is tomorrow early morning
+                if (now.getHours() < 5 && endHrs >= 12) currentMins += 1440; // Current is early morning, end is late night
+
+                const diff = targetMins - currentMins;
+
+                if (diff <= 0) {
+                    countdownContainer.classList.add('hidden');
+                    if (countdownInterval) clearInterval(countdownInterval);
+                    // Trigger refetch when a service completes
+                    fetchScheduleData(false);
+                } else {
+                    countdownContainer.classList.remove('hidden');
+                    countdownText.innerText = `剩餘 ${diff} 分鐘`;
+                }
+            };
+
+            updateTimer();
+            countdownInterval = setInterval(updateTimer, 30000); // Check every 30s
+        }
+
+        // Update UI of Transition Alert Banner
+        function updateTransitionAlertUI(alert) {
+            const banner = document.getElementById('transition-banner');
+            const messageEl = document.getElementById('transition-message');
+
+            if (!alert || !alert.message) {
+                banner.classList.add('hidden');
+                return;
+            }
+
+            banner.classList.remove('hidden');
+            
+            // Translate the message safely to Traditional Chinese if it contains keywords
+            let tMsg = String(alert.message);
+            tMsg = tMsg.replace('CHAIR-', '座位 ').replace('CHAIR', '座位');
+            tMsg = tMsg.replace('BED-', '床位 ').replace('BED', '床位');
+            tMsg = tMsg.replace('ROOM-', '房間 ').replace('ROOM', '房間');
+            tMsg = tMsg.replace('轉移提醒：', '⚠️ 換位提醒：');
+            tMsg = tMsg.replace('下一任務提醒：', '📢 下一任務提醒：');
+            tMsg = tMsg.replace('結束當前服務後，移至', '結束當前服務後，請移至');
+            tMsg = tMsg.replace('前，至', '前，請至');
+            tMsg = tMsg.replace('服務', '服務 顧客');
+            tMsg = tMsg.replace('準備服務', '準備服務 顧客');
+            
+            messageEl.innerText = tMsg;
+        }
+
+        // Update UI of Timeline Schedule
+        function updateTimelineUI(slots) {
+            const container = document.getElementById('timeline-container');
+            const emptyEl = document.getElementById('timeline-empty');
+
+            container.innerHTML = '';
+            
+            if (!slots || slots.length === 0) {
+                emptyEl.classList.remove('hidden');
+                return;
+            }
+
+            emptyEl.classList.add('hidden');
+            
+            const now = new Date();
+            const currentMinutes = now.getHours() * 60 + now.getMinutes();
+
+            slots.forEach((slot, index) => {
+                const node = document.createElement('div');
+                node.className = 'timeline-node';
+
+                // Determine if slot is active, completed, or upcoming
+                const partsStart = slot.startTime.split(':');
+                const startMins = parseInt(partsStart[0], 10) * 60 + parseInt(partsStart[1], 10);
+                const partsEnd = slot.endTime.split(':');
+                const endMins = parseInt(partsEnd[0], 10) * 60 + parseInt(partsEnd[1], 10);
+
+                let isCurrent = currentMinutes >= startMins && currentMinutes < endMins;
+                let isPast = currentMinutes >= endMins;
+
+                if (isCurrent) {
+                    node.classList.add('active');
+                } else if (isPast) {
+                    node.classList.add('completed');
+                }
+
+                const phaseText = slot.isCombo ? `複合套餐 (階段 ${slot.phase})` : '單項服務';
+                
+                node.innerHTML = `
+                    <div class="timeline-dot"></div>
+                    <div class="timeline-time-row">
+                        <span class="timeline-time">${slot.startTime} - ${slot.endTime}</span>
+                        <span class="timeline-phase-tag">${phaseText}</span>
+                    </div>
+                    <div class="timeline-content">
+                        <div class="timeline-info">
+                            <span class="timeline-cust">${slot.customerName || '顧客'}</span>
+                            <span class="timeline-service">${slot.serviceName || '服務項目'}</span>
+                        </div>
+                        <span class="timeline-loc">${formatLocation(slot.location)}</span>
+                    </div>
+                `;
+
+                container.appendChild(node);
+            });
+        }
+    </script>
+</body>
+</html>

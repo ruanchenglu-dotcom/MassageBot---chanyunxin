@@ -19,17 +19,25 @@
 require('dotenv').config();
 const { google } = require('googleapis');
 const ResourceCore = require('./cyx_resource_core'); // Core logic for Matrix & Rules
-const { SYSTEM_CONFIG, SERVICES_DATA } = require('./cyx_data.js'); // Centralized Configuration
+let BOOKING_SHEET_NAME, STAFF_SHEET_NAME, MENU_SHEET_NAME, STAFF_LIST_SHEET_NAME, SALARY_LOG_SHEET_NAME, BLACKLIST_SHEET_NAME;
 
-// Kế thừa tên Sheet động từ file cấu hình trung tâm (Giao diện Phồn Thể)
-const {
-    BOOKING_SHEET_NAME,
-    STAFF_SHEET_NAME,
-    MENU_SHEET_NAME,
-    STAFF_LIST_SHEET_NAME,
-    SALARY_LOG_SHEET_NAME,
-    BLACKLIST_SHEET_NAME
-} = SYSTEM_CONFIG.SHEET_NAMES;
+function getConfig() {
+    delete require.cache[require.resolve('./cyx_data.js')];
+    const config = require('./cyx_data.js').SYSTEM_CONFIG;
+    if (config && config.SHEET_NAMES) {
+        BOOKING_SHEET_NAME = config.SHEET_NAMES.BOOKING_SHEET_NAME;
+        STAFF_SHEET_NAME = config.SHEET_NAMES.STAFF_SHEET_NAME;
+        MENU_SHEET_NAME = config.SHEET_NAMES.MENU_SHEET_NAME;
+        STAFF_LIST_SHEET_NAME = config.SHEET_NAMES.STAFF_LIST_SHEET_NAME;
+        SALARY_LOG_SHEET_NAME = config.SHEET_NAMES.SALARY_LOG_SHEET_NAME;
+        BLACKLIST_SHEET_NAME = config.SHEET_NAMES.BLACKLIST_SHEET_NAME;
+    }
+    return config;
+}
+
+// Initial load
+getConfig();
+const SERVICES_DATA = require('./cyx_data.js').SERVICES_DATA;
 
 // --- CONFIGURATION ---
 const SHEET_ID = process.env.SHEET_ID;
@@ -179,15 +187,16 @@ function resolveStrictLockState(explicitLock, hasManualPhase, currentStatus = "F
 }
 
 function getOilSuffixText() {
-    const bonus = SYSTEM_CONFIG.FINANCE.OIL_BONUS;
+    const bonus = getConfig().FINANCE.OIL_BONUS;
     return bonus > 0 ? ` (油推+$${bonus})` : ` (油推)`;
 }
 
 // [V131 NÂNG CẤP]: Hàm tạo danh sách nhân sự ảo khi Sheet/API lỗi hoặc trống
 function generateVirtualStaffList() {
     const virtualStaff = [];
+    const config = getConfig();
     // Tính toán số lượng thợ tối đa có thể phục vụ dựa vào số giường/ghế
-    const maxCapacity = Math.max(SYSTEM_CONFIG.SCALE.MAX_BEDS, SYSTEM_CONFIG.SCALE.MAX_CHAIRS) || 9;
+    const maxCapacity = Math.max(config.SCALE.MAX_BEDS, config.SCALE.MAX_CHAIRS) || 9;
 
     for (let i = 1; i <= maxCapacity; i++) {
         const genderVal = (i % 2 === 0) ? 'F' : 'M';
@@ -376,7 +385,7 @@ async function syncData() {
 
                 const isOilService = (row[4] === "Yes");
                 if (isOilService) {
-                    price += SYSTEM_CONFIG.FINANCE.OIL_BONUS;
+                    price += getConfig().FINANCE.OIL_BONUS;
                 }
 
                 let pax = 1; if (row[5]) pax = safeParseInt(row[5], 1);
@@ -390,7 +399,7 @@ async function syncData() {
                 const hr = parseInt(rawTime.split(':')[0], 10);
                 let computedOpDate = cleanDate; // Base is calendar date
                 // [V134.1 NÂNG CẤP] Derive internal Operation Date
-                if (!isNaN(hr) && hr < (SYSTEM_CONFIG.OPERATION_TIME.OPEN_HOUR || 6)) {
+                if (!isNaN(hr) && hr < (getConfig().OPERATION_TIME.OPEN_HOUR || 6)) {
                     const tempD = new Date(cleanDate);
                     tempD.setDate(tempD.getDate() - 1);
                     computedOpDate = normalizeDateStrict(tempD);
@@ -1104,7 +1113,8 @@ async function updateInlineBooking(rowId, updatedData) {
                         
                         // Tìm vị trí Phase 2
                         let targetResType = newFlow === 'FB' ? 'BED' : 'CHAIR';
-                        let maxCount = targetResType === 'BED' ? (SYSTEM_CONFIG.SCALE.MAX_BEDS || 12) : (SYSTEM_CONFIG.SCALE.MAX_CHAIRS || 12);
+                        const config = getConfig();
+                        let maxCount = targetResType === 'BED' ? (config.SCALE.MAX_BEDS || 12) : (config.SCALE.MAX_CHAIRS || 12);
                         
                         let foundP2 = false;
                         for (let i = 1; i <= maxCount; i++) {
