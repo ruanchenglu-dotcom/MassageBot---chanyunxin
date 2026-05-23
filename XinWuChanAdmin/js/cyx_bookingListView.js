@@ -7,7 +7,7 @@
 (function () {
     const { useState, useEffect } = React;
 
-    const BookingListView = ({ bookings, onCancelBooking, onInlineUpdate, staffList }) => {
+    const BookingListView = ({ bookings, onCancelBooking, onInlineUpdate, staffList, viewDate }) => {
         // Đảm bảo bookings luôn là mảng an toàn
         const safeBookings = Array.isArray(bookings) ? bookings : [];
 
@@ -86,7 +86,27 @@
 
         // Xử lý thay đổi dữ liệu trong ô input
         const handleInputChange = (field, value) => {
-            setEditFormData(prev => ({ ...prev, [field]: value }));
+            setEditFormData(prev => {
+                let newDate = prev.date;
+                if (field === 'time' && viewDate) {
+                    const parts = value.split(':');
+                    const h = parseInt(parts[0], 10);
+                    const openHour = window.SYSTEM_CONFIG?.OPERATION_TIME?.OPEN_HOUR || 8;
+                    const dParts = viewDate.replace(/\//g, '-').split('-');
+
+                    if (dParts.length === 3) {
+                        let d = new Date(parseInt(dParts[0], 10), parseInt(dParts[1], 10) - 1, parseInt(dParts[2], 10));
+                        if (h < openHour) {
+                            // Giờ ca đêm -> Ngày dương lịch là ngày hôm sau (viewDate + 1)
+                            d.setDate(d.getDate() + 1);
+                        } else {
+                            // Giờ ca ngày -> Ngày dương lịch là ngày vận hành (viewDate)
+                        }
+                        newDate = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+                    }
+                }
+                return { ...prev, date: newDate, [field]: value };
+            });
             setScanStatus(null);
             setScanMessage('');
         };
