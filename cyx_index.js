@@ -143,6 +143,7 @@ function findBestSlots(selectedDate, serviceCode, guestPrefs, travelTime = 0) {
     const cachedBookings = SheetService.getBookings();
 
     if (!isSystemHealthy || STAFF_LIST.length === 0) return [];
+
     const cleanSelectedDate = SheetService.normalizeDateStrict(selectedDate);
     if (!cleanSelectedDate) return [];
 
@@ -152,14 +153,28 @@ function findBestSlots(selectedDate, serviceCode, guestPrefs, travelTime = 0) {
     const sMonth = parseInt(dateParts[1]);
     const sDay = parseInt(dateParts[2]);
 
-    const staffListMap = {};
+    // Chuẩn bị ngày hôm qua cho ca đêm
+    const tempD = new Date(cleanSelectedDate);
+    tempD.setDate(tempD.getDate() - 1);
+    const cleanYesterdayDate = SheetService.normalizeDateStrict(tempD);
+
+    const staffListMapToday = {};
     STAFF_LIST.forEach(s => {
         if (!s.offDays.includes(cleanSelectedDate)) {
-            staffListMap[s.id] = s;
+            staffListMapToday[s.id] = s;
         }
     });
 
-    const relevantBookings = prepareBookingsForTimeline(cachedBookings, cleanSelectedDate);
+    const staffListMapYesterday = {};
+    STAFF_LIST.forEach(s => {
+        if (!s.offDays.includes(cleanYesterdayDate)) {
+            staffListMapYesterday[s.id] = s;
+        }
+    });
+
+    const relevantBookingsToday = prepareBookingsForTimeline(cachedBookings, cleanSelectedDate);
+    const relevantBookingsYesterday = prepareBookingsForTimeline(cachedBookings, cleanYesterdayDate);
+
     const guestList = [];
     guestPrefs.forEach(pref => {
         let sId = 'RANDOM';
@@ -171,8 +186,7 @@ function findBestSlots(selectedDate, serviceCode, guestPrefs, travelTime = 0) {
     });
 
     let candidates = [];
-    const openHour = getConfig().OPERATION_TIME.OPEN_HOUR;
-    const maxHour = 23;
+    const openHour = getConfig().OPERATION_TIME.OPEN_HOUR || 8;
     const minTimeMs = nowTaipei.getTime() + (travelTime * 60000);
 
     for (let h = 0; h < 24; h += 1) {
@@ -181,7 +195,11 @@ function findBestSlots(selectedDate, serviceCode, guestPrefs, travelTime = 0) {
             if (slotTime.getTime() <= minTimeMs) continue;
 
             const timeStr = `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
-            const result = ResourceCore.checkRequestAvailability(cleanSelectedDate, timeStr, guestList, relevantBookings, staffListMap);
+            const isNightShift = h < openHour;
+            const activeBookings = isNightShift ? relevantBookingsYesterday : relevantBookingsToday;
+            const activeStaffMap = isNightShift ? staffListMapYesterday : staffListMapToday;
+
+            const result = ResourceCore.checkRequestAvailability(cleanSelectedDate, timeStr, guestList, activeBookings, activeStaffMap);
             if (result.feasible) candidates.push({ timeStr: timeStr, sortVal: h * 60 + m, score: 10, label: `${timeStr}` });
         }
     }
@@ -205,15 +223,28 @@ function generateTimeBubbles(selectedDate, serviceCode, guestPrefs, travelTime =
     const sMonth = parseInt(dateParts[1]);
     const sDay = parseInt(dateParts[2]);
 
+    // Chuẩn bị ngày hôm qua cho ca đêm
+    const tempD = new Date(cleanSelectedDate);
+    tempD.setDate(tempD.getDate() - 1);
+    const cleanYesterdayDate = SheetService.normalizeDateStrict(tempD);
+
     let validSlots = [];
-    const staffListMap = {};
+    const staffListMapToday = {};
     STAFF_LIST.forEach(s => {
         if (!s.offDays.includes(cleanSelectedDate)) {
-            staffListMap[s.id] = s;
+            staffListMapToday[s.id] = s;
         }
     });
 
-    const relevantBookings = prepareBookingsForTimeline(cachedBookings, cleanSelectedDate);
+    const staffListMapYesterday = {};
+    STAFF_LIST.forEach(s => {
+        if (!s.offDays.includes(cleanYesterdayDate)) {
+            staffListMapYesterday[s.id] = s;
+        }
+    });
+
+    const relevantBookingsToday = prepareBookingsForTimeline(cachedBookings, cleanSelectedDate);
+    const relevantBookingsYesterday = prepareBookingsForTimeline(cachedBookings, cleanYesterdayDate);
 
     const guestList = [];
     guestPrefs.forEach(pref => {
@@ -225,8 +256,7 @@ function generateTimeBubbles(selectedDate, serviceCode, guestPrefs, travelTime =
         guestList.push({ serviceCode: serviceCode, staffName: sId, staff: sId, flow: null });
     });
 
-    const openHour = getConfig().OPERATION_TIME.OPEN_HOUR;
-    const maxHour = 23;
+    const openHour = getConfig().OPERATION_TIME.OPEN_HOUR || 8;
     const minTimeMs = nowTaipei.getTime() + (travelTime * 60000);
 
     for (let h = 0; h < 24; h += 1) {
@@ -235,7 +265,11 @@ function generateTimeBubbles(selectedDate, serviceCode, guestPrefs, travelTime =
             if (slotTime.getTime() <= minTimeMs) continue;
 
             const timeStr = `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
-            const result = ResourceCore.checkRequestAvailability(cleanSelectedDate, timeStr, guestList, relevantBookings, staffListMap);
+            const isNightShift = h < openHour;
+            const activeBookings = isNightShift ? relevantBookingsYesterday : relevantBookingsToday;
+            const activeStaffMap = isNightShift ? staffListMapYesterday : staffListMapToday;
+
+            const result = ResourceCore.checkRequestAvailability(cleanSelectedDate, timeStr, guestList, activeBookings, activeStaffMap);
             if (result.feasible) validSlots.push({ h, m, timeStr });
         }
     }
@@ -1414,8 +1448,16 @@ async function handleEvent(event) {
         const cachedBookings = SheetService.getBookings();
 
         // --- ĐỒNG NHẤT CHUẨN HÓA GIỜ ÂM CHO CA ĐÊM ---
-        const relevantBookings = prepareBookingsForTimeline(cachedBookings, s.date);
-        const staffListMap = {}; SheetService.getStaffList().forEach(staff => { if (!staff.offDays.includes(s.date)) staffListMap[staff.id] = staff; });
+        const hr = parseInt(s.time.split(':')[0], 10);
+        const openHour = getConfig().OPERATION_TIME.OPEN_HOUR || 8;
+        let opDate = s.date;
+        if (!isNaN(hr) && hr < openHour) {
+            const tempD = new Date(s.date);
+            tempD.setDate(tempD.getDate() - 1);
+            opDate = SheetService.normalizeDateStrict(tempD);
+        }
+        const relevantBookings = prepareBookingsForTimeline(cachedBookings, opDate);
+        const staffListMap = {}; SheetService.getStaffList().forEach(staff => { if (!staff.offDays.includes(opDate)) staffListMap[staff.id] = staff; });
 
         const checkResult = ResourceCore.checkRequestAvailability(s.date, s.time, guestList, relevantBookings, staffListMap);
 
