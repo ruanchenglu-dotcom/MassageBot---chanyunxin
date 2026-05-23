@@ -1005,6 +1005,16 @@ app.get('/api/today-salary', async (req, res) => {
 // PHẦN 5: LINE EVENT HANDLER (BOT KHÁCH HÀNG)
 // =============================================================================
 
+function askGuaSha(userId, guestIndex, event, client) {
+    const buttons = [
+        { "type": "text", "text": `💆 第 ${guestIndex + 1} 位貴賓是否需要加購刮痧/拔罐？`, "weight": "bold", "size": "md", "align": "center", "color": "#1DB446" },
+        { "type": "separator", "margin": "md" },
+        { "type": "button", "style": "secondary", "margin": "sm", "action": { "type": "message", "label": "不需要", "text": `GuaSha:${guestIndex}:NO` } },
+        { "type": "button", "style": "primary", "color": "#E91E63", "margin": "sm", "action": { "type": "message", "label": "需要 (刮痧/拔罐)", "text": `GuaSha:${guestIndex}:YES` } }
+    ];
+    return client.replyMessage(event.replyToken, { type: 'flex', altText: `第 ${guestIndex + 1} 位貴賓是否加購刮痧/拔罐`, contents: { "type": "bubble", "body": { "type": "box", "layout": "vertical", "contents": buttons } } });
+}
+
 function askHasPref(userId, guestIndex, event, client) {
     const buttons = [
         { "type": "text", "text": `💆 第 ${guestIndex + 1} 位貴賓是否需要指定師傅？`, "weight": "bold", "size": "md", "align": "center", "color": "#1DB446" },
@@ -1116,7 +1126,7 @@ async function handleEvent(event) {
     }
 
     // --- 3. ADMIN LOGIC (BOT KHÁCH - QUYỀN CHỦ) ---
-    if (text === 'Admin') { return client.replyMessage(event.replyToken, { type: 'flex', altText: 'Admin', contents: { "type": "bubble", "body": { "type": "box", "layout": "vertical", "contents": [{ "type": "text", "text": "🛠️ 師傅管理 (Admin)", "weight": "bold", "color": "#E63946", "size": "lg" }, { "type": "separator", "margin": "md" }, { "type": "button", "style": "primary", "color": "#000000", "margin": "md", "action": { "type": "message", "label": "⛔ 全店店休", "text": "Admin:CloseShop" } }, { "type": "separator", "margin": "md" }, { "type": "button", "style": "secondary", "margin": "sm", "action": { "type": "message", "label": "🛌 請假", "text": "Admin:SetOff" } }, { "type": "button", "style": "secondary", "margin": "sm", "action": { "type": "message", "label": "🤒 早退", "text": "Admin:SetLeaveEarly" } }, { "type": "button", "style": "secondary", "margin": "sm", "action": { "type": "message", "label": "🍱 用餐", "text": "Admin:SetBreak" } }] } } }); }
+    if (text === 'Admin') { return client.replyMessage(event.replyToken, { type: 'flex', altText: 'Admin', contents: { "type": "bubble", "body": { "type": "box", "layout": "vertical", "contents": [{ "type": "text", "text": "🛠️ 師傅管理", "weight": "bold", "color": "#E63946", "size": "lg" }, { "type": "separator", "margin": "md" }, { "type": "button", "style": "primary", "color": "#000000", "margin": "md", "action": { "type": "message", "label": "⛔ 全店店休", "text": "Admin:CloseShop" } }, { "type": "separator", "margin": "md" }, { "type": "button", "style": "secondary", "margin": "sm", "action": { "type": "message", "label": "🛌 請假", "text": "Admin:SetOff" } }, { "type": "button", "style": "secondary", "margin": "sm", "action": { "type": "message", "label": "🤒 早退", "text": "Admin:SetLeaveEarly" } }, { "type": "button", "style": "secondary", "margin": "sm", "action": { "type": "message", "label": "🍱 用餐", "text": "Admin:SetBreak" } }] } } }); }
 
     if (text === 'Admin:CloseShop') { userState[userId] = { step: 'ADMIN_PICK_CLOSE_DATE' }; return client.replyMessage(event.replyToken, { type: 'template', altText: '選擇日期', template: { type: 'buttons', text: '請選擇店休日期:', actions: [{ type: 'datetimepicker', label: '🗓️ 點擊選擇', cyx_data: 'ShopClosePicked', mode: 'date' }] } }); }
 
@@ -1178,8 +1188,22 @@ async function handleEvent(event) {
 
     if (text.startsWith('Pax:')) {
         if (!userState[userId]) return client.replyMessage(event.replyToken, { type: 'text', text: '⚠️ 連線逾時，請重新點擊「立即預約」。' });
-        const num = parseInt(text.split(':')[1]); const currentState = userState[userId]; currentState.pax = num; currentState.guestPrefs = []; currentState.step = 'HAS_PREF'; userState[userId] = currentState;
-        return askHasPref(userId, 0, event, client);
+        const num = parseInt(text.split(':')[1]); const currentState = userState[userId]; currentState.pax = num; currentState.guestPrefs = []; currentState.step = 'GUASHA'; userState[userId] = currentState;
+        return askGuaSha(userId, 0, event, client);
+    }
+
+    if (text.startsWith('GuaSha:')) {
+        if (!userState[userId]) return client.replyMessage(event.replyToken, { type: 'text', text: '⚠️ 連線逾時，請重新點擊「立即預約」。' });
+        const parts = text.split(':');
+        const gIdx = parseInt(parts[1]);
+        const choice = parts[2];
+        const s = userState[userId];
+        
+        s.guestPrefs[gIdx] = s.guestPrefs[gIdx] || {};
+        s.guestPrefs[gIdx].isGuaSha = (choice === 'YES');
+        
+        s.step = 'HAS_PREF';
+        return askHasPref(userId, gIdx, event, client);
     }
 
     if (text.startsWith('HasPref:')) {
@@ -1190,9 +1214,11 @@ async function handleEvent(event) {
         const s = userState[userId];
         
         if (choice === 'NO') {
-            s.guestPrefs[gIdx] = { type: 'RANDOM' };
+            s.guestPrefs[gIdx] = s.guestPrefs[gIdx] || {};
+            s.guestPrefs[gIdx].type = 'RANDOM';
             if (gIdx + 1 < s.pax) {
-                return askHasPref(userId, gIdx + 1, event, client);
+                s.step = 'GUASHA';
+                return askGuaSha(userId, gIdx + 1, event, client);
             } else {
                 return proceedAfterGuestPrefs(userId, event, client);
             }
@@ -1216,10 +1242,11 @@ async function handleEvent(event) {
             bubbles.forEach((b) => { b.body.contents[0].text = `選第 ${gIdx + 1} 位技師`; b.body.contents[0].color = "#E91E63"; });
             return client.replyMessage(event.replyToken, { type: 'flex', altText: 'Select Staff', contents: { type: 'carousel', contents: bubbles } });
         } else {
-            s.guestPrefs[gIdx] = { type: pref };
+            s.guestPrefs[gIdx] = s.guestPrefs[gIdx] || {};
+            s.guestPrefs[gIdx].type = pref;
             if (gIdx + 1 < s.pax) {
-                s.step = 'HAS_PREF';
-                return askHasPref(userId, gIdx + 1, event, client);
+                s.step = 'GUASHA';
+                return askGuaSha(userId, gIdx + 1, event, client);
             } else {
                 return proceedAfterGuestPrefs(userId, event, client);
             }
@@ -1231,11 +1258,13 @@ async function handleEvent(event) {
         const staffId = text.split(':')[1]; 
         const s = userState[userId];
         const gIdx = s.currentGuestIndex;
-        s.guestPrefs[gIdx] = { type: 'SPECIFIC', staffId: staffId };
+        s.guestPrefs[gIdx] = s.guestPrefs[gIdx] || {};
+        s.guestPrefs[gIdx].type = 'SPECIFIC';
+        s.guestPrefs[gIdx].staffId = staffId;
         
         if (gIdx + 1 < s.pax) {
-            s.step = 'HAS_PREF';
-            return askHasPref(userId, gIdx + 1, event, client);
+            s.step = 'GUASHA';
+            return askGuaSha(userId, gIdx + 1, event, client);
         } else {
             return proceedAfterGuestPrefs(userId, event, client);
         }
@@ -1312,18 +1341,67 @@ async function handleEvent(event) {
             const d = new Date(s.date); d.setDate(d.getDate() + 1); finalDate = formatDateDisplay(d.toLocaleDateString());
         }
 
-        let basePrice = SERVICES[s.service].price;
-        if (s.isOil) basePrice += getConfig().FINANCE.OIL_BONUS;
-        const totalPrice = basePrice * s.pax;
-
-        let staffDisplay = '隨機'; if (s.selectedStaff && s.selectedStaff.length > 0) staffDisplay = s.selectedStaff.join(', '); else if (s.pref === 'FEMALE') staffDisplay = '女師傅'; else if (s.pref === 'MALE') staffDisplay = '男師傅'; else if (s.pref === 'OIL') staffDisplay = '女師傅(油)';
-
+        // --- ĐÓNG GÓI DỮ LIỆU ---
+        let totalOilPremium = 0;
+        const guestDetails = [];
         const guestList = [];
+        const staffDisplayParts = [];
+        let anyOil = false;
+
         for (let i = 0; i < s.pax; i++) {
-            let sId = 'RANDOM';
-            if (s.selectedStaff && s.selectedStaff.length > i) sId = s.selectedStaff[i];
-            guestList.push({ serviceCode: s.service, staffName: sId, flow: null });
+            const pref = s.guestPrefs && s.guestPrefs[i] ? s.guestPrefs[i] : { type: 'RANDOM' };
+            const isGuaSha = pref.isGuaSha === true;
+
+            let sId = '隨機';
+            let isOilForGuest = false;
+
+            if (s.selectedStaff && s.selectedStaff.length > i) {
+                sId = s.selectedStaff[i];
+                staffDisplayParts.push(sId);
+            } else if (pref.type === 'FEMALE') {
+                sId = '女';
+                staffDisplayParts.push('女師傅');
+            } else if (pref.type === 'MALE') {
+                sId = '男';
+                staffDisplayParts.push('男師傅');
+            } else if (pref.type === 'OIL') {
+                sId = '女';
+                isOilForGuest = true;
+                anyOil = true;
+                totalOilPremium += getConfig().FINANCE.OIL_BONUS;
+                staffDisplayParts.push('女師傅(油)');
+            } else if (pref.type === 'SPECIFIC') {
+                sId = pref.staffId;
+                staffDisplayParts.push(sId);
+            } else {
+                staffDisplayParts.push('隨機');
+            }
+
+            let resourceStaffId = 'RANDOM';
+            if (s.selectedStaff && s.selectedStaff.length > i) {
+                resourceStaffId = s.selectedStaff[i];
+            } else if (pref.type === 'SPECIFIC') {
+                resourceStaffId = pref.staffId;
+            } else if (pref.type === 'FEMALE' || pref.type === 'OIL') {
+                resourceStaffId = 'FEMALE';
+            } else if (pref.type === 'MALE') {
+                resourceStaffId = 'MALE';
+            }
+
+            guestList.push({ serviceCode: s.service, staffName: resourceStaffId, flow: null });
+            
+            guestDetails.push({
+                service: SERVICES[s.service].name,
+                staff: sId, 
+                isOil: isOilForGuest,
+                isGuaSha: isGuaSha,
+                serviceCode: s.service
+            });
         }
+
+        const staffDisplay = staffDisplayParts.join(', ');
+        let basePrice = SERVICES[s.service].price;
+        const totalPrice = (basePrice * s.pax) + totalOilPremium;
 
         const relevantBookings = SheetService.getBookings().filter(b => b.opDate === s.date && !b.status.includes('取消'));
         const staffListMap = {}; SheetService.getStaffList().forEach(staff => { if (!staff.offDays.includes(s.date)) staffListMap[staff.id] = staff; });
@@ -1334,14 +1412,7 @@ async function handleEvent(event) {
             return client.replyMessage(event.replyToken, { type: 'text', text: "😢 抱歉，該時段剛好被其他人預約了，請選擇其他時間。" });
         }
 
-        // --- ĐÓNG GÓI DỮ LIỆU ---
-        const guestDetails = [];
         for (let i = 0; i < s.pax; i++) {
-            let sId = '隨機';
-            if (s.selectedStaff && s.selectedStaff.length > i) sId = s.selectedStaff[i];
-            else if (s.pref === 'FEMALE') sId = '女';
-            else if (s.pref === 'MALE') sId = '男';
-
             const coreDetail = checkResult.details && checkResult.details[i] ? checkResult.details[i] : null;
             let optimalFlow = coreDetail ? coreDetail.flow : null;
 
@@ -1364,15 +1435,12 @@ async function handleEvent(event) {
             else if (optimalFlow === 'BODYSINGLE') resType = 'BED';
             else resType = 'COMBO';
 
-            guestDetails.push({
-                service: SERVICES[s.service].name,
-                staff: sId, isOil: s.isOil, flow: optimalFlow,
-                phase1_duration: p1, phase2_duration: p2,
-                serviceCode: s.service,
-                phase1_res_idx: coreDetail ? coreDetail.phase1_res_idx : undefined,
-                phase2_res_idx: coreDetail ? coreDetail.phase2_res_idx : undefined,
-                resource_type: resType
-            });
+            guestDetails[i].flow = optimalFlow;
+            guestDetails[i].phase1_duration = p1;
+            guestDetails[i].phase2_duration = p2;
+            guestDetails[i].phase1_res_idx = coreDetail ? coreDetail.phase1_res_idx : undefined;
+            guestDetails[i].phase2_res_idx = coreDetail ? coreDetail.phase2_res_idx : undefined;
+            guestDetails[i].resource_type = resType;
         }
 
         // --- BƯỚC QUAN TRỌNG: GHI VÀO DB TRƯỚC ---
@@ -1381,7 +1449,7 @@ async function handleEvent(event) {
                 gioDen: s.time, ngayDen: finalDate, dichVu: SERVICES[s.service].name,
                 nhanVien: staffDisplay, userId: userId, sdt: sdt,
                 hoTen: s.fullName,
-                trangThai: '已預約', pax: s.pax, isOil: s.isOil,
+                trangThai: '已預約', pax: s.pax, isOil: anyOil,
                 guestDetails: guestDetails, serviceCode: s.service,
                 isManualLocked: false
             },
@@ -1396,8 +1464,14 @@ async function handleEvent(event) {
                 `📅 ${finalDate} ${s.time}\n` +
                 `💆 ${SERVICES[s.service].name}\n` +
                 `👥 ${s.pax} 位\n` +
-                `🛠️ ${staffDisplay}\n` +
-                `💵 總金額: $${totalPrice}\n\n`;
+                `🛠️ ${staffDisplay}\n`;
+
+            const addedGuaShaCount = guestDetails.filter(g => g.isGuaSha).length;
+            if (addedGuaShaCount > 0) {
+                confirmMsg += `🔥 加購項目: 刮痧/拔罐 (${addedGuaShaCount} 位)\n`;
+            }
+
+            confirmMsg += `💵 總金額: $${totalPrice}\n\n`;
 
             confirmMsg += `⚠️ 提醒您：\n我們為您保留10分鐘，如果您遲到且後面有其他客人預約滿檔需要位置，我們將會優先安排給現場客人，感謝您的諒解。\n\n` +
                 `若需【更改時間】或【取消預約】，請務必點擊下方「我的預約」按鈕進行操作，或直接致電櫃台告知，以免影響您的權益，謝謝配合！`;
