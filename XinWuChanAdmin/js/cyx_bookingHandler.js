@@ -1505,23 +1505,6 @@
                 baseDateStr = `${y}-${m}-${d}`;
             }
 
-            // Tự động kiểm tra nếu giờ mặc định khởi tạo là ca đêm thì cộng thêm 1 ngày
-            try {
-                const initTime = getRoundedCurrentTime();
-                const initHour = parseInt(initTime.split(':')[0], 10);
-                const openHour = window.SYSTEM_CONFIG?.OPERATION_TIME?.OPEN_HOUR || 8;
-                if (initHour < openHour) {
-                    const dParts = baseDateStr.replace(/\//g, '-').split('-');
-                    if (dParts.length === 3) {
-                        let d = new Date(parseInt(dParts[0], 10), parseInt(dParts[1], 10) - 1, parseInt(dParts[2], 10));
-                        d.setDate(d.getDate() + 1);
-                        baseDateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-                    }
-                }
-            } catch (e) {
-                console.error("Lỗi khi tự động tính ngày dương lịch ca đêm:", e);
-            }
-
             return baseDateStr;
         };
 
@@ -1588,37 +1571,30 @@
                 const newMinute = type === 'MINUTE' ? value : parts[1];
                 let newDate = prev.date;
 
-                // [V116.6 NÂNG CẤP]: Trí tuệ nhận diện nhảy ngày thông minh dựa trên Ngày Vận Hành của Timeline (initialDate)
-                const opDate = initialDate || (() => {
+                // [V116.6 NÂNG CẤP]: Trí tuệ nhận diện nhảy ngày theo Giờ Thực Tế (Phục vụ từ 0h đến trước giờ xem máy)
+                if (type === 'HOUR' && prev.date) {
+                    const selHour = parseInt(value, 10);
                     const now = new Date();
-                    const openHour = window.SYSTEM_CONFIG?.OPERATION_TIME?.OPEN_HOUR || 8;
-                    if (now.getHours() < openHour) {
-                        now.setDate(now.getDate() - 1);
-                    }
-                    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-                })();
-
-                if (opDate) {
-                    const hourNum = parseInt(newHour, 10);
-                    const openHour = window.SYSTEM_CONFIG?.OPERATION_TIME?.OPEN_HOUR || 8;
-                    const dParts = opDate.replace(/\//g, '-').split('-');
+                    const currentHour = now.getHours();
+                    const dParts = prev.date.replace(/\//g, '-').split('-');
 
                     if (dParts.length === 3) {
-                        let d = new Date(parseInt(dParts[0], 10), parseInt(dParts[1], 10) - 1, parseInt(dParts[2], 10));
-                        if (hourNum < openHour) {
-                            // Giờ ca đêm -> Ngày dương lịch là ngày hôm sau (opDate + 1)
-                            d.setDate(d.getDate() + 1);
-                        } else {
-                            // Giờ ca ngày -> Ngày dương lịch là ngày vận hành (opDate)
+                        const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+                        const tomorrowD = new Date(now); tomorrowD.setDate(tomorrowD.getDate() + 1);
+                        const tomorrowStr = `${tomorrowD.getFullYear()}-${String(tomorrowD.getMonth() + 1).padStart(2, '0')}-${String(tomorrowD.getDate()).padStart(2, '0')}`;
+
+                        if (prev.date === todayStr && selHour < currentHour) {
+                            newDate = tomorrowStr;
+                        } else if (prev.date === tomorrowStr && selHour >= currentHour) {
+                            newDate = todayStr;
                         }
-                        newDate = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
                     }
                 }
 
                 return { ...prev, date: newDate, time: `${newHour}:${newMinute}` };
             });
             setCheckResult(null); setSuggestions([]);
-        }, [initialDate]);
+        }, []);
 
         const handleDateShift = useCallback((days) => {
             setForm(prev => {

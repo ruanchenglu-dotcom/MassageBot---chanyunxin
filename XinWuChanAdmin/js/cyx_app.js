@@ -3433,7 +3433,6 @@ const App = () => {
                         onCancelBooking={handleManualUpdateStatus}
                         onInlineUpdate={handleInlineUpdate}
                         staffList={staffList}
-                        viewDate={viewDate}
                     />
                 )}
 

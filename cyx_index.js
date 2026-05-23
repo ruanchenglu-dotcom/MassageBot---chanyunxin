@@ -1337,8 +1337,11 @@ async function handleEvent(event) {
 
         let finalDate = s.date;
         const hour = parseInt(s.time.split(':')[0]);
-        if (hour < 8) {
-            const d = new Date(s.date); d.setDate(d.getDate() + 1); finalDate = formatDateDisplay(d.toLocaleDateString());
+        let targetOpDate = s.date;
+        if (hour < (getConfig().OPERATION_TIME.OPEN_HOUR || 6)) {
+            const d = new Date(s.date);
+            d.setDate(d.getDate() - 1);
+            targetOpDate = SheetService.normalizeDateStrict(d);
         }
 
         // --- ĐÓNG GÓI DỮ LIỆU ---
@@ -1403,7 +1406,7 @@ async function handleEvent(event) {
         let basePrice = SERVICES[s.service].price;
         const totalPrice = (basePrice * s.pax) + totalOilPremium;
 
-        const relevantBookings = SheetService.getBookings().filter(b => b.opDate === s.date && !b.status.includes('取消'));
+        const relevantBookings = SheetService.getBookings().filter(b => b.opDate === targetOpDate && !b.status.includes('取消'));
         const staffListMap = {}; SheetService.getStaffList().forEach(staff => { if (!staff.offDays.includes(s.date)) staffListMap[staff.id] = staff; });
 
         const checkResult = ResourceCore.checkRequestAvailability(s.date, s.time, guestList, relevantBookings, staffListMap);
