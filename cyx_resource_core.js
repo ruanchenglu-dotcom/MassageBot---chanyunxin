@@ -94,17 +94,26 @@ function getServiceInfo(code, name) {
 function normalizeDateStrict(input) {
     if (!input) return "";
     try {
-        let str = input.toString().trim();
-        if (str.includes('T')) str = str.split('T')[0];
-        if (str.includes(' ')) str = str.split(' ')[0];
-        str = str.replace(/-/g, '/').replace(/\./g, '/');
-        const parts = str.split('/');
-        if (parts.length !== 3) return str;
+        let dateObj;
+        if (typeof input === 'object' && input instanceof Date) {
+            dateObj = input;
+        } else if (typeof input === 'string' && input.includes('T')) {
+            dateObj = new Date(input);
+        } else if (typeof input === 'number' && input > 40000) {
+            dateObj = new Date(Math.round((input - 25569) * 86400 * 1000));
+        } else {
+            const dateString = input.toString().trim().replace(/-/g, '/');
+            dateObj = new Date(dateString);
+        }
 
-        const partA = parts[0]; const partB = parts[1]; const partC = parts[2];
-        if (partA.length === 4) return `${partA}/${partB.padStart(2, '0')}/${partC.padStart(2, '0')}`;
-        if (partC.length === 4) return `${partC}/${partB.padStart(2, '0')}/${partA.padStart(2, '0')}`;
-        return str;
+        if (isNaN(dateObj.getTime())) return "";
+
+        const taipeiTimeStr = dateObj.toLocaleString("en-US", { timeZone: "Asia/Taipei" });
+        const taipeiDate = new Date(taipeiTimeStr);
+        const y = taipeiDate.getFullYear();
+        const m = String(taipeiDate.getMonth() + 1).padStart(2, '0');
+        const d = String(taipeiDate.getDate()).padStart(2, '0');
+        return `${y}/${m}/${d}`;
     } catch (e) {
         console.error("[CORE V118.0] Date Normalize Error:", e);
         return input;
