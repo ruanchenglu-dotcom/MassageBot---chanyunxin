@@ -1903,7 +1903,7 @@ function startAntiHibernation() {
     }
 }
 
-const port = process.env.PORT || 4000;
+const port = process.env.PORT || 5000;
 app.listen(port, () => {
     console.log(`XinWuChan Bot V134 running on port ${port}`);
     startAntiHibernation(); // Khởi chạy Anti-Hibernation ngay sau khi server lên
