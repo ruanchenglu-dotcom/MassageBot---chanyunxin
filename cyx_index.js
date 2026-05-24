@@ -1908,3 +1908,11 @@ app.listen(port, () => {
     console.log(`XinWuChan Bot V134 running on port ${port}`);
     startAntiHibernation(); // Khởi chạy Anti-Hibernation ngay sau khi server lên
 });
+
+// Tránh crash server khi có lỗi không mong muốn từ API ngoài hoặc cuộc gọi nhắc nhở thất bại
+process.on('unhandledRejection', (reason, promise) => {
+    console.error('⚠️ [CRITICAL] Unhandled Rejection:', reason);
+});
+process.on('uncaughtException', (err) => {
+    console.error('⚠️ [CRITICAL] Uncaught Exception:', err);
+});
