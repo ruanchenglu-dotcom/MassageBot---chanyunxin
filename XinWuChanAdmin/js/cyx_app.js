@@ -59,6 +59,25 @@ const safeTimeToMins = (timeStr) => {
     }
 };
 
+// --- HÀM TRỢ GIÚP: CHUYỂN ĐỔI ISO DATE SANG GIỜ CHUẨN ĐÀI LOAN (UTC+8) ---
+// Khắc phục triệt để lỗi lệch múi giờ khi trình duyệt của Admin ở múi giờ khác Đài Loan
+const getTaipeiTimeStr = (isoStr) => {
+    if (!isoStr) return "00:00";
+    try {
+        const d = new Date(isoStr);
+        if (isNaN(d.getTime())) return "00:00";
+        return d.toLocaleTimeString('en-US', {
+            timeZone: 'Asia/Taipei',
+            hour12: false,
+            hour: '2-digit',
+            minute: '2-digit'
+        });
+    } catch (e) {
+        console.error("getTaipeiTimeStr Error:", e);
+        return "00:00";
+    }
+};
+
 // --- HÀM TRỢ GIÚP TÍNH "節數" (BLOCKS) CHO QUY TẮC D ---
 const getServiceBlocks = (serviceName) => {
     if (!serviceName) return 0;
@@ -1039,8 +1058,7 @@ const App = () => {
             Object.keys(nextResourceState).forEach(key => {
                 if (nextResourceState[key].isRunning) {
                     tempState[key] = nextResourceState[key];
-                    const startTime = new Date(nextResourceState[key].startTime);
-                    const startMins = startTime.getHours() * 60 + startTime.getMinutes() + (startTime.getHours() < openHour ? 1440 : 0);
+                    const startMins = safeTimeToMins(getTaipeiTimeStr(nextResourceState[key].startTime));
 
                     const b = nextResourceState[key].booking;
                     let durationUsed = b.duration;
@@ -1125,8 +1143,7 @@ const App = () => {
                             });
                         }
                     } else {
-                        const startTime = new Date(item.startTime);
-                        const p2StartMins = startTime.getHours() * 60 + startTime.getMinutes() + (startTime.getHours() < openHour ? 1440 : 0);
+                        const p2StartMins = safeTimeToMins(getTaipeiTimeStr(item.startTime));
                         const p1End = p2StartMins - 5;
                         const p1Start = p1End - split.phase1;
 
@@ -1743,9 +1760,7 @@ const App = () => {
             if (resourceState[k].isRunning && resourceState[k].booking) {
                 const b = resourceState[k];
                 try {
-                    const startObj = new Date(b.startTime);
-                    const openHour = window.SYSTEM_CONFIG?.OPERATION_TIME?.OPEN_HOUR || 5;
-                    const startMins = startObj.getHours() * 60 + startObj.getMinutes() + (startObj.getHours() < openHour ? 1440 : 0);
+                    const startMins = safeTimeToMins(getTaipeiTimeStr(b.startTime));
                     mockActiveEndTimes[k] = startMins + (b.booking.duration || 60);
                 } catch (e) { }
             }
