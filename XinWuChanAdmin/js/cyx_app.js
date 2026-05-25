@@ -394,6 +394,9 @@ const App = () => {
         
         Object.keys(resourceState).forEach(k => {
             if (k !== excludeResourceId && !resourceState[k].isRunning && resourceState[k].isPreview === true) {
+                // [NÂNG CẤP V1.5] Bỏ qua Phase 2 của Combo (Chỉ lấy tài nguyên Phase 1 để bắt đầu xuất phát đúng Ghế/Giường)
+                if (resourceState[k].comboMeta && resourceState[k].comboMeta.phase === 2) return;
+
                 const otherBooking = resourceState[k].booking;
                 const otherRowId = String(otherBooking.rowId);
                 const otherPhone = getNormalizedPhone(otherBooking);
@@ -945,6 +948,10 @@ const App = () => {
 
                     if (freshData) {
                         res.booking = { ...res.booking, ...freshData };
+                        // [V136.1 FIX] Đồng bộ thực tế startTime của ca đang chạy khi có thay đổi trên Google Sheets
+                        if (res.isRunning && freshData.startTimeString) {
+                            res.startTime = getScheduledStartTimeISO(freshData);
+                        }
                         activeSignatures.add(getBookingSignature(freshData));
                         
                         // [V136 NÂNG CẤP] Dò tìm sự thay đổi vị trí vật lý để sửa key
@@ -1786,6 +1793,31 @@ const App = () => {
         try {
             const res = await universalSend('/api/update-booking-details', payload);
             if (!res.success) throw new Error(res.error);
+
+            // [V136.1 FIX] Đồng bộ tức thời startTime trong resourceState cục bộ của ca Combo đang chạy
+            const newState = { ...resourceState };
+            let updated = false;
+            Object.keys(newState).forEach(key => {
+                const r = newState[key];
+                if (r.booking && String(r.booking.rowId) === rowId) {
+                    if (newStartTimeIso) {
+                        r.startTime = newStartTimeIso;
+                    }
+                    r.booking.flow = currentFlow;
+                    r.booking.phase1_duration = newPhase1Duration;
+                    r.booking.phase2_duration = newPhase2Duration;
+                    r.booking.phase1_res_idx = s1.toUpperCase();
+                    r.booking.phase2_res_idx = s2.toUpperCase();
+                    if (newStartTimeStringForSheet) {
+                        r.booking.startTimeString = newStartTimeStringForSheet;
+                        r.booking.startTime = startTimeStr;
+                    }
+                    updated = true;
+                }
+            });
+            if (updated) {
+                updateResource(newState);
+            }
             
             // Xóa bộ nhớ đệm giả nếu có trước đó
             if (localOverridesRef.current[rowId]) {
@@ -1878,6 +1910,30 @@ const App = () => {
         try {
             const res = await universalSend('/api/update-booking-details', payload);
             if (!res.success) throw new Error(res.error);
+
+            // [V136.1 FIX] Đồng bộ tức thời startTime trong resourceState cục bộ của ca Đơn lẻ đang chạy
+            const newState = { ...resourceState };
+            let updated = false;
+            Object.keys(newState).forEach(key => {
+                const r = newState[key];
+                if (r.booking && String(r.booking.rowId) === rowId) {
+                    if (newStartTimeIso) {
+                        r.startTime = newStartTimeIso;
+                    }
+                    if (s1) {
+                        r.booking.current_resource_id = s1.toUpperCase();
+                        r.booking.location = s1.toUpperCase();
+                    }
+                    if (newStartTimeStringForSheet) {
+                        r.booking.startTimeString = newStartTimeStringForSheet;
+                        r.booking.startTime = startTimeStr;
+                    }
+                    updated = true;
+                }
+            });
+            if (updated) {
+                updateResource(newState);
+            }
             
             // Xóa bộ nhớ đệm giả nếu có trước đó
             if (localOverridesRef.current[rowId]) {
@@ -2474,6 +2530,12 @@ const App = () => {
         allItemsToStart.forEach(item => {
             if (!item.booking) return;
 
+            // [NÂNG CẤP V1.5] BẢO TOÀN TUYỆT ĐỐI TÀI NGUYÊN ĐÃ XẾP SẴN TRÊN GOOGLE SHEETS
+            const sheetP1 = item.booking.phase1_res_idx;
+            if (sheetP1 && sheetP1 !== '隨機' && sheetP1 !== 'undefined' && sheetP1 !== '') {
+                item.resourceId = sheetP1.toLowerCase();
+            }
+
             if (!item.resourceId) {
                 let targetId = item.booking.phase1_res_idx || item.booking.current_resource_id || item.booking.storedLocation;
                 if (targetId) {
@@ -2619,7 +2681,8 @@ const App = () => {
                     let projectedTargetId = current.booking.phase2_res_idx ? current.booking.phase2_res_idx.toLowerCase() : null;
                     newComboMeta = { sequence: actualSeq, phase: 1, flex: 0, targetId: projectedTargetId };
                 } else {
-                    newComboMeta = { ...newComboMeta, phase: 1, sequence: actualSeq };
+                    let projectedTargetId = current.booking.phase2_res_idx ? current.booking.phase2_res_idx.toLowerCase() : newComboMeta.targetId;
+                    newComboMeta = { ...newComboMeta, phase: 1, sequence: actualSeq, targetId: projectedTargetId };
                 }
             } else {
                 newComboMeta = null;
@@ -2713,7 +2776,7 @@ const App = () => {
         else if (action === 'pause') { updateResource({ ...resourceState, [id]: { ...current, isPaused: !current.isPaused } }); }
         else if (action === 'cancel') { Swal.fire({ title: '確認', text: '確定將顧客從位置移除？', icon: 'warning', showCancelButton: true, confirmButtonText: '確定', cancelButtonText: '取消' }).then((res) => { if (res.isConfirmed) { const n = { ...resourceState }; delete n[id]; updateResource(n); } }); }
         else if (action === 'cancel_midway') {
-            Swal.fire({ title: '確認', text: '確定要棄單 (Drop)？\n此操作會標記為「取消」並釋放此位置。', icon: 'warning', showCancelButton: true, confirmButtonText: '確定', cancelButtonText: '取消' }).then(async (res) => { if (res.isConfirmed) { 
+            Swal.fire({ title: '確認', text: '確定要棄單嗎？\n此操作會標記為「取消」並釋放此位置。', icon: 'warning', showCancelButton: true, confirmButtonText: '確定', cancelButtonText: '取消' }).then(async (res) => { if (res.isConfirmed) { 
                 const ridStr = String(current.booking.rowId);
                 if (localOverridesRef.current[ridStr]) {
                     delete localOverridesRef.current[ridStr];

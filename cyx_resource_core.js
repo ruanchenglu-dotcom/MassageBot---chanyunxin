@@ -860,7 +860,12 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
         const contactInfo = b.originalData?.phone || b.originalData?.sdt || b.originalData?.custPhone || b.originalData?.customerName || "Unknown";
         const contactKey = contactInfo.toString().replace(/\D/g, '').slice(-6) || contactInfo.toString().trim();
         const statusLower = (b.status || '').toLowerCase();
-        const groupKey = (statusLower.includes('running') || statusLower.includes('doing')) ? `RUNNING_${b.rowId}` : `${timeKey}_${contactKey}`;
+        const isRunning = statusLower.includes('running') || 
+                          statusLower.includes('doing') || 
+                          statusLower.includes('服務中') || 
+                          statusLower.includes('serving') || 
+                          statusLower.includes('🟡');
+        const groupKey = isRunning ? `RUNNING_${b.rowId}` : `${timeKey}_${contactKey}`;
         if (!bookingGroups[groupKey]) bookingGroups[groupKey] = [];
         bookingGroups[groupKey].push(b);
     });
@@ -871,7 +876,13 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
         const groupSize = group.length; const halfSize = Math.ceil(groupSize / 2);
         group.forEach((b, idx) => {
             b._virtualInheritanceIndex = null; b._impliedFlow = null;
-            if (!(b.status || '').toLowerCase().includes('running')) {
+            const bStatus = (b.status || '').toLowerCase();
+            const isBRunning = bStatus.includes('running') || 
+                               bStatus.includes('doing') || 
+                               bStatus.includes('服務中') || 
+                               bStatus.includes('serving') || 
+                               bStatus.includes('🟡');
+            if (!isBRunning) {
                 b._virtualInheritanceIndex = (groupSize >= 2) ? (idx % halfSize) + 1 : idx + 1;
                 if (groupSize >= 2) b._impliedFlow = (idx < halfSize) ? 'BF' : 'FB';
             }
@@ -891,7 +902,12 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
 
         let duration = b.duration || svcInfo.duration || 60;
         let anchorIndex = null;
-        const isRunning = (b.status || '').toLowerCase().includes('running');
+        const bStatusStr = (b.status || '').toLowerCase();
+        const isRunning = bStatusStr.includes('running') || 
+                          bStatusStr.includes('doing') || 
+                          bStatusStr.includes('服務中') || 
+                          bStatusStr.includes('serving') || 
+                          bStatusStr.includes('🟡');
 
         // [V135 FIX] LUÔN ưu tiên lấy toạ độ thực tế một cách toàn diện như Guardrail
         // Điều này ngăn chặn Bóng Ma Toạ Độ do Matrix gán nhầm ghế/giường đã có khách.

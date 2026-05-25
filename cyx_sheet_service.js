@@ -804,7 +804,10 @@ async function updateBookingDetails(body) {
     let totalDuration = bookingData ? bookingData.duration : (safeParseInt(body.duration, 60));
 
     let phase1Res = body.phase1_res_idx !== undefined ? body.phase1_res_idx : (body.phase1_resource !== undefined ? body.phase1_resource : body.phase1Resource);
-    if (phase1Res === undefined && (body.location !== undefined || body.current_resource_id !== undefined)) {
+    
+    // Chỉ fallback cho các dịch vụ ĐƠN LẺ (Single), KHÔNG được fallback cho dịch vụ COMBO
+    const isCombo = bookingData ? (bookingData.category === 'COMBO' || (bookingData.serviceName && bookingData.serviceName.includes('套餐'))) : false;
+    if (!isCombo && phase1Res === undefined && (body.location !== undefined || body.current_resource_id !== undefined)) {
         phase1Res = body.location !== undefined ? body.location : body.current_resource_id;
     }
     const phase2Res = body.phase2_res_idx !== undefined ? body.phase2_res_idx : (body.phase2_resource !== undefined ? body.phase2_resource : body.phase2Resource);
@@ -1318,7 +1321,11 @@ async function batchUpdateMultipleBookings(updatesArray) {
             if (flowVal !== undefined) dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!AA${rowId}`, values: [[flowVal]] });
 
             let phase1Res = body.phase1_res_idx !== undefined ? body.phase1_res_idx : (body.phase1_resource !== undefined ? body.phase1_resource : body.phase1Resource);
-            if (phase1Res === undefined && (body.location !== undefined || body.current_resource_id !== undefined)) {
+            
+            // Chỉ fallback cho các dịch vụ ĐƠN LẺ (Single), KHÔNG được fallback cho dịch vụ COMBO
+            let bookingData = STATE.cachedBookings.find(b => b.rowId == rowId);
+            const isCombo = bookingData ? (bookingData.category === 'COMBO' || (bookingData.serviceName && bookingData.serviceName.includes('套餐'))) : false;
+            if (!isCombo && phase1Res === undefined && (body.location !== undefined || body.current_resource_id !== undefined)) {
                 phase1Res = body.location !== undefined ? body.location : body.current_resource_id;
             }
             if (phase1Res !== undefined) dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!AB${rowId}`, values: [[phase1Res]] });
@@ -1334,7 +1341,6 @@ async function batchUpdateMultipleBookings(updatesArray) {
                 console.log(`[SHEET_UPDATE] Ghi giá tiền $${body.final_price} vào V${rowId}`);
             }
 
-            let bookingData = STATE.cachedBookings.find(b => b.rowId == rowId);
             let totalDuration = bookingData ? bookingData.duration : (safeParseInt(body.duration, 60));
             let currentLockState = bookingData ? bookingData.isManualLocked : false;
             let hasManualPhaseChange = false;

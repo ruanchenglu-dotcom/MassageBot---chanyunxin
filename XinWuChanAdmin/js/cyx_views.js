@@ -1349,8 +1349,8 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                             </button>
                         )}
                         <button onClick={handleFinishRequest} className="col-span-1 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold shadow-lg shadow-blue-200 flex flex-col items-center justify-center transform active:scale-95 transition-all"><i className="fas fa-check-circle text-xl mb-0.5"></i><span className="text-xs">結帳 ({STATUS.COMPLETED})</span></button>
-                        <button onClick={() => { Swal.fire({ title: '確認', text: '確定要取消嗎？', icon: 'warning', showCancelButton: true, confirmButtonText: '確定', cancelButtonText: '取消' }).then(res => { if(res.isConfirmed) triggerAction('CANCEL'); }); }} className="col-span-1 bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 rounded-xl font-bold flex flex-col items-center justify-center transform active:scale-95 transition-all"><i className="fas fa-trash-alt text-xl mb-0.5"></i><span className="text-xs">取消 ({STATUS.CANCELLED})</span></button>
-                        <button onClick={() => { Swal.fire({ title: '確認', text: '確定要設為爽約嗎？', icon: 'warning', showCancelButton: true, confirmButtonText: '確定', cancelButtonText: '取消' }).then(res => { if(res.isConfirmed) triggerAction('NOSHOW'); }); }} className="col-span-1 bg-orange-50 hover:bg-orange-100 text-orange-600 border border-orange-200 rounded-xl font-bold flex flex-col items-center justify-center transform active:scale-95 transition-all"><i className="fas fa-user-slash text-xl mb-0.5"></i><span className="text-xs">爽約 ({STATUS.NOSHOW})</span></button>
+                        <button onClick={() => { onClose(); triggerAction('CANCEL'); }} className="col-span-1 bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 rounded-xl font-bold flex flex-col items-center justify-center transform active:scale-95 transition-all"><i className="fas fa-trash-alt text-xl mb-0.5"></i><span className="text-xs">取消 ({STATUS.CANCELLED})</span></button>
+                        <button onClick={() => { onClose(); triggerAction('NOSHOW'); }} className="col-span-1 bg-orange-50 hover:bg-orange-100 text-orange-600 border border-orange-200 rounded-xl font-bold flex flex-col items-center justify-center transform active:scale-95 transition-all"><i className="fas fa-user-slash text-xl mb-0.5"></i><span className="text-xs">爽約 ({STATUS.NOSHOW})</span></button>
                     </div>
                 </div>
 
@@ -1389,6 +1389,21 @@ const TimelineView = ({ timelineData, onEditPhase, liveStatusData, staffList, st
     const [now, setNow] = useState(new Date());
     const STATUS = getBookingStatus();
     const scrollContainerRef = useRef(null);
+
+    const getGroupMemberIndexLocal = (targetResId, targetRowId) => {
+        if (!liveStatusData) return -1;
+        const allSlots = [];
+        const maxChairs = window.SYSTEM_CONFIG?.SCALE?.MAX_CHAIRS || 8;
+        const maxBeds = window.SYSTEM_CONFIG?.SCALE?.MAX_BEDS || 8;
+        for (let i = 1; i <= maxChairs; i++) allSlots.push(`chair-${i}`);
+        for (let i = 1; i <= maxBeds; i++) allSlots.push(`bed-${i}`);
+        const groupSlots = allSlots.filter(slotId => {
+            const res = liveStatusData[slotId];
+            return res && res.booking && String(res.booking.rowId) === String(targetRowId);
+        });
+        groupSlots.sort((a, b) => window.getWeight(a) - window.getWeight(b));
+        return groupSlots.indexOf(targetResId);
+    };
 
     useEffect(() => {
         const timer = setInterval(() => setNow(new Date()), 60000);
@@ -1642,15 +1657,25 @@ const TimelineView = ({ timelineData, onEditPhase, liveStatusData, staffList, st
                                             if (isGroup) {
                                                 // Group Booking: Use the resource index to pull the EXACT correct staff.
                                                 // This matches cyx_app.js logic mapping grpIdx -> newBooking.staffIdN
-                                                const match = String(row.id).match(/-(\d+)$/);
-                                                if (match) {
-                                                    const resIndex = parseInt(match[1], 10);
-                                                    if (resIndex === 1) staffName = booking.serviceStaff || booking.staffId || '隨機';
-                                                    else if (resIndex === 2) staffName = booking.staffId2 || '隨機';
-                                                    else if (resIndex === 3) staffName = booking.staffId3 || '隨機';
-                                                    else if (resIndex === 4) staffName = booking.staffId4 || '隨機';
-                                                    else if (resIndex === 5) staffName = booking.staffId5 || '隨機';
-                                                    else if (resIndex === 6) staffName = booking.staffId6 || '隨機';
+                                                const grpIdx = getGroupMemberIndexLocal(row.id, booking.rowId);
+                                                if (grpIdx === 0) staffName = booking.serviceStaff || booking.staffId || '隨機';
+                                                else if (grpIdx === 1) staffName = booking.staffId2 || '隨機';
+                                                else if (grpIdx === 2) staffName = booking.staffId3 || '隨機';
+                                                else if (grpIdx === 3) staffName = booking.staffId4 || '隨機';
+                                                else if (grpIdx === 4) staffName = booking.staffId5 || '隨機';
+                                                else if (grpIdx === 5) staffName = booking.staffId6 || '隨機';
+                                                else {
+                                                    // Fallback an toàn nếu không tìm thấy grpIdx (-1)
+                                                    const match = String(row.id).match(/-(\d+)$/);
+                                                    if (match) {
+                                                        const resIndex = parseInt(match[1], 10);
+                                                        if (resIndex === 1) staffName = booking.serviceStaff || booking.staffId || '隨機';
+                                                        else if (resIndex === 2) staffName = booking.staffId2 || '隨機';
+                                                        else if (resIndex === 3) staffName = booking.staffId3 || '隨機';
+                                                        else if (resIndex === 4) staffName = booking.staffId4 || '隨機';
+                                                        else if (resIndex === 5) staffName = booking.staffId5 || '隨機';
+                                                        else if (resIndex === 6) staffName = booking.staffId6 || '隨機';
+                                                    }
                                                 }
                                             } else {
                                                 // Single Booking Split Phase Override (拆單)
