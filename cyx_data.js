@@ -160,5 +160,8 @@ if (typeof module !== 'undefined' && module.exports) {
         SERVICES_LIST
     };
 
-    console.log(`[Backend Data] Loaded config for ${SYSTEM_CONFIG.SHOP_INFO.NAME} - ${SYSTEM_CONFIG.SHOP_INFO.BRANCH}`);
+    if (!global._hasLoggedConfig) {
+        global._hasLoggedConfig = true;
+        console.log(`[Backend Data] Loaded config for ${SYSTEM_CONFIG.SHOP_INFO.NAME} - ${SYSTEM_CONFIG.SHOP_INFO.BRANCH}`);
+    }
 }
