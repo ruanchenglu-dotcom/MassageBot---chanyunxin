@@ -3444,7 +3444,10 @@ const App = () => {
             <header className={`text-white p-3 shadow-md flex justify-between items-center sticky top-0 z-50 transition-colors ${quotaError ? 'bg-red-800' : 'bg-[#1e1b4b]'}`}>
                 <div className="flex items-center gap-3">
                     <span className="bg-emerald-500 text-white px-2 py-1 rounded font-black text-sm shadow-sm">V109.8</span>
-                    <span className="font-bold hidden md:inline tracking-wider">禪云心養生館</span>
+                    <span className="font-bold hidden md:inline tracking-wider">
+                        {window.SYSTEM_CONFIG?.SHOP_INFO?.NAME || '心悟禪養身館'}
+                        {window.SYSTEM_CONFIG?.SHOP_INFO?.BRANCH ? ` (${window.SYSTEM_CONFIG.SHOP_INFO.BRANCH}店)` : ''}
+                    </span>
                     <div className="flex items-center gap-2 bg-white/10 rounded px-2 py-1 border border-white/20">
                         <button onClick={() => { const d = new Date(viewDate); d.setDate(d.getDate() - 1); setViewDate(d.toISOString().split('T')[0]) }} className="text-white hover:text-amber-400 font-bold px-2">❯</button>
                         <input type="date" value={viewDate} onChange={(e) => setViewDate(e.target.value)} className="bg-transparent text-white font-bold outline-none cursor-pointer text-center" style={{ colorScheme: 'dark' }} />

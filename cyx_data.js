@@ -24,8 +24,8 @@
 
 const SYSTEM_CONFIG = {
     SHOP_INFO: {
-        NAME: '禪云心養生館',
-        BRANCH: '古亭', // Chi nhánh 古亭
+        NAME: '心悟禪養身館',
+        BRANCH: '中和', // Chi nhánh 中和
         VERSION: 'V1.5_Universal'
     },
 
