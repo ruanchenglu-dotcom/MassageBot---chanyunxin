@@ -332,13 +332,11 @@ const App = () => {
             }
 
             const [hours, minutes] = timeStr.split(':').map(Number);
-            const dObj = new Date(datePart);
-
-            if (!isNaN(dObj.getTime())) {
-                dObj.setHours(hours || 0, minutes || 0, 0, 0);
-                return dObj.toISOString();
-            }
-            return new Date().toISOString();
+            const formattedDate = datePart.includes('T') ? datePart.split('T')[0] : datePart;
+            const hh = String(hours || 0).padStart(2, '0');
+            const mm = String(minutes || 0).padStart(2, '0');
+            
+            return `${formattedDate}T${hh}:${mm}:00.000+08:00`;
         } catch (e) {
             console.error("Error parsing scheduled time:", e);
             return new Date().toISOString();
@@ -407,6 +405,14 @@ const App = () => {
         if (!currentBooking) return [];
         const currentRowId = String(currentBooking.rowId);
         const currentPhone = getNormalizedPhone(currentBooking);
+        
+        const hasGroupSuffix = (name) => /\(\d+\/\d+\)/.test(name || "");
+        const getBaseName = (name) => {
+            if (!name) return "";
+            return name.replace(/\(\d+\/\d+\)/, '').trim().toLowerCase();
+        };
+        const currentHasSuffix = hasGroupSuffix(currentBooking.customerName);
+        const currentNameBase = getBaseName(currentBooking.customerName);
 
         const mappedFromResource = [];
         const seenMappedRowIds = new Set([currentRowId]); // LOẠI BỎ CHÍNH NÓ (Ngăn bóng ma Phase 2 của Combo tự nhận diện)
@@ -421,8 +427,13 @@ const App = () => {
                 const otherPhone = getNormalizedPhone(otherBooking);
                 
                 if (!seenMappedRowIds.has(otherRowId)) {
-                    // TIÊU CHÍ DUY NHẤT: Bắt buộc chỉ gộp nhóm bằng Số điện thoại lớn hơn= 4 ký tự
-                    if (currentPhone && currentPhone.length >= 4 && currentPhone === otherPhone) {
+                    const isSamePhone = currentPhone && currentPhone.length >= 4 && currentPhone === otherPhone;
+                    
+                    const otherHasSuffix = hasGroupSuffix(otherBooking.customerName);
+                    const otherNameBase = getBaseName(otherBooking.customerName);
+                    const isSameNameGroup = currentHasSuffix && otherHasSuffix && currentNameBase && currentNameBase === otherNameBase;
+
+                    if (isSamePhone || isSameNameGroup) {
                         seenMappedRowIds.add(otherRowId);
                         mappedFromResource.push({ resourceId: k, booking: otherBooking });
                     }
