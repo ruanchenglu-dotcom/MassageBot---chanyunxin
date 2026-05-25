@@ -26,8 +26,6 @@ function getSystemConfig() {
     // Thử tải cyx_data.js trong môi trường Node.js (Backend)
     if (typeof require !== 'undefined') {
         try {
-            // Delete cache for hot reload
-            delete require.cache[require.resolve('./cyx_data.js')];
             const dataModule = require('./cyx_data.js');
             dynamicConfig = dataModule.SYSTEM_CONFIG;
         } catch (e) {
