@@ -21,18 +21,33 @@ const { google } = require('googleapis');
 const ResourceCore = require('./cyx_resource_core'); // Core logic for Matrix & Rules
 let BOOKING_SHEET_NAME, STAFF_SHEET_NAME, MENU_SHEET_NAME, STAFF_LIST_SHEET_NAME, SALARY_LOG_SHEET_NAME, BLACKLIST_SHEET_NAME;
 
+let cachedConfig = null;
+let lastConfigLoadTime = 0;
+const CONFIG_CACHE_TTL = 10000; // 10 giây cache
+
 function getConfig() {
-    delete require.cache[require.resolve('./cyx_data.js')];
-    const config = require('./cyx_data.js').SYSTEM_CONFIG;
-    if (config && config.SHEET_NAMES) {
-        BOOKING_SHEET_NAME = config.SHEET_NAMES.BOOKING_SHEET_NAME;
-        STAFF_SHEET_NAME = config.SHEET_NAMES.STAFF_SHEET_NAME;
-        MENU_SHEET_NAME = config.SHEET_NAMES.MENU_SHEET_NAME;
-        STAFF_LIST_SHEET_NAME = config.SHEET_NAMES.STAFF_LIST_SHEET_NAME;
-        SALARY_LOG_SHEET_NAME = config.SHEET_NAMES.SALARY_LOG_SHEET_NAME;
-        BLACKLIST_SHEET_NAME = config.SHEET_NAMES.BLACKLIST_SHEET_NAME;
+    const now = Date.now();
+    if (!cachedConfig || (now - lastConfigLoadTime > CONFIG_CACHE_TTL)) {
+        try {
+            delete require.cache[require.resolve('./cyx_data.js')];
+            cachedConfig = require('./cyx_data.js').SYSTEM_CONFIG;
+            lastConfigLoadTime = now;
+            if (cachedConfig && cachedConfig.SHEET_NAMES) {
+                BOOKING_SHEET_NAME = cachedConfig.SHEET_NAMES.BOOKING_SHEET_NAME;
+                STAFF_SHEET_NAME = cachedConfig.SHEET_NAMES.STAFF_SHEET_NAME;
+                MENU_SHEET_NAME = cachedConfig.SHEET_NAMES.MENU_SHEET_NAME;
+                STAFF_LIST_SHEET_NAME = cachedConfig.SHEET_NAMES.STAFF_LIST_SHEET_NAME;
+                SALARY_LOG_SHEET_NAME = cachedConfig.SHEET_NAMES.SALARY_LOG_SHEET_NAME;
+                BLACKLIST_SHEET_NAME = cachedConfig.SHEET_NAMES.BLACKLIST_SHEET_NAME;
+            }
+        } catch (e) {
+            console.error('[getConfig] Error loading cyx_data.js in sheet service, using cached config:', e);
+            if (!cachedConfig) {
+                cachedConfig = require('./cyx_data.js').SYSTEM_CONFIG;
+            }
+        }
     }
-    return config;
+    return cachedConfig;
 }
 
 // Initial load

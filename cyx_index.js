@@ -27,9 +27,25 @@ const StaffBot = require('./cyx_staff_bot');
 const SheetService = require('./cyx_sheet_service'); // Module Sheet Service: Single Source of Truth
 
 // Lấy thông số cấu hình động từ cyx_data để tự động cập nhật không cần restart
+let cachedConfig = null;
+let lastConfigLoadTime = 0;
+const CONFIG_CACHE_TTL = 10000; // 10 giây cache
+
 function getConfig() {
-    delete require.cache[require.resolve('./cyx_data.js')];
-    return require('./cyx_data.js').SYSTEM_CONFIG;
+    const now = Date.now();
+    if (!cachedConfig || (now - lastConfigLoadTime > CONFIG_CACHE_TTL)) {
+        try {
+            delete require.cache[require.resolve('./cyx_data.js')];
+            cachedConfig = require('./cyx_data.js').SYSTEM_CONFIG;
+            lastConfigLoadTime = now;
+        } catch (e) {
+            console.error('[getConfig] Error loading cyx_data.js in index, using cached config:', e);
+            if (!cachedConfig) {
+                cachedConfig = require('./cyx_data.js').SYSTEM_CONFIG;
+            }
+        }
+    }
+    return cachedConfig;
 }
 
 // --- 1. CẤU HÌNH HỆ THỐNG (SYSTEM CONFIG) ---
