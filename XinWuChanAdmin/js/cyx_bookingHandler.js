@@ -823,11 +823,14 @@
                     b._impliedFlow = null;
                     const isRunning = isStatusRunning(b.status);
                     if (!isRunning) {
-                        // [V116.5 FIX] Ngăn chặn Bóng Ma Ghi Đè: Tôn trọng vị trí đã gán từ Google Sheets
+                        // [V116.5 FIX / V135 SYNC] Ngăn chặn Bóng Ma Ghi Đè: Tôn trọng vị trí đã gán từ Google Sheets
                         if (!b.allocated_resource) {
+                            b._virtualInheritanceIndex = (groupSize >= 2) ? (idx % halfSize) + 1 : idx + 1;
+                        } else {
                             b._virtualInheritanceIndex = idx + 1;
                         }
-                        b._impliedFlow = null;
+                        if (groupSize >= 2) b._impliedFlow = (idx < halfSize) ? 'BF' : 'FB';
+                        else b._impliedFlow = null;
                     }
                     remappedBookings.push(b);
                 });
@@ -849,18 +852,23 @@
 
                 const ownerName = b.originalData?.customerName || b.originalData?.hoTen || b.rowId || "Guest";
 
-                if (b.allocated_resource) {
-                    const match = b.allocated_resource.toString().match(/(\d+)/);
-                    if (match) anchorIndex = parseInt(match[0]);
-                } else if (b.location) {
-                    const match = b.location.toString().match(/(\d+)/);
-                    if (match) anchorIndex = parseInt(match[0]);
-                } else if (b.current_resource_id) {
-                    const match = b.current_resource_id.toString().match(/(\d+)/);
-                    if (match) anchorIndex = parseInt(match[0]);
-                } else if (b.rowId && typeof b.rowId === 'string' && (b.rowId.includes('BED') || b.rowId.includes('CHAIR'))) {
-                    const match = b.rowId.toString().match(/(\d+)/);
-                    if (match) anchorIndex = parseInt(match[0]);
+                // [V135 FIX] LUÔN ưu tiên lấy toạ độ thực tế một cách toàn diện như Guardrail
+                // Điều này ngăn chặn Bóng Ma Toạ Độ do Matrix gán nhầm ghế/giường đã có khách.
+                const rIdStr = (b.phase1_res_idx || "") + " " + (b.phase2_res_idx || "") + " " + (b.allocated_resource || "") + " " + (b.location || "") + " " + (b.current_resource_id || "") + " " + (b.rowId || "");
+                const matches = [...rIdStr.matchAll(/((?:BED|CHAIR|床|足)[-_ ]?\d+)/gi)].map(m => m[1].toUpperCase());
+                let uniqueMatches = [...new Set(matches)];
+
+                if (uniqueMatches.length === 0) {
+                    const backupMatches = [...rIdStr.matchAll(/(\d+)/gi)].map(m => m[1]);
+                    let inferredType = 'CHAIR';
+                    if (svcInfo) {
+                        if (svcInfo.type === 'BED' || svcInfo.type === 'CHAIR') inferredType = svcInfo.type;
+                        else {
+                            const name = (svcInfo.name || '').toUpperCase();
+                            if (name.match(/BODY|指壓|油|BED|TOAN THAN|全身|油壓|SPA|BACK/)) inferredType = 'BED';
+                        }
+                    }
+                    uniqueMatches = [...new Set(backupMatches)].map(num => `${inferredType}-${num}`);
                 }
                 
                 if (!anchorIndex && b._virtualInheritanceIndex && !isRunning) {
@@ -896,23 +904,27 @@
                     else if (isRunning && b.allocated_resource && (b.allocated_resource.includes('BED') || b.allocated_resource.includes('BODY'))) isBodyFirst = true;
                     if (b._impliedFlow === 'BF') isBodyFirst = true;
 
-                    // --- V118.4 FIX: Chống Bóng Ma Toạ Độ (Anti-Ghost Coordinates) ---
+                    // --- V135 FIX: Phân tách toạ độ thông minh từ uniqueMatches ---
                     let p1Index = null;
                     let p2Index = null;
-                    if (b.phase1_res_idx) { const m = b.phase1_res_idx.match(/(\d+)/); if (m) p1Index = parseInt(m[0], 10); }
-                    if (b.phase2_res_idx) { const m = b.phase2_res_idx.match(/(\d+)/); if (m) p2Index = parseInt(m[0], 10); }
-                    
-                    if (!p1Index || !p2Index) {
-                        if (b.allocated_resource && b.allocated_resource.includes('+')) {
-                            const parts = b.allocated_resource.split('+');
-                            if (!p1Index && parts[0]) { const m1 = parts[0].match(/(\d+)/); if (m1) p1Index = parseInt(m1[0], 10); }
-                            if (!p2Index && parts[1]) { const m2 = parts[1].match(/(\d+)/); if (m2) p2Index = parseInt(m2[0], 10); }
+
+                    if (uniqueMatches.length >= 2) {
+                        let res1, res2;
+                        if (isBodyFirst) {
+                            res1 = uniqueMatches.find(r => r.includes('BED') || r.includes('床')) || uniqueMatches[0];
+                            res2 = uniqueMatches.find(r => r.includes('CHAIR') || r.includes('足')) || uniqueMatches[1];
+                        } else {
+                            res1 = uniqueMatches.find(r => r.includes('CHAIR') || r.includes('足')) || uniqueMatches[0];
+                            res2 = uniqueMatches.find(r => r.includes('BED') || r.includes('床')) || uniqueMatches[1];
                         }
+                        if (res1) { const m = res1.match(/(\d+)/); if (m) p1Index = parseInt(m[0], 10); }
+                        if (res2) { const m = res2.match(/(\d+)/); if (m) p2Index = parseInt(m[0], 10); }
+                    } else if (uniqueMatches.length > 0) {
+                        const m = uniqueMatches[0].match(/(\d+)/);
+                        if (m) p1Index = parseInt(m[0], 10);
                     }
-                    // Chỉ dùng anchorIndex (từ allocated_resource chung) làm toạ độ dự phòng cho Phase 1.
+
                     if (!p1Index) p1Index = anchorIndex;
-                    // [V118.5 FIX] Xoá bỏ việc gán mù quáng p2Index = anchorIndex để tránh hiện tượng Bóng Ma Đè Lịch (ép Phase 2 đè lên vị trí của khách khác).
-                    // NẾU p2Index không có sẵn, hệ thống sẽ tự động quét chỗ trống dựa trên thuật toán Xếp Chỗ (Sort Lanes by Utilization).
 
                     if (isBodyFirst) {
                         processedB.blocks.push({ start: bStart, end: p1End, type: 'BED', forcedIndex: p1Index });
@@ -929,7 +941,14 @@
                     else processedB.flow = 'SINGLE';
                     let rType = inferResourceAtTime(b, bStart);
                     if (!rType) rType = detectResourceType(svcInfo);
-                    processedB.blocks.push({ start: bStart, end: bStart + realDuration, type: rType, forcedIndex: anchorIndex });
+                    
+                    let forcedIdx = anchorIndex;
+                    if (uniqueMatches.length > 0) {
+                        const m = uniqueMatches[0].match(/(\d+)/);
+                        if (m) forcedIdx = parseInt(m[0], 10);
+                    }
+                    
+                    processedB.blocks.push({ start: bStart, end: bStart + realDuration, type: rType, forcedIndex: forcedIdx });
                 }
                 existingBookingsProcessed.push(processedB);
             });

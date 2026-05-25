@@ -407,9 +407,16 @@ const CheckInBoard = ({ staffList, statusData, onClose, onUpdateStatus, bookings
     const STATUS = getBookingStatus();
     const safeStaffList = Array.isArray(staffList) ? staffList : [];
 
-    // Tối ưu sắp xếp danh sách thợ theo số (id: "2" sẽ đứng trước "10")
+    // Tối ưu sắp xếp danh sách thợ theo sheet
+    const SHEET_ORDER = ["王", "傅", "于", "賀", "寶", "金", "吳", "曹", "歐", "張", "易", "峻", "李", "丁", "文", "林", "朱", "阮", "安"];
     const sortedStaffList = useMemo(() => {
         return [...safeStaffList].sort((a, b) => {
+            const indexA = SHEET_ORDER.indexOf(a.name);
+            const indexB = SHEET_ORDER.indexOf(b.name);
+            if (indexA !== -1 && indexB !== -1) return indexA - indexB;
+            if (indexA !== -1) return -1;
+            if (indexB !== -1) return 1;
+
             const numA = parseInt(a.id, 10);
             const numB = parseInt(b.id, 10);
             if (!isNaN(numA) && !isNaN(numB)) return numA - numB;
@@ -618,7 +625,7 @@ const CheckInBoard = ({ staffList, statusData, onClose, onUpdateStatus, bookings
                         <button onClick={onClose} className="hover:text-red-300 bg-white/10 rounded-full w-10 h-10 flex items-center justify-center"><i className="fas fa-times text-2xl"></i></button>
                     </div>
                 </div>
-                <div className="grid gap-2 bg-slate-100 p-4 font-bold text-slate-700 text-lg border-b sticky top-0 z-10 shadow-sm" style={{ gridTemplateColumns: 'repeat(16, minmax(0, 1fr))' }}>
+                <div className="grid gap-2 bg-slate-100 p-4 font-bold text-slate-700 text-base border-b sticky top-0 z-10 shadow-sm" style={{ gridTemplateColumns: 'repeat(16, minmax(0, 1fr))' }}>
                     <div className="col-span-2 text-center border-r border-slate-300">姓名</div>
                     <div className="col-span-2 text-center text-emerald-700 border-r border-slate-300">💰 薪資</div>
                     <div className="col-span-2 text-center border-r border-slate-300">上班時間</div>
@@ -643,20 +650,20 @@ const CheckInBoard = ({ staffList, statusData, onClose, onUpdateStatus, bookings
 
                         return (
                             <div key={s.id} className="grid gap-2 items-center py-3 px-2 border-b border-gray-100 hover:bg-slate-50 transition-all group" style={{ gridTemplateColumns: 'repeat(16, minmax(0, 1fr))' }}>
-                                <div className="col-span-2 text-center font-black text-2xl text-slate-800 flex items-center justify-center gap-2">
+                                <div className="col-span-2 text-center font-black text-lg text-slate-800 flex items-center justify-center gap-2">
                                     {s.name}
                                     <span className="text-xs text-gray-400 font-normal opacity-50 group-hover:opacity-100 hidden lg:inline">#{s.id}</span>
                                 </div>
                                 <div className="col-span-2 text-center">
-                                    <span className={`px-3 py-1.5 rounded text-xl font-black border shadow-sm ${finalIncome > 0 ? 'bg-emerald-100 text-emerald-700 border-emerald-200' : 'bg-gray-50 text-gray-300 border-gray-100'}`}>
+                                    <span className={`px-3 py-1.5 rounded text-base font-black border shadow-sm ${finalIncome > 0 ? 'bg-emerald-100 text-emerald-700 border-emerald-200' : 'bg-gray-50 text-gray-300 border-gray-100'}`}>
                                         ${finalIncome.toLocaleString()}
                                     </span>
                                 </div>
                                 <div className="col-span-2 flex items-center justify-center gap-1">
-                                    <TimePicker24H value={displayStart} onChange={(val) => handleShiftChange(s.id, 'start', val)} className="font-mono text-2xl text-slate-600 font-bold border rounded p-1 w-32 text-center" />
+                                    <TimePicker24H value={displayStart} onChange={(val) => handleShiftChange(s.id, 'start', val)} className="font-mono text-lg text-slate-600 font-bold border rounded p-1 w-28 text-center" />
                                 </div>
                                 <div className="col-span-2 flex items-center justify-center gap-1">
-                                    <TimePicker24H value={displayEnd} onChange={(val) => handleShiftChange(s.id, 'end', val)} className="font-mono text-2xl text-slate-600 font-bold border rounded p-1 w-32 text-center" />
+                                    <TimePicker24H value={displayEnd} onChange={(val) => handleShiftChange(s.id, 'end', val)} className="font-mono text-lg text-slate-600 font-bold border rounded p-1 w-28 text-center" />
                                 </div>
                                 <div className="col-span-3 flex justify-center gap-2 items-center">
                                     {isWorking ? (
@@ -664,29 +671,29 @@ const CheckInBoard = ({ staffList, statusData, onClose, onUpdateStatus, bookings
                                             <TimePicker24H 
                                                 value={new Date(current.checkInTime).toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' })} 
                                                 onChange={(val) => handleCheckInTimeChange(s.id, val)} 
-                                                className="font-mono text-2xl text-slate-600 font-bold border rounded p-1 w-32 text-center bg-gray-50" 
+                                                className="font-mono text-lg text-slate-600 font-bold border rounded p-1 w-28 text-center bg-gray-50" 
                                             />
-                                            <button onClick={() => toggleCheckIn(s.id)} className="text-red-500 hover:bg-red-500 hover:text-white border border-red-200 rounded px-4 py-2 flex items-center justify-center transition-all shadow-sm active:scale-95 text-base font-bold whitespace-nowrap" title="下班"><i className="fas fa-sign-out-alt mr-1"></i>下班</button>
+                                            <button onClick={() => toggleCheckIn(s.id)} className="text-red-500 hover:bg-red-500 hover:text-white border border-red-200 rounded px-3 py-1.5 flex items-center justify-center transition-all shadow-sm active:scale-95 text-sm font-bold whitespace-nowrap" title="下班"><i className="fas fa-sign-out-alt mr-1"></i>下班</button>
                                         </div>
                                     ) : (
-                                        <button onClick={() => toggleCheckIn(s.id)} className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded font-black shadow-md transition-all active:scale-95 flex items-center gap-1 text-base whitespace-nowrap">
+                                        <button onClick={() => toggleCheckIn(s.id)} className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded font-black shadow-md transition-all active:scale-95 flex items-center gap-1 text-sm whitespace-nowrap">
                                             <i className="fas fa-sign-in-alt"></i>打卡
                                         </button>
                                     )}
-                                    <button onClick={() => setAbsenceData({ staffId: s.id, staffName: s.name, type: 'LATE' })} className="bg-purple-100 text-purple-700 hover:bg-purple-200 px-3 py-2 rounded font-bold text-base whitespace-nowrap border border-purple-200" title="晚到">晚到</button>
-                                    <button onClick={() => setAbsenceData({ staffId: s.id, staffName: s.name, type: 'EARLY' })} className="bg-orange-100 text-orange-700 hover:bg-orange-200 px-3 py-2 rounded font-bold text-base whitespace-nowrap border border-orange-200" title="早退">早退</button>
+                                    <button onClick={() => setAbsenceData({ staffId: s.id, staffName: s.name, type: 'LATE' })} className="bg-purple-100 text-purple-700 hover:bg-purple-200 px-2 py-1.5 rounded font-bold text-sm whitespace-nowrap border border-purple-200" title="晚到">晚到</button>
+                                    <button onClick={() => setAbsenceData({ staffId: s.id, staffName: s.name, type: 'EARLY' })} className="bg-orange-100 text-orange-700 hover:bg-orange-200 px-2 py-1.5 rounded font-bold text-sm whitespace-nowrap border border-orange-200" title="早退">早退</button>
                                 </div>
                                 <div className="col-span-1 flex justify-center items-center border-r pr-2">
                                     <label className="flex items-center justify-center w-full h-full cursor-pointer hover:bg-blue-50 rounded">
-                                        <input type="checkbox" className="w-6 h-6 text-blue-600 border-2 border-gray-300 rounded accent-blue-600" checked={isOnTime} onChange={() => toggleOntimeLeave(s.id, isOnTime)} />
+                                        <input type="checkbox" className="w-5 h-5 text-blue-600 border-2 border-gray-300 rounded accent-blue-600" checked={isOnTime} onChange={() => toggleOntimeLeave(s.id, isOnTime)} />
                                     </label>
                                 </div>
                                 <div className="col-span-3 flex items-center border-r pr-2 gap-2 justify-center">
-                                    <button onClick={() => setAbsenceData({ staffId: s.id, staffName: s.name, type: 'OUT' })} className="bg-yellow-100 text-yellow-700 hover:bg-yellow-200 shrink-0 w-12 h-12 rounded-full flex items-center justify-center font-bold shadow-sm" title="外出">
-                                        <i className="fas fa-walking text-2xl"></i>
+                                    <button onClick={() => setAbsenceData({ staffId: s.id, staffName: s.name, type: 'OUT' })} className="bg-yellow-100 text-yellow-700 hover:bg-yellow-200 shrink-0 w-10 h-10 rounded-full flex items-center justify-center font-bold shadow-sm" title="外出">
+                                        <i className="fas fa-walking text-lg"></i>
                                     </button>
                                     {(displayOutStart || displayOutEnd) && (
-                                        <div className="flex flex-col text-sm font-bold text-orange-700 bg-orange-50 px-2 py-1 rounded border border-orange-200 whitespace-nowrap text-left leading-tight">
+                                        <div className="flex flex-col text-xs font-bold text-orange-700 bg-orange-50 px-2 py-1 rounded border border-orange-200 whitespace-nowrap text-left leading-tight">
                                             <span>出: {displayOutStart}</span>
                                             <span>回: {displayOutEnd}</span>
                                         </div>
@@ -695,14 +702,14 @@ const CheckInBoard = ({ staffList, statusData, onClose, onUpdateStatus, bookings
                                 <div className="col-span-1 text-center pl-2">
                                     <div className="relative">
                                         <select disabled={!isWorking} value={current.status} onChange={(e) => { const n = { ...statusData, [s.id]: { ...current, status: e.target.value } }; onUpdateStatus(n); }}
-                                            className={`w-full appearance-none border-2 py-2 pl-8 pr-2 rounded font-bold cursor-pointer outline-none text-base shadow-sm ${isWorking ? 'border-purple-300 text-purple-800 bg-white' : 'bg-gray-100 text-gray-400 border-transparent'}`}>
+                                            className={`w-full appearance-none border-2 py-1.5 pl-6 pr-1 rounded font-bold cursor-pointer outline-none text-sm shadow-sm ${isWorking ? 'border-purple-300 text-purple-800 bg-white' : 'bg-gray-100 text-gray-400 border-transparent'}`}>
                                             <option value="AWAY">⚪ 未到</option>
                                             <option value="READY">🟣 待命</option>
                                             <option value="EAT">🟠 用餐</option>
                                             <option value="OUT_SHORT" className="text-green-700 font-bold">🟢 外出</option>
                                         </select>
-                                        <div className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none">
-                                            <div className={`w-3 h-3 rounded-full ring-1 ring-white ${current.status === 'READY' ? 'bg-purple-600' : current.status === 'EAT' ? 'bg-orange-500' : current.status === 'OUT_SHORT' ? 'bg-green-500' : 'bg-gray-400'}`}></div>
+                                        <div className="absolute left-2 top-1/2 -translate-y-1/2 pointer-events-none">
+                                            <div className={`w-2 h-2 rounded-full ring-1 ring-white ${current.status === 'READY' ? 'bg-purple-600' : current.status === 'EAT' ? 'bg-orange-500' : current.status === 'OUT_SHORT' ? 'bg-green-500' : 'bg-gray-400'}`}></div>
                                         </div>
                                     </div>
                                 </div>
@@ -870,9 +877,16 @@ const AvailabilityCheckModal = ({ onClose, onSave, staffList, bookings, initialD
     };
 
     // Tối ưu sắp xếp danh sách thợ cho Dropdown chọn thợ
+    const SHEET_ORDER = ["王", "傅", "于", "賀", "寶", "金", "吳", "曹", "歐", "張", "易", "峻", "李", "丁", "文", "林", "朱", "阮", "安"];
     const sortedStaffList = useMemo(() => {
         const safeList = Array.isArray(staffList) ? staffList : [];
         return [...safeList].sort((a, b) => {
+            const indexA = SHEET_ORDER.indexOf(a.name);
+            const indexB = SHEET_ORDER.indexOf(b.name);
+            if (indexA !== -1 && indexB !== -1) return indexA - indexB;
+            if (indexA !== -1) return -1;
+            if (indexB !== -1) return 1;
+
             const numA = parseInt(a.id, 10);
             const numB = parseInt(b.id, 10);
             if (!isNaN(numA) && !isNaN(numB)) return numA - numB;
