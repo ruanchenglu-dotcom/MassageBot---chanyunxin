@@ -49,7 +49,7 @@ const SYSTEM_CONFIG = {
 
     // Quản lý thời gian vận hành
     OPERATION_TIME: {
-        OPEN_HOUR: 8,        // Giờ bắt đầu Timeline (03:00 AM)
+        OPEN_HOUR: 8,        // Giờ bắt đầu Timeline (08:00 AM)
         CUT_OFF_HOUR: 2,     // Giờ chốt sổ ngày hôm sau (03:00 AM)
         MINUTES_PER_SLOT: 1, // Đơn vị chia nhỏ nhất trên Timeline
         // Tự động tính tổng số phút vận hành trong ngày (24 tiếng = 1440 phút + 120 phút)
@@ -61,22 +61,22 @@ const SYSTEM_CONFIG = {
 
     // Thời gian đệm (Buffers)
     BUFFERS: {
-        CLEANUP_MINUTES: 5,    // Thời gian dọn dẹp sau mỗi ca
-        TRANSITION_MINUTES: 5  // Thời gian chuyển giữa ghế và giường (nếu có combo)
+        CLEANUP_MINUTES: 2,    // Thời gian dọn dẹp sau mỗi ca
+        TRANSITION_MINUTES: 3  // Thời gian chuyển giữa ghế và giường (nếu có combo)
     },
 
     // Logic nhân viên và dịch vụ
     LOGIC_RULES: {
         STAFF_ID_MODE: 'NUMBER',         // Sử dụng số thay vì họ tên (ID Numbers)
         USE_TIME_PRECISION: true,        // Sử dụng miliseconds để xếp hàng công bằng
-        SHORT_SERVICE_NO_PRIORITY: true, // Dịch vụ 1 block (35-40p) không được ưu tiên về đầu hàng
+        SHORT_SERVICE_NO_PRIORITY: false, // Dịch vụ 1 block (35-40p) không được ưu tiên về đầu hàng
         AUTO_SYNC_GOOGLE_SHEETS: true,
-        TOLERANCE: 5                     // Mức độ ưu tiên khớp giờ nối tiếp liền kề (hủy bỏ buffer)
+        TOLERANCE: 1                     // Mức độ ưu tiên khớp giờ nối tiếp liền kề (hủy bỏ buffer)
     },
 
     // Cấu hình tối ưu hóa API & Mạng
     API_CONFIG: {
-        SYNC_INTERVAL: 30000, // Tần suất đồng bộ Google Sheets (30 giây/lần)
+        SYNC_INTERVAL: 10000, // Tần suất đồng bộ Google Sheets (10 giây/lần)
         MAX_RETRIES: 3        // Số lần lỗi API liên tiếp tối đa trước khi gửi cảnh báo LINE
     },
 
@@ -103,6 +103,7 @@ const SYSTEM_CONFIG = {
 
 // Hằng số quản lý trạng thái Booking (Single Source of Truth)
 const BOOKING_STATUS = {
+    CONFIRMED: '已預約',   // Đã đặt lịch
     WAITING: '等待中',     // Đang chờ tới lượt
     SERVING: '服務中',     // Đang trong quá trình phục vụ
     COMPLETED: '已完成',   // Đã hoàn thành xong dịch vụ

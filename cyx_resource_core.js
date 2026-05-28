@@ -637,7 +637,7 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
             }
 
             if (!successBF && !successFB) {
-                return triggerSmartFailure(`⚠️ 在 ${getTimeStrFromMins(requestStart)} 沒有足夠的連續空位 (Continuous Gap) 給套餐。`);
+                return triggerSmartFailure(`⚠️ 在 ${getTimeStrFromMins(requestStart)} 沒有足夠的連續空位給套餐。`);
             }
 
         } else {

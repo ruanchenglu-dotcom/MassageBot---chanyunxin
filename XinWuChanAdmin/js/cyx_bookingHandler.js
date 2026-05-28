@@ -584,7 +584,7 @@
                     }
 
                     if (!successBF && !successFB) {
-                        return triggerSmartFailure(`⚠️ 在 ${getTimeStrFromMins(requestStart)} 沒有足夠的連續空位 (Continuous Gap) 給套餐。`);
+                        return triggerSmartFailure(`⚠️ 在 ${getTimeStrFromMins(requestStart)} 沒有足夠的連續空位給套餐。`);
                     }
 
                 } else {
@@ -1693,7 +1693,7 @@
             if (editingBooking) { finalBookings = finalBookings.filter(b => b.rowId !== editingBooking.rowId); }
             const res = callCoreAvailabilityCheck(form.date, form.time, guestDetails, finalBookings, serverStaffList);
             if (res.valid) {
-                setCheckResult({ status: 'OK', message: "✅ 此時段可預約 (Available)", coreDetails: res.details, debug: res.debug });
+                setCheckResult({ status: 'OK', message: "✅ 此時段可預約", coreDetails: res.details, debug: res.debug });
             } else {
                 setCheckResult({ status: 'FAIL', message: res.reason, debug: res.debug });
                 // NÂNG CẤP V118.9: Thuật toán gợi ý thời gian thông minh dựa trên CLEANUP_MINUTES & TRANSITION_MINUTES
@@ -1959,7 +1959,7 @@
                                 onClick={(e) => { e.preventDefault(); setShowSurnamePicker(false); }}
                                 className="w-full bg-gray-400 text-white text-lg py-2.5 rounded-lg font-bold shadow-md hover:bg-gray-500 transition-colors"
                             >
-                                關閉 (Close)
+                                關閉
                             </button>
                         </div>
                     </div>
@@ -1969,7 +1969,7 @@
                 <div className="fixed inset-0 bg-slate-900/90 z-[100] flex items-center justify-center p-2 sm:p-6">
                     <div className="bg-white w-full max-w-[1200px] rounded-2xl shadow-2xl flex flex-col h-[98vh] sm:h-[90vh] overflow-hidden animate-fadeIn">
                         <div className={`${editingBooking ? 'bg-orange-600' : 'bg-[#0891b2]'} p-4 sm:p-6 text-white flex justify-between items-center shrink-0`}>
-                            <h3 className="font-bold text-xl sm:text-2xl whitespace-nowrap">{editingBooking ? "✏️ 修改預約 (Edit)" : "📅 預約 (V116.6 UI FIX)"}</h3>
+                            <h3 className="font-bold text-xl sm:text-2xl whitespace-nowrap">{editingBooking ? "✏️ 修改預約" : "📅 預約"}</h3>
                             <div className="flex items-center gap-2 sm:gap-4 flex-wrap justify-end">
                                 {step === 'CHECK' && (
                                     <>
@@ -1979,13 +1979,11 @@
                                                 disabled={isChecking}
                                                 className={`px-3 sm:px-5 py-1.5 sm:py-2 rounded-xl font-bold text-sm sm:text-lg shadow-lg border-2 transition-all flex items-center gap-2 ${isChecking ? 'bg-orange-800 border-orange-700 text-orange-300 cursor-not-allowed' : 'bg-yellow-400 text-yellow-900 border-yellow-200 hover:bg-yellow-300 shadow-[0_0_15px_rgba(250,204,21,0.4)]'}`}
                                             >
-                                                {isChecking ? "⏳..." : "🔍 查詢空位 (Strict Scan)"}
+                                                {isChecking ? "⏳..." : "🔍 查詢空位"}
                                             </button>
                                         ) : (
                                             <div className="flex items-center gap-2 animate-fadeIn bg-white/10 p-1 sm:p-1.5 rounded-xl border border-white/20">
-                                                <div className="hidden sm:block px-3 py-1.5 rounded-lg border-2 font-bold text-sm sm:text-base whitespace-nowrap bg-green-100 text-green-800 border-green-400 shadow-[0_0_10px_rgba(74,222,128,0.5)]">
-                                                    {checkResult.status === 'OK' ? "✅ 此時段可預約" : checkResult.message}
-                                                </div>
+                                                {/* Removed the green checkResult message banner per request */}
 
                                                 {checkResult.status === 'OK' ? (
                                                     <button onClick={() => setStep('INFO')} className="px-3 sm:px-4 py-1.5 bg-emerald-500 text-white rounded-lg font-bold shadow-lg hover:bg-emerald-600 border border-emerald-400 whitespace-nowrap animate-pulse flex items-center gap-1">
@@ -1993,7 +1991,7 @@
                                                     </button>
                                                 ) : (
                                                     <button onClick={() => { setCheckResult(null); setSuggestions([]) }} className="px-3 sm:px-4 py-1.5 bg-gray-200 text-gray-700 rounded-lg font-bold shadow-md hover:bg-gray-300 border border-gray-400 whitespace-nowrap">
-                                                        🔄 Retry
+                                                        🔄 重新查詢
                                                     </button>
                                                 )}
                                             </div>
@@ -2020,7 +2018,7 @@
                                     <div className="grid grid-cols-2 gap-4">
                                         <div>
                                             <div className="flex justify-between items-center mb-1">
-                                                <label className="text-lg font-bold text-gray-500 block">日期 (Date)</label>
+                                                <label className="text-lg font-bold text-gray-500 block">日期</label>
                                                 <div className="flex gap-1.5 pl-2">
                                                     <button onClick={(e) => { e.preventDefault(); handleDateShift(-1); }} className="w-10 h-8 flex items-center justify-center bg-slate-200 hover:bg-slate-300 text-slate-600 rounded-lg shadow-sm font-bold border border-slate-300 transition-colors tooltip tooltip-bottom" data-tip="Lùi 1 Ngày (Prev)">◀</button>
                                                     <button onClick={(e) => { e.preventDefault(); handleDateShift(1); }} className="w-10 h-8 flex items-center justify-center bg-slate-200 hover:bg-slate-300 text-slate-600 rounded-lg shadow-sm font-bold border border-slate-300 transition-colors tooltip tooltip-bottom" data-tip="Tiến 1 Ngày (Next)">▶</button>
@@ -2029,7 +2027,7 @@
                                             <input type="date" className="w-full border-2 p-3 rounded-xl font-bold text-xl h-[64px] bg-slate-50" value={form.date} onChange={e => { setForm({ ...form, date: e.target.value }); setCheckResult(null); }} />
                                         </div>
                                         <div>
-                                            <label className="text-lg font-bold text-gray-500 mb-1 block">時間 (Time)</label>
+                                            <label className="text-lg font-bold text-gray-500 mb-1 block">時間</label>
                                             <div className="flex items-center gap-2">
                                                 <div className="relative flex-1">
                                                     <select className="w-full border-2 p-3 rounded-xl font-bold text-xl h-[64px] text-center bg-slate-50" value={cH} onChange={e => handleTimeChange('HOUR', e.target.value)}>
@@ -2052,7 +2050,7 @@
                                                 <div className="p-5 rounded-xl text-center font-bold text-xl border-2 bg-red-50 text-red-700 border-red-300">{checkResult.message}</div>
                                                 {suggestions.length > 0 && (
                                                     <div className="bg-yellow-50 p-4 rounded-xl border-2 border-yellow-300">
-                                                        <div className="text-base font-bold text-yellow-800 mb-3">💡 建議時段 (Suggestions):</div>
+                                                        <div className="text-base font-bold text-yellow-800 mb-3">💡 建議時段:</div>
                                                         <div className="flex gap-3 flex-wrap">
                                                             {suggestions.map(s => {
                                                                 let displayLabel = s.time;
@@ -2074,14 +2072,14 @@
                                     </div>
 
                                     <div>
-                                        <label className="text-lg font-bold text-gray-500 mb-1 block">人數 (Pax)</label>
+                                        <label className="text-lg font-bold text-gray-500 mb-1 block">人數</label>
                                         <select className="w-full border-2 p-3 rounded-xl font-bold text-xl text-center h-[64px] bg-slate-50" value={form.pax} onChange={e => handlePaxChange(e.target.value)}>
                                             {paxOptions.map(n => <option key={n} value={n}>{n} 位</option>)}
                                         </select>
                                     </div>
 
                                     <div className="bg-slate-50 p-4 rounded-xl border-2 space-y-3">
-                                        <div className="text-base font-bold text-gray-500 uppercase">詳細需求 (Details)</div>
+                                        <div className="text-base font-bold text-gray-500 uppercase">詳細需求</div>
                                         {guestDetails.map((g, i) => (
                                             <div key={i} className="flex gap-2 items-center">
                                                 <div className="w-10 shrink-0 h-[64px] rounded-lg bg-gray-200 hidden sm:flex items-center justify-center font-black text-lg text-slate-500">#{i + 1}</div>
