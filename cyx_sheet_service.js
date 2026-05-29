@@ -930,13 +930,13 @@ async function updateBookingDetails(body) {
     }
 
     const flowVal = body.flow || body.flow_code;
-    if (flowVal !== undefined) updateCell('Y', flowVal);
+    if (flowVal !== undefined) updateCell('X', flowVal);
 
-    if (phase1Res !== undefined) updateCell('AF', phase1Res);
-    if (phase2Res !== undefined) updateCell('AG', phase2Res);
+    if (phase1Res !== undefined) updateCell('AE', phase1Res);
+    if (phase2Res !== undefined) updateCell('AF', phase2Res);
 
     const resourceType = body.resource_type !== undefined ? body.resource_type : body.resourceType;
-    if (resourceType !== undefined) updateCell('AH', resourceType ? String(resourceType).toUpperCase() : "");
+    if (resourceType !== undefined) updateCell('AG', resourceType ? String(resourceType).toUpperCase() : "");
 
     if (body.final_price !== undefined) updateCell('V', body.final_price);
 
@@ -945,17 +945,17 @@ async function updateBookingDetails(body) {
 
     if (body.phase1_duration !== undefined && body.phase1_duration !== null) {
         const p1 = parseInt(body.phase1_duration); const p2 = totalDuration - p1;
-        updateCell('AB', p1); updateCell('AD', p2); hasManualPhaseChange = true;
+        updateCell('AA', p1); updateCell('AC', p2); hasManualPhaseChange = true;
     } else if (body.phase2_duration !== undefined && body.phase2_duration !== null) {
         const p2 = parseInt(body.phase2_duration); const p1 = totalDuration - p2;
-        updateCell('AB', p1); updateCell('AD', p2); hasManualPhaseChange = true;
+        updateCell('AA', p1); updateCell('AC', p2); hasManualPhaseChange = true;
     }
 
     const currentLockString = currentLockState ? "TRUE" : "FALSE";
     const finalLockString = resolveStrictLockState(body.isManualLocked, hasManualPhaseChange, currentLockString);
 
     if (finalLockString !== currentLockString || body.isManualLocked !== undefined || hasManualPhaseChange) {
-        updateCell('AI', finalLockString);
+        updateCell('AH', finalLockString);
     }
     
     // --- V1.6 NÂNG CẤP: Tự động tính toán lại Z, AB (transition), AD (finish) ---
@@ -972,15 +972,15 @@ async function updateBookingDetails(body) {
             if (isNaN(p1Dur)) p1Dur = 0; if (isNaN(p2Dur)) p2Dur = 0;
             
             let finalFlow = flowVal !== undefined ? flowVal : (bookingData ? bookingData.flow : "FB");
-            const isCombo = (finalFlow === 'FB' || finalFlow === 'BF');
-            const transitionBuffer = isCombo ? (typeof ResourceCore !== 'undefined' && ResourceCore.CONFIG ? ResourceCore.CONFIG.TRANSITION_BUFFER : 3) : 0;
+            const isComboCalc = (finalFlow === 'FB' || finalFlow === 'BF');
+            const transitionBuffer = isComboCalc ? (typeof ResourceCore !== 'undefined' && ResourceCore.CONFIG ? ResourceCore.CONFIG.TRANSITION_BUFFER : 3) : 0;
             
-            if (isCombo) {
-                updateCell('AC', typeof ResourceCore !== 'undefined' ? ResourceCore.getTimeStrFromMins(startMins + p1Dur + transitionBuffer) : "");
+            if (isComboCalc) {
+                updateCell('AB', typeof ResourceCore !== 'undefined' ? ResourceCore.getTimeStrFromMins(startMins + p1Dur + transitionBuffer) : "");
             } else {
-                updateCell('AC', "");
+                updateCell('AB', "");
             }
-            updateCell('AE', typeof ResourceCore !== 'undefined' ? ResourceCore.getTimeStrFromMins(startMins + p1Dur + p2Dur + transitionBuffer) : "");
+            updateCell('AD', typeof ResourceCore !== 'undefined' ? ResourceCore.getTimeStrFromMins(startMins + p1Dur + p2Dur + transitionBuffer) : "");
         }
     }
 
@@ -1149,9 +1149,9 @@ async function updateInlineBooking(rowId, updatedData) {
                     newResType = 'CHAIR';
                 }
                 
-                row[27] = phase1_dur;
-                row[29] = phase2_dur;
-                row[24] = newFlow;
+                row[26] = phase1_dur;
+                row[28] = phase2_dur;
+                row[23] = newFlow;
                 
                 let oldCategory = null;
                 if (bookingData && bookingData.serviceCode && STATE.SERVICES[bookingData.serviceCode]) {
@@ -1176,7 +1176,7 @@ async function updateInlineBooking(rowId, updatedData) {
                         
                         if (isP1Chair) {
                             newFlow = 'FB';
-                            row[24] = newFlow;
+                            row[23] = newFlow;
                         } else if (isP1Bed) {
                             newFlow = 'BF';
                             row[23] = newFlow;
@@ -1252,7 +1252,7 @@ async function updateInlineBooking(rowId, updatedData) {
                                     row[23] = finalFlow;
                                 }
                                 
-                                console.log(`[STRICT AUTO-ALLOCATE] Inline Update found new resources for Row ${rowId}: ${bestPhase1}, ${bestPhase2}, Flow: ${row[24]}`);
+                                console.log(`[STRICT AUTO-ALLOCATE] Inline Update found new resources for Row ${rowId}: ${bestPhase1}, ${bestPhase2}, Flow: ${row[23]}`);
                             } else {
                                 // STRICT VALIDATION: Chặn lưu dữ liệu và ném ra lỗi nếu thuật toán thất bại (hết giường)
                                 console.warn(`[STRICT AUTO-ALLOCATE FAILED] ${checkResult.reason}`);
