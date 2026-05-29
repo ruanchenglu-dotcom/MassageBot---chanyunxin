@@ -861,10 +861,11 @@ async function updateBookingDetails(body) {
         }
     }
 
-    const updateCell = async (col, val) => {
-        await sheets.spreadsheets.values.update({
-            spreadsheetId: SHEET_ID, range: `${BOOKING_SHEET_NAME}!${col}${rowId}`,
-            valueInputOption: 'USER_ENTERED', requestBody: { values: [[val]] }
+    const dataToUpdate = [];
+    const updateCell = (col, val) => {
+        dataToUpdate.push({
+            range: `${BOOKING_SHEET_NAME}!${col}${rowId}`,
+            values: [[val]]
         });
     };
 
@@ -875,78 +876,78 @@ async function updateBookingDetails(body) {
     
     if (finalDate) {
         const formattedDate = normalizeDateStrict(finalDate);
-        await updateCell('A', formattedDate); await updateCell('S', formattedDate);
+        updateCell('A', formattedDate); updateCell('S', formattedDate);
     }
     
     let finalStartTime = body.startTime || body.gioDen;
     if (finalStartTime) {
         let timeVal = finalStartTime; if (timeVal.length > 5) timeVal = timeVal.substring(0, 5);
-        await updateCell('B', timeVal);
+        updateCell('B', timeVal);
     }
-    if (body.customerName) await updateCell('C', body.customerName);
-    if (body.serviceName) await updateCell('D', body.serviceName);
-    if (body.isOil !== undefined) await updateCell('E', body.isOil ? "Yes" : "");
-    if (body.pax) await updateCell('F', body.pax);
-    if (body.phone) await updateCell('G', body.phone);
-    if (body.mainStatus) await updateCell('H', body.mainStatus);
+    if (body.customerName) updateCell('C', body.customerName);
+    if (body.serviceName) updateCell('D', body.serviceName);
+    if (body.isOil !== undefined) updateCell('E', body.isOil ? "Yes" : "");
+    if (body.pax) updateCell('F', body.pax);
+    if (body.phone) updateCell('G', body.phone);
+    if (body.mainStatus) updateCell('H', body.mainStatus);
 
     if (body.requestedStaff !== undefined) {
-        await updateCell('I', body.requestedStaff);
+        updateCell('I', body.requestedStaff);
     }
 
     const staff1 = body['服務師傅1'] || body.ServiceStaff1 || body.staff1 || body.serviceStaff || body.staffId;
     if (staff1 !== undefined && staff1 !== '隨機') {
-        await updateCell('L', staff1);
+        updateCell('L', staff1);
     }
 
     const staff2 = body['服務師傅2'] || body.ServiceStaff2 || body.staff2 || body.staffId2;
     if (staff2 !== undefined) {
-        await updateCell('M', staff2);
+        updateCell('M', staff2);
     }
 
     const staff3 = body['服務師傅3'] || body.ServiceStaff3 || body.staff3 || body.staffId3;
     if (staff3 !== undefined) {
-        await updateCell('N', staff3);
+        updateCell('N', staff3);
     }
 
-    if (body.staff1_blocks !== undefined) await updateCell('O', body.staff1_blocks);
-    if (body.staff2_blocks !== undefined) await updateCell('P', body.staff2_blocks);
+    if (body.staff1_blocks !== undefined) updateCell('O', body.staff1_blocks);
+    if (body.staff2_blocks !== undefined) updateCell('P', body.staff2_blocks);
 
     if (body.isGuaSha !== undefined) {
-        await updateCell('Q', body.isGuaSha ? "Yes" : "");
+        updateCell('Q', body.isGuaSha ? "Yes" : "");
     }
 
     if (body.adminNote !== undefined) {
-        await updateCell('R', body.adminNote);
+        updateCell('R', body.adminNote);
     }
 
     const flowVal = body.flow || body.flow_code;
-    if (flowVal !== undefined) await updateCell('Y', flowVal);
+    if (flowVal !== undefined) updateCell('Y', flowVal);
 
-    if (phase1Res !== undefined) await updateCell('AF', phase1Res);
-    if (phase2Res !== undefined) await updateCell('AG', phase2Res);
+    if (phase1Res !== undefined) updateCell('AF', phase1Res);
+    if (phase2Res !== undefined) updateCell('AG', phase2Res);
 
     const resourceType = body.resource_type !== undefined ? body.resource_type : body.resourceType;
-    if (resourceType !== undefined) await updateCell('AH', resourceType ? String(resourceType).toUpperCase() : "");
+    if (resourceType !== undefined) updateCell('AH', resourceType ? String(resourceType).toUpperCase() : "");
 
-    if (body.final_price !== undefined) await updateCell('V', body.final_price);
+    if (body.final_price !== undefined) updateCell('V', body.final_price);
 
     let currentLockState = bookingData ? bookingData.isManualLocked : false;
     let hasManualPhaseChange = false;
 
     if (body.phase1_duration !== undefined && body.phase1_duration !== null) {
         const p1 = parseInt(body.phase1_duration); const p2 = totalDuration - p1;
-        await updateCell('AB', p1); await updateCell('AD', p2); hasManualPhaseChange = true;
+        updateCell('AB', p1); updateCell('AD', p2); hasManualPhaseChange = true;
     } else if (body.phase2_duration !== undefined && body.phase2_duration !== null) {
         const p2 = parseInt(body.phase2_duration); const p1 = totalDuration - p2;
-        await updateCell('AB', p1); await updateCell('AD', p2); hasManualPhaseChange = true;
+        updateCell('AB', p1); updateCell('AD', p2); hasManualPhaseChange = true;
     }
 
     const currentLockString = currentLockState ? "TRUE" : "FALSE";
     const finalLockString = resolveStrictLockState(body.isManualLocked, hasManualPhaseChange, currentLockString);
 
     if (finalLockString !== currentLockString || body.isManualLocked !== undefined || hasManualPhaseChange) {
-        await updateCell('AI', finalLockString);
+        updateCell('AI', finalLockString);
     }
     
     // --- V1.6 NÂNG CẤP: Tự động tính toán lại Z, AB (transition), AD (finish) ---
@@ -954,7 +955,7 @@ async function updateBookingDetails(body) {
     if (newStartVal) {
         let timeVal = newStartVal; if (timeVal.includes(' ')) timeVal = timeVal.split(' ')[1];
         if (timeVal.length > 5) timeVal = timeVal.substring(0, 5);
-        await updateCell('Z', timeVal); // start_time_str
+        updateCell('Z', timeVal); // start_time_str
         
         const startMins = typeof ResourceCore !== 'undefined' ? ResourceCore.getMinsFromTimeStr(timeVal) : -1;
         if (startMins !== -1) {
@@ -967,12 +968,22 @@ async function updateBookingDetails(body) {
             const transitionBuffer = isCombo ? (typeof ResourceCore !== 'undefined' && ResourceCore.CONFIG ? ResourceCore.CONFIG.TRANSITION_BUFFER : 3) : 0;
             
             if (isCombo) {
-                await updateCell('AC', typeof ResourceCore !== 'undefined' ? ResourceCore.getTimeStrFromMins(startMins + p1Dur + transitionBuffer) : "");
+                updateCell('AC', typeof ResourceCore !== 'undefined' ? ResourceCore.getTimeStrFromMins(startMins + p1Dur + transitionBuffer) : "");
             } else {
-                await updateCell('AC', "");
+                updateCell('AC', "");
             }
-            await updateCell('AE', typeof ResourceCore !== 'undefined' ? ResourceCore.getTimeStrFromMins(startMins + p1Dur + p2Dur + transitionBuffer) : "");
+            updateCell('AE', typeof ResourceCore !== 'undefined' ? ResourceCore.getTimeStrFromMins(startMins + p1Dur + p2Dur + transitionBuffer) : "");
         }
+    }
+
+    if (dataToUpdate.length > 0) {
+        await sheets.spreadsheets.values.batchUpdate({
+            spreadsheetId: SHEET_ID,
+            requestBody: {
+                valueInputOption: 'USER_ENTERED',
+                data: dataToUpdate
+            }
+        });
     }
 
     // === [V136 OPTIMISTIC CACHE UPDATE] 防衝突機制 ===
