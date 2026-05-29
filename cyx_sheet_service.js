@@ -375,11 +375,11 @@ async function syncData() {
                 const cleanDate = normalizeDateStrict(row[0]);
                 if (!cleanDate) continue;
 
-                const serviceStr = row[3] || '';
+                const serviceStr = row[4] || '';
                 let duration = 60; let type = 'BED'; let category = 'BODY'; let price = 0;
                 let foundService = false;
 
-                let serviceCode = row[20];
+                let serviceCode = row[22];
                 if (!serviceCode || serviceCode === '') {
                     serviceCode = smartFindServiceCode(serviceStr) || '';
                 }
@@ -398,17 +398,16 @@ async function syncData() {
                     else if (serviceStr.includes('足')) { type = 'CHAIR'; category = 'FOOT'; }
                 }
 
-                const isOilService = (row[4] === "Yes");
+                const isOilService = (row[5] === "Yes");
                 if (isOilService) {
                     price += getConfig().FINANCE.OIL_BONUS;
                 }
 
-                let pax = 1; if (row[5]) pax = safeParseInt(row[5], 1);
+                let pax = 1;
 
                 const requestedStaff = row[8] || '隨機';
 
                 // serviceCode logic is now handled above.
-
 
                 const rawTime = row[1] || "12:00";
                 const hr = parseInt(rawTime.split(':')[0], 10);
@@ -430,29 +429,29 @@ async function syncData() {
                     staffId: requestedStaff,
                     requestedStaff: requestedStaff,
                     staffName: requestedStaff,
-                    serviceStaff: row[11],
-                    staffId2: row[12],
-                    staffId3: row[13],
-                    staff1_blocks: safeParseInt(row[14], null),
-                    staff2_blocks: safeParseInt(row[15], null),
-                    isGuaSha: row[16] === "Yes",
-                    adminNote: row[17] || "",
+                    serviceStaff: row[10],
+                    staffId2: row[11],
+                    staffId3: row[12],
+                    staff1_blocks: safeParseInt(row[13], null),
+                    staff2_blocks: safeParseInt(row[14], null),
+                    isGuaSha: row[6] === "Yes",
+                    adminNote: row[9] || "",
                     pax: pax,
-                    customerName: `${row[2]} (${row[6]})`,
+                    customerName: `${row[2]} (${row[3]})`,
                     originalName: row[2],
                     serviceName: serviceStr, serviceCode: serviceCode,
-                    phone: row[6], date: cleanDate, opDate: computedOpDate, status: status,
-                    isRunning: isRunning, lineId: row[9],
+                    phone: row[3], date: cleanDate, opDate: computedOpDate, status: status,
+                    isRunning: isRunning, lineId: row[21],
                     isOil: isOilService,
-                    phase1_duration: safeParseInt(row[24], null),
-                    phase2_duration: safeParseInt(row[25], null),
-                    isManualLocked: isTrueString(row[30]),
-                    flow: row[26],
-                    phase1_res_idx: row[27] || null,
-                    phase2_res_idx: row[28] || null,
-                    phase1_resource: row[27],
-                    phase2_resource: row[28],
-                    resource_type: row[29],
+                    phase1_duration: safeParseInt(row[26], null),
+                    phase2_duration: safeParseInt(row[28], null),
+                    isManualLocked: isTrueString(row[33]),
+                    flow: row[23],
+                    phase1_res_idx: row[30],
+                    phase2_res_idx: row[31],
+                    phase1_resource: row[30],
+                    phase2_resource: row[31],
+                    resource_type: row[32],
                     allocated_resource: null
                 });
             }
