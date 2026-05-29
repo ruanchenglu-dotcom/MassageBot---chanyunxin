@@ -1729,10 +1729,10 @@ async function checkAndSendReminders() {
     let isChanged = false;
 
     for (const b of bookings) {
-        if (!b.lineId) continue;
+        if (!b.lineId || String(b.lineId).trim().toUpperCase().startsWith('ADMIN')) continue;
         
         // Bỏ qua các booking đã hủy hoặc hoàn thành
-        const status = (b.status || '').toLowerCase();
+        const status = String(b.status || '').toLowerCase();
         const inactiveKeywords = ['hủy', 'cancel', '取消', 'hoàn thành', 'done', '完成', '✅', '❌'];
         const isInactive = inactiveKeywords.some(kw => status.includes(kw));
         if (isInactive) continue;
