@@ -647,16 +647,6 @@ async function ghiVaoSheet(data, proposedUpdates = []) {
             }
             row[22] = sCode || "";
 
-            let p1 = null; let p2 = null;
-            if (guestDetail) {
-                p1 = (guestDetail.phase1_duration !== undefined) ? guestDetail.phase1_duration : guestDetail.phase1;
-                p2 = (guestDetail.phase2_duration !== undefined) ? guestDetail.phase2_duration : guestDetail.phase2;
-            }
-            if (p1 === null || p1 === undefined) p1 = data.phase1_duration;
-            if (p2 === null || p2 === undefined) p2 = data.phase2_duration;
-            row[26] = (p1 !== null && p1 !== "") ? p1 : "";
-            row[28] = (p2 !== null && p2 !== "") ? p2 : "";
-
             let flowVal = null;
             if (guestDetail) flowVal = guestDetail.flow || guestDetail.flowCode;
             if (!flowVal) flowVal = data.flow || data.flowCode;
@@ -667,6 +657,21 @@ async function ghiVaoSheet(data, proposedUpdates = []) {
                 else if (svcDef.category === 'COMBO') flowVal = "FB";
             }
             row[23] = flowVal || "FB";
+
+            let p1 = null; let p2 = null;
+            if (guestDetail) {
+                p1 = (guestDetail.phase1_duration !== undefined) ? guestDetail.phase1_duration : guestDetail.phase1;
+                p2 = (guestDetail.phase2_duration !== undefined) ? guestDetail.phase2_duration : guestDetail.phase2;
+            }
+            if (p1 === null || p1 === undefined) p1 = data.phase1_duration;
+            if (p2 === null || p2 === undefined) p2 = data.phase2_duration;
+            
+            if ((p1 === null || p1 === undefined || p1 === "") && ["BODYSINGLE", "FOOTSINGLE", "SINGLE"].includes(row[23])) {
+                p1 = data.duration;
+            }
+
+            row[26] = (p1 !== null && p1 !== "") ? p1 : "";
+            row[28] = (p2 !== null && p2 !== "") ? p2 : "";
             
             row[25] = colB_Time;
             const startMins = typeof ResourceCore !== 'undefined' ? ResourceCore.getMinsFromTimeStr(colB_Time) : -1;
@@ -694,8 +699,8 @@ async function ghiVaoSheet(data, proposedUpdates = []) {
             if (!r2) r2 = data.phase2_res_idx || data.phase2Resource || data.phase2_resource;
             if (!rType) rType = data.resource_type || data.resourceType;
 
-            row[30] = r1 || "";
-            row[31] = r2 || "";
+            row[30] = r1 ? String(r1).toUpperCase() : "";
+            row[31] = r2 ? String(r2).toUpperCase() : "";
             row[32] = rType ? String(rType).toUpperCase() : "";
 
             const hasManualPhase = (p1 !== null && p1 !== undefined && p1 !== "");
@@ -833,13 +838,16 @@ async function updateBookingDetails(body) {
     let totalDuration = bookingData ? bookingData.duration : (safeParseInt(body.duration, 60));
 
     let phase1Res = body.phase1_res_idx !== undefined ? body.phase1_res_idx : (body.phase1_resource !== undefined ? body.phase1_resource : body.phase1Resource);
+    if (phase1Res !== undefined && phase1Res !== null) phase1Res = String(phase1Res).toUpperCase();
     
     // Chỉ fallback cho các dịch vụ ĐƠN LẺ (Single), KHÔNG được fallback cho dịch vụ COMBO
     const isCombo = bookingData ? (bookingData.category === 'COMBO' || (bookingData.serviceName && bookingData.serviceName.includes('套餐'))) : false;
     if (!isCombo && phase1Res === undefined && (body.location !== undefined || body.current_resource_id !== undefined)) {
         phase1Res = body.location !== undefined ? body.location : body.current_resource_id;
+        if (phase1Res !== undefined && phase1Res !== null) phase1Res = String(phase1Res).toUpperCase();
     }
-    const phase2Res = body.phase2_res_idx !== undefined ? body.phase2_res_idx : (body.phase2_resource !== undefined ? body.phase2_resource : body.phase2Resource);
+    let phase2Res = body.phase2_res_idx !== undefined ? body.phase2_res_idx : (body.phase2_resource !== undefined ? body.phase2_resource : body.phase2Resource);
+    if (phase2Res !== undefined && phase2Res !== null) phase2Res = String(phase2Res).toUpperCase();
     
     // [V135] GUARDRAIL: Check Resource Overlap before allowing manual override
     let checkDate = body.date || (bookingData ? (bookingData.opDate || bookingData.startTimeString) : null);
@@ -1256,8 +1264,8 @@ async function updateInlineBooking(rowId, updatedData) {
                         }
                     }
 
-                    row[30] = bestPhase1;
-                    row[31] = bestPhase2;
+                    row[30] = bestPhase1 ? String(bestPhase1).toUpperCase() : "";
+                    row[31] = bestPhase2 ? String(bestPhase2).toUpperCase() : "";
                 }
                 row[33] = newResType;
             }

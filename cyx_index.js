@@ -934,16 +934,18 @@ app.post('/api/admin-booking', async (req, res) => {
                             flow: optimalFlow,
                             phase1_duration: cyx_data.phase1_duration,
                             phase2_duration: cyx_data.phase2_duration,
-                            phase1_res_idx: optimalDetail.phase1_res_idx,
-                            phase2_res_idx: optimalDetail.phase2_res_idx,
+                            phase1_res_idx: optimalDetail.phase1_res_idx ? String(optimalDetail.phase1_res_idx).toUpperCase() : undefined,
+                            phase2_res_idx: optimalDetail.phase2_res_idx ? String(optimalDetail.phase2_res_idx).toUpperCase() : undefined,
                             resource_type: optimalFlow === 'FOOTSINGLE' ? 'CHAIR' : (optimalFlow === 'BODYSINGLE' ? 'BED' : 'COMBO')
                         });
                     } else {
                         for (let i = 0; i < cyx_data.guestDetails.length; i++) {
                             const detail = checkResult.details[i] || optimalDetail;
                             if (detail) {
-                                cyx_data.guestDetails[i].phase1_res_idx = detail.phase1_res_idx || cyx_data.guestDetails[i].phase1_res_idx;
-                                cyx_data.guestDetails[i].phase2_res_idx = detail.phase2_res_idx || cyx_data.guestDetails[i].phase2_res_idx;
+                                let r1 = detail.phase1_res_idx || cyx_data.guestDetails[i].phase1_res_idx;
+                                let r2 = detail.phase2_res_idx || cyx_data.guestDetails[i].phase2_res_idx;
+                                cyx_data.guestDetails[i].phase1_res_idx = r1 ? String(r1).toUpperCase() : r1;
+                                cyx_data.guestDetails[i].phase2_res_idx = r2 ? String(r2).toUpperCase() : r2;
                                 if (!cyx_data.guestDetails[i].flow) cyx_data.guestDetails[i].flow = detail.flow || optimalFlow;
                                 if (!cyx_data.guestDetails[i].resource_type) {
                                     cyx_data.guestDetails[i].resource_type = (detail.flow || optimalFlow) === 'FOOTSINGLE' ? 'CHAIR' : ((detail.flow || optimalFlow) === 'BODYSINGLE' ? 'BED' : 'COMBO');
