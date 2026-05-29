@@ -62,7 +62,7 @@ const SYSTEM_CONFIG = {
     // Thời gian đệm (Buffers)
     BUFFERS: {
         CLEANUP_MINUTES: 2,    // Thời gian dọn dẹp sau mỗi ca
-        TRANSITION_MINUTES: 1  // Thời gian chuyển giữa ghế và giường (nếu có combo)
+        TRANSITION_MINUTES: 3  // Thời gian chuyển giữa ghế và giường (nếu có combo)
     },
 
     // Logic nhân viên và dịch vụ

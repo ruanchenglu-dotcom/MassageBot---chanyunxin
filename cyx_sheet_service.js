@@ -379,7 +379,7 @@ async function syncData() {
                 let duration = 60; let type = 'BED'; let category = 'BODY'; let price = 0;
                 let foundService = false;
 
-                let serviceCode = row[22];
+                let serviceCode = row[23];
                 if (!serviceCode || serviceCode === '') {
                     serviceCode = smartFindServiceCode(serviceStr) || '';
                 }
@@ -443,15 +443,15 @@ async function syncData() {
                     phone: row[3], date: cleanDate, opDate: computedOpDate, status: status,
                     isRunning: isRunning, lineId: row[21],
                     isOil: isOilService,
-                    phase1_duration: safeParseInt(row[26], null),
-                    phase2_duration: safeParseInt(row[28], null),
-                    isManualLocked: isTrueString(row[33]),
-                    flow: row[23],
-                    phase1_res_idx: row[30],
-                    phase2_res_idx: row[31],
-                    phase1_resource: row[30],
-                    phase2_resource: row[31],
-                    resource_type: row[32],
+                    phase1_duration: safeParseInt(row[27], null),
+                    phase2_duration: safeParseInt(row[29], null),
+                    isManualLocked: isTrueString(row[34]),
+                    flow: row[24],
+                    phase1_res_idx: row[31],
+                    phase2_res_idx: row[32],
+                    phase1_resource: row[31],
+                    phase2_resource: row[32],
+                    resource_type: row[33],
                     allocated_resource: null
                 });
             }
@@ -645,7 +645,7 @@ async function ghiVaoSheet(data, proposedUpdates = []) {
                 const cleanSvcName = svcName.replace(/\s*\(油推.*?\)/, "");
                 sCode = smartFindServiceCode(cleanSvcName);
             }
-            row[22] = sCode || "";
+            row[23] = sCode || "";
 
             let p1 = null; let p2 = null;
             if (guestDetail) {
@@ -654,8 +654,8 @@ async function ghiVaoSheet(data, proposedUpdates = []) {
             }
             if (p1 === null || p1 === undefined) p1 = data.phase1_duration;
             if (p2 === null || p2 === undefined) p2 = data.phase2_duration;
-            row[26] = (p1 !== null && p1 !== "") ? p1 : "";
-            row[28] = (p2 !== null && p2 !== "") ? p2 : "";
+            row[27] = (p1 !== null && p1 !== "") ? p1 : "";
+            row[29] = (p2 !== null && p2 !== "") ? p2 : "";
 
             let flowVal = null;
             if (guestDetail) flowVal = guestDetail.flow || guestDetail.flowCode;
@@ -666,7 +666,23 @@ async function ghiVaoSheet(data, proposedUpdates = []) {
                 else if (svcDef.category === 'BODY') flowVal = "BODYSINGLE";
                 else if (svcDef.category === 'COMBO') flowVal = "FB";
             }
-            row[23] = flowVal || "FB";
+            row[24] = flowVal || "FB";
+            
+            row[26] = colB_Time;
+            const startMins = typeof ResourceCore !== 'undefined' ? ResourceCore.getMinsFromTimeStr(colB_Time) : -1;
+            if (startMins !== -1) {
+                const p1Dur = parseInt(row[27]) || 0;
+                const p2Dur = parseInt(row[29]) || 0;
+                const isCombo = (row[24] === 'FB' || row[24] === 'BF');
+                const transitionBuffer = isCombo ? (typeof ResourceCore !== 'undefined' && ResourceCore.CONFIG ? ResourceCore.CONFIG.TRANSITION_BUFFER : 3) : 0;
+                
+                if (isCombo) {
+                    row[28] = typeof ResourceCore !== 'undefined' ? ResourceCore.getTimeStrFromMins(startMins + p1Dur + transitionBuffer) : "";
+                } else {
+                    row[28] = "";
+                }
+                row[30] = typeof ResourceCore !== 'undefined' ? ResourceCore.getTimeStrFromMins(startMins + p1Dur + p2Dur + transitionBuffer) : "";
+            }
 
             let r1 = null; let r2 = null; let rType = null;
             if (guestDetail) {
@@ -678,13 +694,13 @@ async function ghiVaoSheet(data, proposedUpdates = []) {
             if (!r2) r2 = data.phase2_res_idx || data.phase2Resource || data.phase2_resource;
             if (!rType) rType = data.resource_type || data.resourceType;
 
-            row[30] = r1 || "";
-            row[31] = r2 || "";
-            row[32] = rType ? String(rType).toUpperCase() : "";
+            row[31] = r1 || "";
+            row[32] = r2 || "";
+            row[33] = rType ? String(rType).toUpperCase() : "";
 
             const hasManualPhase = (p1 !== null && p1 !== undefined && p1 !== "");
             const finalLockVal = resolveStrictLockState(data.isManualLocked, hasManualPhase, "FALSE");
-            row[33] = finalLockVal;
+            row[34] = finalLockVal;
 
 
             valuesToWrite.push(row);
@@ -905,13 +921,13 @@ async function updateBookingDetails(body) {
     }
 
     const flowVal = body.flow || body.flow_code;
-    if (flowVal !== undefined) await updateCell('AA', flowVal);
+    if (flowVal !== undefined) await updateCell('Y', flowVal);
 
-    if (phase1Res !== undefined) await updateCell('AB', phase1Res);
-    if (phase2Res !== undefined) await updateCell('AC', phase2Res);
+    if (phase1Res !== undefined) await updateCell('AF', phase1Res);
+    if (phase2Res !== undefined) await updateCell('AG', phase2Res);
 
     const resourceType = body.resource_type !== undefined ? body.resource_type : body.resourceType;
-    if (resourceType !== undefined) await updateCell('AD', resourceType ? String(resourceType).toUpperCase() : "");
+    if (resourceType !== undefined) await updateCell('AH', resourceType ? String(resourceType).toUpperCase() : "");
 
     if (body.final_price !== undefined) await updateCell('V', body.final_price);
 
@@ -920,17 +936,43 @@ async function updateBookingDetails(body) {
 
     if (body.phase1_duration !== undefined && body.phase1_duration !== null) {
         const p1 = parseInt(body.phase1_duration); const p2 = totalDuration - p1;
-        await updateCell('Y', p1); await updateCell('Z', p2); hasManualPhaseChange = true;
+        await updateCell('AB', p1); await updateCell('AD', p2); hasManualPhaseChange = true;
     } else if (body.phase2_duration !== undefined && body.phase2_duration !== null) {
         const p2 = parseInt(body.phase2_duration); const p1 = totalDuration - p2;
-        await updateCell('Y', p1); await updateCell('Z', p2); hasManualPhaseChange = true;
+        await updateCell('AB', p1); await updateCell('AD', p2); hasManualPhaseChange = true;
     }
 
     const currentLockString = currentLockState ? "TRUE" : "FALSE";
     const finalLockString = resolveStrictLockState(body.isManualLocked, hasManualPhaseChange, currentLockString);
 
     if (finalLockString !== currentLockString || body.isManualLocked !== undefined || hasManualPhaseChange) {
-        await updateCell('AE', finalLockString);
+        await updateCell('AI', finalLockString);
+    }
+    
+    // --- V1.6 NÂNG CẤP: Tự động tính toán lại Z, AB (transition), AD (finish) ---
+    let newStartVal = finalStartTime || (bookingData ? (bookingData.startTimeString || bookingData.startTime) : null);
+    if (newStartVal) {
+        let timeVal = newStartVal; if (timeVal.includes(' ')) timeVal = timeVal.split(' ')[1];
+        if (timeVal.length > 5) timeVal = timeVal.substring(0, 5);
+        await updateCell('Z', timeVal); // start_time_str
+        
+        const startMins = typeof ResourceCore !== 'undefined' ? ResourceCore.getMinsFromTimeStr(timeVal) : -1;
+        if (startMins !== -1) {
+            let p1Dur = body.phase1_duration !== undefined ? parseInt(body.phase1_duration) : (bookingData ? parseInt(bookingData.phase1_duration) : 0);
+            let p2Dur = body.phase2_duration !== undefined ? parseInt(body.phase2_duration) : (bookingData ? parseInt(bookingData.phase2_duration) : 0);
+            if (isNaN(p1Dur)) p1Dur = 0; if (isNaN(p2Dur)) p2Dur = 0;
+            
+            let finalFlow = flowVal !== undefined ? flowVal : (bookingData ? bookingData.flow : "FB");
+            const isCombo = (finalFlow === 'FB' || finalFlow === 'BF');
+            const transitionBuffer = isCombo ? (typeof ResourceCore !== 'undefined' && ResourceCore.CONFIG ? ResourceCore.CONFIG.TRANSITION_BUFFER : 3) : 0;
+            
+            if (isCombo) {
+                await updateCell('AC', typeof ResourceCore !== 'undefined' ? ResourceCore.getTimeStrFromMins(startMins + p1Dur + transitionBuffer) : "");
+            } else {
+                await updateCell('AC', "");
+            }
+            await updateCell('AE', typeof ResourceCore !== 'undefined' ? ResourceCore.getTimeStrFromMins(startMins + p1Dur + p2Dur + transitionBuffer) : "");
+        }
     }
 
     // === [V136 OPTIMISTIC CACHE UPDATE] 防衝突機制 ===
@@ -1063,7 +1105,7 @@ async function updateInlineBooking(rowId, updatedData) {
                 svcName += getOilSuffixText();
             }
             row[3] = svcName;
-            row[20] = sCode;
+            row[23] = sCode;
             
             if (sCode && STATE.SERVICES[sCode]) {
                 const svcDef = STATE.SERVICES[sCode];
@@ -1088,9 +1130,9 @@ async function updateInlineBooking(rowId, updatedData) {
                     newResType = 'CHAIR';
                 }
                 
-                row[24] = phase1_dur;
-                row[25] = phase2_dur;
-                row[26] = newFlow;
+                row[27] = phase1_dur;
+                row[29] = phase2_dur;
+                row[24] = newFlow;
                 
                 let oldCategory = null;
                 if (bookingData && bookingData.serviceCode && STATE.SERVICES[bookingData.serviceCode]) {
@@ -1115,13 +1157,13 @@ async function updateInlineBooking(rowId, updatedData) {
                         
                         if (isP1Chair) {
                             newFlow = 'FB';
-                            row[26] = newFlow;
+                            row[24] = newFlow;
                         } else if (isP1Bed) {
                             newFlow = 'BF';
-                            row[26] = newFlow;
+                            row[24] = newFlow;
                             // Hoán đổi thời lượng vì Flow đổi
-                            const temp = row[24]; row[24] = row[25]; row[25] = temp;
-                            phase1_dur = row[24]; phase2_dur = row[25];
+                            const temp = row[27]; row[27] = row[29]; row[29] = temp;
+                            phase1_dur = row[27]; phase2_dur = row[29];
                         }
 
                         const opDate = updatedData.ngayDen !== undefined ? formattedDate : (bookingData.opDate || bookingData.startTimeString);
@@ -1184,14 +1226,14 @@ async function updateInlineBooking(rowId, updatedData) {
                                     const finalFlow = checkResult.details[0].flow;
                                     if (finalFlow !== newFlow && (finalFlow === 'BF' || finalFlow === 'FB')) {
                                         // Flow bị đảo ngược -> Hoán đổi thời gian của Phase 1 và Phase 2
-                                        const temp = row[24];
-                                        row[24] = row[25];
-                                        row[25] = temp;
+                                        const temp = row[27];
+                                        row[27] = row[29];
+                                        row[29] = temp;
                                     }
-                                    row[26] = finalFlow;
+                                    row[24] = finalFlow;
                                 }
                                 
-                                console.log(`[STRICT AUTO-ALLOCATE] Inline Update found new resources for Row ${rowId}: ${bestPhase1}, ${bestPhase2}, Flow: ${row[26]}`);
+                                console.log(`[STRICT AUTO-ALLOCATE] Inline Update found new resources for Row ${rowId}: ${bestPhase1}, ${bestPhase2}, Flow: ${row[24]}`);
                             } else {
                                 // STRICT VALIDATION: Chặn lưu dữ liệu và ném ra lỗi nếu thuật toán thất bại (hết giường)
                                 console.warn(`[STRICT AUTO-ALLOCATE FAILED] ${checkResult.reason}`);
@@ -1203,42 +1245,67 @@ async function updateInlineBooking(rowId, updatedData) {
                         }
                     }
 
-                    row[27] = bestPhase1;
-                    row[28] = bestPhase2;
+                    row[30] = bestPhase1;
+                    row[31] = bestPhase2;
                 }
-                row[29] = newResType;
+                row[33] = newResType;
             }
         } else {
             if (updatedData.duration !== undefined) {
-                let currentFlow = row[26] || "";
+                let currentFlow = row[24] || "";
                 if (currentFlow === 'FB' || currentFlow === 'BF') {
                     let phase1_dur = updatedData.phase1_duration !== undefined ? updatedData.phase1_duration : Math.floor(updatedData.duration / 2);
                     let phase2_dur = updatedData.phase2_duration !== undefined ? updatedData.phase2_duration : updatedData.duration - phase1_dur;
-                    row[24] = phase1_dur;
-                    row[25] = phase2_dur;
+                    row[27] = phase1_dur;
+                    row[29] = phase2_dur;
                 } else {
-                    row[24] = updatedData.duration;
-                    row[25] = "";
+                    row[27] = updatedData.duration;
+                    row[29] = "";
                 }
             } else {
-                if (updatedData.phase1_duration !== undefined) row[24] = updatedData.phase1_duration;
-                if (updatedData.phase2_duration !== undefined) row[25] = updatedData.phase2_duration;
+                if (updatedData.phase1_duration !== undefined) row[27] = updatedData.phase1_duration;
+                if (updatedData.phase2_duration !== undefined) row[29] = updatedData.phase2_duration;
+            }
+        }
+        
+        // --- V1.6 NÂNG CẤP: Tính toán các cột Z, AB (transition), AD (finish) ---
+        let colB_Time = row[1];
+        if (colB_Time) {
+            let timeVal = colB_Time; if (timeVal.includes(' ')) timeVal = timeVal.split(' ')[1];
+            if (timeVal.length > 5) timeVal = timeVal.substring(0, 5);
+            row[25] = timeVal; // Z: start_time_str
+            
+            const startMins = typeof ResourceCore !== 'undefined' ? ResourceCore.getMinsFromTimeStr(timeVal) : -1;
+            if (startMins !== -1) {
+                let p1Dur = parseInt(row[27]) || 0;
+                let p2Dur = parseInt(row[29]) || 0;
+                
+                let finalFlow = row[24] || "FB";
+                const isCombo = (finalFlow === 'FB' || finalFlow === 'BF');
+                const transitionBuffer = isCombo ? (typeof ResourceCore !== 'undefined' && ResourceCore.CONFIG ? ResourceCore.CONFIG.TRANSITION_BUFFER : 3) : 0;
+                
+                if (isCombo) {
+                    row[28] = typeof ResourceCore !== 'undefined' ? ResourceCore.getTimeStrFromMins(startMins + p1Dur + transitionBuffer) : ""; // AC
+                } else {
+                    row[28] = "";
+                }
+                row[30] = typeof ResourceCore !== 'undefined' ? ResourceCore.getTimeStrFromMins(startMins + p1Dur + p2Dur + transitionBuffer) : ""; // AE
             }
         }
 
         // === [V136 OPTIMISTIC CACHE UPDATE] 防衝突機制 ===
         // Cập nhật bộ nhớ đệm ngay trước khi gọi API Google Sheet để request đồng thời không bị dính dữ liệu cũ
         if (bookingData) {
-            if (row[27] !== undefined) bookingData.phase1_res_idx = row[27];
-            if (row[28] !== undefined) bookingData.phase2_res_idx = row[28];
-            if (row[27] || row[28]) {
-                bookingData.allocated_resource = row[27] && row[28] ? `${row[27]}+${row[28]}` : (row[27] || "");
+            if (row[30] !== undefined) bookingData.phase1_res_idx = row[30];
+            if (row[31] !== undefined) bookingData.phase2_res_idx = row[31];
+            if (row[30] || row[31]) {
+                bookingData.allocated_resource = row[30] && row[31] ? `${row[30]}+${row[31]}` : (row[30] || "");
             }
-            if (row[26]) bookingData.flow = row[26];
-            if (row[24] !== undefined) bookingData.phase1_duration = row[24];
-            if (row[25] !== undefined) bookingData.phase2_duration = row[25];
-            bookingData.duration = parseInt(row[24] || 0) + parseInt(row[25] || 0);
-            if (row[29]) bookingData.resource_type = row[29];
+            if (row[24]) bookingData.flow = row[24];
+            if (row[27] !== undefined) bookingData.phase1_duration = row[27];
+            if (row[29] !== undefined) bookingData.phase2_duration = row[29];
+            bookingData.duration = parseInt(row[27] || 0) + parseInt(row[29] || 0);
+            if (row[33]) bookingData.resource_type = row[33];
             if (sCode) bookingData.serviceCode = sCode;
             if (row[3]) bookingData.serviceName = row[3];
             
