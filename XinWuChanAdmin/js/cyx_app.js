@@ -2904,13 +2904,13 @@ const App = () => {
                     delete localOverridesRef.current[rid];
                 }
 
+                // [FIX] Khắc phục lỗi tính lặp thợ 1 và bỏ sót thợ 2 (Group Checkout Bug)
                 let targetIndex = -1;
-                const currentStaff = b.serviceStaff || b.staffId;
-
-                if (currentStaff && currentStaff !== '隨機' && currentStaff !== 'undefined') {
-                    const staffCols = [b.serviceStaff || b.staffId, b.staffId2, b.staffId3, b.staffId4, b.staffId5, b.staffId6];
-                    targetIndex = staffCols.findIndex(s => s && s.trim() === currentStaff.trim());
+                if (resId) {
+                    targetIndex = getGroupMemberIndex(resId, b.rowId);
                 }
+                
+                // Fallback nếu không xác định được index
                 if (targetIndex === -1) {
                     // [V116.5 FIX] Ép cứng Cột 1 cho Dòng đơn khách (không xài staffId2)
                     const isSingleRow = (!b.staffId2 || String(b.staffId2).trim() === 'undefined' || String(b.staffId2).trim() === '');
