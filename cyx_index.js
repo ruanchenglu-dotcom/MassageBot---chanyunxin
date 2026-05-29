@@ -1854,7 +1854,8 @@ async function checkAndSendReminders() {
 // 1. Initial Sync (Khởi động đồng bộ)
 SheetService.syncMenuData()
     .then(() => SheetService.syncQuickNotes())
-    .then(() => SheetService.syncData());
+    .then(() => SheetService.syncData())
+    .catch(err => console.error("Lỗi trong quá trình Initial Sync:", err));
 
 // 2. Auto Sync Interval & Error Tracking [V130 NÂNG CẤP]
 const SYNC_INTERVAL = getConfig().API_CONFIG?.SYNC_INTERVAL || 30000; // Mặc định 30 giây
@@ -1864,36 +1865,44 @@ let alarmSent = false; // Trạng thái đã gửi cảnh báo hay chưa
 
 // Chu kỳ siêu dài: Menu Data & Quick Notes (Cấu hình ít thay đổi)
 setInterval(async () => {
-    await SheetService.syncMenuData();
-    await SheetService.syncQuickNotes();
+    try {
+        await SheetService.syncMenuData();
+        await SheetService.syncQuickNotes();
+    } catch (error) {
+        console.error("Lỗi trong chu kỳ siêu dài:", error);
+    }
 }, LONG_SYNC_INTERVAL);
 
 // Chu kỳ ngắn: Cập nhật Lịch hẹn Booking & Trạng thái Nhân viên
 setInterval(async () => {
-    await SheetService.syncData();
-    
-    // Gọi tính năng tự động nhắc nhở (Auto Reminders)
-    await checkAndSendReminders();
-    const errors = SheetService.getConsecutiveErrors();
+    try {
+        await SheetService.syncData();
+        
+        // Gọi tính năng tự động nhắc nhở (Auto Reminders)
+        await checkAndSendReminders();
+        const errors = SheetService.getConsecutiveErrors();
 
-    if (errors >= MAX_RETRIES && !alarmSent) {
-        // Kích hoạt báo động LINE khi vượt quá số lần retry
-        const msg = `⚠️ 系統警告: Google Sheet 連線失敗!\n(Cảnh báo: Lỗi kết nối Google Sheet quá ${errors} lần)`;
-        if (ID_BA_CHU) {
-            client.pushMessage(ID_BA_CHU, { type: 'text', text: msg })
-                .catch(err => console.error("[LINE PUSH ERROR]", err));
+        if (errors >= MAX_RETRIES && !alarmSent) {
+            // Kích hoạt báo động LINE khi vượt quá số lần retry
+            const msg = `⚠️ 系統警告: Google Sheet 連線失敗!\n(Cảnh báo: Lỗi kết nối Google Sheet quá ${errors} lần)`;
+            if (ID_BA_CHU) {
+                client.pushMessage(ID_BA_CHU, { type: 'text', text: msg })
+                    .catch(err => console.error("[LINE PUSH ERROR]", err));
+            }
+            console.log(`[ALERT TRIGGERED] ${msg}`);
+            alarmSent = true;
+        } else if (errors === 0 && alarmSent) {
+            // Hệ thống khôi phục thành công
+            const msg = `✅ 系統恢復: Google Sheet 連線已恢復正常。`;
+            if (ID_BA_CHU) {
+                client.pushMessage(ID_BA_CHU, { type: 'text', text: msg })
+                    .catch(err => console.error("[LINE PUSH ERROR]", err));
+            }
+            console.log(`[ALERT RECOVERED] ${msg}`);
+            alarmSent = false;
         }
-        console.log(`[ALERT TRIGGERED] ${msg}`);
-        alarmSent = true;
-    } else if (errors === 0 && alarmSent) {
-        // Hệ thống khôi phục thành công
-        const msg = `✅ 系統恢復: Google Sheet 連線已恢復正常。`;
-        if (ID_BA_CHU) {
-            client.pushMessage(ID_BA_CHU, { type: 'text', text: msg })
-                .catch(err => console.error("[LINE PUSH ERROR]", err));
-        }
-        console.log(`[ALERT RECOVERED] ${msg}`);
-        alarmSent = false;
+    } catch (error) {
+        console.error("Lỗi trong chu kỳ ngắn (syncData/checkAndSendReminders):", error);
     }
 }, SYNC_INTERVAL);
 

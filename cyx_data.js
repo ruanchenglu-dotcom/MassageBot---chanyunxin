@@ -76,7 +76,7 @@ const SYSTEM_CONFIG = {
 
     // Cấu hình tối ưu hóa API & Mạng
     API_CONFIG: {
-        SYNC_INTERVAL: 10000, // Tần suất đồng bộ Google Sheets (10 giây/lần)
+        SYNC_INTERVAL: 30000, // Tần suất đồng bộ Google Sheets (30 giây/lần)
         MAX_RETRIES: 3        // Số lần lỗi API liên tiếp tối đa trước khi gửi cảnh báo LINE
     },
 
