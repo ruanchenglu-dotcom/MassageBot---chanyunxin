@@ -458,24 +458,33 @@
                                          
                 let newStaffTime = currentStaffTime;
 
-                // --- LOGIC PHẠT THỜI GIAN THEO LÝ THUYẾT (TIME PENALTY) ---
-                if (!isGroup) {
-                    newStaffTime = currentStaffTime + (info.duration * 60000); // 1 block = phạt điểm độc lập
-                }
-                else if (isGroup && uniqueBlocks.length === 1) {
-                    newStaffTime = currentStaffTime + (minGroupDuration * 60000); // Penalty chung nhóm
-                }
-                else if (isGroup && uniqueBlocks.length > 1) {
-                    newStaffTime = currentStaffTime + (info.duration * 60000); // Penalty riêng lẽ
-                }
+                // KIỂM TRA ƯU TIÊN DỊCH VỤ NGẮN (1 BLOCK <= 40 PHÚT)
+                const isShortService = info.duration <= 40;
+                const isShortServicePriorityEnabled = window.SYSTEM_CONFIG && window.SYSTEM_CONFIG.LOGIC_RULES && window.SYSTEM_CONFIG.LOGIC_RULES.SHORT_SERVICE_NO_PRIORITY === false;
 
-                // --- ÉP KHUÔN CUỐI HÀNG CHỜ (ANTI-CUT-IN-LINE) ---
-                // Luôn xếp sau người rảnh rỗi chờ lâu nhất thời điểm hiện tại (chặn chen ngang)
-                if (newStaffTime <= maxReadyTime) {
-                    // Cài đặt vị trí mới sát đằng sau maxReadyTime + 1000ms
-                    // Tính độ trễ mili-giây nguyên bản để tái tạo hàng ngũ (0ms, 10ms, 20ms...)
-                    const busyOffsetMs = (currentStatusData[info.staffId]?.stafftime % 1000) || 0;
-                    newStaffTime = maxReadyTime + 1000 + busyOffsetMs;
+                if (isShortService && isShortServicePriorityEnabled) {
+                    // [Yêu cầu KH] Dịch vụ ngắn (<=40p): Giữ nguyên vị trí/mốc thời gian chờ cũ (quay về vị trí cũ)
+                    newStaffTime = currentStaffTime;
+                } else {
+                    // --- LOGIC PHẠT THỜI GIAN THEO LÝ THUYẾT (TIME PENALTY) ---
+                    if (!isGroup) {
+                        newStaffTime = currentStaffTime + (info.duration * 60000); // 1 block = phạt điểm độc lập
+                    }
+                    else if (isGroup && uniqueBlocks.length === 1) {
+                        newStaffTime = currentStaffTime + (minGroupDuration * 60000); // Penalty chung nhóm
+                    }
+                    else if (isGroup && uniqueBlocks.length > 1) {
+                        newStaffTime = currentStaffTime + (info.duration * 60000); // Penalty riêng lẽ
+                    }
+
+                    // --- ÉP KHUÔN CUỐI HÀNG CHỜ (ANTI-CUT-IN-LINE) ---
+                    // Luôn xếp sau người rảnh rỗi chờ lâu nhất thời điểm hiện tại (chặn chen ngang)
+                    if (newStaffTime <= maxReadyTime) {
+                        // Cài đặt vị trí mới sát đằng sau maxReadyTime + 1000ms
+                        // Tính độ trễ mili-giây nguyên bản để tái tạo hàng ngũ (0ms, 10ms, 20ms...)
+                        const busyOffsetMs = (currentStatusData[info.staffId]?.stafftime % 1000) || 0;
+                        newStaffTime = maxReadyTime + 1000 + busyOffsetMs;
+                    }
                 }
 
                 newStatusData[info.staffId] = {
