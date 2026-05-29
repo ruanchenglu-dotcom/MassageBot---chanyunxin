@@ -619,6 +619,7 @@ const App = () => {
                                     rowId: rowId,
                                     current_resource_id: targetId,
                                     location: targetId,
+                                    phase2_res_idx: targetId,
                                     forceSync: true
                                 });
                             }
@@ -629,7 +630,9 @@ const App = () => {
 
             if (hasChanges) {
                 setResourceState(newState);
-                apiPayloads.forEach(payload => universalSend('/api/update-booking-details', payload));
+                if (apiPayloads.length > 0) {
+                    universalSend('/api/batch-process-bookings', { payloads: apiPayloads });
+                }
                 universalSend('/api/sync-resource', newState);
             }
         }, 5000);
@@ -1380,7 +1383,7 @@ const App = () => {
                 });
 
                 if (syncPayloads.length > 0) {
-                    syncPayloads.forEach(p => universalSend('/api/update-booking-details', p));
+                    universalSend('/api/batch-process-bookings', { payloads: syncPayloads });
                 }
             } catch (err) {
                 console.error("Auto sync error:", err);
