@@ -2412,7 +2412,8 @@ const App = () => {
                     const targetPhysicalType = ghostTargetId.split('-')[0];
                     if (currentPhysicalType === targetPhysicalType) {
                         if (!silentMode) {
-                            Swal.fire('系統提示', `⚠️ 預約錯誤: Phase 1 (${currentPhysicalType === 'chair' ? '足部' : '身體'}) 和 Phase 2 (${targetPhysicalType === 'chair' ? '足部' : '身體'}) 不能在同一個區域！\n(套餐必須包含一個床位和一個足部區)\n請重新調整座位！`, 'warning');
+                            const c_prefix = window.SYSTEM_CONFIG?.UI_LABELS?.CHAIR_PREFIX || '腳';
+                            Swal.fire('系統提示', `⚠️ 預約錯誤: Phase 1 (${currentPhysicalType === 'chair' ? c_prefix + '部' : '身體'}) 和 Phase 2 (${targetPhysicalType === 'chair' ? c_prefix + '部' : '身體'}) 不能在同一個區域！\n(套餐必須包含一個床位和一個${c_prefix}部區)\n請重新調整座位！`, 'warning');
                         }
                         setSyncLock(false);
                         return;
@@ -2437,7 +2438,8 @@ const App = () => {
                 
                 if (!silentMode) {
                     const reqTxt = comboSequence === 'BF' ? '身體優先 (Body First)' : '腳底優先 (Foot First)';
-                    const mustBe = comboSequence === 'BF' ? '【床 / Bed】' : '【足 / Chair】';
+                    const c_prefix = window.SYSTEM_CONFIG?.UI_LABELS?.CHAIR_PREFIX || '腳';
+                    const mustBe = comboSequence === 'BF' ? '【床 / Bed】' : `【${c_prefix} / Chair】`;
                     Swal.fire('系統提示', `⚠️ 服務流程錯誤: \n您選擇的是 ${reqTxt}，第一階段必須在 ${mustBe}!\n請重新確定顧客位置！`, 'warning');
                 }
                 setSyncLock(false);
@@ -2447,7 +2449,8 @@ const App = () => {
             const type = id.split('-')[0];
             const force = current.booking.forceResourceType === 'CHAIR' ? 'chair' : 'bed';
             if (type !== force) {
-                if (!silentMode) Swal.fire('系統提示', `⚠️ 位置錯誤：此顧客必須安排在 ${force === 'chair' ? '足部區' : '身體區'}!`, 'warning');
+                const c_prefix = window.SYSTEM_CONFIG?.UI_LABELS?.CHAIR_PREFIX || '腳';
+                if (!silentMode) Swal.fire('系統提示', `⚠️ 位置錯誤：此顧客必須安排在 ${force === 'chair' ? c_prefix + '部區' : '身體區'}!`, 'warning');
                 setSyncLock(false);
                 return;
             }
@@ -2898,7 +2901,8 @@ const App = () => {
         const targetTypeString = toType === 'chair' ? 'CHAIR' : 'BED';
 
         if (isStrict && requiredType !== targetTypeString) {
-            Swal.fire('系統提示', `⛔️ 阻擋：此服務限定為 ${requiredType === 'CHAIR' ? '足部' : '身體'}，無法轉場至 ${targetTypeString === 'CHAIR' ? '足部' : '身體'}！`, 'warning');
+            const c_prefix = window.SYSTEM_CONFIG?.UI_LABELS?.CHAIR_PREFIX || '腳';
+            Swal.fire('系統提示', `⛔️ 阻擋：此服務限定為 ${requiredType === 'CHAIR' ? c_prefix + '部' : '身體'}，無法轉場至 ${targetTypeString === 'CHAIR' ? c_prefix + '部' : '身體'}！`, 'warning');
             return;
         }
 
@@ -2917,7 +2921,8 @@ const App = () => {
                 return;
             }
         }
-        Swal.fire('系統提示', `該區域 (${toType === 'chair' ? '足部區' : '身體區'}) 已無空位！`, 'warning');
+        const c_prefix = window.SYSTEM_CONFIG?.UI_LABELS?.CHAIR_PREFIX || '腳';
+        Swal.fire('系統提示', `該區域 (${toType === 'chair' ? c_prefix + '部區' : '身體區'}) 已無空位！`, 'warning');
     };
 
     const handleToggleMax = async (resId) => { const res = resourceState[resId]; if (!res) return; updateResource({ ...resourceState, [resId]: { ...res, isMaxMode: !res.isMaxMode } }); };
@@ -3637,7 +3642,7 @@ const App = () => {
                                 <div className="flex flex-wrap gap-2">
                                     {paymentChoiceData.relatedIds.map(rid => (
                                         <span key={rid} className="bg-white border border-blue-200 text-blue-700 px-2 py-1 rounded text-xs font-mono font-bold shadow-sm">
-                                            {rid.replace('bed-', '床 ').replace('chair-', '足 ')}
+                                            {rid.replace('bed-', (window.SYSTEM_CONFIG?.UI_LABELS?.BED_PREFIX || '床') + ' ').replace('chair-', (window.SYSTEM_CONFIG?.UI_LABELS?.CHAIR_PREFIX || '腳') + ' ')}
                                         </span>
                                     ))}
                                 </div>
@@ -3693,7 +3698,7 @@ const App = () => {
                                 <div className="flex flex-wrap gap-2">
                                     {startChoiceData.relatedDetails.map(item => (
                                         <span key={item.resourceId || Math.random()} className="bg-white border border-emerald-200 text-emerald-700 px-2 py-1 rounded text-xs font-mono font-bold shadow-sm">
-                                            {item.resourceId ? item.resourceId.replace('bed-', '床 ').replace('chair-', '足 ') : '已鎖定預測位置'}
+                                            {item.resourceId ? item.resourceId.replace('bed-', (window.SYSTEM_CONFIG?.UI_LABELS?.BED_PREFIX || '床') + ' ').replace('chair-', (window.SYSTEM_CONFIG?.UI_LABELS?.CHAIR_PREFIX || '腳') + ' ') : '已鎖定預測位置'}
                                         </span>
                                     ))}
                                 </div>

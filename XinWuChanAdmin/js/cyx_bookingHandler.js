@@ -342,7 +342,7 @@
                 const { p1, realDuration } = calculateRealDurations(b, b.duration || 60, isCombo);
 
                 const rIdStr = (b.phase1_res_idx || "") + " " + (b.phase2_res_idx || "") + " " + (b.allocated_resource || "") + " " + (b.location || "") + " " + (b.current_resource_id || "") + " " + (b.rowId || "");
-                const matches = [...rIdStr.matchAll(/((?:BED|CHAIR|床|足)[-_ ]?\d+)/gi)].map(m => m[1].toUpperCase());
+                const matches = [...rIdStr.matchAll(/((?:BED|CHAIR|床|足|腳)[-_ ]?\d+)/gi)].map(m => m[1].toUpperCase());
                 let uniqueMatches = [...new Set(matches)];
 
                 // [V118.8 FIX] Hỗ trợ trích xuất số ghế/giường nếu chuỗi chỉ có số đơn thuần (phòng ngừa Bóng Ma Toạ Độ)
@@ -374,7 +374,7 @@
                     
                     const pushToMap = (res, startT, endT) => {
                         if (!res) return;
-                        const laneMatch = res.match(/(BED|CHAIR|床|足)[-_ ]?(\d+)/i);
+                        const laneMatch = res.match(/(BED|CHAIR|床|足|腳)[-_ ]?(\d+)/i);
                         if (laneMatch) {
                             const type = (laneMatch[1].toUpperCase().includes('BED') || laneMatch[1].includes('床')) ? 'BED' : 'CHAIR';
                             const idx = parseInt(laneMatch[2]) - 1;
@@ -388,7 +388,7 @@
                     pushToMap(res2, bStart + p1 + CONF.TRANSITION_BUFFER, bStart + realDuration + CONF.CLEANUP_BUFFER);
                 } else {
                     uniqueMatches.forEach(res => {
-                        const laneMatch = res.match(/(BED|CHAIR|床|足)[-_ ]?(\d+)/i);
+                        const laneMatch = res.match(/(BED|CHAIR|床|足|腳)[-_ ]?(\d+)/i);
                         if (laneMatch) {
                             const type = (laneMatch[1].toUpperCase().includes('BED') || laneMatch[1].includes('床')) ? 'BED' : 'CHAIR';
                             const idx = parseInt(laneMatch[2]) - 1;
@@ -855,7 +855,7 @@
                 // [V135 FIX] LUÔN ưu tiên lấy toạ độ thực tế một cách toàn diện như Guardrail
                 // Điều này ngăn chặn Bóng Ma Toạ Độ do Matrix gán nhầm ghế/giường đã có khách.
                 const rIdStr = (b.phase1_res_idx || "") + " " + (b.phase2_res_idx || "") + " " + (b.allocated_resource || "") + " " + (b.location || "") + " " + (b.current_resource_id || "") + " " + (b.rowId || "");
-                const matches = [...rIdStr.matchAll(/((?:BED|CHAIR|床|足)[-_ ]?\d+)/gi)].map(m => m[1].toUpperCase());
+                const matches = [...rIdStr.matchAll(/((?:BED|CHAIR|床|足|腳)[-_ ]?\d+)/gi)].map(m => m[1].toUpperCase());
                 let uniqueMatches = [...new Set(matches)];
 
                 if (uniqueMatches.length === 0) {

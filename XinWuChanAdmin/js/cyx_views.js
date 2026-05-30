@@ -840,7 +840,7 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                         <div className="flex-1 pr-2">
                             <div className="flex items-center gap-2 flex-wrap">
                                 <span className="bg-white/20 text-xs px-2 py-0.5 rounded uppercase font-mono tracking-wider">#{booking.rowId}</span>
-                                {contextResourceId && <span className="bg-orange-500 text-white text-xs px-2 py-0.5 rounded uppercase font-bold shadow-sm"><i className="fas fa-map-marker-alt mr-1"></i>{contextResourceId.replace('bed-', '床 ').replace('chair-', '足 ')}</span>}
+                                {contextResourceId && <span className="bg-orange-500 text-white text-xs px-2 py-0.5 rounded uppercase font-bold shadow-sm"><i className="fas fa-map-marker-alt mr-1"></i>{contextResourceId.replace('bed-', (window.SYSTEM_CONFIG?.UI_LABELS?.BED_PREFIX || '床') + ' ').replace('chair-', (window.SYSTEM_CONFIG?.UI_LABELS?.CHAIR_PREFIX || '腳') + ' ')}</span>}
                                 {isSyncPending && <span className="bg-blue-500 text-white text-xs font-bold px-2 py-0.5 rounded animate-pulse shadow-sm"><i className="fas fa-sync-alt animate-spin mr-1"></i>同步中</span>}
                                 {isRunning && !isPaused && !isSyncPending && <span className="bg-green-500 text-xs font-bold px-2 py-0.5 rounded animate-pulse">{STATUS.SERVING}</span>}
                                 {isPaused && <span className="bg-yellow-500 text-xs font-bold px-2 py-0.5 rounded">暫停中</span>}
@@ -1507,19 +1507,22 @@ const TimelineView = ({ timelineData, onEditPhase, liveStatusData, staffList, st
     };
 
     let rows = [];
+    const c_prefix = window.SYSTEM_CONFIG?.UI_LABELS?.CHAIR_PREFIX || '腳';
+    const b_prefix = window.SYSTEM_CONFIG?.UI_LABELS?.BED_PREFIX || '床';
+
     if (branch === 'main') {
         const numChairs = getMaxChairs();
         const numBeds = getMaxBeds();
         rows = [
-            ...Array.from({ length: numChairs }, (_, i) => ({ id: `chair-${i + 1}`, label: `足 ${i + 1}`, type: 'chair' })),
-            ...Array.from({ length: numBeds }, (_, i) => ({ id: `bed-${i + 1}`, label: `床 ${i + 1}`, type: 'bed' }))
+            ...Array.from({ length: numChairs }, (_, i) => ({ id: `chair-${i + 1}`, label: `${c_prefix} ${i + 1}`, type: 'chair' })),
+            ...Array.from({ length: numBeds }, (_, i) => ({ id: `bed-${i + 1}`, label: `${b_prefix} ${i + 1}`, type: 'bed' }))
         ];
     } else {
         const oppChairs = getOppChairs();
         const oppBeds = getOppBeds();
         rows = [
-            ...Array.from({ length: oppChairs }, (_, i) => ({ id: `opp-chair-${i + 1}`, label: `足 ${i + 1}`, type: 'chair' })),
-            ...Array.from({ length: oppBeds }, (_, i) => ({ id: `opp-bed-${i + 1}`, label: `床 ${i + 1}`, type: 'bed' }))
+            ...Array.from({ length: oppChairs }, (_, i) => ({ id: `opp-chair-${i + 1}`, label: `${c_prefix} ${i + 1}`, type: 'chair' })),
+            ...Array.from({ length: oppBeds }, (_, i) => ({ id: `opp-bed-${i + 1}`, label: `${b_prefix} ${i + 1}`, type: 'bed' }))
         ];
     }
 

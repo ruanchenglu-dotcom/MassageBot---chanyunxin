@@ -827,7 +827,8 @@ const AvailabilityCheckModal = ({ onClose, onSave, staffList, bookings, initialD
         let msg = "✅ 可預約";
 
         if (resourceType === 'CHAIR') {
-            if (chairOccupied + needed > 9) { available = false; msg = "❌ 足底區客滿"; }
+            const c_prefix = window.SYSTEM_CONFIG?.UI_LABELS?.CHAIR_PREFIX || '腳';
+            if (chairOccupied + needed > 9) { available = false; msg = `❌ ${c_prefix}底區客滿`; }
         } else if (resourceType === 'BED') {
             if (bedOccupied + needed > 9) { available = false; msg = "❌ 指壓區客滿"; }
         } else {
