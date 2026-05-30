@@ -293,7 +293,7 @@ const getBookingSignature = (booking) => {
 // --- APP COMPONENT ---
 const App = () => {
     // 1. STATE MANAGEMENT
-    const [activeTab, setActiveTab] = useState('timeline');
+    const [activeTab, setActiveTab] = useState('timeline-main');
 
     const [staffList, setStaffList] = useState([]);
     const [bookings, setBookings] = useState([]);
@@ -3525,7 +3525,8 @@ const App = () => {
                 </div>
 
                 <div className="flex gap-3">
-                    <button onClick={() => setActiveTab('timeline')} className={`px-3 py-1.5 rounded-lg font-bold text-sm flex gap-2 items-center transition-all shadow-lg ${activeTab === 'timeline' ? 'bg-purple-600 text-white ring-2 ring-white scale-105 opacity-100' : 'bg-purple-600 text-white/90 opacity-60 hover:opacity-100 hover:scale-105'}`}><i className="fas fa-stream"></i> <span className="hidden md:inline">時間軸 (Timeline)</span></button>
+                    <button onClick={() => setActiveTab('timeline-main')} className={`px-3 py-1.5 rounded-lg font-bold text-sm flex gap-2 items-center transition-all shadow-lg ${activeTab === 'timeline-main' ? 'bg-indigo-600 text-white ring-2 ring-white scale-105 opacity-100' : 'bg-indigo-600 text-white/90 opacity-60 hover:opacity-100 hover:scale-105'}`}><i className="fas fa-building"></i> <span className="hidden md:inline">{window.SYSTEM_CONFIG?.UI_LABELS?.MAIN_BRANCH || '本館'}</span></button>
+                    <button onClick={() => setActiveTab('timeline-opp')} className={`px-3 py-1.5 rounded-lg font-bold text-sm flex gap-2 items-center transition-all shadow-lg ${activeTab === 'timeline-opp' ? 'bg-teal-600 text-white ring-2 ring-white scale-105 opacity-100' : 'bg-teal-600 text-white/90 opacity-60 hover:opacity-100 hover:scale-105'}`}><i className="fas fa-store"></i> <span className="hidden md:inline">{window.SYSTEM_CONFIG?.UI_LABELS?.OPP_BRANCH || '對面館'}</span></button>
                     <button onClick={() => setActiveTab('list')} className={`px-3 py-1.5 rounded-lg font-bold text-sm flex gap-2 items-center transition-all shadow-lg ${activeTab === 'list' ? 'bg-cyan-600 text-white ring-2 ring-white scale-105 opacity-100' : 'bg-cyan-600 text-white/90 opacity-60 hover:opacity-100 hover:scale-105'}`}><i className="fas fa-list"></i> <span className="hidden md:inline">列表 (List)</span></button>
                 </div>
 
@@ -3571,36 +3572,31 @@ const App = () => {
                     />
                 )}
 
-                {activeTab === 'timeline' && window.TimelineView && (
-                    <div className="flex w-full gap-4 h-full">
-                        <div className="w-1/2 h-full flex flex-col relative border-2 border-indigo-200 rounded-lg bg-white overflow-hidden shadow-sm">
-                            <div className="absolute top-0 right-0 bg-indigo-500 text-white text-xs font-bold px-3 py-1 rounded-bl-lg z-[60] shadow-md">
-                                {window.SYSTEM_CONFIG?.UI_LABELS?.MAIN_BRANCH || '本館'}
-                            </div>
-                            <window.TimelineView
-                                branch="main"
-                                timelineData={timelineData}
-                                liveStatusData={resourceState}
-                                onEditPhase={handleControlAction}
-                                onOpenControlCenter={handleOpenControlCenter}
-                                staffList={staffList}
-                                statusData={statusData}
-                            />
-                        </div>
-                        <div className="w-1/2 h-full flex flex-col relative border-2 border-teal-200 rounded-lg bg-white overflow-hidden shadow-sm">
-                            <div className="absolute top-0 right-0 bg-teal-500 text-white text-xs font-bold px-3 py-1 rounded-bl-lg z-[60] shadow-md">
-                                {window.SYSTEM_CONFIG?.UI_LABELS?.OPP_BRANCH || '對面館'}
-                            </div>
-                            <window.TimelineView
-                                branch="opp"
-                                timelineData={timelineData}
-                                liveStatusData={resourceState}
-                                onEditPhase={handleControlAction}
-                                onOpenControlCenter={handleOpenControlCenter}
-                                staffList={staffList}
-                                statusData={statusData}
-                            />
-                        </div>
+                {activeTab === 'timeline-main' && window.TimelineView && (
+                    <div className="w-full h-full flex flex-col relative border-2 border-indigo-200 rounded-lg bg-white overflow-hidden shadow-sm">
+                        <window.TimelineView
+                            branch="main"
+                            timelineData={timelineData}
+                            liveStatusData={resourceState}
+                            onEditPhase={handleControlAction}
+                            onOpenControlCenter={handleOpenControlCenter}
+                            staffList={staffList}
+                            statusData={statusData}
+                        />
+                    </div>
+                )}
+
+                {activeTab === 'timeline-opp' && window.TimelineView && (
+                    <div className="w-full h-full flex flex-col relative border-2 border-teal-200 rounded-lg bg-white overflow-hidden shadow-sm">
+                        <window.TimelineView
+                            branch="opp"
+                            timelineData={timelineData}
+                            liveStatusData={resourceState}
+                            onEditPhase={handleControlAction}
+                            onOpenControlCenter={handleOpenControlCenter}
+                            staffList={staffList}
+                            statusData={statusData}
+                        />
                     </div>
                 )}
             </main>
