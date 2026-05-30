@@ -63,7 +63,7 @@ const SYSTEM_CONFIG = {
 
     // Thời gian đệm (Buffers)
     BUFFERS: {
-        CLEANUP_MINUTES: 3,    // Thời gian dọn dẹp sau mỗi ca
+        CLEANUP_MINUTES: 1,    // Thời gian dọn dẹp sau mỗi ca
         TRANSITION_MINUTES: 1  // Thời gian chuyển giữa ghế và giường (nếu có combo)
     },
 
@@ -88,6 +88,9 @@ const SYSTEM_CONFIG = {
         OPP_BRANCH: '對面館',
         CHAIR_PREFIX: '腳',
         BED_PREFIX: '床',
+        CHAIR_PREFIX: '腳',
+        BED_PREFIX: '床',
+
         MINUTES_UNIT: '分',
         PRICE_UNIT: '元',
         LOADING_DATA: '資料庫連接中...',

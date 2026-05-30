@@ -294,8 +294,9 @@ function getEligibleStaffCount(staffList, currentTimeMins, requiredEndTime) {
 // Áp dụng thuật toán Continuous Scan từ bookingHandler.js
 // ============================================================================
 
-function checkLaneContinuity(laneOccupiedArr, start, end) {
-    const safeEnd = end + CONF.CLEANUP_BUFFER;
+function checkLaneContinuity(laneOccupiedArr, start, end, customCleanup = null) {
+    const cleanup = customCleanup !== null ? customCleanup : CONF.CLEANUP_BUFFER;
+    const safeEnd = end + cleanup;
     for (let block of laneOccupiedArr) {
         if (isOverlap(start, safeEnd, block.start, block.end)) return false;
     }
@@ -609,28 +610,31 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
             const p2 = duration - p1;
             const tStart = requestStart;
             const tSwitch = tStart + p1 + CONF.TRANSITION_BUFFER;
+            const comboGuestsCount = guestList.filter(g => isComboService(getServiceInfo(g.serviceCode, g.serviceName), g.serviceCode, g.flowCode)).length;
+            const isCrossSwapGroup = comboGuestsCount >= 2;
+            const phase1Cleanup = isCrossSwapGroup ? Math.min(CONF.CLEANUP_BUFFER, CONF.TRANSITION_BUFFER) : CONF.CLEANUP_BUFFER;
 
             let successBF = false; let successFB = false;
             let bedIdx = -1, chairIdx = -1;
 
             // Kịch bản A: Body Trước (BED -> CHAIR)
-            for (let b = 0; b < CONF.MAX_BEDS; b++) { if (checkLaneContinuity(simulationMap.BED[b], tStart, tStart + p1)) { bedIdx = b; break; } }
+            for (let b = 0; b < CONF.MAX_BEDS; b++) { if (checkLaneContinuity(simulationMap.BED[b], tStart, tStart + p1, phase1Cleanup)) { bedIdx = b; break; } }
             for (let c = 0; c < CONF.MAX_CHAIRS; c++) { if (checkLaneContinuity(simulationMap.CHAIR[c], tSwitch, tSwitch + p2)) { chairIdx = c; break; } }
 
             if (bedIdx !== -1 && chairIdx !== -1) {
                 successBF = true;
-                simulationMap.BED[bedIdx].push({ start: tStart, end: tStart + p1 + CONF.CLEANUP_BUFFER });
+                simulationMap.BED[bedIdx].push({ start: tStart, end: tStart + p1 + phase1Cleanup });
                 simulationMap.CHAIR[chairIdx].push({ start: tSwitch, end: tSwitch + p2 + CONF.CLEANUP_BUFFER });
                 suggestedLanes[guestIdKey] = { BED: bedIdx + 1, CHAIR: chairIdx + 1 };
             } else {
                 // Kịch bản B: Chân Trước (CHAIR -> BED)
                 chairIdx = -1; bedIdx = -1;
-                for (let c = 0; c < CONF.MAX_CHAIRS; c++) { if (checkLaneContinuity(simulationMap.CHAIR[c], tStart, tStart + p1)) { chairIdx = c; break; } }
+                for (let c = 0; c < CONF.MAX_CHAIRS; c++) { if (checkLaneContinuity(simulationMap.CHAIR[c], tStart, tStart + p1, phase1Cleanup)) { chairIdx = c; break; } }
                 for (let b = 0; b < CONF.MAX_BEDS; b++) { if (checkLaneContinuity(simulationMap.BED[b], tSwitch, tSwitch + p2)) { bedIdx = b; break; } }
 
                 if (chairIdx !== -1 && bedIdx !== -1) {
                     successFB = true;
-                    simulationMap.CHAIR[chairIdx].push({ start: tStart, end: tStart + p1 + CONF.CLEANUP_BUFFER });
+                    simulationMap.CHAIR[chairIdx].push({ start: tStart, end: tStart + p1 + phase1Cleanup });
                     simulationMap.BED[bedIdx].push({ start: tSwitch, end: tSwitch + p2 + CONF.CLEANUP_BUFFER });
                     suggestedLanes[guestIdKey] = { CHAIR: chairIdx + 1, BED: bedIdx + 1 };
                 }
@@ -1067,14 +1071,17 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
             const duration = svc.duration || 60; let blocks = [];
             if (isThisGuestCombo) {
                 const p1Standard = Math.floor(duration / 2); const p2Standard = duration - p1Standard;
+                const isCrossSwapGroup = comboGuests.length >= 2 && numBF > 0 && numBF < comboGuests.length;
+                const phase1Cleanup = isCrossSwapGroup ? Math.min(CONF.CLEANUP_BUFFER, CONF.TRANSITION_BUFFER) : CONF.CLEANUP_BUFFER;
+
                 if (flow === 'FB') {
                     const t1End = requestStartMins + p1Standard; const t2Start = t1End + CONF.TRANSITION_BUFFER;
-                    blocks.push({ start: requestStartMins, end: t1End + CONF.CLEANUP_BUFFER, type: 'CHAIR' });
+                    blocks.push({ start: requestStartMins, end: t1End + phase1Cleanup, type: 'CHAIR' });
                     blocks.push({ start: t2Start, end: t2Start + p2Standard + CONF.CLEANUP_BUFFER, type: 'BED' });
                     scenarioDetails.push({ guestIndex: ng.idx, service: svc.name, price: svc.price, phase1_duration: p1Standard, phase2_duration: p2Standard, flow: 'FB', timeStr: timeStr, allocated: [] });
                 } else {
                     const t1End = requestStartMins + p2Standard; const t2Start = t1End + CONF.TRANSITION_BUFFER;
-                    blocks.push({ start: requestStartMins, end: t1End + CONF.CLEANUP_BUFFER, type: 'BED' });
+                    blocks.push({ start: requestStartMins, end: t1End + phase1Cleanup, type: 'BED' });
                     blocks.push({ start: t2Start, end: t2Start + p1Standard + CONF.CLEANUP_BUFFER, type: 'CHAIR' });
                     scenarioDetails.push({ guestIndex: ng.idx, service: svc.name, price: svc.price, phase1_duration: p1Standard, phase2_duration: p2Standard, flow: 'BF', timeStr: timeStr, allocated: [] });
                 }
