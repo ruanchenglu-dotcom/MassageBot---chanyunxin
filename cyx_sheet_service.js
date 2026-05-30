@@ -443,6 +443,7 @@ async function syncData() {
                     phone: row[3], date: cleanDate, opDate: computedOpDate, status: status,
                     isRunning: isRunning, lineId: row[21],
                     isOil: isOilService,
+                    checkinTime: row[24],
                     phase1_duration: safeParseInt(row[26], null),
                     phase2_duration: safeParseInt(row[28], null),
                     isManualLocked: isTrueString(row[33]),
@@ -1677,8 +1678,26 @@ async function getTodaySalary() {
 }
 
 // =============================================================================
+// =============================================================================
 // PHẦN 5: EXPORTS
 // =============================================================================
+
+async function updateCheckinTimeBatch(rowIds, timeStr) {
+    try {
+        if (!rowIds || rowIds.length === 0) return false;
+        const updatePromises = rowIds.map(rowId => 
+            sheets.spreadsheets.values.update({
+                spreadsheetId: SHEET_ID, 
+                range: `${BOOKING_SHEET_NAME}!Y${rowId}`,
+                valueInputOption: 'USER_ENTERED', 
+                requestBody: { values: [[timeStr]] }
+            })
+        );
+        await Promise.all(updatePromises);
+        triggerSyncDebounced();
+        return true;
+    } catch (e) { console.error('Update Checkin Time Error:', e); return false; }
+}
 
 module.exports = {
     init,
@@ -1698,6 +1717,7 @@ module.exports = {
     syncQuickNotes,
     syncDailySalary,
     getTodaySalary,
+    updateCheckinTimeBatch,
     ghiVaoSheet,
     updateBookingStatus,
     updateBookingDetails,

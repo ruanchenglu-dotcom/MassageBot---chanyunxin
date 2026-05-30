@@ -96,6 +96,36 @@
             }) 
             : processedBookings;
 
+        const groupCounts = {};
+        displayBookings.forEach(b => {
+            groupCounts[b.groupKey] = (groupCounts[b.groupKey] || 0) + 1;
+        });
+        const renderedGroups = new Set();
+
+        const handleGroupCheckin = async (groupKey) => {
+            const groupMembers = displayBookings.filter(b => b.groupKey === groupKey);
+            const rowIds = groupMembers.map(b => b.rowId);
+            const now = new Date();
+            const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+            try {
+                const res = await axios.post('/api/update-checkin-time', { rowIds, timeStr });
+                if (res.data.success) {
+                    Swal.fire({
+                        title: '成功',
+                        text: '報到成功！',
+                        icon: 'success',
+                        timer: 1500,
+                        showConfirmButton: false
+                    });
+                    setTimeout(() => { if (window.appRender) window.appRender(); else window.location.reload(); }, 1500);
+                } else {
+                    Swal.fire('錯誤', '報到失敗', 'error');
+                }
+            } catch(e) {
+                Swal.fire('錯誤', '報到失敗: ' + e.message, 'error');
+            }
+        };
+
         // Kích hoạt chế độ chỉnh sửa cho một dòng
         const startEditing = (booking) => {
             setEditingRowId(booking.rowId);
@@ -484,11 +514,26 @@
                                             className={`${rowBg} hover:bg-blue-50 transition-colors ${opacityClass}`}
                                             onDoubleClick={() => startEditing(b)}
                                         >
-                                            <td className="p-4 whitespace-nowrap text-center">
-                                                <span className="bg-blue-100 text-blue-800 text-xs font-bold px-2.5 py-1 rounded-full border border-blue-200">
-                                                    #{b.groupIndex}
-                                                </span>
-                                            </td>
+                                            {!renderedGroups.has(b.groupKey) && (
+                                                <td className="p-4 whitespace-nowrap text-center align-middle border-r border-slate-200" rowSpan={groupCounts[b.groupKey]}>
+                                                    <div className="flex flex-col items-center justify-center gap-2">
+                                                        <span className="bg-blue-100 text-blue-800 text-sm font-bold px-3 py-1.5 rounded-full border border-blue-200 shadow-sm">
+                                                            #{b.groupIndex}
+                                                        </span>
+                                                        {b.checkinTime ? (
+                                                            <div className="text-green-600 font-bold text-sm bg-green-50 px-2 py-1 rounded border border-green-200 w-full text-center">
+                                                                ✅ {b.checkinTime}
+                                                            </div>
+                                                        ) : (
+                                                            <button onClick={() => handleGroupCheckin(b.groupKey)} className="bg-emerald-500 hover:bg-emerald-600 text-white font-bold py-1 px-2 rounded text-xs shadow-sm transition-all w-full">
+                                                                報到
+                                                            </button>
+                                                        )}
+                                                    </div>
+                                                </td>
+                                            )}
+                                            {renderedGroups.add(b.groupKey) && ''}
+
                                             <td className="p-4 whitespace-nowrap font-mono text-gray-600">{(b.startTimeString || ' ').split(' ')[0]}</td>
                                             <td className="p-4 whitespace-nowrap font-mono text-lg font-bold text-indigo-700">{(b.startTimeString || ' ').split(' ')[1]}</td>
                                             <td className="p-4 whitespace-nowrap font-bold text-gray-800 text-lg">{name}</td>
@@ -559,11 +604,14 @@
 
                                 return (
                                     <tr key={`edit-${b.rowId}`} className="bg-yellow-50 shadow-inner border-y-2 border-orange-300">
-                                        <td className="p-2 text-center">
-                                            <span className="bg-blue-100 text-blue-800 text-xs font-bold px-2.5 py-1 rounded-full border border-blue-200">
-                                                #{b.groupIndex}
-                                            </span>
-                                        </td>
+                                        {!renderedGroups.has(b.groupKey + '_edit') && (
+                                            <td className="p-2 text-center align-middle border-r border-slate-200" rowSpan={groupCounts[b.groupKey]}>
+                                                <span className="bg-blue-100 text-blue-800 text-sm font-bold px-3 py-1.5 rounded-full border border-blue-200 shadow-sm">
+                                                    #{b.groupIndex}
+                                                </span>
+                                            </td>
+                                        )}
+                                        {renderedGroups.add(b.groupKey + '_edit') && ''}
                                         <td className="p-2"><input type="date" className="w-full border border-gray-300 p-2 rounded focus:ring-2 focus:ring-orange-400 outline-none" value={editFormData.date} onChange={e => handleInputChange('date', e.target.value)} /></td>
                                         <td className="p-2"><window.TimePicker24H className="w-full border border-gray-300 p-1 rounded font-mono outline-none" value={editFormData.time} onChange={val => handleInputChange('time', val)} /></td>
                                         <td className="p-2">

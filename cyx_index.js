@@ -1023,6 +1023,17 @@ app.post('/api/update-status', async (req, res) => {
 
 app.post('/api/save-salary', async (req, res) => { await SheetService.syncDailySalary(req.body.date, req.body.staffcyx_data); res.json({ success: true }); });
 
+app.post('/api/update-checkin-time', async (req, res) => {
+    try {
+        const { rowIds, timeStr } = req.body;
+        const success = await SheetService.updateCheckinTimeBatch(rowIds, timeStr);
+        res.json({ success });
+    } catch (e) {
+        console.error('[UPDATE CHECKIN TIME ERROR]', e);
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
 app.post('/api/update-booking-details', async (req, res) => {
     try {
         await SheetService.updateBookingDetails(req.body);
