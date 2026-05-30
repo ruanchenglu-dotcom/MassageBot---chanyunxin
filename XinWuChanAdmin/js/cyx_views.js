@@ -17,11 +17,19 @@ const { useState, useEffect, useMemo, useRef } = React;
 const getConfig = () => window.SYSTEM_CONFIG || { SCALE: {}, OPERATION_TIME: {} };
 const getMaxChairs = () => {
     const config = getConfig();
-    return (config.SCALE && config.SCALE.MAX_CHAIRS) || config.MAX_CHAIRS;
+    return (config.SCALE && config.SCALE.MAX_CHAIRS) || config.MAX_CHAIRS || 6;
 };
 const getMaxBeds = () => {
     const config = getConfig();
-    return (config.SCALE && config.SCALE.MAX_BEDS) || config.MAX_BEDS;
+    return (config.SCALE && config.SCALE.MAX_BEDS) || config.MAX_BEDS || 6;
+};
+const getOppChairs = () => {
+    const config = getConfig();
+    return (config.SCALE && config.SCALE.OPP_CHAIRS) || 4;
+};
+const getOppBeds = () => {
+    const config = getConfig();
+    return (config.SCALE && config.SCALE.OPP_BEDS) || 6;
 };
 const getOpenHour = () => {
     const config = getConfig();
@@ -1385,7 +1393,7 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
 // ============================================================================
 // 1. TIMELINE VIEW
 // ============================================================================
-const TimelineView = ({ timelineData, onEditPhase, liveStatusData, staffList, statusData, onOpenControlCenter }) => {
+const TimelineView = ({ timelineData, onEditPhase, liveStatusData, staffList, statusData, onOpenControlCenter, branch = 'main' }) => {
     const [now, setNow] = useState(new Date());
     const STATUS = getBookingStatus();
     const scrollContainerRef = useRef(null);
@@ -1393,10 +1401,14 @@ const TimelineView = ({ timelineData, onEditPhase, liveStatusData, staffList, st
     const getGroupMemberIndexLocal = (targetResId, targetRowId) => {
         if (!liveStatusData) return -1;
         const allSlots = [];
-        const maxChairs = window.SYSTEM_CONFIG?.SCALE?.MAX_CHAIRS || 8;
-        const maxBeds = window.SYSTEM_CONFIG?.SCALE?.MAX_BEDS || 8;
+        const maxChairs = window.SYSTEM_CONFIG?.SCALE?.MAX_CHAIRS || 6;
+        const maxBeds = window.SYSTEM_CONFIG?.SCALE?.MAX_BEDS || 6;
+        const oppChairs = window.SYSTEM_CONFIG?.SCALE?.OPP_CHAIRS || 4;
+        const oppBeds = window.SYSTEM_CONFIG?.SCALE?.OPP_BEDS || 6;
         for (let i = 1; i <= maxChairs; i++) allSlots.push(`chair-${i}`);
         for (let i = 1; i <= maxBeds; i++) allSlots.push(`bed-${i}`);
+        for (let i = 1; i <= oppChairs; i++) allSlots.push(`opp-chair-${i}`);
+        for (let i = 1; i <= oppBeds; i++) allSlots.push(`opp-bed-${i}`);
         const groupSlots = allSlots.filter(slotId => {
             const res = liveStatusData[slotId];
             return res && res.booking && String(res.booking.rowId) === String(targetRowId);
@@ -1494,12 +1506,22 @@ const TimelineView = ({ timelineData, onEditPhase, liveStatusData, staffList, st
         return `${displayH}:00`;
     };
 
-    const numChairs = getMaxChairs();
-    const numBeds = getMaxBeds();
-    const rows = [
-        ...Array.from({ length: numChairs }, (_, i) => ({ id: `chair-${i + 1}`, label: `足 ${i + 1}`, type: 'chair' })),
-        ...Array.from({ length: numBeds }, (_, i) => ({ id: `bed-${i + 1}`, label: `床 ${i + 1}`, type: 'bed' }))
-    ];
+    let rows = [];
+    if (branch === 'main') {
+        const numChairs = getMaxChairs();
+        const numBeds = getMaxBeds();
+        rows = [
+            ...Array.from({ length: numChairs }, (_, i) => ({ id: `chair-${i + 1}`, label: `足 ${i + 1}`, type: 'chair' })),
+            ...Array.from({ length: numBeds }, (_, i) => ({ id: `bed-${i + 1}`, label: `床 ${i + 1}`, type: 'bed' }))
+        ];
+    } else {
+        const oppChairs = getOppChairs();
+        const oppBeds = getOppBeds();
+        rows = [
+            ...Array.from({ length: oppChairs }, (_, i) => ({ id: `opp-chair-${i + 1}`, label: `足 ${i + 1}`, type: 'chair' })),
+            ...Array.from({ length: oppBeds }, (_, i) => ({ id: `opp-bed-${i + 1}`, label: `床 ${i + 1}`, type: 'bed' }))
+        ];
+    }
 
     const getDisplayLabel = (booking) => {
         let rawName = booking.customerName || '';

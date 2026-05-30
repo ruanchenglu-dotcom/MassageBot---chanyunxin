@@ -518,7 +518,7 @@ app.get('/api/info', async (req, res) => {
             staffList: SheetService.getStaffList(),
             bookings: SheetService.getBookings(),
             schedule: SheetService.getScheduleMap(),
-            resources: { chairs: getConfig().SCALE.MAX_CHAIRS, beds: getConfig().SCALE.MAX_BEDS },
+            resources: { chairs: getConfig().SCALE.MAX_CHAIRS, beds: getConfig().SCALE.MAX_BEDS, oppChairs: getConfig().SCALE.OPP_CHAIRS || 4, oppBeds: getConfig().SCALE.OPP_BEDS || 6 },
             resourceState: SERVER_RESOURCE_STATE,
             staffStatus: SERVER_STAFF_STATUS,
             services: SheetService.getServices(),

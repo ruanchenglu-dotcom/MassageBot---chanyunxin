@@ -42,9 +42,11 @@ const SYSTEM_CONFIG = {
 
     // Quy mô chi nhánh
     SCALE: {
-        MAX_CHAIRS: 6, // Số lượng ghế (腳)
-        MAX_BEDS: 6,   // Số lượng giường (床)
-        get TOTAL_RESOURCES() { return this.MAX_CHAIRS + this.MAX_BEDS; }
+        MAX_CHAIRS: 6, // Số lượng ghế (腳) - 本館
+        MAX_BEDS: 6,   // Số lượng giường (床) - 本館
+        OPP_CHAIRS: 4, // Số lượng ghế (腳) - 對面館
+        OPP_BEDS: 6,   // Số lượng giường (床) - 對面館
+        get TOTAL_RESOURCES() { return this.MAX_CHAIRS + this.MAX_BEDS + this.OPP_CHAIRS + this.OPP_BEDS; }
     },
 
     // Quản lý thời gian vận hành
@@ -82,6 +84,8 @@ const SYSTEM_CONFIG = {
 
     // Nhãn giao diện (Tiếng Trung Phồn Thể)
     UI_LABELS: {
+        MAIN_BRANCH: '本館',
+        OPP_BRANCH: '對面館',
         CHAIR_PREFIX: '腳',
         BED_PREFIX: '床',
         MINUTES_UNIT: '分',

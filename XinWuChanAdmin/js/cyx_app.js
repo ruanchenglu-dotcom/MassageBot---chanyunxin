@@ -155,18 +155,19 @@ const MatrixHelper = {
         }
         return count;
     },
-    findBestSlot: (type, start, end, gridState, reservedTimes, preferredIndexOrId = null, ignoreRowId = null) => {
-        const limit = type.includes('chair') ? window.SYSTEM_CONFIG.SCALE.MAX_CHAIRS : window.SYSTEM_CONFIG.SCALE.MAX_BEDS;
+    findBestSlot: (type, start, end, gridState, reservedTimes, preferredIndexOrId = null, ignoreRowId = null, preferOpposite = false) => {
+        const limitMain = type.includes('chair') ? (window.SYSTEM_CONFIG?.SCALE?.MAX_CHAIRS || 6) : (window.SYSTEM_CONFIG?.SCALE?.MAX_BEDS || 6);
+        const limitOpp = type.includes('chair') ? (window.SYSTEM_CONFIG?.SCALE?.OPP_CHAIRS || 4) : (window.SYSTEM_CONFIG?.SCALE?.OPP_BEDS || 6);
 
         if (preferredIndexOrId) {
             let id;
             if (typeof preferredIndexOrId === 'string' && preferredIndexOrId.includes('-')) {
                 id = preferredIndexOrId;
             } else {
-                id = `${type}-${preferredIndexOrId}`;
+                id = preferOpposite ? `opp-${type}-${preferredIndexOrId}` : `${type}-${preferredIndexOrId}`;
             }
 
-            if (id.startsWith(type)) {
+            if (id.includes(type)) {
                 let valid = true;
                 if (reservedTimes[id] && start < reservedTimes[id]) valid = false;
                 if (valid && gridState[id]) {
@@ -182,9 +183,8 @@ const MatrixHelper = {
             }
         }
 
-        for (let i = 1; i <= limit; i++) {
-            const id = `${type}-${i}`;
-            if (reservedTimes[id] && start < reservedTimes[id]) continue;
+        const checkSlot = (id) => {
+            if (reservedTimes[id] && start < reservedTimes[id]) return false;
             let isClash = false;
             if (gridState[id]) {
                 for (const slot of gridState[id]) {
@@ -195,7 +195,27 @@ const MatrixHelper = {
                     }
                 }
             }
-            if (!isClash) return id;
+            return !isClash;
+        };
+
+        if (preferOpposite) {
+            for (let i = 1; i <= limitOpp; i++) {
+                const id = `opp-${type}-${i}`;
+                if (checkSlot(id)) return id;
+            }
+            for (let i = 1; i <= limitMain; i++) {
+                const id = `${type}-${i}`;
+                if (checkSlot(id)) return id;
+            }
+        } else {
+            for (let i = 1; i <= limitMain; i++) {
+                const id = `${type}-${i}`;
+                if (checkSlot(id)) return id;
+            }
+            for (let i = 1; i <= limitOpp; i++) {
+                const id = `opp-${type}-${i}`;
+                if (checkSlot(id)) return id;
+            }
         }
         return null;
     }
@@ -355,10 +375,14 @@ const App = () => {
 
     const getGroupMemberIndex = (targetResId, targetRowId) => {
         const allSlots = [];
-        const maxChairs = window.SYSTEM_CONFIG?.SCALE?.MAX_CHAIRS;
-        const maxBeds = window.SYSTEM_CONFIG?.SCALE?.MAX_BEDS;
+        const maxChairs = window.SYSTEM_CONFIG?.SCALE?.MAX_CHAIRS || 6;
+        const maxBeds = window.SYSTEM_CONFIG?.SCALE?.MAX_BEDS || 6;
+        const oppChairs = window.SYSTEM_CONFIG?.SCALE?.OPP_CHAIRS || 4;
+        const oppBeds = window.SYSTEM_CONFIG?.SCALE?.OPP_BEDS || 6;
         for (let i = 1; i <= maxChairs; i++) allSlots.push(`chair-${i}`);
         for (let i = 1; i <= maxBeds; i++) allSlots.push(`bed-${i}`);
+        for (let i = 1; i <= oppChairs; i++) allSlots.push(`opp-chair-${i}`);
+        for (let i = 1; i <= oppBeds; i++) allSlots.push(`opp-bed-${i}`);
         const groupSlots = allSlots.filter(slotId => {
             const res = resourceState[slotId];
             return res && res.booking && String(res.booking.rowId) === String(targetRowId);
@@ -676,8 +700,10 @@ const App = () => {
             // Đồng bộ config tự động từ Resource của API
             if (res.data.resources) {
                 if (!window.SYSTEM_CONFIG) window.SYSTEM_CONFIG = { SCALE: {}, OPERATION_TIME: {}, LOGIC_RULES: {}, BUFFERS: {}, FINANCE: {} };
-                window.SYSTEM_CONFIG.SCALE.MAX_CHAIRS = res.data.resources.chairs || 9;
-                window.SYSTEM_CONFIG.SCALE.MAX_BEDS = res.data.resources.beds || 9;
+                window.SYSTEM_CONFIG.SCALE.MAX_CHAIRS = res.data.resources.chairs || 6;
+                window.SYSTEM_CONFIG.SCALE.MAX_BEDS = res.data.resources.beds || 6;
+                window.SYSTEM_CONFIG.SCALE.OPP_CHAIRS = res.data.resources.oppChairs || 4;
+                window.SYSTEM_CONFIG.SCALE.OPP_BEDS = res.data.resources.oppBeds || 6;
             }
 
             const { bookings: apiBookings, staffList: apiStaff, resourceState: serverRes, staffStatus: serverStaff, quickNotes: apiQuickNotes, blacklist: apiBlacklist } = res.data;
@@ -1264,10 +1290,14 @@ const App = () => {
             setTimelineData(timelineGrid);
 
             const allSlots = [];
-            const maxChairs = window.SYSTEM_CONFIG?.SCALE?.MAX_CHAIRS;
-            const maxBeds = window.SYSTEM_CONFIG?.SCALE?.MAX_BEDS;
+            const maxChairs = window.SYSTEM_CONFIG?.SCALE?.MAX_CHAIRS || 6;
+            const maxBeds = window.SYSTEM_CONFIG?.SCALE?.MAX_BEDS || 6;
+            const oppChairs = window.SYSTEM_CONFIG?.SCALE?.OPP_CHAIRS || 4;
+            const oppBeds = window.SYSTEM_CONFIG?.SCALE?.OPP_BEDS || 6;
             for (let i = 1; i <= maxChairs; i++) allSlots.push(`chair-${i}`);
             for (let i = 1; i <= maxBeds; i++) allSlots.push(`bed-${i}`);
+            for (let i = 1; i <= oppChairs; i++) allSlots.push(`opp-chair-${i}`);
+            for (let i = 1; i <= oppBeds; i++) allSlots.push(`opp-bed-${i}`);
 
             allSlots.forEach(resId => {
                 if (tempState[resId]) return;
@@ -1780,8 +1810,11 @@ const App = () => {
             }
         });
 
+        const isForcedSingle = targetBooking.isForcedSingle === true || currentFlow === 'FOOTSINGLE' || currentFlow === 'BODYSINGLE';
+        const isLongSingle = isForcedSingle && parseInt(targetBooking.duration || 100) > 70;
+
         let s1 = customP1Res && customP1Res !== 'auto' ? customP1Res.toLowerCase() : null;
-        if (!s1) s1 = MatrixHelper.findBestSlot(p1Type, tryStart, tryStart + newPhase1Duration, timelineData, mockActiveEndTimes, null, rowId) || `${p1Type}-1`;
+        if (!s1) s1 = MatrixHelper.findBestSlot(p1Type, tryStart, tryStart + newPhase1Duration, timelineData, mockActiveEndTimes, null, rowId, isLongSingle) || (isLongSingle ? `opp-${p1Type}-1` : `${p1Type}-1`);
 
         const p2Start = tryStart + newPhase1Duration + 5;
         let s2 = customP2Res && customP2Res !== 'auto' ? customP2Res.toLowerCase() : null;
@@ -2030,7 +2063,9 @@ const App = () => {
             }
         });
 
-        const s1 = MatrixHelper.findBestSlot(p1Type, tryStart, tryStart + split.phase1, timelineData, mockActiveEndTimes, null, rowId) || `${p1Type}-1`;
+        const isForcedSingle = booking.isForcedSingle === true || targetFlow === 'FOOTSINGLE' || targetFlow === 'BODYSINGLE';
+        const isLongSingle = isForcedSingle && totalDuration > 70;
+        const s1 = MatrixHelper.findBestSlot(p1Type, tryStart, tryStart + split.phase1, timelineData, mockActiveEndTimes, null, rowId, isLongSingle) || (isLongSingle ? `opp-${p1Type}-1` : `${p1Type}-1`);
         const p2Start = tryStart + split.phase1 + 5;
         const s2 = MatrixHelper.findBestSlot(p2Type, p2Start, p2Start + split.phase2, timelineData, mockActiveEndTimes, null, rowId) || `${p2Type}-1`;
 
@@ -3532,14 +3567,36 @@ const App = () => {
                 )}
 
                 {activeTab === 'timeline' && window.TimelineView && (
-                    <window.TimelineView
-                        timelineData={timelineData}
-                        liveStatusData={resourceState}
-                        onEditPhase={handleControlAction}
-                        onOpenControlCenter={handleOpenControlCenter}
-                        staffList={staffList}
-                        statusData={statusData}
-                    />
+                    <div className="flex w-full gap-4 h-full">
+                        <div className="w-1/2 h-full flex flex-col relative border-2 border-indigo-200 rounded-lg bg-white overflow-hidden shadow-sm">
+                            <div className="absolute top-0 right-0 bg-indigo-500 text-white text-xs font-bold px-3 py-1 rounded-bl-lg z-[60] shadow-md">
+                                {window.SYSTEM_CONFIG?.UI_LABELS?.MAIN_BRANCH || '本館'}
+                            </div>
+                            <window.TimelineView
+                                branch="main"
+                                timelineData={timelineData}
+                                liveStatusData={resourceState}
+                                onEditPhase={handleControlAction}
+                                onOpenControlCenter={handleOpenControlCenter}
+                                staffList={staffList}
+                                statusData={statusData}
+                            />
+                        </div>
+                        <div className="w-1/2 h-full flex flex-col relative border-2 border-teal-200 rounded-lg bg-white overflow-hidden shadow-sm">
+                            <div className="absolute top-0 right-0 bg-teal-500 text-white text-xs font-bold px-3 py-1 rounded-bl-lg z-[60] shadow-md">
+                                {window.SYSTEM_CONFIG?.UI_LABELS?.OPP_BRANCH || '對面館'}
+                            </div>
+                            <window.TimelineView
+                                branch="opp"
+                                timelineData={timelineData}
+                                liveStatusData={resourceState}
+                                onEditPhase={handleControlAction}
+                                onOpenControlCenter={handleOpenControlCenter}
+                                staffList={staffList}
+                                statusData={statusData}
+                            />
+                        </div>
+                    </div>
                 )}
             </main>
 
