@@ -1640,7 +1640,8 @@ const TimelineView = ({ timelineData, onEditPhase, liveStatusData, staffList, st
 
                     <div className="relative bg-white pb-4">
                         {rows.map((row, index) => {
-                            const isLastChairRow = index === (numChairs - 1);
+                            const lastChairIndex = rows.reduce((acc, curr, idx) => curr.type === 'chair' ? idx : acc, -1);
+                            const isLastChairRow = index === lastChairIndex;
                             const rowStyleClass = isLastChairRow ? "border-b-4 border-red-500" : "border-b border-slate-100";
 
                             return (

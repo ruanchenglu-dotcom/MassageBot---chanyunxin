@@ -4,10 +4,11 @@ taskkill /F /IM node.exe
 
 ./len "time"
 
-node cyx_index.js
+chạy taskkill /F /IM node.exe tắt node và chạy lại  node cyx_index.js
 
 phân tích bằng tiếng việt.giao diện ngôn ngữ UX/UI tiếng trung phồn thể,không chứa ngôn ngữ khác.lên kế hoạch nâng cấp chi tiết và ghi rõ các file cần nâng cấp, không viết code vội để tôi duyệt trước.
 
-[Approve / Chấp thuận].giao diện ngôn ngữ app UX/UI tiếng trung phồn thể không chứa ngôn ngữ khác. ok hãy tiến hành nâng cấp các file và nhớ giữ lại các tính năng còn lại hoạt động như cũ nhé.
+[Approve / Chấp thuận].giao diện ngôn ngữ app UX/UI tiếng trung phồn thể không chứa ngôn ngữ khác. ok hãy tiến hành nâng cấp các file và nhớ giữ lại các tính năng còn lại hoạt động như cũ nhé.sau khi nâng cấp xong chạy lệnh ./len "time" (restart) máy chủ node cyx_index.js dưới nền để áp dụng các thay đổi API mới ngay lập tức.. 
+
 
 
