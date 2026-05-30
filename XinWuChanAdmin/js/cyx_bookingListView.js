@@ -16,6 +16,25 @@
         const [editFormData, setEditFormData] = useState({});
         const [scanStatus, setScanStatus] = useState(null);
         const [scanMessage, setScanMessage] = useState('');
+        const [checkinPhoneFilter, setCheckinPhoneFilter] = useState('');
+
+        const handleCheckinClick = () => {
+            Swal.fire({
+                title: '請輸入電話號碼報到',
+                input: 'text',
+                inputPlaceholder: '例如: 09xx...',
+                showCancelButton: true,
+                confirmButtonText: '搜尋',
+                cancelButtonText: '取消',
+                inputValidator: (value) => {
+                    if (!value) return '請輸入電話號碼！';
+                }
+            }).then((result) => {
+                if (result.isConfirmed) {
+                    setCheckinPhoneFilter(result.value);
+                }
+            });
+        };
 
         // Lấy dữ liệu cấu hình từ window (do data.js cung cấp)
         const servicesList = window.SERVICES_LIST || [
@@ -41,6 +60,41 @@
         const maxChairs = (config.SCALE && config.SCALE.MAX_CHAIRS) || config.MAX_CHAIRS || 6;
         const maxBeds = (config.SCALE && config.SCALE.MAX_BEDS) || config.MAX_BEDS || 6;
         const dynamicMaxPax = maxChairs + maxBeds;
+
+        // Sắp xếp, nhóm và lọc
+        const sortedBookings = [...safeBookings].sort((a, b) => {
+            const timeA = a.startTimeString || '';
+            const timeB = b.startTimeString || '';
+            return timeA.localeCompare(timeB);
+        });
+
+        let currentGroupIndex = 0;
+        const groupMap = new Map();
+
+        const processedBookings = sortedBookings.map(b => {
+            const time = b.startTimeString || '';
+            const phone = b.phone || b.sdt || b.custPhone || '';
+            const name = b.originalName || (b.customerName || '').split('(')[0].trim();
+            const surname = name.charAt(0) || '';
+            const groupKey = `${surname}_${phone}_${time}`;
+            
+            if (!groupMap.has(groupKey)) {
+                currentGroupIndex++;
+                groupMap.set(groupKey, currentGroupIndex);
+            }
+            
+            return {
+                ...b,
+                groupIndex: groupMap.get(groupKey)
+            };
+        });
+
+        const displayBookings = checkinPhoneFilter 
+            ? processedBookings.filter(b => {
+                const p = b.phone || b.sdt || b.custPhone || '';
+                return p.includes(checkinPhoneFilter);
+            }) 
+            : processedBookings;
 
         // Kích hoạt chế độ chỉnh sửa cho một dòng
         const startEditing = (booking) => {
@@ -363,10 +417,25 @@
 
         return (
             <div className="bg-white rounded-lg shadow-lg flex flex-col h-full animate-fadeIn border border-gray-200">
+                <div className="flex justify-between items-center p-3 border-b bg-slate-50">
+                    <div className="font-bold text-lg text-slate-700">預約列表</div>
+                    <div className="flex gap-2">
+                        {checkinPhoneFilter && (
+                            <button onClick={() => setCheckinPhoneFilter('')} className="bg-gray-500 hover:bg-gray-600 text-white px-4 py-2 rounded font-bold transition-colors shadow-sm">
+                                ✖ 清除搜尋
+                            </button>
+                        )}
+                        <button onClick={handleCheckinClick} className="bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded font-bold transition-colors shadow-sm flex items-center gap-2">
+                            <i className="fas fa-sign-in-alt"></i> 報到
+                        </button>
+                    </div>
+                </div>
+
                 <div className="overflow-auto relative w-full" style={{ maxHeight: '75vh' }}>
                     <table className="w-full text-left border-collapse min-w-max">
-                        <thead className="bg-slate-100 text-slate-700 font-bold text-base sticky top-0 z-10 shadow-sm">
+                        <thead className="bg-slate-100 text-slate-700 font-bold text-base sticky top-0 z-30 shadow-sm">
                             <tr>
+                                <th className="p-4 border-b border-slate-200 whitespace-nowrap text-center">群組</th>
                                 <th className="p-4 border-b border-slate-200 whitespace-nowrap">預約日期</th>
                                 <th className="p-4 border-b border-slate-200 whitespace-nowrap">時間</th>
                                 <th className="p-4 border-b border-slate-200 whitespace-nowrap">姓名</th>
@@ -376,12 +445,12 @@
                                 <th className="p-4 border-b border-slate-200 whitespace-nowrap">電話</th>
                                 <th className="p-4 border-b border-slate-200 whitespace-nowrap">狀態</th>
                                 <th className="p-4 border-b border-slate-200 whitespace-nowrap">指定師傅</th>
-                                <th className="p-4 border-b border-slate-200 text-center whitespace-nowrap sticky right-0 bg-slate-100 z-20">操作</th>
+                                <th className="p-4 border-b border-slate-200 text-center whitespace-nowrap sticky right-0 bg-slate-100 z-40">操作</th>
                             </tr>
                         </thead>
 
                         <tbody className="divide-y divide-gray-200 text-base">
-                            {safeBookings.map((b, index) => {
+                            {displayBookings.map((b, index) => {
                                 const isEditingThisRow = editingRowId === b.rowId;
 
                                 // --- CHẾ ĐỘ HIỂN THỊ (VIEW MODE) ---
@@ -414,8 +483,12 @@
                                             key={`view-${b.rowId}`}
                                             className={`${rowBg} hover:bg-blue-50 transition-colors ${opacityClass}`}
                                             onDoubleClick={() => startEditing(b)}
-                                            title="雙擊編輯 (Double click to edit)"
                                         >
+                                            <td className="p-4 whitespace-nowrap text-center">
+                                                <span className="bg-blue-100 text-blue-800 text-xs font-bold px-2.5 py-1 rounded-full border border-blue-200">
+                                                    #{b.groupIndex}
+                                                </span>
+                                            </td>
                                             <td className="p-4 whitespace-nowrap font-mono text-gray-600">{(b.startTimeString || ' ').split(' ')[0]}</td>
                                             <td className="p-4 whitespace-nowrap font-mono text-lg font-bold text-indigo-700">{(b.startTimeString || ' ').split(' ')[1]}</td>
                                             <td className="p-4 whitespace-nowrap font-bold text-gray-800 text-lg">{name}</td>
@@ -426,7 +499,7 @@
                                             <td className="p-4 whitespace-nowrap"><span className={`px-3 py-1 rounded-full text-sm font-bold shadow-sm ${statusClass}`}>{bStatus}</span></td>
                                             <td className="p-4 whitespace-nowrap"><span className="bg-indigo-50 text-indigo-700 px-3 py-1 rounded text-sm font-bold border border-indigo-100">{b.staffId}</span></td>
 
-                                            <td className="p-4 whitespace-nowrap text-center sticky right-0 bg-opacity-90 z-10 space-x-2" style={{ backgroundColor: 'inherit' }}>
+                                            <td className="p-4 whitespace-nowrap text-center sticky right-0 z-20 space-x-2" style={{ backgroundColor: 'inherit' }}>
                                                 <button onClick={() => startEditing(b)} className="text-blue-500 hover:text-white hover:bg-blue-500 border border-blue-200 hover:border-blue-500 px-3 py-1.5 rounded transition-all shadow-sm" title="編輯 (Edit)">
                                                     ✏️
                                                 </button>
@@ -486,6 +559,11 @@
 
                                 return (
                                     <tr key={`edit-${b.rowId}`} className="bg-yellow-50 shadow-inner border-y-2 border-orange-300">
+                                        <td className="p-2 text-center">
+                                            <span className="bg-blue-100 text-blue-800 text-xs font-bold px-2.5 py-1 rounded-full border border-blue-200">
+                                                #{b.groupIndex}
+                                            </span>
+                                        </td>
                                         <td className="p-2"><input type="date" className="w-full border border-gray-300 p-2 rounded focus:ring-2 focus:ring-orange-400 outline-none" value={editFormData.date} onChange={e => handleInputChange('date', e.target.value)} /></td>
                                         <td className="p-2"><window.TimePicker24H className="w-full border border-gray-300 p-1 rounded font-mono outline-none" value={editFormData.time} onChange={val => handleInputChange('time', val)} /></td>
                                         <td className="p-2">
@@ -513,7 +591,7 @@
                                             </select>
                                         </td>
 
-                                        <td className="p-2 text-center sticky right-0 bg-yellow-50 z-10 border-l border-orange-200">
+                                        <td className="p-2 text-center sticky right-0 bg-yellow-50 z-20 border-l border-orange-200">
                                             <div className="flex flex-col gap-1">
                                                 {scanStatus !== 'OK' ? (
                                                     <button onClick={performStrictCheck} className="bg-blue-600 text-white hover:bg-blue-700 px-3 py-1.5 rounded font-bold text-sm shadow-sm transition-colors animate-pulse">
@@ -538,9 +616,9 @@
                                 );
                             })}
 
-                            {safeBookings.length === 0 && (
+                            {displayBookings.length === 0 && (
                                 <tr>
-                                    <td colSpan="10" className="p-12 text-center text-gray-400">
+                                    <td colSpan="11" className="p-12 text-center text-gray-400">
                                         <div className="flex flex-col items-center justify-center">
                                             <i className="fas fa-calendar-times text-5xl mb-4 text-gray-300"></i>
                                             <span className="text-xl font-bold">📭 暫無預約資料</span>
@@ -553,8 +631,13 @@
                     </table>
                 </div>
 
-                <div className="bg-gray-50 border-t p-3 text-right text-sm text-gray-500 font-medium">
-                    總計: {safeBookings.length} 筆
+                <div className="bg-gray-50 border-t p-3 flex justify-between items-center text-sm text-gray-500 font-medium">
+                    <div>
+                        {checkinPhoneFilter && <span className="text-blue-600">已篩選電話: {checkinPhoneFilter}</span>}
+                    </div>
+                    <div>
+                        總計: {displayBookings.length} 筆
+                    </div>
                 </div>
             </div>
         );
