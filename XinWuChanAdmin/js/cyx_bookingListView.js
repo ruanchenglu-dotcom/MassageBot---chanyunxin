@@ -85,6 +85,7 @@
             
             return {
                 ...b,
+                groupKey: groupKey,
                 groupIndex: groupMap.get(groupKey)
             };
         });
