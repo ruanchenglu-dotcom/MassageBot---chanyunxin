@@ -960,11 +960,17 @@ app.post('/api/admin-booking', async (req, res) => {
 
     if (cyx_data.flowCode && !cyx_data.flow) cyx_data.flow = cyx_data.flowCode;
 
+    let serviceDuration = cyx_data.duration;
+    if (!serviceDuration && cyx_data.serviceCode && SERVICES[cyx_data.serviceCode]) {
+        serviceDuration = SERVICES[cyx_data.serviceCode].duration;
+    }
+
     // [V134 NÂNG CẤP] Bắt kết quả ghi Sheet
     const isSaved = await SheetService.ghiVaoSheet({
         ngayDen: cyx_data.ngayDen, gioDen: cyx_data.gioDen, dichVu: cyx_data.dichVu, nhanVien: cyx_data.nhanVien,
         userId: 'ADMIN_WEB', sdt: cyx_data.sdt || '現場客', hoTen: cyx_data.hoTen || '現場客',
         trangThai: '已預約', pax: cyx_data.pax || 1, isOil: cyx_data.isOil || false,
+        duration: serviceDuration,
         guestDetails: cyx_data.guestDetails,
         phase1_duration: cyx_data.phase1_duration, phase2_duration: cyx_data.phase2_duration,
         isManualLocked: cyx_data.isManualLocked, flow: cyx_data.flow, serviceCode: cyx_data.serviceCode,

@@ -674,8 +674,13 @@ async function ghiVaoSheet(data, proposedUpdates = []) {
             if (p1 === null || p1 === undefined) p1 = data.phase1_duration;
             if (p2 === null || p2 === undefined) p2 = data.phase2_duration;
             
+            let currentDuration = data.duration;
+            if (!currentDuration && sCode && STATE.SERVICES[sCode]) {
+                currentDuration = STATE.SERVICES[sCode].duration;
+            }
+
             if ((p1 === null || p1 === undefined || p1 === "") && ["BODYSINGLE", "FOOTSINGLE", "SINGLE"].includes(row[23])) {
-                p1 = data.duration;
+                p1 = currentDuration;
             }
 
             row[26] = (p1 !== null && p1 !== "") ? p1 : "";
