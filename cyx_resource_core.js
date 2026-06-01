@@ -1007,12 +1007,12 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
             if (!p1Index) p1Index = anchorIndex;
 
             if (isBodyFirst) {
-                processedB.blocks.push({ start: bStart, end: p1End, type: 'BED', forcedIndex: p1Index });
-                processedB.blocks.push({ start: p2Start, end: p2Start + p2, type: 'CHAIR', forcedIndex: p2Index });
+                processedB.blocks.push({ start: bStart, end: p1End + CONF.CLEANUP_BUFFER, type: 'BED', forcedIndex: p1Index });
+                processedB.blocks.push({ start: p2Start, end: p2Start + p2 + CONF.CLEANUP_BUFFER, type: 'CHAIR', forcedIndex: p2Index });
                 processedB.flow = 'BF';
             } else {
-                processedB.blocks.push({ start: bStart, end: p1End, type: 'CHAIR', forcedIndex: p1Index });
-                processedB.blocks.push({ start: p2Start, end: p2Start + p2, type: 'BED', forcedIndex: p2Index });
+                processedB.blocks.push({ start: bStart, end: p1End + CONF.CLEANUP_BUFFER, type: 'CHAIR', forcedIndex: p1Index });
+                processedB.blocks.push({ start: p2Start, end: p2Start + p2 + CONF.CLEANUP_BUFFER, type: 'BED', forcedIndex: p2Index });
                 processedB.flow = 'FB';
             }
             processedB.p1_current = p1; processedB.p2_current = p2;
@@ -1029,7 +1029,7 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
                 if (m) forcedIdx = parseInt(m[0], 10);
             }
             
-            processedB.blocks.push({ start: bStart, end: bStart + duration, type: rType, forcedIndex: forcedIdx });
+            processedB.blocks.push({ start: bStart, end: bStart + realDuration + CONF.CLEANUP_BUFFER, type: rType, forcedIndex: forcedIdx });
         }
         existingBookingsProcessed.push(processedB);
     });
@@ -1069,7 +1069,7 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
         for (const exB of existingBookingsProcessed) {
             let placedSuccessfully = true; let allocatedSlots = [];
             for (const block of exB.blocks) {
-                const realEnd = block.end + CONF.CLEANUP_BUFFER;
+                const realEnd = block.end;
                 // --- V118.4 FIX: Ép buộc đặt chỗ (isForced = true) cho các Booking đã có sẵn ---
                 const slotId = matrix.tryAllocate(block.type, block.start, realEnd, exB.id, block.forcedIndex, true);
                 if (!slotId) { placedSuccessfully = false; break; }

@@ -1043,7 +1043,7 @@
                     let placedSuccessfully = true;
                     let allocatedSlots = [];
                     for (const block of exB.blocks) {
-                        const realEnd = block.end + CONF.CLEANUP_BUFFER;
+                        const realEnd = block.end;
                         // --- V118.4 FIX: Ép buộc đặt chỗ (isForced = true) cho các Booking đã có sẵn ---
                         const slotId = matrix.tryAllocate(block.type, block.start, realEnd, exB.id, block.forcedIndex, true);
                         if (!slotId) { placedSuccessfully = false; break; }
