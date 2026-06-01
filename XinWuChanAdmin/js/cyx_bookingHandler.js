@@ -1362,40 +1362,7 @@
 
                 if (!staffAssignmentSuccess) { scenarioFailed = true; continue; }
 
-                // --- V118.4 DOUBLE-CHECK GUARDRAIL: Chống Bóng Ma Đè Lịch ---
-                let collisionDetected = false;
-                for (const item of sortedGuestsForAllocation) {
-                    const detail = scenarioDetails.find(d => d.guestIndex === item.guest.idx);
-                    if (!detail || !detail.allocated) continue;
-                    
-                    for (let i = 0; i < item.blocks.length; i++) {
-                        const block = item.blocks[i];
-                        const assignedLaneId = detail.allocated[i];
-                        if (!assignedLaneId) continue;
-
-                        const match = assignedLaneId.match(/(BED|CHAIR)[-_ ]?(\d+)/i);
-                        if (match) {
-                            const rType = match[1].toUpperCase();
-                            const rIdx = parseInt(match[2], 10) - 1;
-                            if (resourceMap[rType] && resourceMap[rType][rIdx]) {
-                                for (const existing of resourceMap[rType][rIdx]) {
-                                    if (isOverlap(block.start, block.end, existing.start, existing.end)) {
-                                        collisionDetected = true;
-                                        failureLog.push(`❌ 嚴重衝突: 系統試圖將客需安排至已被佔用的 ${assignedLaneId}。請刷新頁面或檢查資料。`);
-                                        break;
-                                    }
-                                }
-                            }
-                        }
-                        if (collisionDetected) break;
-                    }
-                    if (collisionDetected) break;
-                }
-
-                if (collisionDetected) {
-                    scenarioFailed = true;
-                    continue;
-                }
+                // (V135) Removed DOUBLE-CHECK GUARDRAIL as it breaks Elastic Squeeze.
                 // -------------------------------------------------------------
 
                 successfulScenario = { details: scenarioDetails, updates: scenarioUpdates, matrixDump: matrix.lanes };
