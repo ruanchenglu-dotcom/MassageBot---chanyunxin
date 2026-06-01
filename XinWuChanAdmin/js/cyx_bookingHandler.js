@@ -1893,11 +1893,14 @@
                         }
                     }
 
-                    if (callCoreAvailabilityCheck(sugDate, tStr, guestDetails, finalBookings, serverStaffList).valid) {
+                    let checkRes = callCoreAvailabilityCheck(sugDate, tStr, guestDetails, finalBookings, serverStaffList);
+                    if (checkRes.valid) {
                         if (!found.some(f => f.time === tStr && f.date === sugDate)) {
                             found.push({ time: tStr, date: sugDate, daysToAdd });
                         }
                         if (found.length >= 4) break;
+                    } else {
+                        console.log(`[DEBUG] getSuggestions rejected ${tStr} because: ${checkRes.reason}`);
                     }
                 }
                 setSuggestions(found);

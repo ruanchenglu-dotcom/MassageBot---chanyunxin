@@ -333,7 +333,11 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
         const bStart = getMinsFromTimeStr(b.startTimeString || b.startTime);
         if (bStart === -1) return false;
         if (!isActiveBookingStatus(b.status)) return false;
-        const bEnd = bStart + (b.duration || 60) + CONF.CLEANUP_BUFFER;
+        const svcInfo = getServiceInfo(b.serviceCode, b.serviceName);
+        const storedFlow = b.originalData?.flowCode || b.flow;
+        const isCombo = isComboService(svcInfo, b.serviceName, storedFlow);
+        const { realDuration } = calculateRealDurations(b, b.duration || 60, isCombo);
+        const bEnd = bStart + realDuration + CONF.CLEANUP_BUFFER;
         return bEnd > requestStart;
     });
 
@@ -381,7 +385,11 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
         
         relevantBookings.forEach(b => {
             const bS = getMinsFromTimeStr(b.startTimeString || b.startTime);
-            const bE = bS + (b.duration || 60) + CONF.CLEANUP_BUFFER;
+            const svcInfo = getServiceInfo(b.serviceCode, b.serviceName);
+            const storedFlow = b.originalData?.flowCode || b.flow;
+            const isCombo = isComboService(svcInfo, b.serviceName, storedFlow);
+            const { realDuration } = calculateRealDurations(b, b.duration || 60, isCombo);
+            const bE = bS + realDuration + CONF.CLEANUP_BUFFER;
             let staffsInBooking = b.assignedStaffs && b.assignedStaffs.length > 0 ? b.assignedStaffs : [b.staffName];
             
             if (tCheck >= bS && tCheck < bE) {
@@ -564,21 +572,40 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
             }
         };
 
-        if (isCombo && uniqueMatches.length >= 2) {
-            let res1, res2;
+        if (isCombo) {
+            let res1 = null, res2 = null;
             let type1 = 'BED'; let type2 = 'CHAIR';
-            if (storedFlow === 'BF') {
-                res1 = uniqueMatches.find(r => r.includes('BED') || r.includes('床')) || uniqueMatches[0];
-                res2 = uniqueMatches.find(r => r.includes('CHAIR') || r.includes('足')) || uniqueMatches[1];
-            } else if (storedFlow === 'FB') {
-                res1 = uniqueMatches.find(r => r.includes('CHAIR') || r.includes('足')) || uniqueMatches[0];
-                res2 = uniqueMatches.find(r => r.includes('BED') || r.includes('床')) || uniqueMatches[1];
-                type1 = 'CHAIR'; type2 = 'BED';
-            } else {
-                res1 = uniqueMatches[0];
-                res2 = uniqueMatches[1];
+            let isBodyFirst = true;
+
+            if (storedFlow === 'BF') isBodyFirst = true;
+            else if (storedFlow === 'FB') isBodyFirst = false;
+            else {
+                const noteContent = (b.note || b.ghiChu || b.originalData?.ghiChu || "").toString().toUpperCase();
+                if (noteContent.includes('BF') || noteContent.includes('BODY FIRST') || noteContent.includes('先做身體')) isBodyFirst = true;
+                else if (b._impliedFlow === 'BF') isBodyFirst = true;
+            }
+
+            if (uniqueMatches.length >= 2) {
+                if (isBodyFirst) {
+                    res1 = uniqueMatches.find(r => r.includes('BED') || r.includes('床')) || uniqueMatches[0];
+                    res2 = uniqueMatches.find(r => r.includes('CHAIR') || r.includes('足')) || uniqueMatches[1];
+                } else {
+                    res1 = uniqueMatches.find(r => r.includes('CHAIR') || r.includes('足')) || uniqueMatches[0];
+                    res2 = uniqueMatches.find(r => r.includes('BED') || r.includes('床')) || uniqueMatches[1];
+                }
+            } else if (uniqueMatches.length === 1) {
+                const mType = (uniqueMatches[0].toUpperCase().includes('BED') || uniqueMatches[0].includes('床')) ? 'BED' : 'CHAIR';
+                if (isBodyFirst) {
+                    if (mType === 'BED') res1 = uniqueMatches[0];
+                    else res2 = uniqueMatches[0];
+                } else {
+                    if (mType === 'CHAIR') res1 = uniqueMatches[0];
+                    else res2 = uniqueMatches[0];
+                }
             }
             
+            if (!isBodyFirst) { type1 = 'CHAIR'; type2 = 'BED'; }
+
             pushToMap(res1, bStart, bStart + p1 + CONF.CLEANUP_BUFFER, type1);
             pushToMap(res2, bStart + p1 + CONF.TRANSITION_BUFFER, bStart + realDuration + CONF.CLEANUP_BUFFER, type2);
         } else {
