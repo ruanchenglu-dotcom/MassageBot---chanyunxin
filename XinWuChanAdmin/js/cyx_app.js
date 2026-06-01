@@ -1171,8 +1171,19 @@ const App = () => {
 
                     if (isPhase1) {
                         const finishTimeMins = activeEndTimes[key];
-                        const p2Start = finishTimeMins + 5;
-                        const p2End = p2Start + split.phase2;
+                        let p2Start = finishTimeMins + (window.SYSTEM_CONFIG?.BUFFERS?.TRANSITION_MINUTES || 5);
+                        let p2End = p2Start + split.phase2;
+
+                        if (item.booking.transition_time) {
+                            const transMins = safeTimeToMins(item.booking.transition_time);
+                            if (transMins !== -1) p2Start = Math.max(transMins, finishTimeMins);
+                        }
+                        if (item.booking.finish_time) {
+                            const finishMins = safeTimeToMins(item.booking.finish_time);
+                            if (finishMins !== -1) p2End = Math.max(finishMins, p2Start);
+                        } else {
+                            p2End = p2Start + split.phase2;
+                        }
 
                         let finalTargetId = item.booking.phase2_res_idx ? item.booking.phase2_res_idx.toLowerCase() : null;
 
@@ -1184,8 +1195,19 @@ const App = () => {
                         }
                     } else {
                         const p2StartMins = safeTimeToMins(getTaipeiTimeStr(item.startTime));
-                        const p1End = p2StartMins - 5;
-                        const p1Start = p1End - split.phase1;
+                        let p1End = p2StartMins - (window.SYSTEM_CONFIG?.BUFFERS?.TRANSITION_MINUTES || 5);
+                        let p1Start = p1End - split.phase1;
+
+                        if (item.booking.transition_time) {
+                            const transMins = safeTimeToMins(item.booking.transition_time);
+                            if (transMins !== -1) p1End = Math.min(p1End, transMins);
+                        }
+                        if (item.booking.startTimeString) {
+                            const origStart = safeTimeToMins(item.booking.startTimeString);
+                            if (origStart !== -1) p1Start = Math.min(origStart, p1End);
+                        } else {
+                            p1Start = p1End - split.phase1;
+                        }
 
                         let reconstructedId = item.booking.phase1_res_idx ? item.booking.phase1_res_idx.toLowerCase() : null;
 
@@ -1273,9 +1295,23 @@ const App = () => {
 
                     if (pref1 || pref2) {
                         const split = getSmartSplit(bookingItem, bookingItem.duration, true, seq);
-                        const p1End = originalStart + split.phase1;
-                        const p2Start = p1End + 5;
-                        const p2End = p2Start + split.phase2;
+                        let p1End = originalStart + split.phase1;
+                        let p2Start = p1End + (window.SYSTEM_CONFIG?.BUFFERS?.TRANSITION_MINUTES || 5);
+                        let p2End = p2Start + split.phase2;
+
+                        if (bookingItem.transition_time) {
+                            const transMins = safeTimeToMins(bookingItem.transition_time);
+                            if (transMins !== -1) {
+                                p1End = Math.min(p1End, transMins);
+                                p2Start = transMins;
+                            }
+                        }
+                        if (bookingItem.finish_time) {
+                            const finishMins = safeTimeToMins(bookingItem.finish_time);
+                            if (finishMins !== -1) {
+                                p2End = Math.max(p2Start, finishMins);
+                            }
+                        }
 
                         if (pref1) {
                             addToGrid(pref1, originalStart, p1End, bookingItem, { isCombo: true, phase: 1, sequence: seq, targetId: pref2, isPending: true, priority: 3, isRunning: bookingItem.isRunningStatus });
@@ -1305,7 +1341,7 @@ const App = () => {
                 const currentSlot = slots.find(s => (nowMins >= s.start && nowMins < s.end));
 
                 if (currentSlot) {
-                    const nameLabel = currentSlot.booking.pax > 1 ? `${currentSlot.booking.customerName} (Grp)` : currentSlot.booking.customerName;
+                    const nameLabel = currentSlot.booking.pax > 1 ? `${currentSlot.booking.customerName} (團體)` : currentSlot.booking.customerName;
                     const isStrict = currentSlot.booking.isForcedSingle === true;
 
                     tempState[resId] = {

@@ -1628,7 +1628,7 @@ const TimelineView = ({ timelineData, onEditPhase, liveStatusData, staffList, st
                     <div 
                         className="flex sticky top-0 z-30 bg-slate-100 border-b border-slate-300 shadow-md h-[45px] cursor-pointer hover:bg-slate-200 transition-colors"
                         onDoubleClick={() => scrollToNow(true)}
-                        title="雙擊回到現在 (Nhấp đúp để trở về hiện tại)"
+                        title="雙擊回到現在"
                     >
                         <div className="sticky left-0 top-0 z-40 bg-[#e2e8f0] border-r border-slate-300 flex items-center justify-center font-extrabold text-slate-700 text-sm shadow-[2px_0_5px_rgba(0,0,0,0.1)]"
                             style={{ width: `${LEFT_COL_WIDTH}px`, height: `${HEADER_HEIGHT}px` }}>

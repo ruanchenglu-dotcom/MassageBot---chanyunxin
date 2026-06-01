@@ -86,10 +86,10 @@ const SYSTEM_CONFIG = {
     UI_LABELS: {
         MAIN_BRANCH: '本館',
         OPP_BRANCH: '對面館',
-        CHAIR_PREFIX: '腳',
-        BED_PREFIX: '床',
-        CHAIR_PREFIX: '腳',
-        BED_PREFIX: '床',
+        CHAIR_PREFIX1: '腳1-', //本館 ghế
+        BED_PREFIX1: '床1-',  //本館 giường
+        CHAIR_PREFIX2: '腳2-', //對面館 ghế
+        BED_PREFIX2: '床2-',  //對面館 giường
 
         MINUTES_UNIT: '分',
         PRICE_UNIT: '元',
