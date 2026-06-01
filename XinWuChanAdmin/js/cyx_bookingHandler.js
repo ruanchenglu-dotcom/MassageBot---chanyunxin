@@ -1011,9 +1011,19 @@
                         }
                         if (res1) { const m = res1.match(/(\d+)/); if (m) p1Index = parseInt(m[0], 10); }
                         if (res2) { const m = res2.match(/(\d+)/); if (m) p2Index = parseInt(m[0], 10); }
-                    } else if (uniqueMatches.length > 0) {
+                    } else if (uniqueMatches.length === 1) {
+                        const mType = (uniqueMatches[0].toUpperCase().includes('BED') || uniqueMatches[0].includes('床')) ? 'BED' : 'CHAIR';
                         const m = uniqueMatches[0].match(/(\d+)/);
-                        if (m) p1Index = parseInt(m[0], 10);
+                        if (m) {
+                            const parsedIdx = parseInt(m[0], 10);
+                            if (isBodyFirst) {
+                                if (mType === 'BED') p1Index = parsedIdx;
+                                else p2Index = parsedIdx;
+                            } else {
+                                if (mType === 'CHAIR') p1Index = parsedIdx;
+                                else p2Index = parsedIdx;
+                            }
+                        }
                     }
 
                     if (!p1Index) p1Index = anchorIndex;
