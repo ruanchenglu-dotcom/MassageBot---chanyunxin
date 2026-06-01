@@ -61,32 +61,37 @@
         const maxBeds = (config.SCALE && config.SCALE.MAX_BEDS) || config.MAX_BEDS || 6;
         const dynamicMaxPax = maxChairs + maxBeds;
 
-        // Sắp xếp, nhóm và lọc
-        const sortedBookings = [...safeBookings].sort((a, b) => {
-            const timeA = a.startTimeString || '';
-            const timeB = b.startTimeString || '';
-            return timeA.localeCompare(timeB);
-        });
-
-        let currentGroupIndex = 0;
-        const groupMap = new Map();
-
-        const processedBookings = sortedBookings.map(b => {
+        // 1. Tính toán groupKey cho mỗi booking
+        const bookingsWithKey = safeBookings.map(b => {
             const time = b.startTimeString || '';
             const phone = b.phone || b.sdt || b.custPhone || '';
             const name = b.originalName || (b.customerName || '').split('(')[0].trim();
             const surname = name.charAt(0) || '';
-            const groupKey = `${surname}_${phone}_${time}`;
-            
-            if (!groupMap.has(groupKey)) {
+            const groupKey = `${time}_${phone}_${surname}`;
+            return { ...b, groupKey };
+        });
+
+        // 2. Sắp xếp theo thời gian, sau đó theo groupKey để đảm bảo các record cùng nhóm luôn kề nhau
+        const sortedBookings = bookingsWithKey.sort((a, b) => {
+            const timeA = a.startTimeString || '';
+            const timeB = b.startTimeString || '';
+            if (timeA !== timeB) return timeA.localeCompare(timeB);
+            return a.groupKey.localeCompare(b.groupKey);
+        });
+
+        // 3. Gán groupIndex tuần tự
+        let currentGroupIndex = 0;
+        const groupMap = new Map();
+
+        const processedBookings = sortedBookings.map(b => {
+            if (!groupMap.has(b.groupKey)) {
                 currentGroupIndex++;
-                groupMap.set(groupKey, currentGroupIndex);
+                groupMap.set(b.groupKey, currentGroupIndex);
             }
             
             return {
                 ...b,
-                groupKey: groupKey,
-                groupIndex: groupMap.get(groupKey)
+                groupIndex: groupMap.get(b.groupKey)
             };
         });
 
