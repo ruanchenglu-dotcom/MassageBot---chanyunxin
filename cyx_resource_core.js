@@ -1138,7 +1138,7 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
                 blocks.push({ start: requestStartMins, end: requestStartMins + duration + CONF.CLEANUP_BUFFER, type: rType });
                 scenarioDetails.push({ guestIndex: ng.idx, service: svc.name, price: svc.price, flow: flow, timeStr: timeStr, allocated: [] });
             }
-            newGuestBlocksMap.push({ guest: ng, blocks: blocks });
+            newGuestBlocksMap.push({ guest: ng, blocks: blocks, isCombo: isThisGuestCombo, duration: duration, flow: flow });
         }
 
         let conflictFound = false;
@@ -1185,64 +1185,106 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
         const hardBookings = existingBookingsProcessed.filter(b => !b.isElastic);
         hardBookings.forEach(hb => { hb.blocks.forEach(blk => matrixSqueeze.tryAllocate(blk.type, blk.start, blk.end, hb.id, blk.forcedIndex, true)); });
 
-            let squeezeScenarioPossible = true;
-            let squeezeAllocationsMap = [];
-            for (const item of newGuestBlocksMap) {
-                // [V118.10 FIX] 關閉 suggestedLanes 強制綁定
-                const useSuggestedLanes = false;
-                let preferredIdxSqueeze = null;
-
-                if (!useSuggestedLanes && newGuestHalfSize > 0 && newGuests.length >= 2) {
-                    preferredIdxSqueeze = (item.guest.idx % newGuestHalfSize) + 1;
-                    if (maxBF === 2 && (numBF === 0 || numBF === 2)) preferredIdxSqueeze = item.guest.idx + 1;
-                }
-
-                let guestSqueezeAllocations = [];
-                let fitGuest = false;
-                let finalOption = null;
-
-                const optionsToTry = (item.elasticOptions && item.elasticOptions.length > 0) ? item.elasticOptions : [{ blocks: item.blocks }];
-                
-                for (const option of optionsToTry) {
-                    let testBlocks = option.blocks.map(b => {
-                        let specificPrefIdx = preferredIdxSqueeze;
-                        let isPrefForced = false;
-                        if (useSuggestedLanes) {
-                            specificPrefIdx = guardrailCheck.suggestedLanes[item.guest.idx][b.type] || preferredIdxSqueeze;
-                            if (specificPrefIdx !== null) isPrefForced = true;
+                    let squeezeScenarioPossible = false;
+                    const placeNewGuestsElastically = (guestIndex, currentMatrix, currentDetails, currentUpdates) => {
+                        if (guestIndex >= newGuestBlocksMap.length) return true;
+                        
+                        const item = newGuestBlocksMap[guestIndex];
+                        const useSuggestedLanes = false;
+                        let preferredIdxSqueeze = null;
+                        if (!useSuggestedLanes && newGuestHalfSize > 0 && newGuests.length >= 2) {
+                            preferredIdxSqueeze = (item.guest.idx % newGuestHalfSize) + 1;
+                            if (maxBF === 2 && (numBF === 0 || numBF === 2)) preferredIdxSqueeze = item.guest.idx + 1;
                         }
-                        return { ...b, forcedIndex: isPrefForced ? specificPrefIdx : null };
-                    });
+
+                        let splitsToTry = [];
+                        if (item.isCombo) {
+                            // Backend version: Use full generator parameters to respect sheet config bounds
+                            const minFoot = item.guest.minFoot; const maxFoot = item.guest.maxFoot;
+                            const minBody = item.guest.minBody; const maxBody = item.guest.maxBody;
+                            splitsToTry = generateElasticSplits(item.duration, 10, 30, null, minFoot, maxFoot, minBody, maxBody, item.flow);
+                        } else {
+                            splitsToTry = [{ p1: item.duration, p2: 0, deviation: 0 }];
+                        }
+
+                        for (const split of splitsToTry) {
+                            let testBlocks = [];
+                            if (item.isCombo) {
+                                if (item.flow === 'FB') {
+                                    const t1End = requestStartMins + split.p1;
+                                    const t2Start = t1End + CONF.TRANSITION_BUFFER;
+                                    testBlocks.push({ start: requestStartMins, end: t1End + CONF.CLEANUP_BUFFER, type: 'CHAIR' });
+                                    testBlocks.push({ start: t2Start, end: t2Start + split.p2 + CONF.CLEANUP_BUFFER, type: 'BED' });
+                                } else {
+                                    const t1End = requestStartMins + split.p2;
+                                    const t2Start = t1End + CONF.TRANSITION_BUFFER;
+                                    testBlocks.push({ start: requestStartMins, end: t1End + CONF.CLEANUP_BUFFER, type: 'BED' });
+                                    testBlocks.push({ start: t2Start, end: t2Start + split.p1 + CONF.CLEANUP_BUFFER, type: 'CHAIR' });
+                                }
+                            } else {
+                                testBlocks = item.blocks;
+                            }
+
+                            let fit = true;
+                            let clonedMatrix = new VirtualMatrix();
+                            clonedMatrix.lanes = JSON.parse(JSON.stringify(currentMatrix.lanes));
+                            clonedMatrix.blockLog = [...currentMatrix.blockLog];
+                            
+                            let currentGuestAllocations = [];
+                            for (const block of testBlocks) {
+                                let specificPrefIdx = preferredIdxSqueeze;
+                                let isPrefForced = false;
+                                if (useSuggestedLanes) {
+                                    specificPrefIdx = guardrailCheck.suggestedLanes[item.guest.idx][block.type] || preferredIdxSqueeze;
+                                    if (specificPrefIdx !== null) isPrefForced = true;
+                                }
+                                const slotId = clonedMatrix.tryAllocate(block.type, block.start, block.end, `NEW_GUEST_${item.guest.idx}`, specificPrefIdx, isPrefForced);
+                                if (!slotId) { fit = false; break; }
+                                currentGuestAllocations.push(slotId);
+                            }
+
+                            if (fit) {
+                                const detail = currentDetails.find(d => d.guestIndex === item.guest.idx);
+                                let oldP1, oldP2, oldAllocated;
+                                if (detail) {
+                                    oldAllocated = detail.allocated;
+                                    detail.allocated = currentGuestAllocations;
+                                    if (item.isCombo) {
+                                        oldP1 = detail.phase1_duration; oldP2 = detail.phase2_duration;
+                                        detail.phase1_duration = split.p1;
+                                        detail.phase2_duration = split.p2;
+                                    }
+                                }
+                                
+                                let nextUpdates = [...currentUpdates];
+                                if (item.isCombo && split.deviation !== 0) {
+                                    nextUpdates.push({ rowId: 'NEW', customerName: '新客', newPhase1: split.p1, newPhase2: split.p2, reason: '⚠️ 系統已自動啟動彈性時間安排以符合空位' });
+                                }
+
+                                if (placeNewGuestsElastically(guestIndex + 1, clonedMatrix, currentDetails, nextUpdates)) {
+                                    Object.assign(currentMatrix.lanes, clonedMatrix.lanes);
+                                    currentMatrix.blockLog = clonedMatrix.blockLog;
+                                    updatesProposed.push(...nextUpdates);
+                                    return true;
+                                }
+                                
+                                if (detail) {
+                                    detail.allocated = oldAllocated;
+                                    if (item.isCombo) {
+                                        detail.phase1_duration = oldP1;
+                                        detail.phase2_duration = oldP2;
+                                    }
+                                }
+                            }
+                        }
+                        return false;
+                    };
                     
-                    if (isBlockSetAllocatable(testBlocks, matrixSqueeze)) {
-                        for (let i = 0; i < option.blocks.length; i++) {
-                            const block = option.blocks[i];
-                            const tb = testBlocks[i];
-                            const slotId = matrixSqueeze.tryAllocate(block.type, block.start, block.end, `NEW_GUEST_${item.guest.idx}`, specificPrefIdx, tb.forcedIndex ? true : false);
-                            guestSqueezeAllocations.push(slotId);
-                        }
-                        fitGuest = true;
-                        finalOption = option;
-                        break;
+                    squeezeScenarioPossible = placeNewGuestsElastically(0, matrixSqueeze, scenarioDetails, []);
+                    if (!squeezeScenarioPossible) {
+                        if (matrixSqueeze.blockLog.length > 0) failureLog = matrixSqueeze.blockLog;
+                        scenarioFailed = true; continue;
                     }
-                }
-
-                if (!fitGuest) { squeezeScenarioPossible = false; break; }
-                squeezeAllocationsMap.push({ guestIndex: item.guest.idx, allocated: guestSqueezeAllocations });
-                
-                if (finalOption && finalOption.p1 !== undefined) {
-                    const detail = scenarioDetails.find(d => d.guestIndex === item.guest.idx);
-                    if (detail) {
-                        detail.phase1_duration = finalOption.p1;
-                        detail.phase2_duration = finalOption.p2;
-                    }
-                }
-            }
-
-            if (!squeezeScenarioPossible) {
-                if (matrixSqueeze.blockLog.length > 0) failureLog = matrixSqueeze.blockLog;
-                scenarioFailed = true; continue;
-            }
 
             const softBookings = existingBookingsProcessed.filter(b => b.isElastic);
             for (const sb of softBookings) {
@@ -1265,14 +1307,7 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
             if (squeezeScenarioPossible) {
                 scenarioUpdates = updatesProposed;
                 matrix = matrixSqueeze;
-                squeezeAllocationsMap.forEach(mapItem => {
-                    const detail = scenarioDetails.find(d => d.guestIndex === mapItem.guestIndex);
-                    if (detail) {
-                        detail.allocated = mapItem.allocated;
-                        detail.phase1_res_idx = mapItem.allocated[0] || null;
-                        detail.phase2_res_idx = mapItem.allocated[1] || null;
-                    }
-                });
+
             } else {
                 if (matrixSqueeze.blockLog.length > 0) failureLog = matrixSqueeze.blockLog;
                 scenarioFailed = true; continue;

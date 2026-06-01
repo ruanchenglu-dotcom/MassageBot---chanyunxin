@@ -927,12 +927,12 @@
                     if (!p1Index) p1Index = anchorIndex;
 
                     if (isBodyFirst) {
-                        processedB.blocks.push({ start: bStart, end: p1End, type: 'BED', forcedIndex: p1Index });
-                        processedB.blocks.push({ start: p2Start, end: p2End, type: 'CHAIR', forcedIndex: p2Index });
+                        processedB.blocks.push({ start: bStart, end: p1End + CONF.CLEANUP_BUFFER, type: 'BED', forcedIndex: p1Index });
+                        processedB.blocks.push({ start: p2Start, end: p2End + CONF.CLEANUP_BUFFER, type: 'CHAIR', forcedIndex: p2Index });
                         processedB.flow = 'BF';
                     } else {
-                        processedB.blocks.push({ start: bStart, end: p1End, type: 'CHAIR', forcedIndex: p1Index });
-                        processedB.blocks.push({ start: p2Start, end: p2End, type: 'BED', forcedIndex: p2Index });
+                        processedB.blocks.push({ start: bStart, end: p1End + CONF.CLEANUP_BUFFER, type: 'CHAIR', forcedIndex: p1Index });
+                        processedB.blocks.push({ start: p2Start, end: p2End + CONF.CLEANUP_BUFFER, type: 'BED', forcedIndex: p2Index });
                         processedB.flow = 'FB';
                     }
                     processedB.p1_current = p1; processedB.p2_current = p2;
@@ -948,7 +948,7 @@
                         if (m) forcedIdx = parseInt(m[0], 10);
                     }
                     
-                    processedB.blocks.push({ start: bStart, end: bStart + realDuration, type: rType, forcedIndex: forcedIdx });
+                    processedB.blocks.push({ start: bStart, end: bStart + realDuration + CONF.CLEANUP_BUFFER, type: rType, forcedIndex: forcedIdx });
                 }
                 existingBookingsProcessed.push(processedB);
             });
@@ -1265,7 +1265,7 @@
                             const rIdx = parseInt(match[2], 10) - 1;
                             if (resourceMap[rType] && resourceMap[rType][rIdx]) {
                                 for (const existing of resourceMap[rType][rIdx]) {
-                                    if (isOverlap(block.start, block.end + CONF.CLEANUP_BUFFER, existing.start, existing.end)) {
+                                    if (isOverlap(block.start, block.end, existing.start, existing.end)) {
                                         collisionDetected = true;
                                         failureLog.push(`❌ 嚴重衝突: 系統試圖將客需安排至已被佔用的 ${assignedLaneId}。請刷新頁面或檢查資料。`);
                                         break;
