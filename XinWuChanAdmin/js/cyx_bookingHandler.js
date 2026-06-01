@@ -2254,22 +2254,35 @@
                                             const cat = svcDef?.category || '';
                                             const isCombo = cat === 'COMBO' || cat === 'MIXED';
                                             let p1 = 0, p2 = 0;
+                                            let isDefault = true;
+                                            let flow = 'FB';
                                             if (isCombo && svcDef) {
-                                                const dur = svcDef.duration || 60;
-                                                p1 = Math.floor(dur / 2);
-                                                p2 = dur - p1;
+                                                if (checkResult && checkResult.coreDetails && checkResult.coreDetails[i]) {
+                                                    const detail = checkResult.coreDetails[i];
+                                                    if (detail.phase1_duration !== undefined && detail.phase2_duration !== undefined) {
+                                                        p1 = detail.phase1_duration;
+                                                        p2 = detail.phase2_duration;
+                                                        flow = detail.flow || 'FB';
+                                                        isDefault = false;
+                                                    }
+                                                }
+                                                if (isDefault) {
+                                                    const dur = svcDef.duration || 60;
+                                                    p1 = Math.floor(dur / 2);
+                                                    p2 = dur - p1;
+                                                }
                                             }
                                             
                                             return (
                                             <div key={i} className="flex flex-col gap-2">
-                                                <div className="flex gap-2 items-center">
+                                                <div className="flex gap-2 items-center overflow-x-auto pb-1">
                                                     <div className="w-10 shrink-0 h-[64px] rounded-lg bg-gray-200 hidden sm:flex items-center justify-center font-black text-lg text-slate-500">#{i + 1}</div>
 
-                                                    <select className="flex-[1.5] min-w-0 border-2 p-2 sm:p-3 rounded-lg font-bold text-base sm:text-xl h-[64px] bg-white" value={g.service} onChange={e => handleGuestUpdate(i, 'service', e.target.value)}>
+                                                    <select className="flex-[1.5] min-w-[120px] border-2 p-2 sm:p-3 rounded-lg font-bold text-base sm:text-xl h-[64px] bg-white shrink-0" value={g.service} onChange={e => handleGuestUpdate(i, 'service', e.target.value)}>
                                                         {(window.SERVICES_LIST || []).map(s => <option key={s} value={s}>{s}</option>)}
                                                     </select>
 
-                                                    <select className="flex-[1] min-w-0 border-2 p-2 sm:p-3 rounded-lg font-bold text-base sm:text-xl h-[64px] bg-white" value={g.staff} onChange={e => handleGuestUpdate(i, 'staff', e.target.value)}>
+                                                    <select className="flex-[1] min-w-[90px] border-2 p-2 sm:p-3 rounded-lg font-bold text-base sm:text-xl h-[64px] bg-white shrink-0" value={g.staff} onChange={e => handleGuestUpdate(i, 'staff', e.target.value)}>
                                                         <option value="隨機">🎲 隨機</option>
                                                         <option value="女">🚺 女師</option>
                                                         <option value="男">🚹 男師</option>
@@ -2278,25 +2291,28 @@
 
                                                     <button
                                                         onClick={(e) => { e.preventDefault(); handleGuestUpdate(i, 'toggleOil'); }}
-                                                        className={`flex-[0.7] min-w-[70px] px-2 shrink-0 border-2 rounded-lg font-bold text-base sm:text-lg h-[64px] transition-colors whitespace-nowrap flex items-center justify-center gap-1 ${g.isOil ? 'bg-orange-100 text-orange-700 border-orange-400 shadow-sm' : 'bg-slate-100 text-slate-400 border-slate-300 hover:bg-slate-200'}`}
+                                                        className={`w-12 sm:w-14 px-1 shrink-0 border-2 rounded-lg font-bold text-xs sm:text-sm h-[64px] transition-colors flex flex-col items-center justify-center gap-0.5 ${g.isOil ? 'bg-orange-100 text-orange-700 border-orange-400 shadow-sm' : 'bg-slate-100 text-slate-400 border-slate-300 hover:bg-slate-200'}`}
                                                     >
-                                                        <span className={g.isOil ? "opacity-100" : "opacity-50"}>💧</span>精油
+                                                        <span className={g.isOil ? "opacity-100" : "opacity-50"}>💧</span>
+                                                        <span>精油</span>
                                                     </button>
 
                                                     <button
                                                         onClick={(e) => { e.preventDefault(); handleGuestUpdate(i, 'toggleGuaSha'); }}
-                                                        className={`flex-[0.7] min-w-[70px] px-2 shrink-0 border-2 rounded-lg font-bold text-base sm:text-lg h-[64px] transition-colors whitespace-nowrap flex items-center justify-center gap-1 ${g.isGuaSha ? 'bg-red-100 text-red-700 border-red-400 shadow-sm' : 'bg-slate-100 text-slate-400 border-slate-300 hover:bg-slate-200'}`}
+                                                        className={`w-12 sm:w-14 px-1 shrink-0 border-2 rounded-lg font-bold text-xs sm:text-sm h-[64px] transition-colors flex flex-col items-center justify-center gap-0.5 ${g.isGuaSha ? 'bg-red-100 text-red-700 border-red-400 shadow-sm' : 'bg-slate-100 text-slate-400 border-slate-300 hover:bg-slate-200'}`}
                                                     >
-                                                        <span className={g.isGuaSha ? "opacity-100" : "opacity-50"}>[刮]</span>刮/罐
+                                                        <span className={g.isGuaSha ? "opacity-100" : "opacity-50"}>[刮]</span>
+                                                        <span>刮/罐</span>
                                                     </button>
+
+                                                    {isCombo && (
+                                                        <div className="shrink-0 flex items-center pl-1">
+                                                            <span className="text-xs sm:text-sm text-orange-600 font-bold font-mono bg-orange-50 px-2 py-1.5 rounded-lg border border-orange-200 whitespace-nowrap">
+                                                                ⏱️ {isDefault ? '預設 ' : ''}{flow === 'BF' ? `身體:${p1}分 | 腳:${p2}分` : `腳:${p1}分 | 身體:${p2}分`}
+                                                            </span>
+                                                        </div>
+                                                    )}
                                                 </div>
-                                                {isCombo && (
-                                                    <div className="pl-0 sm:pl-[3.5rem]">
-                                                        <span className="text-sm sm:text-base text-orange-600 font-bold font-mono bg-orange-50 px-3 py-1 rounded-lg border border-orange-200 inline-block">
-                                                            ⏱️ 預設 腳: {p1}分 | 身體: {p2}分
-                                                        </span>
-                                                    </div>
-                                                )}
                                             </div>
                                             );
                                         })}
