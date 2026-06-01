@@ -2200,7 +2200,14 @@
                                         <div className="text-lg font-normal space-y-2">
                                             {checkResult && checkResult.coreDetails && checkResult.coreDetails.map((d, i) => (
                                                 <div key={i} className="flex justify-between items-center bg-white p-2 rounded-lg border border-green-200 shadow-sm">
-                                                    <span>#{i + 1} {d.service}</span>
+                                                    <div className="flex flex-col">
+                                                        <span className="font-bold">#{i + 1} {d.service}</span>
+                                                        {(d.phase1_duration && d.phase2_duration) && (
+                                                            <span className="text-sm text-orange-600 font-bold font-mono">
+                                                                ⏱️ {d.flow === 'BF' ? `身體: ${d.phase1_duration}分 | 腳: ${d.phase2_duration}分` : `腳: ${d.phase1_duration}分 | 身體: ${d.phase2_duration}分`}
+                                                            </span>
+                                                        )}
+                                                    </div>
                                                     <div className="flex flex-col items-end gap-1">
                                                         <div className="flex gap-2">
                                                             <span className="bg-green-100 px-3 py-1 rounded-md text-green-800 text-sm font-bold">{d.staff}</span>

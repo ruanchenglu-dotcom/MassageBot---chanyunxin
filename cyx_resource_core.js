@@ -770,12 +770,35 @@ function findAvailableStaff(staffReq, start, end, staffListRef, busyList) {
     }
 }
 
-function generateElasticSplits(totalDuration, step = 0, limit = 0, customLockedPhase1 = null) {
+function generateElasticSplits(totalDuration, step = 0, limit = 0, customLockedPhase1 = null, minFoot = null, maxFoot = null, minBody = null, maxBody = null, flow = 'FB') {
     if (customLockedPhase1 !== null && customLockedPhase1 !== undefined && !isNaN(customLockedPhase1)) {
         return [{ p1: parseInt(customLockedPhase1), p2: totalDuration - parseInt(customLockedPhase1), deviation: 999 }];
     }
     const standardHalf = Math.floor(totalDuration / 2);
     let options = [{ p1: standardHalf, p2: totalDuration - standardHalf, deviation: 0 }];
+
+    if (minFoot !== null && maxFoot !== null && minBody !== null && maxBody !== null) {
+        options = [];
+        let p1_min = flow === 'FB' ? minFoot : minBody;
+        let p1_max = flow === 'FB' ? maxFoot : maxBody;
+        
+        for (let p1 = p1_min; p1 <= p1_max; p1++) {
+            let p2 = totalDuration - p1;
+            let p2_min = flow === 'FB' ? minBody : minFoot;
+            let p2_max = flow === 'FB' ? maxBody : maxFoot;
+            
+            if (p2 >= p2_min && p2 <= p2_max) {
+                options.push({ p1: p1, p2: p2, deviation: Math.abs(p1 - standardHalf) });
+            }
+        }
+        if (options.length === 0) {
+            options.push({ p1: standardHalf, p2: totalDuration - standardHalf, deviation: 0 });
+        } else {
+            options.sort((a, b) => a.deviation - b.deviation);
+        }
+        return options;
+    }
+
     if (!step || !limit || step <= 0 || limit <= 0) return options;
 
     let currentDeviation = step;
@@ -940,6 +963,7 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
             id: b.rowId, originalData: b, staffName: b.staffName, serviceName: b.serviceName, category: svcInfo.category,
             isElastic: isCombo && (!isLocked) && (!isRunning),
             elasticStep: svcInfo.elasticStep || 5, elasticLimit: svcInfo.elasticLimit || 15,
+            minFoot: svcInfo.minFoot, maxFoot: svcInfo.maxFoot, minBody: svcInfo.minBody, maxBody: svcInfo.maxBody,
             startMins: bStart, duration: duration, blocks: [], anchorIndex: anchorIndex
         };
 
@@ -1068,22 +1092,46 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
                 if (cIdx >= 0 && cIdx < numBF) { flow = 'BF'; }
             } else { flow = inferFlowFromService(svc, ng.flowCode); }
 
-            const duration = svc.duration || 60; let blocks = [];
+            const duration = svc.duration || 60; let blocks = []; let elasticOptions = [];
             if (isThisGuestCombo) {
                 const p1Standard = Math.floor(duration / 2); const p2Standard = duration - p1Standard;
                 const isCrossSwapGroup = comboGuests.length >= 2 && numBF > 0 && numBF < comboGuests.length;
                 const phase1Cleanup = isCrossSwapGroup ? Math.min(CONF.CLEANUP_BUFFER, CONF.TRANSITION_BUFFER) : CONF.CLEANUP_BUFFER;
+
+                const splits = generateElasticSplits(duration, svc.elasticStep || 5, svc.elasticLimit || 15, null, svc.minFoot, svc.maxFoot, svc.minBody, svc.maxBody, flow);
 
                 if (flow === 'FB') {
                     const t1End = requestStartMins + p1Standard; const t2Start = t1End + CONF.TRANSITION_BUFFER;
                     blocks.push({ start: requestStartMins, end: t1End + phase1Cleanup, type: 'CHAIR' });
                     blocks.push({ start: t2Start, end: t2Start + p2Standard + CONF.CLEANUP_BUFFER, type: 'BED' });
                     scenarioDetails.push({ guestIndex: ng.idx, service: svc.name, price: svc.price, phase1_duration: p1Standard, phase2_duration: p2Standard, flow: 'FB', timeStr: timeStr, allocated: [] });
+                    
+                    splits.forEach(split => {
+                        const sT1End = requestStartMins + split.p1; const sT2Start = sT1End + CONF.TRANSITION_BUFFER;
+                        elasticOptions.push({
+                            p1: split.p1, p2: split.p2,
+                            blocks: [
+                                { start: requestStartMins, end: sT1End + phase1Cleanup, type: 'CHAIR' },
+                                { start: sT2Start, end: sT2Start + split.p2 + CONF.CLEANUP_BUFFER, type: 'BED' }
+                            ]
+                        });
+                    });
                 } else {
                     const t1End = requestStartMins + p2Standard; const t2Start = t1End + CONF.TRANSITION_BUFFER;
                     blocks.push({ start: requestStartMins, end: t1End + phase1Cleanup, type: 'BED' });
                     blocks.push({ start: t2Start, end: t2Start + p1Standard + CONF.CLEANUP_BUFFER, type: 'CHAIR' });
                     scenarioDetails.push({ guestIndex: ng.idx, service: svc.name, price: svc.price, phase1_duration: p1Standard, phase2_duration: p2Standard, flow: 'BF', timeStr: timeStr, allocated: [] });
+
+                    splits.forEach(split => {
+                        const sT1End = requestStartMins + split.p2; const sT2Start = sT1End + CONF.TRANSITION_BUFFER;
+                        elasticOptions.push({
+                            p1: split.p1, p2: split.p2,
+                            blocks: [
+                                { start: requestStartMins, end: sT1End + phase1Cleanup, type: 'BED' },
+                                { start: sT2Start, end: sT2Start + split.p1 + CONF.CLEANUP_BUFFER, type: 'CHAIR' }
+                            ]
+                        });
+                    });
                 }
             } else {
                 let rType = (flow === 'FOOTSINGLE') ? 'CHAIR' : 'BED';
@@ -1150,21 +1198,45 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
                 }
 
                 let guestSqueezeAllocations = [];
-                for (const block of item.blocks) {
-                    let specificPrefIdx = preferredIdxSqueeze;
-                    let isPrefForced = false;
+                let fitGuest = false;
+                let finalOption = null;
 
-                    if (useSuggestedLanes) {
-                        specificPrefIdx = guardrailCheck.suggestedLanes[item.guest.idx][block.type] || preferredIdxSqueeze;
-                        if (specificPrefIdx !== null) isPrefForced = true;
+                const optionsToTry = (item.elasticOptions && item.elasticOptions.length > 0) ? item.elasticOptions : [{ blocks: item.blocks }];
+                
+                for (const option of optionsToTry) {
+                    let testBlocks = option.blocks.map(b => {
+                        let specificPrefIdx = preferredIdxSqueeze;
+                        let isPrefForced = false;
+                        if (useSuggestedLanes) {
+                            specificPrefIdx = guardrailCheck.suggestedLanes[item.guest.idx][b.type] || preferredIdxSqueeze;
+                            if (specificPrefIdx !== null) isPrefForced = true;
+                        }
+                        return { ...b, forcedIndex: isPrefForced ? specificPrefIdx : null };
+                    });
+                    
+                    if (isBlockSetAllocatable(testBlocks, matrixSqueeze)) {
+                        for (let i = 0; i < option.blocks.length; i++) {
+                            const block = option.blocks[i];
+                            const tb = testBlocks[i];
+                            const slotId = matrixSqueeze.tryAllocate(block.type, block.start, block.end, `NEW_GUEST_${item.guest.idx}`, specificPrefIdx, tb.forcedIndex ? true : false);
+                            guestSqueezeAllocations.push(slotId);
+                        }
+                        fitGuest = true;
+                        finalOption = option;
+                        break;
                     }
-
-                    const slotId = matrixSqueeze.tryAllocate(block.type, block.start, block.end, `NEW_GUEST_${item.guest.idx}`, specificPrefIdx, isPrefForced);
-                    if (!slotId) { squeezeScenarioPossible = false; break; }
-                    guestSqueezeAllocations.push(slotId);
                 }
-                if (!squeezeScenarioPossible) break;
+
+                if (!fitGuest) { squeezeScenarioPossible = false; break; }
                 squeezeAllocationsMap.push({ guestIndex: item.guest.idx, allocated: guestSqueezeAllocations });
+                
+                if (finalOption && finalOption.p1 !== undefined) {
+                    const detail = scenarioDetails.find(d => d.guestIndex === item.guest.idx);
+                    if (detail) {
+                        detail.phase1_duration = finalOption.p1;
+                        detail.phase2_duration = finalOption.p2;
+                    }
+                }
             }
 
             if (!squeezeScenarioPossible) {
@@ -1174,7 +1246,7 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
 
             const softBookings = existingBookingsProcessed.filter(b => b.isElastic);
             for (const sb of softBookings) {
-                const splits = generateElasticSplits(sb.duration, sb.elasticStep, sb.elasticLimit, null);
+                const splits = generateElasticSplits(sb.duration, sb.elasticStep, sb.elasticLimit, null, sb.minFoot, sb.maxFoot, sb.minBody, sb.maxBody, sb.flow);
                 let fit = false;
                 for (const split of splits) {
                     const sP1End = sb.startMins + split.p1; const sP2Start = sP1End + CONF.TRANSITION_BUFFER; const sP2End = sP2Start + split.p2;

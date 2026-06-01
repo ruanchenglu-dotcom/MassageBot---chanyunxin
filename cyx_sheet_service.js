@@ -289,6 +289,12 @@ async function syncMenuData() {
             if (row[4]) { const ps = parseInt(row[4].toString().replace(/\D/g, '')); if (!isNaN(ps)) elasticStep = ps; }
             if (row[5]) { const pl = parseInt(row[5].toString().replace(/\D/g, '')); if (!isNaN(pl)) elasticLimit = pl; }
 
+            let minFoot = null, maxFoot = null, minBody = null, maxBody = null;
+            if (row[8]) { const val = parseInt(row[8].toString().replace(/\D/g, '')); if (!isNaN(val)) minFoot = val; }
+            if (row[9]) { const val = parseInt(row[9].toString().replace(/\D/g, '')); if (!isNaN(val)) maxFoot = val; }
+            if (row[10]) { const val = parseInt(row[10].toString().replace(/\D/g, '')); if (!isNaN(val)) minBody = val; }
+            if (row[11]) { const val = parseInt(row[11].toString().replace(/\D/g, '')); if (!isNaN(val)) maxBody = val; }
+
             let blocks = 1;
             if (row[6]) { const blk = parseInt(row[6].toString().replace(/\D/g, '')); if (!isNaN(blk)) blocks = blk; }
 
@@ -320,6 +326,10 @@ async function syncMenuData() {
                 price: price,
                 elasticStep: elasticStep,
                 elasticLimit: elasticLimit,
+                minFoot: minFoot,
+                maxFoot: maxFoot,
+                minBody: minBody,
+                maxBody: maxBody,
                 blocks: blocks,
                 commission: commission
             };
