@@ -2061,7 +2061,7 @@
         };
 
         const HOURS_LIST = ['05', '06', '07', '08', '09', '10', '11', '12', '13', '14', '15', '16', '17', '18', '19', '20', '21', '22', '23', '00', '01', '02', '03', '04'];
-        const MINUTES_STEP = ['00', '10', '20', '30', '40', '50'];
+        const MINUTES_STEP = ['00', '05', '10', '15', '20', '25', '30', '35', '40', '45', '50', '55'];
         const [cH, cM] = (form.time || "12:00").split(':');
 
         let dynamicMaxPax = 18;
@@ -2307,8 +2307,8 @@
 
                                                     {isCombo && (
                                                         <div className="shrink-0 flex items-center pl-1">
-                                                            <span className="text-xs sm:text-sm text-orange-600 font-bold font-mono bg-orange-50 px-2 py-1.5 rounded-lg border border-orange-200 whitespace-nowrap">
-                                                                ⏱️ {isDefault ? '預設 ' : ''}{flow === 'BF' ? `身體:${p1}分 | 腳:${p2}分` : `腳:${p1}分 | 身體:${p2}分`}
+                                                            <span className="text-sm sm:text-base text-orange-600 font-bold font-mono bg-orange-50 px-2 py-1.5 rounded-lg border border-orange-200 whitespace-nowrap">
+                                                                {flow === 'BF' ? `身:${p1} ; 腳:${p2}` : `腳:${p1} ; 身:${p2}`}
                                                             </span>
                                                         </div>
                                                     )}
@@ -2399,8 +2399,8 @@
                                                     <div className="flex flex-col">
                                                         <span className="font-bold">#{i + 1} {d.service}</span>
                                                         {(d.phase1_duration && d.phase2_duration) && (
-                                                            <span className="text-sm text-orange-600 font-bold font-mono">
-                                                                ⏱️ {d.flow === 'BF' ? `身體: ${d.phase1_duration}分 | 腳: ${d.phase2_duration}分` : `腳: ${d.phase1_duration}分 | 身體: ${d.phase2_duration}分`}
+                                                            <span className="text-sm sm:text-base text-orange-600 font-bold font-mono">
+                                                                {d.flow === 'BF' ? `身:${d.phase1_duration} ; 腳:${d.phase2_duration}` : `腳:${d.phase1_duration} ; 身:${d.phase2_duration}`}
                                                             </span>
                                                         )}
                                                     </div>
