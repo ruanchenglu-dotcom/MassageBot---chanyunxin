@@ -1122,6 +1122,7 @@
                             clonedMatrix.lanes = JSON.parse(JSON.stringify(currentMatrix.lanes));
                             clonedMatrix.blockLog = [...currentMatrix.blockLog];
                             
+                            let currentAllocations = [];
                             for (const block of testBlocks) {
                                 let specificPrefIdx = preferredIdxSqueeze;
                                 let isPrefForced = false;
@@ -1131,15 +1132,20 @@
                                 }
                                 const slotId = clonedMatrix.tryAllocate(block.type, block.start, block.end, `NEW_GUEST_${item.guest.idx}`, specificPrefIdx, isPrefForced);
                                 if (!slotId) { fit = false; break; }
+                                currentAllocations.push(slotId);
                             }
 
                             if (fit) {
                                 const detail = currentDetails.find(d => d.guestIndex === item.guest.idx);
-                                let oldP1, oldP2;
-                                if (detail && item.isCombo) {
-                                    oldP1 = detail.phase1_duration; oldP2 = detail.phase2_duration;
-                                    detail.phase1_duration = split.p1;
-                                    detail.phase2_duration = split.p2;
+                                let oldP1, oldP2, oldAllocated;
+                                if (detail) {
+                                    oldAllocated = detail.allocated;
+                                    detail.allocated = currentAllocations;
+                                    if (item.isCombo) {
+                                        oldP1 = detail.phase1_duration; oldP2 = detail.phase2_duration;
+                                        detail.phase1_duration = split.p1;
+                                        detail.phase2_duration = split.p2;
+                                    }
                                 }
                                 
                                 let nextUpdates = [...currentUpdates];
@@ -1154,9 +1160,12 @@
                                     return true;
                                 }
                                 
-                                if (detail && item.isCombo) {
-                                    detail.phase1_duration = oldP1;
-                                    detail.phase2_duration = oldP2;
+                                if (detail) {
+                                    detail.allocated = oldAllocated;
+                                    if (item.isCombo) {
+                                        detail.phase1_duration = oldP1;
+                                        detail.phase2_duration = oldP2;
+                                    }
                                 }
                             }
                         }
