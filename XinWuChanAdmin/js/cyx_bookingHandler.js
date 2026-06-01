@@ -545,45 +545,56 @@
                 const guestIdKey = g.idx !== undefined ? g.idx : i; // Đảm bảo đúng index
 
                 if (isCombo) {
-                    const p1 = Math.floor(duration / 2);
-                    const p2 = duration - p1;
-                    const tStart = requestStart;
-                    const tSwitch = tStart + p1 + CONF.TRANSITION_BUFFER;
-
-                    let successBF = false;
-                    let successFB = false;
-
-                    let bedIdx = -1, chairIdx = -1;
-                    for (let b = 0; b < CONF.MAX_BEDS; b++) {
-                        if (checkLaneContinuity(simulationMap.BED[b], tStart, tStart + p1)) { bedIdx = b; break; }
-                    }
-                    for (let c = 0; c < CONF.MAX_CHAIRS; c++) {
-                        if (checkLaneContinuity(simulationMap.CHAIR[c], tSwitch, tSwitch + p2)) { chairIdx = c; break; }
-                    }
-
-                    if (bedIdx !== -1 && chairIdx !== -1) {
-                        successBF = true;
-                        simulationMap.BED[bedIdx].push({ start: tStart, end: tStart + p1 + CONF.CLEANUP_BUFFER });
-                        simulationMap.CHAIR[chairIdx].push({ start: tSwitch, end: tSwitch + p2 + CONF.CLEANUP_BUFFER });
-                        suggestedLanes[guestIdKey] = { BED: bedIdx + 1, CHAIR: chairIdx + 1 };
-                    } else {
-                        chairIdx = -1; bedIdx = -1;
-                        for (let c = 0; c < CONF.MAX_CHAIRS; c++) {
-                            if (checkLaneContinuity(simulationMap.CHAIR[c], tStart, tStart + p1)) { chairIdx = c; break; }
+                    let foundValidSplit = false;
+                    const eStep = svc.elasticStep || 10;
+                    const eLimit = svc.elasticLimit || 30;
+                    const flowsToTry = (g.flowCode === 'FB' || g.flowCode === 'BF') ? [g.flowCode] : ['FB', 'BF'];
+                    
+                    for (const testFlow of flowsToTry) {
+                        const splitsToTry = generateElasticSplits(duration, eStep, eLimit, null, svc, testFlow);
+                        
+                        for (const split of splitsToTry) {
+                            const p1 = split.p1;
+                            const p2 = split.p2;
+                            const tStart = requestStart;
+                            const tSwitch = tStart + p1 + CONF.TRANSITION_BUFFER;
+                            
+                            let bedIdx = -1, chairIdx = -1;
+                            
+                            if (testFlow === 'BF') {
+                                for (let b = 0; b < CONF.MAX_BEDS; b++) {
+                                    if (checkLaneContinuity(simulationMap.BED[b], tStart, tStart + p1)) { bedIdx = b; break; }
+                                }
+                                for (let c = 0; c < CONF.MAX_CHAIRS; c++) {
+                                    if (checkLaneContinuity(simulationMap.CHAIR[c], tSwitch, tSwitch + p2)) { chairIdx = c; break; }
+                                }
+                                if (bedIdx !== -1 && chairIdx !== -1) {
+                                    simulationMap.BED[bedIdx].push({ start: tStart, end: tStart + p1 + CONF.CLEANUP_BUFFER });
+                                    simulationMap.CHAIR[chairIdx].push({ start: tSwitch, end: tSwitch + p2 + CONF.CLEANUP_BUFFER });
+                                    suggestedLanes[guestIdKey] = { BED: bedIdx + 1, CHAIR: chairIdx + 1 };
+                                    foundValidSplit = true;
+                                    break;
+                                }
+                            } else {
+                                for (let c = 0; c < CONF.MAX_CHAIRS; c++) {
+                                    if (checkLaneContinuity(simulationMap.CHAIR[c], tStart, tStart + p1)) { chairIdx = c; break; }
+                                }
+                                for (let b = 0; b < CONF.MAX_BEDS; b++) {
+                                    if (checkLaneContinuity(simulationMap.BED[b], tSwitch, tSwitch + p2)) { bedIdx = b; break; }
+                                }
+                                if (chairIdx !== -1 && bedIdx !== -1) {
+                                    simulationMap.CHAIR[chairIdx].push({ start: tStart, end: tStart + p1 + CONF.CLEANUP_BUFFER });
+                                    simulationMap.BED[bedIdx].push({ start: tSwitch, end: tSwitch + p2 + CONF.CLEANUP_BUFFER });
+                                    suggestedLanes[guestIdKey] = { CHAIR: chairIdx + 1, BED: bedIdx + 1 };
+                                    foundValidSplit = true;
+                                    break;
+                                }
+                            }
                         }
-                        for (let b = 0; b < CONF.MAX_BEDS; b++) {
-                            if (checkLaneContinuity(simulationMap.BED[b], tSwitch, tSwitch + p2)) { bedIdx = b; break; }
-                        }
-
-                        if (chairIdx !== -1 && bedIdx !== -1) {
-                            successFB = true;
-                            simulationMap.CHAIR[chairIdx].push({ start: tStart, end: tStart + p1 + CONF.CLEANUP_BUFFER });
-                            simulationMap.BED[bedIdx].push({ start: tSwitch, end: tSwitch + p2 + CONF.CLEANUP_BUFFER });
-                            suggestedLanes[guestIdKey] = { CHAIR: chairIdx + 1, BED: bedIdx + 1 };
-                        }
+                        if (foundValidSplit) break;
                     }
 
-                    if (!successBF && !successFB) {
+                    if (!foundValidSplit) {
                         return triggerSmartFailure(`⚠️ 在 ${getTimeStrFromMins(requestStart)} 沒有足夠的連續空位給套餐。`);
                     }
 
@@ -724,25 +735,64 @@
             }
         }
 
-        function generateElasticSplits(totalDuration, step = 0, limit = 0, customLockedPhase1 = null) {
+        function generateElasticSplits(totalDuration, step = 0, limit = 0, customLockedPhase1 = null, svcDef = null, flow = 'FB') {
             if (customLockedPhase1 !== null && customLockedPhase1 !== undefined && !isNaN(customLockedPhase1)) {
                 return [{ p1: parseInt(customLockedPhase1), p2: totalDuration - parseInt(customLockedPhase1), deviation: 999 }];
             }
             const standardHalf = Math.floor(totalDuration / 2);
             let options = [{ p1: standardHalf, p2: totalDuration - standardHalf, deviation: 0 }];
             if (!step || !limit || step <= 0 || limit <= 0) return options;
+            
+            let minP1 = 15, maxP1 = totalDuration - 15;
+            let minP2 = 15, maxP2 = totalDuration - 15;
+
+            if (svcDef) {
+                const isBF = (flow === 'BF');
+                if (isBF) {
+                    if (svcDef.minBody) minP1 = Math.max(minP1, svcDef.minBody);
+                    if (svcDef.maxBody) maxP1 = Math.min(maxP1, svcDef.maxBody);
+                    if (svcDef.minFoot) minP2 = Math.max(minP2, svcDef.minFoot);
+                    if (svcDef.maxFoot) maxP2 = Math.min(maxP2, svcDef.maxFoot);
+                } else {
+                    if (svcDef.minFoot) minP1 = Math.max(minP1, svcDef.minFoot);
+                    if (svcDef.maxFoot) maxP1 = Math.min(maxP1, svcDef.maxFoot);
+                    if (svcDef.minBody) minP2 = Math.max(minP2, svcDef.minBody);
+                    if (svcDef.maxBody) maxP2 = Math.min(maxP2, svcDef.maxBody);
+                }
+            }
+
+            if (options.length > 0) {
+                if (options[0].p1 < minP1 || options[0].p1 > maxP1 || options[0].p2 < minP2 || options[0].p2 > maxP2) {
+                    options = [];
+                }
+            }
+
             let currentDeviation = step;
             while (currentDeviation <= limit) {
                 let p1_A = standardHalf - currentDeviation;
                 let p2_A = totalDuration - p1_A;
-                if (p1_A >= 15 && p2_A >= 15) options.push({ p1: p1_A, p2: p2_A, deviation: currentDeviation });
+                if (p1_A >= minP1 && p1_A <= maxP1 && p2_A >= minP2 && p2_A <= maxP2) {
+                    options.push({ p1: p1_A, p2: p2_A, deviation: currentDeviation });
+                }
                 let p1_B = standardHalf + currentDeviation;
                 let p2_B = totalDuration - p1_B;
-                if (p1_B >= 15 && p2_B >= 15) options.push({ p1: p1_B, p2: p2_B, deviation: currentDeviation });
+                if (p1_B >= minP1 && p1_B <= maxP1 && p2_B >= minP2 && p2_B <= maxP2) {
+                    options.push({ p1: p1_B, p2: p2_B, deviation: currentDeviation });
+                }
                 currentDeviation += step;
             }
-            options.sort((a, b) => Math.abs(a.deviation) - Math.abs(b.deviation));
-            return options;
+            
+            const uniqueOptions = [];
+            const seen = new Set();
+            for (const opt of options) {
+                const key = `${opt.p1}-${opt.p2}`;
+                if (!seen.has(key)) {
+                    seen.add(key);
+                    uniqueOptions.push(opt);
+                }
+            }
+            uniqueOptions.sort((a, b) => Math.abs(a.deviation) - Math.abs(b.deviation));
+            return uniqueOptions;
         }
 
         function isBlockSetAllocatable(blocks, matrix) {
@@ -1094,7 +1144,10 @@
 
                         let splitsToTry = [];
                         if (item.isCombo) {
-                            splitsToTry = generateElasticSplits(item.duration, 10, 30, null);
+                            const svcDef = SERVICES[item.guest.serviceCode];
+                            const eStep = svcDef ? (svcDef.elasticStep || 10) : 10;
+                            const eLimit = svcDef ? (svcDef.elasticLimit || 30) : 30;
+                            splitsToTry = generateElasticSplits(item.duration, eStep, eLimit, null, svcDef, item.flow);
                         } else {
                             splitsToTry = [{ p1: item.duration, p2: 0, deviation: 0 }];
                         }
