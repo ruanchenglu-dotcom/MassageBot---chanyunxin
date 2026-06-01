@@ -2128,7 +2128,21 @@
                                                 {/* Removed the green checkResult message banner per request */}
 
                                                 {checkResult.status === 'OK' ? (
-                                                    <button onClick={() => setStep('INFO')} className="px-3 sm:px-4 py-1.5 bg-emerald-500 text-white rounded-lg font-bold shadow-lg hover:bg-emerald-600 border border-emerald-400 whitespace-nowrap animate-pulse flex items-center gap-1">
+                                                    <button onClick={(e) => {
+                                                        e.preventDefault();
+                                                        const blacklist = serverData?.blacklist || window.SYSTEM_DATA?.blacklist || [];
+                                                        if (blacklist.length > 0 && form.custPhone) {
+                                                            const cleanPhone = form.custPhone.trim().replace(/\D/g, '');
+                                                            if (cleanPhone) {
+                                                                const isBlacklisted = blacklist.some(b => b.phone === cleanPhone);
+                                                                if (isBlacklisted) {
+                                                                    Swal.fire('系統提示', '⚠️ 此電話號碼已列入黑名單，拒絕預約！', 'error');
+                                                                    return;
+                                                                }
+                                                            }
+                                                        }
+                                                        setStep('INFO');
+                                                    }} className="px-3 sm:px-4 py-1.5 bg-emerald-500 text-white rounded-lg font-bold shadow-lg hover:bg-emerald-600 border border-emerald-400 whitespace-nowrap animate-pulse flex items-center gap-1">
                                                         <span>下一步</span> <span>➡️</span>
                                                     </button>
                                                 ) : (
@@ -2185,6 +2199,18 @@
                                             </div>
                                         </div>
                                     </div>
+                                    
+                                    <div>
+                                        <label className="text-lg font-bold text-gray-500 mb-1 block">電話號碼 (Phone)</label>
+                                        <input
+                                            className="w-full border-2 border-slate-300 p-3 rounded-xl font-bold text-xl outline-none focus:border-indigo-500 bg-slate-50 h-[64px]"
+                                            value={form.custPhone}
+                                            onChange={e => setForm({ ...form, custPhone: e.target.value })}
+                                            placeholder="09xx..."
+                                            disabled={isSubmitting}
+                                            type="tel"
+                                        />
+                                    </div>
 
                                     <div className="pt-2">
                                         {checkResult && checkResult.status === 'FAIL' && (
@@ -2222,36 +2248,58 @@
 
                                     <div className="bg-slate-50 p-4 rounded-xl border-2 space-y-3">
                                         <div className="text-base font-bold text-gray-500 uppercase">詳細需求</div>
-                                        {guestDetails.map((g, i) => (
-                                            <div key={i} className="flex gap-2 items-center">
-                                                <div className="w-10 shrink-0 h-[64px] rounded-lg bg-gray-200 hidden sm:flex items-center justify-center font-black text-lg text-slate-500">#{i + 1}</div>
+                                        {guestDetails.map((g, i) => {
+                                            const svcCode = getServiceCodeByName(g.service);
+                                            const svcDef = window.SERVICES_DATA ? window.SERVICES_DATA[svcCode] : null;
+                                            const cat = svcDef?.category || '';
+                                            const isCombo = cat === 'COMBO' || cat === 'MIXED';
+                                            let p1 = 0, p2 = 0;
+                                            if (isCombo && svcDef) {
+                                                const dur = svcDef.duration || 60;
+                                                p1 = Math.floor(dur / 2);
+                                                p2 = dur - p1;
+                                            }
+                                            
+                                            return (
+                                            <div key={i} className="flex flex-col gap-2">
+                                                <div className="flex gap-2 items-center">
+                                                    <div className="w-10 shrink-0 h-[64px] rounded-lg bg-gray-200 hidden sm:flex items-center justify-center font-black text-lg text-slate-500">#{i + 1}</div>
 
-                                                <select className="flex-[1.5] min-w-0 border-2 p-2 sm:p-3 rounded-lg font-bold text-base sm:text-xl h-[64px] bg-white" value={g.service} onChange={e => handleGuestUpdate(i, 'service', e.target.value)}>
-                                                    {(window.SERVICES_LIST || []).map(s => <option key={s} value={s}>{s}</option>)}
-                                                </select>
+                                                    <select className="flex-[1.5] min-w-0 border-2 p-2 sm:p-3 rounded-lg font-bold text-base sm:text-xl h-[64px] bg-white" value={g.service} onChange={e => handleGuestUpdate(i, 'service', e.target.value)}>
+                                                        {(window.SERVICES_LIST || []).map(s => <option key={s} value={s}>{s}</option>)}
+                                                    </select>
 
-                                                <select className="flex-[1] min-w-0 border-2 p-2 sm:p-3 rounded-lg font-bold text-base sm:text-xl h-[64px] bg-white" value={g.staff} onChange={e => handleGuestUpdate(i, 'staff', e.target.value)}>
-                                                    <option value="隨機">🎲 隨機</option>
-                                                    <option value="女">🚺 女師</option>
-                                                    <option value="男">🚹 男師</option>
-                                                    <optgroup label="技師">{safeStaffList.map(s => <option key={s.id} value={s.id}>{s.id}</option>)}</optgroup>
-                                                </select>
+                                                    <select className="flex-[1] min-w-0 border-2 p-2 sm:p-3 rounded-lg font-bold text-base sm:text-xl h-[64px] bg-white" value={g.staff} onChange={e => handleGuestUpdate(i, 'staff', e.target.value)}>
+                                                        <option value="隨機">🎲 隨機</option>
+                                                        <option value="女">🚺 女師</option>
+                                                        <option value="男">🚹 男師</option>
+                                                        <optgroup label="技師">{safeStaffList.map(s => <option key={s.id} value={s.id}>{s.id}</option>)}</optgroup>
+                                                    </select>
 
-                                                <button
-                                                    onClick={(e) => { e.preventDefault(); handleGuestUpdate(i, 'toggleOil'); }}
-                                                    className={`flex-[0.7] min-w-[70px] px-2 shrink-0 border-2 rounded-lg font-bold text-base sm:text-lg h-[64px] transition-colors whitespace-nowrap flex items-center justify-center gap-1 ${g.isOil ? 'bg-orange-100 text-orange-700 border-orange-400 shadow-sm' : 'bg-slate-100 text-slate-400 border-slate-300 hover:bg-slate-200'}`}
-                                                >
-                                                    <span className={g.isOil ? "opacity-100" : "opacity-50"}>💧</span>精油
-                                                </button>
+                                                    <button
+                                                        onClick={(e) => { e.preventDefault(); handleGuestUpdate(i, 'toggleOil'); }}
+                                                        className={`flex-[0.7] min-w-[70px] px-2 shrink-0 border-2 rounded-lg font-bold text-base sm:text-lg h-[64px] transition-colors whitespace-nowrap flex items-center justify-center gap-1 ${g.isOil ? 'bg-orange-100 text-orange-700 border-orange-400 shadow-sm' : 'bg-slate-100 text-slate-400 border-slate-300 hover:bg-slate-200'}`}
+                                                    >
+                                                        <span className={g.isOil ? "opacity-100" : "opacity-50"}>💧</span>精油
+                                                    </button>
 
-                                                <button
-                                                    onClick={(e) => { e.preventDefault(); handleGuestUpdate(i, 'toggleGuaSha'); }}
-                                                    className={`flex-[0.7] min-w-[70px] px-2 shrink-0 border-2 rounded-lg font-bold text-base sm:text-lg h-[64px] transition-colors whitespace-nowrap flex items-center justify-center gap-1 ${g.isGuaSha ? 'bg-red-100 text-red-700 border-red-400 shadow-sm' : 'bg-slate-100 text-slate-400 border-slate-300 hover:bg-slate-200'}`}
-                                                >
-                                                    <span className={g.isGuaSha ? "opacity-100" : "opacity-50"}>[刮]</span>刮/罐
-                                                </button>
+                                                    <button
+                                                        onClick={(e) => { e.preventDefault(); handleGuestUpdate(i, 'toggleGuaSha'); }}
+                                                        className={`flex-[0.7] min-w-[70px] px-2 shrink-0 border-2 rounded-lg font-bold text-base sm:text-lg h-[64px] transition-colors whitespace-nowrap flex items-center justify-center gap-1 ${g.isGuaSha ? 'bg-red-100 text-red-700 border-red-400 shadow-sm' : 'bg-slate-100 text-slate-400 border-slate-300 hover:bg-slate-200'}`}
+                                                    >
+                                                        <span className={g.isGuaSha ? "opacity-100" : "opacity-50"}>[刮]</span>刮/罐
+                                                    </button>
+                                                </div>
+                                                {isCombo && (
+                                                    <div className="pl-0 sm:pl-[3.5rem]">
+                                                        <span className="text-sm sm:text-base text-orange-600 font-bold font-mono bg-orange-50 px-3 py-1 rounded-lg border border-orange-200 inline-block">
+                                                            ⏱️ 預設 腳: {p1}分 | 身體: {p2}分
+                                                        </span>
+                                                    </div>
+                                                )}
                                             </div>
-                                        ))}
+                                            );
+                                        })}
                                     </div>
                                 </>
                             )}
@@ -2290,17 +2338,7 @@
                                         </div>
                                     </div>
 
-                                    <div>
-                                        <label className="text-lg font-bold text-gray-500 mb-2 block">電話號碼 (Phone)</label>
-                                        <input
-                                            className="w-full border-2 border-slate-300 p-4 rounded-xl font-bold text-2xl outline-none focus:border-indigo-500"
-                                            value={form.custPhone}
-                                            onChange={e => setForm({ ...form, custPhone: e.target.value })}
-                                            placeholder="09xx..."
-                                            disabled={isSubmitting}
-                                            type="tel"
-                                        />
-                                    </div>
+
 
                                     <div>
                                         <label className="text-lg font-bold text-gray-500 mb-2 block">特別要求 / 備註 (Admin Note)</label>
