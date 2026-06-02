@@ -243,10 +243,12 @@ function parseStaffStatus(staffInfo, queryDateStr = null) {
     if (!staffInfo) return { isAvailable: false };
     let isOff = false;
     
+    const normDate = queryDateStr ? normalizeDateStrict(queryDateStr) : null;
+
     // Check offDays first
-    if (queryDateStr && staffInfo.offDays && staffInfo.offDays.includes(queryDateStr)) {
+    if (normDate && staffInfo.offDays && staffInfo.offDays.includes(normDate)) {
         isOff = true;
-    } else if (!queryDateStr && staffInfo.off === true) {
+    } else if (!normDate && staffInfo.off === true) {
         isOff = true;
     }
     
@@ -256,9 +258,9 @@ function parseStaffStatus(staffInfo, queryDateStr = null) {
     let currentStartStr = staffInfo.start;
     let currentEndStr = staffInfo.end;
     
-    if (queryDateStr && staffInfo.customShifts && staffInfo.customShifts[queryDateStr]) {
-        currentStartStr = staffInfo.customShifts[queryDateStr].start;
-        currentEndStr = staffInfo.customShifts[queryDateStr].end;
+    if (normDate && staffInfo.customShifts && staffInfo.customShifts[normDate]) {
+        currentStartStr = staffInfo.customShifts[normDate].start;
+        currentEndStr = staffInfo.customShifts[normDate].end;
     }
 
     const startStr = (currentStartStr || "").toString().toUpperCase();

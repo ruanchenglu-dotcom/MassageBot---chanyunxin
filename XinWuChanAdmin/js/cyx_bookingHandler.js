@@ -294,13 +294,15 @@
             let end = staffInfo.end;
             let off = staffInfo.off;
             
-            if (queryDateStr && staffInfo.offDays && staffInfo.offDays.includes(queryDateStr)) {
+            const normDate = queryDateStr ? (typeof normalizeDateStrict === 'function' ? normalizeDateStrict(queryDateStr) : queryDateStr.replace(/-/g, '/')) : null;
+            
+            if (normDate && staffInfo.offDays && staffInfo.offDays.includes(normDate)) {
                 off = true;
             }
             
-            if (queryDateStr && staffInfo.customShifts && staffInfo.customShifts[queryDateStr]) {
-                start = staffInfo.customShifts[queryDateStr].start;
-                end = staffInfo.customShifts[queryDateStr].end;
+            if (normDate && staffInfo.customShifts && staffInfo.customShifts[normDate]) {
+                start = staffInfo.customShifts[normDate].start;
+                end = staffInfo.customShifts[normDate].end;
             }
             
             return { start, end, off };
