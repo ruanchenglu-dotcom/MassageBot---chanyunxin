@@ -222,7 +222,7 @@ const AbsenceCheckModal = ({ data, staffList, bookings, statusData, localShifts,
             if (!time1) { Swal.fire('系統提示', '請輸入到達時間！', 'warning'); return; }
             const leavingStaff = staffList.find(s => window.normalizeStaffId(s.id) === window.normalizeStaffId(staffId));
             const safeLocalShifts = localShifts || {};
-            const sStartStr = safeLocalShifts[staffId]?.start || leavingStaff?.shiftStart || '00:00';
+            const sStartStr = safeLocalShifts[staffId]?.start || leavingStaff?.start || leavingStaff?.shiftStart || '00:00';
             absStart = getExactMins(baseDateStr, sStartStr, baseDateStr);
             absEnd = getExactMins(date1, time1, baseDateStr);
             if (absEnd < absStart) absEnd += 1440;
@@ -233,8 +233,8 @@ const AbsenceCheckModal = ({ data, staffList, bookings, statusData, localShifts,
             const leavingStaff = staffList.find(s => window.normalizeStaffId(s.id) === window.normalizeStaffId(staffId));
             if (leavingStaff) {
                  const safeLocalShifts = localShifts || {};
-                 staffEndStr = safeLocalShifts[staffId]?.end || leavingStaff.shiftEnd || '24:00';
-                 sStartStr = safeLocalShifts[staffId]?.start || leavingStaff.shiftStart || '00:00';
+                 staffEndStr = safeLocalShifts[staffId]?.end || leavingStaff.end || leavingStaff.shiftEnd || '24:00';
+                 sStartStr = safeLocalShifts[staffId]?.start || leavingStaff.start || leavingStaff.shiftStart || '00:00';
             }
             let staffEndMins = getExactMins(baseDateStr, staffEndStr, baseDateStr);
             let staffStartMins = getExactMins(baseDateStr, sStartStr, baseDateStr);
@@ -296,8 +296,8 @@ const AbsenceCheckModal = ({ data, staffList, bookings, statusData, localShifts,
                 const sStatus = safeStatusData[s.id] || { status: 'AWAY' };
                 if (sStatus.status === 'OFF' || (s.off === true && sStatus.status === 'AWAY')) continue;
                 
-                const sStartStr = safeLocalShifts[s.id]?.start || sStatus.lateStart || s.shiftStart || '00:00';
-                const sEndStr = safeLocalShifts[s.id]?.end || s.shiftEnd || '24:00';
+                const sStartStr = safeLocalShifts[s.id]?.start || sStatus.lateStart || s.start || s.shiftStart || '00:00';
+                const sEndStr = safeLocalShifts[s.id]?.end || s.end || s.shiftEnd || '24:00';
                 
                 let sStartMins = getExactMins(baseDateStr, sStartStr, baseDateStr);
                 let sEndMins = getExactMins(baseDateStr, sEndStr, baseDateStr);
@@ -643,8 +643,8 @@ const CheckInBoard = ({ staffList, statusData, onClose, onUpdateStatus, bookings
                         const finalIncome = (salaryData && salaryData[s.id] !== undefined) ? salaryData[s.id] : internalIncome;
                         const isOnTime = (current.isOntimeLeave !== undefined) ? current.isOntimeLeave : (s.isStrictTime === true);
                         
-                        const displayStart = localShifts[s.id]?.start || current.lateStart || s.shiftStart || '';
-                        const displayEnd = localShifts[s.id]?.end || s.shiftEnd || '';
+                        const displayStart = localShifts[s.id]?.start || current.lateStart || s.start || s.shiftStart || '';
+                        const displayEnd = localShifts[s.id]?.end || s.end || s.shiftEnd || '';
                         const displayOutStart = localShifts[s.id]?.outStart || current.outStart || '';
                         const displayOutEnd = localShifts[s.id]?.outEnd || current.outEnd || '';
 
