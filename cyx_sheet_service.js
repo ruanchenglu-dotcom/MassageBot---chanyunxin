@@ -515,7 +515,8 @@ async function syncData() {
                     id: cleanName, name: cleanName, gender: gender,
                     lineId: lineId,
                     start: startTime, end: endTime, shiftStart: startTime, shiftEnd: endTime,
-                    isStrictTime: isStrictTime, sheetRowIndex: i + 1, off: false, offDays: []
+                    isStrictTime: isStrictTime, sheetRowIndex: i + 1, off: false, offDays: [],
+                    customShifts: {}
                 };
 
                 const todayStr = normalizeDateStrict(today);
@@ -535,6 +536,19 @@ async function syncData() {
                         staffObj.offDays.push(normalizedDate);
 
                         if (normalizedDate === todayStr) { staffObj.off = true; }
+                    } else if (cellValue !== '') {
+                        // [V136] Xử lý giờ tùy chỉnh (Custom shifts: đến trễ, đổi ca 09:00-16:00)
+                        const times = cellValue.match(/\d{1,2}[:：]\d{2}/g);
+                        if (times && times.length > 0) {
+                            const cStart = times[0].replace('：', ':');
+                            const cEnd = times.length > 1 ? times[1].replace('：', ':') : staffObj.end;
+                            staffObj.customShifts[normalizedDate] = { start: cStart, end: cEnd };
+                            
+                            if (normalizedDate === todayStr) {
+                                staffObj.start = cStart;
+                                staffObj.end = cEnd;
+                            }
+                        }
                     }
                 }
                 tempStaffList.push(staffObj);

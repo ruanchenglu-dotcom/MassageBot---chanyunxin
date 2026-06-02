@@ -239,18 +239,34 @@ function calculateRealDurations(booking, defaultDuration, isCombo) {
     return { p1, p2, realDuration };
 }
 
-function parseStaffStatus(staffInfo) {
+function parseStaffStatus(staffInfo, queryDateStr = null) {
     if (!staffInfo) return { isAvailable: false };
     let isOff = false;
-    if (staffInfo.off === true) isOff = true;
+    
+    // Check offDays first
+    if (queryDateStr && staffInfo.offDays && staffInfo.offDays.includes(queryDateStr)) {
+        isOff = true;
+    } else if (!queryDateStr && staffInfo.off === true) {
+        isOff = true;
+    }
+    
     if (typeof staffInfo.off === 'string' && ['TRUE', 'YES', 'OFF'].includes(staffInfo.off.toUpperCase())) isOff = true;
 
-    const startStr = (staffInfo.start || "").toString().toUpperCase();
+    // Resolve shift times
+    let currentStartStr = staffInfo.start;
+    let currentEndStr = staffInfo.end;
+    
+    if (queryDateStr && staffInfo.customShifts && staffInfo.customShifts[queryDateStr]) {
+        currentStartStr = staffInfo.customShifts[queryDateStr].start;
+        currentEndStr = staffInfo.customShifts[queryDateStr].end;
+    }
+
+    const startStr = (currentStartStr || "").toString().toUpperCase();
     if (startStr.includes('OFF') || startStr.includes('NGHỈ') || startStr.includes('CLOSE')) isOff = true;
     if (isOff) return { isAvailable: false, reason: "MARKED_OFF" };
 
-    let startMins = getMinsFromTimeStr(staffInfo.start);
-    let endMins = getMinsFromTimeStr(staffInfo.end);
+    let startMins = getMinsFromTimeStr(currentStartStr);
+    let endMins = getMinsFromTimeStr(currentEndStr);
     if (startMins === -1 || endMins === -1) return { isAvailable: false, reason: "INVALID_TIME" };
 
     // [CORE V118.1] Fix Overnight Shifts (Ca Xuyên Đêm)
@@ -261,7 +277,7 @@ function parseStaffStatus(staffInfo) {
     return { isAvailable: true, startMins: startMins, endMins: endMins, isStrict: staffInfo.isStrictTime === true };
 }
 
-function getEligibleStaffCount(staffList, currentTimeMins, requiredEndTime) {
+function getEligibleStaffCount(staffList, currentTimeMins, requiredEndTime, queryDateStr = null) {
     let count = 0;
     for (const [staffName, info] of Object.entries(staffList)) {
         const status = parseStaffStatus(info);
@@ -420,7 +436,7 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
 
         // Đếm số nhân viên ĐANG LÀM VIỆC tại đúng thời điểm tCheck (đã trừ lúc hết ca)
         const currentAvailableStaff = Object.values(staffList).filter(s => {
-            const status = parseStaffStatus(s);
+            const status = parseStaffStatus(s, queryDateStr);
             if (!status.isAvailable) return false;
             let inMain = (tCheck >= status.startMins && tCheck < status.endMins);
             let inTail = false;
@@ -478,7 +494,7 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
 
         const sInfo = staffList[reqId] || Object.values(staffList).find(s => normId(s.name) === reqId || normId(s.id) === reqId);
         if (sInfo) {
-            const status = parseStaffStatus(sInfo);
+            const status = parseStaffStatus(sInfo, queryDateStr);
             // [CORE V118.0] Thuật toán Phân đoạn Ca Đêm
             let inMain = (requestStart >= status.startMins && requestStart < status.endMins);
             let inTail = false;
@@ -751,10 +767,10 @@ class VirtualMatrix {
 // PHẦN 6: LOGIC TÌM NHÂN VIÊN & CO GIÃN
 // ============================================================================
 
-function findAvailableStaff(staffReq, start, end, staffListRef, busyList) {
+function findAvailableStaff(staffReq, start, end, staffListRef, busyList, queryDateStr = null) {
     const checkOneStaff = (name) => {
         const staffInfo = staffListRef[name];
-        const status = parseStaffStatus(staffInfo);
+        const status = parseStaffStatus(staffInfo, queryDateStr);
         if (!status.isAvailable) return false;
 
         const shiftStart = status.startMins; const shiftEnd = status.endMins;
@@ -1360,7 +1376,7 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
 
         let staffAssignmentSuccess = true;
         for (const item of newGuestBlocksMap) {
-            const assignedStaff = findAvailableStaff(item.guest.staffName, item.blocks[0].start, item.blocks[item.blocks.length - 1].end, staffList, flatTimeline);
+            const assignedStaff = findAvailableStaff(item.guest.staffName, item.blocks[0].start, item.blocks[item.blocks.length - 1].end, staffList, flatTimeline, dateStr);
             if (!assignedStaff) { staffAssignmentSuccess = false; break; }
             const detail = scenarioDetails.find(d => d.guestIndex === item.guest.idx);
             if (detail) detail.staff = assignedStaff;
