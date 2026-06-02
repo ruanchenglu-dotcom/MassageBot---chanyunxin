@@ -289,6 +289,24 @@
             return true;
         }
 
+        function resolveStaffShift(staffInfo, queryDateStr) {
+            let start = staffInfo.start;
+            let end = staffInfo.end;
+            let off = staffInfo.off;
+            
+            if (queryDateStr && staffInfo.offDays && staffInfo.offDays.includes(queryDateStr)) {
+                off = true;
+            }
+            
+            if (queryDateStr && staffInfo.customShifts && staffInfo.customShifts[queryDateStr]) {
+                start = staffInfo.customShifts[queryDateStr].start;
+                end = staffInfo.customShifts[queryDateStr].end;
+            }
+            
+            return { start, end, off };
+        }
+
+
         function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBookingsRaw, staffList, queryDateStr, isSimulation = false) {
             const CONF = getSystemConfig();
 
@@ -443,9 +461,10 @@
             });
 
             const availableStaffList = Object.values(staffList).filter(s => {
-                if (s.off) return false;
-                const ss = getMinsFromTimeStr(s.start);
-                let se = getMinsFromTimeStr(s.end);
+                const shiftInfo = resolveStaffShift(s, queryDateStr);
+                if (shiftInfo.off) return false;
+                const ss = getMinsFromTimeStr(shiftInfo.start);
+                let se = getMinsFromTimeStr(shiftInfo.end);
 
                 // [FRONTEND V118] Thuật toán Phân đoạn Ca Đêm
                 if (se < ss) {
@@ -536,11 +555,12 @@
 
                 const sInfo = staffList[reqId] || Object.values(staffList).find(s => normId(s.name) === reqId || normId(s.id) === reqId);
                 if (sInfo) {
-                    const ss = getMinsFromTimeStr(sInfo.start);
-                    let se = getMinsFromTimeStr(sInfo.end);
+                    const shiftInfo = resolveStaffShift(sInfo, queryDateStr);
+                    const ss = getMinsFromTimeStr(shiftInfo.start);
+                    let se = getMinsFromTimeStr(shiftInfo.end);
                     if (se < ss) se += 1440;
 
-                    if (sInfo.off || requestStart < ss || requestStart >= se) {
+                    if (shiftInfo.off || requestStart < ss || requestStart >= se) {
                         return triggerSmartFailure(`⚠️ 技師 ${rawName} 該時段未排班或已下班。`);
                     }
 
@@ -720,13 +740,15 @@
         }
 
         // --- HELPER LOGIC: STAFF MATCHING & ELASTIC (MULTI-STAFF ARRAY UPDATE) ---
-        function findAvailableStaff(staffReq, start, end, staffListRef, busyList) {
+        function findAvailableStaff(staffReq, start, end, staffListRef, busyList, queryDateStr = null) {
             const CONF = getSystemConfig();
             const checkOneStaff = (name) => {
                 const staffInfo = staffListRef[name];
-                if (!staffInfo || staffInfo.off) return false;
-                const shiftStart = getMinsFromTimeStr(staffInfo.start);
-                let shiftEnd = getMinsFromTimeStr(staffInfo.end);
+                if (!staffInfo) return false;
+                const shiftInfo = resolveStaffShift(staffInfo, queryDateStr);
+                if (shiftInfo.off) return false;
+                const shiftStart = getMinsFromTimeStr(shiftInfo.start);
+                let shiftEnd = getMinsFromTimeStr(shiftInfo.end);
                 if (shiftStart === -1 || shiftEnd === -1) return false;
 
                 // [FRONTEND V118] Thuật toán Phân đoạn Ca Đêm
@@ -1343,7 +1365,7 @@
                 });
 
                 for (const item of sortedGuestsForAllocation) {
-                    const assignedStaff = findAvailableStaff(item.guest.staffName, item.blocks[0].start, item.blocks[item.blocks.length - 1].end, staffList, flatTimeline);
+                    const assignedStaff = findAvailableStaff(item.guest.staffName, item.blocks[0].start, item.blocks[item.blocks.length - 1].end, staffList, flatTimeline, dateStr);
                     if (!assignedStaff) {
                         staffAssignmentSuccess = false;
                         failureLog.push(`❌ 無法為客需 [${item.guest.staffName}] 找到合適技師`);
