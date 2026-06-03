@@ -1405,8 +1405,115 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
 // ============================================================================
 // 1. TIMELINE VIEW
 // ============================================================================
+const StaffStatsModal = ({ hour, staffList, onClose }) => {
+    const availableStaff = useMemo(() => {
+        return (staffList || []).filter(s => {
+            if (s.off) return false;
+            let startH = parseInt(s.start.split(':')[0], 10);
+            let endH = parseInt(s.end.split(':')[0], 10);
+            
+            const todayStr = window.normalizeDateStrict ? window.normalizeDateStrict(new Date()) : null;
+            if (s.customShifts && todayStr && s.customShifts[todayStr]) {
+                startH = parseInt(s.customShifts[todayStr].start.split(':')[0], 10);
+                endH = parseInt(s.customShifts[todayStr].end.split(':')[0], 10);
+            }
+            
+            if (endH <= startH) endH += 24; 
+            
+            let checkH = hour;
+            if (checkH < startH && hour < 12) checkH += 24; 
+            
+            return checkH >= startH && checkH < endH;
+        });
+    }, [hour, staffList]);
+
+    const stats = useMemo(() => {
+        return {
+            total: availableStaff.length,
+            male: availableStaff.filter(s => s.gender === 'M').length,
+            female: availableStaff.filter(s => s.gender === 'F').length,
+            taiwan: availableStaff.filter(s => s.nationality === '台灣' || !s.nationality || s.nationality.includes('台')).length,
+            vietnam: availableStaff.filter(s => s.nationality === '越南' || s.nationality.includes('越')).length,
+            youTui: availableStaff.filter(s => s.isYouTui).length,
+            guaSha: availableStaff.filter(s => s.isGuaSha).length,
+            huaGuan: availableStaff.filter(s => s.isHuaGuan).length,
+            baGuan: availableStaff.filter(s => s.isBaGuan).length,
+        };
+    }, [availableStaff]);
+
+    return (
+        <div className="fixed inset-0 z-[6000] bg-slate-900/60 flex items-center justify-center p-4" onClick={onClose}>
+            <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm overflow-hidden animate-in fade-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
+                <div className="bg-indigo-600 text-white p-4 flex justify-between items-center">
+                    <h3 className="font-bold text-lg flex items-center gap-2">
+                        <i className="fas fa-chart-pie"></i> {hour}:00 技師可用統計
+                    </h3>
+                    <button onClick={onClose} className="text-indigo-200 hover:text-white transition-colors">
+                        <i className="fas fa-times text-xl"></i>
+                    </button>
+                </div>
+                <div className="p-5 space-y-4">
+                    <div className="bg-slate-50 p-4 rounded-lg border border-slate-100 flex items-center justify-between">
+                        <span className="font-bold text-slate-700">總可用技師數</span>
+                        <span className="text-2xl font-black text-indigo-600">{stats.total}</span>
+                    </div>
+                    
+                    <div className="grid grid-cols-2 gap-3">
+                        <div className="bg-blue-50 p-3 rounded-lg border border-blue-100 flex flex-col items-center">
+                            <span className="text-xs font-bold text-blue-600 mb-1">男技師</span>
+                            <span className="text-xl font-bold text-blue-700">{stats.male}</span>
+                        </div>
+                        <div className="bg-pink-50 p-3 rounded-lg border border-pink-100 flex flex-col items-center">
+                            <span className="text-xs font-bold text-pink-600 mb-1">女技師</span>
+                            <span className="text-xl font-bold text-pink-700">{stats.female}</span>
+                        </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3">
+                        <div className="bg-emerald-50 p-3 rounded-lg border border-emerald-100 flex flex-col items-center">
+                            <span className="text-xs font-bold text-emerald-600 mb-1">台灣籍</span>
+                            <span className="text-xl font-bold text-emerald-700">{stats.taiwan}</span>
+                        </div>
+                        <div className="bg-orange-50 p-3 rounded-lg border border-orange-100 flex flex-col items-center">
+                            <span className="text-xs font-bold text-orange-600 mb-1">越南籍</span>
+                            <span className="text-xl font-bold text-orange-700">{stats.vietnam}</span>
+                        </div>
+                    </div>
+
+                    <div className="grid grid-cols-4 gap-2 pt-2 border-t border-slate-100">
+                        <div className="flex flex-col items-center">
+                            <span className="text-[10px] font-bold text-slate-500 mb-1">油推</span>
+                            <div className="w-10 h-10 rounded-full bg-purple-100 text-purple-600 flex items-center justify-center font-bold text-lg shadow-sm border border-purple-200">
+                                {stats.youTui}
+                            </div>
+                        </div>
+                        <div className="flex flex-col items-center">
+                            <span className="text-[10px] font-bold text-slate-500 mb-1">刮痧</span>
+                            <div className="w-10 h-10 rounded-full bg-red-100 text-red-600 flex items-center justify-center font-bold text-lg shadow-sm border border-red-200">
+                                {stats.guaSha}
+                            </div>
+                        </div>
+                        <div className="flex flex-col items-center">
+                            <span className="text-[10px] font-bold text-slate-500 mb-1">滑罐</span>
+                            <div className="w-10 h-10 rounded-full bg-amber-100 text-amber-600 flex items-center justify-center font-bold text-lg shadow-sm border border-amber-200">
+                                {stats.huaGuan}
+                            </div>
+                        </div>
+                        <div className="flex flex-col items-center">
+                            <span className="text-[10px] font-bold text-slate-500 mb-1">拔罐</span>
+                            <div className="w-10 h-10 rounded-full bg-rose-100 text-rose-600 flex items-center justify-center font-bold text-lg shadow-sm border border-rose-200">
+                                {stats.baGuan}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+};
 const TimelineView = ({ timelineData, onEditPhase, liveStatusData, staffList, statusData, onOpenControlCenter, branch = 'main' }) => {
     const [now, setNow] = useState(new Date());
+    const [showStaffStats, setShowStaffStats] = useState(null);
     const STATUS = getBookingStatus();
     const scrollContainerRef = useRef(null);
 
@@ -1648,7 +1755,12 @@ const TimelineView = ({ timelineData, onEditPhase, liveStatusData, staffList, st
                         </div>
                         <div className="flex bg-slate-50">
                             {hours.map(h => (
-                                <div key={h} className="shrink-0 border-r border-slate-300 flex items-center justify-center text-slate-500 font-bold text-xs" style={{ width: `${HOUR_WIDTH}px`, height: `${HEADER_HEIGHT}px` }}>{formatHour(h)}</div>
+                                <div key={h} className="shrink-0 border-r border-slate-300 flex items-center justify-between pl-2 pr-1 text-slate-500 font-bold text-sm" style={{ width: `${HOUR_WIDTH}px`, height: `${HEADER_HEIGHT}px` }}>
+                                    <span>{formatHour(h)}</span>
+                                    <button onClick={(e) => { e.stopPropagation(); setShowStaffStats(h); }} className="text-indigo-500 hover:text-indigo-700 hover:bg-indigo-50 rounded p-1 transition-colors" title="查看該時段可用技師統計">
+                                        <i className="fas fa-chart-bar"></i>
+                                    </button>
+                                </div>
                             ))}
                         </div>
                     </div>
@@ -1817,6 +1929,14 @@ const TimelineView = ({ timelineData, onEditPhase, liveStatusData, staffList, st
                     </div>
                 </div>
             </div>
+            
+            {showStaffStats !== null && (
+                <StaffStatsModal 
+                    hour={showStaffStats} 
+                    staffList={staffList} 
+                    onClose={() => setShowStaffStats(null)} 
+                />
+            )}
         </div>
     );
 };

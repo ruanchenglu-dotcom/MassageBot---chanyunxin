@@ -493,6 +493,15 @@ async function syncData() {
         if (rows && rows.length > 1) {
             const headerRow = rows[0];
             let dateColumns = [];
+            let nationalityColIndex = -1;
+
+            // Quét tìm cột 國籍
+            for (let j = 0; j < headerRow.length; j++) {
+                if (headerRow[j] && headerRow[j].toString().trim() === '國籍') {
+                    nationalityColIndex = j;
+                    break;
+                }
+            }
 
             // [V131 NÂNG CẤP]: Thuật toán quét Header linh hoạt bắt đầu từ cột index 6 (Cột G)
             for (let j = 6; j < headerRow.length; j++) {
@@ -520,10 +529,11 @@ async function syncData() {
                 const isHuaGuan = row[7] ? row[7].toString().trim().toUpperCase() !== '' : false;
                 const isBaGuan = row[8] ? row[8].toString().trim().toUpperCase() !== '' : false;
                 const lineId = row[9] ? row[9].trim() : null;
+                const nationality = nationalityColIndex !== -1 && row[nationalityColIndex] ? row[nationalityColIndex].toString().trim() : '台灣';
 
                 const staffObj = {
                     id: cleanName, name: cleanName, gender: gender,
-                    lineId: lineId,
+                    lineId: lineId, nationality: nationality,
                     isYouTui: isYouTui, isGuaSha: isGuaSha, isHuaGuan: isHuaGuan, isBaGuan: isBaGuan,
                     start: startTime, end: endTime, shiftStart: startTime, shiftEnd: endTime,
                     isStrictTime: isStrictTime, sheetRowIndex: i + 1, off: false, offDays: [],
