@@ -1429,7 +1429,7 @@ const StaffStatsModal = ({ hour, staffList, timelineData, onClose }) => {
 
     const stats = useMemo(() => {
         // Find all active bookings in this hour
-        const activeBookingsInHour = [];
+        const activeBookingsMap = new Map();
         const startMins = hour * 60;
         const endMins = (hour + 1) * 60;
 
@@ -1446,11 +1446,14 @@ const StaffStatsModal = ({ hour, staffList, timelineData, onClose }) => {
 
                     // Check time overlap
                     if (slot.start < endMins && slot.end > startMins) {
-                        activeBookingsInHour.push(booking);
+                        // Use rowId to deduplicate bookings (e.g. combo services spanning multiple rows)
+                        activeBookingsMap.set(booking.rowId, booking);
                     }
                 });
             });
         }
+
+        const activeBookingsInHour = Array.from(activeBookingsMap.values());
 
         const bookedStaffCount = activeBookingsInHour.length;
         const specificStaffBookings = activeBookingsInHour.filter(b => b.requestedStaff && b.requestedStaff !== '隨機' && b.requestedStaff !== '男' && b.requestedStaff !== '女' && b.requestedStaff.trim() !== '');
