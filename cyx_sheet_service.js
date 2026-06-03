@@ -991,13 +991,13 @@ async function updateBookingDetails(body) {
     }
 
     const flowVal = body.flow || body.flow_code;
-    if (flowVal !== undefined) updateCell('X', flowVal);
+    if (flowVal !== undefined) updateCell('Z', flowVal);
 
-    if (phase1Res !== undefined) updateCell('AE', phase1Res);
-    if (phase2Res !== undefined) updateCell('AF', phase2Res);
+    if (phase1Res !== undefined) updateCell('AG', phase1Res);
+    if (phase2Res !== undefined) updateCell('AH', phase2Res);
 
     const resourceType = body.resource_type !== undefined ? body.resource_type : body.resourceType;
-    if (resourceType !== undefined) updateCell('AG', resourceType ? String(resourceType).toUpperCase() : "");
+    if (resourceType !== undefined) updateCell('AI', resourceType ? String(resourceType).toUpperCase() : "");
 
     if (body.final_price !== undefined) updateCell('Q', body.final_price);
 
@@ -1006,17 +1006,17 @@ async function updateBookingDetails(body) {
 
     if (body.phase1_duration !== undefined && body.phase1_duration !== null) {
         const p1 = parseInt(body.phase1_duration); const p2 = totalDuration - p1;
-        updateCell('AA', p1); updateCell('AC', p2); hasManualPhaseChange = true;
+        updateCell('AC', p1); updateCell('AE', p2); hasManualPhaseChange = true;
     } else if (body.phase2_duration !== undefined && body.phase2_duration !== null) {
         const p2 = parseInt(body.phase2_duration); const p1 = totalDuration - p2;
-        updateCell('AA', p1); updateCell('AC', p2); hasManualPhaseChange = true;
+        updateCell('AC', p1); updateCell('AE', p2); hasManualPhaseChange = true;
     }
 
     const currentLockString = currentLockState ? "TRUE" : "FALSE";
     const finalLockString = resolveStrictLockState(body.isManualLocked, hasManualPhaseChange, currentLockString);
 
     if (finalLockString !== currentLockString || body.isManualLocked !== undefined || hasManualPhaseChange) {
-        updateCell('AH', finalLockString);
+        updateCell('AJ', finalLockString);
     }
     
     // --- V1.6 NÂNG CẤP: Tự động tính toán lại Z, AB (transition), AD (finish) ---
@@ -1024,7 +1024,7 @@ async function updateBookingDetails(body) {
     if (newStartVal) {
         let timeVal = newStartVal; if (timeVal.includes(' ')) timeVal = timeVal.split(' ')[1];
         if (timeVal.length > 5) timeVal = timeVal.substring(0, 5);
-        updateCell('Z', timeVal); // start_time_str
+        updateCell('AB', timeVal); // start_time_str
         
         const startMins = typeof ResourceCore !== 'undefined' ? ResourceCore.getMinsFromTimeStr(timeVal) : -1;
         if (startMins !== -1) {
@@ -1037,11 +1037,11 @@ async function updateBookingDetails(body) {
             const transitionBuffer = isComboCalc ? (typeof ResourceCore !== 'undefined' && ResourceCore.CONFIG ? ResourceCore.CONFIG.TRANSITION_BUFFER : 3) : 0;
             
             if (isComboCalc) {
-                updateCell('AB', typeof ResourceCore !== 'undefined' ? ResourceCore.getTimeStrFromMins(startMins + p1Dur + transitionBuffer) : "");
+                updateCell('AD', typeof ResourceCore !== 'undefined' ? ResourceCore.getTimeStrFromMins(startMins + p1Dur + transitionBuffer) : "");
             } else {
-                updateCell('AB', "");
+                updateCell('AD', "");
             }
-            updateCell('AD', typeof ResourceCore !== 'undefined' ? ResourceCore.getTimeStrFromMins(startMins + p1Dur + p2Dur + transitionBuffer) : "");
+            updateCell('AF', typeof ResourceCore !== 'undefined' ? ResourceCore.getTimeStrFromMins(startMins + p1Dur + p2Dur + transitionBuffer) : "");
         }
     }
 
@@ -1476,7 +1476,7 @@ async function batchUpdateMultipleBookings(updatesArray) {
             if (body.adminNote !== undefined) dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!AX${rowId}`, values: [[body.adminNote]] });
 
             const flowVal = body.flow || body.flow_code;
-            if (flowVal !== undefined) dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!X${rowId}`, values: [[flowVal]] });
+            if (flowVal !== undefined) dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!Z${rowId}`, values: [[flowVal]] });
 
             let phase1Res = body.phase1_res_idx !== undefined ? body.phase1_res_idx : (body.phase1_resource !== undefined ? body.phase1_resource : body.phase1Resource);
             
@@ -1486,13 +1486,13 @@ async function batchUpdateMultipleBookings(updatesArray) {
             if (!isCombo && phase1Res === undefined && (body.location !== undefined || body.current_resource_id !== undefined)) {
                 phase1Res = body.location !== undefined ? body.location : body.current_resource_id;
             }
-            if (phase1Res !== undefined) dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!AE${rowId}`, values: [[phase1Res]] });
+            if (phase1Res !== undefined) dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!AG${rowId}`, values: [[phase1Res]] });
 
             const phase2Res = body.phase2_res_idx !== undefined ? body.phase2_res_idx : (body.phase2_resource !== undefined ? body.phase2_resource : body.phase2Resource);
-            if (phase2Res !== undefined) dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!AF${rowId}`, values: [[phase2Res]] });
+            if (phase2Res !== undefined) dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!AH${rowId}`, values: [[phase2Res]] });
 
             const resourceType = body.resource_type !== undefined ? body.resource_type : body.resourceType;
-            if (resourceType !== undefined) dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!AG${rowId}`, values: [[resourceType ? String(resourceType).toUpperCase() : ""]] });
+            if (resourceType !== undefined) dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!AI${rowId}`, values: [[resourceType ? String(resourceType).toUpperCase() : ""]] });
 
             if (body.final_price !== undefined) {
                 dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!Q${rowId}`, values: [[body.final_price]] });
@@ -1504,13 +1504,13 @@ async function batchUpdateMultipleBookings(updatesArray) {
 
             if (body.phase1_duration !== undefined && body.phase1_duration !== null) {
                 const p1 = parseInt(body.phase1_duration); const p2 = totalDuration - p1;
-                dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!AA${rowId}`, values: [[p1]] });
-                dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!AC${rowId}`, values: [[p2]] });
+                dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!AC${rowId}`, values: [[p1]] });
+                dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!AE${rowId}`, values: [[p2]] });
                 hasManualPhaseChange = true;
             } else if (body.phase2_duration !== undefined && body.phase2_duration !== null) {
                 const p2 = parseInt(body.phase2_duration); const p1 = totalDuration - p2;
-                dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!AA${rowId}`, values: [[p1]] });
-                dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!AC${rowId}`, values: [[p2]] });
+                dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!AC${rowId}`, values: [[p1]] });
+                dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!AE${rowId}`, values: [[p2]] });
                 hasManualPhaseChange = true;
             }
 
@@ -1518,7 +1518,7 @@ async function batchUpdateMultipleBookings(updatesArray) {
             const finalLockString = resolveStrictLockState(body.isManualLocked, hasManualPhaseChange, currentLockString);
 
             if (finalLockString !== currentLockString || body.isManualLocked !== undefined || hasManualPhaseChange) {
-                dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!AH${rowId}`, values: [[finalLockString]] });
+                dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!AJ${rowId}`, values: [[finalLockString]] });
             }
 
             // --- V1.6 NÂNG CẤP: Tính toán Z, AC, AE ---
@@ -1526,7 +1526,7 @@ async function batchUpdateMultipleBookings(updatesArray) {
             if (newStartVal) {
                 let timeVal = newStartVal; if (timeVal.includes(' ')) timeVal = timeVal.split(' ')[1];
                 if (timeVal.length > 5) timeVal = timeVal.substring(0, 5);
-                dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!Z${rowId}`, values: [[timeVal]] });
+                dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!AB${rowId}`, values: [[timeVal]] });
                 
                 const startMins = typeof ResourceCore !== 'undefined' ? ResourceCore.getMinsFromTimeStr(timeVal) : -1;
                 if (startMins !== -1) {
@@ -1539,11 +1539,11 @@ async function batchUpdateMultipleBookings(updatesArray) {
                     const transitionBuffer = isComboCalc ? (typeof ResourceCore !== 'undefined' && ResourceCore.CONFIG ? ResourceCore.CONFIG.TRANSITION_BUFFER : 3) : 0;
                     
                     if (isComboCalc) {
-                        dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!AB${rowId}`, values: [[typeof ResourceCore !== 'undefined' ? ResourceCore.getTimeStrFromMins(startMins + p1Dur + transitionBuffer) : ""]] });
+                        dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!AD${rowId}`, values: [[typeof ResourceCore !== 'undefined' ? ResourceCore.getTimeStrFromMins(startMins + p1Dur + transitionBuffer) : ""]] });
                     } else {
-                        dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!AB${rowId}`, values: [[""]] });
+                        dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!AD${rowId}`, values: [[""]] });
                     }
-                    dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!AD${rowId}`, values: [[typeof ResourceCore !== 'undefined' ? ResourceCore.getTimeStrFromMins(startMins + p1Dur + p2Dur + transitionBuffer) : ""]] });
+                    dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!AF${rowId}`, values: [[typeof ResourceCore !== 'undefined' ? ResourceCore.getTimeStrFromMins(startMins + p1Dur + p2Dur + transitionBuffer) : ""]] });
                 }
             }
 

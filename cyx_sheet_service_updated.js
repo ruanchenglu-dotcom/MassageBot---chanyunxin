@@ -408,9 +408,13 @@ async function syncData() {
                     else if (serviceStr.includes('足')) { type = 'CHAIR'; category = 'FOOT'; }
                 }
 
-                const isOilService = (row[5] === "Yes");
-                if (isOilService) {
-                    price += getConfig().FINANCE.OIL_BONUS;
+                const isYouTui = (row[5] === "Yes");
+                const isGuaSha = (row[6] === "Yes");
+                const isHuaGuan = (row[7] === "Yes");
+                const isBaGuan = (row[8] === "Yes");
+                if (isYouTui) {
+                    if (serviceCode === 'B1') price += 100;
+                    else price += 200;
                 }
 
                 let pax = 1;
@@ -444,7 +448,10 @@ async function syncData() {
                     staffId3: row[14],
                     staff1_blocks: safeParseInt(row[15], null),
                     staff2_blocks: safeParseInt(row[16], null),
-                    isGuaSha: row[6] === "Yes",
+                    isYouTui: isYouTui,
+                    isGuaSha: isGuaSha,
+                    isHuaGuan: isHuaGuan,
+                    isBaGuan: isBaGuan,
                     adminNote: row[11] || "",
                     pax: pax,
                     customerName: `${row[2]} (${row[3]})`,
@@ -452,7 +459,6 @@ async function syncData() {
                     serviceName: serviceStr, serviceCode: serviceCode,
                     phone: row[3], date: cleanDate, opDate: computedOpDate, status: status,
                     isRunning: isRunning, lineId: row[23],
-                    isOil: isOilService,
                     checkinTime: row[26],
                     phase1_duration: safeParseInt(row[28], null),
                     transition_time: row[29],
@@ -509,11 +515,16 @@ async function syncData() {
                 let endTime = row[3] ? row[3].trim().replace(/：/g, ':') : '03:00';
                 const onTimeVal = row[4] ? row[4].toString().trim().toUpperCase() : '';
                 const isStrictTime = (onTimeVal === 'TRUE' || onTimeVal === 'YES' || onTimeVal === 'X');
-                const lineId = row[5] ? row[5].trim() : null;
+                const isYouTui = row[5] ? row[5].toString().trim().toUpperCase() !== '' : false;
+                const isGuaSha = row[6] ? row[6].toString().trim().toUpperCase() !== '' : false;
+                const isHuaGuan = row[7] ? row[7].toString().trim().toUpperCase() !== '' : false;
+                const isBaGuan = row[8] ? row[8].toString().trim().toUpperCase() !== '' : false;
+                const lineId = row[9] ? row[9].trim() : null;
 
                 const staffObj = {
                     id: cleanName, name: cleanName, gender: gender,
                     lineId: lineId,
+                    isYouTui: isYouTui, isGuaSha: isGuaSha, isHuaGuan: isHuaGuan, isBaGuan: isBaGuan,
                     start: startTime, end: endTime, shiftStart: startTime, shiftEnd: endTime,
                     isStrictTime: isStrictTime, sheetRowIndex: i + 1, off: false, offDays: [],
                     customShifts: {}
@@ -636,15 +647,25 @@ async function ghiVaoSheet(data, proposedUpdates = []) {
 
             let svcName = data.dichVu;
             if (guestDetail) svcName = guestDetail.service;
-            let isOil = data.isOil;
-            if (guestDetail && guestDetail.isOil !== undefined) isOil = guestDetail.isOil;
+            let isYouTui = data.isYouTui;
+            let isGuaSha = data.isGuaSha;
+            let isHuaGuan = data.isHuaGuan;
+            let isBaGuan = data.isBaGuan;
+            if (guestDetail) {
+                if (guestDetail.isYouTui !== undefined) isYouTui = guestDetail.isYouTui;
+                if (guestDetail.isGuaSha !== undefined) isGuaSha = guestDetail.isGuaSha;
+                if (guestDetail.isHuaGuan !== undefined) isHuaGuan = guestDetail.isHuaGuan;
+                if (guestDetail.isBaGuan !== undefined) isBaGuan = guestDetail.isBaGuan;
+            }
 
-            if (isOil) svcName += getOilSuffixText();
-
-            row[3] = colG_Phone; row[4] = svcName; row[5] = isOil ? "Yes" : "";
+            row[3] = colG_Phone; row[4] = svcName;
+            row[5] = isYouTui ? "Yes" : "";
+            row[6] = isGuaSha ? "Yes" : "";
+            row[7] = isHuaGuan ? "Yes" : "";
+            row[8] = isBaGuan ? "Yes" : "";
             row[9] = colH_Status;
 
-            let defaultRequestedStaff = isOil ? '女' : '隨機';
+            let defaultRequestedStaff = isYouTui ? '女' : '隨機';
             if (guestDetail && guestDetail.staff) {
                 row[10] = guestDetail.staff;
             } else {
@@ -666,13 +687,10 @@ async function ghiVaoSheet(data, proposedUpdates = []) {
                 row[18] = guestDetail.final_price;
             }
 
-            let isGuaSha = data.isGuaSha;
-            if (guestDetail && guestDetail.isGuaSha !== undefined) isGuaSha = guestDetail.isGuaSha;
-            row[6] = isGuaSha ? "Yes" : "";
-
             let adminNoteVal = data.adminNote;
-            if (guestDetail && guestDetail.adminNote !== undefined) adminNoteVal = guestDetail.adminNote;
-            row[11] = adminNoteVal || "";
+            if (guestDetail && guestDetail.adminNote) {
+                adminNoteVal = guestDetail.adminNote;
+            } row[11] = adminNoteVal || "";
 
             let sCode = data.serviceCode;
             if (guestDetail && guestDetail.serviceCode) sCode = guestDetail.serviceCode;
@@ -973,13 +991,13 @@ async function updateBookingDetails(body) {
     }
 
     const flowVal = body.flow || body.flow_code;
-    if (flowVal !== undefined) updateCell('X', flowVal);
+    if (flowVal !== undefined) updateCell('Z', flowVal);
 
-    if (phase1Res !== undefined) updateCell('AE', phase1Res);
-    if (phase2Res !== undefined) updateCell('AF', phase2Res);
+    if (phase1Res !== undefined) updateCell('AG', phase1Res);
+    if (phase2Res !== undefined) updateCell('AH', phase2Res);
 
     const resourceType = body.resource_type !== undefined ? body.resource_type : body.resourceType;
-    if (resourceType !== undefined) updateCell('AG', resourceType ? String(resourceType).toUpperCase() : "");
+    if (resourceType !== undefined) updateCell('AI', resourceType ? String(resourceType).toUpperCase() : "");
 
     if (body.final_price !== undefined) updateCell('Q', body.final_price);
 
@@ -988,17 +1006,17 @@ async function updateBookingDetails(body) {
 
     if (body.phase1_duration !== undefined && body.phase1_duration !== null) {
         const p1 = parseInt(body.phase1_duration); const p2 = totalDuration - p1;
-        updateCell('AA', p1); updateCell('AC', p2); hasManualPhaseChange = true;
+        updateCell('AC', p1); updateCell('AE', p2); hasManualPhaseChange = true;
     } else if (body.phase2_duration !== undefined && body.phase2_duration !== null) {
         const p2 = parseInt(body.phase2_duration); const p1 = totalDuration - p2;
-        updateCell('AA', p1); updateCell('AC', p2); hasManualPhaseChange = true;
+        updateCell('AC', p1); updateCell('AE', p2); hasManualPhaseChange = true;
     }
 
     const currentLockString = currentLockState ? "TRUE" : "FALSE";
     const finalLockString = resolveStrictLockState(body.isManualLocked, hasManualPhaseChange, currentLockString);
 
     if (finalLockString !== currentLockString || body.isManualLocked !== undefined || hasManualPhaseChange) {
-        updateCell('AH', finalLockString);
+        updateCell('AJ', finalLockString);
     }
     
     // --- V1.6 NÂNG CẤP: Tự động tính toán lại Z, AB (transition), AD (finish) ---
@@ -1006,7 +1024,7 @@ async function updateBookingDetails(body) {
     if (newStartVal) {
         let timeVal = newStartVal; if (timeVal.includes(' ')) timeVal = timeVal.split(' ')[1];
         if (timeVal.length > 5) timeVal = timeVal.substring(0, 5);
-        updateCell('Z', timeVal); // start_time_str
+        updateCell('AB', timeVal); // start_time_str
         
         const startMins = typeof ResourceCore !== 'undefined' ? ResourceCore.getMinsFromTimeStr(timeVal) : -1;
         if (startMins !== -1) {
@@ -1019,11 +1037,11 @@ async function updateBookingDetails(body) {
             const transitionBuffer = isComboCalc ? (typeof ResourceCore !== 'undefined' && ResourceCore.CONFIG ? ResourceCore.CONFIG.TRANSITION_BUFFER : 3) : 0;
             
             if (isComboCalc) {
-                updateCell('AB', typeof ResourceCore !== 'undefined' ? ResourceCore.getTimeStrFromMins(startMins + p1Dur + transitionBuffer) : "");
+                updateCell('AD', typeof ResourceCore !== 'undefined' ? ResourceCore.getTimeStrFromMins(startMins + p1Dur + transitionBuffer) : "");
             } else {
-                updateCell('AB', "");
+                updateCell('AD', "");
             }
-            updateCell('AD', typeof ResourceCore !== 'undefined' ? ResourceCore.getTimeStrFromMins(startMins + p1Dur + p2Dur + transitionBuffer) : "");
+            updateCell('AF', typeof ResourceCore !== 'undefined' ? ResourceCore.getTimeStrFromMins(startMins + p1Dur + p2Dur + transitionBuffer) : "");
         }
     }
 
@@ -1071,7 +1089,7 @@ async function updateInlineBooking(rowId, updatedData) {
         });
         
         let row = (getRes.data.values && getRes.data.values[0]) ? [...getRes.data.values[0]] : [];
-        while (row.length < 37) row.push("");
+        while (row.length < 50) row.push("");
 
         const formattedDate = normalizeDateStrict(updatedData.ngayDen);
         let timeVal = updatedData.gioDen || "";
@@ -1130,7 +1148,6 @@ async function updateInlineBooking(rowId, updatedData) {
 
         if (formattedDate) {
             row[0] = formattedDate;
-            // Bỏ gán ngày vào cột S (row[20]) để bảo vệ dữ liệu "轉帳"
         }
         if (timeVal) {
             row[1] = timeVal;
@@ -1138,38 +1155,35 @@ async function updateInlineBooking(rowId, updatedData) {
         if (updatedData.hoTen !== undefined) {
             row[2] = updatedData.hoTen;
         }
-        if (updatedData.isOil !== undefined) {
-            row[4] = updatedData.isOil ? "Yes" : "";
-        }
-        if (updatedData.pax !== undefined) {
-            row[5] = updatedData.pax;
-        }
         if (updatedData.sdt !== undefined) {
-            row[6] = updatedData.sdt;
+            row[3] = updatedData.sdt;
         }
+        
+        let isYouTui = updatedData.isYouTui !== undefined ? updatedData.isYouTui : (row[5] === "Yes");
+        row[5] = isYouTui ? "Yes" : "";
+        
+        if (updatedData.isGuaSha !== undefined) row[6] = updatedData.isGuaSha ? "Yes" : "";
+        if (updatedData.isHuaGuan !== undefined) row[7] = updatedData.isHuaGuan ? "Yes" : "";
+        if (updatedData.isBaGuan !== undefined) row[8] = updatedData.isBaGuan ? "Yes" : "";
+        
         if (updatedData.trangThai !== undefined) {
             row[9] = updatedData.trangThai;
         }
         if (updatedData.nhanVien !== undefined) {
             row[10] = updatedData.nhanVien;
         }
-        if (updatedData.isGuaSha !== undefined) {
-            // Dời khỏi Q (16)
-            row[48] = updatedData.isGuaSha ? "Yes" : "";
-        }
         if (updatedData.adminNote !== undefined) {
-            // Dời khỏi R (17)
-            row[49] = updatedData.adminNote;
+            row[11] = updatedData.adminNote;
         }
 
         if (updatedData.dichVu !== undefined) {
             let svcName = updatedData.dichVu;
-            let isOil = updatedData.isOil !== undefined ? updatedData.isOil : (row[4] === "Yes");
-            if (isOil && !svcName.includes("油推")) {
+            let isYouTui = updatedData.isYouTui !== undefined ? updatedData.isYouTui : (row[5] === "Yes");
+            if (isYouTui && !svcName.includes("油推")) {
                 svcName += getOilSuffixText();
             }
-            row[3] = svcName;
-            row[25] = sCode;
+            row[4] = svcName;
+            row[24] = sCode;
             
             if (sCode && STATE.SERVICES[sCode]) {
                 const svcDef = STATE.SERVICES[sCode];
@@ -1462,7 +1476,7 @@ async function batchUpdateMultipleBookings(updatesArray) {
             if (body.adminNote !== undefined) dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!AX${rowId}`, values: [[body.adminNote]] });
 
             const flowVal = body.flow || body.flow_code;
-            if (flowVal !== undefined) dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!X${rowId}`, values: [[flowVal]] });
+            if (flowVal !== undefined) dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!Z${rowId}`, values: [[flowVal]] });
 
             let phase1Res = body.phase1_res_idx !== undefined ? body.phase1_res_idx : (body.phase1_resource !== undefined ? body.phase1_resource : body.phase1Resource);
             
@@ -1472,13 +1486,13 @@ async function batchUpdateMultipleBookings(updatesArray) {
             if (!isCombo && phase1Res === undefined && (body.location !== undefined || body.current_resource_id !== undefined)) {
                 phase1Res = body.location !== undefined ? body.location : body.current_resource_id;
             }
-            if (phase1Res !== undefined) dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!AE${rowId}`, values: [[phase1Res]] });
+            if (phase1Res !== undefined) dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!AG${rowId}`, values: [[phase1Res]] });
 
             const phase2Res = body.phase2_res_idx !== undefined ? body.phase2_res_idx : (body.phase2_resource !== undefined ? body.phase2_resource : body.phase2Resource);
-            if (phase2Res !== undefined) dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!AF${rowId}`, values: [[phase2Res]] });
+            if (phase2Res !== undefined) dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!AH${rowId}`, values: [[phase2Res]] });
 
             const resourceType = body.resource_type !== undefined ? body.resource_type : body.resourceType;
-            if (resourceType !== undefined) dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!AG${rowId}`, values: [[resourceType ? String(resourceType).toUpperCase() : ""]] });
+            if (resourceType !== undefined) dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!AI${rowId}`, values: [[resourceType ? String(resourceType).toUpperCase() : ""]] });
 
             if (body.final_price !== undefined) {
                 dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!Q${rowId}`, values: [[body.final_price]] });
@@ -1490,13 +1504,13 @@ async function batchUpdateMultipleBookings(updatesArray) {
 
             if (body.phase1_duration !== undefined && body.phase1_duration !== null) {
                 const p1 = parseInt(body.phase1_duration); const p2 = totalDuration - p1;
-                dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!AA${rowId}`, values: [[p1]] });
-                dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!AC${rowId}`, values: [[p2]] });
+                dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!AC${rowId}`, values: [[p1]] });
+                dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!AE${rowId}`, values: [[p2]] });
                 hasManualPhaseChange = true;
             } else if (body.phase2_duration !== undefined && body.phase2_duration !== null) {
                 const p2 = parseInt(body.phase2_duration); const p1 = totalDuration - p2;
-                dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!AA${rowId}`, values: [[p1]] });
-                dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!AC${rowId}`, values: [[p2]] });
+                dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!AC${rowId}`, values: [[p1]] });
+                dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!AE${rowId}`, values: [[p2]] });
                 hasManualPhaseChange = true;
             }
 
@@ -1504,7 +1518,7 @@ async function batchUpdateMultipleBookings(updatesArray) {
             const finalLockString = resolveStrictLockState(body.isManualLocked, hasManualPhaseChange, currentLockString);
 
             if (finalLockString !== currentLockString || body.isManualLocked !== undefined || hasManualPhaseChange) {
-                dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!AH${rowId}`, values: [[finalLockString]] });
+                dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!AJ${rowId}`, values: [[finalLockString]] });
             }
 
             // --- V1.6 NÂNG CẤP: Tính toán Z, AC, AE ---
@@ -1512,7 +1526,7 @@ async function batchUpdateMultipleBookings(updatesArray) {
             if (newStartVal) {
                 let timeVal = newStartVal; if (timeVal.includes(' ')) timeVal = timeVal.split(' ')[1];
                 if (timeVal.length > 5) timeVal = timeVal.substring(0, 5);
-                dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!Z${rowId}`, values: [[timeVal]] });
+                dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!AB${rowId}`, values: [[timeVal]] });
                 
                 const startMins = typeof ResourceCore !== 'undefined' ? ResourceCore.getMinsFromTimeStr(timeVal) : -1;
                 if (startMins !== -1) {
@@ -1525,11 +1539,11 @@ async function batchUpdateMultipleBookings(updatesArray) {
                     const transitionBuffer = isComboCalc ? (typeof ResourceCore !== 'undefined' && ResourceCore.CONFIG ? ResourceCore.CONFIG.TRANSITION_BUFFER : 3) : 0;
                     
                     if (isComboCalc) {
-                        dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!AB${rowId}`, values: [[typeof ResourceCore !== 'undefined' ? ResourceCore.getTimeStrFromMins(startMins + p1Dur + transitionBuffer) : ""]] });
+                        dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!AD${rowId}`, values: [[typeof ResourceCore !== 'undefined' ? ResourceCore.getTimeStrFromMins(startMins + p1Dur + transitionBuffer) : ""]] });
                     } else {
-                        dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!AB${rowId}`, values: [[""]] });
+                        dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!AD${rowId}`, values: [[""]] });
                     }
-                    dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!AD${rowId}`, values: [[typeof ResourceCore !== 'undefined' ? ResourceCore.getTimeStrFromMins(startMins + p1Dur + p2Dur + transitionBuffer) : ""]] });
+                    dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!AF${rowId}`, values: [[typeof ResourceCore !== 'undefined' ? ResourceCore.getTimeStrFromMins(startMins + p1Dur + p2Dur + transitionBuffer) : ""]] });
                 }
             }
 
