@@ -1405,7 +1405,7 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
 // ============================================================================
 // 1. TIMELINE VIEW
 // ============================================================================
-const StaffStatsModal = ({ hour, staffList, onClose }) => {
+const StaffStatsModal = ({ hour, staffList, timelineData, onClose }) => {
     const availableStaff = useMemo(() => {
         return (staffList || []).filter(s => {
             if (s.off) return false;
@@ -1428,18 +1428,50 @@ const StaffStatsModal = ({ hour, staffList, onClose }) => {
     }, [hour, staffList]);
 
     const stats = useMemo(() => {
+        // Find all active bookings in this hour
+        const activeBookingsInHour = [];
+        const startMins = hour * 60;
+        const endMins = (hour + 1) * 60;
+
+        if (timelineData) {
+            Object.values(timelineData).forEach(slots => {
+                slots.forEach(slot => {
+                    const booking = slot.booking;
+                    if (!booking) return;
+                    
+                    const STATUS = getBookingStatus ? getBookingStatus() : { CANCELLED: 'CANCELLED', NOSHOW: 'NOSHOW' };
+                    const rawStatusStr = String(booking.status || '');
+                    const isCancelled = rawStatusStr.includes('取消') || rawStatusStr.includes('爽約') || rawStatusStr.toUpperCase().includes('NOSHOW') || rawStatusStr.toUpperCase().includes('CANCEL') || booking.isDoneStatus === true || rawStatusStr === STATUS.CANCELLED || rawStatusStr === STATUS.NOSHOW;
+                    if (isCancelled) return;
+
+                    // Check time overlap
+                    if (slot.start < endMins && slot.end > startMins) {
+                        activeBookingsInHour.push(booking);
+                    }
+                });
+            });
+        }
+
+        const bookedStaffCount = activeBookingsInHour.length;
+        const specificStaffBookings = activeBookingsInHour.filter(b => b.requestedStaff && b.requestedStaff !== '隨機' && b.requestedStaff !== '男' && b.requestedStaff !== '女' && b.requestedStaff.trim() !== '');
+        const femaleReqCount = activeBookingsInHour.filter(b => b.requestedStaff === '女').length;
+        const maleReqCount = activeBookingsInHour.filter(b => b.requestedStaff === '男').length;
+        
+        let specificNames = specificStaffBookings.map(b => b.requestedStaff).join(', ');
+        if (specificNames) {
+            specificNames = `(${specificNames})`;
+        }
+
         return {
             total: availableStaff.length,
-            male: availableStaff.filter(s => s.gender === 'M').length,
-            female: availableStaff.filter(s => s.gender === 'F').length,
-            taiwan: availableStaff.filter(s => s.nationality === '台灣' || !s.nationality || s.nationality.includes('台')).length,
-            vietnam: availableStaff.filter(s => s.nationality === '越南' || s.nationality.includes('越')).length,
-            youTui: availableStaff.filter(s => s.isYouTui).length,
-            guaSha: availableStaff.filter(s => s.isGuaSha).length,
-            huaGuan: availableStaff.filter(s => s.isHuaGuan).length,
-            baGuan: availableStaff.filter(s => s.isBaGuan).length,
+            booked: bookedStaffCount,
+            specific: specificStaffBookings.length,
+            specificNames: specificNames,
+            femaleReq: femaleReqCount,
+            maleReq: maleReqCount,
+            idle: Math.max(0, availableStaff.length - bookedStaffCount)
         };
-    }, [availableStaff]);
+    }, [availableStaff, timelineData, hour]);
 
     return (
         <div className="fixed inset-0 z-[6000] bg-slate-900/60 flex items-center justify-center p-4" onClick={onClose}>
@@ -1452,59 +1484,40 @@ const StaffStatsModal = ({ hour, staffList, onClose }) => {
                         <i className="fas fa-times text-xl"></i>
                     </button>
                 </div>
-                <div className="p-5 space-y-4">
-                    <div className="bg-slate-50 p-4 rounded-lg border border-slate-100 flex items-center justify-between">
+                <div className="p-4 space-y-3">
+                    <div className="bg-slate-50 px-4 py-3 rounded-lg border border-slate-200 flex items-center justify-between">
                         <span className="font-bold text-slate-700">總可用技師數</span>
-                        <span className="text-2xl font-black text-indigo-600">{stats.total}</span>
-                    </div>
-                    
-                    <div className="grid grid-cols-2 gap-3">
-                        <div className="bg-blue-50 p-3 rounded-lg border border-blue-100 flex flex-col items-center">
-                            <span className="text-xs font-bold text-blue-600 mb-1">男技師</span>
-                            <span className="text-xl font-bold text-blue-700">{stats.male}</span>
-                        </div>
-                        <div className="bg-pink-50 p-3 rounded-lg border border-pink-100 flex flex-col items-center">
-                            <span className="text-xs font-bold text-pink-600 mb-1">女技師</span>
-                            <span className="text-xl font-bold text-pink-700">{stats.female}</span>
-                        </div>
+                        <span className="text-xl font-black text-indigo-600">{stats.total}</span>
                     </div>
 
-                    <div className="grid grid-cols-2 gap-3">
-                        <div className="bg-emerald-50 p-3 rounded-lg border border-emerald-100 flex flex-col items-center">
-                            <span className="text-xs font-bold text-emerald-600 mb-1">台灣籍</span>
-                            <span className="text-xl font-bold text-emerald-700">{stats.taiwan}</span>
-                        </div>
-                        <div className="bg-orange-50 p-3 rounded-lg border border-orange-100 flex flex-col items-center">
-                            <span className="text-xs font-bold text-orange-600 mb-1">越南籍</span>
-                            <span className="text-xl font-bold text-orange-700">{stats.vietnam}</span>
-                        </div>
+                    <div className="bg-slate-50 px-4 py-3 rounded-lg border border-slate-200 flex items-center justify-between">
+                        <span className="font-bold text-slate-700">總被預約技師數</span>
+                        <span className="text-xl font-black text-red-500">{stats.booked}</span>
                     </div>
 
-                    <div className="grid grid-cols-4 gap-2 pt-2 border-t border-slate-100">
-                        <div className="flex flex-col items-center">
-                            <span className="text-[10px] font-bold text-slate-500 mb-1">油推</span>
-                            <div className="w-10 h-10 rounded-full bg-purple-100 text-purple-600 flex items-center justify-center font-bold text-lg shadow-sm border border-purple-200">
-                                {stats.youTui}
-                            </div>
+                    <div className="bg-slate-50 px-4 py-3 rounded-lg border border-slate-200 flex flex-col justify-center">
+                        <div className="flex items-center justify-between">
+                            <span className="font-bold text-slate-700">總指定技師數</span>
+                            <span className="text-xl font-black text-amber-500">{stats.specific}</span>
                         </div>
-                        <div className="flex flex-col items-center">
-                            <span className="text-[10px] font-bold text-slate-500 mb-1">刮痧</span>
-                            <div className="w-10 h-10 rounded-full bg-red-100 text-red-600 flex items-center justify-center font-bold text-lg shadow-sm border border-red-200">
-                                {stats.guaSha}
-                            </div>
-                        </div>
-                        <div className="flex flex-col items-center">
-                            <span className="text-[10px] font-bold text-slate-500 mb-1">滑罐</span>
-                            <div className="w-10 h-10 rounded-full bg-amber-100 text-amber-600 flex items-center justify-center font-bold text-lg shadow-sm border border-amber-200">
-                                {stats.huaGuan}
-                            </div>
-                        </div>
-                        <div className="flex flex-col items-center">
-                            <span className="text-[10px] font-bold text-slate-500 mb-1">拔罐</span>
-                            <div className="w-10 h-10 rounded-full bg-rose-100 text-rose-600 flex items-center justify-center font-bold text-lg shadow-sm border border-rose-200">
-                                {stats.baGuan}
-                            </div>
-                        </div>
+                        {stats.specificNames && (
+                            <div className="text-xs text-slate-500 mt-1 font-medium">{stats.specificNames}</div>
+                        )}
+                    </div>
+
+                    <div className="bg-slate-50 px-4 py-3 rounded-lg border border-slate-200 flex items-center justify-between">
+                        <span className="font-bold text-slate-700">總女師預約數</span>
+                        <span className="text-xl font-black text-pink-500">{stats.femaleReq}</span>
+                    </div>
+
+                    <div className="bg-slate-50 px-4 py-3 rounded-lg border border-slate-200 flex items-center justify-between">
+                        <span className="font-bold text-slate-700">總男師預約數</span>
+                        <span className="text-xl font-black text-blue-500">{stats.maleReq}</span>
+                    </div>
+
+                    <div className="bg-slate-50 px-4 py-3 rounded-lg border border-slate-200 flex items-center justify-between">
+                        <span className="font-bold text-slate-700">總空閒技師數</span>
+                        <span className="text-xl font-black text-emerald-500">{stats.idle}</span>
                     </div>
                 </div>
             </div>
@@ -1934,6 +1947,7 @@ const TimelineView = ({ timelineData, onEditPhase, liveStatusData, staffList, st
                 <StaffStatsModal 
                     hour={showStaffStats} 
                     staffList={staffList} 
+                    timelineData={timelineData}
                     onClose={() => setShowStaffStats(null)} 
                 />
             )}
