@@ -610,8 +610,8 @@
 
                 if (isCombo) {
                     let foundValidSplit = false;
-                    const eStep = svc.elasticStep || 10;
-                    const eLimit = svc.elasticLimit || 30;
+                    const eStep = svc.elasticStep || 1;
+                    const eLimit = svc.elasticLimit || 20;
                     const flowsToTry = (g.flowCode === 'FB' || g.flowCode === 'BF') ? [g.flowCode] : ['FB', 'BF'];
                     
                     for (const testFlow of flowsToTry) {
@@ -806,8 +806,7 @@
                 return [{ p1: parseInt(customLockedPhase1), p2: totalDuration - parseInt(customLockedPhase1), deviation: 999 }];
             }
             const standardHalf = Math.floor(totalDuration / 2);
-            let options = [{ p1: standardHalf, p2: totalDuration - standardHalf, deviation: 0 }];
-            if (!step || !limit || step <= 0 || limit <= 0) return options;
+            let options = [];
             
             let minP1 = 15, maxP1 = totalDuration - 15;
             let minP2 = 15, maxP2 = totalDuration - 15;
@@ -827,19 +826,31 @@
                 }
             }
 
-            if (options.length > 0) {
-                if (options[0].p1 < minP1 || options[0].p1 > maxP1 || options[0].p2 < minP2 || options[0].p2 > maxP2) {
-                    options = [];
-                }
+            // Push 50/50 đầu tiên nếu hợp lệ
+            let p2_standard = totalDuration - standardHalf;
+            if (standardHalf >= minP1 && standardHalf <= maxP1 && p2_standard >= minP2 && p2_standard <= maxP2) {
+                options.push({ p1: standardHalf, p2: p2_standard, deviation: 0 });
             }
 
+            if (!step || !limit || step <= 0 || limit <= 0) {
+                if (options.length === 0) options.push({ p1: standardHalf, p2: p2_standard, deviation: 0 });
+                return options;
+            }
+
+            // Giảm dần p1
             let currentDeviation = step;
             while (currentDeviation <= limit) {
                 let p1_A = standardHalf - currentDeviation;
                 let p2_A = totalDuration - p1_A;
                 if (p1_A >= minP1 && p1_A <= maxP1 && p2_A >= minP2 && p2_A <= maxP2) {
-                    options.push({ p1: p1_A, p2: p2_A, deviation: currentDeviation });
+                    options.push({ p1: p1_A, p2: p2_A, deviation: -currentDeviation });
                 }
+                currentDeviation += step;
+            }
+
+            // Tăng dần p1
+            currentDeviation = step;
+            while (currentDeviation <= limit) {
                 let p1_B = standardHalf + currentDeviation;
                 let p2_B = totalDuration - p1_B;
                 if (p1_B >= minP1 && p1_B <= maxP1 && p2_B >= minP2 && p2_B <= maxP2) {
@@ -847,7 +858,7 @@
                 }
                 currentDeviation += step;
             }
-            
+
             const uniqueOptions = [];
             const seen = new Set();
             for (const opt of options) {
@@ -857,7 +868,7 @@
                     uniqueOptions.push(opt);
                 }
             }
-            uniqueOptions.sort((a, b) => Math.abs(a.deviation) - Math.abs(b.deviation));
+            if (uniqueOptions.length === 0) uniqueOptions.push({ p1: standardHalf, p2: p2_standard, deviation: 0 });
             return uniqueOptions;
         }
 

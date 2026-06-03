@@ -651,41 +651,55 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
         const guestIdKey = g.idx !== undefined ? g.idx : i; // Đảm bảo mapping đúng index của khách
 
         if (isCombo) {
-            const p1 = Math.floor(duration / 2);
-            const p2 = duration - p1;
-            const tStart = requestStart;
-            const tSwitch = tStart + p1 + CONF.TRANSITION_BUFFER;
-            const comboGuestsCount = guestList.filter(g => isComboService(getServiceInfo(g.serviceCode, g.serviceName), g.serviceCode, g.flowCode)).length;
-            const isCrossSwapGroup = comboGuestsCount >= 2;
-            const phase1Cleanup = isCrossSwapGroup ? Math.min(CONF.CLEANUP_BUFFER, CONF.TRANSITION_BUFFER) : CONF.CLEANUP_BUFFER;
+            let foundValidSplit = false;
+            const eStep = svc.elasticStep || 1;
+            const eLimit = svc.elasticLimit || 20;
+            const flowsToTry = (explicitFlow === 'FB' || explicitFlow === 'BF') ? [explicitFlow] : ['FB', 'BF'];
+            
+            for (const testFlow of flowsToTry) {
+                const splitsToTry = generateElasticSplits(duration, eStep, eLimit, null, svc.minFoot, svc.maxFoot, svc.minBody, svc.maxBody, testFlow);
+                
+                for (const split of splitsToTry) {
+                    const p1 = split.p1;
+                    const p2 = split.p2;
+                    const tStart = requestStart;
+                    const tSwitch = tStart + p1 + CONF.TRANSITION_BUFFER;
+                    const comboGuestsCount = guestList.filter(g => isComboService(getServiceInfo(g.serviceCode, g.serviceName), g.serviceCode, g.flowCode)).length;
+                    const isCrossSwapGroup = comboGuestsCount >= 2;
+                    const phase1Cleanup = isCrossSwapGroup ? Math.min(CONF.CLEANUP_BUFFER, CONF.TRANSITION_BUFFER) : CONF.CLEANUP_BUFFER;
+                    
+                    let bedIdx = -1, chairIdx = -1;
+                    
+                    if (testFlow === 'BF') {
+                        // Kịch bản A: Body Trước (BED -> CHAIR)
+                        for (let b = 0; b < CONF.MAX_BEDS; b++) { if (checkLaneContinuity(simulationMap.BED[b], tStart, tStart + p1, phase1Cleanup)) { bedIdx = b; break; } }
+                        for (let c = 0; c < CONF.MAX_CHAIRS; c++) { if (checkLaneContinuity(simulationMap.CHAIR[c], tSwitch, tSwitch + p2)) { chairIdx = c; break; } }
 
-            let successBF = false; let successFB = false;
-            let bedIdx = -1, chairIdx = -1;
+                        if (bedIdx !== -1 && chairIdx !== -1) {
+                            simulationMap.BED[bedIdx].push({ start: tStart, end: tStart + p1 + phase1Cleanup });
+                            simulationMap.CHAIR[chairIdx].push({ start: tSwitch, end: tSwitch + p2 + CONF.CLEANUP_BUFFER });
+                            suggestedLanes[guestIdKey] = { BED: bedIdx + 1, CHAIR: chairIdx + 1 };
+                            foundValidSplit = true;
+                            break;
+                        }
+                    } else {
+                        // Kịch bản B: Chân Trước (CHAIR -> BED)
+                        for (let c = 0; c < CONF.MAX_CHAIRS; c++) { if (checkLaneContinuity(simulationMap.CHAIR[c], tStart, tStart + p1, phase1Cleanup)) { chairIdx = c; break; } }
+                        for (let b = 0; b < CONF.MAX_BEDS; b++) { if (checkLaneContinuity(simulationMap.BED[b], tSwitch, tSwitch + p2)) { bedIdx = b; break; } }
 
-            // Kịch bản A: Body Trước (BED -> CHAIR)
-            for (let b = 0; b < CONF.MAX_BEDS; b++) { if (checkLaneContinuity(simulationMap.BED[b], tStart, tStart + p1, phase1Cleanup)) { bedIdx = b; break; } }
-            for (let c = 0; c < CONF.MAX_CHAIRS; c++) { if (checkLaneContinuity(simulationMap.CHAIR[c], tSwitch, tSwitch + p2)) { chairIdx = c; break; } }
-
-            if (bedIdx !== -1 && chairIdx !== -1) {
-                successBF = true;
-                simulationMap.BED[bedIdx].push({ start: tStart, end: tStart + p1 + phase1Cleanup });
-                simulationMap.CHAIR[chairIdx].push({ start: tSwitch, end: tSwitch + p2 + CONF.CLEANUP_BUFFER });
-                suggestedLanes[guestIdKey] = { BED: bedIdx + 1, CHAIR: chairIdx + 1 };
-            } else {
-                // Kịch bản B: Chân Trước (CHAIR -> BED)
-                chairIdx = -1; bedIdx = -1;
-                for (let c = 0; c < CONF.MAX_CHAIRS; c++) { if (checkLaneContinuity(simulationMap.CHAIR[c], tStart, tStart + p1, phase1Cleanup)) { chairIdx = c; break; } }
-                for (let b = 0; b < CONF.MAX_BEDS; b++) { if (checkLaneContinuity(simulationMap.BED[b], tSwitch, tSwitch + p2)) { bedIdx = b; break; } }
-
-                if (chairIdx !== -1 && bedIdx !== -1) {
-                    successFB = true;
-                    simulationMap.CHAIR[chairIdx].push({ start: tStart, end: tStart + p1 + phase1Cleanup });
-                    simulationMap.BED[bedIdx].push({ start: tSwitch, end: tSwitch + p2 + CONF.CLEANUP_BUFFER });
-                    suggestedLanes[guestIdKey] = { CHAIR: chairIdx + 1, BED: bedIdx + 1 };
+                        if (chairIdx !== -1 && bedIdx !== -1) {
+                            simulationMap.CHAIR[chairIdx].push({ start: tStart, end: tStart + p1 + phase1Cleanup });
+                            simulationMap.BED[bedIdx].push({ start: tSwitch, end: tSwitch + p2 + CONF.CLEANUP_BUFFER });
+                            suggestedLanes[guestIdKey] = { CHAIR: chairIdx + 1, BED: bedIdx + 1 };
+                            foundValidSplit = true;
+                            break;
+                        }
+                    }
                 }
+                if (foundValidSplit) break;
             }
 
-            if (!successBF && !successFB) {
+            if (!foundValidSplit) {
                 return triggerSmartFailure(`⚠️ 在 ${getTimeStrFromMins(requestStart)} 沒有足夠的連續空位給套餐。`);
             }
 
