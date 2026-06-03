@@ -1704,7 +1704,7 @@
         // --- TITLE STATE ---
         const [form, setForm] = useState({
             date: getInitialPhysicalDate(),
-            time: getRoundedCurrentTime(), pax: 1, custName: '', custTitle: '', custPhone: '', adminNote: ''
+            time: getRoundedCurrentTime(), pax: 1, custName: '', custTitle: '', custPhone: '09', adminNote: ''
         });
 
         const [guestDetails, setGuestDetails] = useState([{ service: defaultService, staff: '隨機', isOil: false, isGuaSha: false }]);
@@ -1736,7 +1736,7 @@
                     date: dateStr, time: timeStr, pax: editingBooking.pax || 1,
                     custName: rawName,
                     custTitle: parsedTitle,
-                    custPhone: editingBooking.phone || "",
+                    custPhone: editingBooking.phone || "09",
                     adminNote: editingBooking.adminNote || ""
                 });
                 setGuestDetails([{
@@ -2082,7 +2082,7 @@
                 {showSurnamePicker && (
                     <div className="fixed inset-0 z-[200] bg-white flex flex-col animate-fadeIn">
                         <div className="bg-orange-600 p-6 text-white flex justify-between items-center shadow-md">
-                            <h2 className="text-3xl font-bold">請選擇姓氏 (Select Surname)</h2>
+                            <h2 className="text-3xl font-bold">請選擇姓氏</h2>
                             <button onClick={() => setShowSurnamePicker(false)} className="text-5xl px-4">&times;</button>
                         </div>
                         <div className="flex-1 p-2 sm:p-4 overflow-y-auto custom-scrollbar">
@@ -2162,10 +2162,10 @@
                                 {step === 'INFO' && (
                                     <div className="flex items-center gap-2 animate-fadeIn bg-white/10 p-1 sm:p-1.5 rounded-xl border border-white/20">
                                         <button onClick={(e) => { e.preventDefault(); if (!isSubmitting) setStep('CHECK'); }} className="px-3 sm:px-4 py-1.5 bg-gray-200 text-gray-700 rounded-lg font-bold shadow-md hover:bg-gray-300 border border-gray-400 whitespace-nowrap flex items-center gap-1" disabled={isSubmitting}>
-                                            <span>⬅️</span> <span>返回 (Back)</span>
+                                            <span>⬅️</span> <span>返回</span>
                                         </button>
                                         <button onClick={handleFinalSave} className="px-3 sm:px-4 py-1.5 bg-indigo-500 text-white rounded-lg font-bold shadow-lg hover:bg-indigo-600 border border-indigo-400 whitespace-nowrap flex items-center gap-1" disabled={isSubmitting}>
-                                            {isSubmitting ? "⏳ 處理中..." : (editingBooking ? "💾 保存修改" : "✅ 確認 (Confirm)")}
+                                            {isSubmitting ? "⏳ 處理中..." : (editingBooking ? "💾 保存修改" : "✅ 確認")}
                                         </button>
                                     </div>
                                 )}
@@ -2181,8 +2181,8 @@
                                             <div className="flex justify-between items-center mb-1">
                                                 <label className="text-lg font-bold text-gray-500 block">日期</label>
                                                 <div className="flex gap-1.5 pl-2">
-                                                    <button onClick={(e) => { e.preventDefault(); handleDateShift(-1); }} className="w-10 h-8 flex items-center justify-center bg-slate-200 hover:bg-slate-300 text-slate-600 rounded-lg shadow-sm font-bold border border-slate-300 transition-colors tooltip tooltip-bottom" data-tip="Lùi 1 Ngày (Prev)">◀</button>
-                                                    <button onClick={(e) => { e.preventDefault(); handleDateShift(1); }} className="w-10 h-8 flex items-center justify-center bg-slate-200 hover:bg-slate-300 text-slate-600 rounded-lg shadow-sm font-bold border border-slate-300 transition-colors tooltip tooltip-bottom" data-tip="Tiến 1 Ngày (Next)">▶</button>
+                                                    <button onClick={(e) => { e.preventDefault(); handleDateShift(-1); }} className="w-10 h-8 flex items-center justify-center bg-slate-200 hover:bg-slate-300 text-slate-600 rounded-lg shadow-sm font-bold border border-slate-300 transition-colors tooltip tooltip-bottom" data-tip="前一天">◀</button>
+                                                    <button onClick={(e) => { e.preventDefault(); handleDateShift(1); }} className="w-10 h-8 flex items-center justify-center bg-slate-200 hover:bg-slate-300 text-slate-600 rounded-lg shadow-sm font-bold border border-slate-300 transition-colors tooltip tooltip-bottom" data-tip="後一天">▶</button>
                                                 </div>
                                             </div>
                                             <input type="date" className="w-full border-2 p-3 rounded-xl font-bold text-xl h-[64px] bg-slate-50" value={form.date} onChange={e => { setForm({ ...form, date: e.target.value }); setCheckResult(null); }} />
@@ -2206,7 +2206,7 @@
                                     </div>
                                     
                                     <div>
-                                        <label className="text-lg font-bold text-gray-500 mb-1 block">電話號碼 (Phone)</label>
+                                        <label className="text-lg font-bold text-gray-500 mb-1 block">電話號碼</label>
                                         <input
                                             className="w-full border-2 border-slate-300 p-3 rounded-xl font-bold text-xl outline-none focus:border-indigo-500 bg-slate-50 h-[64px]"
                                             value={form.custPhone}
@@ -2328,7 +2328,7 @@
                             {step === 'INFO' && (
                                 <div className="space-y-6 animate-slideIn flex flex-col h-full">
                                     <div>
-                                        <label className="text-lg font-bold text-gray-500 mb-2 block">顧客姓名 (Name)</label>
+                                        <label className="text-lg font-bold text-gray-500 mb-2 block">顧客姓名</label>
                                         <div className="flex gap-3">
                                             <input
                                                 className="flex-[2] border-2 border-slate-300 p-4 rounded-xl font-bold text-2xl outline-none focus:border-indigo-500"
@@ -2352,7 +2352,7 @@
                                             <button
                                                 onClick={(e) => { e.preventDefault(); setShowSurnamePicker(true); }}
                                                 className="flex-[1] bg-orange-100 text-orange-700 border-2 border-orange-400 rounded-xl font-bold text-xl hover:bg-orange-200 transition-colors shadow-sm whitespace-nowrap"
-                                                title="選擇姓氏 (Select Surname)"
+                                                title="選擇姓氏"
                                             >
                                                 姓
                                             </button>
@@ -2361,8 +2361,20 @@
 
 
 
+                                    <div className="mb-4">
+                                        <label className="text-lg font-bold text-gray-500 mb-2 block">電話號碼</label>
+                                        <input
+                                            className="w-full border-2 border-slate-300 p-4 rounded-xl font-bold text-xl outline-none focus:border-indigo-500 bg-slate-50"
+                                            value={form.custPhone}
+                                            onChange={e => setForm({ ...form, custPhone: e.target.value })}
+                                            placeholder="09xx..."
+                                            disabled={isSubmitting}
+                                            type="tel"
+                                        />
+                                    </div>
+
                                     <div>
-                                        <label className="text-lg font-bold text-gray-500 mb-2 block">特別要求 / 備註 (Admin Note)</label>
+                                        <label className="text-lg font-bold text-gray-500 mb-2 block">特別要求 / 備註</label>
                                         <div className="flex gap-3">
                                             <input
                                                 className="flex-[2] border-2 border-slate-300 p-4 rounded-xl font-bold text-xl outline-none focus:border-indigo-500"
