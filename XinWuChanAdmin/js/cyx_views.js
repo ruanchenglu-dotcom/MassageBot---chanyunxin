@@ -1685,6 +1685,8 @@ const TimelineView = ({ timelineData, onEditPhase, liveStatusData, staffList, st
                                             const hasNote = booking.adminNote ? true : false;
 
                                             const isGuaSha = checkGuaShaService(booking) || booking.isGuaSha === true;
+                                            const isHuaGuan = booking.isHuaGuan === true;
+                                            const isBaGuan = booking.isBaGuan === true;
 
                                             let staffName = booking.serviceStaff || booking.staffId || booking.ServiceStaff || '隨機';
                                             if (staffName === 'undefined' || staffName === 'null') staffName = '隨機';
