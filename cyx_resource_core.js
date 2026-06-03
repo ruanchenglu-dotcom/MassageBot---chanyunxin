@@ -834,62 +834,67 @@ function generateElasticSplits(totalDuration, step = 0, limit = 0, customLockedP
         return [{ p1: parseInt(customLockedPhase1), p2: totalDuration - parseInt(customLockedPhase1), deviation: 999 }];
     }
     const standardHalf = Math.floor(totalDuration / 2);
-    let options = [{ p1: standardHalf, p2: totalDuration - standardHalf, deviation: 0 }];
+    let options = [];
 
-    if (minFoot !== null && maxFoot !== null && minBody !== null && maxBody !== null) {
-        options = [];
-        let p1_min = flow === 'FB' ? minFoot : minBody;
-        let p1_max = flow === 'FB' ? maxFoot : maxBody;
-        
-        // Push 50/50 đầu tiên nếu hợp lệ
-        let p2_standard = totalDuration - standardHalf;
-        let p2_min = flow === 'FB' ? minBody : minFoot;
-        let p2_max = flow === 'FB' ? maxBody : maxFoot;
-        if (standardHalf >= p1_min && standardHalf <= p1_max && p2_standard >= p2_min && p2_standard <= p2_max) {
-            options.push({ p1: standardHalf, p2: p2_standard, deviation: 0 });
-        }
-        
-        // Giảm dần p1
-        for (let p1 = standardHalf - 1; p1 >= p1_min; p1--) {
-            let p2 = totalDuration - p1;
-            if (p2 >= p2_min && p2 <= p2_max) {
-                options.push({ p1: p1, p2: p2, deviation: p1 - standardHalf });
-            }
-        }
-        
-        // Tăng dần p1
-        for (let p1 = standardHalf + 1; p1 <= p1_max; p1++) {
-            let p2 = totalDuration - p1;
-            if (p2 >= p2_min && p2 <= p2_max) {
-                options.push({ p1: p1, p2: p2, deviation: p1 - standardHalf });
-            }
-        }
+    let minP1 = 15, maxP1 = totalDuration - 15;
+    let minP2 = 15, maxP2 = totalDuration - 15;
 
-        if (options.length === 0) {
-            options.push({ p1: standardHalf, p2: totalDuration - standardHalf, deviation: 0 });
-        }
+    const isBF = (flow === 'BF');
+    if (isBF) {
+        if (minBody) minP1 = Math.max(minP1, minBody);
+        if (maxBody) maxP1 = Math.min(maxP1, maxBody);
+        if (minFoot) minP2 = Math.max(minP2, minFoot);
+        if (maxFoot) maxP2 = Math.min(maxP2, maxFoot);
+    } else {
+        if (minFoot) minP1 = Math.max(minP1, minFoot);
+        if (maxFoot) maxP1 = Math.min(maxP1, maxFoot);
+        if (minBody) minP2 = Math.max(minP2, minBody);
+        if (maxBody) maxP2 = Math.min(maxP2, maxBody);
+    }
+
+    let p2_standard = totalDuration - standardHalf;
+    if (standardHalf >= minP1 && standardHalf <= maxP1 && p2_standard >= minP2 && p2_standard <= maxP2) {
+        options.push({ p1: standardHalf, p2: p2_standard, deviation: 0 });
+    }
+
+    if (!step || !limit || step <= 0 || limit <= 0) {
+        if (options.length === 0) options.push({ p1: standardHalf, p2: p2_standard, deviation: 0 });
         return options;
     }
 
-    if (!step || !limit || step <= 0 || limit <= 0) return options;
-
-    // Giảm dần p1 (Ví dụ từ 49/51 xuống 30/70)
+    // Giảm dần p1
     let currentDeviation = step;
     while (currentDeviation <= limit) {
-        let p1_A = standardHalf - currentDeviation; let p2_A = totalDuration - p1_A;
-        if (p1_A >= 15 && p2_A >= 15) options.push({ p1: p1_A, p2: p2_A, deviation: -currentDeviation });
+        let p1_A = standardHalf - currentDeviation;
+        let p2_A = totalDuration - p1_A;
+        if (p1_A >= minP1 && p1_A <= maxP1 && p2_A >= minP2 && p2_A <= maxP2) {
+            options.push({ p1: p1_A, p2: p2_A, deviation: -currentDeviation });
+        }
         currentDeviation += step;
     }
 
-    // Tăng dần p1 (Ví dụ từ 51/49 lên 70/30)
+    // Tăng dần p1
     currentDeviation = step;
     while (currentDeviation <= limit) {
-        let p1_B = standardHalf + currentDeviation; let p2_B = totalDuration - p1_B;
-        if (p1_B >= 15 && p2_B >= 15) options.push({ p1: p1_B, p2: p2_B, deviation: currentDeviation });
+        let p1_B = standardHalf + currentDeviation;
+        let p2_B = totalDuration - p1_B;
+        if (p1_B >= minP1 && p1_B <= maxP1 && p2_B >= minP2 && p2_B <= maxP2) {
+            options.push({ p1: p1_B, p2: p2_B, deviation: currentDeviation });
+        }
         currentDeviation += step;
     }
 
-    return options;
+    const uniqueOptions = [];
+    const seen = new Set();
+    for (const opt of options) {
+        const key = `${opt.p1}-${opt.p2}`;
+        if (!seen.has(key)) {
+            seen.add(key);
+            uniqueOptions.push(opt);
+        }
+    }
+    if (uniqueOptions.length === 0) uniqueOptions.push({ p1: standardHalf, p2: p2_standard, deviation: 0 });
+    return uniqueOptions;
 }
 
 function isBlockSetAllocatable(blocks, matrix) {
