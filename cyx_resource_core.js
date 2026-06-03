@@ -827,35 +827,54 @@ function generateElasticSplits(totalDuration, step = 0, limit = 0, customLockedP
         let p1_min = flow === 'FB' ? minFoot : minBody;
         let p1_max = flow === 'FB' ? maxFoot : maxBody;
         
-        for (let p1 = p1_min; p1 <= p1_max; p1++) {
+        // Push 50/50 đầu tiên nếu hợp lệ
+        let p2_standard = totalDuration - standardHalf;
+        let p2_min = flow === 'FB' ? minBody : minFoot;
+        let p2_max = flow === 'FB' ? maxBody : maxFoot;
+        if (standardHalf >= p1_min && standardHalf <= p1_max && p2_standard >= p2_min && p2_standard <= p2_max) {
+            options.push({ p1: standardHalf, p2: p2_standard, deviation: 0 });
+        }
+        
+        // Giảm dần p1
+        for (let p1 = standardHalf - 1; p1 >= p1_min; p1--) {
             let p2 = totalDuration - p1;
-            let p2_min = flow === 'FB' ? minBody : minFoot;
-            let p2_max = flow === 'FB' ? maxBody : maxFoot;
-            
             if (p2 >= p2_min && p2 <= p2_max) {
-                options.push({ p1: p1, p2: p2, deviation: Math.abs(p1 - standardHalf) });
+                options.push({ p1: p1, p2: p2, deviation: p1 - standardHalf });
             }
         }
+        
+        // Tăng dần p1
+        for (let p1 = standardHalf + 1; p1 <= p1_max; p1++) {
+            let p2 = totalDuration - p1;
+            if (p2 >= p2_min && p2 <= p2_max) {
+                options.push({ p1: p1, p2: p2, deviation: p1 - standardHalf });
+            }
+        }
+
         if (options.length === 0) {
             options.push({ p1: standardHalf, p2: totalDuration - standardHalf, deviation: 0 });
-        } else {
-            options.sort((a, b) => a.deviation - b.deviation);
         }
         return options;
     }
 
     if (!step || !limit || step <= 0 || limit <= 0) return options;
 
+    // Giảm dần p1 (Ví dụ từ 49/51 xuống 30/70)
     let currentDeviation = step;
     while (currentDeviation <= limit) {
         let p1_A = standardHalf - currentDeviation; let p2_A = totalDuration - p1_A;
-        if (p1_A >= 15 && p2_A >= 15) options.push({ p1: p1_A, p2: p2_A, deviation: currentDeviation });
+        if (p1_A >= 15 && p2_A >= 15) options.push({ p1: p1_A, p2: p2_A, deviation: -currentDeviation });
+        currentDeviation += step;
+    }
 
+    // Tăng dần p1 (Ví dụ từ 51/49 lên 70/30)
+    currentDeviation = step;
+    while (currentDeviation <= limit) {
         let p1_B = standardHalf + currentDeviation; let p2_B = totalDuration - p1_B;
         if (p1_B >= 15 && p2_B >= 15) options.push({ p1: p1_B, p2: p2_B, deviation: currentDeviation });
         currentDeviation += step;
     }
-    options.sort((a, b) => Math.abs(a.deviation) - Math.abs(b.deviation));
+
     return options;
 }
 
@@ -1257,7 +1276,9 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
                             // Backend version: Use full generator parameters to respect sheet config bounds
                             const minFoot = item.guest.minFoot; const maxFoot = item.guest.maxFoot;
                             const minBody = item.guest.minBody; const maxBody = item.guest.maxBody;
-                            splitsToTry = generateElasticSplits(item.duration, 10, 30, null, minFoot, maxFoot, minBody, maxBody, item.flow);
+                            const elasticStep = item.guest.elasticStep || 1;
+                            const elasticLimit = item.guest.elasticLimit || 20;
+                            splitsToTry = generateElasticSplits(item.duration, elasticStep, elasticLimit, null, minFoot, maxFoot, minBody, maxBody, item.flow);
                         } else {
                             splitsToTry = [{ p1: item.duration, p2: 0, deviation: 0 }];
                         }
