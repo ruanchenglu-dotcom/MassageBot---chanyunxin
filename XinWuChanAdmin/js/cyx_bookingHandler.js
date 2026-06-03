@@ -1764,26 +1764,6 @@
                 const newMinute = type === 'MINUTE' ? value : parts[1];
                 let newDate = prev.date;
 
-                // [V116.6 NÂNG CẤP]: Trí tuệ nhận diện nhảy ngày theo Giờ Thực Tế (Phục vụ từ 0h đến trước giờ xem máy)
-                if (type === 'HOUR' && prev.date) {
-                    const selHour = parseInt(value, 10);
-                    const now = new Date();
-                    const currentHour = now.getHours();
-                    const dParts = prev.date.replace(/\//g, '-').split('-');
-
-                    if (dParts.length === 3) {
-                        const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-                        const tomorrowD = new Date(now); tomorrowD.setDate(tomorrowD.getDate() + 1);
-                        const tomorrowStr = `${tomorrowD.getFullYear()}-${String(tomorrowD.getMonth() + 1).padStart(2, '0')}-${String(tomorrowD.getDate()).padStart(2, '0')}`;
-
-                        if (prev.date === todayStr && selHour < currentHour) {
-                            newDate = tomorrowStr;
-                        } else if (prev.date === tomorrowStr && selHour >= currentHour) {
-                            newDate = todayStr;
-                        }
-                    }
-                }
-
                 return { ...prev, date: newDate, time: `${newHour}:${newMinute}` };
             });
             setCheckResult(null); setSuggestions([]);
