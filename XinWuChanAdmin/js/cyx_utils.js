@@ -195,12 +195,12 @@
         return 0;
     };
 
-    window.getOilPrice = (isOilFlagOrString) => {
-        let isOil = false;
-        if (typeof isOilFlagOrString === 'boolean') isOil = isOilFlagOrString;
-        else if (typeof isOilFlagOrString === 'string' && (isOilFlagOrString === 'true' || isOilFlagOrString === 'Yes' || isOilFlagOrString === '是' || isOilFlagOrString.includes('油') || isOilFlagOrString.includes('Oil'))) isOil = true;
+    window.getOilPrice = (isYouTuiFlagOrString) => {
+        let isYouTui = false;
+        if (typeof isYouTuiFlagOrString === 'boolean') isYouTui = isYouTuiFlagOrString;
+        else if (typeof isYouTuiFlagOrString === 'string' && (isYouTuiFlagOrString === 'true' || isYouTuiFlagOrString === 'Yes' || isYouTuiFlagOrString === '是' || isYouTuiFlagOrString.includes('油') || isYouTuiFlagOrString.includes('Oil'))) isYouTui = true;
         
-        if (!isOil) return 0;
+        if (!isYouTui) return 0;
         
         const oilRate = (CONFIG.FINANCE && CONFIG.FINANCE.OIL_BONUS !== undefined) ? CONFIG.FINANCE.OIL_BONUS : 0;
         return oilRate;

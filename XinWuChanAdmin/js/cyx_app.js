@@ -901,7 +901,7 @@ const App = () => {
                     cleanServiceName: cleanName,
                     serviceCode: serviceCode,
                     displayStaff: displayStaff,
-                    isOil: targetB.isOil || (targetB.serviceName && targetB.serviceName.includes('油')),
+                    isYouTui: targetB.isYouTui || (targetB.serviceName && targetB.serviceName.includes('油')),
                     isGuaSha: isGuaSha,
                     adminNote: targetB.adminNote || "",
                     duration: finalDur,
@@ -1490,10 +1490,10 @@ const App = () => {
         try {
             const currentBooking = bookings.find(b => String(b.rowId) === String(rowId));
             if (currentBooking) {
-                const isOilToggledOn = updatedData.isOil === true && !currentBooking.isOil;
+                const isYouTuiToggledOn = updatedData.isYouTui === true && !currentBooking.isYouTui;
                 const isServiceOilAdded = updatedData.dichVu && updatedData.dichVu.includes('油推') && !(currentBooking.serviceName || '').includes('油推');
 
-                if (isOilToggledOn || isServiceOilAdded) {
+                if (isYouTuiToggledOn || isServiceOilAdded) {
                     const currentReqStaff = updatedData.nhanVien !== undefined ? updatedData.nhanVien : (currentBooking.requestedStaff || currentBooking.staffId || '隨機');
                     if (currentReqStaff === '隨機') {
                         updatedData.nhanVien = '女';
@@ -3221,7 +3221,7 @@ const App = () => {
                         gioDen: targetBooking.startTimeString ? targetBooking.startTimeString.split(' ')[1] : targetBooking.startTime,
                         hoTen: targetBooking.originalName || targetBooking.customerName,
                         dichVu: payload.newService,
-                        isOil: targetBooking.isOil,
+                        isYouTui: targetBooking.isYouTui,
                         isGuaSha: targetBooking.isGuaSha,
                         sdt: targetBooking.sdt || targetBooking.phone,
                         trangThai: targetBooking.status,

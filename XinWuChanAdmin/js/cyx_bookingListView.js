@@ -158,7 +158,7 @@
                 name: cleanName,
                 nameSuffix: seqSuffix,
                 service: booking.serviceName || '',
-                isOil: booking.isOil || (booking.serviceName || '').includes('油'),
+                isYouTui: booking.isYouTui || (booking.serviceName || '').includes('油'),
                 isGuaSha: booking.isGuaSha === true || booking.isGuaSha === 'Yes',
                 phone: realPhone,
                 status: booking.status || STATUS.WAITING,
@@ -440,7 +440,7 @@
                 gioDen: editFormData.time,
                 hoTen: editFormData.nameSuffix ? `${editFormData.name} ${editFormData.nameSuffix}`.trim() : editFormData.name,
                 dichVu: editFormData.service,
-                isOil: editFormData.isOil,
+                isYouTui: editFormData.isYouTui,
                 isGuaSha: editFormData.isGuaSha,
                 sdt: editFormData.phone,
                 trangThai: editFormData.status,
@@ -495,7 +495,7 @@
 
                                     // Hiển thị SĐT thật
                                     const realPhone = b.phone || b.sdt || b.custPhone || '';
-                                    const isOil = (b.serviceName || '').includes('油') || (b.isOil === true);
+                                    const isYouTui = (b.serviceName || '').includes('油') || (b.isYouTui === true);
 
                                     // LOGIC TRẠNG THÁI MỚI (Tương thích ngược với các record cũ)
                                     const bStatus = b.status || '';
@@ -544,7 +544,7 @@
                                             <td className="p-4 whitespace-nowrap font-mono text-lg font-bold text-indigo-700">{(b.startTimeString || ' ').split(' ')[1]}</td>
                                             <td className="p-4 whitespace-nowrap font-bold text-gray-800 text-lg">{name}</td>
                                             <td className="p-4 whitespace-nowrap text-gray-700 font-medium">{b.serviceName}</td>
-                                            <td className="p-4 whitespace-nowrap text-center">{isOil ? <span className="text-purple-600 font-bold text-lg">💧</span> : ''}</td>
+                                            <td className="p-4 whitespace-nowrap text-center">{isYouTui ? <span className="text-purple-600 font-bold text-lg">💧</span> : ''}</td>
                                             <td className="p-4 whitespace-nowrap text-center">{b.isGuaSha ? <span className="text-red-500 font-bold text-lg">✅</span> : ''}</td>
                                             <td className="p-4 whitespace-nowrap font-mono text-gray-600">{realPhone}</td>
                                             <td className="p-4 whitespace-nowrap"><span className={`px-3 py-1 rounded-full text-sm font-bold shadow-sm ${statusClass}`}>{bStatus}</span></td>
@@ -589,7 +589,7 @@
                                     const mockBooking = {
                                         ...b,
                                         serviceName: editFormData.service,
-                                        isOil: editFormData.isOil,
+                                        isYouTui: editFormData.isYouTui,
                                         duration: editDur,
                                         startTimeMins: editBookingMins
                                     };
@@ -627,7 +627,7 @@
                                             </div>
                                         </td>
                                         <td className="p-2"><select className="w-full border border-gray-300 p-2 rounded focus:ring-2 focus:ring-orange-400 outline-none max-w-[200px]" value={editFormData.service} onChange={e => handleInputChange('service', e.target.value)}>{servicesList.map(s => <option key={s} value={s}>{s}</option>)}</select></td>
-                                        <td className="p-2 text-center"><input type="checkbox" className="w-5 h-5 accent-orange-500 cursor-pointer" checked={editFormData.isOil} onChange={e => handleInputChange('isOil', e.target.checked)} /></td>
+                                        <td className="p-2 text-center"><input type="checkbox" className="w-5 h-5 accent-orange-500 cursor-pointer" checked={editFormData.isYouTui} onChange={e => handleInputChange('isYouTui', e.target.checked)} /></td>
                                         <td className="p-2 text-center"><input type="checkbox" className="w-5 h-5 accent-red-500 cursor-pointer" checked={editFormData.isGuaSha} onChange={e => handleInputChange('isGuaSha', e.target.checked)} /></td>
                                         <td className="p-2"><input type="text" className="w-full border border-gray-300 p-2 rounded font-mono focus:ring-2 focus:ring-orange-400 outline-none min-w-[120px]" placeholder="09xx..." value={editFormData.phone} onChange={e => handleInputChange('phone', e.target.value)} /></td>
                                         <td className="p-2"><select className="w-full border border-gray-300 p-2 rounded font-bold focus:ring-2 focus:ring-orange-400 outline-none" value={editFormData.status} onChange={e => handleInputChange('status', e.target.value)}>{statusOptions.map(s => <option key={s} value={s}>{s}</option>)}</select></td>

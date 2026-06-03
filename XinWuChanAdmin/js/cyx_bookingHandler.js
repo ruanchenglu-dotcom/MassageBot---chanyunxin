@@ -1707,7 +1707,7 @@
             time: getRoundedCurrentTime(), pax: 1, custName: '', custTitle: '', custPhone: '09', adminNote: ''
         });
 
-        const [guestDetails, setGuestDetails] = useState([{ service: defaultService, staff: '隨機', isOil: false, isGuaSha: false }]);
+        const [guestDetails, setGuestDetails] = useState([{ service: defaultService, staff: '隨機', isYouTui: false, isGuaSha: false, isHuaGuan: false, isBaGuan: false }]);
 
         useEffect(() => {
             if (editingBooking) {
@@ -1742,7 +1742,7 @@
                 setGuestDetails([{
                     service: editingBooking.serviceName || defaultService,
                     staff: editingBooking.staffId ? normalizeStaffId(editingBooking.staffId) : '隨機',
-                    isOil: editingBooking.isOil || false,
+                    isYouTui: editingBooking.isYouTui || false,
                     isGuaSha: noteStr.includes('刮痧/拔罐')
                 }]);
             }
@@ -1787,7 +1787,7 @@
             setForm(prev => ({ ...prev, pax: num })); setCheckResult(null); setSuggestions([]);
             setGuestDetails(prev => {
                 const newD = [...prev];
-                if (num > prev.length) for (let i = prev.length; i < num; i++) newD.push({ service: prev[0]?.service || defaultService, staff: '隨機', isOil: false, isGuaSha: false });
+                if (num > prev.length) for (let i = prev.length; i < num; i++) newD.push({ service: prev[0]?.service || defaultService, staff: '隨機', isYouTui: false, isGuaSha: false, isHuaGuan: false, isBaGuan: false });
                 else newD.length = num;
                 return newD;
             });
@@ -1799,16 +1799,22 @@
                 const c = [...prev]; c[idx] = { ...c[idx] };
                 if (field === 'service') {
                     c[idx].service = val;
-                    if (val && (val.includes('足') || val.includes('Foot'))) c[idx].isOil = false;
+                    if (val && (val.includes('足') || val.includes('Foot'))) c[idx].isYouTui = false;
                 }
                 else if (field === 'staff') {
                     c[idx].staff = val;
                 }
-                else if (field === 'toggleOil') {
-                    c[idx].isOil = !c[idx].isOil;
+                else if (field === 'toggleYouTui') {
+                    c[idx].isYouTui = !c[idx].isYouTui;
                 }
                 else if (field === 'toggleGuaSha') {
                     c[idx].isGuaSha = !c[idx].isGuaSha;
+                }
+                else if (field === 'toggleHuaGuan') {
+                    c[idx].isHuaGuan = !c[idx].isHuaGuan;
+                }
+                else if (field === 'toggleBaGuan') {
+                    c[idx].isBaGuan = !c[idx].isBaGuan;
                 }
                 return c;
             });
@@ -2011,7 +2017,7 @@
                     };
                 });
 
-                const oils = detailedGuests.map((g, i) => g.isOil ? `K${i + 1}:精油` : null).filter(Boolean);
+                const oils = detailedGuests.map((g, i) => g.isYouTui ? `K${i + 1}:油推` : null).filter(Boolean);
                 const guaShas = detailedGuests.map((g, i) => g.isGuaSha ? `K${i + 1}:刮痧/拔罐` : null).filter(Boolean);
                 const flows = detailedGuests.map((g, i) => {
                     if (g.flow === 'BF') return `K${i + 1}:先做身體`;
@@ -2019,7 +2025,7 @@
                     return null;
                 }).filter(Boolean);
 
-                const noteParts = [...oils, ...guaShas, ...flows];
+                const noteParts = [...oils, ...guaShas, ...huaGuans, ...baGuans, ...flows];
                 const noteStr = noteParts.length > 0 ? `(${noteParts.join(', ')})` : "";
 
                 const payload = {
@@ -2030,7 +2036,10 @@
                     ngayDen: normalizeDateStrict(form.date), // [V134.1 NÂNG CẤP] Use Calendar Date
                     gioDen: form.time,
                     nhanVien: detailedGuests[0].staff,
-                    isOil: detailedGuests[0].isOil,
+                    isYouTui: detailedGuests[0].isYouTui,
+                    isGuaSha: detailedGuests[0].isGuaSha,
+                    isHuaGuan: detailedGuests[0].isHuaGuan,
+                    isBaGuan: detailedGuests[0].isBaGuan,
                     serviceCode: detailedGuests[0].serviceCode,
                     staffId2: detailedGuests[1]?.staff || null,
                     staffId3: detailedGuests[2]?.staff || null,
@@ -2283,11 +2292,11 @@
                                                 <div className="flex gap-2 items-center overflow-x-auto pb-1">
                                                     <div className="w-10 shrink-0 h-[64px] rounded-lg bg-gray-200 hidden sm:flex items-center justify-center font-black text-lg text-slate-500">#{i + 1}</div>
 
-                                                    <select className="flex-[1.5] min-w-[120px] border-2 p-2 sm:p-3 rounded-lg font-bold text-base sm:text-xl h-[64px] bg-white shrink-0" value={g.service} onChange={e => handleGuestUpdate(i, 'service', e.target.value)}>
+                                                    <select className="flex-[1] min-w-[100px] border-2 p-1 sm:p-2 rounded-lg font-bold text-sm sm:text-lg h-[64px] bg-white shrink-0" value={g.service} onChange={e => handleGuestUpdate(i, 'service', e.target.value)}>
                                                         {(window.SERVICES_LIST || []).map(s => <option key={s} value={s}>{s}</option>)}
                                                     </select>
 
-                                                    <select className="flex-[1] min-w-[90px] border-2 p-2 sm:p-3 rounded-lg font-bold text-base sm:text-xl h-[64px] bg-white shrink-0" value={g.staff} onChange={e => handleGuestUpdate(i, 'staff', e.target.value)}>
+                                                    <select className="w-[80px] border-2 p-1 sm:p-2 rounded-lg font-bold text-sm sm:text-lg h-[64px] bg-white shrink-0" value={g.staff} onChange={e => handleGuestUpdate(i, 'staff', e.target.value)}>
                                                         <option value="隨機">🎲 隨機</option>
                                                         <option value="女">🚺 女師</option>
                                                         <option value="男">🚹 男師</option>
@@ -2295,19 +2304,39 @@
                                                     </select>
 
                                                     <button
-                                                        onClick={(e) => { e.preventDefault(); handleGuestUpdate(i, 'toggleOil'); }}
-                                                        className={`w-12 sm:w-14 px-1 shrink-0 border-2 rounded-lg font-bold text-xs sm:text-sm h-[64px] transition-colors flex flex-col items-center justify-center gap-0.5 ${g.isOil ? 'bg-orange-100 text-orange-700 border-orange-400 shadow-sm' : 'bg-slate-100 text-slate-400 border-slate-300 hover:bg-slate-200'}`}
+                                                        onClick={(e) => { e.preventDefault(); if (!svcCode.startsWith('F')) handleGuestUpdate(i, 'toggleYouTui'); }}
+                                                        disabled={svcCode.startsWith('F')}
+                                                        className={`w-10 sm:w-12 px-0.5 shrink-0 border-2 rounded-lg font-bold text-xs sm:text-sm h-[64px] transition-colors flex flex-col items-center justify-center gap-0.5 ${svcCode.startsWith('F') ? 'bg-gray-200 text-gray-400 cursor-not-allowed border-gray-300' : (g.isYouTui ? 'bg-orange-100 text-orange-700 border-orange-400 shadow-sm' : 'bg-slate-100 text-slate-400 border-slate-300 hover:bg-slate-200')}`}
                                                     >
-                                                        <span className={g.isOil ? "opacity-100" : "opacity-50"}>💧</span>
-                                                        <span>精油</span>
+                                                        <span className={g.isYouTui ? "opacity-100" : "opacity-50"}>💧</span>
+                                                        <span>油推</span>
                                                     </button>
 
                                                     <button
-                                                        onClick={(e) => { e.preventDefault(); handleGuestUpdate(i, 'toggleGuaSha'); }}
-                                                        className={`w-12 sm:w-14 px-1 shrink-0 border-2 rounded-lg font-bold text-xs sm:text-sm h-[64px] transition-colors flex flex-col items-center justify-center gap-0.5 ${g.isGuaSha ? 'bg-red-100 text-red-700 border-red-400 shadow-sm' : 'bg-slate-100 text-slate-400 border-slate-300 hover:bg-slate-200'}`}
+                                                        onClick={(e) => { e.preventDefault(); if (!svcCode.startsWith('F')) handleGuestUpdate(i, 'toggleGuaSha'); }}
+                                                        disabled={svcCode.startsWith('F')}
+                                                        className={`w-10 sm:w-12 px-0.5 shrink-0 border-2 rounded-lg font-bold text-xs sm:text-sm h-[64px] transition-colors flex flex-col items-center justify-center gap-0.5 ${svcCode.startsWith('F') ? 'bg-gray-200 text-gray-400 cursor-not-allowed border-gray-300' : (g.isGuaSha ? 'bg-red-100 text-red-700 border-red-400 shadow-sm' : 'bg-slate-100 text-slate-400 border-slate-300 hover:bg-slate-200')}`}
                                                     >
-                                                        <span className={g.isGuaSha ? "opacity-100" : "opacity-50"}>[刮]</span>
-                                                        <span>刮/罐</span>
+                                                        <span className={g.isGuaSha ? "opacity-100" : "opacity-50"}>🩸</span>
+                                                        <span>刮痧</span>
+                                                    </button>
+
+                                                    <button
+                                                        onClick={(e) => { e.preventDefault(); if (!svcCode.startsWith('F')) handleGuestUpdate(i, 'toggleHuaGuan'); }}
+                                                        disabled={svcCode.startsWith('F')}
+                                                        className={`w-10 sm:w-12 px-0.5 shrink-0 border-2 rounded-lg font-bold text-xs sm:text-sm h-[64px] transition-colors flex flex-col items-center justify-center gap-0.5 ${svcCode.startsWith('F') ? 'bg-gray-200 text-gray-400 cursor-not-allowed border-gray-300' : (g.isHuaGuan ? 'bg-purple-100 text-purple-700 border-purple-400 shadow-sm' : 'bg-slate-100 text-slate-400 border-slate-300 hover:bg-slate-200')}`}
+                                                    >
+                                                        <span className={g.isHuaGuan ? "opacity-100" : "opacity-50"}>🏺</span>
+                                                        <span>滑罐</span>
+                                                    </button>
+                                                    
+                                                    <button
+                                                        onClick={(e) => { e.preventDefault(); if (!svcCode.startsWith('F')) handleGuestUpdate(i, 'toggleBaGuan'); }}
+                                                        disabled={svcCode.startsWith('F')}
+                                                        className={`w-10 sm:w-12 px-0.5 shrink-0 border-2 rounded-lg font-bold text-xs sm:text-sm h-[64px] transition-colors flex flex-col items-center justify-center gap-0.5 ${svcCode.startsWith('F') ? 'bg-gray-200 text-gray-400 cursor-not-allowed border-gray-300' : (g.isBaGuan ? 'bg-blue-100 text-blue-700 border-blue-400 shadow-sm' : 'bg-slate-100 text-slate-400 border-slate-300 hover:bg-slate-200')}`}
+                                                    >
+                                                        <span className={g.isBaGuan ? "opacity-100" : "opacity-50"}>🎯</span>
+                                                        <span>拔罐</span>
                                                     </button>
 
                                                     {isCombo && (

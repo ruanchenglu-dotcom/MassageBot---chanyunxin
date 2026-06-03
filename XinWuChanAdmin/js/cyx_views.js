@@ -133,12 +133,12 @@ window.getCleanServiceName = getCleanServiceName;
 
 // Hàm window.getPrice đã được chuyển sang cyx_utils.js làm Single Source Of Truth
 
-window.getOilPrice = (isOilFlagOrString) => {
-    let isOil = false;
-    if (typeof isOilFlagOrString === 'boolean') isOil = isOilFlagOrString;
-    else if (typeof isOilFlagOrString === 'string' && (isOilFlagOrString.includes('油') || isOilFlagOrString.includes('Oil'))) isOil = true;
+window.getOilPrice = (isYouTuiFlagOrString) => {
+    let isYouTui = false;
+    if (typeof isYouTuiFlagOrString === 'boolean') isYouTui = isYouTuiFlagOrString;
+    else if (typeof isYouTuiFlagOrString === 'string' && (isYouTuiFlagOrString.includes('油') || isYouTuiFlagOrString.includes('Oil'))) isYouTui = true;
     
-    if (!isOil) return 0;
+    if (!isYouTui) return 0;
     
     const config = window.SYSTEM_CONFIG || {};
     const finance = config.FINANCE || {};
@@ -160,8 +160,10 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
     const STATUS = getBookingStatus();
 
     // Các cờ tính năng mở rộng
-    const isOil = booking.isOil || (booking.serviceName && booking.serviceName.includes('油'));
+    const isYouTui = booking.isYouTui || (booking.serviceName && booking.serviceName.includes('油'));
     const isGuaSha = checkGuaShaService(booking) || booking.isGuaSha === true;
+    const isHuaGuan = booking.isHuaGuan === true;
+    const isBaGuan = booking.isBaGuan === true;
 
     const effectiveDuration = (booking.isTimeAnomaly && booking.standardDuration) ? booking.standardDuration : (booking.duration || 60);
     const totalDuration = effectiveDuration;
@@ -875,14 +877,24 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                                         <i className="fas fa-thumbtack mr-1"></i>指定: {requestedStaff}
                                     </span>
                                 )}
-                                {isOil && (
-                                    <span className="text-xs bg-purple-100 text-purple-800 px-2 py-1 rounded shadow-sm flex items-center font-bold border border-purple-300 whitespace-nowrap">
-                                        💧 精油
+                                {isYouTui && (
+                                    <span className="text-xs bg-orange-100 text-orange-800 px-2 py-1 rounded shadow-sm flex items-center font-bold border border-orange-300 whitespace-nowrap">
+                                        💧 油推
                                     </span>
                                 )}
                                 {isGuaSha && (
-                                    <span className="text-xs bg-orange-100 text-orange-800 px-2 py-1 rounded shadow-sm flex items-center font-bold border border-orange-300 whitespace-nowrap">
-                                        🔥 刮痧 / 拔罐
+                                    <span className="text-xs bg-red-100 text-red-800 px-2 py-1 rounded shadow-sm flex items-center font-bold border border-red-300 whitespace-nowrap">
+                                        🩸 刮痧
+                                    </span>
+                                )}
+                                {isHuaGuan && (
+                                    <span className="text-xs bg-purple-100 text-purple-800 px-2 py-1 rounded shadow-sm flex items-center font-bold border border-purple-300 whitespace-nowrap">
+                                        🏺 滑罐
+                                    </span>
+                                )}
+                                {isBaGuan && (
+                                    <span className="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded shadow-sm flex items-center font-bold border border-blue-300 whitespace-nowrap">
+                                        🎯 拔罐
                                     </span>
                                 )}
                             </div>
@@ -928,10 +940,10 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                                                 const staffObj = staffList && staffList.find(s => s.id === newStaff);
                                                 const isMale = staffObj && (staffObj.gender === 'M' || staffObj.gender === '男');
                                                 const reqStaff = booking.requestedStaff || booking.staffId || '';
-                                                const needsFemale = reqStaff.includes('女') || reqStaff.includes('Female') || booking.isOil;
+                                                const needsFemale = reqStaff.includes('女') || reqStaff.includes('Female') || booking.isYouTui;
 
                                                 if (needsFemale && isMale) {
-                                                    const res1 = await Swal.fire({ title: '警告', text: `此客人有「限女」需求 (或為精油項目)，您確定要指派男師傅 [${newStaff}] 嗎？`, icon: 'warning', showCancelButton: true, confirmButtonText: '確定', cancelButtonText: '取消' });
+                                                    const res1 = await Swal.fire({ title: '警告', text: `此客人有「限女」需求 (或為油推項目)，您確定要指派男師傅 [${newStaff}] 嗎？`, icon: 'warning', showCancelButton: true, confirmButtonText: '確定', cancelButtonText: '取消' });
                                                     if (!res1.isConfirmed) {
                                                         return;
                                                     }
@@ -1669,7 +1681,7 @@ const TimelineView = ({ timelineData, onEditPhase, liveStatusData, staffList, st
                                             let bgClass = getRowIdColor(slot.booking.rowId);
 
                                             const label = getDisplayLabel(booking);
-                                            const isOil = booking.isOil || (booking.serviceName && booking.serviceName.includes('油'));
+                                            const isYouTui = booking.isYouTui || (booking.serviceName && booking.serviceName.includes('油'));
                                             const hasNote = booking.adminNote ? true : false;
 
                                             const isGuaSha = checkGuaShaService(booking) || booking.isGuaSha === true;
@@ -1776,8 +1788,10 @@ const TimelineView = ({ timelineData, onEditPhase, liveStatusData, staffList, st
                                                     <div className="flex justify-between items-center w-full mt-auto">
                                                         <div className="truncate text-[10px] font-bold text-slate-700 flex items-center gap-1">
                                                             {displayStaff}
-                                                            {isOil && <span className="text-[10px]" title="精油">💧</span>}
-                                                            {isGuaSha && <span className="text-[10px]" title="刮痧/拔罐">🔥</span>}
+                                                            {isYouTui && <span className="text-[10px]" title="油推">💧</span>}
+                                                            {isGuaSha && <span className="text-[10px]" title="刮痧">🩸</span>}
+                                                            {isHuaGuan && <span className="text-[10px]" title="滑罐">🏺</span>}
+                                                            {isBaGuan && <span className="text-[10px]" title="拔罐">🎯</span>}
                                                             {hasNote && <span className="text-[10px] text-amber-600" title={`備註: ${booking.adminNote}`}>📝</span>}
                                                         </div>
                                                         <div className={`text-[10px] font-bold font-mono px-1 rounded border border-black/5 shadow-sm ${isTimeAnomaly ? 'bg-orange-100 text-orange-800 animate-pulse' : 'bg-white/50 text-slate-800'}`}>
@@ -1837,10 +1851,10 @@ const CommissionView = ({ bookings, staffList }) => {
         return 0;
     };
 
-    const isOilService = (b) => {
-        if (b.isOil === true || b.isOil === 'true') return true;
+    const isYouTuiService = (b) => {
+        if (b.isYouTui === true || b.isYouTui === 'true') return true;
         const name = (b.serviceName || "").toLowerCase();
-        if (name.includes('油') || name.includes('oil') || name.includes('精油')) return true;
+        if (name.includes('油') || name.includes('oil') || name.includes('油推')) return true;
         if (name.includes('帝王') || name.includes('a6')) return true;
         return false;
     };
@@ -1892,7 +1906,7 @@ const CommissionView = ({ bookings, staffList }) => {
                         }
                         if (staffStat) {
                             const q = getJieCount(b.serviceName, b.duration);
-                            const hasOil = isOilService(b);
+                            const hasOil = isYouTuiService(b);
                             staffStat.jie += q;
                             staffStat.orderCount += 1;
                             if (hasOil) staffStat.oil += 1;
@@ -1923,7 +1937,7 @@ const CommissionView = ({ bookings, staffList }) => {
                     <span className="text-xs text-gray-300 bg-white/10 px-2 py-0.5 rounded">有效單數: {validOrders}</span>
                 </div>
                 <div className="text-right">
-                    <div className="text-[10px] text-gray-300 bg-white/10 px-2 py-0.5 rounded inline-block font-mono">(節數×{RATES.JIE_PRICE}) + (精油×{RATES.OIL_BONUS})</div>
+                    <div className="text-[10px] text-gray-300 bg-white/10 px-2 py-0.5 rounded inline-block font-mono">(節數×{RATES.JIE_PRICE}) + (油推×{RATES.OIL_BONUS})</div>
                 </div>
             </div>
 
@@ -1933,7 +1947,7 @@ const CommissionView = ({ bookings, staffList }) => {
                         <tr className="bg-slate-200 text-slate-700 font-bold text-sm border-b border-slate-300">
                             <th className="py-2 px-4 text-left w-1/4">技師</th>
                             <th className="py-2 px-4 text-center">總節數</th>
-                            <th className="py-2 px-4 text-center">精油</th>
+                            <th className="py-2 px-4 text-center">油推</th>
                             <th className="py-2 px-4 text-center">客數</th>
                             <th className="py-2 px-4 text-right w-1/4">總薪資</th>
                         </tr>
@@ -1989,7 +2003,7 @@ const ReportView = ({ bookings }) => {
                         revenue += b.price;
                     } else {
                         const unitPrice = window.getPrice(b.serviceName);
-                        const oilPrice = window.getOilPrice(b.isOil || (b.serviceName && b.serviceName.includes('油')));
+                        const oilPrice = window.getOilPrice(b.isYouTui || (b.serviceName && b.serviceName.includes('油')));
                         revenue += (unitPrice + oilPrice);
                     }
                 }
@@ -2042,7 +2056,7 @@ const ReportView = ({ bookings }) => {
                                             singlePrice = b.price;
                                         } else {
                                             const unitPrice = window.getPrice(b.serviceName);
-                                            const oilPrice = window.getOilPrice(b.isOil || (b.serviceName && b.serviceName.includes('油')));
+                                            const oilPrice = window.getOilPrice(b.isYouTui || (b.serviceName && b.serviceName.includes('油')));
                                             singlePrice = unitPrice + oilPrice;
                                         }
 
@@ -2168,8 +2182,10 @@ const ResourceCard = ({ id, type, index, data, busyStaffIds, onAction, onSelect,
         return getProcessedStaffList(staffList, statusData, staffDisplay);
     }, [staffList, statusData, staffDisplay]);
 
-    const isOilJob = isOccupied && (data.booking.isOil || (data.booking.serviceName && (data.booking.serviceName.includes('油') || data.booking.serviceName.includes('Oil'))));
+    const isYouTuiJob = isOccupied && (data.booking.isYouTui || (data.booking.serviceName && (data.booking.serviceName.includes('油') || data.booking.serviceName.includes('Oil'))));
     const isGuaShaJob = isOccupied && (checkGuaShaService(data.booking) || data.booking.isGuaSha === true);
+    const isHuaGuanJob = isOccupied && data.booking.isHuaGuan === true;
+    const isBaGuanJob = isOccupied && data.booking.isBaGuan === true;
 
     const hasAdminNote = isOccupied && data.booking.adminNote && data.booking.adminNote.trim() !== '';
 
@@ -2263,10 +2279,10 @@ const ResourceCard = ({ id, type, index, data, busyStaffIds, onAction, onSelect,
                                     const staffObj = staffList && staffList.find(s => s.id === newStaff);
                                     const isMale = staffObj && (staffObj.gender === 'M' || staffObj.gender === '男');
                                     const reqStaff = data.booking.requestedStaff || data.booking.staffId || '';
-                                    const needsFemale = reqStaff.includes('女') || reqStaff.includes('Female') || data.booking.isOil;
+                                    const needsFemale = reqStaff.includes('女') || reqStaff.includes('Female') || data.booking.isYouTui;
 
                                     if (needsFemale && isMale) {
-                                        const res1 = await Swal.fire({ title: '警告', text: `此客人有「限女」需求 (或為精油項目)，您確定要指派男師傅 [${newStaff}] 嗎？`, icon: 'warning', showCancelButton: true, confirmButtonText: '確定', cancelButtonText: '取消' });
+                                        const res1 = await Swal.fire({ title: '警告', text: `此客人有「限女」需求 (或為油推項目)，您確定要指派男師傅 [${newStaff}] 嗎？`, icon: 'warning', showCancelButton: true, confirmButtonText: '確定', cancelButtonText: '取消' });
                                         if (!res1.isConfirmed) {
                                             return;
                                         }
@@ -2367,8 +2383,10 @@ const ResourceCard = ({ id, type, index, data, busyStaffIds, onAction, onSelect,
                     {isCombo && data.isRunning && data.comboMeta && data.comboMeta.targetId && (<div className="text-[10px] text-gray-400">➜ 轉: {data.comboMeta.targetId.toUpperCase()}</div>)}
 
                     <div className="flex flex-wrap justify-center gap-1 mt-1">
-                        {isOilJob && <div className="text-xs text-purple-600 font-bold border border-purple-200 bg-purple-50 rounded px-2 py-1 inline-block">💧 精油</div>}
-                        {isGuaShaJob && <div className="text-xs text-orange-600 font-bold border border-orange-200 bg-orange-50 rounded px-2 py-1 inline-block">🔥 刮/罐</div>}
+                        {isYouTuiJob && <div className="text-xs text-orange-600 font-bold border border-orange-200 bg-orange-50 rounded px-2 py-1 inline-block">💧 油推</div>}
+                        {isGuaShaJob && <div className="text-xs text-red-600 font-bold border border-red-200 bg-red-50 rounded px-2 py-1 inline-block">🩸 刮痧</div>}
+                        {isHuaGuanJob && <div className="text-xs text-purple-600 font-bold border border-purple-200 bg-purple-50 rounded px-2 py-1 inline-block">🏺 滑罐</div>}
+                        {isBaGuanJob && <div className="text-xs text-blue-600 font-bold border border-blue-200 bg-blue-50 rounded px-2 py-1 inline-block">🎯 拔罐</div>}
                         {hasAdminNote && <div className="text-xs text-amber-700 font-bold border border-amber-200 bg-amber-50 rounded px-2 py-1 inline-block truncate max-w-[100px]" title={data.booking.adminNote}><i className="fas fa-sticky-note"></i> 備註</div>}
                     </div>
 

@@ -53,9 +53,9 @@
                 const bookingB = b.booking;
 
                 const priceA = (window.getPrice ? window.getPrice(bookingA.serviceName) : 0) +
-                    (window.getOilPrice ? window.getOilPrice(bookingA.isOil) : 0);
+                    (window.getOilPrice ? window.getOilPrice(bookingA.isYouTui) : 0);
                 const priceB = (window.getPrice ? window.getPrice(bookingB.serviceName) : 0) +
-                    (window.getOilPrice ? window.getOilPrice(bookingB.isOil) : 0);
+                    (window.getOilPrice ? window.getOilPrice(bookingB.isYouTui) : 0);
 
                 if (Math.abs(priceA - priceB) > 1) return priceA - priceB;
 
@@ -135,16 +135,24 @@
         // =========================================================================
 
         checkCompatibility: (staff, booking, designatedReq) => {
+            // [V136.1] Skill Validation based on 4 columns
+            const isYouTui = booking.isYouTui === true || (booking.serviceName && (booking.serviceName.includes('油推') || booking.serviceName.includes('Oil')));
+            const note = (booking.ghiChu || booking.note || booking.originalNote || "").toString().toUpperCase();
+            const isGuaSha = booking.isGuaSha === true || note.includes('刮痧');
+            const isHuaGuan = booking.isHuaGuan === true || note.includes('滑罐');
+            const isBaGuan = booking.isBaGuan === true || note.includes('拔罐');
+            
+            if (isYouTui && staff.isYouTui === false) return false;
+            if (isGuaSha && staff.isGuaSha === false) return false;
+            if (isHuaGuan && staff.isHuaGuan === false) return false;
+            if (isBaGuan && staff.isBaGuan === false) return false;
+
             const req = designatedReq || booking.serviceStaff || booking.staffId || booking.requestedStaff || '隨機';
             const reqStr = String(req).trim();
             
             // [V116.5 Logic] Nếu ô chỉ định để trống (hoặc Random), và dịch vụ là tinh dầu/cạo gió -> Gán cứng (Hard-lock) bắt buộc Nữ
             if (!reqStr || reqStr === '隨機' || reqStr === 'undefined' || reqStr === 'null') {
-                const isOil = booking.isOil === true || (booking.serviceName && (booking.serviceName.includes('油推') || booking.serviceName.includes('Oil')));
-                const note = (booking.ghiChu || booking.note || booking.originalNote || "").toString().toUpperCase();
-                const isGuaSha = booking.isGuaSha === true || note.includes('刮痧') || note.includes('拔罐');
-                
-                if (isOil || isGuaSha) {
+                if (isYouTui || isGuaSha || isHuaGuan || isBaGuan) {
                     const staffGender = staff.gender || staff.group || '';
                     return staffGender === '女' || staffGender === 'F';
                 }

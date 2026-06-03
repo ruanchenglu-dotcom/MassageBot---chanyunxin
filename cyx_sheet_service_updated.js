@@ -408,13 +408,9 @@ async function syncData() {
                     else if (serviceStr.includes('足')) { type = 'CHAIR'; category = 'FOOT'; }
                 }
 
-                const isYouTui = (row[5] === "Yes");
-                const isGuaSha = (row[6] === "Yes");
-                const isHuaGuan = (row[7] === "Yes");
-                const isBaGuan = (row[8] === "Yes");
-                if (isYouTui) {
-                    if (serviceCode === 'B1') price += 100;
-                    else price += 200;
+                const isOilService = (row[5] === "Yes");
+                if (isOilService) {
+                    price += getConfig().FINANCE.OIL_BONUS;
                 }
 
                 let pax = 1;
@@ -448,10 +444,7 @@ async function syncData() {
                     staffId3: row[14],
                     staff1_blocks: safeParseInt(row[15], null),
                     staff2_blocks: safeParseInt(row[16], null),
-                    isYouTui: isYouTui,
-                    isGuaSha: isGuaSha,
-                    isHuaGuan: isHuaGuan,
-                    isBaGuan: isBaGuan,
+                    isGuaSha: row[6] === "Yes",
                     adminNote: row[11] || "",
                     pax: pax,
                     customerName: `${row[2]} (${row[3]})`,
@@ -459,6 +452,7 @@ async function syncData() {
                     serviceName: serviceStr, serviceCode: serviceCode,
                     phone: row[3], date: cleanDate, opDate: computedOpDate, status: status,
                     isRunning: isRunning, lineId: row[23],
+                    isOil: isOilService,
                     checkinTime: row[26],
                     phase1_duration: safeParseInt(row[28], null),
                     transition_time: row[29],
@@ -515,16 +509,11 @@ async function syncData() {
                 let endTime = row[3] ? row[3].trim().replace(/：/g, ':') : '03:00';
                 const onTimeVal = row[4] ? row[4].toString().trim().toUpperCase() : '';
                 const isStrictTime = (onTimeVal === 'TRUE' || onTimeVal === 'YES' || onTimeVal === 'X');
-                const isYouTui = row[5] ? row[5].toString().trim().toUpperCase() !== '' : false;
-                const isGuaSha = row[6] ? row[6].toString().trim().toUpperCase() !== '' : false;
-                const isHuaGuan = row[7] ? row[7].toString().trim().toUpperCase() !== '' : false;
-                const isBaGuan = row[8] ? row[8].toString().trim().toUpperCase() !== '' : false;
-                const lineId = row[9] ? row[9].trim() : null;
+                const lineId = row[5] ? row[5].trim() : null;
 
                 const staffObj = {
                     id: cleanName, name: cleanName, gender: gender,
                     lineId: lineId,
-                    isYouTui: isYouTui, isGuaSha: isGuaSha, isHuaGuan: isHuaGuan, isBaGuan: isBaGuan,
                     start: startTime, end: endTime, shiftStart: startTime, shiftEnd: endTime,
                     isStrictTime: isStrictTime, sheetRowIndex: i + 1, off: false, offDays: [],
                     customShifts: {}
@@ -647,25 +636,15 @@ async function ghiVaoSheet(data, proposedUpdates = []) {
 
             let svcName = data.dichVu;
             if (guestDetail) svcName = guestDetail.service;
-            let isYouTui = data.isYouTui;
-            let isGuaSha = data.isGuaSha;
-            let isHuaGuan = data.isHuaGuan;
-            let isBaGuan = data.isBaGuan;
-            if (guestDetail) {
-                if (guestDetail.isYouTui !== undefined) isYouTui = guestDetail.isYouTui;
-                if (guestDetail.isGuaSha !== undefined) isGuaSha = guestDetail.isGuaSha;
-                if (guestDetail.isHuaGuan !== undefined) isHuaGuan = guestDetail.isHuaGuan;
-                if (guestDetail.isBaGuan !== undefined) isBaGuan = guestDetail.isBaGuan;
-            }
+            let isOil = data.isOil;
+            if (guestDetail && guestDetail.isOil !== undefined) isOil = guestDetail.isOil;
 
-            row[3] = colG_Phone; row[4] = svcName;
-            row[5] = isYouTui ? "Yes" : "";
-            row[6] = isGuaSha ? "Yes" : "";
-            row[7] = isHuaGuan ? "Yes" : "";
-            row[8] = isBaGuan ? "Yes" : "";
+            if (isOil) svcName += getOilSuffixText();
+
+            row[3] = colG_Phone; row[4] = svcName; row[5] = isOil ? "Yes" : "";
             row[9] = colH_Status;
 
-            let defaultRequestedStaff = isYouTui ? '女' : '隨機';
+            let defaultRequestedStaff = isOil ? '女' : '隨機';
             if (guestDetail && guestDetail.staff) {
                 row[10] = guestDetail.staff;
             } else {
@@ -687,10 +666,13 @@ async function ghiVaoSheet(data, proposedUpdates = []) {
                 row[18] = guestDetail.final_price;
             }
 
+            let isGuaSha = data.isGuaSha;
+            if (guestDetail && guestDetail.isGuaSha !== undefined) isGuaSha = guestDetail.isGuaSha;
+            row[6] = isGuaSha ? "Yes" : "";
+
             let adminNoteVal = data.adminNote;
-            if (guestDetail && guestDetail.adminNote) {
-                adminNoteVal = guestDetail.adminNote;
-            } row[11] = adminNoteVal || "";
+            if (guestDetail && guestDetail.adminNote !== undefined) adminNoteVal = guestDetail.adminNote;
+            row[11] = adminNoteVal || "";
 
             let sCode = data.serviceCode;
             if (guestDetail && guestDetail.serviceCode) sCode = guestDetail.serviceCode;
@@ -1089,7 +1071,7 @@ async function updateInlineBooking(rowId, updatedData) {
         });
         
         let row = (getRes.data.values && getRes.data.values[0]) ? [...getRes.data.values[0]] : [];
-        while (row.length < 50) row.push("");
+        while (row.length < 37) row.push("");
 
         const formattedDate = normalizeDateStrict(updatedData.ngayDen);
         let timeVal = updatedData.gioDen || "";
@@ -1148,6 +1130,7 @@ async function updateInlineBooking(rowId, updatedData) {
 
         if (formattedDate) {
             row[0] = formattedDate;
+            // Bỏ gán ngày vào cột S (row[20]) để bảo vệ dữ liệu "轉帳"
         }
         if (timeVal) {
             row[1] = timeVal;
@@ -1155,35 +1138,38 @@ async function updateInlineBooking(rowId, updatedData) {
         if (updatedData.hoTen !== undefined) {
             row[2] = updatedData.hoTen;
         }
-        if (updatedData.sdt !== undefined) {
-            row[3] = updatedData.sdt;
+        if (updatedData.isOil !== undefined) {
+            row[4] = updatedData.isOil ? "Yes" : "";
         }
-        
-        let isYouTui = updatedData.isYouTui !== undefined ? updatedData.isYouTui : (row[5] === "Yes");
-        row[5] = isYouTui ? "Yes" : "";
-        
-        if (updatedData.isGuaSha !== undefined) row[6] = updatedData.isGuaSha ? "Yes" : "";
-        if (updatedData.isHuaGuan !== undefined) row[7] = updatedData.isHuaGuan ? "Yes" : "";
-        if (updatedData.isBaGuan !== undefined) row[8] = updatedData.isBaGuan ? "Yes" : "";
-        
+        if (updatedData.pax !== undefined) {
+            row[5] = updatedData.pax;
+        }
+        if (updatedData.sdt !== undefined) {
+            row[6] = updatedData.sdt;
+        }
         if (updatedData.trangThai !== undefined) {
             row[9] = updatedData.trangThai;
         }
         if (updatedData.nhanVien !== undefined) {
             row[10] = updatedData.nhanVien;
         }
+        if (updatedData.isGuaSha !== undefined) {
+            // Dời khỏi Q (16)
+            row[48] = updatedData.isGuaSha ? "Yes" : "";
+        }
         if (updatedData.adminNote !== undefined) {
-            row[11] = updatedData.adminNote;
+            // Dời khỏi R (17)
+            row[49] = updatedData.adminNote;
         }
 
         if (updatedData.dichVu !== undefined) {
             let svcName = updatedData.dichVu;
-            let isYouTui = updatedData.isYouTui !== undefined ? updatedData.isYouTui : (row[5] === "Yes");
-            if (isYouTui && !svcName.includes("油推")) {
+            let isOil = updatedData.isOil !== undefined ? updatedData.isOil : (row[4] === "Yes");
+            if (isOil && !svcName.includes("油推")) {
                 svcName += getOilSuffixText();
             }
-            row[4] = svcName;
-            row[24] = sCode;
+            row[3] = svcName;
+            row[25] = sCode;
             
             if (sCode && STATE.SERVICES[sCode]) {
                 const svcDef = STATE.SERVICES[sCode];

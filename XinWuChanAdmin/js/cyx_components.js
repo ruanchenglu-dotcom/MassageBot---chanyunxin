@@ -465,10 +465,10 @@ const CheckInBoard = ({ staffList, statusData, onClose, onUpdateStatus, bookings
         return 0;
     };
 
-    const isOilService = (b) => {
-        if (b.isOil === true || b.isOil === 'true') return true;
+    const isYouTuiService = (b) => {
+        if (b.isYouTui === true || b.isYouTui === 'true') return true;
         const name = (b.serviceName || "").toLowerCase();
-        if (name.includes('油') || name.includes('oil') || name.includes('精油')) return true;
+        if (name.includes('油') || name.includes('oil') || name.includes('油推')) return true;
         return false;
     };
 
@@ -496,7 +496,7 @@ const CheckInBoard = ({ staffList, statusData, onClose, onUpdateStatus, bookings
                 let staffStat = lookupMap[normKey];
                 if (staffStat) {
                     staffStat.jie += getJieCount(b.serviceName, b.duration);
-                    if (isOilService(b)) staffStat.oil += 1;
+                    if (isYouTuiService(b)) staffStat.oil += 1;
                 }
             });
         });
@@ -765,16 +765,16 @@ const AvailabilityCheckModal = ({ onClose, onSave, staffList, bookings, initialD
         service: (window.SERVICES_LIST && window.SERVICES_LIST.length > 2) ? window.SERVICES_LIST[2] : "Foot Massage",
         pax: 1,
         genderPref: '隨機',
-        isOil: false,
+        isYouTui: false,
         custName: '',
         custPhone: ''
     });
 
     useEffect(() => {
-        if (form.isOil && form.genderPref !== '女' && !form.genderPref.includes('Female')) {
+        if (form.isYouTui && form.genderPref !== '女' && !form.genderPref.includes('Female')) {
             setForm(prev => ({ ...prev, genderPref: '女' }));
         }
-    }, [form.isOil]);
+    }, [form.isYouTui]);
 
     const performCheck = () => {
         const safeStaffList = staffList || [];
@@ -878,7 +878,7 @@ const AvailabilityCheckModal = ({ onClose, onSave, staffList, bookings, initialD
             dichVu: form.service,
             pax: form.pax,
             nhanVien: form.genderPref,
-            isOil: form.isOil,
+            isYouTui: form.isYouTui,
             ngayDen: initialDate.replace(/-/g, '/'),
             gioDen: form.time
         };
@@ -935,7 +935,7 @@ const AvailabilityCheckModal = ({ onClose, onSave, staffList, bookings, initialD
                                         </optgroup>
                                     </select>
                                 </div>
-                                <div><label className="text-xs font-bold text-gray-500">精油</label><button onClick={() => { const newVal = !form.isOil; setForm({ ...form, isOil: newVal, genderPref: newVal ? '女' : form.genderPref }); setCheckResult(null); }} className={`w-full border p-2 rounded font-bold flex items-center justify-center gap-2 ${form.isOil ? 'bg-purple-600 text-white' : 'bg-gray-100'}`}>{form.isOil ? '✅ 有' : '⬜ 無'}</button></div>
+                                <div><label className="text-xs font-bold text-gray-500">油推</label><button onClick={() => { const newVal = !form.isYouTui; setForm({ ...form, isYouTui: newVal, genderPref: newVal ? '女' : form.genderPref }); setCheckResult(null); }} className={`w-full border p-2 rounded font-bold flex items-center justify-center gap-2 ${form.isYouTui ? 'bg-purple-600 text-white' : 'bg-gray-100'}`}>{form.isYouTui ? '✅ 有' : '⬜ 無'}</button></div>
                             </div>
 
                             {checkResult && (
@@ -963,7 +963,7 @@ const AvailabilityCheckModal = ({ onClose, onSave, staffList, bookings, initialD
                     )}
                     {step === 'INFO' && (
                         <div className="space-y-4 animate-fadeIn">
-                            <div className="bg-green-50 p-3 rounded border border-green-200 text-sm text-green-800"><div>🕒 <strong>{form.time}</strong> | 👤 <strong>{form.pax}位</strong></div><div>💆 <strong>{form.service}</strong></div><div>🔧 <strong>{form.genderPref}</strong> {form.isOil ? '(精油)' : ''}</div></div>
+                            <div className="bg-green-50 p-3 rounded border border-green-200 text-sm text-green-800"><div>🕒 <strong>{form.time}</strong> | 👤 <strong>{form.pax}位</strong></div><div>💆 <strong>{form.service}</strong></div><div>🔧 <strong>{form.genderPref}</strong> {form.isYouTui ? '(油推)' : ''}</div></div>
                             <div><label className="text-xs font-bold text-gray-500">顧客姓名</label><input className="w-full border p-2 rounded font-bold text-slate-800" placeholder="輸入姓名..." value={form.custName} onChange={e => setForm({ ...form, custName: e.target.value })} autoFocus /></div>
                             <div><label className="text-xs font-bold text-gray-500">電話號碼</label><input className="w-full border p-2 rounded font-bold text-slate-800" placeholder="輸入電話..." value={form.custPhone} onChange={e => setForm({ ...form, custPhone: e.target.value })} /></div>
                             <div className="grid grid-cols-2 gap-3 pt-2"><button onClick={() => setStep('CHECK')} className="bg-gray-200 text-gray-600 p-3 rounded font-bold">⬅️ 返回</button><button onClick={handleFinalSave} className="bg-indigo-600 text-white p-3 rounded font-bold hover:bg-indigo-700 shadow-lg">✅ 確認預約</button></div>
@@ -995,7 +995,7 @@ const BillingModal = ({ activeItem, relatedItems, onConfirm, onCancel }) => {
         targetItems.forEach(item => {
             const b = item.booking || {};
             const getP = window.getPrice ? window.getPrice(b.serviceCode || b.serviceName) : 0;
-            const getO = window.getOilPrice ? window.getOilPrice(b.isOil || (b.serviceName && (b.serviceName.includes('油') || b.serviceName.includes('Oil')))) : 0;
+            const getO = window.getOilPrice ? window.getOilPrice(b.isYouTui || (b.serviceName && (b.serviceName.includes('油') || b.serviceName.includes('Oil')))) : 0;
             initialPrices[b.rowId] = getP + getO;
         });
         setFinalPrices(initialPrices);
