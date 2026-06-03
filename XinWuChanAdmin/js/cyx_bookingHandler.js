@@ -2018,7 +2018,9 @@
                 });
 
                 const oils = detailedGuests.map((g, i) => g.isYouTui ? `K${i + 1}:油推` : null).filter(Boolean);
-                const guaShas = detailedGuests.map((g, i) => g.isGuaSha ? `K${i + 1}:刮痧/拔罐` : null).filter(Boolean);
+                const guaShas = detailedGuests.map((g, i) => g.isGuaSha ? `K${i + 1}:刮痧` : null).filter(Boolean);
+                const huaGuans = detailedGuests.map((g, i) => g.isHuaGuan ? `K${i + 1}:滑罐` : null).filter(Boolean);
+                const baGuans = detailedGuests.map((g, i) => g.isBaGuan ? `K${i + 1}:拔罐` : null).filter(Boolean);
                 const flows = detailedGuests.map((g, i) => {
                     if (g.flow === 'BF') return `K${i + 1}:先做身體`;
                     if (g.flow === 'FB') return `K${i + 1}:先做腳`;
