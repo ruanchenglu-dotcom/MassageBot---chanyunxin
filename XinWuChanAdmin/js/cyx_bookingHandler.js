@@ -1611,13 +1611,14 @@
             staffList.forEach(s => {
                 // CHUẨN HÓA ID KEY CHO STAFFMAP
                 const sId = normalizeStaffId(String(s.id).trim());
-                const rawStart = s['上班'] || s.shiftStart || s.start || "00:00";
-                const rawEnd = s['下班'] || s.shiftEnd || s.end || "00:00";
+                const rawStart = s['上班'] || s.start || s.shiftStart || "00:00";
+                const rawEnd = s['下班'] || s.end || s.shiftEnd || "00:00";
                 const dayStatus = s[targetDateStandard] || s[targetDateStandard.replace(/\//g, '-')] || "";
                 let isOff = (String(s.offDays || "").includes(targetDateStandard) || String(dayStatus).toUpperCase().includes('OFF') || String(dayStatus).toUpperCase() === 'X');
                 staffMap[sId] = {
                     id: sId, gender: s.gender, start: rawStart, end: rawEnd,
-                    isStrictTime: (s.isStrictTime === true || String(s.isStrictTime).toUpperCase() === 'TRUE'), off: isOff
+                    isStrictTime: (s.isStrictTime === true || String(s.isStrictTime).toUpperCase() === 'TRUE'), off: isOff,
+                    offDays: s.offDays, customShifts: s.customShifts
                 };
                 // Đồng bộ cả key name nếu có
                 if (s.name) staffMap[normalizeStaffId(String(s.name).trim())] = staffMap[sId];
