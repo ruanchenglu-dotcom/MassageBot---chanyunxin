@@ -786,6 +786,10 @@ async function ghiVaoSheet(data, proposedUpdates = []) {
             });
         }
 
+        if (proposedUpdates && proposedUpdates.length > 0) {
+            await batchUpdateMultipleBookings(proposedUpdates);
+        }
+
         triggerSyncDebounced();
 
         // [V1.5 NÂNG CẤP] Trả về true nếu toàn bộ quá trình ghi trên API thành công
@@ -1489,6 +1493,7 @@ async function batchUpdateMultipleBookings(updatesArray) {
             if (flowVal !== undefined) dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!Z${rowId}`, values: [[flowVal]] });
 
             let phase1Res = body.phase1_res_idx !== undefined ? body.phase1_res_idx : (body.phase1_resource !== undefined ? body.phase1_resource : body.phase1Resource);
+            if (body.newPhase1Res !== undefined) phase1Res = body.newPhase1Res;
             
             // Chỉ fallback cho các dịch vụ ĐƠN LẺ (Single), KHÔNG được fallback cho dịch vụ COMBO
             let bookingData = STATE.cachedBookings.find(b => b.rowId == rowId);
@@ -1498,7 +1503,8 @@ async function batchUpdateMultipleBookings(updatesArray) {
             }
             if (phase1Res !== undefined) dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!AG${rowId}`, values: [[phase1Res]] });
 
-            const phase2Res = body.phase2_res_idx !== undefined ? body.phase2_res_idx : (body.phase2_resource !== undefined ? body.phase2_resource : body.phase2Resource);
+            let phase2Res = body.phase2_res_idx !== undefined ? body.phase2_res_idx : (body.phase2_resource !== undefined ? body.phase2_resource : body.phase2Resource);
+            if (body.newPhase2Res !== undefined) phase2Res = body.newPhase2Res;
             if (phase2Res !== undefined) dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!AH${rowId}`, values: [[phase2Res]] });
 
             const resourceType = body.resource_type !== undefined ? body.resource_type : body.resourceType;

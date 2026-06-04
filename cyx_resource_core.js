@@ -1389,8 +1389,31 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
                         { type: sb.blocks[1].type, start: sP2Start, end: sP2End + CONF.CLEANUP_BUFFER, forcedIndex: sb.blocks[1] ? sb.blocks[1].forcedIndex : null }
                     ];
                     if (isBlockSetAllocatable(testBlocks, matrixSqueeze)) {
-                        testBlocks.forEach(tb => matrixSqueeze.tryAllocate(tb.type, tb.start, tb.end, sb.id, tb.forcedIndex)); fit = true;
-                        if (split.deviation !== 0) updatesProposed.push({ rowId: sb.id, customerName: sb.originalData.customerName, newPhase1: split.p1, newPhase2: split.p2, reason: 'Matrix Squeeze V118.0' });
+                        let allocatedSlot1 = null; let allocatedSlot2 = null;
+                        testBlocks.forEach((tb, idx) => {
+                            let slotId = matrixSqueeze.tryAllocate(tb.type, tb.start, tb.end, sb.id, tb.forcedIndex);
+                            if (idx === 0) allocatedSlot1 = slotId;
+                            else if (idx === 1) allocatedSlot2 = slotId;
+                        });
+                        fit = true;
+                        
+                        const originalP1Res = sb.blocks[0].type + '-' + (sb.blocks[0].forcedIndex || 'X');
+                        const originalP2Res = sb.blocks[1] ? (sb.blocks[1].type + '-' + (sb.blocks[1].forcedIndex || 'X')) : null;
+                        let coordChanged = false;
+                        if (allocatedSlot1 && sb.blocks[0].forcedIndex && allocatedSlot1 !== originalP1Res) coordChanged = true;
+                        if (allocatedSlot2 && sb.blocks[1] && sb.blocks[1].forcedIndex && allocatedSlot2 !== originalP2Res) coordChanged = true;
+
+                        if (split.deviation !== 0 || coordChanged) {
+                            updatesProposed.push({
+                                rowId: sb.id,
+                                customerName: sb.originalData.customerName,
+                                newPhase1: split.p1,
+                                newPhase2: split.p2,
+                                newPhase1Res: allocatedSlot1,
+                                newPhase2Res: allocatedSlot2,
+                                reason: '⚠️ 系統已自動啟動彈性時間安排並重新分配資源'
+                            });
+                        }
                         break;
                     }
                 }
