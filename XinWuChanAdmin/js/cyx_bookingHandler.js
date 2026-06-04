@@ -1770,6 +1770,7 @@ const CoreAPI = {
             return {
                 serviceCode: b.serviceCode || b.serviceName, serviceName: b.serviceName,
                 startTime: mappedStartTime, duration: parseInt(b.duration) || 60,
+                startTimeString: mappedStartTime, opDate: b.opDate || (b.originalData ? b.originalData.opDate : null) || targetDateStandard,
                 staffName: primaryStaff,
                 assignedStaffs: normalizedStaffs, // MẢNG THỢ MỚI
                 rowId: b.rowId,

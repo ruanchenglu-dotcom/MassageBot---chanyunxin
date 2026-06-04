@@ -910,13 +910,19 @@ app.post('/api/admin-booking', async (req, res) => {
         if (hasExistingAllocation && typeof SheetService._checkOverlapConflict === 'function') {
             for (let i = 0; i < cyx_data.guestDetails.length; i++) {
                 const item = cyx_data.guestDetails[i];
+                let itemServiceCode = item.serviceCode || cyx_data.serviceCode;
+                let itemDuration = serviceDuration;
+                if (item.serviceCode && SERVICES[item.serviceCode]) {
+                    itemDuration = SERVICES[item.serviceCode].duration || serviceDuration;
+                }
+                
                 let flow = item.flow || item.flowCode || cyx_data.flow || cyx_data.flowCode;
                 let p1 = item.phase1_duration !== undefined ? item.phase1_duration : cyx_data.phase1_duration;
                 let p2 = item.phase2_duration !== undefined ? item.phase2_duration : cyx_data.phase2_duration;
-                if (p1 === undefined || p1 === null || p1 === "") p1 = serviceDuration;
+                if (p1 === undefined || p1 === null || p1 === "") p1 = itemDuration;
                 
                 const conflict = SheetService._checkOverlapConflict(
-                    cyx_data.rowId || 'TEMP_ID_NEW', opDateCheck, cyx_data.gioDen, serviceDuration,
+                    cyx_data.rowId || 'TEMP_ID_NEW', opDateCheck, cyx_data.gioDen, itemDuration,
                     item.phase1_res_idx || item.phase1_resource || cyx_data.phase1_res_idx || cyx_data.phase1_resource,
                     item.phase2_res_idx || item.phase2_resource || cyx_data.phase2_res_idx || cyx_data.phase2_resource,
                     p1, p2, flow
@@ -944,11 +950,13 @@ app.post('/api/admin-booking', async (req, res) => {
                 for (let i = 0; i < pax; i++) {
                     let sId = (cyx_data.nhanVien && cyx_data.nhanVien !== '隨機' && cyx_data.nhanVien !== 'ALL_STAFF') ? cyx_data.nhanVien : 'RANDOM';
                     let preferredFlow = null;
+                    let iServiceCode = serviceCode;
                     if (cyx_data.guestDetails && cyx_data.guestDetails[i]) {
+                        if (cyx_data.guestDetails[i].serviceCode) iServiceCode = cyx_data.guestDetails[i].serviceCode;
                         if (cyx_data.guestDetails[i].staff) sId = cyx_data.guestDetails[i].staff;
                         if (cyx_data.guestDetails[i].flow || cyx_data.guestDetails[i].flowCode) preferredFlow = cyx_data.guestDetails[i].flow || cyx_data.guestDetails[i].flowCode;
                     }
-                    guestList.push({ serviceCode: serviceCode, staffName: sId, flow: preferredFlow });
+                    guestList.push({ serviceCode: iServiceCode, staffName: sId, flow: preferredFlow });
                 }
                 const checkResult = ResourceCore.checkRequestAvailability(opDateCheck, cyx_data.gioDen, guestList, relevantBookings, staffListMap);
 
