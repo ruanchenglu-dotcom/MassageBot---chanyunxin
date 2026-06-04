@@ -916,7 +916,7 @@ app.post('/api/admin-booking', async (req, res) => {
                 if (p1 === undefined || p1 === null || p1 === "") p1 = serviceDuration;
                 
                 const conflict = SheetService._checkOverlapConflict(
-                    'TEMP_ID_NEW', opDateCheck, cyx_data.gioDen, serviceDuration,
+                    cyx_data.rowId || 'TEMP_ID_NEW', opDateCheck, cyx_data.gioDen, serviceDuration,
                     item.phase1_res_idx || item.phase1_resource || cyx_data.phase1_res_idx || cyx_data.phase1_resource,
                     item.phase2_res_idx || item.phase2_resource || cyx_data.phase2_res_idx || cyx_data.phase2_resource,
                     p1, p2, flow
@@ -933,7 +933,8 @@ app.post('/api/admin-booking', async (req, res) => {
         if ((!cyx_data.flow && !hasExistingAllocation && ResourceCore.checkRequestAvailability) || hasConflict) {
             try {
                 const staffListMap = {}; SheetService.getStaffList().forEach(s => { staffListMap[s.id] = s; });
-            const relevantBookings = prepareBookingsForTimeline(SheetService.getBookings(), opDateCheck);
+            const allBookingsForCheck = cyx_data.rowId ? SheetService.getBookings().filter(b => String(b.rowId) !== String(cyx_data.rowId)) : SheetService.getBookings();
+            const relevantBookings = prepareBookingsForTimeline(allBookingsForCheck, opDateCheck);
             let serviceCode = 'UNKNOWN';
             if (cyx_data.serviceCode) serviceCode = cyx_data.serviceCode;
             else for (const key in SERVICES) { if (SERVICES[key].name === cyx_data.dichVu) { serviceCode = key; break; } }
@@ -991,7 +992,7 @@ app.post('/api/admin-booking', async (req, res) => {
                     }
                 } else {
                     // [V118.8 FIX] Chặn Cứng (Hard-Reject) nếu hết chỗ (không khả thi)
-                    return res.status(400).json({ success: false, message: "⚠️ 系統滿載：沒有足夠的連續空位給此預約。" });
+                    return res.status(400).json({ success: false, error: "⚠️ 系統滿載：沒有足夠的連續空位給此預約。" });
                 }
             }
         } catch (err) { console.error("[ADMIN AUTO-FLOW ERROR]", err); }
