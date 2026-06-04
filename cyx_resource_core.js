@@ -323,8 +323,14 @@ function checkLaneContinuity(laneOccupiedArr, start, end, customCleanup = null) 
 
 function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBookingsRaw, staffList, queryDateStr, isSimulation = false) {
     // Helper to trigger smart search if not in simulation
-    const triggerSmartFailure = (reasonMsg) => {
+    const triggerSmartFailure = (reasonMsg, specificSuggestionMins = null) => {
         if (isSimulation) return { pass: false, reason: reasonMsg };
+        
+        let debugInfo = { suggestions: [] };
+        if (specificSuggestionMins !== null && specificSuggestionMins >= 0 && specificSuggestionMins <= 1800) {
+            const timeStr = getTimeStrFromMins(specificSuggestionMins);
+            debugInfo.suggestions.push({ time: timeStr, date: queryDateStr, daysToAdd: 0 });
+        }
         
         let foundMins = -1;
         let searchStart = Math.max(requestStart + 10, 0); 
@@ -340,9 +346,12 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
         
         if (foundMins !== -1) {
             const timeStr = getTimeStrFromMins(foundMins);
-            return { pass: false, reason: `${reasonMsg}\n💡 智能建議：最快可完整安排 (含所有階段) 的時間為 ${timeStr} 之後。`, debug: {} };
+            if (foundMins !== specificSuggestionMins) {
+                debugInfo.suggestions.push({ time: timeStr, date: queryDateStr, daysToAdd: 0 });
+            }
+            return { pass: false, reason: `${reasonMsg}\n💡 智能建議：最快可完整安排 (含所有階段) 的時間為 ${timeStr} 之後。`, debug: debugInfo };
         } else {
-            return { pass: false, reason: `${reasonMsg}\n⚠️ 今日後續時段已無足夠資源可完整安排此預約。`, debug: {} };
+            return { pass: false, reason: `${reasonMsg}\n⚠️ 今日後續時段已無足夠資源可完整安排此預約。`, debug: debugInfo };
         }
     };
 
@@ -718,7 +727,7 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
                     let timeStr = getTimeStrFromMins(suggestedTime);
                     let actionText = bestOutOfBoundSplit.shiftMins > 0 ? '稍晚' : '提早';
                     let shiftVal = Math.abs(bestOutOfBoundSplit.shiftMins);
-                    return triggerSmartFailure(`⚠️ 在 ${getTimeStrFromMins(requestStart)} 沒有完美符合的連續空位。建議您${actionText} ${shiftVal} 分鐘，改為 ${timeStr} 預約以滿足套餐標準。`);
+                    return triggerSmartFailure(`⚠️ 在 ${getTimeStrFromMins(requestStart)} 沒有完美符合的連續空位。建議您${actionText} ${shiftVal} 分鐘，改為 ${timeStr} 預約以滿足套餐標準。`, suggestedTime);
                 } else {
                     return triggerSmartFailure(`⚠️ 在 ${getTimeStrFromMins(requestStart)} 沒有足夠的連續空位給套餐。`);
                 }
