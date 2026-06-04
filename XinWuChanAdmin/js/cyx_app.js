@@ -3520,8 +3520,8 @@ const App = () => {
         } catch (error) {
             console.error("Booking Save Error:", error);
             const errorMsg = (error.response && error.response.data && error.response.data.error) ? error.response.data.error : error.message;
-            Swal.fire('系統提示', "⚠️ 儲存失敗：" + errorMsg, 'warning');
-            throw error; // Throw so that cyx_bookingHandler.js does not close the modal
+            // Throw so that cyx_bookingHandler.js catches the custom string, NOT the Axios object
+            throw new Error(errorMsg);
         }
     };
 

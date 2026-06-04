@@ -923,7 +923,7 @@ app.post('/api/admin-booking', async (req, res) => {
                 );
                 
                 if (conflict) {
-                    console.log(`[ADMIN BOOKING] Conflict found for pre-allocated resource ${conflict.resource}. Re-allocating...`);
+                    console.log(`[ADMIN BOOKING] Conflict found for pre-allocated resource ${conflict.resource}. Conflict with RowId: ${conflict.conflictId}, Name: ${conflict.conflictName}. Re-allocating...`);
                     hasConflict = true;
                     break;
                 }
