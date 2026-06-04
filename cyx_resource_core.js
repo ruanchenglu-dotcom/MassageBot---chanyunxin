@@ -2,43 +2,43 @@
  * =================================================================================================
  * PROJECT: XINWUCHAN MASSAGE BOT - CORE LOGIC KERNEL (SERVER SIDE)
  * FILE: resource_core.js
- * PHIÃŠN Báº¢N: V118.0 (UNIVERSAL SYNC & CONTINUOUS GUARDRAIL)
- * NGÃ€Y Cáº¬P NHáº¬T: Má»›i nháº¥t
- * TÃC GIáº¢: AI ASSISTANT & USER
+ * PHIÊN BẢN: V118.0 (UNIVERSAL SYNC & CONTINUOUS GUARDRAIL)
+ * NGÀY CẬP NHẬT: Mới nhất
+ * TÁC GIẢ: AI ASSISTANT & USER
  *
  * * * * * CHANGE LOG V118.0 (DATA & LOGIC SYNC) * * * * *
- * 1. [CONFIG INJECTION] Loáº¡i bá» Hardcode. Tá»± Ä‘á»™ng Ä‘á»c cáº¥u hÃ¬nh MAX_CHAIRS, MAX_BEDS, OPEN_HOUR
- * tá»« file cyx_data.js (SYSTEM_CONFIG). Há»— trá»£ cháº¡y trÃªn cáº£ Node.js vÃ  Browser.
- * 2. [ALGORITHM SYNC] BÃª nguyÃªn thuáº­t toÃ¡n "Continuous Scan Guardrail" (chá»‘ng phÃ¢n máº£nh
- * khoáº£ng trá»‘ng) tá»« bookingHandler.js (Frontend) sang. Äáº£m báº£o Backend vÃ  Frontend
- * Ä‘á»“ng bá»™ 100% káº¿t quáº£ kiá»ƒm tra chá»— trá»‘ng.
- * 3. [PRESERVED] Giá»¯ nguyÃªn logic V117.0 (Squeeze Logic, Phase Resource Coordinate Mapping).
+ * 1. [CONFIG INJECTION] Loại bỏ Hardcode. Tự động đọc cấu hình MAX_CHAIRS, MAX_BEDS, OPEN_HOUR
+ * từ file cyx_data.js (SYSTEM_CONFIG). Hỗ trợ chạy trên cả Node.js và Browser.
+ * 2. [ALGORITHM SYNC] Bê nguyên thuật toán "Continuous Scan Guardrail" (chống phân mảnh
+ * khoảng trống) từ bookingHandler.js (Frontend) sang. Đảm bảo Backend và Frontend
+ * đồng bộ 100% kết quả kiểm tra chỗ trống.
+ * 3. [PRESERVED] Giữ nguyên logic V117.0 (Squeeze Logic, Phase Resource Coordinate Mapping).
  * =================================================================================================
  */
 
 // ============================================================================
-// PHáº¦N 1: LIÃŠN Káº¾T Cáº¤U HÃŒNH TRUNG TÃ‚M (cyx_data.js)
+// PHẦN 1: LIÊN KẾT CẤU HÌNH TRUNG TÂM (cyx_data.js)
 // ============================================================================
 
 function getSystemConfig() {
     let dynamicConfig = null;
 
-    // Thá»­ táº£i cyx_data.js trong mÃ´i trÆ°á»ng Node.js (Backend)
+    // Thử tải cyx_data.js trong môi trường Node.js (Backend)
     if (typeof require !== 'undefined') {
         try {
             const dataModule = require('./cyx_data.js');
             dynamicConfig = dataModule.SYSTEM_CONFIG;
         } catch (e) {
-            console.warn("âš ï¸ [CORE V118.0] KhÃ´ng tÃ¬m tháº¥y file ./cyx_data.js qua require. Chá» Fallback.");
+            console.warn("⚠️ [CORE V118.0] Không tìm thấy file ./cyx_data.js qua require. Chờ Fallback.");
         }
     }
 
-    // Thá»­ táº£i tá»« Global Window náº¿u cháº¡y dÆ°á»›i dáº¡ng script trÃªn trÃ¬nh duyá»‡t (Frontend fallback)
+    // Thử tải từ Global Window nếu chạy dưới dạng script trên trình duyệt (Frontend fallback)
     if (!dynamicConfig && typeof window !== 'undefined' && window.SYSTEM_CONFIG) {
         dynamicConfig = window.SYSTEM_CONFIG;
     }
 
-    // FALLBACK AN TOÃ€N Tá»I Háº¬U (PhÃ²ng trÆ°á»ng há»£p file cyx_data.js bá»‹ lá»—i/máº¥t)
+    // FALLBACK AN TOÀN TỐI HẬU (Phòng trường hợp file cyx_data.js bị lỗi/mất)
     if (!dynamicConfig) {
         dynamicConfig = {
             SCALE: { MAX_CHAIRS: 9, MAX_BEDS: 9 },
@@ -50,7 +50,7 @@ function getSystemConfig() {
     return dynamicConfig;
 }
 
-// Alias Ã¡nh xáº¡ cáº¥u hÃ¬nh Ä‘á»™ng Ä‘á»ƒ code phÃ­a dÆ°á»›i ngáº¯n gá»n vÃ  tÆ°Æ¡ng thÃ­ch ngÆ°á»£c, sá»­ dá»¥ng getter
+// Alias ánh xạ cấu hình động để code phía dưới ngắn gọn và tương thích ngược, sử dụng getter
 const CONF = {
     get MAX_CHAIRS() { return getSystemConfig().SCALE.MAX_CHAIRS; },
     get MAX_BEDS() { return getSystemConfig().SCALE.MAX_BEDS; },
@@ -62,17 +62,17 @@ const CONF = {
 };
 
 // ============================================================================
-// PHáº¦N 2: Dá»® LIá»†U Dá»ŠCH Vá»¤ VÃ€ UTILS THá»œI GIAN
+// PHẦN 2: DỮ LIỆU DỊCH VỤ VÀ UTILS THỜI GIAN
 // ============================================================================
 
 let SERVICES = {};
 
 function setDynamicServices(newServicesObj) {
     const systemServices = {
-        'OFF_DAY': { name: 'â›” è«‹å‡ (OFF)', duration: 1080, type: 'NONE', price: 0, category: 'SYSTEM' },
-        'BREAK_30': { name: 'ðŸ± ç”¨é¤ (Break)', duration: 30, type: 'NONE', price: 0, category: 'SYSTEM' },
-        'SHOP_CLOSE': { name: 'â›” åº—ä¼‘ (Close)', duration: 1440, type: 'NONE', price: 0, category: 'SYSTEM' },
-        'LATE': { name: 'âš ï¸ å»¶é² (Late)', duration: 0, type: 'NONE', price: 0, category: 'SYSTEM' }
+        'OFF_DAY': { name: '⛔ 請假 (OFF)', duration: 1080, type: 'NONE', price: 0, category: 'SYSTEM' },
+        'BREAK_30': { name: '🍱 用餐 (Break)', duration: 30, type: 'NONE', price: 0, category: 'SYSTEM' },
+        'SHOP_CLOSE': { name: '⛔ 店休 (Close)', duration: 1440, type: 'NONE', price: 0, category: 'SYSTEM' },
+        'LATE': { name: '⚠️ 延遲 (Late)', duration: 0, type: 'NONE', price: 0, category: 'SYSTEM' }
     };
     SERVICES = { ...newServicesObj, ...systemServices };
 }
@@ -132,7 +132,7 @@ function getMinsFromTimeStr(timeStr) {
             const timeMatch = str.match(/(\d{1,2}):(\d{2})/);
             if (timeMatch) str = timeMatch[0];
         }
-        let cleanStr = str.trim().replace(/ï¼š/g, ':');
+        let cleanStr = str.trim().replace(/：/g, ':');
         const parts = cleanStr.split(':');
         if (parts.length < 2) return -1;
 
@@ -140,7 +140,7 @@ function getMinsFromTimeStr(timeStr) {
         let m = parseInt(parts[1], 10);
 
         if (isNaN(h) || isNaN(m)) return -1;
-        // [V118.2] PhÃ³ng chiáº¿u giá» ráº¡ng sÃ¡ng cho thuáº­t toÃ¡n váº¯t chÃ©o ngÃ y (0h-8h)
+        // [V118.2] Phóng chiếu giờ rạng sáng cho thuật toán vắt chéo ngày (0h-8h)
         if (h < 8) h += 24;
         return (h * 60) + m;
     } catch (e) { return -1; }
@@ -159,15 +159,15 @@ function isOverlap(startA, endA, startB, endB) {
 }
 
 function isActiveBookingStatus(statusRaw) {
-    if (!statusRaw) return true; // Cáº¦N ÄÆ¯á»¢C COI LÃ€ ACTIVE nÃªÌu status trÃ´Ìng
+    if (!statusRaw) return true; // CẦN ĐƯỢC COI LÀ ACTIVE nếu status trống
     const s = statusRaw.toString().toLowerCase().trim();
-    const inactiveKeywords = ['cancel', 'há»§y', 'huá»·', 'finish', 'done', 'xong', 'check-out', 'checkout', 'å–æ¶ˆ', 'å®Œæˆ', 'ç©º'];
+    const inactiveKeywords = ['cancel', 'hủy', 'huỷ', 'finish', 'done', 'xong', 'check-out', 'checkout', '取消', '完成', '空'];
     for (const kw of inactiveKeywords) { if (s.includes(kw)) return false; }
     return true;
 }
 
 // ============================================================================
-// PHáº¦N 3: Bá»˜ NHáº¬N DIá»†N THÃ”NG MINH
+// PHẦN 3: BỘ NHẬN DIỆN THÔNG MINH
 // ============================================================================
 
 function isComboService(serviceObj, serviceNameRaw = '', explicitFlow = null) {
@@ -183,7 +183,7 @@ function isComboService(serviceObj, serviceNameRaw = '', explicitFlow = null) {
     const dbName = (serviceObj && serviceObj.name ? serviceObj.name : '').toString().toUpperCase();
     const rawName = (serviceNameRaw || '').toString().toUpperCase();
     const nameToCheck = dbName + " | " + rawName;
-    const comboKeywords = ['COMBO', 'å¥—é¤', 'MIX', '+', 'SET', 'è…³èº«', 'å…¨é¤', 'FOOT AND BODY', 'BODY AND FOOT', 'é›™äºº', 'Aé¤', 'Bé¤', 'Cé¤', 'æ²¹å£“+è¶³'];
+    const comboKeywords = ['COMBO', '套餐', 'MIX', '+', 'SET', '腳身', '全餐', 'FOOT AND BODY', 'BODY AND FOOT', '雙人', 'A餐', 'B餐', 'C餐', '油壓+足'];
     for (const kw of comboKeywords) { if (nameToCheck.includes(kw)) return true; }
     return false;
 }
@@ -204,8 +204,8 @@ function inferFlowFromService(serviceObj, fallbackFlow = null) {
     if (cat === 'FOOT') return 'FOOTSINGLE';
     if (cat === 'BODY') return 'BODYSINGLE';
 
-    if (name.match(/FOOT|CHAIR|è…³|è¶³|LEG/)) return 'FOOTSINGLE';
-    if (name.match(/BODY|BED|æŒ‡å£“|æ²¹|å…¨èº«|BACK/)) return 'BODYSINGLE';
+    if (name.match(/FOOT|CHAIR|腳|足|LEG/)) return 'FOOTSINGLE';
+    if (name.match(/BODY|BED|指壓|油|全身|BACK/)) return 'BODYSINGLE';
     return 'BODYSINGLE';
 }
 
@@ -213,7 +213,7 @@ function detectResourceType(serviceObj) {
     if (!serviceObj) return 'CHAIR';
     if (serviceObj.type === 'BED' || serviceObj.type === 'CHAIR') return serviceObj.type;
     const name = (serviceObj.name || '').toUpperCase();
-    if (name.match(/BODY|æŒ‡å£“|æ²¹|BED|TOAN THAN|å…¨èº«|æ²¹å£“|SPA|BACK/)) return 'BED';
+    if (name.match(/BODY|指壓|油|BED|TOAN THAN|全身|油壓|SPA|BACK/)) return 'BED';
     return 'CHAIR';
 }
 
@@ -264,14 +264,14 @@ function parseStaffStatus(staffInfo, queryDateStr = null) {
     }
 
     const startStr = (currentStartStr || "").toString().toUpperCase();
-    if (startStr.includes('OFF') || startStr.includes('NGHá»ˆ') || startStr.includes('CLOSE')) isOff = true;
+    if (startStr.includes('OFF') || startStr.includes('NGHỈ') || startStr.includes('CLOSE')) isOff = true;
     if (isOff) return { isAvailable: false, reason: "MARKED_OFF" };
 
     let startMins = getMinsFromTimeStr(currentStartStr);
     let endMins = getMinsFromTimeStr(currentEndStr);
     if (startMins === -1 || endMins === -1) return { isAvailable: false, reason: "INVALID_TIME" };
 
-    // [CORE V118.1] Fix Overnight Shifts (Ca XuyÃªn ÄÃªm)
+    // [CORE V118.1] Fix Overnight Shifts (Ca Xuyên Đêm)
     if (endMins < startMins) {
         endMins += 1440;
     }
@@ -285,7 +285,7 @@ function getEligibleStaffCount(staffList, currentTimeMins, requiredEndTime, quer
         const status = parseStaffStatus(info);
         if (!status.isAvailable) continue;
         const shiftStart = status.startMins; const shiftEnd = status.endMins;
-        // [CORE V118.1] Thuáº­t toÃ¡n PhÃ¢n Ä‘oáº¡n Ca ÄÃªm
+        // [CORE V118.1] Thuật toán Phân đoạn Ca Đêm
         let inMain = true;
         if (currentTimeMins < shiftStart) inMain = false;
         else if (status.isStrict && shiftEnd < (requiredEndTime - CONF.TOLERANCE)) inMain = false;
@@ -308,8 +308,8 @@ function getEligibleStaffCount(staffList, currentTimeMins, requiredEndTime, quer
 }
 
 // ============================================================================
-// PHáº¦N 4: HÃ€NG RÃ€O DUNG LÆ¯á»¢NG (GUARDRAIL V118.0)
-// Ãp dá»¥ng thuáº­t toÃ¡n Continuous Scan tá»« bookingHandler.js
+// PHẦN 4: HÀNG RÀO DUNG LƯỢNG (GUARDRAIL V118.0)
+// Áp dụng thuật toán Continuous Scan từ bookingHandler.js
 // ============================================================================
 
 function checkLaneContinuity(laneOccupiedArr, start, end, customCleanup = null) {
@@ -329,7 +329,7 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
         let foundMins = -1;
         let searchStart = Math.max(requestStart + 10, 0); 
         
-        // QuÃ©t Ä‘áº¿n cuá»‘i ngÃ y hoáº·c ca Ä‘Ãªm (1440 + 360 = 1800)
+        // Quét đến cuối ngày hoặc ca đêm (1440 + 360 = 1800)
         for (let t = searchStart; t <= 1800; t += 10) {
             let sim = validateGlobalCapacity(t, maxDuration, guestList, currentBookingsRaw, staffList, queryDateStr, true);
             if (sim.pass) {
@@ -340,13 +340,13 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
         
         if (foundMins !== -1) {
             const timeStr = getTimeStrFromMins(foundMins);
-            return { pass: false, reason: `${reasonMsg}\nðŸ’¡ æ™ºèƒ½å»ºè­°ï¼šæœ€å¿«å¯å®Œæ•´å®‰æŽ’ (å«æ‰€æœ‰éšŽæ®µ) çš„æ™‚é–“ç‚º ${timeStr} ä¹‹å¾Œã€‚`, debug: {} };
+            return { pass: false, reason: `${reasonMsg}\n💡 智能建議：最快可完整安排 (含所有階段) 的時間為 ${timeStr} 之後。`, debug: {} };
         } else {
-            return { pass: false, reason: `${reasonMsg}\nâš ï¸ ä»Šæ—¥å¾ŒçºŒæ™‚æ®µå·²ç„¡è¶³å¤ è³‡æºå¯å®Œæ•´å®‰æŽ’æ­¤é ç´„ã€‚`, debug: {} };
+            return { pass: false, reason: `${reasonMsg}\n⚠️ 今日後續時段已無足夠資源可完整安排此預約。`, debug: {} };
         }
     };
 
-    // 1. Lá»c Booking há»£p lá»‡
+    // 1. Lọc Booking hợp lệ
     const relevantBookings = currentBookingsRaw.filter(b => {
         const bStart = getMinsFromTimeStr(b.startTimeString || b.startTime);
         if (bStart === -1) return false;
@@ -359,10 +359,10 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
         return bEnd > requestStart;
     });
 
-    // 2. Kiá»ƒm tra NhÃ¢n sá»± (Staff Capacity - V118.6 ÄÃ£ Ä‘á»“ng bá»™ Gender & Specific Staff Logic)
+    // 2. Kiểm tra Nhân sự (Staff Capacity - V118.6 Đã đồng bộ Gender & Specific Staff Logic)
     const normId = (id) => String(id || '').replace(/^0+/, '').trim().toUpperCase();
 
-    // [NEW] Táº¡o danh sÃ¡ch cÃ¡c Ä‘iá»ƒm cháº¡m thá»i gian (Time Points) Ä‘á»ƒ quÃ©t liÃªn tá»¥c (Continuous Scan)
+    // [NEW] Tạo danh sách các điểm chạm thời gian (Time Points) để quét liên tục (Continuous Scan)
     let timePoints = new Set();
     timePoints.add(requestStart);
     
@@ -386,14 +386,14 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
             }
         }
         
-        // ThÃªm cÃ¡c Ä‘iá»ƒm Ä‘áº§u/cuá»‘i cá»§a booking cÅ© náº¿u nÃ³ rÆ¡i vÃ o khung giá» khÃ¡ch má»›i Ä‘ang xÃ©t
+        // Thêm các điểm đầu/cuối của booking cũ nếu nó rơi vào khung giờ khách mới đang xét
         if (bS > requestStart && bS < requestStart + maxDuration) timePoints.add(bS);
         if (bE > requestStart && bE < requestStart + maxDuration) timePoints.add(bE);
     });
 
     let sortedPoints = Array.from(timePoints).sort((a, b) => a - b);
 
-    // [NEW] Thuáº­t toÃ¡n Interval Overlap Continuous Scan cho NhÃ¢n sá»±
+    // [NEW] Thuật toán Interval Overlap Continuous Scan cho Nhân sự
     for (let i = 0; i < sortedPoints.length - 1; i++) {
         let tCheck = sortedPoints[i];
         
@@ -414,8 +414,8 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
                 currentStaffBusy += staffsInBooking.length;
                 for (const staffName of staffsInBooking) {
                     const sInfo = staffList[staffName] || Object.values(staffList).find(s => normId(s.name) === normId(staffName) || normId(s.id) === normId(staffName)) || {};
-                    if (sInfo.gender === 'F' || sInfo.gender === 'å¥³' || sInfo.group === 'å¥³') currentFemaleBusy++;
-                    else if (sInfo.gender === 'M' || sInfo.gender === 'ç”·' || sInfo.group === 'ç”·') currentMaleBusy++;
+                    if (sInfo.gender === 'F' || sInfo.gender === '女' || sInfo.group === '女') currentFemaleBusy++;
+                    else if (sInfo.gender === 'M' || sInfo.gender === '男' || sInfo.group === '男') currentMaleBusy++;
                 }
             }
         });
@@ -430,13 +430,13 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
             if (tCheck >= requestStart && tCheck < requestStart + dur) {
                 newGuestsActive++;
                 const req = g.staff;
-                // Náº¿u khÃ¡ch chá»n dáº§u (OIL), máº·c Ä‘á»‹nh yÃªu cáº§u ná»¯ (trá»« khi cÃ³ config khÃ¡c)
-                if (req === 'FEMALE' || req === 'å¥³' || req === 'å¥³å¸«' || req === 'OIL') newFemaleReq++;
-                else if (req === 'MALE' || req === 'ç”·' || req === 'ç”·å¸«') newMaleReq++;
+                // Nếu khách chọn dầu (OIL), mặc định yêu cầu nữ (trừ khi có config khác)
+                if (req === 'FEMALE' || req === '女' || req === '女師' || req === 'OIL') newFemaleReq++;
+                else if (req === 'MALE' || req === '男' || req === '男師') newMaleReq++;
             }
         });
 
-        // Äáº¿m sá»‘ nhÃ¢n viÃªn ÄANG LÃ€M VIá»†C táº¡i Ä‘Ãºng thá»i Ä‘iá»ƒm tCheck (Ä‘Ã£ trá»« lÃºc háº¿t ca)
+        // Đếm số nhân viên ĐANG LÀM VIỆC tại đúng thời điểm tCheck (đã trừ lúc hết ca)
         const currentAvailableStaff = Object.values(staffList).filter(s => {
             const status = parseStaffStatus(s, queryDateStr);
             if (!status.isAvailable) return false;
@@ -450,28 +450,28 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
         });
 
         const currentSupplyCount = currentAvailableStaff.length;
-        const currentFemaleSupply = currentAvailableStaff.filter(s => s.gender === 'F' || s.gender === 'å¥³').length;
-        const currentMaleSupply = currentAvailableStaff.filter(s => s.gender === 'M' || s.gender === 'ç”·').length;
+        const currentFemaleSupply = currentAvailableStaff.filter(s => s.gender === 'F' || s.gender === '女').length;
+        const currentMaleSupply = currentAvailableStaff.filter(s => s.gender === 'M' || s.gender === '男').length;
         
         if (newFemaleReq > 0 && (currentFemaleBusy + newFemaleReq) > currentFemaleSupply) {
-            return triggerSmartFailure(`âš ï¸ è©²æ™‚æ®µå¥³æŠ€å¸«ä¸è¶³ã€‚å¥³å¸«ç¸½å…±: ${currentFemaleSupply}, å¿™ç¢Œä¸­: ${currentFemaleBusy}, æ¬²é ç´„: ${newFemaleReq}`);
+            return triggerSmartFailure(`⚠️ 該時段女技師不足。女師總共: ${currentFemaleSupply}, 忙碌中: ${currentFemaleBusy}, 欲預約: ${newFemaleReq}`);
         }
         if (newMaleReq > 0 && (currentMaleBusy + newMaleReq) > currentMaleSupply) {
-            return triggerSmartFailure(`âš ï¸ è©²æ™‚æ®µç”·æŠ€å¸«ä¸è¶³ã€‚ç”·å¸«ç¸½å…±: ${currentMaleSupply}, å¿™ç¢Œä¸­: ${currentMaleBusy}, æ¬²é ç´„: ${newMaleReq}`);
+            return triggerSmartFailure(`⚠️ 該時段男技師不足。男師總共: ${currentMaleSupply}, 忙碌中: ${currentMaleBusy}, 欲預約: ${newMaleReq}`);
         }
         if ((currentStaffBusy + newGuestsActive) > currentSupplyCount) {
-            return triggerSmartFailure(`âš ï¸ è©²æ™‚æ®µæŠ€å¸«ç¸½æ•¸ä¸è¶³ã€‚ç¸½å…±: ${currentSupplyCount}, å¿™ç¢Œä¸­: ${currentStaffBusy}, æ–°å®¢: ${newGuestsActive}`);
+            return triggerSmartFailure(`⚠️ 該時段技師總數不足。總共: ${currentSupplyCount}, 忙碌中: ${currentStaffBusy}, 新客: ${newGuestsActive}`);
         }
     }
 
-    // Kiá»ƒm tra trÃ¹ng lá»‹ch cho nhÃ¢n viÃªn ÄÆ¯á»¢C CHá»ˆ Äá»ŠNH cá»¥ thá»ƒ (Specific Staff)
+    // Kiểm tra trùng lịch cho nhân viên ĐƯỢC CHỈ ĐỊNH cụ thể (Specific Staff)
     let specificStaffReqs = [];
     guestList.forEach(g => {
         const req = g.staff;
         const svcInfo = getServiceInfo(g.serviceCode, g.serviceName);
         const dur = svcInfo.duration || 60;
-        if (req && req !== 'RANDOM' && req !== 'éš¨æ©Ÿ' && req !== 'Any' && req !== 'undefined' && req !== 'null' 
-            && req !== 'FEMALE' && req !== 'MALE' && req !== 'å¥³' && req !== 'ç”·' && req !== 'å¥³å¸«' && req !== 'ç”·å¸«' && req !== 'OIL') {
+        if (req && req !== 'RANDOM' && req !== '隨機' && req !== 'Any' && req !== 'undefined' && req !== 'null' 
+            && req !== 'FEMALE' && req !== 'MALE' && req !== '女' && req !== '男' && req !== '女師' && req !== '男師' && req !== 'OIL') {
             const sId = normId(req);
             specificStaffReqs.push({ req: sId, rawReq: req, duration: dur });
         }
@@ -484,7 +484,7 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
     for (const [req, count] of Object.entries(reqCounts)) {
         if (count > 1) {
             if (isSimulation) return { pass: false, reason: 'Duplicate staff assigned' };
-            return { pass: false, reason: `âš ï¸ éŒ¯èª¤: ä¸å¯åŒæ™‚æŒ‡æ´¾ ${count} ä½å®¢äººçµ¦åŒä¸€æŠ€å¸« ${req}ã€‚`, debug: {} };
+            return { pass: false, reason: `⚠️ 錯誤: 不可同時指派 ${count} 位客人給同一技師 ${req}。`, debug: {} };
         }
     }
 
@@ -497,7 +497,7 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
         const sInfo = staffList[reqId] || Object.values(staffList).find(s => normId(s.name) === reqId || normId(s.id) === reqId);
         if (sInfo) {
             const status = parseStaffStatus(sInfo, queryDateStr);
-            // [CORE V118.0] Thuáº­t toÃ¡n PhÃ¢n Ä‘oáº¡n Ca ÄÃªm
+            // [CORE V118.0] Thuật toán Phân đoạn Ca Đêm
             let inMain = (requestStart >= status.startMins && requestStart < status.endMins);
             let inTail = false;
             if (status.endMins > 1440) {
@@ -506,7 +506,7 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
             }
             
             if (!status.isAvailable || (!inMain && !inTail)) {
-                return triggerSmartFailure(`âš ï¸ æŠ€å¸« ${rawName} è©²æ™‚æ®µæœªæŽ’ç­æˆ–å·²ä¸‹ç­ã€‚`);
+                return triggerSmartFailure(`⚠️ 技師 ${rawName} 該時段未排班或已下班。`);
             }
 
             let busyBlocks = staffBusyPeriods[reqId] || [];
@@ -521,12 +521,12 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
             }
 
             if (isBusy) {
-                return triggerSmartFailure(`âš ï¸ æŠ€å¸« ${rawName} è©²æ™‚æ®µå·²æœ‰é ç´„ã€‚`);
+                return triggerSmartFailure(`⚠️ 技師 ${rawName} 該時段已有預約。`);
             }
         }
     }
 
-    // 3. PhÃ¢n tÃ­ch tÃ i nguyÃªn chá»‘ng phÃ¢n máº£nh (Continuous Scan)
+    // 3. Phân tích tài nguyên chống phân mảnh (Continuous Scan)
     const resourceMap = {
         'BED': Array.from({ length: CONF.MAX_BEDS }, () => []),
         'CHAIR': Array.from({ length: CONF.MAX_CHAIRS }, () => [])
@@ -540,10 +540,10 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
         const { p1, realDuration } = calculateRealDurations(b, b.duration || 60, isCombo);
 
         const rIdStr = (b.phase1_res_idx || "") + " " + (b.phase2_res_idx || "") + " " + (b.allocated_resource || "") + " " + (b.location || "") + " " + (b.current_resource_id || "") + " " + (b.rowId || "");
-        const matches = [...rIdStr.matchAll(/((?:BED|CHAIR|åºŠ|è¶³)[-_ ]?\d+)/gi)].map(m => m[1].toUpperCase());
+        const matches = [...rIdStr.matchAll(/((?:BED|CHAIR|床|足)[-_ ]?\d+)/gi)].map(m => m[1].toUpperCase());
         let uniqueMatches = [...new Set(matches)];
 
-        // [V118.8 FIX] Há»— trá»£ trÃ­ch xuáº¥t sá»‘ gháº¿/giÆ°á»ng náº¿u chuá»—i chá»‰ cÃ³ sá»‘ Ä‘Æ¡n thuáº§n (phÃ²ng ngá»«a BÃ³ng Ma Toáº¡ Äá»™)
+        // [V118.8 FIX] Hỗ trợ trích xuất số ghế/giường nếu chuỗi chỉ có số đơn thuần (phòng ngừa Bóng Ma Toạ Độ)
         if (uniqueMatches.length === 0) {
             const backupMatches = [...rIdStr.matchAll(/(\d+)/gi)].map(m => m[1]);
             let inferredType = 'CHAIR';
@@ -551,7 +551,7 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
                 if (svcInfo.type === 'BED' || svcInfo.type === 'CHAIR') inferredType = svcInfo.type;
                 else {
                     const name = (svcInfo.name || '').toUpperCase();
-                    if (name.match(/BODY|æŒ‡å£“|æ²¹|BED|TOAN THAN|å…¨èº«|æ²¹å£“|SPA|BACK/)) inferredType = 'BED';
+                    if (name.match(/BODY|指壓|油|BED|TOAN THAN|全身|油壓|SPA|BACK/)) inferredType = 'BED';
                 }
             }
             uniqueMatches = [...new Set(backupMatches)].map(num => `${inferredType}-${num}`);
@@ -575,9 +575,9 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
         const pushToMap = (res, startT, endT, fallbackType) => {
             let success = false;
             if (res) {
-                const laneMatch = res.match(/(BED|CHAIR|åºŠ|è¶³)[-_ ]?(\d+)/i);
+                const laneMatch = res.match(/(BED|CHAIR|床|足)[-_ ]?(\d+)/i);
                 if (laneMatch) {
-                    const type = (laneMatch[1].toUpperCase().includes('BED') || laneMatch[1].includes('åºŠ')) ? 'BED' : 'CHAIR';
+                    const type = (laneMatch[1].toUpperCase().includes('BED') || laneMatch[1].includes('床')) ? 'BED' : 'CHAIR';
                     const idx = parseInt(laneMatch[2]) - 1;
                     if (resourceMap[type] && resourceMap[type][idx]) {
                         resourceMap[type][idx].push({ start: startT, end: endT });
@@ -599,20 +599,20 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
             else if (storedFlow === 'FB') isBodyFirst = false;
             else {
                 const noteContent = (b.note || b.ghiChu || b.originalData?.ghiChu || "").toString().toUpperCase();
-                if (noteContent.includes('BF') || noteContent.includes('BODY FIRST') || noteContent.includes('å…ˆåšèº«é«”')) isBodyFirst = true;
+                if (noteContent.includes('BF') || noteContent.includes('BODY FIRST') || noteContent.includes('先做身體')) isBodyFirst = true;
                 else if (b._impliedFlow === 'BF') isBodyFirst = true;
             }
 
             if (uniqueMatches.length >= 2) {
                 if (isBodyFirst) {
-                    res1 = uniqueMatches.find(r => r.includes('BED') || r.includes('åºŠ')) || uniqueMatches[0];
-                    res2 = uniqueMatches.find(r => r.includes('CHAIR') || r.includes('è¶³')) || uniqueMatches[1];
+                    res1 = uniqueMatches.find(r => r.includes('BED') || r.includes('床')) || uniqueMatches[0];
+                    res2 = uniqueMatches.find(r => r.includes('CHAIR') || r.includes('足')) || uniqueMatches[1];
                 } else {
-                    res1 = uniqueMatches.find(r => r.includes('CHAIR') || r.includes('è¶³')) || uniqueMatches[0];
-                    res2 = uniqueMatches.find(r => r.includes('BED') || r.includes('åºŠ')) || uniqueMatches[1];
+                    res1 = uniqueMatches.find(r => r.includes('CHAIR') || r.includes('足')) || uniqueMatches[0];
+                    res2 = uniqueMatches.find(r => r.includes('BED') || r.includes('床')) || uniqueMatches[1];
                 }
             } else if (uniqueMatches.length === 1) {
-                const mType = (uniqueMatches[0].toUpperCase().includes('BED') || uniqueMatches[0].includes('åºŠ')) ? 'BED' : 'CHAIR';
+                const mType = (uniqueMatches[0].toUpperCase().includes('BED') || uniqueMatches[0].includes('床')) ? 'BED' : 'CHAIR';
                 if (isBodyFirst) {
                     if (mType === 'BED') res1 = uniqueMatches[0];
                     else res2 = uniqueMatches[0];
@@ -624,12 +624,8 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
             
             if (!isBodyFirst) { type1 = 'CHAIR'; type2 = 'BED'; }
 
-            // [V118.8 FIX] Bổ sung pushToMapFallback cho Combo không có ID cụ thể để tránh tàng hình
-            if (res1) pushToMap(res1, bStart, bStart + p1 + CONF.CLEANUP_BUFFER, type1);
-            else pushToMapFallback(type1, bStart, bStart + p1 + CONF.CLEANUP_BUFFER);
-            
-            if (res2) pushToMap(res2, bStart + p1 + CONF.TRANSITION_BUFFER, bStart + realDuration + CONF.CLEANUP_BUFFER, type2);
-            else pushToMapFallback(type2, bStart + p1 + CONF.TRANSITION_BUFFER, bStart + realDuration + CONF.CLEANUP_BUFFER);
+            pushToMap(res1, bStart, bStart + p1 + CONF.CLEANUP_BUFFER, type1);
+            pushToMap(res2, bStart + p1 + CONF.TRANSITION_BUFFER, bStart + realDuration + CONF.CLEANUP_BUFFER, type2);
         } else {
             let rType = (inferFlowFromService(svcInfo, storedFlow) === 'FOOTSINGLE') ? 'CHAIR' : 'BED';
             if (uniqueMatches.length > 0) {
@@ -642,9 +638,9 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
         }
     });
 
-    // MÃ´ phá»ng luá»“ng khÃ¡ch má»›i
+    // Mô phỏng luồng khách mới
     const simulationMap = JSON.parse(JSON.stringify(resourceMap));
-    const suggestedLanes = {}; // [NEW V118.6] LÆ°u láº¡i toáº¡ Ä‘á»™ gá»£i Ã½ chÃ­nh xÃ¡c
+    const suggestedLanes = {}; // [NEW V118.6] Lưu lại toạ độ gợi ý chính xác
 
     for (let i = 0; i < guestList.length; i++) {
         const g = guestList[i];
@@ -652,7 +648,7 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
         const duration = svc.duration || 60;
         const explicitFlow = g.flowCode || null;
         const isCombo = isComboService(svc, g.serviceCode, explicitFlow);
-        const guestIdKey = g.idx !== undefined ? g.idx : i; // Äáº£m báº£o mapping Ä‘Ãºng index cá»§a khÃ¡ch
+        const guestIdKey = g.idx !== undefined ? g.idx : i; // Đảm bảo mapping đúng index của khách
 
         if (isCombo) {
             let foundValidSplit = false;
@@ -672,13 +668,12 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
                     const tSwitch = tStart + p1 + CONF.TRANSITION_BUFFER;
                     const comboGuestsCount = guestList.filter(g => isComboService(getServiceInfo(g.serviceCode, g.serviceName), g.serviceCode, g.flowCode)).length;
                     const isCrossSwapGroup = comboGuestsCount >= 2;
-                    // [V118.8 FIX] Perfect Swap Optimization: Combo Phase 1 chỉ cần Transition Buffer (3 phút) thay vì Cleanup (10 phút)
-                    const phase1Cleanup = Math.min(CONF.CLEANUP_BUFFER, CONF.TRANSITION_BUFFER);
+                    const phase1Cleanup = isCrossSwapGroup ? Math.min(CONF.CLEANUP_BUFFER, CONF.TRANSITION_BUFFER) : CONF.CLEANUP_BUFFER;
                     
                     let bedIdx = -1, chairIdx = -1;
                     
                     if (testFlow === 'BF') {
-                        // Ká»‹ch báº£n A: Body TrÆ°á»›c (BED -> CHAIR)
+                        // Kịch bản A: Body Trước (BED -> CHAIR)
                         for (let b = 0; b < CONF.MAX_BEDS; b++) { if (checkLaneContinuity(simulationMap.BED[b], tStart, tStart + p1, phase1Cleanup)) { bedIdx = b; break; } }
                         for (let c = 0; c < CONF.MAX_CHAIRS; c++) { if (checkLaneContinuity(simulationMap.CHAIR[c], tSwitch, tSwitch + p2)) { chairIdx = c; break; } }
 
@@ -690,7 +685,7 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
                             break;
                         }
                     } else {
-                        // Ká»‹ch báº£n B: ChÃ¢n TrÆ°á»›c (CHAIR -> BED)
+                        // Kịch bản B: Chân Trước (CHAIR -> BED)
                         for (let c = 0; c < CONF.MAX_CHAIRS; c++) { if (checkLaneContinuity(simulationMap.CHAIR[c], tStart, tStart + p1, phase1Cleanup)) { chairIdx = c; break; } }
                         for (let b = 0; b < CONF.MAX_BEDS; b++) { if (checkLaneContinuity(simulationMap.BED[b], tSwitch, tSwitch + p2)) { bedIdx = b; break; } }
 
@@ -707,11 +702,11 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
             }
 
             if (!foundValidSplit) {
-                return triggerSmartFailure(`âš ï¸ åœ¨ ${getTimeStrFromMins(requestStart)} æ²’æœ‰è¶³å¤ çš„é€£çºŒç©ºä½çµ¦å¥—é¤ã€‚`);
+                return triggerSmartFailure(`⚠️ 在 ${getTimeStrFromMins(requestStart)} 沒有足夠的連續空位給套餐。`);
             }
 
         } else {
-            // KhÃ¡ch láº»
+            // Khách lẻ
             const smartFlow = inferFlowFromService(svc, explicitFlow);
             let rType = (smartFlow === 'FOOTSINGLE') ? 'CHAIR' : 'BED';
             let foundIdx = -1;
@@ -726,7 +721,7 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
                 simulationMap[rType][foundIdx].push({ start: requestStart, end: requestStart + duration + CONF.CLEANUP_BUFFER });
                 suggestedLanes[guestIdKey] = { [rType]: foundIdx + 1 };
             } else {
-                return triggerSmartFailure(`âš ï¸ å·²ç¶“æ²’æœ‰é€£çºŒ ${duration} åˆ†é˜çš„ç©º${rType === 'BED' ? 'åºŠä½' : 'åº§ä½'}ã€‚`);
+                return triggerSmartFailure(`⚠️ 已經沒有連續 ${duration} 分鐘的空${rType === 'BED' ? '床位' : '座位'}。`);
             }
         }
     }
@@ -734,7 +729,7 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
 }
 
 // ============================================================================
-// PHáº¦N 5: MATRIX ENGINE (CORE ALLOCATION)
+// PHẦN 5: MATRIX ENGINE (CORE ALLOCATION)
 // ============================================================================
 
 class VirtualMatrix {
@@ -769,8 +764,8 @@ class VirtualMatrix {
             }
         }
         
-        // [V118.9 FIX] æ¢å¾©ã€Œå¾žä¸Šåˆ°ä¸‹ç·Šæ¹ŠæŽ’åˆ—ã€(Top-Down Packing) é‚è¼¯ï¼Œå–æ¶ˆç©ºä½å„ªå…ˆåˆ†é…ä»¥é¿å…è¦–è¦ºç©ºéš™ã€‚
-        // ä¸å†æ ¹æ“š occupied.length é€²è¡ŒæŽ’åºï¼Œè€Œæ˜¯ä¿ç•™åŽŸå§‹é †åº (CHAIR-1, CHAIR-2...) é€²è¡Œåˆ†é…ã€‚
+        // [V118.9 FIX] 恢復「從上到下緊湊排列」(Top-Down Packing) 邏輯，取消空位優先分配以避免視覺空隙。
+        // 不再根據 occupied.length 進行排序，而是保留原始順序 (CHAIR-1, CHAIR-2...) 進行分配。
         let sortedLanes = [...resourceGroup];
 
         for (let lane of sortedLanes) {
@@ -778,7 +773,7 @@ class VirtualMatrix {
             if (check.free) {
                 return this.allocateToLane(lane, start, end, ownerId);
             } else {
-                this.blockLog.push(`âŒ ${lane.id} è¢« ${check.blocker.ownerId} æ“‹ä½`);
+                this.blockLog.push(`❌ ${lane.id} 被 ${check.blocker.ownerId} 擋住`);
             }
         }
         
@@ -787,7 +782,7 @@ class VirtualMatrix {
 }
 
 // ============================================================================
-// PHáº¦N 6: LOGIC TÃŒM NHÃ‚N VIÃŠN & CO GIÃƒN
+// PHẦN 6: LOGIC TÌM NHÂN VIÊN & CO GIÃN
 // ============================================================================
 
 function findAvailableStaff(staffReq, start, end, staffListRef, busyList, queryDateStr = null) {
@@ -797,7 +792,7 @@ function findAvailableStaff(staffReq, start, end, staffListRef, busyList, queryD
         if (!status.isAvailable) return false;
 
         const shiftStart = status.startMins; const shiftEnd = status.endMins;
-        // [CORE V118.0] Thuáº­t toÃ¡n PhÃ¢n Ä‘oáº¡n Ca ÄÃªm
+        // [CORE V118.0] Thuật toán Phân đoạn Ca Đêm
         let inMain = true;
         if ((start + CONF.TOLERANCE) < shiftStart) inMain = false;
         else if (status.isStrict) {
@@ -823,11 +818,11 @@ function findAvailableStaff(staffReq, start, end, staffListRef, busyList, queryD
         for (const b of busyList) { if (b.staffName === name && isOverlap(start, end, b.start, b.end)) return false; }
 
         if (staffReq === 'MALE' && staffInfo.gender !== 'M') return false;
-        if ((staffReq === 'FEMALE' || staffReq === 'å¥³') && staffInfo.gender !== 'F') return false;
+        if ((staffReq === 'FEMALE' || staffReq === '女') && staffInfo.gender !== 'F') return false;
         return true;
     };
 
-    if (staffReq && !['RANDOM', 'MALE', 'FEMALE', 'éš¨æ©Ÿ', 'Any', 'undefined'].includes(staffReq)) {
+    if (staffReq && !['RANDOM', 'MALE', 'FEMALE', '隨機', 'Any', 'undefined'].includes(staffReq)) {
         return checkOneStaff(staffReq) ? staffReq : null;
     } else {
         const allStaffNames = Object.keys(staffListRef);
@@ -869,16 +864,16 @@ function generateElasticSplits(totalDuration, step = 0, limit = 0, customLockedP
         return options;
     }
 
-    // QuÃ©t Zic-Zac (Zig-Zag)
+    // Quét Zic-Zac (Zig-Zag)
     for (let d = step; d <= limit; d += step) {
-        // Thá»­ giáº£m (vÃ­ dá»¥ 49/51)
+        // Thử giảm (ví dụ 49/51)
         let p1_minus = standardHalf - d;
         let p2_minus = totalDuration - p1_minus;
         if (p1_minus >= minP1 && p1_minus <= maxP1 && p2_minus >= minP2 && p2_minus <= maxP2) {
             options.push({ p1: p1_minus, p2: p2_minus, deviation: -d });
         }
 
-        // Thá»­ tÄƒng (vÃ­ dá»¥ 51/49)
+        // Thử tăng (ví dụ 51/49)
         let p1_plus = standardHalf + d;
         let p2_plus = totalDuration - p1_plus;
         if (p1_plus >= minP1 && p1_plus <= maxP1 && p2_plus >= minP2 && p2_plus <= maxP2) {
@@ -917,12 +912,12 @@ function isBlockSetAllocatable(blocks, matrix) {
 }
 
 // ============================================================================
-// PHáº¦N 7: CORE ENGINE V118.0
+// PHẦN 7: CORE ENGINE V118.0
 // ============================================================================
 
 function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRaw, staffList) {
     const requestStartMins = getMinsFromTimeStr(timeStr);
-    if (requestStartMins === -1) return { feasible: false, reason: "âŒ éŒ¯èª¤ï¼šæ™‚é–“æ ¼å¼ç„¡æ•ˆ" };
+    if (requestStartMins === -1) return { feasible: false, reason: "❌ 錯誤：時間格式無效" };
 
     const normalizedQueryDate = normalizeDateStrict(dateStr);
     const hrReq = parseInt(timeStr.split(':')[0], 10);
@@ -955,12 +950,12 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
         if (dur > maxGuestDuration) maxGuestDuration = dur;
     });
 
-    // 1. GUARDRAIL CHECK (Äá»“ng bá»™ Backend & Frontend V118)
+    // 1. GUARDRAIL CHECK (Đồng bộ Backend & Frontend V118)
     const guardrailCheck = validateGlobalCapacity(requestStartMins, maxGuestDuration, guestList, filteredBookings, staffList, normalizedQueryDate);
     if (!guardrailCheck.pass) return { feasible: false, reason: guardrailCheck.reason, debug: guardrailCheck.debug };
     const resourceMap = guardrailCheck.resourceMap || { 'BED': [], 'CHAIR': [] };
 
-    // 2. TIá»€N Xá»¬ LÃ BOOKING CÅ¨
+    // 2. TIỀN XỬ LÝ BOOKING CŨ
     let sortedRaw = [...filteredBookings].sort((a, b) => getMinsFromTimeStr(a.startTimeString || a.startTime) - getMinsFromTimeStr(b.startTimeString || b.startTime));
     const bookingGroups = {};
 
@@ -972,9 +967,9 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
         const statusLower = (b.status || '').toLowerCase();
         const isRunning = statusLower.includes('running') || 
                           statusLower.includes('doing') || 
-                          statusLower.includes('æœå‹™ä¸­') || 
+                          statusLower.includes('服務中') || 
                           statusLower.includes('serving') || 
-                          statusLower.includes('ðŸŸ¡');
+                          statusLower.includes('🟡');
         const groupKey = isRunning ? `RUNNING_${b.rowId}` : `${timeKey}_${contactKey}`;
         if (!bookingGroups[groupKey]) bookingGroups[groupKey] = [];
         bookingGroups[groupKey].push(b);
@@ -989,9 +984,9 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
             const bStatus = (b.status || '').toLowerCase();
             const isBRunning = bStatus.includes('running') || 
                                bStatus.includes('doing') || 
-                               bStatus.includes('æœå‹™ä¸­') || 
+                               bStatus.includes('服務中') || 
                                bStatus.includes('serving') || 
-                               bStatus.includes('ðŸŸ¡');
+                               bStatus.includes('🟡');
             if (!isBRunning) {
                 b._virtualInheritanceIndex = (groupSize >= 2) ? (idx % halfSize) + 1 : idx + 1;
                 if (groupSize >= 2) b._impliedFlow = (idx < halfSize) ? 'BF' : 'FB';
@@ -1000,7 +995,7 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
         });
     });
 
-    // 3. Táº O KHá»I THá»œI GIAN
+    // 3. TẠO KHỐI THỜI GIAN
     let existingBookingsProcessed = [];
     remappedBookings.forEach(b => {
         const bStart = getMinsFromTimeStr(b.startTimeString || b.startTime);
@@ -1015,14 +1010,14 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
         const bStatusStr = (b.status || '').toLowerCase();
         const isRunning = bStatusStr.includes('running') || 
                           bStatusStr.includes('doing') || 
-                          bStatusStr.includes('æœå‹™ä¸­') || 
+                          bStatusStr.includes('服務中') || 
                           bStatusStr.includes('serving') || 
-                          bStatusStr.includes('ðŸŸ¡');
+                          bStatusStr.includes('🟡');
 
-        // [V135 FIX] LUÃ”N Æ°u tiÃªn láº¥y toáº¡ Ä‘á»™ thá»±c táº¿ má»™t cÃ¡ch toÃ n diá»‡n nhÆ° Guardrail
-        // Äiá»u nÃ y ngÄƒn cháº·n BÃ³ng Ma Toáº¡ Äá»™ do Matrix gÃ¡n nháº§m gháº¿/giÆ°á»ng Ä‘Ã£ cÃ³ khÃ¡ch.
+        // [V135 FIX] LUÔN ưu tiên lấy toạ độ thực tế một cách toàn diện như Guardrail
+        // Điều này ngăn chặn Bóng Ma Toạ Độ do Matrix gán nhầm ghế/giường đã có khách.
         const rIdStr = (b.phase1_res_idx || "") + " " + (b.phase2_res_idx || "") + " " + (b.allocated_resource || "") + " " + (b.location || "") + " " + (b.current_resource_id || "") + " " + (b.rowId || "");
-        const matches = [...rIdStr.matchAll(/((?:BED|CHAIR|åºŠ|è¶³)[-_ ]?\d+)/gi)].map(m => m[1].toUpperCase());
+        const matches = [...rIdStr.matchAll(/((?:BED|CHAIR|床|足)[-_ ]?\d+)/gi)].map(m => m[1].toUpperCase());
         let uniqueMatches = [...new Set(matches)];
 
         if (uniqueMatches.length === 0) {
@@ -1032,7 +1027,7 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
                 if (svcInfo.type === 'BED' || svcInfo.type === 'CHAIR') inferredType = svcInfo.type;
                 else {
                     const name = (svcInfo.name || '').toUpperCase();
-                    if (name.match(/BODY|æŒ‡å£“|æ²¹|BED|TOAN THAN|å…¨èº«|æ²¹å£“|SPA|BACK/)) inferredType = 'BED';
+                    if (name.match(/BODY|指壓|油|BED|TOAN THAN|全身|油壓|SPA|BACK/)) inferredType = 'BED';
                 }
             }
             uniqueMatches = [...new Set(backupMatches)].map(num => `${inferredType}-${num}`);
@@ -1065,7 +1060,7 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
             if (storedFlow === 'BF') isBodyFirst = true;
             else if (storedFlow === 'FB') isBodyFirst = false;
             else {
-                if (noteContent.includes('BF') || noteContent.includes('BODY FIRST') || noteContent.includes('å…ˆåšèº«é«”')) isBodyFirst = true;
+                if (noteContent.includes('BF') || noteContent.includes('BODY FIRST') || noteContent.includes('先做身體')) isBodyFirst = true;
                 else if (isRunning && b.allocated_resource && (b.allocated_resource.includes('BED') || b.allocated_resource.includes('BODY'))) isBodyFirst = true;
                 else if (b._impliedFlow === 'BF') isBodyFirst = true;
             }
@@ -1076,16 +1071,16 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
             if (uniqueMatches.length >= 2) {
                 let res1, res2;
                 if (isBodyFirst) {
-                    res1 = uniqueMatches.find(r => r.includes('BED') || r.includes('åºŠ')) || uniqueMatches[0];
-                    res2 = uniqueMatches.find(r => r.includes('CHAIR') || r.includes('è¶³')) || uniqueMatches[1];
+                    res1 = uniqueMatches.find(r => r.includes('BED') || r.includes('床')) || uniqueMatches[0];
+                    res2 = uniqueMatches.find(r => r.includes('CHAIR') || r.includes('足')) || uniqueMatches[1];
                 } else {
-                    res1 = uniqueMatches.find(r => r.includes('CHAIR') || r.includes('è¶³')) || uniqueMatches[0];
-                    res2 = uniqueMatches.find(r => r.includes('BED') || r.includes('åºŠ')) || uniqueMatches[1];
+                    res1 = uniqueMatches.find(r => r.includes('CHAIR') || r.includes('足')) || uniqueMatches[0];
+                    res2 = uniqueMatches.find(r => r.includes('BED') || r.includes('床')) || uniqueMatches[1];
                 }
                 if (res1) { const m = res1.match(/(\d+)/); if (m) p1Index = parseInt(m[0], 10); }
                 if (res2) { const m = res2.match(/(\d+)/); if (m) p2Index = parseInt(m[0], 10); }
             } else if (uniqueMatches.length === 1) {
-                const mType = (uniqueMatches[0].toUpperCase().includes('BED') || uniqueMatches[0].includes('åºŠ')) ? 'BED' : 'CHAIR';
+                const mType = (uniqueMatches[0].toUpperCase().includes('BED') || uniqueMatches[0].includes('床')) ? 'BED' : 'CHAIR';
                 const m = uniqueMatches[0].match(/(\d+)/);
                 if (m) {
                     const parsedIdx = parseInt(m[0], 10);
@@ -1115,8 +1110,8 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
             processedB.flow = storedFlow;
             let rType = (storedFlow === 'FOOTSINGLE') ? 'CHAIR' : 'BED';
             let resHint = rIdStr.toUpperCase();
-            if (resHint.includes('CHAIR') || resHint.includes('è¶³')) rType = 'CHAIR';
-            else if (resHint.includes('BED') || resHint.includes('åºŠ')) rType = 'BED';
+            if (resHint.includes('CHAIR') || resHint.includes('足')) rType = 'CHAIR';
+            else if (resHint.includes('BED') || resHint.includes('床')) rType = 'BED';
             
             let forcedIdx = anchorIndex;
             if (uniqueMatches.length > 0) {
@@ -1124,12 +1119,12 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
                 if (m) forcedIdx = parseInt(m[0], 10);
             }
             
-            const { realDuration } = calculateRealDurations(b, duration, isCombo); processedB.blocks.push({ start: bStart, end: bStart + realDuration + CONF.CLEANUP_BUFFER, type: rType, forcedIndex: forcedIdx });
+            processedB.blocks.push({ start: bStart, end: bStart + realDuration + CONF.CLEANUP_BUFFER, type: rType, forcedIndex: forcedIdx });
         }
         existingBookingsProcessed.push(processedB);
     });
 
-    // 4. Ká»ŠCH Báº¢N MATRIX KHÃ CH Má»šI
+    // 4. KỊCH BẢN MATRIX KHÁCH MỚI
     const newGuests = guestList.map((g, idx) => ({ ...g, idx: idx }));
     const comboGuests = newGuests.filter(g => isComboService(getServiceInfo(g.serviceCode, g.serviceName), g.serviceCode, g.flowCode));
     const newGuestHalfSize = Math.ceil(comboGuests.length / 2);
@@ -1165,7 +1160,7 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
             let placedSuccessfully = true; let allocatedSlots = [];
             for (const block of exB.blocks) {
                 const realEnd = block.end;
-                // --- V118.4 FIX: Ã‰p buá»™c Ä‘áº·t chá»— (isForced = true) cho cÃ¡c Booking Ä‘Ã£ cÃ³ sáºµn ---
+                // --- V118.4 FIX: Ép buộc đặt chỗ (isForced = true) cho các Booking đã có sẵn ---
                 const slotId = matrix.tryAllocate(block.type, block.start, realEnd, exB.id, block.forcedIndex, true);
                 if (!slotId) { placedSuccessfully = false; break; }
                 allocatedSlots.push(slotId);
@@ -1191,8 +1186,7 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
             if (isThisGuestCombo) {
                 const p1Standard = Math.floor(duration / 2); const p2Standard = duration - p1Standard;
                 const isCrossSwapGroup = comboGuests.length >= 2 && numBF > 0 && numBF < comboGuests.length;
-                // [V118.8 FIX] Perfect Swap Optimization
-                const phase1Cleanup = Math.min(CONF.CLEANUP_BUFFER, CONF.TRANSITION_BUFFER);
+                const phase1Cleanup = isCrossSwapGroup ? Math.min(CONF.CLEANUP_BUFFER, CONF.TRANSITION_BUFFER) : CONF.CLEANUP_BUFFER;
 
                 const splits = generateElasticSplits(duration, svc.elasticStep || 5, svc.elasticLimit || 15, null, svc.minFoot, svc.maxFoot, svc.minBody, svc.maxBody, flow);
 
@@ -1241,7 +1235,7 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
         for (const item of newGuestBlocksMap) {
             let guestAllocations = [];
             
-            // [V118.10 FIX] é—œé–‰ suggestedLanes å¼·åˆ¶ç¶å®šï¼Œè®“ Top-Down Packing èƒ½å¤ åœ¨äº¤å‰å®‰æŽ’ (BF/FB) æ™‚è‡ªç„¶å¡«è£œç©ºéš™ã€‚
+            // [V118.10 FIX] 關閉 suggestedLanes 強制綁定，讓 Top-Down Packing 能夠在交叉安排 (BF/FB) 時自然填補空隙。
             const useSuggestedLanes = false;
             let preferredIdx = null;
 
@@ -1256,7 +1250,7 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
 
                 if (useSuggestedLanes) {
                     specificPrefIdx = guardrailCheck.suggestedLanes[item.guest.idx][block.type] || preferredIdx;
-                    if (specificPrefIdx !== null) isPrefForced = true; // Báº¯t buá»™c Æ°u tiÃªn toáº¡ Ä‘á»™ Ä‘Ã£ Ä‘Æ°á»£c xÃ¡c minh lÃ  an toÃ n
+                    if (specificPrefIdx !== null) isPrefForced = true; // Bắt buộc ưu tiên toạ độ đã được xác minh là an toàn
                 }
 
                 const slotId = matrix.tryAllocate(block.type, block.start, block.end, `NEW_GUEST_${item.guest.idx}`, specificPrefIdx, isPrefForced);
@@ -1267,13 +1261,13 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
             const detail = scenarioDetails.find(d => d.guestIndex === item.guest.idx);
             if (detail) {
                 detail.allocated = guestAllocations;
-                // [V117.0/V118.0] PhÃ¢n tÃ¡ch tá»a Ä‘á»™ Ä‘á»ƒ Sheet hiá»ƒu chÃ­nh xÃ¡c
+                // [V117.0/V118.0] Phân tách tọa độ để Sheet hiểu chính xác
                 detail.phase1_res_idx = guestAllocations[0] || null;
                 detail.phase2_res_idx = guestAllocations[1] || null;
             }
         }
 
-        // 5. SQUEEZE LOGIC (Co giÃ£n lá»‹ch)
+        // 5. SQUEEZE LOGIC (Co giãn lịch)
         if (conflictFound) {
             let matrixSqueeze = new VirtualMatrix();
             let updatesProposed = [];
@@ -1356,7 +1350,7 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
                                 
                                 let nextUpdates = [...currentUpdates];
                                 if (item.isCombo && split.deviation !== 0) {
-                                    nextUpdates.push({ rowId: 'NEW', customerName: 'æ–°å®¢', newPhase1: split.p1, newPhase2: split.p2, reason: 'âš ï¸ ç³»çµ±å·²è‡ªå‹•å•Ÿå‹•å½ˆæ€§æ™‚é–“å®‰æŽ’ä»¥ç¬¦åˆç©ºä½' });
+                                    nextUpdates.push({ rowId: 'NEW', customerName: '新客', newPhase1: split.p1, newPhase2: split.p2, reason: '⚠️ 系統已自動啟動彈性時間安排以符合空位' });
                                 }
 
                                 if (placeNewGuestsElastically(guestIndex + 1, clonedMatrix, currentDetails, nextUpdates)) {
@@ -1417,7 +1411,7 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
                                 newPhase2: split.p2,
                                 newPhase1Res: allocatedSlot1,
                                 newPhase2Res: allocatedSlot2,
-                                reason: 'âš ï¸ ç³»çµ±å·²è‡ªå‹•å•Ÿå‹•å½ˆæ€§æ™‚é–“å®‰æŽ’ä¸¦é‡æ–°åˆ†é…è³‡æº'
+                                reason: '⚠️ 系統已自動啟動彈性時間安排並重新分配資源'
                             });
                         }
                         break;
@@ -1470,17 +1464,17 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
         };
     } else {
         const debugReason = failureLog.slice(-2).join(' | ');
-        const failMessage = debugReason ? `âŒ ç³»çµ±æ»¿è¼‰ï¼š${debugReason}` : "âŒ å·²é¡æ»¿ï¼ˆç³»çµ±æ»¿è¼‰ï¼‰";
+        const failMessage = debugReason ? `❌ 系統滿載：${debugReason}` : "❌ 已額滿（系統滿載）";
         return { feasible: false, reason: failMessage, debug: guardrailCheck.debug };
     }
 }
 
 // ============================================================================
-// PHáº¦N 8: MODULE EXPORT
+// PHẦN 8: MODULE EXPORT
 // ============================================================================
 const CoreAPI = {
     checkRequestAvailability, setDynamicServices, get SERVICES() { return SERVICES; },
-    CONFIG: CONF, // Giá»¯ tÃªn biáº¿n CONFIG khi xuáº¥t ra Ä‘á»ƒ tÆ°Æ¡ng thÃ­ch ngÆ°á»£c vá»›i index.js cÅ© náº¿u cÃ³
+    CONFIG: CONF, // Giữ tên biến CONFIG khi xuất ra để tương thích ngược với index.js cũ nếu có
     getMinsFromTimeStr, getTimeStrFromMins, getTaipeiNow, normalizeDateStrict, inferFlowFromService
 };
 
@@ -1488,5 +1482,5 @@ if (typeof module !== 'undefined' && module.exports) module.exports = CoreAPI;
 if (typeof window !== 'undefined') {
     window.ResourceCore = CoreAPI; window.checkRequestAvailability = CoreAPI.checkRequestAvailability;
     window.setDynamicServices = CoreAPI.setDynamicServices; window.normalizeDateStrict = CoreAPI.normalizeDateStrict;
-    console.log("âœ… Resource Core V118.0 Loaded: DATA & CONTINUOUS SCAN SYNCED.");
+    console.log("✅ Resource Core V118.0 Loaded: DATA & CONTINUOUS SCAN SYNCED.");
 }
