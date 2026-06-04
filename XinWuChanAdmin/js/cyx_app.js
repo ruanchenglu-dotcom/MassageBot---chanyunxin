@@ -1576,7 +1576,7 @@ const App = () => {
             const errorMsg = (e.response && e.response.data && e.response.data.error) ? e.response.data.error : e.message;
             if (errorMsg && errorMsg.includes('RESOURCE_CONFLICT')) {
                 const parts = errorMsg.split('|');
-                Swal.fire('系統提示', `⚠️ 儲存失敗！\n\n【衝突警告】\n該位置在該時段已經被「${parts[2] || '其他顧客'}」佔用。\n請重新選擇其他空閒位置！`, 'warning');
+                Swal.fire('系統提示', `⚠️ 警告：資源衝突！\n\n該床位/座位在該時段已經被「${parts[2] || '其他顧客'}」佔用 (包含清潔時間)。\n請重新選擇其他空閒位置！`, 'warning');
             } else if (errorMsg && (errorMsg.includes('⚠️') || errorMsg.includes('失敗') || errorMsg.includes('錯誤'))) {
                 Swal.fire('系統提示', errorMsg, 'warning');
             } else {
@@ -1953,7 +1953,7 @@ const App = () => {
             const errorMsg = e.message || "";
             if (errorMsg.includes('RESOURCE_CONFLICT')) {
                 const parts = errorMsg.split('|');
-                Swal.fire('系統提示', `⚠️ 儲存失敗！\n\n【衝突警告】\n您選擇的 ${parts[1] || '該位置'} 在該時段已經被「${parts[2] || '其他顧客'}」佔用 (已佔用)。\n\n請重新選擇其他空閒位置！`, 'warning');
+                Swal.fire('系統提示', `⚠️ 警告：資源衝突！\n\n您選擇的 ${parts[1] || '該床位/座位'} 在該時段已經被「${parts[2] || '其他顧客'}」佔用 (包含清潔時間)。\n\n請重新選擇其他空閒位置！`, 'warning');
             } else {
                 Swal.fire('系統提示', "⚠️ 儲存失敗！請檢查網路連線。", 'warning');
             }
@@ -2068,7 +2068,7 @@ const App = () => {
             const errorMsg = e.message || "";
             if (errorMsg.includes('RESOURCE_CONFLICT')) {
                 const parts = errorMsg.split('|');
-                Swal.fire('系統提示', `⚠️ 儲存失敗！\n\n【衝突警告】\n您選擇的 ${parts[1] || '該位置'} 在該時段已經被「${parts[2] || '其他顧客'}」佔用 (已佔用)。\n\n請重新選擇其他空閒位置！`, 'warning');
+                Swal.fire('系統提示', `⚠️ 警告：資源衝突！\n\n您選擇的 ${parts[1] || '該床位/座位'} 在該時段已經被「${parts[2] || '其他顧客'}」佔用 (包含清潔時間)。\n\n請重新選擇其他空閒位置！`, 'warning');
             } else {
                 Swal.fire('系統提示', "⚠️ 儲存失敗！請檢查網路連線。", 'warning');
             }
@@ -2204,7 +2204,7 @@ const App = () => {
             const errorMsg = e.message || "";
             if (errorMsg.includes('RESOURCE_CONFLICT')) {
                 const parts = errorMsg.split('|');
-                Swal.fire('系統提示', `⚠️ 儲存失敗！\n\n【衝突警告】\n您選擇的 ${parts[1] || '該位置'} 在該時段已經被「${parts[2] || '其他顧客'}」佔用 (已佔用)。\n\n請重新選擇其他空閒位置！`, 'warning');
+                Swal.fire('系統提示', `⚠️ 警告：資源衝突！\n\n您選擇的 ${parts[1] || '該床位/座位'} 在該時段已經被「${parts[2] || '其他顧客'}」佔用 (包含清潔時間)。\n\n請重新選擇其他空閒位置！`, 'warning');
             } else {
                 Swal.fire('系統提示', "⚠️ 儲存失敗！請檢查網路連線。", 'warning');
             }
@@ -2286,7 +2286,7 @@ const App = () => {
                     const errorMsg = e.message || "";
                     if (errorMsg.includes('RESOURCE_CONFLICT')) {
                         const parts = errorMsg.split('|');
-                        Swal.fire('系統提示', `⚠️ 轉換位置失敗！\n\n【衝突警告】\n目標位置 ${parts[1] || '該位置'} 在該時段已經被「${parts[2] || '其他顧客'}」佔用。\n\n請重新選擇！`, 'warning');
+                        Swal.fire('系統提示', `⚠️ 警告：資源衝突！\n\n目標位置 ${parts[1] || '該床位/座位'} 在該時段已經被「${parts[2] || '其他顧客'}」佔用 (包含清潔時間)。\n\n請重新選擇！`, 'warning');
                     } else {
                         Swal.fire('系統提示', "⚠️ 轉換位置時發生連線錯誤！", 'warning');
                     }
@@ -2332,7 +2332,7 @@ const App = () => {
                 const errorMsg = e.message || "";
                 if (errorMsg.includes('RESOURCE_CONFLICT')) {
                     const parts = errorMsg.split('|');
-                    Swal.fire('系統提示', `⚠️ 轉換位置失敗！\n\n【衝突警告】\n目標位置 ${parts[1] || '該位置'} 在該時段已經被「${parts[2] || '其他顧客'}」佔用。\n\n請重新選擇！`, 'warning');
+                    Swal.fire('系統提示', `⚠️ 警告：資源衝突！\n\n目標位置 ${parts[1] || '該床位/座位'} 在該時段已經被「${parts[2] || '其他顧客'}」佔用 (包含清潔時間)。\n\n請重新選擇！`, 'warning');
                 } else {
                     Swal.fire('系統提示', "⚠️ 轉換位置時發生連線錯誤！", 'warning');
                 }

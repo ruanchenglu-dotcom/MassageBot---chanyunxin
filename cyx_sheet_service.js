@@ -857,11 +857,11 @@ function _checkOverlapConflict(rowId, dateStr, timeStr, duration, phase1Res, pha
     
     let blocks = [];
     if (flow === 'BF' || flow === 'FB') {
-        if (phase1Res) blocks.push({ start: startMins, end: startMins + p1, res: phase1Res });
-        if (phase2Res) blocks.push({ start: startMins + p1 + ResourceCore.CONFIG.TRANSITION_BUFFER, end: startMins + durMins, res: phase2Res });
+        if (phase1Res) blocks.push({ start: startMins, end: startMins + p1 + ResourceCore.CONFIG.CLEANUP_BUFFER, res: phase1Res });
+        if (phase2Res) blocks.push({ start: startMins + p1 + ResourceCore.CONFIG.TRANSITION_BUFFER, end: startMins + durMins + ResourceCore.CONFIG.CLEANUP_BUFFER, res: phase2Res });
     } else {
         const res = phase1Res || phase2Res;
-        if (res) blocks.push({ start: startMins, end: startMins + durMins, res: res });
+        if (res) blocks.push({ start: startMins, end: startMins + durMins + ResourceCore.CONFIG.CLEANUP_BUFFER, res: res });
     }
     
     const bookingsOnDate = STATE.cachedBookings.filter(b => 
@@ -906,11 +906,11 @@ function _checkOverlapConflict(rowId, dateStr, timeStr, duration, phase1Res, pha
                     if (!res2) res2 = matches[1];
                 }
             }
-            if (res1) bBlocks.push({ start: bStartMins, end: bStartMins + bP1, res: res1 });
-            if (res2) bBlocks.push({ start: bStartMins + bP1 + ResourceCore.CONFIG.TRANSITION_BUFFER, end: bStartMins + bDurMins, res: res2 });
+            if (res1) bBlocks.push({ start: bStartMins, end: bStartMins + bP1 + ResourceCore.CONFIG.CLEANUP_BUFFER, res: res1 });
+            if (res2) bBlocks.push({ start: bStartMins + bP1 + ResourceCore.CONFIG.TRANSITION_BUFFER, end: bStartMins + bDurMins + ResourceCore.CONFIG.CLEANUP_BUFFER, res: res2 });
         } else {
             const bRes = b.phase1_res_idx || b.phase2_res_idx || b.allocated_resource;
-            if (bRes) bBlocks.push({ start: bStartMins, end: bStartMins + bDurMins, res: bRes });
+            if (bRes) bBlocks.push({ start: bStartMins, end: bStartMins + bDurMins + ResourceCore.CONFIG.CLEANUP_BUFFER, res: bRes });
         }
         
         for (const blk of blocks) {
