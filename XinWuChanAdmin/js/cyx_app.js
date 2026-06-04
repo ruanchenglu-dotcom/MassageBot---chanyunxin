@@ -1522,6 +1522,30 @@ const App = () => {
             if (updatedData.nhanVien !== undefined) updatedData.nhanVien = normalizeStaffId(updatedData.nhanVien);
             if (updatedData.requestedStaff !== undefined) updatedData.requestedStaff = normalizeStaffId(updatedData.requestedStaff);
 
+            if (window.cyxCallCoreAvailabilityCheck) {
+                const guestDetails = [{
+                    service: updatedData.dichVu || currentBooking.serviceName,
+                    staff: updatedData.nhanVien || '隨機'
+                }];
+                const checkBookings = bookings.filter(b => String(b.rowId) !== String(rowId));
+                const finalCheck = window.cyxCallCoreAvailabilityCheck(updatedData.ngayDen || currentBooking.date, updatedData.gioDen || currentBooking.startTime, guestDetails, checkBookings, staffList);
+                
+                if (finalCheck && finalCheck.valid && finalCheck.hasElasticWarning && finalCheck.warningMsgs && finalCheck.warningMsgs.length > 0) {
+                    const confirmResult = await Swal.fire({
+                        title: '⚠️ 彈性安排提示',
+                        html: finalCheck.warningMsgs.join('<br>') + '<br><br>請問是否確認接受此彈性安排？',
+                        icon: 'warning',
+                        showCancelButton: true,
+                        confirmButtonText: '✅ 確認',
+                        cancelButtonText: '❌ 取消'
+                    });
+                    
+                    if (!confirmResult.isConfirmed) {
+                        return;
+                    }
+                }
+            }
+
             Swal.fire({
                 title: '儲存中，請稍候...',
                 allowOutsideClick: false,

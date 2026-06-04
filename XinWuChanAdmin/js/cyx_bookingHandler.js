@@ -412,6 +412,8 @@ function checkLaneContinuity(laneOccupiedArr, start, end, customCleanup = null) 
 }
 
 function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBookingsRaw, staffList, queryDateStr, isSimulation = false) {
+    let hasElasticWarning = false;
+    let warningMsgs = [];
     // Helper to trigger smart search if not in simulation
     const triggerSmartFailure = (reasonMsg) => {
         if (isSimulation) return { pass: false, reason: reasonMsg };
@@ -772,6 +774,10 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
                             simulationMap.CHAIR[chairIdx].push({ start: tSwitch, end: tSwitch + p2 + CONF.CLEANUP_BUFFER });
                             suggestedLanes[guestIdKey] = { BED: bedIdx + 1, CHAIR: chairIdx + 1 };
                             foundValidSplit = true;
+                            if (testFlow !== flowPrimary || split.deviation !== 0) {
+                                hasElasticWarning = true;
+                                warningMsgs.push(`目前預設區域已滿，系統已自動優化為「先做身體 (BF)」，並彈性調整各階段時間為 ${p1}分身體 / ${p2}分腳底。`);
+                            }
                             break;
                         }
                     } else {
@@ -784,6 +790,10 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
                             simulationMap.BED[bedIdx].push({ start: tSwitch, end: tSwitch + p2 + CONF.CLEANUP_BUFFER });
                             suggestedLanes[guestIdKey] = { CHAIR: chairIdx + 1, BED: bedIdx + 1 };
                             foundValidSplit = true;
+                            if (testFlow !== flowPrimary || split.deviation !== 0) {
+                                hasElasticWarning = true;
+                                warningMsgs.push(`目前預設區域已滿，系統已自動優化為「先做腳底 (FB)」，並彈性調整各階段時間為 ${p1}分腳底 / ${p2}分身體。`);
+                            }
                             break;
                         }
                     }
@@ -815,7 +825,7 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
             }
         }
     }
-    return { pass: true, debug: { msg: "V118.0 Continuous Scan Passed" }, resourceMap: resourceMap, suggestedLanes: suggestedLanes };
+    return { pass: true, debug: { msg: "V118.0 Continuous Scan Passed" }, resourceMap: resourceMap, suggestedLanes: suggestedLanes, hasElasticWarning, warningMsgs };
 }
 
 // ============================================================================
@@ -1550,7 +1560,9 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
             feasible: true, strategy: 'MATRIX_UNIVERSAL_V118.0',
             details: successfulScenario.details, proposedUpdates: successfulScenario.updates,
             totalPrice: successfulScenario.details.reduce((sum, item) => sum + (item.price || 0), 0),
-            debug: guardrailCheck.debug
+            debug: guardrailCheck.debug,
+            hasElasticWarning: guardrailCheck.hasElasticWarning,
+            warningMsgs: guardrailCheck.warningMsgs
         };
     } else {
         const debugReason = failureLog.slice(-2).join(' | ');
@@ -1793,10 +1805,11 @@ const CoreAPI = {
         try {
             const result = CoreKernel.checkRequestAvailability(targetDateStandard, time, coreGuests, coreBookings, staffMap);
             return result.feasible
-                ? { valid: true, details: result.details, proposedUpdates: result.proposedUpdates, debug: result.debug }
+                ? { valid: true, details: result.details, proposedUpdates: result.proposedUpdates, debug: result.debug, hasElasticWarning: result.hasElasticWarning, warningMsgs: result.warningMsgs }
                 : { valid: false, reason: result.reason, debug: result.debug };
         } catch (err) { return { valid: false, reason: "System Error: " + err.message }; }
     };
+    window.cyxCallCoreAvailabilityCheck = callCoreAvailabilityCheck;
 
     const forceGlobalRefresh = () => { if (typeof window.fetchDataAndRender === 'function') window.fetchDataAndRender(); else window.location.reload(); };
 
