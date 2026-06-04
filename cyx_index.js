@@ -989,6 +989,9 @@ app.post('/api/admin-booking', async (req, res) => {
                             }
                         }
                     }
+                } else {
+                    // [V118.8 FIX] Chặn Cứng (Hard-Reject) nếu hết chỗ (không khả thi)
+                    return res.status(400).json({ success: false, message: "⚠️ 系統滿載：沒有足夠的連續空位給此預約。" });
                 }
             }
         } catch (err) { console.error("[ADMIN AUTO-FLOW ERROR]", err); }

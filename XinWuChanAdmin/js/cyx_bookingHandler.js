@@ -716,8 +716,11 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
             
             if (!isBodyFirst) { type1 = 'CHAIR'; type2 = 'BED'; }
 
-            pushToMap(res1, bStart, bStart + p1 + CONF.CLEANUP_BUFFER, type1);
-            pushToMap(res2, bStart + p1 + CONF.TRANSITION_BUFFER, bStart + realDuration + CONF.CLEANUP_BUFFER, type2);
+            if (res1) pushToMap(res1, bStart, bStart + p1 + CONF.CLEANUP_BUFFER, type1);
+            else pushToMapFallback(type1, bStart, bStart + p1 + CONF.CLEANUP_BUFFER);
+            
+            if (res2) pushToMap(res2, bStart + p1 + CONF.TRANSITION_BUFFER, bStart + realDuration + CONF.CLEANUP_BUFFER, type2);
+            else pushToMapFallback(type2, bStart + p1 + CONF.TRANSITION_BUFFER, bStart + realDuration + CONF.CLEANUP_BUFFER);
         } else {
             let rType = (inferFlowFromService(svcInfo, storedFlow) === 'FOOTSINGLE') ? 'CHAIR' : 'BED';
             if (uniqueMatches.length > 0) {
@@ -760,7 +763,7 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
                     const tSwitch = tStart + p1 + CONF.TRANSITION_BUFFER;
                     const comboGuestsCount = guestList.filter(g => isComboService(getServiceInfo(g.serviceCode, g.serviceName), g.serviceCode, g.flowCode)).length;
                     const isCrossSwapGroup = comboGuestsCount >= 2;
-                    const phase1Cleanup = isCrossSwapGroup ? Math.min(CONF.CLEANUP_BUFFER, CONF.TRANSITION_BUFFER) : CONF.CLEANUP_BUFFER;
+                    const phase1Cleanup = Math.min(CONF.CLEANUP_BUFFER, CONF.TRANSITION_BUFFER);
                     
                     let bedIdx = -1, chairIdx = -1;
                     
@@ -2137,9 +2140,18 @@ const CoreAPI = {
 
             setIsSubmitting(true);
             try {
-                let checkBookings = mergeBookingData(serverData?.bookings || [], safeBookings);
+                let freshServerData = serverData;
+                if (typeof fetchLiveServerData === 'function') {
+                    const latestData = await fetchLiveServerData(true);
+                    if (latestData) {
+                        freshServerData = latestData;
+                        setServerData(latestData);
+                    }
+                }
+                
+                let checkBookings = mergeBookingData(freshServerData?.bookings || [], safeBookings);
                 if (editingBooking) checkBookings = checkBookings.filter(b => b.rowId !== editingBooking.rowId);
-                const finalCheck = callCoreAvailabilityCheck(form.date, form.time, guestDetails, checkBookings, serverData?.staff || safeStaffList);
+                const finalCheck = callCoreAvailabilityCheck(form.date, form.time, guestDetails, checkBookings, freshServerData?.staff || safeStaffList);
 
                 if (!finalCheck.valid) {
                     Swal.fire('系統提示', "⚠️ 數據已變更，無法預約：" + finalCheck.reason, 'error');

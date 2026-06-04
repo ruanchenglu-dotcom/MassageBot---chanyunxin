@@ -1,4 +1,4 @@
-﻿/*
+/*
  * =================================================================================================
  * PROJECT: XINWUCHAN MASSAGE BOT - CORE LOGIC KERNEL (SERVER SIDE)
  * FILE: resource_core.js
@@ -624,8 +624,12 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
             
             if (!isBodyFirst) { type1 = 'CHAIR'; type2 = 'BED'; }
 
-            pushToMap(res1, bStart, bStart + p1 + CONF.CLEANUP_BUFFER, type1);
-            pushToMap(res2, bStart + p1 + CONF.TRANSITION_BUFFER, bStart + realDuration + CONF.CLEANUP_BUFFER, type2);
+            // [V118.8 FIX] Bổ sung pushToMapFallback cho Combo không có ID cụ thể để tránh tàng hình
+            if (res1) pushToMap(res1, bStart, bStart + p1 + CONF.CLEANUP_BUFFER, type1);
+            else pushToMapFallback(type1, bStart, bStart + p1 + CONF.CLEANUP_BUFFER);
+            
+            if (res2) pushToMap(res2, bStart + p1 + CONF.TRANSITION_BUFFER, bStart + realDuration + CONF.CLEANUP_BUFFER, type2);
+            else pushToMapFallback(type2, bStart + p1 + CONF.TRANSITION_BUFFER, bStart + realDuration + CONF.CLEANUP_BUFFER);
         } else {
             let rType = (inferFlowFromService(svcInfo, storedFlow) === 'FOOTSINGLE') ? 'CHAIR' : 'BED';
             if (uniqueMatches.length > 0) {
@@ -668,7 +672,8 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
                     const tSwitch = tStart + p1 + CONF.TRANSITION_BUFFER;
                     const comboGuestsCount = guestList.filter(g => isComboService(getServiceInfo(g.serviceCode, g.serviceName), g.serviceCode, g.flowCode)).length;
                     const isCrossSwapGroup = comboGuestsCount >= 2;
-                    const phase1Cleanup = isCrossSwapGroup ? Math.min(CONF.CLEANUP_BUFFER, CONF.TRANSITION_BUFFER) : CONF.CLEANUP_BUFFER;
+                    // [V118.8 FIX] Perfect Swap Optimization: Combo Phase 1 chỉ cần Transition Buffer (3 phút) thay vì Cleanup (10 phút)
+                    const phase1Cleanup = Math.min(CONF.CLEANUP_BUFFER, CONF.TRANSITION_BUFFER);
                     
                     let bedIdx = -1, chairIdx = -1;
                     
@@ -1124,7 +1129,7 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
         existingBookingsProcessed.push(processedB);
     });
 
-    // 4. Ká»ŠCH Báº¢N MATRIX KHÃCH Má»šI
+    // 4. Ká»ŠCH Báº¢N MATRIX KHÃ CH Má»šI
     const newGuests = guestList.map((g, idx) => ({ ...g, idx: idx }));
     const comboGuests = newGuests.filter(g => isComboService(getServiceInfo(g.serviceCode, g.serviceName), g.serviceCode, g.flowCode));
     const newGuestHalfSize = Math.ceil(comboGuests.length / 2);
@@ -1186,7 +1191,8 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
             if (isThisGuestCombo) {
                 const p1Standard = Math.floor(duration / 2); const p2Standard = duration - p1Standard;
                 const isCrossSwapGroup = comboGuests.length >= 2 && numBF > 0 && numBF < comboGuests.length;
-                const phase1Cleanup = isCrossSwapGroup ? Math.min(CONF.CLEANUP_BUFFER, CONF.TRANSITION_BUFFER) : CONF.CLEANUP_BUFFER;
+                // [V118.8 FIX] Perfect Swap Optimization
+                const phase1Cleanup = Math.min(CONF.CLEANUP_BUFFER, CONF.TRANSITION_BUFFER);
 
                 const splits = generateElasticSplits(duration, svc.elasticStep || 5, svc.elasticLimit || 15, null, svc.minFoot, svc.maxFoot, svc.minBody, svc.maxBody, flow);
 
