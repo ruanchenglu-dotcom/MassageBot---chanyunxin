@@ -859,25 +859,23 @@ function generateElasticSplits(totalDuration, step = 0, limit = 0, customLockedP
         options.push({ p1: standardHalf, p2: p2_standard, deviation: 0 });
     }
 
-    if (!step || !limit || step <= 0 || limit <= 0) {
-        if (options.length === 0) options.push({ p1: standardHalf, p2: p2_standard, deviation: 0 });
-        return options;
-    }
+    let realStep = 1;
 
-    // Quét Zic-Zac (Zig-Zag)
-    for (let d = step; d <= limit; d += step) {
-        // Thử giảm (ví dụ 49/51)
-        let p1_minus = standardHalf - d;
-        let p2_minus = totalDuration - p1_minus;
-        if (p1_minus >= minP1 && p1_minus <= maxP1 && p2_minus >= minP2 && p2_minus <= maxP2) {
-            options.push({ p1: p1_minus, p2: p2_minus, deviation: -d });
+    if (isBF) {
+        for (let p1 = maxP1; p1 >= minP1; p1 -= realStep) {
+            if (p1 === standardHalf) continue;
+            let p2 = totalDuration - p1;
+            if (p2 >= minP2 && p2 <= maxP2) {
+                options.push({ p1: p1, p2: p2, deviation: Math.abs(p1 - standardHalf) });
+            }
         }
-
-        // Thử tăng (ví dụ 51/49)
-        let p1_plus = standardHalf + d;
-        let p2_plus = totalDuration - p1_plus;
-        if (p1_plus >= minP1 && p1_plus <= maxP1 && p2_plus >= minP2 && p2_plus <= maxP2) {
-            options.push({ p1: p1_plus, p2: p2_plus, deviation: d });
+    } else {
+        for (let p1 = minP1; p1 <= maxP1; p1 += realStep) {
+            if (p1 === standardHalf) continue;
+            let p2 = totalDuration - p1;
+            if (p2 >= minP2 && p2 <= maxP2) {
+                options.push({ p1: p1, p2: p2, deviation: Math.abs(p1 - standardHalf) });
+            }
         }
     }
 
