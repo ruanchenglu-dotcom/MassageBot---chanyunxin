@@ -2019,7 +2019,7 @@ const CoreAPI = {
             setIsChecking(true); setCheckResult(null); setSuggestions([]);
             let freshData = await fetchLiveServerData(true);
             let serverBookingsList = freshData ? freshData.bookings : (serverData?.bookings || []);
-            let serverStaffList = freshData ? freshData.staff : (serverData?.staff || safeStaffList);
+            let serverStaffList = freshData ? freshData.staffList : (serverData?.staffList || safeStaffList);
             let localBookingsList = safeBookings;
             let finalBookings = mergeBookingData(serverBookingsList, localBookingsList);
             if (editingBooking) { finalBookings = finalBookings.filter(b => b.rowId !== editingBooking.rowId); }
@@ -2151,7 +2151,7 @@ const CoreAPI = {
                 
                 let checkBookings = mergeBookingData(freshServerData?.bookings || [], safeBookings);
                 if (editingBooking) checkBookings = checkBookings.filter(b => b.rowId !== editingBooking.rowId);
-                const finalCheck = callCoreAvailabilityCheck(form.date, form.time, guestDetails, checkBookings, freshServerData?.staff || safeStaffList);
+                const finalCheck = callCoreAvailabilityCheck(form.date, form.time, guestDetails, checkBookings, freshServerData?.staffList || safeStaffList);
 
                 if (!finalCheck.valid) {
                     Swal.fire('系統提示', "⚠️ 數據已變更，無法預約：" + finalCheck.reason, 'error');
