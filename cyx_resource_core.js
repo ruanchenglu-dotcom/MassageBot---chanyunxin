@@ -1308,10 +1308,10 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
                                     testBlocks.push({ start: requestStartMins, end: t1End + CONF.CLEANUP_BUFFER, type: 'CHAIR' });
                                     testBlocks.push({ start: t2Start, end: t2Start + split.p2 + CONF.CLEANUP_BUFFER, type: 'BED' });
                                 } else {
-                                    const t1End = requestStartMins + split.p2;
+                                    const t1End = requestStartMins + split.p1;
                                     const t2Start = t1End + CONF.TRANSITION_BUFFER;
                                     testBlocks.push({ start: requestStartMins, end: t1End + CONF.CLEANUP_BUFFER, type: 'BED' });
-                                    testBlocks.push({ start: t2Start, end: t2Start + split.p1 + CONF.CLEANUP_BUFFER, type: 'CHAIR' });
+                                    testBlocks.push({ start: t2Start, end: t2Start + split.p2 + CONF.CLEANUP_BUFFER, type: 'CHAIR' });
                                 }
                             } else {
                                 testBlocks = item.blocks;
@@ -1385,8 +1385,8 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
                 for (const split of splits) {
                     const sP1End = sb.startMins + split.p1; const sP2Start = sP1End + CONF.TRANSITION_BUFFER; const sP2End = sP2Start + split.p2;
                     const testBlocks = [
-                        { type: 'CHAIR', start: sb.startMins, end: sP1End + CONF.CLEANUP_BUFFER, forcedIndex: sb.blocks[0].forcedIndex },
-                        { type: 'BED', start: sP2Start, end: sP2End + CONF.CLEANUP_BUFFER, forcedIndex: sb.blocks[1] ? sb.blocks[1].forcedIndex : null }
+                        { type: sb.blocks[0].type, start: sb.startMins, end: sP1End + CONF.CLEANUP_BUFFER, forcedIndex: sb.blocks[0].forcedIndex },
+                        { type: sb.blocks[1].type, start: sP2Start, end: sP2End + CONF.CLEANUP_BUFFER, forcedIndex: sb.blocks[1] ? sb.blocks[1].forcedIndex : null }
                     ];
                     if (isBlockSetAllocatable(testBlocks, matrixSqueeze)) {
                         testBlocks.forEach(tb => matrixSqueeze.tryAllocate(tb.type, tb.start, tb.end, sb.id, tb.forcedIndex)); fit = true;
