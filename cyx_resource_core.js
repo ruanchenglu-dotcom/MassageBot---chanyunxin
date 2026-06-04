@@ -652,6 +652,7 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
 
         if (isCombo) {
             let foundValidSplit = false;
+            let bestOutOfBoundSplit = null;
             const eStep = svc.elasticStep || 1;
             const eLimit = svc.elasticLimit || 20;
             const flowPrimary = (explicitFlow === 'FB' || explicitFlow === 'BF') ? explicitFlow : 'FB';
@@ -659,7 +660,7 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
             const flowsToTry = [flowPrimary, flowSecondary];
             
             for (const testFlow of flowsToTry) {
-                const splitsToTry = generateElasticSplits(duration, eStep, eLimit, null, svc.minFoot, svc.maxFoot, svc.minBody, svc.maxBody, testFlow);
+                const splitsToTry = generateElasticSplits(duration, eStep, eLimit, null, svc.minFoot, svc.maxFoot, svc.minBody, svc.maxBody, testFlow, true);
                 
                 for (const split of splitsToTry) {
                     const p1 = split.p1;
@@ -678,11 +679,16 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
                         for (let c = 0; c < CONF.MAX_CHAIRS; c++) { if (checkLaneContinuity(simulationMap.CHAIR[c], tSwitch, tSwitch + p2)) { chairIdx = c; break; } }
 
                         if (bedIdx !== -1 && chairIdx !== -1) {
-                            simulationMap.BED[bedIdx].push({ start: tStart, end: tStart + p1 + phase1Cleanup });
-                            simulationMap.CHAIR[chairIdx].push({ start: tSwitch, end: tSwitch + p2 + CONF.CLEANUP_BUFFER });
-                            suggestedLanes[guestIdKey] = { BED: bedIdx + 1, CHAIR: chairIdx + 1 };
-                            foundValidSplit = true;
-                            break;
+                            if (split.shiftMins === 0) {
+                                simulationMap.BED[bedIdx].push({ start: tStart, end: tStart + p1 + phase1Cleanup });
+                                simulationMap.CHAIR[chairIdx].push({ start: tSwitch, end: tSwitch + p2 + CONF.CLEANUP_BUFFER });
+                                suggestedLanes[guestIdKey] = { BED: bedIdx + 1, CHAIR: chairIdx + 1 };
+                                foundValidSplit = true;
+                                bestOutOfBoundSplit = null;
+                                break;
+                            } else if (!bestOutOfBoundSplit) {
+                                bestOutOfBoundSplit = split;
+                            }
                         }
                     } else {
                         // Kịch bản B: Chân Trước (CHAIR -> BED)
@@ -690,11 +696,16 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
                         for (let b = 0; b < CONF.MAX_BEDS; b++) { if (checkLaneContinuity(simulationMap.BED[b], tSwitch, tSwitch + p2)) { bedIdx = b; break; } }
 
                         if (chairIdx !== -1 && bedIdx !== -1) {
-                            simulationMap.CHAIR[chairIdx].push({ start: tStart, end: tStart + p1 + phase1Cleanup });
-                            simulationMap.BED[bedIdx].push({ start: tSwitch, end: tSwitch + p2 + CONF.CLEANUP_BUFFER });
-                            suggestedLanes[guestIdKey] = { CHAIR: chairIdx + 1, BED: bedIdx + 1 };
-                            foundValidSplit = true;
-                            break;
+                            if (split.shiftMins === 0) {
+                                simulationMap.CHAIR[chairIdx].push({ start: tStart, end: tStart + p1 + phase1Cleanup });
+                                simulationMap.BED[bedIdx].push({ start: tSwitch, end: tSwitch + p2 + CONF.CLEANUP_BUFFER });
+                                suggestedLanes[guestIdKey] = { CHAIR: chairIdx + 1, BED: bedIdx + 1 };
+                                foundValidSplit = true;
+                                bestOutOfBoundSplit = null;
+                                break;
+                            } else if (!bestOutOfBoundSplit) {
+                                bestOutOfBoundSplit = split;
+                            }
                         }
                     }
                 }
@@ -702,7 +713,15 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
             }
 
             if (!foundValidSplit) {
-                return triggerSmartFailure(`⚠️ 在 ${getTimeStrFromMins(requestStart)} 沒有足夠的連續空位給套餐。`);
+                if (bestOutOfBoundSplit) {
+                    let suggestedTime = requestStart + bestOutOfBoundSplit.shiftMins;
+                    let timeStr = getTimeStrFromMins(suggestedTime);
+                    let actionText = bestOutOfBoundSplit.shiftMins > 0 ? '稍晚' : '提早';
+                    let shiftVal = Math.abs(bestOutOfBoundSplit.shiftMins);
+                    return triggerSmartFailure(`⚠️ 在 ${getTimeStrFromMins(requestStart)} 沒有完美符合的連續空位。建議您${actionText} ${shiftVal} 分鐘，改為 ${timeStr} 預約以滿足套餐標準。`);
+                } else {
+                    return triggerSmartFailure(`⚠️ 在 ${getTimeStrFromMins(requestStart)} 沒有足夠的連續空位給套餐。`);
+                }
             }
 
         } else {
@@ -831,51 +850,61 @@ function findAvailableStaff(staffReq, start, end, staffListRef, busyList, queryD
     }
 }
 
-function generateElasticSplits(totalDuration, step = 0, limit = 0, customLockedPhase1 = null, minFoot = null, maxFoot = null, minBody = null, maxBody = null, flow = 'FB') {
+function generateElasticSplits(totalDuration, step = 0, limit = 0, customLockedPhase1 = null, minFoot = null, maxFoot = null, minBody = null, maxBody = null, flow = 'FB', includeOutOfBounds = false) {
     if (customLockedPhase1 !== null && customLockedPhase1 !== undefined && !isNaN(customLockedPhase1)) {
-        return [{ p1: parseInt(customLockedPhase1), p2: totalDuration - parseInt(customLockedPhase1), deviation: 999 }];
+        return [{ p1: parseInt(customLockedPhase1), p2: totalDuration - parseInt(customLockedPhase1), deviation: 999, shiftMins: 0 }];
     }
     const standardHalf = Math.floor(totalDuration / 2);
     let options = [];
 
-    let minP1 = 15, maxP1 = totalDuration - 15;
-    let minP2 = 15, maxP2 = totalDuration - 15;
+    let strictMinP1 = 15, strictMaxP1 = totalDuration - 15;
+    let strictMinP2 = 15, strictMaxP2 = totalDuration - 15;
 
     const isBF = (flow === 'BF');
     if (isBF) {
-        if (minBody) minP1 = Math.max(minP1, minBody);
-        if (maxBody) maxP1 = Math.min(maxP1, maxBody);
-        if (minFoot) minP2 = Math.max(minP2, minFoot);
-        if (maxFoot) maxP2 = Math.min(maxP2, maxFoot);
+        if (minBody) strictMinP1 = Math.max(strictMinP1, minBody);
+        if (maxBody) strictMaxP1 = Math.min(strictMaxP1, maxBody);
+        if (minFoot) strictMinP2 = Math.max(strictMinP2, minFoot);
+        if (maxFoot) strictMaxP2 = Math.min(strictMaxP2, maxFoot);
     } else {
-        if (minFoot) minP1 = Math.max(minP1, minFoot);
-        if (maxFoot) maxP1 = Math.min(maxP1, maxFoot);
-        if (minBody) minP2 = Math.max(minP2, minBody);
-        if (maxBody) maxP2 = Math.min(maxP2, maxBody);
+        if (minFoot) strictMinP1 = Math.max(strictMinP1, minFoot);
+        if (maxFoot) strictMaxP1 = Math.min(strictMaxP1, maxFoot);
+        if (minBody) strictMinP2 = Math.max(strictMinP2, minBody);
+        if (maxBody) strictMaxP2 = Math.min(strictMaxP2, maxBody);
     }
 
+    let lowerBoundP1 = Math.max(strictMinP1, totalDuration - strictMaxP2);
+    let upperBoundP1 = Math.min(strictMaxP1, totalDuration - strictMinP2);
+
+    let scanMinP1 = includeOutOfBounds ? 15 : lowerBoundP1;
+    let scanMaxP1 = includeOutOfBounds ? (totalDuration - 15) : upperBoundP1;
+
     let p2_standard = totalDuration - standardHalf;
-    if (standardHalf >= minP1 && standardHalf <= maxP1 && p2_standard >= minP2 && p2_standard <= maxP2) {
-        options.push({ p1: standardHalf, p2: p2_standard, deviation: 0 });
-    }
+
+    const addOption = (p1) => {
+        let p2 = totalDuration - p1;
+        let shiftMins = 0;
+        if (p1 > upperBoundP1) shiftMins = p1 - upperBoundP1;
+        else if (p1 < lowerBoundP1) shiftMins = p1 - lowerBoundP1;
+        
+        if (!includeOutOfBounds && shiftMins !== 0) return;
+        
+        options.push({ p1: p1, p2: p2, deviation: Math.abs(p1 - standardHalf), shiftMins: shiftMins });
+    };
+
+    addOption(standardHalf);
 
     let realStep = 1;
 
     if (isBF) {
-        for (let p1 = maxP1; p1 >= minP1; p1 -= realStep) {
+        for (let p1 = scanMaxP1; p1 >= scanMinP1; p1 -= realStep) {
             if (p1 === standardHalf) continue;
-            let p2 = totalDuration - p1;
-            if (p2 >= minP2 && p2 <= maxP2) {
-                options.push({ p1: p1, p2: p2, deviation: Math.abs(p1 - standardHalf) });
-            }
+            addOption(p1);
         }
     } else {
-        for (let p1 = minP1; p1 <= maxP1; p1 += realStep) {
+        for (let p1 = scanMinP1; p1 <= scanMaxP1; p1 += realStep) {
             if (p1 === standardHalf) continue;
-            let p2 = totalDuration - p1;
-            if (p2 >= minP2 && p2 <= maxP2) {
-                options.push({ p1: p1, p2: p2, deviation: Math.abs(p1 - standardHalf) });
-            }
+            addOption(p1);
         }
     }
 
@@ -888,7 +917,7 @@ function generateElasticSplits(totalDuration, step = 0, limit = 0, customLockedP
             uniqueOptions.push(opt);
         }
     }
-    if (uniqueOptions.length === 0) uniqueOptions.push({ p1: standardHalf, p2: p2_standard, deviation: 0 });
+    if (uniqueOptions.length === 0) uniqueOptions.push({ p1: standardHalf, p2: p2_standard, deviation: 0, shiftMins: 0 });
     return uniqueOptions;
 }
 
