@@ -19,6 +19,20 @@
 require('dotenv').config();
 const { google } = require('googleapis');
 const ResourceCore = require('./cyx_resource_core'); // Core logic for Matrix & Rules
+
+class AsyncLock {
+    constructor() { this.promise = Promise.resolve(); }
+    async acquire() {
+        let release;
+        const nextPromise = new Promise(resolve => { release = resolve; });
+        const prevPromise = this.promise;
+        this.promise = prevPromise.then(() => nextPromise);
+        await prevPromise;
+        return release;
+    }
+}
+const bookingLock = new AsyncLock();
+
 let BOOKING_SHEET_NAME, STAFF_SHEET_NAME, MENU_SHEET_NAME, STAFF_LIST_SHEET_NAME, SALARY_LOG_SHEET_NAME, BLACKLIST_SHEET_NAME;
 
 let cachedConfig = null;
@@ -780,6 +794,23 @@ async function ghiVaoSheet(data, proposedUpdates = []) {
         }
 
         if (valuesToWrite.length > 0) {
+            // [OPTIMISTIC CACHE UPDATE]
+            valuesToWrite.forEach(r => {
+                STATE.cachedBookings.push({
+                    rowId: 'OPT_' + Date.now() + '_' + Math.floor(Math.random()*1000),
+                    opDate: r[0],
+                    startTimeString: r[1],
+                    customerName: r[2],
+                    status: r[9],
+                    flow: r[25],
+                    phase1_duration: r[28],
+                    phase2_duration: r[30],
+                    duration: (parseInt(r[28]) || 0) + (parseInt(r[30]) || 0),
+                    phase1_res_idx: r[32],
+                    phase2_res_idx: r[33]
+                });
+            });
+
             await sheets.spreadsheets.values.append({
                 spreadsheetId: SHEET_ID, range: `${BOOKING_SHEET_NAME}!A:A`,
                 valueInputOption: 'USER_ENTERED', requestBody: { values: valuesToWrite }
@@ -1789,5 +1820,8 @@ module.exports = {
     normalizeDateStrict,
     smartFindServiceCode,
     getTaipeiNow,
-    formatDateTimeString
+    getTaipeiNow,
+    formatDateTimeString,
+    bookingLock,
+    _checkOverlapConflict
 };

@@ -87,1131 +87,1284 @@
     // PHẦN 1: CORE KERNEL (CLIENT-SIDE BRAIN)
     // ========================================================================
     const CoreKernel = (function () {
+// --- START CORE LOGIC V118.0 ---
+﻿/*
+ * =================================================================================================
+ * PROJECT: XINWUCHAN MASSAGE BOT - CORE LOGIC KERNEL (SERVER SIDE)
+ * FILE: resource_core.js
+ * PHIÃŠN Báº¢N: V118.0 (UNIVERSAL SYNC & CONTINUOUS GUARDRAIL)
+ * NGÃ€Y Cáº¬P NHáº¬T: Má»›i nháº¥t
+ * TÃC GIáº¢: AI ASSISTANT & USER
+ *
+ * * * * * CHANGE LOG V118.0 (DATA & LOGIC SYNC) * * * * *
+ * 1. [CONFIG INJECTION] Loáº¡i bá» Hardcode. Tá»± Ä‘á»™ng Ä‘á»c cáº¥u hÃ¬nh MAX_CHAIRS, MAX_BEDS, OPEN_HOUR
+ * tá»« file cyx_data.js (SYSTEM_CONFIG). Há»— trá»£ cháº¡y trÃªn cáº£ Node.js vÃ  Browser.
+ * 2. [ALGORITHM SYNC] BÃª nguyÃªn thuáº­t toÃ¡n "Continuous Scan Guardrail" (chá»‘ng phÃ¢n máº£nh
+ * khoáº£ng trá»‘ng) tá»« bookingHandler.js (Frontend) sang. Äáº£m báº£o Backend vÃ  Frontend
+ * Ä‘á»“ng bá»™ 100% káº¿t quáº£ kiá»ƒm tra chá»— trá»‘ng.
+ * 3. [PRESERVED] Giá»¯ nguyÃªn logic V117.0 (Squeeze Logic, Phase Resource Coordinate Mapping).
+ * =================================================================================================
+ */
 
-        // --- 1. CẤU HÌNH HỆ THỐNG ĐỘNG (DYNAMIC SYSTEM CONFIG) ---
-        const getSystemConfig = () => {
-            const ext = window.SYSTEM_CONFIG || {};
-            const scale = ext.SCALE || {};
-            const opTime = ext.OPERATION_TIME || {};
-            return {
-                MAX_CHAIRS: scale.MAX_CHAIRS || ext.MAX_CHAIRS,
-                MAX_BEDS: scale.MAX_BEDS || ext.MAX_BEDS,
-                MAX_TOTAL_GUESTS: ext.MAX_TOTAL_GUESTS || 18,
-                OPEN_HOUR: opTime.OPEN_HOUR || ext.OPEN_HOUR || 3,
-                CLEANUP_BUFFER: (ext.BUFFERS && ext.BUFFERS.CLEANUP_MINUTES) || ext.CLEANUP_BUFFER || 5,
-                TRANSITION_BUFFER: (ext.BUFFERS && ext.BUFFERS.TRANSITION_MINUTES) || ext.TRANSITION_BUFFER || 5,
-                TOLERANCE: (ext.LOGIC_RULES && ext.LOGIC_RULES.TOLERANCE) || ext.TOLERANCE || 1,
-                MAX_TIMELINE_MINS: opTime.TOTAL_TIMELINE_MINS || ext.MAX_TIMELINE_MINS || 1440,
-                CAPACITY_CHECK_STEP: ext.CAPACITY_CHECK_STEP || 10
-            };
+// ============================================================================
+// PHáº¦N 1: LIÃŠN Káº¾T Cáº¤U HÃŒNH TRUNG TÃ‚M (cyx_data.js)
+// ============================================================================
+
+function getSystemConfig() {
+    let dynamicConfig = null;
+
+    // Thá»­ táº£i cyx_data.js trong mÃ´i trÆ°á»ng Node.js (Backend)
+    if (typeof require !== 'undefined') {
+        try {
+            const dataModule = require('./cyx_data.js');
+            dynamicConfig = dataModule.SYSTEM_CONFIG;
+        } catch (e) {
+            console.warn("âš ï¸ [CORE V118.0] KhÃ´ng tÃ¬m tháº¥y file ./cyx_data.js qua require. Chá» Fallback.");
+        }
+    }
+
+    // Thá»­ táº£i tá»« Global Window náº¿u cháº¡y dÆ°á»›i dáº¡ng script trÃªn trÃ¬nh duyá»‡t (Frontend fallback)
+    if (!dynamicConfig && typeof window !== 'undefined' && window.SYSTEM_CONFIG) {
+        dynamicConfig = window.SYSTEM_CONFIG;
+    }
+
+    // FALLBACK AN TOÃ€N Tá»I Háº¬U (PhÃ²ng trÆ°á»ng há»£p file cyx_data.js bá»‹ lá»—i/máº¥t)
+    if (!dynamicConfig) {
+        dynamicConfig = {
+            SCALE: { MAX_CHAIRS: 9, MAX_BEDS: 9 },
+            OPERATION_TIME: { OPEN_HOUR: 3 },
+            BUFFERS: { CLEANUP_MINUTES: 5, TRANSITION_MINUTES: 5 },
+            LOGIC_RULES: { TOLERANCE: 5, CAPACITY_CHECK_STEP: 10 }
+        };
+    }
+    return dynamicConfig;
+}
+
+// Alias Ã¡nh xáº¡ cáº¥u hÃ¬nh Ä‘á»™ng Ä‘á»ƒ code phÃ­a dÆ°á»›i ngáº¯n gá»n vÃ  tÆ°Æ¡ng thÃ­ch ngÆ°á»£c, sá»­ dá»¥ng getter
+const CONF = {
+    get MAX_CHAIRS() { return getSystemConfig().SCALE.MAX_CHAIRS; },
+    get MAX_BEDS() { return getSystemConfig().SCALE.MAX_BEDS; },
+    get OPEN_HOUR() { return getSystemConfig().OPERATION_TIME.OPEN_HOUR; },
+    get CLEANUP_BUFFER() { return getSystemConfig().BUFFERS.CLEANUP_MINUTES; },
+    get TRANSITION_BUFFER() { return getSystemConfig().BUFFERS.TRANSITION_MINUTES; },
+    get TOLERANCE() { return getSystemConfig().LOGIC_RULES?.TOLERANCE || 1; },
+    get CAPACITY_CHECK_STEP() { return getSystemConfig().LOGIC_RULES?.CAPACITY_CHECK_STEP || 10; }
+};
+
+// ============================================================================
+// PHáº¦N 2: Dá»® LIá»†U Dá»ŠCH Vá»¤ VÃ€ UTILS THá»œI GIAN
+// ============================================================================
+
+let SERVICES = {};
+
+function setDynamicServices(newServicesObj) {
+    const systemServices = {
+        'OFF_DAY': { name: 'â›” è«‹å‡ (OFF)', duration: 1080, type: 'NONE', price: 0, category: 'SYSTEM' },
+        'BREAK_30': { name: 'ðŸ± ç”¨é¤ (Break)', duration: 30, type: 'NONE', price: 0, category: 'SYSTEM' },
+        'SHOP_CLOSE': { name: 'â›” åº—ä¼‘ (Close)', duration: 1440, type: 'NONE', price: 0, category: 'SYSTEM' },
+        'LATE': { name: 'âš ï¸ å»¶é² (Late)', duration: 0, type: 'NONE', price: 0, category: 'SYSTEM' }
+    };
+    SERVICES = { ...newServicesObj, ...systemServices };
+}
+
+function getServiceInfo(code, name) {
+    if (code && SERVICES[code]) return SERVICES[code];
+    if (name) {
+        const cleanName = name.toString().trim().toUpperCase();
+        for (const key in SERVICES) {
+            const svc = SERVICES[key];
+            if (svc.name && svc.name.toString().trim().toUpperCase() === cleanName) return svc;
+        }
+    }
+    return { name: name || 'Unknown', duration: 60, price: 0, type: 'CHAIR' };
+}
+
+function normalizeDateStrict(input) {
+    if (!input) return "";
+    try {
+        let dateObj;
+        if (typeof input === 'object' && input instanceof Date) {
+            dateObj = input;
+        } else if (typeof input === 'string' && input.includes('T')) {
+            dateObj = new Date(input);
+        } else if (typeof input === 'number' && input > 40000) {
+            dateObj = new Date(Math.round((input - 25569) * 86400 * 1000));
+        } else {
+            const dateString = input.toString().trim().replace(/-/g, '/');
+            dateObj = new Date(dateString);
+        }
+
+        if (isNaN(dateObj.getTime())) return "";
+
+        const taipeiTimeStr = dateObj.toLocaleString("en-US", { timeZone: "Asia/Taipei" });
+        const taipeiDate = new Date(taipeiTimeStr);
+        const y = taipeiDate.getFullYear();
+        const m = String(taipeiDate.getMonth() + 1).padStart(2, '0');
+        const d = String(taipeiDate.getDate()).padStart(2, '0');
+        return `${y}/${m}/${d}`;
+    } catch (e) {
+        console.error("[CORE V118.0] Date Normalize Error:", e);
+        return input;
+    }
+}
+
+function getTaipeiNow() {
+    const d = new Date();
+    const utc = d.getTime() + (d.getTimezoneOffset() * 60000);
+    return new Date(utc + (3600000 * 8));
+}
+
+function getMinsFromTimeStr(timeStr) {
+    if (!timeStr) return -1;
+    try {
+        let str = timeStr.toString();
+        if (str.includes('T') || str.includes(' ')) {
+            const timeMatch = str.match(/(\d{1,2}):(\d{2})/);
+            if (timeMatch) str = timeMatch[0];
+        }
+        let cleanStr = str.trim().replace(/ï¼š/g, ':');
+        const parts = cleanStr.split(':');
+        if (parts.length < 2) return -1;
+
+        let h = parseInt(parts[0], 10);
+        let m = parseInt(parts[1], 10);
+
+        if (isNaN(h) || isNaN(m)) return -1;
+        // [V118.2] PhÃ³ng chiáº¿u giá» ráº¡ng sÃ¡ng cho thuáº­t toÃ¡n váº¯t chÃ©o ngÃ y (0h-8h)
+        if (h < 8) h += 24;
+        return (h * 60) + m;
+    } catch (e) { return -1; }
+}
+
+function getTimeStrFromMins(mins) {
+    let h = Math.floor(mins / 60); let m = mins % 60;
+    if (h >= 24) h -= 24;
+    return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+}
+
+function isOverlap(startA, endA, startB, endB) {
+    const safeEndA = endA - CONF.TOLERANCE;
+    const safeEndB = endB - CONF.TOLERANCE;
+    return (startA < safeEndB) && (startB < safeEndA);
+}
+
+function isActiveBookingStatus(statusRaw) {
+    if (!statusRaw) return true; // Cáº¦N ÄÆ¯á»¢C COI LÃ€ ACTIVE nÃªÌu status trÃ´Ìng
+    const s = statusRaw.toString().toLowerCase().trim();
+    const inactiveKeywords = ['cancel', 'há»§y', 'huá»·', 'finish', 'done', 'xong', 'check-out', 'checkout', 'å–æ¶ˆ', 'å®Œæˆ', 'ç©º'];
+    for (const kw of inactiveKeywords) { if (s.includes(kw)) return false; }
+    return true;
+}
+
+// ============================================================================
+// PHáº¦N 3: Bá»˜ NHáº¬N DIá»†N THÃ”NG MINH
+// ============================================================================
+
+function isComboService(serviceObj, serviceNameRaw = '', explicitFlow = null) {
+    if (explicitFlow) {
+        const flowUpper = explicitFlow.toString().toUpperCase().trim();
+        if (['SINGLE', 'FOOTSINGLE', 'BODYSINGLE'].includes(flowUpper)) return false;
+        if (flowUpper === 'BF' || flowUpper === 'FB') return true;
+    }
+    if (!serviceObj && !serviceNameRaw) return false;
+    const cat = (serviceObj && serviceObj.category ? serviceObj.category : '').toString().toUpperCase().trim();
+    if (cat === 'COMBO' || cat === 'MIXED') return true;
+
+    const dbName = (serviceObj && serviceObj.name ? serviceObj.name : '').toString().toUpperCase();
+    const rawName = (serviceNameRaw || '').toString().toUpperCase();
+    const nameToCheck = dbName + " | " + rawName;
+    const comboKeywords = ['COMBO', 'å¥—é¤', 'MIX', '+', 'SET', 'è…³èº«', 'å…¨é¤', 'FOOT AND BODY', 'BODY AND FOOT', 'é›™äºº', 'Aé¤', 'Bé¤', 'Cé¤', 'æ²¹å£“+è¶³'];
+    for (const kw of comboKeywords) { if (nameToCheck.includes(kw)) return true; }
+    return false;
+}
+
+function inferFlowFromService(serviceObj, fallbackFlow = null) {
+    if (fallbackFlow) {
+        const f = fallbackFlow.toString().toUpperCase().trim();
+        if (f === 'FOOTSINGLE' || f === 'BODYSINGLE') return f;
+    }
+    if (!serviceObj) return 'BODYSINGLE';
+    const type = (serviceObj.type || '').toUpperCase();
+    const name = (serviceObj.name || '').toUpperCase();
+
+    if (type === 'FOOT' || type === 'CHAIR' || type === 'LEG') return 'FOOTSINGLE';
+    if (type === 'BODY' || type === 'BED' || type === 'OIL' || type === 'SPA') return 'BODYSINGLE';
+
+    const cat = (serviceObj.category || '').toUpperCase();
+    if (cat === 'FOOT') return 'FOOTSINGLE';
+    if (cat === 'BODY') return 'BODYSINGLE';
+
+    if (name.match(/FOOT|CHAIR|è…³|è¶³|LEG/)) return 'FOOTSINGLE';
+    if (name.match(/BODY|BED|æŒ‡å£“|æ²¹|å…¨èº«|BACK/)) return 'BODYSINGLE';
+    return 'BODYSINGLE';
+}
+
+function detectResourceType(serviceObj) {
+    if (!serviceObj) return 'CHAIR';
+    if (serviceObj.type === 'BED' || serviceObj.type === 'CHAIR') return serviceObj.type;
+    const name = (serviceObj.name || '').toUpperCase();
+    if (name.match(/BODY|æŒ‡å£“|æ²¹|BED|TOAN THAN|å…¨èº«|æ²¹å£“|SPA|BACK/)) return 'BED';
+    return 'CHAIR';
+}
+
+function calculateRealDurations(booking, defaultDuration, isCombo) {
+    let p1 = Math.floor(defaultDuration / 2);
+    let p2 = defaultDuration - p1;
+
+    const parseDuration = (val) => {
+        if (val === undefined || val === null) return null;
+        const strVal = String(val).trim();
+        if (strVal === "") return null;
+        const num = parseInt(strVal, 10);
+        return isNaN(num) ? null : num;
+    };
+
+    const parsedP1 = parseDuration(booking.phase1_duration) ?? parseDuration(booking.originalData?.phase1_duration);
+    if (parsedP1 !== null) p1 = parsedP1;
+
+    const parsedP2 = parseDuration(booking.phase2_duration) ?? parseDuration(booking.originalData?.phase2_duration);
+    if (parsedP2 !== null) p2 = parsedP2;
+
+    const realDuration = isCombo ? (p1 + p2 + CONF.TRANSITION_BUFFER) : defaultDuration;
+    return { p1, p2, realDuration };
+}
+
+function parseStaffStatus(staffInfo, queryDateStr = null) {
+    if (!staffInfo) return { isAvailable: false };
+    let isOff = false;
+    
+    const normDate = queryDateStr ? normalizeDateStrict(queryDateStr) : null;
+
+    // Check offDays first
+    if (normDate && staffInfo.offDays && staffInfo.offDays.includes(normDate)) {
+        isOff = true;
+    } else if (!normDate && staffInfo.off === true) {
+        isOff = true;
+    }
+    
+    if (typeof staffInfo.off === 'string' && ['TRUE', 'YES', 'OFF'].includes(staffInfo.off.toUpperCase())) isOff = true;
+
+    // Resolve shift times
+    let currentStartStr = staffInfo.start;
+    let currentEndStr = staffInfo.end;
+    
+    if (normDate && staffInfo.customShifts && staffInfo.customShifts[normDate]) {
+        currentStartStr = staffInfo.customShifts[normDate].start;
+        currentEndStr = staffInfo.customShifts[normDate].end;
+    }
+
+    const startStr = (currentStartStr || "").toString().toUpperCase();
+    if (startStr.includes('OFF') || startStr.includes('NGHá»ˆ') || startStr.includes('CLOSE')) isOff = true;
+    if (isOff) return { isAvailable: false, reason: "MARKED_OFF" };
+
+    let startMins = getMinsFromTimeStr(currentStartStr);
+    let endMins = getMinsFromTimeStr(currentEndStr);
+    if (startMins === -1 || endMins === -1) return { isAvailable: false, reason: "INVALID_TIME" };
+
+    // [CORE V118.1] Fix Overnight Shifts (Ca XuyÃªn ÄÃªm)
+    if (endMins < startMins) {
+        endMins += 1440;
+    }
+
+    return { isAvailable: true, startMins: startMins, endMins: endMins, isStrict: staffInfo.isStrictTime === true };
+}
+
+function getEligibleStaffCount(staffList, currentTimeMins, requiredEndTime, queryDateStr = null) {
+    let count = 0;
+    for (const [staffName, info] of Object.entries(staffList)) {
+        const status = parseStaffStatus(info);
+        if (!status.isAvailable) continue;
+        const shiftStart = status.startMins; const shiftEnd = status.endMins;
+        // [CORE V118.1] Thuáº­t toÃ¡n PhÃ¢n Ä‘oáº¡n Ca ÄÃªm
+        let inMain = true;
+        if (currentTimeMins < shiftStart) inMain = false;
+        else if (status.isStrict && shiftEnd < (requiredEndTime - CONF.TOLERANCE)) inMain = false;
+        else if (currentTimeMins >= shiftEnd) inMain = false;
+
+        let inTail = false;
+        if (shiftEnd > 1440) {
+            const origEnd = shiftEnd - 1440;
+            inTail = true;
+            if (currentTimeMins < 0) inTail = false;
+            else if (status.isStrict && origEnd < (requiredEndTime - CONF.TOLERANCE)) inTail = false;
+            else if (currentTimeMins >= origEnd) inTail = false;
+        }
+
+        if (inMain || inTail) {
+            count++;
+        }
+    }
+    return count;
+}
+
+// ============================================================================
+// PHáº¦N 4: HÃ€NG RÃ€O DUNG LÆ¯á»¢NG (GUARDRAIL V118.0)
+// Ãp dá»¥ng thuáº­t toÃ¡n Continuous Scan tá»« bookingHandler.js
+// ============================================================================
+
+function checkLaneContinuity(laneOccupiedArr, start, end, customCleanup = null) {
+    const cleanup = customCleanup !== null ? customCleanup : CONF.CLEANUP_BUFFER;
+    const safeEnd = end + cleanup;
+    for (let block of laneOccupiedArr) {
+        if (isOverlap(start, safeEnd, block.start, block.end)) return false;
+    }
+    return true;
+}
+
+function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBookingsRaw, staffList, queryDateStr, isSimulation = false) {
+    // Helper to trigger smart search if not in simulation
+    const triggerSmartFailure = (reasonMsg) => {
+        if (isSimulation) return { pass: false, reason: reasonMsg };
+        
+        let foundMins = -1;
+        let searchStart = Math.max(requestStart + 10, 0); 
+        
+        // QuÃ©t Ä‘áº¿n cuá»‘i ngÃ y hoáº·c ca Ä‘Ãªm (1440 + 360 = 1800)
+        for (let t = searchStart; t <= 1800; t += 10) {
+            let sim = validateGlobalCapacity(t, maxDuration, guestList, currentBookingsRaw, staffList, queryDateStr, true);
+            if (sim.pass) {
+                foundMins = t;
+                break;
+            }
+        }
+        
+        if (foundMins !== -1) {
+            const timeStr = getTimeStrFromMins(foundMins);
+            return { pass: false, reason: `${reasonMsg}\nðŸ’¡ æ™ºèƒ½å»ºè­°ï¼šæœ€å¿«å¯å®Œæ•´å®‰æŽ’ (å«æ‰€æœ‰éšŽæ®µ) çš„æ™‚é–“ç‚º ${timeStr} ä¹‹å¾Œã€‚`, debug: {} };
+        } else {
+            return { pass: false, reason: `${reasonMsg}\nâš ï¸ ä»Šæ—¥å¾ŒçºŒæ™‚æ®µå·²ç„¡è¶³å¤ è³‡æºå¯å®Œæ•´å®‰æŽ’æ­¤é ç´„ã€‚`, debug: {} };
+        }
+    };
+
+    // 1. Lá»c Booking há»£p lá»‡
+    const relevantBookings = currentBookingsRaw.filter(b => {
+        const bStart = getMinsFromTimeStr(b.startTimeString || b.startTime);
+        if (bStart === -1) return false;
+        if (!isActiveBookingStatus(b.status)) return false;
+        const svcInfo = getServiceInfo(b.serviceCode, b.serviceName);
+        const storedFlow = b.originalData?.flowCode || b.flow;
+        const isCombo = isComboService(svcInfo, b.serviceName, storedFlow);
+        const { realDuration } = calculateRealDurations(b, b.duration || 60, isCombo);
+        const bEnd = bStart + realDuration + CONF.CLEANUP_BUFFER;
+        return bEnd > requestStart;
+    });
+
+    // 2. Kiá»ƒm tra NhÃ¢n sá»± (Staff Capacity - V118.6 ÄÃ£ Ä‘á»“ng bá»™ Gender & Specific Staff Logic)
+    const normId = (id) => String(id || '').replace(/^0+/, '').trim().toUpperCase();
+
+    // [NEW] Táº¡o danh sÃ¡ch cÃ¡c Ä‘iá»ƒm cháº¡m thá»i gian (Time Points) Ä‘á»ƒ quÃ©t liÃªn tá»¥c (Continuous Scan)
+    let timePoints = new Set();
+    timePoints.add(requestStart);
+    
+    guestList.forEach(g => {
+        const svcInfo = getServiceInfo(g.serviceCode, g.serviceName);
+        const dur = svcInfo.duration || 60;
+        timePoints.add(requestStart + dur);
+    });
+
+    let staffBusyPeriods = {};
+    relevantBookings.forEach(b => {
+        const bS = getMinsFromTimeStr(b.startTimeString || b.startTime);
+        const bE = bS + (b.duration || 60) + CONF.CLEANUP_BUFFER;
+
+        let staffsInBooking = b.assignedStaffs && b.assignedStaffs.length > 0 ? b.assignedStaffs : [b.staffName];
+        for (const stf of staffsInBooking) {
+            if (stf) {
+                const sId = normId(stf);
+                if (!staffBusyPeriods[sId]) staffBusyPeriods[sId] = [];
+                staffBusyPeriods[sId].push({ start: bS, end: bE });
+            }
+        }
+        
+        // ThÃªm cÃ¡c Ä‘iá»ƒm Ä‘áº§u/cuá»‘i cá»§a booking cÅ© náº¿u nÃ³ rÆ¡i vÃ o khung giá» khÃ¡ch má»›i Ä‘ang xÃ©t
+        if (bS > requestStart && bS < requestStart + maxDuration) timePoints.add(bS);
+        if (bE > requestStart && bE < requestStart + maxDuration) timePoints.add(bE);
+    });
+
+    let sortedPoints = Array.from(timePoints).sort((a, b) => a - b);
+
+    // [NEW] Thuáº­t toÃ¡n Interval Overlap Continuous Scan cho NhÃ¢n sá»±
+    for (let i = 0; i < sortedPoints.length - 1; i++) {
+        let tCheck = sortedPoints[i];
+        
+        let currentStaffBusy = 0;
+        let currentFemaleBusy = 0;
+        let currentMaleBusy = 0;
+        
+        relevantBookings.forEach(b => {
+            const bS = getMinsFromTimeStr(b.startTimeString || b.startTime);
+            const svcInfo = getServiceInfo(b.serviceCode, b.serviceName);
+            const storedFlow = b.originalData?.flowCode || b.flow;
+            const isCombo = isComboService(svcInfo, b.serviceName, storedFlow);
+            const { realDuration } = calculateRealDurations(b, b.duration || 60, isCombo);
+            const bE = bS + realDuration + CONF.CLEANUP_BUFFER;
+            let staffsInBooking = b.assignedStaffs && b.assignedStaffs.length > 0 ? b.assignedStaffs : [b.staffName];
+            
+            if (tCheck >= bS && tCheck < bE) {
+                currentStaffBusy += staffsInBooking.length;
+                for (const staffName of staffsInBooking) {
+                    const sInfo = staffList[staffName] || Object.values(staffList).find(s => normId(s.name) === normId(staffName) || normId(s.id) === normId(staffName)) || {};
+                    if (sInfo.gender === 'F' || sInfo.gender === 'å¥³' || sInfo.group === 'å¥³') currentFemaleBusy++;
+                    else if (sInfo.gender === 'M' || sInfo.gender === 'ç”·' || sInfo.group === 'ç”·') currentMaleBusy++;
+                }
+            }
+        });
+        
+        let newGuestsActive = 0;
+        let newFemaleReq = 0;
+        let newMaleReq = 0;
+        
+        guestList.forEach(g => {
+            const svcInfo = getServiceInfo(g.serviceCode, g.serviceName);
+            const dur = svcInfo.duration || 60;
+            if (tCheck >= requestStart && tCheck < requestStart + dur) {
+                newGuestsActive++;
+                const req = g.staff;
+                // Náº¿u khÃ¡ch chá»n dáº§u (OIL), máº·c Ä‘á»‹nh yÃªu cáº§u ná»¯ (trá»« khi cÃ³ config khÃ¡c)
+                if (req === 'FEMALE' || req === 'å¥³' || req === 'å¥³å¸«' || req === 'OIL') newFemaleReq++;
+                else if (req === 'MALE' || req === 'ç”·' || req === 'ç”·å¸«') newMaleReq++;
+            }
+        });
+
+        // Äáº¿m sá»‘ nhÃ¢n viÃªn ÄANG LÃ€M VIá»†C táº¡i Ä‘Ãºng thá»i Ä‘iá»ƒm tCheck (Ä‘Ã£ trá»« lÃºc háº¿t ca)
+        const currentAvailableStaff = Object.values(staffList).filter(s => {
+            const status = parseStaffStatus(s, queryDateStr);
+            if (!status.isAvailable) return false;
+            let inMain = (tCheck >= status.startMins && tCheck < status.endMins);
+            let inTail = false;
+            if (status.endMins > 1440) {
+                const origEnd = status.endMins - 1440;
+                inTail = (tCheck >= 0 && tCheck < origEnd);
+            }
+            return inMain || inTail;
+        });
+
+        const currentSupplyCount = currentAvailableStaff.length;
+        const currentFemaleSupply = currentAvailableStaff.filter(s => s.gender === 'F' || s.gender === 'å¥³').length;
+        const currentMaleSupply = currentAvailableStaff.filter(s => s.gender === 'M' || s.gender === 'ç”·').length;
+        
+        if (newFemaleReq > 0 && (currentFemaleBusy + newFemaleReq) > currentFemaleSupply) {
+            return triggerSmartFailure(`âš ï¸ è©²æ™‚æ®µå¥³æŠ€å¸«ä¸è¶³ã€‚å¥³å¸«ç¸½å…±: ${currentFemaleSupply}, å¿™ç¢Œä¸­: ${currentFemaleBusy}, æ¬²é ç´„: ${newFemaleReq}`);
+        }
+        if (newMaleReq > 0 && (currentMaleBusy + newMaleReq) > currentMaleSupply) {
+            return triggerSmartFailure(`âš ï¸ è©²æ™‚æ®µç”·æŠ€å¸«ä¸è¶³ã€‚ç”·å¸«ç¸½å…±: ${currentMaleSupply}, å¿™ç¢Œä¸­: ${currentMaleBusy}, æ¬²é ç´„: ${newMaleReq}`);
+        }
+        if ((currentStaffBusy + newGuestsActive) > currentSupplyCount) {
+            return triggerSmartFailure(`âš ï¸ è©²æ™‚æ®µæŠ€å¸«ç¸½æ•¸ä¸è¶³ã€‚ç¸½å…±: ${currentSupplyCount}, å¿™ç¢Œä¸­: ${currentStaffBusy}, æ–°å®¢: ${newGuestsActive}`);
+        }
+    }
+
+    // Kiá»ƒm tra trÃ¹ng lá»‹ch cho nhÃ¢n viÃªn ÄÆ¯á»¢C CHá»ˆ Äá»ŠNH cá»¥ thá»ƒ (Specific Staff)
+    let specificStaffReqs = [];
+    guestList.forEach(g => {
+        const req = g.staff;
+        const svcInfo = getServiceInfo(g.serviceCode, g.serviceName);
+        const dur = svcInfo.duration || 60;
+        if (req && req !== 'RANDOM' && req !== 'éš¨æ©Ÿ' && req !== 'Any' && req !== 'undefined' && req !== 'null' 
+            && req !== 'FEMALE' && req !== 'MALE' && req !== 'å¥³' && req !== 'ç”·' && req !== 'å¥³å¸«' && req !== 'ç”·å¸«' && req !== 'OIL') {
+            const sId = normId(req);
+            specificStaffReqs.push({ req: sId, rawReq: req, duration: dur });
+        }
+    });
+
+    const reqCounts = {};
+    for (const specificReq of specificStaffReqs) {
+        reqCounts[specificReq.req] = (reqCounts[specificReq.req] || 0) + 1;
+    }
+    for (const [req, count] of Object.entries(reqCounts)) {
+        if (count > 1) {
+            if (isSimulation) return { pass: false, reason: 'Duplicate staff assigned' };
+            return { pass: false, reason: `âš ï¸ éŒ¯èª¤: ä¸å¯åŒæ™‚æŒ‡æ´¾ ${count} ä½å®¢äººçµ¦åŒä¸€æŠ€å¸« ${req}ã€‚`, debug: {} };
+        }
+    }
+
+    for (const specificReq of specificStaffReqs) {
+        const reqId = specificReq.req;
+        const rawName = specificReq.rawReq;
+        const dur = specificReq.duration;
+        const requiredEnd = requestStart + dur;
+
+        const sInfo = staffList[reqId] || Object.values(staffList).find(s => normId(s.name) === reqId || normId(s.id) === reqId);
+        if (sInfo) {
+            const status = parseStaffStatus(sInfo, queryDateStr);
+            // [CORE V118.0] Thuáº­t toÃ¡n PhÃ¢n Ä‘oáº¡n Ca ÄÃªm
+            let inMain = (requestStart >= status.startMins && requestStart < status.endMins);
+            let inTail = false;
+            if (status.endMins > 1440) {
+                const origEnd = status.endMins - 1440;
+                inTail = (requestStart >= 0 && requestStart < origEnd);
+            }
+            
+            if (!status.isAvailable || (!inMain && !inTail)) {
+                return triggerSmartFailure(`âš ï¸ æŠ€å¸« ${rawName} è©²æ™‚æ®µæœªæŽ’ç­æˆ–å·²ä¸‹ç­ã€‚`);
+            }
+
+            let busyBlocks = staffBusyPeriods[reqId] || [];
+            busyBlocks.sort((a, b) => a.start - b.start);
+
+            let isBusy = false;
+            for (const blk of busyBlocks) {
+                if (isOverlap(requestStart, requiredEnd, blk.start, blk.end)) {
+                    isBusy = true;
+                    break;
+                }
+            }
+
+            if (isBusy) {
+                return triggerSmartFailure(`âš ï¸ æŠ€å¸« ${rawName} è©²æ™‚æ®µå·²æœ‰é ç´„ã€‚`);
+            }
+        }
+    }
+
+    // 3. PhÃ¢n tÃ­ch tÃ i nguyÃªn chá»‘ng phÃ¢n máº£nh (Continuous Scan)
+    const resourceMap = {
+        'BED': Array.from({ length: CONF.MAX_BEDS }, () => []),
+        'CHAIR': Array.from({ length: CONF.MAX_CHAIRS }, () => [])
+    };
+
+    relevantBookings.forEach(b => {
+        const bStart = getMinsFromTimeStr(b.startTimeString || b.startTime);
+        const svcInfo = getServiceInfo(b.serviceCode, b.serviceName);
+        const storedFlow = b.originalData?.flowCode || b.flow;
+        const isCombo = isComboService(svcInfo, b.serviceName, storedFlow);
+        const { p1, realDuration } = calculateRealDurations(b, b.duration || 60, isCombo);
+
+        const rIdStr = (b.phase1_res_idx || "") + " " + (b.phase2_res_idx || "") + " " + (b.allocated_resource || "") + " " + (b.location || "") + " " + (b.current_resource_id || "") + " " + (b.rowId || "");
+        const matches = [...rIdStr.matchAll(/((?:BED|CHAIR|åºŠ|è¶³)[-_ ]?\d+)/gi)].map(m => m[1].toUpperCase());
+        let uniqueMatches = [...new Set(matches)];
+
+        // [V118.8 FIX] Há»— trá»£ trÃ­ch xuáº¥t sá»‘ gháº¿/giÆ°á»ng náº¿u chuá»—i chá»‰ cÃ³ sá»‘ Ä‘Æ¡n thuáº§n (phÃ²ng ngá»«a BÃ³ng Ma Toáº¡ Äá»™)
+        if (uniqueMatches.length === 0) {
+            const backupMatches = [...rIdStr.matchAll(/(\d+)/gi)].map(m => m[1]);
+            let inferredType = 'CHAIR';
+            if (svcInfo) {
+                if (svcInfo.type === 'BED' || svcInfo.type === 'CHAIR') inferredType = svcInfo.type;
+                else {
+                    const name = (svcInfo.name || '').toUpperCase();
+                    if (name.match(/BODY|æŒ‡å£“|æ²¹|BED|TOAN THAN|å…¨èº«|æ²¹å£“|SPA|BACK/)) inferredType = 'BED';
+                }
+            }
+            uniqueMatches = [...new Set(backupMatches)].map(num => `${inferredType}-${num}`);
+        }
+
+        const pushToMapFallback = (type, startT, endT) => {
+            let found = false;
+            let limit = (type === 'BED') ? CONF.MAX_BEDS : CONF.MAX_CHAIRS;
+            for (let i = 0; i < limit; i++) {
+                if (resourceMap[type] && resourceMap[type][i] && checkLaneContinuity(resourceMap[type][i], startT, endT - CONF.CLEANUP_BUFFER)) {
+                    resourceMap[type][i].push({ start: startT, end: endT });
+                    found = true;
+                    break;
+                }
+            }
+            if (!found && resourceMap[type] && resourceMap[type][0]) {
+                resourceMap[type][0].push({ start: startT, end: endT });
+            }
         };
 
-        let SERVICES = {};
-
-        function setDynamicServices(newServicesObj) {
-            const systemServices = {
-                'OFF_DAY': { name: '⛔ 請假 (OFF)', duration: 1080, type: 'NONE', price: 0, category: 'SYSTEM' },
-                'BREAK_30': { name: '🍱 用餐 (Break)', duration: 30, type: 'NONE', price: 0, category: 'SYSTEM' },
-                'SHOP_CLOSE': { name: '⛔ 店休 (Close)', duration: 1440, type: 'NONE', price: 0, category: 'SYSTEM' },
-                'LATE': { name: '⚠️ 延遲 (Late)', duration: 0, type: 'NONE', price: 0, category: 'SYSTEM' }
-            };
-            SERVICES = { ...newServicesObj, ...systemServices };
-        }
-
-        // --- UTILS THỜI GIAN ---
-        function getMinsFromTimeStr(timeStr) {
-            if (!timeStr) return -1;
-            const CONF = getSystemConfig();
-            try {
-                let str = timeStr.toString();
-                if (str.includes('T') || str.includes(' ')) {
-                    const timeMatch = str.match(/(\d{1,2}):(\d{2})/);
-                    if (timeMatch) str = timeMatch[0];
+        const pushToMap = (res, startT, endT, fallbackType) => {
+            let success = false;
+            if (res) {
+                const laneMatch = res.match(/(BED|CHAIR|åºŠ|è¶³)[-_ ]?(\d+)/i);
+                if (laneMatch) {
+                    const type = (laneMatch[1].toUpperCase().includes('BED') || laneMatch[1].includes('åºŠ')) ? 'BED' : 'CHAIR';
+                    const idx = parseInt(laneMatch[2]) - 1;
+                    if (resourceMap[type] && resourceMap[type][idx]) {
+                        resourceMap[type][idx].push({ start: startT, end: endT });
+                        success = true;
+                    }
                 }
-                let cleanStr = str.trim().replace(/：/g, ':');
-                const parts = cleanStr.split(':');
-                if (parts.length < 2) return -1;
-                let h = parseInt(parts[0], 10);
-                let m = parseInt(parts[1], 10);
-                if (isNaN(h) || isNaN(m)) return -1;
-                // [V118.2] Phóng chiếu giờ rạng sáng cho thuật toán vắt chéo ngày (0h-8h)
-                // Đảm bảo các hàm isOverlap hoạt động chính xác với ca xuyên đêm.
-                if (h < 8) h += 24;
-                return (h * 60) + m;
-            } catch (e) { return -1; }
-        }
-
-        function getTimeStrFromMins(mins) {
-            let h = Math.floor(mins / 60);
-            let m = mins % 60;
-            if (h >= 24) h -= 24;
-            return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
-        }
-
-        function isOverlap(startA, endA, startB, endB) {
-            const CONF = getSystemConfig();
-            const safeEndA = endA - CONF.TOLERANCE;
-            const safeEndB = endB - CONF.TOLERANCE;
-            return (startA < safeEndB) && (startB < safeEndA);
-        }
-
-        // --- BỘ LỌC TRẠNG THÁI SSOT ---
-        function isActiveBookingStatus(statusRaw) {
-            if (!statusRaw) return true; // CẦN ĐƯỢC COI LÀ ACTIVE nếu status trống
-            const s = statusRaw.toString().toLowerCase().trim();
-            const STATUS = getBookingStatus();
-
-            if (s === STATUS.COMPLETED.toLowerCase() || s === STATUS.CANCELLED.toLowerCase()) return false;
-
-            // Legacy keywords
-            const inactiveKeywords = ['cancel', 'hủy', 'huỷ', 'finish', 'done', 'xong', 'check-out', 'checkout', '取消', '完成', '空'];
-            for (const kw of inactiveKeywords) { if (s.includes(kw)) return false; }
-            return true;
-        }
-
-        function isStatusRunning(statusRaw) {
-            if (!statusRaw) return false;
-            const s = statusRaw.toString().toLowerCase().trim();
-            const STATUS = getBookingStatus();
-            if (s.includes(STATUS.SERVING.toLowerCase())) return true;
-            if (s.includes('running') || s.includes('doing')) return true;
-            return false;
-        }
-
-        function isComboService(serviceObj, serviceNameRaw = '', explicitFlow = null) {
-            if (explicitFlow) {
-                const flowUpper = explicitFlow.toString().toUpperCase().trim();
-                if (['SINGLE', 'FOOTSINGLE', 'BODYSINGLE'].includes(flowUpper)) return false;
-                if (flowUpper === 'BF' || flowUpper === 'FB') return true;
             }
-            if (!serviceObj && !serviceNameRaw) return false;
-            const cat = (serviceObj && serviceObj.category ? serviceObj.category : '').toString().toUpperCase().trim();
-            if (cat === 'COMBO' || cat === 'MIXED') return true;
-            const dbName = (serviceObj && serviceObj.name ? serviceObj.name : '').toString().toUpperCase();
-            const rawName = (serviceNameRaw || '').toString().toUpperCase();
-            const nameToCheck = dbName + " | " + rawName;
-            const comboKeywords = ['COMBO', '套餐', 'MIX', '+', 'SET', '腳身', '全餐', 'FOOT AND BODY', 'BODY AND FOOT', '雙人', 'A餐', 'B餐', 'C餐', '油壓+足'];
-            for (const kw of comboKeywords) { if (nameToCheck.includes(kw)) return true; }
-            return false;
-        }
+            if (!success && fallbackType) {
+                pushToMapFallback(fallbackType, startT, endT);
+            }
+        };
 
-        function detectResourceType(serviceObj) {
-            if (!serviceObj) return 'CHAIR';
-            if (serviceObj.type === 'BED' || serviceObj.type === 'CHAIR') return serviceObj.type;
-            const name = (serviceObj.name || '').toUpperCase();
-            if (name.match(/BODY|指壓|油|BED|TOAN THAN|全身|油壓|SPA|BACK/)) return 'BED';
-            return 'CHAIR';
-        }
+        if (isCombo) {
+            let res1 = null, res2 = null;
+            let type1 = 'BED'; let type2 = 'CHAIR';
+            let isBodyFirst = true;
 
-        // --- HELPER: REAL DURATION CALCULATION (FIX 1) ---
-        function calculateRealDurations(booking, defaultDuration, isCombo) {
-            const CONF = getSystemConfig();
-            let p1 = Math.floor(defaultDuration / 2);
-            let p2 = defaultDuration - p1;
-
-            const parseDuration = (val) => {
-                if (val === undefined || val === null) return null;
-                const strVal = String(val).trim();
-                if (strVal === "") return null;
-                const num = parseInt(strVal, 10);
-                return isNaN(num) ? null : num;
-            };
-
-            const parsedP1 = parseDuration(booking.phase1_duration) ?? parseDuration(booking.originalData?.phase1_duration);
-            if (parsedP1 !== null) p1 = parsedP1;
-
-            const parsedP2 = parseDuration(booking.phase2_duration) ?? parseDuration(booking.originalData?.phase2_duration);
-            if (parsedP2 !== null) p2 = parsedP2;
-
-            const realDuration = isCombo ? (p1 + p2 + CONF.TRANSITION_BUFFER) : defaultDuration;
-            return { p1, p2, realDuration };
-        }
-
-        function isMathematicallyActive(booking, currentQueryTimeMins) {
-            const CONF = getSystemConfig();
-            if (!isStatusRunning(booking.status)) return true;
-
-            const start = getMinsFromTimeStr(booking.startTime);
-            if (start === -1) return true;
-
-            const duration = parseInt(booking.duration) || 60;
-            const svcInfo = SERVICES[booking.serviceCode] || { name: booking.serviceName };
-            const storedFlow = booking.originalData?.flowCode || booking.flow;
-            const isCombo = isComboService(svcInfo, booking.serviceName, storedFlow);
-
-            const { realDuration } = calculateRealDurations(booking, duration, isCombo);
-
-            const realEnd = start + realDuration + CONF.CLEANUP_BUFFER;
-            if (currentQueryTimeMins >= realEnd) return false;
-            return true;
-        }
-
-        // --- LOGIC PHÂN TÍCH TÀI NGUYÊN ---
-        function inferResourceAtTime(booking, timeMins) {
-            const CONF = getSystemConfig();
-            const bStart = getMinsFromTimeStr(booking.startTime);
-            const duration = parseInt(booking.duration) || 60;
-
-            const svcInfo = SERVICES[booking.serviceCode] || { name: booking.serviceName };
-            const storedFlow = booking.originalData?.flowCode || booking.flow;
-            const isCombo = isComboService(svcInfo, booking.serviceName, storedFlow);
-
-            const { p1, realDuration } = calculateRealDurations(booking, duration, isCombo);
-
-            const bEnd = bStart + realDuration + CONF.CLEANUP_BUFFER;
-            if (timeMins < bStart || timeMins >= bEnd) return null;
-
-            if (storedFlow === 'FOOTSINGLE') return 'CHAIR';
-            if (storedFlow === 'BODYSINGLE') return 'BED';
-            if (storedFlow === 'SINGLE') return detectResourceType(svcInfo);
-
-            if (!isCombo) return detectResourceType(svcInfo);
-
-            let isBodyFirst = false;
-            const noteContent = (booking.note || booking.ghiChu || "").toString().toUpperCase();
             if (storedFlow === 'BF') isBodyFirst = true;
             else if (storedFlow === 'FB') isBodyFirst = false;
-            else if (noteContent.includes('BF') || noteContent.includes('BODY FIRST') || noteContent.includes('先做身體')) isBodyFirst = true;
-            else if (booking.allocated_resource && (booking.allocated_resource.includes('BED') || booking.allocated_resource.includes('BODY'))) isBodyFirst = true;
-
-            const splitTime = bStart + p1 + (CONF.TRANSITION_BUFFER / 2); // Approximate switch
-            if (timeMins < splitTime) return isBodyFirst ? 'BED' : 'CHAIR';
-            else return isBodyFirst ? 'CHAIR' : 'BED';
-        }
-
-        // --- CONTINUOUS SCAN GUARDRAIL ---
-        function checkLaneContinuity(laneOccupiedArr, start, end) {
-            const CONF = getSystemConfig();
-            const safeEnd = end + CONF.CLEANUP_BUFFER;
-            for (let block of laneOccupiedArr) {
-                if (isOverlap(start, safeEnd, block.start, block.end)) return false;
+            else {
+                const noteContent = (b.note || b.ghiChu || b.originalData?.ghiChu || "").toString().toUpperCase();
+                if (noteContent.includes('BF') || noteContent.includes('BODY FIRST') || noteContent.includes('å…ˆåšèº«é«”')) isBodyFirst = true;
+                else if (b._impliedFlow === 'BF') isBodyFirst = true;
             }
-            return true;
-        }
 
-        function resolveStaffShift(staffInfo, queryDateStr) {
-            let start = staffInfo.start;
-            let end = staffInfo.end;
-            let off = staffInfo.off;
-            
-            const normDate = queryDateStr ? (typeof normalizeDateStrict === 'function' ? normalizeDateStrict(queryDateStr) : queryDateStr.replace(/-/g, '/')) : null;
-            
-            if (normDate && staffInfo.offDays && staffInfo.offDays.includes(normDate)) {
-                off = true;
+            if (uniqueMatches.length >= 2) {
+                if (isBodyFirst) {
+                    res1 = uniqueMatches.find(r => r.includes('BED') || r.includes('åºŠ')) || uniqueMatches[0];
+                    res2 = uniqueMatches.find(r => r.includes('CHAIR') || r.includes('è¶³')) || uniqueMatches[1];
+                } else {
+                    res1 = uniqueMatches.find(r => r.includes('CHAIR') || r.includes('è¶³')) || uniqueMatches[0];
+                    res2 = uniqueMatches.find(r => r.includes('BED') || r.includes('åºŠ')) || uniqueMatches[1];
+                }
+            } else if (uniqueMatches.length === 1) {
+                const mType = (uniqueMatches[0].toUpperCase().includes('BED') || uniqueMatches[0].includes('åºŠ')) ? 'BED' : 'CHAIR';
+                if (isBodyFirst) {
+                    if (mType === 'BED') res1 = uniqueMatches[0];
+                    else res2 = uniqueMatches[0];
+                } else {
+                    if (mType === 'CHAIR') res1 = uniqueMatches[0];
+                    else res2 = uniqueMatches[0];
+                }
             }
             
-            if (normDate && staffInfo.customShifts && staffInfo.customShifts[normDate]) {
-                start = staffInfo.customShifts[normDate].start;
-                end = staffInfo.customShifts[normDate].end;
-            }
-            
-            return { start, end, off };
-        }
-
-
-        function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBookingsRaw, staffList, queryDateStr, isSimulation = false) {
-            const CONF = getSystemConfig();
-
-            const triggerSmartFailure = (reasonMsg) => {
-                if (isSimulation) return { pass: false, reason: reasonMsg };
-                
-                let foundMins = -1;
-                let searchStart = Math.max(requestStart + 10, 0); 
-                
-                for (let t = searchStart; t <= 1800; t += 10) {
-                    let sim = validateGlobalCapacity(t, maxDuration, guestList, currentBookingsRaw, staffList, queryDateStr, true);
-                    if (sim.pass) {
-                        foundMins = t;
-                        break;
-                    }
-                }
-                
-                if (foundMins !== -1) {
-                    const timeStr = getTimeStrFromMins(foundMins);
-                    return { pass: false, reason: `${reasonMsg}\n💡 智能建議：最快可完整安排 (含所有階段) 的時間為 ${timeStr} 之後。`, debug: {} };
-                } else {
-                    return { pass: false, reason: `${reasonMsg}\n⚠️ 今日後續時段已無足夠資源可完整安排此預約。`, debug: {} };
-                }
-            };
-
-            const resourceMap = {
-                'BED': Array.from({ length: CONF.MAX_BEDS }, () => []),
-                'CHAIR': Array.from({ length: CONF.MAX_CHAIRS }, () => [])
-            };
-
-            const relevantBookings = currentBookingsRaw.filter(b => {
-                const bStart = getMinsFromTimeStr(b.startTime);
-                if (bStart === -1) return false;
-                if (!isActiveBookingStatus(b.status)) return false;
-                if (!isMathematicallyActive(b, requestStart)) return false;
-
-                const svcInfo = SERVICES[b.serviceCode] || { name: b.serviceName };
-                const storedFlow = b.originalData?.flowCode || b.flow;
-                const isCombo = isComboService(svcInfo, b.serviceName, storedFlow);
-                const { realDuration } = calculateRealDurations(b, b.duration || 60, isCombo);
-
-                const bEnd = bStart + realDuration + CONF.CLEANUP_BUFFER;
-                return bEnd > requestStart;
-            });
-
-            relevantBookings.forEach(b => {
-                const bStart = getMinsFromTimeStr(b.startTime);
-                const svcInfo = SERVICES[b.serviceCode] || { name: b.serviceName };
-                const storedFlow = b.originalData?.flowCode || b.flow;
-                const isCombo = isComboService(svcInfo, b.serviceName, storedFlow);
-                const { p1, realDuration } = calculateRealDurations(b, b.duration || 60, isCombo);
-
-                const rIdStr = (b.phase1_res_idx || "") + " " + (b.phase2_res_idx || "") + " " + (b.allocated_resource || "") + " " + (b.location || "") + " " + (b.current_resource_id || "") + " " + (b.rowId || "");
-                const matches = [...rIdStr.matchAll(/((?:BED|CHAIR|床|足|腳)[-_ ]?\d+)/gi)].map(m => m[1].toUpperCase());
-                let uniqueMatches = [...new Set(matches)];
-
-                // [V118.8 FIX] Hỗ trợ trích xuất số ghế/giường nếu chuỗi chỉ có số đơn thuần (phòng ngừa Bóng Ma Toạ Độ)
-                if (uniqueMatches.length === 0) {
-                    const backupMatches = [...rIdStr.matchAll(/(\d+)/gi)].map(m => m[1]);
-                    let inferredType = 'CHAIR';
-                    if (svcInfo) {
-                        if (svcInfo.type === 'BED' || svcInfo.type === 'CHAIR') inferredType = svcInfo.type;
-                        else {
-                            const name = (svcInfo.name || '').toUpperCase();
-                            if (name.match(/BODY|指壓|油|BED|TOAN THAN|全身|油壓|SPA|BACK/)) inferredType = 'BED';
-                        }
-                    }
-                    uniqueMatches = [...new Set(backupMatches)].map(num => `${inferredType}-${num}`);
-                }
-
-                const pushToMapFallback = (type, startT, endT) => {
-                    if (resourceMap[type]) {
-                        for (let i = 0; i < resourceMap[type].length; i++) {
-                            const overlaps = resourceMap[type][i].some(blk => isOverlap(startT, endT, blk.start, blk.end));
-                            if (!overlaps) {
-                                resourceMap[type][i].push({ start: startT, end: endT });
-                                return true;
-                            }
-                        }
-                    }
-                    return false;
-                };
-
-                const pushToMap = (res, startT, endT, fallbackType) => {
-                    let success = false;
-                    if (res) {
-                        const laneMatch = res.match(/(BED|CHAIR|床|足|腳)[-_ ]?(\d+)/i);
-                        if (laneMatch) {
-                            const type = (laneMatch[1].toUpperCase().includes('BED') || laneMatch[1].includes('床')) ? 'BED' : 'CHAIR';
-                            const idx = parseInt(laneMatch[2]) - 1;
-                            if (resourceMap[type] && resourceMap[type][idx]) {
-                                resourceMap[type][idx].push({ start: startT, end: endT });
-                                success = true;
-                            }
-                        }
-                    }
-                    if (!success && fallbackType) {
-                        pushToMapFallback(fallbackType, startT, endT);
-                    }
-                };
-
-                if (isCombo) {
-                    let res1 = null, res2 = null;
-                    let type1 = 'BED'; let type2 = 'CHAIR';
-                    let isBodyFirst = true;
-
-                    if (storedFlow === 'BF') isBodyFirst = true;
-                    else if (storedFlow === 'FB') isBodyFirst = false;
-                    else {
-                        const noteContent = (b.note || b.ghiChu || b.originalData?.ghiChu || "").toString().toUpperCase();
-                        if (noteContent.includes('BF') || noteContent.includes('BODY FIRST') || noteContent.includes('先做身體')) isBodyFirst = true;
-                        else if (b._impliedFlow === 'BF') isBodyFirst = true;
-                    }
-
-                    if (uniqueMatches.length >= 2) {
-                        if (isBodyFirst) {
-                            res1 = uniqueMatches.find(r => r.includes('BED') || r.includes('床')) || uniqueMatches[0];
-                            res2 = uniqueMatches.find(r => r.includes('CHAIR') || r.includes('足')) || uniqueMatches[1];
-                        } else {
-                            res1 = uniqueMatches.find(r => r.includes('CHAIR') || r.includes('足')) || uniqueMatches[0];
-                            res2 = uniqueMatches.find(r => r.includes('BED') || r.includes('床')) || uniqueMatches[1];
-                        }
-                    } else if (uniqueMatches.length === 1) {
-                        const mType = (uniqueMatches[0].toUpperCase().includes('BED') || uniqueMatches[0].includes('床')) ? 'BED' : 'CHAIR';
-                        if (isBodyFirst) {
-                            if (mType === 'BED') res1 = uniqueMatches[0];
-                            else res2 = uniqueMatches[0];
-                        } else {
-                            if (mType === 'CHAIR') res1 = uniqueMatches[0];
-                            else res2 = uniqueMatches[0];
-                        }
-                    }
-                    
-                    if (!isBodyFirst) { type1 = 'CHAIR'; type2 = 'BED'; }
-
-                    pushToMap(res1, bStart, bStart + p1 + CONF.CLEANUP_BUFFER, type1);
-                    pushToMap(res2, bStart + p1 + CONF.TRANSITION_BUFFER, bStart + realDuration + CONF.CLEANUP_BUFFER, type2);
-                } else {
-                    let inferredType = 'BED';
-                    if (svcInfo) {
-                        if (svcInfo.type === 'CHAIR') inferredType = 'CHAIR';
-                        else if (storedFlow === 'FOOTSINGLE') inferredType = 'CHAIR';
-                    }
-                    if (uniqueMatches.length > 0) {
-                        uniqueMatches.forEach(res => {
-                            pushToMap(res, bStart, bStart + realDuration + CONF.CLEANUP_BUFFER, inferredType);
-                        });
-                    } else {
-                        pushToMapFallback(inferredType, bStart, bStart + realDuration + CONF.CLEANUP_BUFFER);
-                    }
-                }
-            });
-
-            const availableStaffList = Object.values(staffList).filter(s => {
-                const shiftInfo = resolveStaffShift(s, queryDateStr);
-                if (shiftInfo.off) return false;
-                const ss = getMinsFromTimeStr(shiftInfo.start);
-                let se = getMinsFromTimeStr(shiftInfo.end);
-
-                // [FRONTEND V118] Thuật toán Phân đoạn Ca Đêm
-                if (se < ss) {
-                    se += 1440;
-                }
-
-                let inMain = (requestStart >= ss && requestStart < se);
-                let inTail = false;
-                if (se > 1440) {
-                    const origSe = se - 1440;
-                    inTail = (requestStart >= 0 && requestStart < origSe);
-                }
-                return inMain || inTail;
-            });
-
-            const normId = (id) => String(id || '').replace(/^0+/, '').trim().toUpperCase();
-
-            const supplyCount = availableStaffList.length;
-            const femaleSupply = availableStaffList.filter(s => s.gender === 'F' || s.gender === '女').length;
-            const maleSupply = availableStaffList.filter(s => s.gender === 'M' || s.gender === '男').length;
-
-            let staffBusyCount = 0;
-            let femaleBusyCount = 0;
-            let maleBusyCount = 0;
-            let staffBusyPeriods = {}; // { '9': [{start, end}] }
-
-            relevantBookings.forEach(b => {
-                const bS = getMinsFromTimeStr(b.startTime);
-                const svcInfo = SERVICES[b.serviceCode] || { name: b.serviceName };
-                const storedFlow = b.originalData?.flowCode || b.flow;
-                const isCombo = isComboService(svcInfo, b.serviceName, storedFlow);
-                const { realDuration } = calculateRealDurations(b, b.duration || 60, isCombo);
-                const bE = bS + realDuration + CONF.CLEANUP_BUFFER;
-
-                let staffsInBooking = b.assignedStaffs && b.assignedStaffs.length > 0 ? b.assignedStaffs : [b.staffName];
-
-                for (const stf of staffsInBooking) {
-                    if (stf) {
-                        const sId = normId(stf);
-                        if (!staffBusyPeriods[sId]) staffBusyPeriods[sId] = [];
-                        staffBusyPeriods[sId].push({ start: bS, end: bE });
-                    }
-                }
-
-                if (isOverlap(requestStart, requestStart + maxDuration, bS, bE)) {
-                    staffBusyCount += staffsInBooking.length;
-
-                    for (const staffName of staffsInBooking) {
-                        const sInfo = staffList[staffName] || Object.values(staffList).find(s => normId(s.name) === normId(staffName) || normId(s.id) === normId(staffName)) || {};
-                        if (sInfo.gender === 'F' || sInfo.gender === '女' || sInfo.group === '女') femaleBusyCount++;
-                        else if (sInfo.gender === 'M' || sInfo.gender === '男' || sInfo.group === '男') maleBusyCount++;
-                    }
-                }
-            });
-
-            let femaleReqCount = 0;
-            let maleReqCount = 0;
-            let specificStaffReqs = [];
-
-            guestList.forEach(g => {
-                const req = g.staff;
-                if (req === 'FEMALE' || req === '女' || req === '女師') femaleReqCount++;
-                else if (req === 'MALE' || req === '男' || req === '男師') maleReqCount++;
-                else if (req && req !== '隨機' && req !== 'Any' && req !== 'undefined' && req !== 'null') {
-                    const sId = normId(req);
-                    specificStaffReqs.push({ req: sId, rawReq: req, duration: (SERVICES[g.serviceCode] || { duration: 60 }).duration || 60 });
-                }
-            });
-
-            // 1. SPECIFIC STAFF DUPLICATE CHECK
-            const reqCounts = {};
-            for (const specificReq of specificStaffReqs) {
-                reqCounts[specificReq.req] = (reqCounts[specificReq.req] || 0) + 1;
-            }
-            for (const [req, count] of Object.entries(reqCounts)) {
-                if (count > 1) {
-                    if (isSimulation) return { pass: false, reason: 'Duplicate staff assigned' };
-                    return { pass: false, reason: `⚠️ 錯誤: 不可同時指派 ${count} 位客人給同一技師 ${req}。`, debug: {} };
-                }
-            }
-
-            // 2. SPECIFIC STAFF SECURE CHECK & NEXT GAP PREDICTION
-            for (const specificReq of specificStaffReqs) {
-                const reqId = specificReq.req;
-                const rawName = specificReq.rawReq;
-                const dur = specificReq.duration;
-                const requiredEnd = requestStart + dur;
-
-                const sInfo = staffList[reqId] || Object.values(staffList).find(s => normId(s.name) === reqId || normId(s.id) === reqId);
-                if (sInfo) {
-                    const shiftInfo = resolveStaffShift(sInfo, queryDateStr);
-                    const ss = getMinsFromTimeStr(shiftInfo.start);
-                    let se = getMinsFromTimeStr(shiftInfo.end);
-                    if (se < ss) se += 1440;
-
-                    if (shiftInfo.off || requestStart < ss || requestStart >= se) {
-                        return triggerSmartFailure(`⚠️ 技師 ${rawName} 該時段未排班或已下班。`);
-                    }
-
-                    let busyBlocks = staffBusyPeriods[reqId] || [];
-                    busyBlocks.sort((a, b) => a.start - b.start);
-
-                    let isBusy = false;
-                    for (const blk of busyBlocks) {
-                        if (isOverlap(requestStart, requiredEnd, blk.start, blk.end)) {
-                            isBusy = true;
-                            break;
-                        }
-                    }
-
-                    if (isBusy) {
-                        return triggerSmartFailure(`⚠️ 技師 ${rawName} 該時段已有預約。`);
-                    }
-                }
-            }
-
-            // 3. GENDER POOL CHECK
-            if (femaleReqCount > 0 && (femaleBusyCount + femaleReqCount) > femaleSupply) {
-                return triggerSmartFailure(`⚠️ 女技師不足。女師總共: ${femaleSupply}, 忙碌中: ${femaleBusyCount}, 欲預約女師數: ${femaleReqCount}`);
-            }
-
-            if (maleReqCount > 0 && (maleBusyCount + maleReqCount) > maleSupply) {
-                return triggerSmartFailure(`⚠️ 男技師不足。男師總共: ${maleSupply}, 忙碌中: ${maleBusyCount}, 欲預約男師數: ${maleReqCount}`);
-            }
-
-            // 4. OVERALL POOL CHECK
-            if ((staffBusyCount + guestList.length) > supplyCount) {
-                return triggerSmartFailure(`⚠️ 技師總數不足。總共: ${supplyCount}, 忙碌中: ${staffBusyCount}, 新客: ${guestList.length}`);
-            }
-
-            // SIMULATION
-            const simulationMap = JSON.parse(JSON.stringify(resourceMap));
-            const suggestedLanes = {}; // [NEW V118.6]
-
-            for (let i = 0; i < guestList.length; i++) {
-                const g = guestList[i];
-                const svc = SERVICES[g.serviceCode] || { duration: 60 };
-                const duration = svc.duration || 60;
-                const isCombo = isComboService(svc, g.serviceCode, g.flowCode);
-                const guestIdKey = g.idx !== undefined ? g.idx : i; // Đảm bảo đúng index
-
-                if (isCombo) {
-                    let foundValidSplit = false;
-                    const eStep = svc.elasticStep || 1;
-                    const eLimit = svc.elasticLimit || 20;
-                    const flowsToTry = (g.flowCode === 'FB' || g.flowCode === 'BF') ? [g.flowCode] : ['FB', 'BF'];
-                    
-                    for (const testFlow of flowsToTry) {
-                        const splitsToTry = generateElasticSplits(duration, eStep, eLimit, null, svc, testFlow);
-                        
-                        for (const split of splitsToTry) {
-                            const p1 = split.p1;
-                            const p2 = split.p2;
-                            const tStart = requestStart;
-                            const tSwitch = tStart + p1 + CONF.TRANSITION_BUFFER;
-                            
-                            let bedIdx = -1, chairIdx = -1;
-                            
-                            if (testFlow === 'BF') {
-                                for (let b = 0; b < CONF.MAX_BEDS; b++) {
-                                    if (checkLaneContinuity(simulationMap.BED[b], tStart, tStart + p1)) { bedIdx = b; break; }
-                                }
-                                for (let c = 0; c < CONF.MAX_CHAIRS; c++) {
-                                    if (checkLaneContinuity(simulationMap.CHAIR[c], tSwitch, tSwitch + p2)) { chairIdx = c; break; }
-                                }
-                                if (bedIdx !== -1 && chairIdx !== -1) {
-                                    simulationMap.BED[bedIdx].push({ start: tStart, end: tStart + p1 + CONF.CLEANUP_BUFFER });
-                                    simulationMap.CHAIR[chairIdx].push({ start: tSwitch, end: tSwitch + p2 + CONF.CLEANUP_BUFFER });
-                                    suggestedLanes[guestIdKey] = { BED: bedIdx + 1, CHAIR: chairIdx + 1 };
-                                    foundValidSplit = true;
-                                    break;
-                                }
-                            } else {
-                                for (let c = 0; c < CONF.MAX_CHAIRS; c++) {
-                                    if (checkLaneContinuity(simulationMap.CHAIR[c], tStart, tStart + p1)) { chairIdx = c; break; }
-                                }
-                                for (let b = 0; b < CONF.MAX_BEDS; b++) {
-                                    if (checkLaneContinuity(simulationMap.BED[b], tSwitch, tSwitch + p2)) { bedIdx = b; break; }
-                                }
-                                if (chairIdx !== -1 && bedIdx !== -1) {
-                                    simulationMap.CHAIR[chairIdx].push({ start: tStart, end: tStart + p1 + CONF.CLEANUP_BUFFER });
-                                    simulationMap.BED[bedIdx].push({ start: tSwitch, end: tSwitch + p2 + CONF.CLEANUP_BUFFER });
-                                    suggestedLanes[guestIdKey] = { CHAIR: chairIdx + 1, BED: bedIdx + 1 };
-                                    foundValidSplit = true;
-                                    break;
-                                }
-                            }
-                        }
-                        if (foundValidSplit) break;
-                    }
-
-                    if (!foundValidSplit) {
-                        return triggerSmartFailure(`⚠️ 在 ${getTimeStrFromMins(requestStart)} 沒有足夠的連續空位給套餐。`);
-                    }
-
-                } else {
-                    let rType = 'CHAIR';
-                    if (g.flowCode === 'BODYSINGLE') rType = 'BED';
-                    else if (g.flowCode === 'FOOTSINGLE') rType = 'CHAIR';
-                    else rType = detectResourceType(svc);
-
-                    let foundIdx = -1;
-                    for (let k = 0; k < (rType === 'BED' ? CONF.MAX_BEDS : CONF.MAX_CHAIRS); k++) {
-                        if (checkLaneContinuity(simulationMap[rType][k], requestStart, requestStart + duration)) {
-                            foundIdx = k;
-                            break;
-                        }
-                    }
-
-                    if (foundIdx !== -1) {
-                        simulationMap[rType][foundIdx].push({ start: requestStart, end: requestStart + duration + CONF.CLEANUP_BUFFER });
-                        suggestedLanes[guestIdKey] = { [rType]: foundIdx + 1 };
-                    } else {
-                        return triggerSmartFailure(`⚠️ 已經沒有連續 ${duration} 分鐘的空${rType === 'BED' ? '床位' : '座位'}。`);
-                    }
-                }
-            }
-            return { pass: true, debug: { msg: "V118.6 Continuous Scan Passed" }, resourceMap: resourceMap, suggestedLanes: suggestedLanes };
-        }
-
-        // --- MATRIX ENGINE ---
-        class VirtualMatrix {
-            constructor() {
-                const CONF = getSystemConfig();
-                this.lanes = {
-                    'CHAIR': Array.from({ length: CONF.MAX_CHAIRS }, (_, i) => ({ id: `CHAIR-${i + 1}`, occupied: [] })),
-                    'BED': Array.from({ length: CONF.MAX_BEDS }, (_, i) => ({ id: `BED-${i + 1}`, occupied: [] }))
-                };
-                this.blockLog = [];
-            }
-            checkLaneFree(lane, start, end) {
-                for (let block of lane.occupied) {
-                    if (isOverlap(start, end, block.start, block.end)) {
-                        return { free: false, blocker: block };
-                    }
-                }
-                return { free: true };
-            }
-            allocateToLane(lane, start, end, ownerId) {
-                lane.occupied.push({ start, end, ownerId });
-                lane.occupied.sort((a, b) => a.start - b.start);
-                return lane.id;
-            }
-            tryAllocate(type, start, end, ownerId, preferredIndex = null, isForced = false) {
-                const resourceGroup = this.lanes[type];
-                if (!resourceGroup) return null;
-
-                if (preferredIndex !== null && preferredIndex > 0 && preferredIndex <= resourceGroup.length) {
-                    const targetLane = resourceGroup[preferredIndex - 1];
-                    // --- V118.4 BUG FIX: Dù có trùng lịch (checkLaneFree = false), nếu là isForced (đã được ấn định từ trước),
-                    // bắt buộc phải nhét vào targetLane để phục dựng chính xác lịch sử, tránh tạo Bóng Ma nhảy sang ghế khác! ---
-                    if (isForced || this.checkLaneFree(targetLane, start, end).free) {
-                        return this.allocateToLane(targetLane, start, end, ownerId);
-                    }
-                }
-                
-                // [V118.9 FIX] 恢復「從上到下緊湊排列」(Top-Down Packing) 邏輯，取消空位優先分配以避免視覺空隙。
-                // 不再根據 occupied.length 進行排序，而是保留原始順序 (CHAIR-1, CHAIR-2...) 進行分配。
-                let sortedLanes = [...resourceGroup];
-
-                for (let lane of sortedLanes) {
-                    const check = this.checkLaneFree(lane, start, end);
-                    if (check.free) {
-                        return this.allocateToLane(lane, start, end, ownerId);
-                    } else {
-                        const blockerTime = `${getTimeStrFromMins(check.blocker.start)}-${getTimeStrFromMins(check.blocker.end)}`;
-                        this.blockLog.push(`❌ ${lane.id} 被 ${check.blocker.ownerId} (${blockerTime}) 擋住`);
-                    }
-                }
-                
-                return null;
-            }
-        }
-
-        // --- HELPER LOGIC: STAFF MATCHING & ELASTIC (MULTI-STAFF ARRAY UPDATE) ---
-        function findAvailableStaff(staffReq, start, end, staffListRef, busyList, queryDateStr = null) {
-            const CONF = getSystemConfig();
-            const checkOneStaff = (name) => {
-                const staffInfo = staffListRef[name];
-                if (!staffInfo) return false;
-                const shiftInfo = resolveStaffShift(staffInfo, queryDateStr);
-                if (shiftInfo.off) return false;
-                const shiftStart = getMinsFromTimeStr(shiftInfo.start);
-                let shiftEnd = getMinsFromTimeStr(shiftInfo.end);
-                if (shiftStart === -1 || shiftEnd === -1) return false;
-
-                // [FRONTEND V118] Thuật toán Phân đoạn Ca Đêm
-                if (shiftEnd < shiftStart) {
-                    shiftEnd += 1440;
-                }
-
-                const isStrict = staffInfo.isStrictTime === true;
-                let inMain = true;
-                if ((start + CONF.TOLERANCE) < shiftStart) inMain = false;
-                else if (isStrict) {
-                    if ((end - CONF.TOLERANCE) > shiftEnd) inMain = false;
-                } else {
-                    if (start >= shiftEnd) inMain = false;
-                }
-
-                let inTail = false;
-                if (shiftEnd > 1440) {
-                    const origEnd = shiftEnd - 1440;
-                    inTail = true;
-                    if (start < 0) inTail = false;
-                    else if (isStrict) {
-                        if ((end - CONF.TOLERANCE) > origEnd) inTail = false;
-                    } else {
-                        if (start >= origEnd) inTail = false;
-                    }
-                }
-
-                if (!inMain && !inTail) return false;
-
-                // MULTI-STAFF FIX: Kiểm tra xem name có nằm trong mảng thợ của bất kỳ booking nào đang bận không
-                for (const b of busyList) {
-                    const staffArray = b.assignedStaffs || [b.staffName];
-                    if (staffArray.includes(name) && isOverlap(start, end, b.start, b.end)) return false;
-                }
-                if ((staffReq === 'MALE' || staffReq === '男' || staffReq === '男師') && staffInfo.gender !== 'M') return false;
-                if ((staffReq === 'FEMALE' || staffReq === '女' || staffReq === '女師') && staffInfo.gender !== 'F') return false;
-                return true;
-            };
-            if (staffReq && !['RANDOM', 'MALE', 'FEMALE', '隨機', 'Any', 'undefined', '男', '女', '男師', '女師'].includes(staffReq)) {
-                return checkOneStaff(staffReq) ? staffReq : null;
-            } else {
-                const allStaffNames = Object.keys(staffListRef);
-                for (const name of allStaffNames) {
-                    if (checkOneStaff(name)) return name;
-                }
-                return null;
-            }
-        }
-
-        function generateElasticSplits(totalDuration, step = 0, limit = 0, customLockedPhase1 = null, svcDef = null, flow = 'FB') {
-            if (customLockedPhase1 !== null && customLockedPhase1 !== undefined && !isNaN(customLockedPhase1)) {
-                return [{ p1: parseInt(customLockedPhase1), p2: totalDuration - parseInt(customLockedPhase1), deviation: 999 }];
-            }
-            const standardHalf = Math.floor(totalDuration / 2);
-            let options = [];
-            
-            let minP1 = 15, maxP1 = totalDuration - 15;
-            let minP2 = 15, maxP2 = totalDuration - 15;
-
-            if (svcDef) {
-                const isBF = (flow === 'BF');
-                if (isBF) {
-                    if (svcDef.minBody) minP1 = Math.max(minP1, svcDef.minBody);
-                    if (svcDef.maxBody) maxP1 = Math.min(maxP1, svcDef.maxBody);
-                    if (svcDef.minFoot) minP2 = Math.max(minP2, svcDef.minFoot);
-                    if (svcDef.maxFoot) maxP2 = Math.min(maxP2, svcDef.maxFoot);
-                } else {
-                    if (svcDef.minFoot) minP1 = Math.max(minP1, svcDef.minFoot);
-                    if (svcDef.maxFoot) maxP1 = Math.min(maxP1, svcDef.maxFoot);
-                    if (svcDef.minBody) minP2 = Math.max(minP2, svcDef.minBody);
-                    if (svcDef.maxBody) maxP2 = Math.min(maxP2, svcDef.maxBody);
-                }
-            }
-
-            // Push 50/50 đầu tiên nếu hợp lệ
-            let p2_standard = totalDuration - standardHalf;
-            if (standardHalf >= minP1 && standardHalf <= maxP1 && p2_standard >= minP2 && p2_standard <= maxP2) {
-                options.push({ p1: standardHalf, p2: p2_standard, deviation: 0 });
-            }
-
-            if (!step || !limit || step <= 0 || limit <= 0) {
-                if (options.length === 0) options.push({ p1: standardHalf, p2: p2_standard, deviation: 0 });
-                return options;
-            }
-
-            // Quét Zic-Zac (Zig-Zag)
-            for (let d = step; d <= limit; d += step) {
-                // Thử giảm (ví dụ 49/51)
-                let p1_minus = standardHalf - d;
-                let p2_minus = totalDuration - p1_minus;
-                if (p1_minus >= minP1 && p1_minus <= maxP1 && p2_minus >= minP2 && p2_minus <= maxP2) {
-                    options.push({ p1: p1_minus, p2: p2_minus, deviation: -d });
-                }
-
-                // Thử tăng (ví dụ 51/49)
-                let p1_plus = standardHalf + d;
-                let p2_plus = totalDuration - p1_plus;
-                if (p1_plus >= minP1 && p1_plus <= maxP1 && p2_plus >= minP2 && p2_plus <= maxP2) {
-                    options.push({ p1: p1_plus, p2: p2_plus, deviation: d });
-                }
-            }
-
-            const uniqueOptions = [];
-            const seen = new Set();
-            for (const opt of options) {
-                const key = `${opt.p1}-${opt.p2}`;
-                if (!seen.has(key)) {
-                    seen.add(key);
-                    uniqueOptions.push(opt);
-                }
-            }
-            if (uniqueOptions.length === 0) uniqueOptions.push({ p1: standardHalf, p2: p2_standard, deviation: 0 });
-            return uniqueOptions;
-        }
-
-        function isBlockSetAllocatable(blocks, matrix) {
-            for (const b of blocks) {
-                const laneGroup = matrix.lanes[b.type];
-                if (!laneGroup) return false;
-                let foundLaneForThisBlock = false;
-                if (b.forcedIndex && b.forcedIndex > 0 && b.forcedIndex <= laneGroup.length) {
-                    const targetLane = laneGroup[b.forcedIndex - 1];
-                    if (matrix.checkLaneFree(targetLane, b.start, b.end).free) {
-                        foundLaneForThisBlock = true;
-                    }
-                }
-                if (!foundLaneForThisBlock) {
-                    for (const lane of laneGroup) {
-                        if (matrix.checkLaneFree(lane, b.start, b.end).free) { foundLaneForThisBlock = true; break; }
-                    }
-                }
-                if (!foundLaneForThisBlock) return false;
-            }
-            return true;
-        }
-
-        // --- MAIN ENGINE ---
-        function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRaw, staffList) {
-            const CONF = getSystemConfig();
-            const requestStartMins = getMinsFromTimeStr(timeStr);
-            if (requestStartMins === -1) return { feasible: false, reason: "❌ 錯誤：時間格式無效" };
-
-            let maxGuestDuration = 0;
-            guestList.forEach(g => {
-                const s = SERVICES[g.serviceCode] || { duration: 60 };
-                const dur = s.duration || 60;
-                if (dur > maxGuestDuration) maxGuestDuration = dur;
-            });
-
-            const guardrailCheck = validateGlobalCapacity(
-                requestStartMins,
-                maxGuestDuration,
-                guestList,
-                currentBookingsRaw,
-                staffList,
-                dateStr
-            );
-
-            if (!guardrailCheck.pass) {
-                return { feasible: false, reason: guardrailCheck.reason, debug: guardrailCheck.debug };
-            }
-            const resourceMap = guardrailCheck.resourceMap || { 'BED': [], 'CHAIR': [] };
-
-            // GIAI ĐOẠN A: TIỀN XỬ LÝ
-            let sortedRaw = [...currentBookingsRaw].sort((a, b) => {
-                return getMinsFromTimeStr(a.startTime) - getMinsFromTimeStr(b.startTime);
-            });
-
-            const bookingGroups = {};
-            sortedRaw.forEach(b => {
-                if (!isActiveBookingStatus(b.status)) return;
-                if (!isMathematicallyActive(b, requestStartMins)) return;
-
-                const timeKey = (b.startTime || "").split(' ')[1] || "00:00";
-                const contactInfo = b.originalData?.phone || b.originalData?.sdt || b.originalData?.custPhone || b.originalData?.customerName || "Unknown";
-                const contactKey = contactInfo.toString().replace(/\D/g, '').slice(-6) || contactInfo.toString().trim();
-
-                const isRunning = isStatusRunning(b.status);
-                const groupKey = isRunning ? `RUNNING_${b.rowId}` : `${timeKey}_${contactKey}`;
-                if (!bookingGroups[groupKey]) bookingGroups[groupKey] = [];
-                bookingGroups[groupKey].push(b);
-            });
-
-            let remappedBookings = [];
-            Object.values(bookingGroups).forEach(group => {
-                group.sort((a, b) => parseInt(a.rowId) - parseInt(b.rowId));
-                const groupSize = group.length;
-                const halfSize = Math.ceil(groupSize / 2);
-                group.forEach((b, idx) => {
-                    b._virtualInheritanceIndex = null;
-                    b._impliedFlow = null;
-                    const isRunning = isStatusRunning(b.status);
-                    if (!isRunning) {
-                        // [V116.5 FIX / V135 SYNC] Ngăn chặn Bóng Ma Ghi Đè: Tôn trọng vị trí đã gán từ Google Sheets
-                        if (!b.allocated_resource) {
-                            b._virtualInheritanceIndex = (groupSize >= 2) ? (idx % halfSize) + 1 : idx + 1;
-                        } else {
-                            b._virtualInheritanceIndex = idx + 1;
-                        }
-                        if (groupSize >= 2) b._impliedFlow = (idx < halfSize) ? 'BF' : 'FB';
-                        else b._impliedFlow = null;
-                    }
-                    remappedBookings.push(b);
+            if (!isBodyFirst) { type1 = 'CHAIR'; type2 = 'BED'; }
+
+            pushToMap(res1, bStart, bStart + p1 + CONF.CLEANUP_BUFFER, type1);
+            pushToMap(res2, bStart + p1 + CONF.TRANSITION_BUFFER, bStart + realDuration + CONF.CLEANUP_BUFFER, type2);
+        } else {
+            let rType = (inferFlowFromService(svcInfo, storedFlow) === 'FOOTSINGLE') ? 'CHAIR' : 'BED';
+            if (uniqueMatches.length > 0) {
+                uniqueMatches.forEach(res => {
+                    pushToMap(res, bStart, bStart + realDuration + CONF.CLEANUP_BUFFER, rType);
                 });
-            });
+            } else {
+                pushToMapFallback(rType, bStart, bStart + realDuration + CONF.CLEANUP_BUFFER);
+            }
+        }
+    });
 
-            // GIAI ĐOẠN B: XỬ LÝ CHI TIẾT BOOKING (MULTI-STAFF UPDATE)
-            let existingBookingsProcessed = [];
-            remappedBookings.forEach(b => {
-                const bStart = getMinsFromTimeStr(b.startTime);
-                if (bStart === -1) return;
+    // MÃ´ phá»ng luá»“ng khÃ¡ch má»›i
+    const simulationMap = JSON.parse(JSON.stringify(resourceMap));
+    const suggestedLanes = {}; // [NEW V118.6] LÆ°u láº¡i toáº¡ Ä‘á»™ gá»£i Ã½ chÃ­nh xÃ¡c
 
-                let svcInfo = SERVICES[b.serviceCode] || {};
-                let storedFlow = b.originalData?.flowCode || b.flow || null;
-                let isCombo = isComboService(svcInfo, b.serviceName, storedFlow);
+    for (let i = 0; i < guestList.length; i++) {
+        const g = guestList[i];
+        const svc = getServiceInfo(g.serviceCode, g.serviceName);
+        const duration = svc.duration || 60;
+        const explicitFlow = g.flowCode || null;
+        const isCombo = isComboService(svc, g.serviceCode, explicitFlow);
+        const guestIdKey = g.idx !== undefined ? g.idx : i; // Äáº£m báº£o mapping Ä‘Ãºng index cá»§a khÃ¡ch
 
-                let duration = b.duration || 60;
-                let anchorIndex = null;
-                const isRunning = isStatusRunning(b.status);
-
-                const ownerName = b.originalData?.customerName || b.originalData?.hoTen || b.rowId || "Guest";
-
-                // [V135 FIX] LUÔN ưu tiên lấy toạ độ thực tế một cách toàn diện như Guardrail
-                // Điều này ngăn chặn Bóng Ma Toạ Độ do Matrix gán nhầm ghế/giường đã có khách.
-                const rIdStr = (b.phase1_res_idx || "") + " " + (b.phase2_res_idx || "") + " " + (b.allocated_resource || "") + " " + (b.location || "") + " " + (b.current_resource_id || "") + " " + (b.rowId || "");
-                const matches = [...rIdStr.matchAll(/((?:BED|CHAIR|床|足|腳)[-_ ]?\d+)/gi)].map(m => m[1].toUpperCase());
-                let uniqueMatches = [...new Set(matches)];
-
-                if (uniqueMatches.length === 0) {
-                    const backupMatches = [...rIdStr.matchAll(/(\d+)/gi)].map(m => m[1]);
-                    let inferredType = 'CHAIR';
-                    if (svcInfo) {
-                        if (svcInfo.type === 'BED' || svcInfo.type === 'CHAIR') inferredType = svcInfo.type;
-                        else {
-                            const name = (svcInfo.name || '').toUpperCase();
-                            if (name.match(/BODY|指壓|油|BED|TOAN THAN|全身|油壓|SPA|BACK/)) inferredType = 'BED';
-                        }
-                    }
-                    uniqueMatches = [...new Set(backupMatches)].map(num => `${inferredType}-${num}`);
-                }
+        if (isCombo) {
+            let foundValidSplit = false;
+            const eStep = svc.elasticStep || 1;
+            const eLimit = svc.elasticLimit || 20;
+            const flowPrimary = (explicitFlow === 'FB' || explicitFlow === 'BF') ? explicitFlow : 'FB';
+            const flowSecondary = flowPrimary === 'FB' ? 'BF' : 'FB';
+            const flowsToTry = [flowPrimary, flowSecondary];
+            
+            for (const testFlow of flowsToTry) {
+                const splitsToTry = generateElasticSplits(duration, eStep, eLimit, null, svc.minFoot, svc.maxFoot, svc.minBody, svc.maxBody, testFlow);
                 
-                if (!anchorIndex && b._virtualInheritanceIndex && !isRunning) {
-                    anchorIndex = b._virtualInheritanceIndex;
-                }
+                for (const split of splitsToTry) {
+                    const p1 = split.p1;
+                    const p2 = split.p2;
+                    const tStart = requestStart;
+                    const tSwitch = tStart + p1 + CONF.TRANSITION_BUFFER;
+                    const comboGuestsCount = guestList.filter(g => isComboService(getServiceInfo(g.serviceCode, g.serviceName), g.serviceCode, g.flowCode)).length;
+                    const isCrossSwapGroup = comboGuestsCount >= 2;
+                    const phase1Cleanup = isCrossSwapGroup ? Math.min(CONF.CLEANUP_BUFFER, CONF.TRANSITION_BUFFER) : CONF.CLEANUP_BUFFER;
+                    
+                    let bedIdx = -1, chairIdx = -1;
+                    
+                    if (testFlow === 'BF') {
+                        // Ká»‹ch báº£n A: Body TrÆ°á»›c (BED -> CHAIR)
+                        for (let b = 0; b < CONF.MAX_BEDS; b++) { if (checkLaneContinuity(simulationMap.BED[b], tStart, tStart + p1, phase1Cleanup)) { bedIdx = b; break; } }
+                        for (let c = 0; c < CONF.MAX_CHAIRS; c++) { if (checkLaneContinuity(simulationMap.CHAIR[c], tSwitch, tSwitch + p2)) { chairIdx = c; break; } }
 
-                // Dùng hàm Helper tính chính xác toàn bộ p1, p2 và tổng thời lượng thực.
-                const { p1, p2, realDuration } = calculateRealDurations(b, duration, isCombo);
-
-                let isElastic = isCombo && (b.isManualLocked !== true) && (!isRunning);
-                let processedB = {
-                    id: ownerName,
-                    originalData: b,
-                    staffName: b.staffName,
-                    assignedStaffs: b.assignedStaffs || [], // GẮN MẢNG MULTI-STAFF
-                    serviceName: b.serviceName,
-                    category: svcInfo.category,
-                    isElastic: isElastic,
-                    elasticStep: svcInfo.elasticStep || 5, elasticLimit: svcInfo.elasticLimit || 15,
-                    startMins: bStart, duration: realDuration, blocks: [], anchorIndex: anchorIndex
-                };
-
-                if (isCombo) {
-                    const p1End = bStart + p1;
-                    const p2Start = p1End + CONF.TRANSITION_BUFFER;
-                    const p2End = p2Start + p2;
-
-                    let isBodyFirst = false;
-                    const noteContent = (b.note || b.ghiChu || b.originalData?.ghiChu || "").toString().toUpperCase();
-                    if (storedFlow === 'BF') isBodyFirst = true;
-                    else if (storedFlow === 'FB') isBodyFirst = false;
-                    else if (noteContent.includes('BF') || noteContent.includes('BODY FIRST') || noteContent.includes('先做身體')) isBodyFirst = true;
-                    else if (isRunning && b.allocated_resource && (b.allocated_resource.includes('BED') || b.allocated_resource.includes('BODY'))) isBodyFirst = true;
-                    if (b._impliedFlow === 'BF') isBodyFirst = true;
-
-                    // --- V135 FIX: Phân tách toạ độ thông minh từ uniqueMatches ---
-                    let p1Index = null;
-                    let p2Index = null;
-
-                    if (uniqueMatches.length >= 2) {
-                        let res1, res2;
-                        if (isBodyFirst) {
-                            res1 = uniqueMatches.find(r => r.includes('BED') || r.includes('床')) || uniqueMatches[0];
-                            res2 = uniqueMatches.find(r => r.includes('CHAIR') || r.includes('足')) || uniqueMatches[1];
-                        } else {
-                            res1 = uniqueMatches.find(r => r.includes('CHAIR') || r.includes('足')) || uniqueMatches[0];
-                            res2 = uniqueMatches.find(r => r.includes('BED') || r.includes('床')) || uniqueMatches[1];
+                        if (bedIdx !== -1 && chairIdx !== -1) {
+                            simulationMap.BED[bedIdx].push({ start: tStart, end: tStart + p1 + phase1Cleanup });
+                            simulationMap.CHAIR[chairIdx].push({ start: tSwitch, end: tSwitch + p2 + CONF.CLEANUP_BUFFER });
+                            suggestedLanes[guestIdKey] = { BED: bedIdx + 1, CHAIR: chairIdx + 1 };
+                            foundValidSplit = true;
+                            break;
                         }
-                        if (res1) { const m = res1.match(/(\d+)/); if (m) p1Index = parseInt(m[0], 10); }
-                        if (res2) { const m = res2.match(/(\d+)/); if (m) p2Index = parseInt(m[0], 10); }
-                    } else if (uniqueMatches.length === 1) {
-                        const mType = (uniqueMatches[0].toUpperCase().includes('BED') || uniqueMatches[0].includes('床')) ? 'BED' : 'CHAIR';
-                        const m = uniqueMatches[0].match(/(\d+)/);
-                        if (m) {
-                            const parsedIdx = parseInt(m[0], 10);
-                            if (isBodyFirst) {
-                                if (mType === 'BED') p1Index = parsedIdx;
-                                else p2Index = parsedIdx;
-                            } else {
-                                if (mType === 'CHAIR') p1Index = parsedIdx;
-                                else p2Index = parsedIdx;
-                            }
-                        }
-                    }
-
-                    if (!p1Index) p1Index = anchorIndex;
-
-                    if (isBodyFirst) {
-                        processedB.blocks.push({ start: bStart, end: p1End + CONF.CLEANUP_BUFFER, type: 'BED', forcedIndex: p1Index });
-                        processedB.blocks.push({ start: p2Start, end: p2End + CONF.CLEANUP_BUFFER, type: 'CHAIR', forcedIndex: p2Index });
-                        processedB.flow = 'BF';
                     } else {
-                        processedB.blocks.push({ start: bStart, end: p1End + CONF.CLEANUP_BUFFER, type: 'CHAIR', forcedIndex: p1Index });
-                        processedB.blocks.push({ start: p2Start, end: p2End + CONF.CLEANUP_BUFFER, type: 'BED', forcedIndex: p2Index });
-                        processedB.flow = 'FB';
+                        // Ká»‹ch báº£n B: ChÃ¢n TrÆ°á»›c (CHAIR -> BED)
+                        for (let c = 0; c < CONF.MAX_CHAIRS; c++) { if (checkLaneContinuity(simulationMap.CHAIR[c], tStart, tStart + p1, phase1Cleanup)) { chairIdx = c; break; } }
+                        for (let b = 0; b < CONF.MAX_BEDS; b++) { if (checkLaneContinuity(simulationMap.BED[b], tSwitch, tSwitch + p2)) { bedIdx = b; break; } }
+
+                        if (chairIdx !== -1 && bedIdx !== -1) {
+                            simulationMap.CHAIR[chairIdx].push({ start: tStart, end: tStart + p1 + phase1Cleanup });
+                            simulationMap.BED[bedIdx].push({ start: tSwitch, end: tSwitch + p2 + CONF.CLEANUP_BUFFER });
+                            suggestedLanes[guestIdKey] = { CHAIR: chairIdx + 1, BED: bedIdx + 1 };
+                            foundValidSplit = true;
+                            break;
+                        }
                     }
-                    processedB.p1_current = p1; processedB.p2_current = p2;
+                }
+                if (foundValidSplit) break;
+            }
+
+            if (!foundValidSplit) {
+                return triggerSmartFailure(`âš ï¸ åœ¨ ${getTimeStrFromMins(requestStart)} æ²’æœ‰è¶³å¤ çš„é€£çºŒç©ºä½çµ¦å¥—é¤ã€‚`);
+            }
+
+        } else {
+            // KhÃ¡ch láº»
+            const smartFlow = inferFlowFromService(svc, explicitFlow);
+            let rType = (smartFlow === 'FOOTSINGLE') ? 'CHAIR' : 'BED';
+            let foundIdx = -1;
+
+            for (let k = 0; k < (rType === 'BED' ? CONF.MAX_BEDS : CONF.MAX_CHAIRS); k++) {
+                if (checkLaneContinuity(simulationMap[rType][k], requestStart, requestStart + duration)) {
+                    foundIdx = k; break;
+                }
+            }
+
+            if (foundIdx !== -1) {
+                simulationMap[rType][foundIdx].push({ start: requestStart, end: requestStart + duration + CONF.CLEANUP_BUFFER });
+                suggestedLanes[guestIdKey] = { [rType]: foundIdx + 1 };
+            } else {
+                return triggerSmartFailure(`âš ï¸ å·²ç¶“æ²’æœ‰é€£çºŒ ${duration} åˆ†é˜çš„ç©º${rType === 'BED' ? 'åºŠä½' : 'åº§ä½'}ã€‚`);
+            }
+        }
+    }
+    return { pass: true, debug: { msg: "V118.0 Continuous Scan Passed" }, resourceMap: resourceMap, suggestedLanes: suggestedLanes };
+}
+
+// ============================================================================
+// PHáº¦N 5: MATRIX ENGINE (CORE ALLOCATION)
+// ============================================================================
+
+class VirtualMatrix {
+    constructor() {
+        this.lanes = {
+            'CHAIR': Array.from({ length: CONF.MAX_CHAIRS }, (_, i) => ({ id: `CHAIR-${i + 1}`, occupied: [] })),
+            'BED': Array.from({ length: CONF.MAX_BEDS }, (_, i) => ({ id: `BED-${i + 1}`, occupied: [] }))
+        };
+        this.blockLog = [];
+    }
+    checkLaneFree(lane, start, end) {
+        for (let block of lane.occupied) {
+            if (isOverlap(start, end, block.start, block.end)) {
+                return { free: false, blocker: block };
+            }
+        }
+        return { free: true };
+    }
+    allocateToLane(lane, start, end, ownerId) {
+        lane.occupied.push({ start, end, ownerId });
+        lane.occupied.sort((a, b) => a.start - b.start);
+        return lane.id;
+    }
+    tryAllocate(type, start, end, ownerId, preferredIndex = null, isForced = false) {
+        const resourceGroup = this.lanes[type];
+        if (!resourceGroup) return null;
+
+        if (preferredIndex !== null && preferredIndex > 0 && preferredIndex <= resourceGroup.length) {
+            const targetLane = resourceGroup[preferredIndex - 1];
+            if (isForced || this.checkLaneFree(targetLane, start, end).free) {
+                return this.allocateToLane(targetLane, start, end, ownerId);
+            }
+        }
+        
+        // [V118.9 FIX] æ¢å¾©ã€Œå¾žä¸Šåˆ°ä¸‹ç·Šæ¹ŠæŽ’åˆ—ã€(Top-Down Packing) é‚è¼¯ï¼Œå–æ¶ˆç©ºä½å„ªå…ˆåˆ†é…ä»¥é¿å…è¦–è¦ºç©ºéš™ã€‚
+        // ä¸å†æ ¹æ“š occupied.length é€²è¡ŒæŽ’åºï¼Œè€Œæ˜¯ä¿ç•™åŽŸå§‹é †åº (CHAIR-1, CHAIR-2...) é€²è¡Œåˆ†é…ã€‚
+        let sortedLanes = [...resourceGroup];
+
+        for (let lane of sortedLanes) {
+            const check = this.checkLaneFree(lane, start, end);
+            if (check.free) {
+                return this.allocateToLane(lane, start, end, ownerId);
+            } else {
+                this.blockLog.push(`âŒ ${lane.id} è¢« ${check.blocker.ownerId} æ“‹ä½`);
+            }
+        }
+        
+        return null;
+    }
+}
+
+// ============================================================================
+// PHáº¦N 6: LOGIC TÃŒM NHÃ‚N VIÃŠN & CO GIÃƒN
+// ============================================================================
+
+function findAvailableStaff(staffReq, start, end, staffListRef, busyList, queryDateStr = null) {
+    const checkOneStaff = (name) => {
+        const staffInfo = staffListRef[name];
+        const status = parseStaffStatus(staffInfo, queryDateStr);
+        if (!status.isAvailable) return false;
+
+        const shiftStart = status.startMins; const shiftEnd = status.endMins;
+        // [CORE V118.0] Thuáº­t toÃ¡n PhÃ¢n Ä‘oáº¡n Ca ÄÃªm
+        let inMain = true;
+        if ((start + CONF.TOLERANCE) < shiftStart) inMain = false;
+        else if (status.isStrict) {
+            if ((end - CONF.TOLERANCE) > shiftEnd) inMain = false;
+        } else {
+            if (start >= shiftEnd) inMain = false;
+        }
+
+        let inTail = false;
+        if (shiftEnd > 1440) {
+            const origEnd = shiftEnd - 1440;
+            inTail = true;
+            if (start < 0) inTail = false;
+            else if (status.isStrict) {
+                if ((end - CONF.TOLERANCE) > origEnd) inTail = false;
+            } else {
+                if (start >= origEnd) inTail = false;
+            }
+        }
+
+        if (!inMain && !inTail) return false;
+
+        for (const b of busyList) { if (b.staffName === name && isOverlap(start, end, b.start, b.end)) return false; }
+
+        if (staffReq === 'MALE' && staffInfo.gender !== 'M') return false;
+        if ((staffReq === 'FEMALE' || staffReq === 'å¥³') && staffInfo.gender !== 'F') return false;
+        return true;
+    };
+
+    if (staffReq && !['RANDOM', 'MALE', 'FEMALE', 'éš¨æ©Ÿ', 'Any', 'undefined'].includes(staffReq)) {
+        return checkOneStaff(staffReq) ? staffReq : null;
+    } else {
+        const allStaffNames = Object.keys(staffListRef);
+        for (const name of allStaffNames) { if (checkOneStaff(name)) return name; }
+        return null;
+    }
+}
+
+function generateElasticSplits(totalDuration, step = 0, limit = 0, customLockedPhase1 = null, minFoot = null, maxFoot = null, minBody = null, maxBody = null, flow = 'FB') {
+    if (customLockedPhase1 !== null && customLockedPhase1 !== undefined && !isNaN(customLockedPhase1)) {
+        return [{ p1: parseInt(customLockedPhase1), p2: totalDuration - parseInt(customLockedPhase1), deviation: 999 }];
+    }
+    const standardHalf = Math.floor(totalDuration / 2);
+    let options = [];
+
+    let minP1 = 15, maxP1 = totalDuration - 15;
+    let minP2 = 15, maxP2 = totalDuration - 15;
+
+    const isBF = (flow === 'BF');
+    if (isBF) {
+        if (minBody) minP1 = Math.max(minP1, minBody);
+        if (maxBody) maxP1 = Math.min(maxP1, maxBody);
+        if (minFoot) minP2 = Math.max(minP2, minFoot);
+        if (maxFoot) maxP2 = Math.min(maxP2, maxFoot);
+    } else {
+        if (minFoot) minP1 = Math.max(minP1, minFoot);
+        if (maxFoot) maxP1 = Math.min(maxP1, maxFoot);
+        if (minBody) minP2 = Math.max(minP2, minBody);
+        if (maxBody) maxP2 = Math.min(maxP2, maxBody);
+    }
+
+    let p2_standard = totalDuration - standardHalf;
+    if (standardHalf >= minP1 && standardHalf <= maxP1 && p2_standard >= minP2 && p2_standard <= maxP2) {
+        options.push({ p1: standardHalf, p2: p2_standard, deviation: 0 });
+    }
+
+    if (!step || !limit || step <= 0 || limit <= 0) {
+        if (options.length === 0) options.push({ p1: standardHalf, p2: p2_standard, deviation: 0 });
+        return options;
+    }
+
+    // QuÃ©t Zic-Zac (Zig-Zag)
+    for (let d = step; d <= limit; d += step) {
+        // Thá»­ giáº£m (vÃ­ dá»¥ 49/51)
+        let p1_minus = standardHalf - d;
+        let p2_minus = totalDuration - p1_minus;
+        if (p1_minus >= minP1 && p1_minus <= maxP1 && p2_minus >= minP2 && p2_minus <= maxP2) {
+            options.push({ p1: p1_minus, p2: p2_minus, deviation: -d });
+        }
+
+        // Thá»­ tÄƒng (vÃ­ dá»¥ 51/49)
+        let p1_plus = standardHalf + d;
+        let p2_plus = totalDuration - p1_plus;
+        if (p1_plus >= minP1 && p1_plus <= maxP1 && p2_plus >= minP2 && p2_plus <= maxP2) {
+            options.push({ p1: p1_plus, p2: p2_plus, deviation: d });
+        }
+    }
+
+    const uniqueOptions = [];
+    const seen = new Set();
+    for (const opt of options) {
+        const key = `${opt.p1}-${opt.p2}`;
+        if (!seen.has(key)) {
+            seen.add(key);
+            uniqueOptions.push(opt);
+        }
+    }
+    if (uniqueOptions.length === 0) uniqueOptions.push({ p1: standardHalf, p2: p2_standard, deviation: 0 });
+    return uniqueOptions;
+}
+
+function isBlockSetAllocatable(blocks, matrix) {
+    for (const b of blocks) {
+        const laneGroup = matrix.lanes[b.type];
+        if (!laneGroup) return false;
+        let foundLane = false;
+        if (b.forcedIndex && b.forcedIndex > 0 && b.forcedIndex <= laneGroup.length) {
+            const targetLane = laneGroup[b.forcedIndex - 1];
+            if (matrix.checkLaneFree(targetLane, b.start, b.end).free) return true;
+        }
+        for (const lane of laneGroup) {
+            if (matrix.checkLaneFree(lane, b.start, b.end).free) { foundLane = true; break; }
+        }
+        if (!foundLane) return false;
+    }
+    return true;
+}
+
+// ============================================================================
+// PHáº¦N 7: CORE ENGINE V118.0
+// ============================================================================
+
+function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRaw, staffList) {
+    const requestStartMins = getMinsFromTimeStr(timeStr);
+    if (requestStartMins === -1) return { feasible: false, reason: "âŒ éŒ¯èª¤ï¼šæ™‚é–“æ ¼å¼ç„¡æ•ˆ" };
+
+    const normalizedQueryDate = normalizeDateStrict(dateStr);
+    const hrReq = parseInt(timeStr.split(':')[0], 10);
+    let shiftedQueryDate = normalizedQueryDate;
+    if (!isNaN(hrReq) && hrReq < (CONF.OPEN_HOUR || 6)) {
+        const tempD = new Date(normalizedQueryDate.replace(/\//g, '-'));
+        tempD.setDate(tempD.getDate() - 1);
+        shiftedQueryDate = normalizeDateStrict(tempD);
+    }
+
+    const filteredBookings = currentBookingsRaw.filter(b => {
+        if (!b || !b.startTimeString) return false;
+        if (b.opDate) return normalizeDateStrict(b.opDate) === shiftedQueryDate;
+
+        let rawDate = b.startTimeString.split(' ')[0];
+        let rawTime = b.startTimeString.split(' ')[1] || "12:00";
+        let tempOpDate = rawDate;
+        const hr = parseInt(rawTime.split(':')[0], 10);
+        if (!isNaN(hr) && hr < (CONF.OPEN_HOUR || 6)) {
+            const tempD = new Date(rawDate);
+            tempD.setDate(tempD.getDate() - 1);
+            tempOpDate = normalizeDateStrict(tempD);
+        }
+        return tempOpDate === shiftedQueryDate;
+    });
+
+    let maxGuestDuration = 0;
+    guestList.forEach(g => {
+        const dur = getServiceInfo(g.serviceCode, g.serviceName).duration || 60;
+        if (dur > maxGuestDuration) maxGuestDuration = dur;
+    });
+
+    // 1. GUARDRAIL CHECK (Äá»“ng bá»™ Backend & Frontend V118)
+    const guardrailCheck = validateGlobalCapacity(requestStartMins, maxGuestDuration, guestList, filteredBookings, staffList, normalizedQueryDate);
+    if (!guardrailCheck.pass) return { feasible: false, reason: guardrailCheck.reason, debug: guardrailCheck.debug };
+    const resourceMap = guardrailCheck.resourceMap || { 'BED': [], 'CHAIR': [] };
+
+    // 2. TIá»€N Xá»¬ LÃ BOOKING CÅ¨
+    let sortedRaw = [...filteredBookings].sort((a, b) => getMinsFromTimeStr(a.startTimeString || a.startTime) - getMinsFromTimeStr(b.startTimeString || b.startTime));
+    const bookingGroups = {};
+
+    sortedRaw.forEach(b => {
+        if (!isActiveBookingStatus(b.status)) return;
+        const timeKey = ((b.startTimeString || b.startTime) || "").split(' ')[1] || "00:00";
+        const contactInfo = b.originalData?.phone || b.originalData?.sdt || b.originalData?.custPhone || b.originalData?.customerName || "Unknown";
+        const contactKey = contactInfo.toString().replace(/\D/g, '').slice(-6) || contactInfo.toString().trim();
+        const statusLower = (b.status || '').toLowerCase();
+        const isRunning = statusLower.includes('running') || 
+                          statusLower.includes('doing') || 
+                          statusLower.includes('æœå‹™ä¸­') || 
+                          statusLower.includes('serving') || 
+                          statusLower.includes('ðŸŸ¡');
+        const groupKey = isRunning ? `RUNNING_${b.rowId}` : `${timeKey}_${contactKey}`;
+        if (!bookingGroups[groupKey]) bookingGroups[groupKey] = [];
+        bookingGroups[groupKey].push(b);
+    });
+
+    let remappedBookings = [];
+    Object.values(bookingGroups).forEach(group => {
+        group.sort((a, b) => parseInt(a.rowId) - parseInt(b.rowId));
+        const groupSize = group.length; const halfSize = Math.ceil(groupSize / 2);
+        group.forEach((b, idx) => {
+            b._virtualInheritanceIndex = null; b._impliedFlow = null;
+            const bStatus = (b.status || '').toLowerCase();
+            const isBRunning = bStatus.includes('running') || 
+                               bStatus.includes('doing') || 
+                               bStatus.includes('æœå‹™ä¸­') || 
+                               bStatus.includes('serving') || 
+                               bStatus.includes('ðŸŸ¡');
+            if (!isBRunning) {
+                b._virtualInheritanceIndex = (groupSize >= 2) ? (idx % halfSize) + 1 : idx + 1;
+                if (groupSize >= 2) b._impliedFlow = (idx < halfSize) ? 'BF' : 'FB';
+            }
+            remappedBookings.push(b);
+        });
+    });
+
+    // 3. Táº O KHá»I THá»œI GIAN
+    let existingBookingsProcessed = [];
+    remappedBookings.forEach(b => {
+        const bStart = getMinsFromTimeStr(b.startTimeString || b.startTime);
+        if (bStart === -1) return;
+        let svcInfo = getServiceInfo(b.serviceCode, b.serviceName);
+        let storedFlow = b.flow || b.originalData?.flowCode || b.originalData?.flow || null;
+        let isCombo = isComboService(svcInfo, b.serviceName, storedFlow);
+        if (!isCombo) storedFlow = inferFlowFromService(svcInfo, storedFlow);
+
+        let duration = b.duration || svcInfo.duration || 60;
+        let anchorIndex = null;
+        const bStatusStr = (b.status || '').toLowerCase();
+        const isRunning = bStatusStr.includes('running') || 
+                          bStatusStr.includes('doing') || 
+                          bStatusStr.includes('æœå‹™ä¸­') || 
+                          bStatusStr.includes('serving') || 
+                          bStatusStr.includes('ðŸŸ¡');
+
+        // [V135 FIX] LUÃ”N Æ°u tiÃªn láº¥y toáº¡ Ä‘á»™ thá»±c táº¿ má»™t cÃ¡ch toÃ n diá»‡n nhÆ° Guardrail
+        // Äiá»u nÃ y ngÄƒn cháº·n BÃ³ng Ma Toáº¡ Äá»™ do Matrix gÃ¡n nháº§m gháº¿/giÆ°á»ng Ä‘Ã£ cÃ³ khÃ¡ch.
+        const rIdStr = (b.phase1_res_idx || "") + " " + (b.phase2_res_idx || "") + " " + (b.allocated_resource || "") + " " + (b.location || "") + " " + (b.current_resource_id || "") + " " + (b.rowId || "");
+        const matches = [...rIdStr.matchAll(/((?:BED|CHAIR|åºŠ|è¶³)[-_ ]?\d+)/gi)].map(m => m[1].toUpperCase());
+        let uniqueMatches = [...new Set(matches)];
+
+        if (uniqueMatches.length === 0) {
+            const backupMatches = [...rIdStr.matchAll(/(\d+)/gi)].map(m => m[1]);
+            let inferredType = 'CHAIR';
+            if (svcInfo) {
+                if (svcInfo.type === 'BED' || svcInfo.type === 'CHAIR') inferredType = svcInfo.type;
+                else {
+                    const name = (svcInfo.name || '').toUpperCase();
+                    if (name.match(/BODY|æŒ‡å£“|æ²¹|BED|TOAN THAN|å…¨èº«|æ²¹å£“|SPA|BACK/)) inferredType = 'BED';
+                }
+            }
+            uniqueMatches = [...new Set(backupMatches)].map(num => `${inferredType}-${num}`);
+        }
+
+        if (!anchorIndex && b._virtualInheritanceIndex && !isRunning) {
+            anchorIndex = b._virtualInheritanceIndex;
+        }
+
+        const isLockedRaw = b.originalData?.isManualLocked || b.isManualLocked;
+        const isLocked = (isLockedRaw === true || isLockedRaw === 'TRUE');
+        let processedB = {
+            id: b.rowId, originalData: b, staffName: b.staffName, serviceName: b.serviceName, category: svcInfo.category,
+            isElastic: isCombo && (!isLocked) && (!isRunning),
+            elasticStep: svcInfo.elasticStep || 5, elasticLimit: svcInfo.elasticLimit || 15,
+            minFoot: svcInfo.minFoot, maxFoot: svcInfo.maxFoot, minBody: svcInfo.minBody, maxBody: svcInfo.maxBody,
+            startMins: bStart, duration: duration, blocks: [], anchorIndex: anchorIndex
+        };
+
+        if (isCombo) {
+            let p1 = 0;
+            if (b.phase1_duration !== undefined && b.phase1_duration !== null && b.phase1_duration !== "") p1 = parseInt(b.phase1_duration, 10);
+            else if (b.originalData && b.originalData.phase1_duration !== undefined && b.originalData.phase1_duration !== null && b.originalData.phase1_duration !== "") p1 = parseInt(b.originalData.phase1_duration, 10);
+            else p1 = Math.floor(duration / 2);
+
+            let p2 = duration - p1; const p1End = bStart + p1; const p2Start = p1End + CONF.TRANSITION_BUFFER;
+            let isBodyFirst = false;
+            const noteContent = (b.note || b.ghiChu || b.originalData?.ghiChu || "").toString().toUpperCase();
+
+            if (storedFlow === 'BF') isBodyFirst = true;
+            else if (storedFlow === 'FB') isBodyFirst = false;
+            else {
+                if (noteContent.includes('BF') || noteContent.includes('BODY FIRST') || noteContent.includes('å…ˆåšèº«é«”')) isBodyFirst = true;
+                else if (isRunning && b.allocated_resource && (b.allocated_resource.includes('BED') || b.allocated_resource.includes('BODY'))) isBodyFirst = true;
+                else if (b._impliedFlow === 'BF') isBodyFirst = true;
+            }
+
+            let p1Index = null;
+            let p2Index = null;
+
+            if (uniqueMatches.length >= 2) {
+                let res1, res2;
+                if (isBodyFirst) {
+                    res1 = uniqueMatches.find(r => r.includes('BED') || r.includes('åºŠ')) || uniqueMatches[0];
+                    res2 = uniqueMatches.find(r => r.includes('CHAIR') || r.includes('è¶³')) || uniqueMatches[1];
                 } else {
-                    if (storedFlow === 'FOOTSINGLE' || storedFlow === 'BODYSINGLE') processedB.flow = storedFlow;
-                    else processedB.flow = 'SINGLE';
-                    let rType = inferResourceAtTime(b, bStart);
-                    if (!rType) rType = detectResourceType(svcInfo);
-                    
-                    let forcedIdx = anchorIndex;
-                    if (uniqueMatches.length > 0) {
-                        const m = uniqueMatches[0].match(/(\d+)/);
-                        if (m) forcedIdx = parseInt(m[0], 10);
-                    }
-                    
-                    processedB.blocks.push({ start: bStart, end: bStart + realDuration + CONF.CLEANUP_BUFFER, type: rType, forcedIndex: forcedIdx });
+                    res1 = uniqueMatches.find(r => r.includes('CHAIR') || r.includes('è¶³')) || uniqueMatches[0];
+                    res2 = uniqueMatches.find(r => r.includes('BED') || r.includes('åºŠ')) || uniqueMatches[1];
                 }
-                existingBookingsProcessed.push(processedB);
-            });
-
-            // GIAI ĐOẠN C: KỊCH BẢN KHÁCH MỚI
-            const newGuests = guestList.map((g, idx) => ({ ...g, idx: idx }));
-            const comboGuests = newGuests.filter(g => {
-                const s = SERVICES[g.serviceCode];
-                return isComboService(s, g.serviceCode, g.flowCode);
-            });
-            const newGuestHalfSize = Math.ceil(comboGuests.length / 2);
-            const maxBF = comboGuests.length;
-            let trySequence = [];
-
-            if (maxBF === 2) { trySequence = [0, 2, 1]; }
-            else if (maxBF > 0) {
-                let mid = maxBF / 2;
-                trySequence.push(Math.ceil(mid));
-                if (Math.floor(mid) !== Math.ceil(mid)) trySequence.push(Math.floor(mid));
-                let step = 1;
-                while (true) {
-                    let nextUp = Math.ceil(mid) + step; let nextDown = Math.floor(mid) - step;
-                    if (nextUp > maxBF && nextDown < 0) break;
-                    if (nextUp <= maxBF) trySequence.push(nextUp);
-                    if (nextDown >= 0) trySequence.push(nextDown);
-                    step++;
-                }
-            } else { trySequence.push(0); }
-
-            // GIAI ĐOẠN D: VÒNG LẶP MATRIX
-            let successfulScenario = null;
-            let failureLog = [];
-
-            for (let numBF of trySequence) {
-                let matrix = new VirtualMatrix();
-                let scenarioDetails = [];
-                let scenarioUpdates = [];
-                let scenarioFailed = false;
-
-                let softsToSqueezeCandidates = [];
-                for (const exB of existingBookingsProcessed) {
-                    let placedSuccessfully = true;
-                    let allocatedSlots = [];
-                    for (const block of exB.blocks) {
-                        const realEnd = block.end;
-                        // --- V118.4 FIX: Ép buộc đặt chỗ (isForced = true) cho các Booking đã có sẵn ---
-                        const slotId = matrix.tryAllocate(block.type, block.start, realEnd, exB.id, block.forcedIndex, true);
-                        if (!slotId) { placedSuccessfully = false; break; }
-                        allocatedSlots.push(slotId);
-                    }
-                    if (exB.isElastic) {
-                        if (placedSuccessfully) exB.allocatedSlots = allocatedSlots;
-                        softsToSqueezeCandidates.push(exB);
-                    }
-                }
-
-                let newGuestBlocksMap = [];
-                for (const ng of newGuests) {
-                    const svc = SERVICES[ng.serviceCode] || { name: ng.serviceCode || 'Unknown', duration: 60, price: 0 };
-                    let flow = 'FB';
-                    let isThisGuestCombo = isComboService(svc, ng.serviceCode, ng.flowCode);
-                    if (isThisGuestCombo) {
-                        const cIdx = comboGuests.findIndex(cg => cg.idx === ng.idx);
-                        if (cIdx >= 0 && cIdx < numBF) { flow = 'BF'; }
-                    } else { flow = ng.flowCode || 'SINGLE'; }
-                    const duration = svc.duration || 60;
-                    let blocks = [];
-                    if (isThisGuestCombo) {
-                        const p1Standard = Math.floor(duration / 2);
-                        const p2Standard = duration - p1Standard;
-                        if (flow === 'FB') {
-                            const t1End = requestStartMins + p1Standard;
-                            const t2Start = t1End + CONF.TRANSITION_BUFFER;
-                            blocks.push({ start: requestStartMins, end: t1End + CONF.CLEANUP_BUFFER, type: 'CHAIR' });
-                            blocks.push({ start: t2Start, end: t2Start + p2Standard + CONF.CLEANUP_BUFFER, type: 'BED' });
-                            scenarioDetails.push({ guestIndex: ng.idx, service: svc.name, price: svc.price, phase1_duration: p1Standard, phase2_duration: p2Standard, flow: 'FB', timeStr: timeStr, allocated: [] });
-                        } else {
-                            const t1End = requestStartMins + p2Standard;
-                            const t2Start = t1End + CONF.TRANSITION_BUFFER;
-                            blocks.push({ start: requestStartMins, end: t1End + CONF.CLEANUP_BUFFER, type: 'BED' });
-                            blocks.push({ start: t2Start, end: t2Start + p1Standard + CONF.CLEANUP_BUFFER, type: 'CHAIR' });
-                            scenarioDetails.push({ guestIndex: ng.idx, service: svc.name, price: svc.price, phase1_duration: p1Standard, phase2_duration: p2Standard, flow: 'BF', timeStr: timeStr, allocated: [] });
-                        }
+                if (res1) { const m = res1.match(/(\d+)/); if (m) p1Index = parseInt(m[0], 10); }
+                if (res2) { const m = res2.match(/(\d+)/); if (m) p2Index = parseInt(m[0], 10); }
+            } else if (uniqueMatches.length === 1) {
+                const mType = (uniqueMatches[0].toUpperCase().includes('BED') || uniqueMatches[0].includes('åºŠ')) ? 'BED' : 'CHAIR';
+                const m = uniqueMatches[0].match(/(\d+)/);
+                if (m) {
+                    const parsedIdx = parseInt(m[0], 10);
+                    if (isBodyFirst) {
+                        if (mType === 'BED') p1Index = parsedIdx;
+                        else p2Index = parsedIdx;
                     } else {
-                        let rType = 'CHAIR';
-                        if (flow === 'FOOTSINGLE') rType = 'CHAIR';
-                        else if (flow === 'BODYSINGLE') rType = 'BED';
-                        else rType = detectResourceType(svc);
-                        blocks.push({ start: requestStartMins, end: requestStartMins + duration + CONF.CLEANUP_BUFFER, type: rType });
-                        scenarioDetails.push({ guestIndex: ng.idx, service: svc.name, price: svc.price, flow: flow, timeStr: timeStr, allocated: [] });
+                        if (mType === 'CHAIR') p1Index = parsedIdx;
+                        else p2Index = parsedIdx;
                     }
-                    newGuestBlocksMap.push({ guest: ng, blocks: blocks, isCombo: isThisGuestCombo, duration: duration, flow: flow });
                 }
+            }
 
-                let conflictFound = false;
-                for (const item of newGuestBlocksMap) {
-                    let guestAllocations = [];
-                    // [V118.10 FIX] 關閉 suggestedLanes 強制綁定，讓 Top-Down Packing 能夠在交叉安排 (BF/FB) 時自然填補空隙。
-                    const useSuggestedLanes = false;
-                    let preferredIdx = null;
+            if (!p1Index) p1Index = anchorIndex;
 
-                    if (!useSuggestedLanes && newGuestHalfSize > 0 && newGuests.length >= 2) {
-                        preferredIdx = (item.guest.idx % newGuestHalfSize) + 1;
-                        if (maxBF === 2 && (numBF === 0 || numBF === 2)) preferredIdx = item.guest.idx + 1;
-                    }
+            if (isBodyFirst) {
+                processedB.blocks.push({ start: bStart, end: p1End + CONF.CLEANUP_BUFFER, type: 'BED', forcedIndex: p1Index });
+                processedB.blocks.push({ start: p2Start, end: p2Start + p2 + CONF.CLEANUP_BUFFER, type: 'CHAIR', forcedIndex: p2Index });
+                processedB.flow = 'BF';
+            } else {
+                processedB.blocks.push({ start: bStart, end: p1End + CONF.CLEANUP_BUFFER, type: 'CHAIR', forcedIndex: p1Index });
+                processedB.blocks.push({ start: p2Start, end: p2Start + p2 + CONF.CLEANUP_BUFFER, type: 'BED', forcedIndex: p2Index });
+                processedB.flow = 'FB';
+            }
+            processedB.p1_current = p1; processedB.p2_current = p2;
+        } else {
+            processedB.flow = storedFlow;
+            let rType = (storedFlow === 'FOOTSINGLE') ? 'CHAIR' : 'BED';
+            let resHint = rIdStr.toUpperCase();
+            if (resHint.includes('CHAIR') || resHint.includes('è¶³')) rType = 'CHAIR';
+            else if (resHint.includes('BED') || resHint.includes('åºŠ')) rType = 'BED';
+            
+            let forcedIdx = anchorIndex;
+            if (uniqueMatches.length > 0) {
+                const m = uniqueMatches[0].match(/(\d+)/);
+                if (m) forcedIdx = parseInt(m[0], 10);
+            }
+            
+            const { realDuration } = calculateRealDurations(b, duration, isCombo); processedB.blocks.push({ start: bStart, end: bStart + realDuration + CONF.CLEANUP_BUFFER, type: rType, forcedIndex: forcedIdx });
+        }
+        existingBookingsProcessed.push(processedB);
+    });
 
-                    for (const block of item.blocks) {
-                        let specificPrefIdx = preferredIdx;
-                        let isPrefForced = false;
+    // 4. Ká»ŠCH Báº¢N MATRIX KHÃCH Má»šI
+    const newGuests = guestList.map((g, idx) => ({ ...g, idx: idx }));
+    const comboGuests = newGuests.filter(g => isComboService(getServiceInfo(g.serviceCode, g.serviceName), g.serviceCode, g.flowCode));
+    const newGuestHalfSize = Math.ceil(comboGuests.length / 2);
+    const maxBF = comboGuests.length;
+    let trySequence = [];
 
-                        if (useSuggestedLanes) {
-                            specificPrefIdx = guardrailCheck.suggestedLanes[item.guest.idx][block.type] || preferredIdx;
-                            if (specificPrefIdx !== null) isPrefForced = true;
-                        }
+    if (maxBF === 2) { trySequence = [0, 2, 1]; }
+    else if (maxBF > 0) {
+        let mid = maxBF / 2;
+        trySequence.push(Math.ceil(mid));
+        if (Math.floor(mid) !== Math.ceil(mid)) trySequence.push(Math.floor(mid));
+        let step = 1;
+        while (true) {
+            let nextUp = Math.ceil(mid) + step; let nextDown = Math.floor(mid) - step;
+            if (nextUp > maxBF && nextDown < 0) break;
+            if (nextUp <= maxBF) trySequence.push(nextUp);
+            if (nextDown >= 0) trySequence.push(nextDown);
+            step++;
+        }
+    } else { trySequence.push(0); }
 
-                        const slotId = matrix.tryAllocate(block.type, block.start, block.end, `NEW_GUEST_${item.guest.idx}`, specificPrefIdx, isPrefForced);
-                        if (!slotId) { conflictFound = true; break; }
-                        guestAllocations.push(slotId);
-                    }
-                    if (conflictFound) break;
-                    const detail = scenarioDetails.find(d => d.guestIndex === item.guest.idx);
-                    if (detail) detail.allocated = guestAllocations;
-                }
+    let successfulScenario = null;
+    let failureLog = [];
 
-                if (conflictFound) {
-                    let matrixSqueeze = new VirtualMatrix();
-                    let updatesProposed = [];
-                    const hardBookings = existingBookingsProcessed.filter(b => !b.isElastic);
-                    hardBookings.forEach(hb => {
-                        hb.blocks.forEach(blk => matrixSqueeze.tryAllocate(blk.type, blk.start, blk.end, hb.id, blk.forcedIndex, true));
+    for (let numBF of trySequence) {
+        let matrix = new VirtualMatrix();
+        let scenarioDetails = [];
+        let scenarioUpdates = [];
+        let scenarioFailed = false;
+
+        let softsToSqueezeCandidates = [];
+        for (const exB of existingBookingsProcessed) {
+            let placedSuccessfully = true; let allocatedSlots = [];
+            for (const block of exB.blocks) {
+                const realEnd = block.end;
+                // --- V118.4 FIX: Ã‰p buá»™c Ä‘áº·t chá»— (isForced = true) cho cÃ¡c Booking Ä‘Ã£ cÃ³ sáºµn ---
+                const slotId = matrix.tryAllocate(block.type, block.start, realEnd, exB.id, block.forcedIndex, true);
+                if (!slotId) { placedSuccessfully = false; break; }
+                allocatedSlots.push(slotId);
+            }
+            if (exB.isElastic) {
+                if (placedSuccessfully) exB.allocatedSlots = allocatedSlots;
+                softsToSqueezeCandidates.push(exB);
+            }
+        }
+
+        let newGuestBlocksMap = [];
+        for (const ng of newGuests) {
+            const svc = getServiceInfo(ng.serviceCode, ng.serviceName);
+            let flow = 'FB';
+            let isThisGuestCombo = isComboService(svc, ng.serviceCode, ng.flowCode);
+
+            if (isThisGuestCombo) {
+                const cIdx = comboGuests.findIndex(cg => cg.idx === ng.idx);
+                if (cIdx >= 0 && cIdx < numBF) { flow = 'BF'; }
+            } else { flow = inferFlowFromService(svc, ng.flowCode); }
+
+            const duration = svc.duration || 60; let blocks = []; let elasticOptions = [];
+            if (isThisGuestCombo) {
+                const p1Standard = Math.floor(duration / 2); const p2Standard = duration - p1Standard;
+                const isCrossSwapGroup = comboGuests.length >= 2 && numBF > 0 && numBF < comboGuests.length;
+                const phase1Cleanup = isCrossSwapGroup ? Math.min(CONF.CLEANUP_BUFFER, CONF.TRANSITION_BUFFER) : CONF.CLEANUP_BUFFER;
+
+                const splits = generateElasticSplits(duration, svc.elasticStep || 5, svc.elasticLimit || 15, null, svc.minFoot, svc.maxFoot, svc.minBody, svc.maxBody, flow);
+
+                if (flow === 'FB') {
+                    const t1End = requestStartMins + p1Standard; const t2Start = t1End + CONF.TRANSITION_BUFFER;
+                    blocks.push({ start: requestStartMins, end: t1End + phase1Cleanup, type: 'CHAIR' });
+                    blocks.push({ start: t2Start, end: t2Start + p2Standard + CONF.CLEANUP_BUFFER, type: 'BED' });
+                    scenarioDetails.push({ guestIndex: ng.idx, service: svc.name, price: svc.price, phase1_duration: p1Standard, phase2_duration: p2Standard, flow: 'FB', timeStr: timeStr, allocated: [] });
+                    
+                    splits.forEach(split => {
+                        const sT1End = requestStartMins + split.p1; const sT2Start = sT1End + CONF.TRANSITION_BUFFER;
+                        elasticOptions.push({
+                            p1: split.p1, p2: split.p2,
+                            blocks: [
+                                { start: requestStartMins, end: sT1End + phase1Cleanup, type: 'CHAIR' },
+                                { start: sT2Start, end: sT2Start + split.p2 + CONF.CLEANUP_BUFFER, type: 'BED' }
+                            ]
+                        });
                     });
+                } else {
+                    const t1End = requestStartMins + p2Standard; const t2Start = t1End + CONF.TRANSITION_BUFFER;
+                    blocks.push({ start: requestStartMins, end: t1End + phase1Cleanup, type: 'BED' });
+                    blocks.push({ start: t2Start, end: t2Start + p1Standard + CONF.CLEANUP_BUFFER, type: 'CHAIR' });
+                    scenarioDetails.push({ guestIndex: ng.idx, service: svc.name, price: svc.price, phase1_duration: p1Standard, phase2_duration: p2Standard, flow: 'BF', timeStr: timeStr, allocated: [] });
+
+                    splits.forEach(split => {
+                        const sT1End = requestStartMins + split.p2; const sT2Start = sT1End + CONF.TRANSITION_BUFFER;
+                        elasticOptions.push({
+                            p1: split.p1, p2: split.p2,
+                            blocks: [
+                                { start: requestStartMins, end: sT1End + phase1Cleanup, type: 'BED' },
+                                { start: sT2Start, end: sT2Start + split.p1 + CONF.CLEANUP_BUFFER, type: 'CHAIR' }
+                            ]
+                        });
+                    });
+                }
+            } else {
+                let rType = (flow === 'FOOTSINGLE') ? 'CHAIR' : 'BED';
+                blocks.push({ start: requestStartMins, end: requestStartMins + duration + CONF.CLEANUP_BUFFER, type: rType });
+                scenarioDetails.push({ guestIndex: ng.idx, service: svc.name, price: svc.price, flow: flow, timeStr: timeStr, allocated: [] });
+            }
+            newGuestBlocksMap.push({ guest: ng, blocks: blocks, isCombo: isThisGuestCombo, duration: duration, flow: flow });
+        }
+
+        let conflictFound = false;
+        for (const item of newGuestBlocksMap) {
+            let guestAllocations = [];
+            
+            // [V118.10 FIX] é—œé–‰ suggestedLanes å¼·åˆ¶ç¶å®šï¼Œè®“ Top-Down Packing èƒ½å¤ åœ¨äº¤å‰å®‰æŽ’ (BF/FB) æ™‚è‡ªç„¶å¡«è£œç©ºéš™ã€‚
+            const useSuggestedLanes = false;
+            let preferredIdx = null;
+
+            if (!useSuggestedLanes && newGuestHalfSize > 0 && newGuests.length >= 2) {
+                preferredIdx = (item.guest.idx % newGuestHalfSize) + 1;
+                if (maxBF === 2 && (numBF === 0 || numBF === 2)) preferredIdx = item.guest.idx + 1;
+            }
+
+            for (const block of item.blocks) {
+                let specificPrefIdx = preferredIdx;
+                let isPrefForced = false;
+
+                if (useSuggestedLanes) {
+                    specificPrefIdx = guardrailCheck.suggestedLanes[item.guest.idx][block.type] || preferredIdx;
+                    if (specificPrefIdx !== null) isPrefForced = true; // Báº¯t buá»™c Æ°u tiÃªn toáº¡ Ä‘á»™ Ä‘Ã£ Ä‘Æ°á»£c xÃ¡c minh lÃ  an toÃ n
+                }
+
+                const slotId = matrix.tryAllocate(block.type, block.start, block.end, `NEW_GUEST_${item.guest.idx}`, specificPrefIdx, isPrefForced);
+                if (!slotId) { conflictFound = true; break; }
+                guestAllocations.push(slotId);
+            }
+            if (conflictFound) break;
+            const detail = scenarioDetails.find(d => d.guestIndex === item.guest.idx);
+            if (detail) {
+                detail.allocated = guestAllocations;
+                // [V117.0/V118.0] PhÃ¢n tÃ¡ch tá»a Ä‘á»™ Ä‘á»ƒ Sheet hiá»ƒu chÃ­nh xÃ¡c
+                detail.phase1_res_idx = guestAllocations[0] || null;
+                detail.phase2_res_idx = guestAllocations[1] || null;
+            }
+        }
+
+        // 5. SQUEEZE LOGIC (Co giÃ£n lá»‹ch)
+        if (conflictFound) {
+            let matrixSqueeze = new VirtualMatrix();
+            let updatesProposed = [];
+
+        const hardBookings = existingBookingsProcessed.filter(b => !b.isElastic);
+        hardBookings.forEach(hb => { hb.blocks.forEach(blk => matrixSqueeze.tryAllocate(blk.type, blk.start, blk.end, hb.id, blk.forcedIndex, true)); });
+
                     let squeezeScenarioPossible = false;
                     const placeNewGuestsElastically = (guestIndex, currentMatrix, currentDetails, currentUpdates) => {
                         if (guestIndex >= newGuestBlocksMap.length) return true;
@@ -1226,10 +1379,12 @@
 
                         let splitsToTry = [];
                         if (item.isCombo) {
-                            const svcDef = SERVICES[item.guest.serviceCode];
-                            const eStep = svcDef ? (svcDef.elasticStep || 10) : 10;
-                            const eLimit = svcDef ? (svcDef.elasticLimit || 30) : 30;
-                            splitsToTry = generateElasticSplits(item.duration, eStep, eLimit, null, svcDef, item.flow);
+                            // Backend version: Use full generator parameters to respect sheet config bounds
+                            const minFoot = item.guest.minFoot; const maxFoot = item.guest.maxFoot;
+                            const minBody = item.guest.minBody; const maxBody = item.guest.maxBody;
+                            const elasticStep = item.guest.elasticStep || 1;
+                            const elasticLimit = item.guest.elasticLimit || 20;
+                            splitsToTry = generateElasticSplits(item.duration, elasticStep, elasticLimit, null, minFoot, maxFoot, minBody, maxBody, item.flow);
                         } else {
                             splitsToTry = [{ p1: item.duration, p2: 0, deviation: 0 }];
                         }
@@ -1257,7 +1412,7 @@
                             clonedMatrix.lanes = JSON.parse(JSON.stringify(currentMatrix.lanes));
                             clonedMatrix.blockLog = [...currentMatrix.blockLog];
                             
-                            let currentAllocations = [];
+                            let currentGuestAllocations = [];
                             for (const block of testBlocks) {
                                 let specificPrefIdx = preferredIdxSqueeze;
                                 let isPrefForced = false;
@@ -1267,7 +1422,7 @@
                                 }
                                 const slotId = clonedMatrix.tryAllocate(block.type, block.start, block.end, `NEW_GUEST_${item.guest.idx}`, specificPrefIdx, isPrefForced);
                                 if (!slotId) { fit = false; break; }
-                                currentAllocations.push(slotId);
+                                currentGuestAllocations.push(slotId);
                             }
 
                             if (fit) {
@@ -1275,7 +1430,7 @@
                                 let oldP1, oldP2, oldAllocated;
                                 if (detail) {
                                     oldAllocated = detail.allocated;
-                                    detail.allocated = currentAllocations;
+                                    detail.allocated = currentGuestAllocations;
                                     if (item.isCombo) {
                                         oldP1 = detail.phase1_duration; oldP2 = detail.phase2_duration;
                                         detail.phase1_duration = split.p1;
@@ -1285,7 +1440,7 @@
                                 
                                 let nextUpdates = [...currentUpdates];
                                 if (item.isCombo && split.deviation !== 0) {
-                                    nextUpdates.push({ rowId: 'NEW', customerName: '新客', newPhase1: split.p1, newPhase2: split.p2, reason: '⚠️ 系統已自動啟動彈性時間安排以符合空位' });
+                                    nextUpdates.push({ rowId: 'NEW', customerName: 'æ–°å®¢', newPhase1: split.p1, newPhase2: split.p2, reason: 'âš ï¸ ç³»çµ±å·²è‡ªå‹•å•Ÿå‹•å½ˆæ€§æ™‚é–“å®‰æŽ’ä»¥ç¬¦åˆç©ºä½' });
                                 }
 
                                 if (placeNewGuestsElastically(guestIndex + 1, clonedMatrix, currentDetails, nextUpdates)) {
@@ -1312,111 +1467,116 @@
                         if (matrixSqueeze.blockLog.length > 0) failureLog = matrixSqueeze.blockLog;
                         scenarioFailed = true; continue;
                     }
-                    const softBookings = existingBookingsProcessed.filter(b => b.isElastic);
-                    for (const sb of softBookings) {
-                        const splits = generateElasticSplits(sb.duration, sb.elasticStep, sb.elasticLimit, null);
-                        let fit = false;
-                        for (const split of splits) {
-                            const sP1End = sb.startMins + split.p1;
-                            const sP2Start = sP1End + CONF.TRANSITION_BUFFER;
-                            const sP2End = sP2Start + split.p2;
-                            const testBlocks = [
-                                { type: sb.blocks[0].type, start: sb.startMins, end: sP1End + CONF.CLEANUP_BUFFER, forcedIndex: sb.blocks[0].forcedIndex },
-                                { type: sb.blocks[1].type, start: sP2Start, end: sP2End + CONF.CLEANUP_BUFFER, forcedIndex: sb.blocks[1] ? sb.blocks[1].forcedIndex : null }
-                            ];
-                            if (isBlockSetAllocatable(testBlocks, matrixSqueeze)) {
-                                testBlocks.forEach(tb => matrixSqueeze.tryAllocate(tb.type, tb.start, tb.end, sb.id, tb.forcedIndex));
-                                fit = true;
-                                if (split.deviation !== 0) updatesProposed.push({ rowId: sb.originalData.rowId, customerName: sb.originalData.customerName, newPhase1: split.p1, newPhase2: split.p2, reason: 'Matrix Squeeze' });
-                                break;
-                            }
+
+            const softBookings = existingBookingsProcessed.filter(b => b.isElastic);
+            for (const sb of softBookings) {
+                const splits = generateElasticSplits(sb.duration, sb.elasticStep, sb.elasticLimit, null, sb.minFoot, sb.maxFoot, sb.minBody, sb.maxBody, sb.flow);
+                let fit = false;
+                for (const split of splits) {
+                    const sP1End = sb.startMins + split.p1; const sP2Start = sP1End + CONF.TRANSITION_BUFFER; const sP2End = sP2Start + split.p2;
+                    const testBlocks = [
+                        { type: sb.blocks[0].type, start: sb.startMins, end: sP1End + CONF.CLEANUP_BUFFER, forcedIndex: sb.blocks[0].forcedIndex },
+                        { type: sb.blocks[1].type, start: sP2Start, end: sP2End + CONF.CLEANUP_BUFFER, forcedIndex: sb.blocks[1] ? sb.blocks[1].forcedIndex : null }
+                    ];
+                    if (isBlockSetAllocatable(testBlocks, matrixSqueeze)) {
+                        let allocatedSlot1 = null; let allocatedSlot2 = null;
+                        testBlocks.forEach((tb, idx) => {
+                            let slotId = matrixSqueeze.tryAllocate(tb.type, tb.start, tb.end, sb.id, tb.forcedIndex);
+                            if (idx === 0) allocatedSlot1 = slotId;
+                            else if (idx === 1) allocatedSlot2 = slotId;
+                        });
+                        fit = true;
+                        
+                        const originalP1Res = sb.blocks[0].type + '-' + (sb.blocks[0].forcedIndex || 'X');
+                        const originalP2Res = sb.blocks[1] ? (sb.blocks[1].type + '-' + (sb.blocks[1].forcedIndex || 'X')) : null;
+                        let coordChanged = false;
+                        if (allocatedSlot1 && sb.blocks[0].forcedIndex && allocatedSlot1 !== originalP1Res) coordChanged = true;
+                        if (allocatedSlot2 && sb.blocks[1] && sb.blocks[1].forcedIndex && allocatedSlot2 !== originalP2Res) coordChanged = true;
+
+                        if (split.deviation !== 0 || coordChanged) {
+                            updatesProposed.push({
+                                rowId: sb.id,
+                                customerName: sb.originalData.customerName,
+                                newPhase1: split.p1,
+                                newPhase2: split.p2,
+                                newPhase1Res: allocatedSlot1,
+                                newPhase2Res: allocatedSlot2,
+                                reason: 'âš ï¸ ç³»çµ±å·²è‡ªå‹•å•Ÿå‹•å½ˆæ€§æ™‚é–“å®‰æŽ’ä¸¦é‡æ–°åˆ†é…è³‡æº'
+                            });
                         }
-                        if (!fit) { squeezeScenarioPossible = false; break; }
-                    }
-                    if (squeezeScenarioPossible) {
-                        scenarioUpdates = updatesProposed;
-                        matrix = matrixSqueeze;
-                    } else {
-                        if (matrixSqueeze.blockLog.length > 0) failureLog = matrixSqueeze.blockLog;
-                        scenarioFailed = true; continue;
-                    }
-                }
-
-                // MULTI-STAFF FIX TẠI TIMELINE
-                let flatTimeline = [];
-                Object.values(matrix.lanes).forEach(group => group.forEach(lane => lane.occupied.forEach(occ => {
-                    const ex = existingBookingsProcessed.find(e => e.id === occ.ownerId);
-                    if (ex) flatTimeline.push({
-                        start: occ.start,
-                        end: occ.end,
-                        staffName: ex.staffName,
-                        assignedStaffs: ex.assignedStaffs || [ex.staffName], // GHI NHẬN MẢNG MULTI-STAFF
-                        resourceType: lane.id
-                    });
-                })));
-
-                let staffAssignmentSuccess = true;
-
-                // --- SMART NEEDS SORTING (V116.7 - ANTI-GREEDY ALLOCATION) ---
-                // Ưu tiên gán thợ theo mức độ khắt khe: Thợ Chỉ Định -> Nam/Nữ -> Random
-                const sortedGuestsForAllocation = [...newGuestBlocksMap].sort((a, b) => {
-                    const reqA = a.guest.staffName;
-                    const reqB = b.guest.staffName;
-                    const isStrictA = reqA && !['RANDOM', 'MALE', 'FEMALE', '隨機', 'Any', 'undefined', '男', '女', '男師', '女師'].includes(reqA);
-                    const isStrictB = reqB && !['RANDOM', 'MALE', 'FEMALE', '隨機', 'Any', 'undefined', '男', '女', '男師', '女師'].includes(reqB);
-
-                    if (isStrictA && !isStrictB) return -1;
-                    if (!isStrictA && isStrictB) return 1;
-
-                    // Nếu cùng ưu tiên (ví dụ cùng Nam/Nữ), duy trì thứ tự gốc
-                    return a.guest.idx - b.guest.idx;
-                });
-
-                for (const item of sortedGuestsForAllocation) {
-                    const assignedStaff = findAvailableStaff(item.guest.staffName, item.blocks[0].start, item.blocks[item.blocks.length - 1].end, staffList, flatTimeline, dateStr);
-                    if (!assignedStaff) {
-                        staffAssignmentSuccess = false;
-                        failureLog.push(`❌ 無法為客需 [${item.guest.staffName}] 找到合適技師`);
                         break;
                     }
-                    const detail = scenarioDetails.find(d => d.guestIndex === item.guest.idx);
-                    if (detail) detail.staff = assignedStaff;
-                    // Khi khách mới được phân thợ, cũng gán vào mảng assignedStaffs để check cho khách tiếp theo
-                    item.blocks.forEach(b => flatTimeline.push({
-                        start: b.start,
-                        end: b.end,
-                        staffName: assignedStaff,
-                        assignedStaffs: [assignedStaff]
-                    }));
                 }
-
-                if (!staffAssignmentSuccess) { scenarioFailed = true; continue; }
-
-                // (V135) Removed DOUBLE-CHECK GUARDRAIL as it breaks Elastic Squeeze.
-                // -------------------------------------------------------------
-
-                successfulScenario = { details: scenarioDetails, updates: scenarioUpdates, matrixDump: matrix.lanes };
-                break;
+                if (!fit) { squeezeScenarioPossible = false; break; }
             }
+            if (squeezeScenarioPossible) {
+                scenarioUpdates = updatesProposed;
+                matrix = matrixSqueeze;
 
-            if (successfulScenario) {
-                successfulScenario.details.sort((a, b) => a.guestIndex - b.guestIndex);
-                return {
-                    feasible: true, strategy: 'MATRIX_V116.2_MULTI_STAFF',
-                    details: successfulScenario.details,
-                    proposedUpdates: successfulScenario.updates,
-                    totalPrice: successfulScenario.details.reduce((sum, item) => sum + (item.price || 0), 0),
-                    debug: guardrailCheck.debug
-                };
             } else {
-                const debugReason = failureLog.slice(-2).join(' | ');
-                const failMessage = debugReason ? `❌ 系統滿載：${debugReason}` : "❌ 已額滿（系統滿載）";
-                return { feasible: false, reason: failMessage, debug: guardrailCheck.debug };
+                if (matrixSqueeze.blockLog.length > 0) failureLog = matrixSqueeze.blockLog;
+                scenarioFailed = true; continue;
             }
         }
 
-        return { checkRequestAvailability, setDynamicServices };
-    })();
+        // 6. STAFF ASSIGNMENT
+        let flatTimeline = [];
+        Object.values(matrix.lanes).forEach(group => group.forEach(lane => lane.occupied.forEach(occ => {
+            const ex = existingBookingsProcessed.find(e => e.id === occ.ownerId);
+            if (ex) flatTimeline.push({ start: occ.start, end: occ.end, staffName: ex.staffName, resourceType: lane.id });
+        })));
+
+        let staffAssignmentSuccess = true;
+        for (const item of newGuestBlocksMap) {
+            const assignedStaff = findAvailableStaff(item.guest.staffName, item.blocks[0].start, item.blocks[item.blocks.length - 1].end, staffList, flatTimeline, dateStr);
+            if (!assignedStaff) { staffAssignmentSuccess = false; break; }
+            const detail = scenarioDetails.find(d => d.guestIndex === item.guest.idx);
+            if (detail) detail.staff = assignedStaff;
+            item.blocks.forEach(b => flatTimeline.push({ start: b.start, end: b.end, staffName: assignedStaff }));
+        }
+
+        if (!staffAssignmentSuccess) { scenarioFailed = true; continue; }
+
+        // --- V118.4 DOUBLE-CHECK GUARDRAIL: Removed because resourceMap is static and fails valid squeeze scenarios ---
+        let collisionDetected = false;
+        // -------------------------------------------------------------
+
+        successfulScenario = { details: scenarioDetails, updates: scenarioUpdates, matrixDump: matrix.lanes }; break;
+    }
+
+    if (successfulScenario) {
+        successfulScenario.details.sort((a, b) => a.guestIndex - b.guestIndex);
+        return {
+            feasible: true, strategy: 'MATRIX_UNIVERSAL_V118.0',
+            details: successfulScenario.details, proposedUpdates: successfulScenario.updates,
+            totalPrice: successfulScenario.details.reduce((sum, item) => sum + (item.price || 0), 0),
+            debug: guardrailCheck.debug
+        };
+    } else {
+        const debugReason = failureLog.slice(-2).join(' | ');
+        const failMessage = debugReason ? `âŒ ç³»çµ±æ»¿è¼‰ï¼š${debugReason}` : "âŒ å·²é¡æ»¿ï¼ˆç³»çµ±æ»¿è¼‰ï¼‰";
+        return { feasible: false, reason: failMessage, debug: guardrailCheck.debug };
+    }
+}
+
+// ============================================================================
+// PHáº¦N 8: MODULE EXPORT
+// ============================================================================
+const CoreAPI = {
+    checkRequestAvailability, setDynamicServices, get SERVICES() { return SERVICES; },
+    CONFIG: CONF, // Giá»¯ tÃªn biáº¿n CONFIG khi xuáº¥t ra Ä‘á»ƒ tÆ°Æ¡ng thÃ­ch ngÆ°á»£c vá»›i index.js cÅ© náº¿u cÃ³
+    getMinsFromTimeStr, getTimeStrFromMins, getTaipeiNow, normalizeDateStrict, inferFlowFromService
+};
+
+
+// --- END CORE LOGIC ---
+    return {
+        checkRequestAvailability: CoreAPI.checkRequestAvailability,
+        setDynamicServices: CoreAPI.setDynamicServices,
+        getSystemConfig: () => CoreAPI.CONFIG,
+        CONFIG: CoreAPI.CONFIG
+    };
+})();
 
     // ========================================================================
     // PHẦN 2: DATA FETCHER

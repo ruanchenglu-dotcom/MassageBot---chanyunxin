@@ -878,30 +878,61 @@ app.post('/api/update-single-staff-status', (req, res) => {
 
 // --- API: ADMIN BOOKING ---
 app.post('/api/admin-booking', async (req, res) => {
-    const cyx_data = req.body;
-    const SERVICES = SheetService.getServices();
+    const releaseLock = await SheetService.bookingLock.acquire();
+    try {
+        const cyx_data = req.body;
+        const SERVICES = SheetService.getServices();
 
-    if (cyx_data.ngayDen) cyx_data.ngayDen = SheetService.normalizeDateStrict(cyx_data.ngayDen);
-    let opDateCheck = cyx_data.ngayDen;
-    const adminHr = parseInt(cyx_data.gioDen ? cyx_data.gioDen.split(':')[0] : "12", 10);
-    const openHour = getConfig().OPERATION_TIME.OPEN_HOUR || 8;
-    if (!isNaN(adminHr) && adminHr < openHour) {
-        const tempD = new Date(cyx_data.ngayDen);
-        tempD.setDate(tempD.getDate() - 1);
-        opDateCheck = SheetService.normalizeDateStrict(tempD);
-    }
+        if (cyx_data.ngayDen) cyx_data.ngayDen = SheetService.normalizeDateStrict(cyx_data.ngayDen);
+        let opDateCheck = cyx_data.ngayDen;
+        const adminHr = parseInt(cyx_data.gioDen ? cyx_data.gioDen.split(':')[0] : "12", 10);
+        const openHour = getConfig().OPERATION_TIME.OPEN_HOUR || 8;
+        if (!isNaN(adminHr) && adminHr < openHour) {
+            const tempD = new Date(cyx_data.ngayDen);
+            tempD.setDate(tempD.getDate() - 1);
+            opDateCheck = SheetService.normalizeDateStrict(tempD);
+        }
 
-    if (!cyx_data.serviceCode || cyx_data.serviceCode === "") {
-        cyx_data.serviceCode = SheetService.smartFindServiceCode(cyx_data.dichVu);
-        console.log(`[API ADMIN] Auto-mapped Service Code: ${cyx_data.serviceCode}`);
-    }
+        if (!cyx_data.serviceCode || cyx_data.serviceCode === "") {
+            cyx_data.serviceCode = SheetService.smartFindServiceCode(cyx_data.dichVu);
+            console.log(`[API ADMIN] Auto-mapped Service Code: ${cyx_data.serviceCode}`);
+        }
 
-    const hasExistingAllocation = cyx_data.guestDetails && cyx_data.guestDetails.length > 0 && 
-                                  (cyx_data.guestDetails[0].phase1_res_idx || cyx_data.guestDetails[0].phase1_resource);
+        const hasExistingAllocation = cyx_data.guestDetails && cyx_data.guestDetails.length > 0 && 
+                                      (cyx_data.guestDetails[0].phase1_res_idx || cyx_data.guestDetails[0].phase1_resource);
 
-    if (!cyx_data.flow && !hasExistingAllocation && ResourceCore.checkRequestAvailability) {
-        try {
-            const staffListMap = {}; SheetService.getStaffList().forEach(s => { staffListMap[s.id] = s; });
+        let hasConflict = false;
+        let serviceDuration = cyx_data.duration;
+        if (!serviceDuration && cyx_data.serviceCode && SERVICES[cyx_data.serviceCode]) {
+            serviceDuration = SERVICES[cyx_data.serviceCode].duration;
+        }
+
+        if (hasExistingAllocation && typeof SheetService._checkOverlapConflict === 'function') {
+            for (let i = 0; i < cyx_data.guestDetails.length; i++) {
+                const item = cyx_data.guestDetails[i];
+                let flow = item.flow || item.flowCode || cyx_data.flow || cyx_data.flowCode;
+                let p1 = item.phase1_duration !== undefined ? item.phase1_duration : cyx_data.phase1_duration;
+                let p2 = item.phase2_duration !== undefined ? item.phase2_duration : cyx_data.phase2_duration;
+                if (p1 === undefined || p1 === null || p1 === "") p1 = serviceDuration;
+                
+                const conflict = SheetService._checkOverlapConflict(
+                    'TEMP_ID_NEW', opDateCheck, cyx_data.gioDen, serviceDuration,
+                    item.phase1_res_idx || item.phase1_resource || cyx_data.phase1_res_idx || cyx_data.phase1_resource,
+                    item.phase2_res_idx || item.phase2_resource || cyx_data.phase2_res_idx || cyx_data.phase2_resource,
+                    p1, p2, flow
+                );
+                
+                if (conflict) {
+                    console.log(`[ADMIN BOOKING] Conflict found for pre-allocated resource ${conflict.resource}. Re-allocating...`);
+                    hasConflict = true;
+                    break;
+                }
+            }
+        }
+
+        if ((!cyx_data.flow && !hasExistingAllocation && ResourceCore.checkRequestAvailability) || hasConflict) {
+            try {
+                const staffListMap = {}; SheetService.getStaffList().forEach(s => { staffListMap[s.id] = s; });
             const relevantBookings = prepareBookingsForTimeline(SheetService.getBookings(), opDateCheck);
             let serviceCode = 'UNKNOWN';
             if (cyx_data.serviceCode) serviceCode = cyx_data.serviceCode;
@@ -911,7 +942,12 @@ app.post('/api/admin-booking', async (req, res) => {
                 const guestList = []; const pax = cyx_data.pax || 1;
                 for (let i = 0; i < pax; i++) {
                     let sId = (cyx_data.nhanVien && cyx_data.nhanVien !== '隨機' && cyx_data.nhanVien !== 'ALL_STAFF') ? cyx_data.nhanVien : 'RANDOM';
-                    guestList.push({ serviceCode: serviceCode, staffName: sId, flow: null });
+                    let preferredFlow = null;
+                    if (cyx_data.guestDetails && cyx_data.guestDetails[i]) {
+                        if (cyx_data.guestDetails[i].staff) sId = cyx_data.guestDetails[i].staff;
+                        if (cyx_data.guestDetails[i].flow || cyx_data.guestDetails[i].flowCode) preferredFlow = cyx_data.guestDetails[i].flow || cyx_data.guestDetails[i].flowCode;
+                    }
+                    guestList.push({ serviceCode: serviceCode, staffName: sId, flow: preferredFlow });
                 }
                 const checkResult = ResourceCore.checkRequestAvailability(opDateCheck, cyx_data.gioDen, guestList, relevantBookings, staffListMap);
 
@@ -982,10 +1018,14 @@ app.post('/api/admin-booking', async (req, res) => {
     } else {
         res.status(500).json({ success: false, error: 'cyx_database Write Failed' });
     }
+    } finally {
+        releaseLock();
+    }
 });
 
 // --- API: INLINE UPDATE BOOKING ROW ---
 app.post('/api/inline-update-booking', async (req, res) => {
+    const releaseLock = await SheetService.bookingLock.acquire();
     try {
         const { rowId, updatedData } = req.body;
         if (!rowId || !updatedData) {
@@ -996,6 +1036,8 @@ app.post('/api/inline-update-booking', async (req, res) => {
     } catch (e) {
         console.error('[INLINE UPDATE ERROR]', e);
         res.status(500).json({ success: false, error: e.message });
+    } finally {
+        releaseLock();
     }
 });
 
