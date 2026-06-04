@@ -837,14 +837,26 @@
                 return options;
             }
 
-            // Quét tuyến tính từ giới hạn dưới đến giới hạn trên
-            for (let currentDeviation = -limit; currentDeviation <= limit; currentDeviation += step) {
-                if (currentDeviation === 0) continue; // Đã thử 50/50 ở trên
-                let p1_A = standardHalf + currentDeviation;
+            // Giảm dần p1
+            let currentDeviation = step;
+            while (currentDeviation <= limit) {
+                let p1_A = standardHalf - currentDeviation;
                 let p2_A = totalDuration - p1_A;
                 if (p1_A >= minP1 && p1_A <= maxP1 && p2_A >= minP2 && p2_A <= maxP2) {
-                    options.push({ p1: p1_A, p2: p2_A, deviation: currentDeviation });
+                    options.push({ p1: p1_A, p2: p2_A, deviation: -currentDeviation });
                 }
+                currentDeviation += step;
+            }
+
+            // Tăng dần p1
+            currentDeviation = step;
+            while (currentDeviation <= limit) {
+                let p1_B = standardHalf + currentDeviation;
+                let p2_B = totalDuration - p1_B;
+                if (p1_B >= minP1 && p1_B <= maxP1 && p2_B >= minP2 && p2_B <= maxP2) {
+                    options.push({ p1: p1_B, p2: p2_B, deviation: currentDeviation });
+                }
+                currentDeviation += step;
             }
 
             const uniqueOptions = [];
