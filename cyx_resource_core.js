@@ -1184,12 +1184,14 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
 
     let successfulScenario = null;
     let failureLog = [];
+    let globalBestOutOfBoundSqueeze = null;
 
     for (let numBF of trySequence) {
         let matrix = new VirtualMatrix();
         let scenarioDetails = [];
         let scenarioUpdates = [];
         let scenarioFailed = false;
+        let scenarioBestOutOfBoundSqueeze = null;
 
         let softsToSqueezeCandidates = [];
         for (const exB of existingBookingsProcessed) {
@@ -1330,7 +1332,7 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
                             const minBody = item.guest.minBody; const maxBody = item.guest.maxBody;
                             const elasticStep = item.guest.elasticStep || 1;
                             const elasticLimit = item.guest.elasticLimit || 20;
-                            splitsToTry = generateElasticSplits(item.duration, elasticStep, elasticLimit, null, minFoot, maxFoot, minBody, maxBody, item.flow);
+                            splitsToTry = generateElasticSplits(item.duration, elasticStep, elasticLimit, null, minFoot, maxFoot, minBody, maxBody, item.flow, true);
                         } else {
                             splitsToTry = [{ p1: item.duration, p2: 0, deviation: 0 }];
                         }
@@ -1372,6 +1374,12 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
                             }
 
                             if (fit) {
+                                if (split.shiftMins !== 0) {
+                                    if (!scenarioBestOutOfBoundSqueeze) {
+                                        scenarioBestOutOfBoundSqueeze = { guestIdx: item.guest.idx, shiftMins: split.shiftMins, p1: split.p1, p2: split.p2, flow: item.flow };
+                                    }
+                                    continue;
+                                }
                                 const detail = currentDetails.find(d => d.guestIndex === item.guest.idx);
                                 let oldP1, oldP2, oldAllocated;
                                 if (detail) {
@@ -1411,6 +1419,9 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
                     squeezeScenarioPossible = placeNewGuestsElastically(0, matrixSqueeze, scenarioDetails, []);
                     if (!squeezeScenarioPossible) {
                         if (matrixSqueeze.blockLog.length > 0) failureLog = matrixSqueeze.blockLog;
+                        if (scenarioBestOutOfBoundSqueeze && !globalBestOutOfBoundSqueeze) {
+                            globalBestOutOfBoundSqueeze = scenarioBestOutOfBoundSqueeze;
+                        }
                         scenarioFailed = true; continue;
                     }
 
@@ -1499,6 +1510,15 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
             debug: guardrailCheck.debug
         };
     } else {
+        if (globalBestOutOfBoundSqueeze) {
+            let suggestedTime = requestStartMins + globalBestOutOfBoundSqueeze.shiftMins;
+            let timeStr = getTimeStrFromMins(suggestedTime);
+            let actionText = globalBestOutOfBoundSqueeze.shiftMins > 0 ? '稍晚' : '提早';
+            let shiftVal = Math.abs(globalBestOutOfBoundSqueeze.shiftMins);
+            let reqTimeStr = getTimeStrFromMins(requestStartMins);
+            let msg = `⚠️ 系統計算出您的套餐分配為 (${globalBestOutOfBoundSqueeze.flow === 'BF' ? '身' : '腳'}:${globalBestOutOfBoundSqueeze.p1} ; ${globalBestOutOfBoundSqueeze.flow === 'BF' ? '腳' : '身'}:${globalBestOutOfBoundSqueeze.p2})，已超出標準限制。建議您${actionText} ${shiftVal} 分鐘，改為 ${timeStr} 預約以滿足標準。`;
+            return triggerSmartFailure(msg, suggestedTime);
+        }
         const debugReason = failureLog.slice(-2).join(' | ');
         const failMessage = debugReason ? `❌ 系統滿載：${debugReason}` : "❌ 已額滿（系統滿載）";
         return { feasible: false, reason: failMessage, debug: guardrailCheck.debug };
