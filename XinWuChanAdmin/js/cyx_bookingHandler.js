@@ -1915,7 +1915,9 @@
                 
                 if (res.debug && res.debug.suggestions) {
                     res.debug.suggestions.forEach(sug => {
-                        found.push({ time: sug.time, date: sug.date || form.date, daysToAdd: sug.daysToAdd || 0 });
+                        let finalDate = sug.date || form.date;
+                        if (finalDate) finalDate = finalDate.replace(/\//g, '-');
+                        found.push({ time: sug.time, date: finalDate, daysToAdd: sug.daysToAdd || 0 });
                     });
                 }
                 
@@ -2314,7 +2316,7 @@
                                                                     if (dParts.length === 3) displayLabel = `${dParts[1]}/${dParts[2]} ${s.time}`;
                                                                 }
                                                                 return (
-                                                                    <button key={`${s.date}-${s.time}`} onClick={() => { setForm(f => ({ ...f, time: s.time, date: s.date })); setCheckResult(null); setSuggestions([]); }} className="px-5 py-2 bg-white border-2 border-yellow-400 text-yellow-900 rounded-lg font-bold text-lg hover:bg-yellow-200 whitespace-nowrap">
+                                                                    <button key={`${s.date}-${s.time}`} onClick={() => { setForm(f => ({ ...f, time: s.time, date: s.date ? s.date.replace(/\//g, '-') : form.date })); setCheckResult(null); setSuggestions([]); }} className="px-5 py-2 bg-white border-2 border-yellow-400 text-yellow-900 rounded-lg font-bold text-lg hover:bg-yellow-200 whitespace-nowrap">
                                                                         {displayLabel}
                                                                     </button>
                                                                 );
