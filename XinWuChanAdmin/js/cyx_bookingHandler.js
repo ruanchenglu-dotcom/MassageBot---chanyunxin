@@ -1508,6 +1508,8 @@
                 name: svc.name || key, duration: parseInt(svc.duration) || 60,
                 type: sType, category: svc.category || 'SINGLE', price: svc.price || 0,
                 elasticStep: svc.elasticStep || 0, elasticLimit: svc.elasticLimit || 0,
+                minBody: svc.minBody, maxBody: svc.maxBody,
+                minFoot: svc.minFoot, maxFoot: svc.maxFoot,
                 defaultFlow: defFlow
             };
         });
