@@ -1891,7 +1891,6 @@
                 // NÂNG CẤP V118.9: Thuật toán gợi ý thời gian thông minh dựa trên CLEANUP_MINUTES & TRANSITION_MINUTES
                 const found = [];
                 
-                // NÂNG CẤP: Lấy suggestions đặc biệt từ lỗi (ví dụ: gợi ý co giãn)
                 if (res.debug && res.debug.suggestions) {
                     res.debug.suggestions.forEach(sug => {
                         found.push({ time: sug.time, date: sug.date || form.date, daysToAdd: sug.daysToAdd || 0 });
