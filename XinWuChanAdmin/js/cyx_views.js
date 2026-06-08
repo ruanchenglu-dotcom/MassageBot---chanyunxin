@@ -1816,7 +1816,21 @@ const TimelineView = ({ timelineData, onEditPhase, liveStatusData, staffList, st
                             const rowStyleClass = isLastChairRow ? "border-b-4 border-red-500" : "border-b border-slate-100";
 
                             return (
-                                <div key={row.id} className={`flex relative transition-colors hover:bg-slate-50 ${rowStyleClass}`} style={{ height: `${ROW_HEIGHT}px` }}>
+                                <div key={row.id} className={`flex relative transition-colors hover:bg-slate-50 ${rowStyleClass}`} style={{ height: `${ROW_HEIGHT}px` }}
+                                    onDragOver={(e) => e.preventDefault()}
+                                    onDrop={(e) => {
+                                        e.preventDefault();
+                                        try {
+                                            const dataStr = e.dataTransfer.getData('text/plain');
+                                            if (dataStr) {
+                                                const data = JSON.parse(dataStr);
+                                                if (data.sourceRowId !== row.id && onEditPhase) {
+                                                    onEditPhase('MOVE_BOOKING_ROW', { currentBookingId: data.bookingId, sourceRowId: data.sourceRowId, targetRowId: row.id, meta: data.meta });
+                                                }
+                                            }
+                                        } catch (err) { console.error('Drag drop parse error:', err); }
+                                    }}
+                                >
                                     <div className={`sticky left-0 z-20 shrink-0 border-r border-slate-300 flex items-center justify-center font-bold text-sm shadow-[2px_0_5px_rgba(0,0,0,0.05)] ${row.type === 'chair' ? 'bg-teal-50 text-teal-800' : 'bg-purple-50 text-purple-800'}`} style={{ width: `${LEFT_COL_WIDTH}px` }}>{row.label}</div>
                                     <div className="relative flex-1 h-full">
                                         <div className="absolute inset-0 flex pointer-events-none z-0">{hours.map(h => (<div key={h} className="shrink-0 border-r border-slate-200 h-full border-dashed" style={{ width: `${HOUR_WIDTH}px` }}></div>))}</div>
@@ -1924,6 +1938,10 @@ const TimelineView = ({ timelineData, onEditPhase, liveStatusData, staffList, st
 
                                             return (
                                                 <div key={idx}
+                                                    draggable={true}
+                                                    onDragStart={(e) => {
+                                                        e.dataTransfer.setData('text/plain', JSON.stringify({ bookingId: booking.rowId, sourceRowId: row.id, meta: slot.meta }));
+                                                    }}
                                                     className={`absolute top-1 bottom-1 rounded px-2 py-1 flex flex-col justify-between text-xs overflow-hidden shadow-sm z-10 cursor-pointer transition-all timeline-block group ${bgClass} ${specialBorderClass}`}
                                                     style={{ left: `${leftPos}px`, width: `${width}px` }}
                                                     title={`${booking.serviceName}\n${isRunning ? `🔥 ${STATUS.SERVING}` : ''}${isSyncPending && !isRunning ? '\n⏳ 同步中...' : ''}${isTimeAnomaly ? '\n⚠️ 時長異常' : ''}${hasNote ? `\n📝 備註: ${booking.adminNote}` : ''}`}

@@ -3409,6 +3409,106 @@ const App = () => {
                 setControlCenterData(null);
                 break;
 
+            case 'MOVE_BOOKING_ROW':
+                if (payload.currentBookingId && payload.targetRowId) {
+                    const b = Array.isArray(bookings) ? bookings.find(x => String(x.rowId) === String(payload.currentBookingId)) : null;
+                    if (b) {
+                        const targetId = payload.targetRowId.toUpperCase();
+                        let updateData = { rowId: b.rowId, is_locked: "TRUE", isManualLocked: true, forceSync: true };
+                        
+                        const activeBookings = bookings.filter(x => {
+                            if (x.isDoneStatus) return false;
+                            const bDateStr = x.startTimeString ? x.startTimeString.split(' ')[0].replace(/\//g, '-') : '';
+                            return bDateStr === viewDate.replace(/\//g, '-');
+                        });
+                        
+                        const safeTimeToMinsLocal = (tStr) => {
+                            if (!tStr) return 0;
+                            const p = tStr.split(' ')[1];
+                            if (!p) return 0;
+                            const [h, m] = p.split(':').map(Number);
+                            return h * 60 + (m || 0);
+                        };
+
+                        const bStart = window.safeTimeToMins ? window.safeTimeToMins(b.startTimeString) : safeTimeToMinsLocal(b.startTimeString);
+                        const bEnd = bStart + parseInt(b.duration || 60, 10);
+                        
+                        let swapTarget = null;
+                        for (let x of activeBookings) {
+                            if (String(x.rowId) === String(b.rowId)) continue;
+                            const xStart = window.safeTimeToMins ? window.safeTimeToMins(x.startTimeString) : safeTimeToMinsLocal(x.startTimeString);
+                            const xEnd = xStart + parseInt(x.duration || 60, 10);
+                            
+                            if (bStart < xEnd && xStart < bEnd) {
+                                const xResArray = [
+                                    String(x.current_resource_id).toUpperCase(),
+                                    String(x.location).toUpperCase(),
+                                    String(x.phase1_res_idx).toUpperCase(),
+                                    String(x.phase2_res_idx).toUpperCase(),
+                                    String(x.allocated_resource).toUpperCase()
+                                ];
+                                if (xResArray.includes(targetId)) {
+                                    swapTarget = x;
+                                    break;
+                                }
+                            }
+                        }
+
+                        if (swapTarget) {
+                            const sourceId = payload.sourceRowId.toUpperCase();
+                            let swapData = { rowId: swapTarget.rowId, is_locked: "TRUE", forceSync: true };
+                            
+                            if (payload.meta && payload.meta.isCombo) {
+                                if (payload.meta.phase === 1) updateData.phase1_res_idx = targetId;
+                                else updateData.phase2_res_idx = targetId;
+                            } else {
+                                updateData.current_resource_id = targetId;
+                                updateData.location = targetId;
+                            }
+                            
+                            if (swapTarget.phase1_res_idx || swapTarget.phase2_res_idx) {
+                                if (String(swapTarget.phase1_res_idx).toUpperCase() === targetId) swapData.phase1_res_idx = sourceId;
+                                if (String(swapTarget.phase2_res_idx).toUpperCase() === targetId) swapData.phase2_res_idx = sourceId;
+                            } else {
+                                swapData.current_resource_id = sourceId;
+                                swapData.location = sourceId;
+                            }
+
+                            Swal.fire({ title: '儲存中，請稍候...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
+                            Promise.all([
+                                universalSend('/api/update-booking-details', updateData),
+                                universalSend('/api/update-booking-details', swapData)
+                            ]).then(() => {
+                                Swal.close();
+                                fetchData(true);
+                            }).catch(err => {
+                                Swal.fire('系統提示', "⚠️ 儲存失敗！請檢查網路連線。", 'warning');
+                                fetchData(true);
+                            });
+
+                        } else {
+                            if (payload.meta && payload.meta.isCombo) {
+                                if (payload.meta.phase === 1) updateData.phase1_res_idx = targetId;
+                                else updateData.phase2_res_idx = targetId;
+                            } else {
+                                updateData.current_resource_id = targetId;
+                                updateData.location = targetId;
+                            }
+                            
+                            Swal.fire({ title: '儲存中，請稍候...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
+                            universalSend('/api/update-booking-details', updateData).then((res) => {
+                                Swal.close();
+                                fetchData(true);
+                            }).catch(err => {
+                                Swal.fire('系統提示', "⚠️ 儲存失敗！請檢查網路連線。", 'warning');
+                                fetchData(true);
+                            });
+                        }
+                    }
+                }
+                setControlCenterData(null);
+                break;
+
             case 'TOGGLE_SEQUENCE':
                 if (targetBooking && payload.newFlow) {
                     handleToggleSequence(targetBooking, payload.newFlow);
