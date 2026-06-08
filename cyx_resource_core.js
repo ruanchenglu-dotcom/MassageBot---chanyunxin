@@ -723,10 +723,11 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
 
             if (!foundValidSplit) {
                 if (bestOutOfBoundSplit) {
-                    let suggestedTime = requestStart + bestOutOfBoundSplit.shiftMins;
+                    let rawSuggestedTime = requestStart + bestOutOfBoundSplit.shiftMins;
+                    let suggestedTime = Math.ceil(rawSuggestedTime / 5) * 5;
                     let timeStr = getTimeStrFromMins(suggestedTime);
-                    let actionText = bestOutOfBoundSplit.shiftMins > 0 ? '稍晚' : '提早';
-                    let shiftVal = Math.abs(bestOutOfBoundSplit.shiftMins);
+                    let actionText = suggestedTime > requestStart ? '稍晚' : '提早';
+                    let shiftVal = Math.abs(suggestedTime - requestStart);
                     return triggerSmartFailure(`⚠️ 在 ${getTimeStrFromMins(requestStart)} 沒有完美符合的連續空位。建議您${actionText} ${shiftVal} 分鐘，改為 ${timeStr} 預約以滿足套餐標準。`, suggestedTime);
                 } else {
                     return triggerSmartFailure(`⚠️ 在 ${getTimeStrFromMins(requestStart)} 沒有足夠的連續空位給套餐。`);

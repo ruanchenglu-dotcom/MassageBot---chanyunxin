@@ -1977,7 +1977,11 @@
                 // 3. Lọc và sắp xếp các mốc thời gian ứng viên
                 let uniqueCandidates = [...new Set(candidateMins)]
                     .filter(mins => mins > currMins)
+                    .map(mins => Math.ceil(mins / 5) * 5)
                     .sort((a, b) => a - b);
+
+                // Loại bỏ trùng lặp lại sau khi đã làm tròn
+                uniqueCandidates = [...new Set(uniqueCandidates)];
 
                 // 4. Kiểm tra sự khả dụng của từng mốc
                 for (let nM of uniqueCandidates) {
