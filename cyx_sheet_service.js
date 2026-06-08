@@ -479,6 +479,9 @@ async function syncData() {
                     phase2_duration: safeParseInt(row[30], null),
                     finish_time: row[31],
                     isManualLocked: isTrueString(row[35]),
+                    flow_code_locked: isTrueString(row[36]),
+                    phase1_locked: isTrueString(row[37]),
+                    phase2_locked: isTrueString(row[38]),
                     flow: row[25],
                     phase1_res_idx: row[32],
                     phase2_res_idx: row[33],
@@ -662,7 +665,7 @@ async function ghiVaoSheet(data, proposedUpdates = []) {
         }
 
         for (let i = 0; i < loopCount; i++) {
-            const row = new Array(37).fill("");
+            const row = new Array(39).fill("");
             let guestDetail = (data.guestDetails && data.guestDetails[i]) ? data.guestDetails[i] : null;
 
             const guestNum = i + 1; const total = loopCount;
@@ -785,9 +788,11 @@ async function ghiVaoSheet(data, proposedUpdates = []) {
             row[33] = r2 ? String(r2).toUpperCase() : "";
             row[34] = rType ? String(rType).toUpperCase() : "";
 
-            const hasManualPhase = (p1 !== null && p1 !== undefined && p1 !== "");
             const finalLockVal = resolveStrictLockState(data.isManualLocked, hasManualPhase, "FALSE");
             row[35] = finalLockVal;
+            row[36] = data.flow_code_locked ? "TRUE" : "FALSE";
+            row[37] = data.phase1_locked ? "TRUE" : "FALSE";
+            row[38] = data.phase2_locked ? "TRUE" : "FALSE";
 
 
             valuesToWrite.push(row);
@@ -1066,6 +1071,10 @@ async function updateBookingDetails(body) {
         updateCell('AJ', finalLockString);
     }
     
+    if (body.flow_code_locked !== undefined) updateCell('AK', body.flow_code_locked ? "TRUE" : "FALSE");
+    if (body.phase1_locked !== undefined) updateCell('AL', body.phase1_locked ? "TRUE" : "FALSE");
+    if (body.phase2_locked !== undefined) updateCell('AM', body.phase2_locked ? "TRUE" : "FALSE");
+    
     // --- V1.6 NÂNG CẤP: Tự động tính toán lại Z, AB (transition), AD (finish) ---
     let newStartVal = finalStartTime || (bookingData ? (bookingData.startTimeString || bookingData.startTime) : null);
     if (newStartVal) {
@@ -1115,6 +1124,10 @@ async function updateBookingDetails(body) {
         if (flowVal !== undefined) bookingData.flow = flowVal;
         if (resourceType !== undefined) bookingData.resource_type = resourceType;
         if (body.serviceName !== undefined) bookingData.serviceName = body.serviceName;
+        
+        if (body.flow_code_locked !== undefined) bookingData.flow_code_locked = body.flow_code_locked;
+        if (body.phase1_locked !== undefined) bookingData.phase1_locked = body.phase1_locked;
+        if (body.phase2_locked !== undefined) bookingData.phase2_locked = body.phase2_locked;
         
         if (body.phase1_duration !== undefined || body.phase2_duration !== undefined) {
             bookingData.duration = parseInt(bookingData.phase1_duration || 0) + parseInt(bookingData.phase2_duration || 0);

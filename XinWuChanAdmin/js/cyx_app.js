@@ -1789,7 +1789,7 @@ const App = () => {
 
 
 
-    const handleSaveComboTime = async (arg1, arg2 = null, startTimeStr = null, switchTimeStr = null, customP1Res = null, customP2Res = null, overrideFlow = null) => {
+    const handleSaveComboTime = async (arg1, arg2 = null, startTimeStr = null, switchTimeStr = null, customP1Res = null, customP2Res = null, overrideFlow = null, lockStates = {}) => {
         let newPhase1Duration = 0;
         let targetBooking = null;
 
@@ -1902,6 +1902,9 @@ const App = () => {
             resourceType: resourceTypeForSheet,
             is_locked: "TRUE",
             isManualLocked: true,
+            flow_code_locked: lockStates.flow_code_locked,
+            phase1_locked: lockStates.phase1_locked,
+            phase2_locked: lockStates.phase2_locked,
             forceSync: true
         };
 
@@ -3384,7 +3387,12 @@ const App = () => {
                         payload.switchTimeStr,
                         payload.phase1_res_idx,
                         payload.phase2_res_idx,
-                        payload.flow
+                        payload.flow,
+                        {
+                            flow_code_locked: payload.flow_code_locked,
+                            phase1_locked: payload.phase1_locked,
+                            phase2_locked: payload.phase2_locked
+                        }
                     );
                 }
                 setControlCenterData(null);

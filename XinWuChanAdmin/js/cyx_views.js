@@ -178,6 +178,10 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
     const [localFlow, setLocalFlow] = useState(currentSequence);
     const isBodyFirstLocal = localFlow === 'BF';
 
+    const [isPhase1Locked, setIsPhase1Locked] = useState(booking.phase1_locked === "TRUE" || booking.phase1_locked === true);
+    const [isPhase2Locked, setIsPhase2Locked] = useState(booking.phase2_locked === "TRUE" || booking.phase2_locked === true);
+    const [isFlowLocked, setIsFlowLocked] = useState(booking.flow_code_locked === "TRUE" || booking.flow_code_locked === true);
+
     const [selectedPhase1Res, setSelectedPhase1Res] = useState('auto');
     const [selectedPhase2Res, setSelectedPhase2Res] = useState('auto');
     const [selectedSingleRes, setSelectedSingleRes] = useState('auto');
@@ -267,6 +271,10 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
 
             setShowPaymentOptions(false);
             setLocalFlow((meta && meta.sequence) ? meta.sequence : (booking.flow || 'FB'));
+
+            setIsPhase1Locked(booking.phase1_locked === "TRUE" || booking.phase1_locked === true);
+            setIsPhase2Locked(booking.phase2_locked === "TRUE" || booking.phase2_locked === true);
+            setIsFlowLocked(booking.flow_code_locked === "TRUE" || booking.flow_code_locked === true);
 
             // [V116.4 Tối ưu hiển thị vị trí ghế/giường đã cấp]
             let initP1Res = 'auto';
@@ -1167,7 +1175,10 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                                         switchTimeStr,
                                         phase1_res_idx: selectedPhase1Res === 'auto' ? null : selectedPhase1Res.toUpperCase(),
                                         phase2_res_idx: selectedPhase2Res === 'auto' ? null : selectedPhase2Res.toUpperCase(),
-                                        flow: localFlow
+                                        flow: localFlow,
+                                        flow_code_locked: isFlowLocked,
+                                        phase1_locked: isPhase1Locked,
+                                        phase2_locked: isPhase2Locked
                                     })}
                                     disabled={isSaveDisabled}
                                     className={`text-xs px-3 py-1.5 rounded font-bold border shadow-sm transition-all flex items-center ${isSaveDisabled ? 'bg-gray-200 text-gray-400 border-gray-300 cursor-not-allowed' : 'bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border-indigo-300'}`}
@@ -1177,11 +1188,16 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                             </div>
                             <div className="flex items-start justify-between gap-4">
                                 <div className="flex-1 relative flex flex-col items-center">
-                                    <label className={`block w-full text-xs font-bold mb-1 text-center transition-colors ${isBodyFirstLocal ? 'text-orange-600' : 'text-indigo-600'}`}>PHASE 1 ({isBodyFirstLocal ? '身' : '足'})</label>
+                                    <label className={`block w-full text-xs font-bold mb-1 text-center transition-colors flex items-center justify-center gap-2 ${isBodyFirstLocal ? 'text-orange-600' : 'text-indigo-600'}`}>
+                                        PHASE 1 ({isBodyFirstLocal ? '身' : '足'})
+                                        <button onClick={() => setIsPhase1Locked(!isPhase1Locked)} className={`text-sm transition-all hover:scale-110 active:scale-95 ${isPhase1Locked ? 'text-red-500' : 'text-gray-300 hover:text-gray-500'}`} title={isPhase1Locked ? '解鎖 (Mở khoá)' : '鎖定 (Khoá)'}>
+                                            <i className={isPhase1Locked ? "fas fa-lock" : "fas fa-lock-open"}></i>
+                                        </button>
+                                    </label>
                                     <div className="text-[11px] font-bold text-slate-500 mb-1 text-center bg-slate-100/50 py-0.5 px-2 rounded-full border border-slate-200">
                                         負責師傅: <span className="text-indigo-600 ml-1">{selectedStaff}</span>
                                     </div>
-                                    <input type="number" value={phase1} onChange={(e) => handleChangeP1(e.target.value)} className={`w-full text-center text-3xl font-black border-b-2 focus:outline-none bg-transparent transition-colors ${isBodyFirstLocal ? 'text-orange-900 border-orange-200 focus:border-orange-600' : 'text-indigo-900 border-indigo-200 focus:border-indigo-600'}`} />
+                                    <input type="number" value={phase1} onChange={(e) => handleChangeP1(e.target.value)} disabled={isPhase1Locked} className={`w-full text-center text-3xl font-black border-b-2 focus:outline-none bg-transparent transition-colors ${isBodyFirstLocal ? 'text-orange-900 border-orange-200 focus:border-orange-600' : 'text-indigo-900 border-indigo-200 focus:border-indigo-600'} ${isPhase1Locked ? 'opacity-50 cursor-not-allowed bg-gray-50' : ''}`} />
                                     <span className="block text-center text-xs text-gray-400 mt-1">分鐘</span>
 
                                     <div className="mt-3 flex flex-col items-center animate-in fade-in w-full max-w-[140px]">
@@ -1213,13 +1229,20 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                                 </div>
 
                                 <div className="shrink-0 flex flex-col items-center justify-start pt-2">
+                                    <div className="mb-2 relative">
+                                        <button onClick={() => setIsFlowLocked(!isFlowLocked)} className={`text-sm transition-all hover:scale-110 active:scale-95 z-10 relative ${isFlowLocked ? 'text-red-500' : 'text-gray-300 hover:text-gray-500'}`} title={isFlowLocked ? '解鎖 (Mở khoá)' : '鎖定 (Khoá)'}>
+                                            <i className={isFlowLocked ? "fas fa-lock" : "fas fa-lock-open"}></i>
+                                        </button>
+                                    </div>
                                     <button
                                         onClick={() => {
+                                            if (isFlowLocked) return;
                                             const newFlow = isBodyFirstLocal ? 'FB' : 'BF';
                                             setLocalFlow(newFlow);
                                             triggerAction('TOGGLE_SEQUENCE', { newFlow: newFlow });
                                         }}
-                                        className={`w-20 h-20 rounded-2xl border-4 flex flex-col items-center justify-center text-xl shadow-lg hover:scale-105 active:scale-95 transition-all group relative overflow-hidden ${isBodyFirstLocal ? 'bg-orange-50 border-orange-400 text-orange-700 hover:bg-orange-100' : 'bg-indigo-50 border-indigo-400 text-indigo-700 hover:bg-indigo-100'}`}
+                                        disabled={isFlowLocked}
+                                        className={`w-20 h-20 rounded-2xl border-4 flex flex-col items-center justify-center text-xl shadow-lg transition-all group relative overflow-hidden ${isBodyFirstLocal ? 'bg-orange-50 border-orange-400 text-orange-700' : 'bg-indigo-50 border-indigo-400 text-indigo-700'} ${isFlowLocked ? 'opacity-50 cursor-not-allowed' : 'hover:scale-105 active:scale-95 hover:bg-opacity-50'}`}
                                         title={isBodyFirstLocal ? "點擊切換為 FB (先做足底)" : "點擊切換為 BF (先做身體)"}
                                     >
                                         <div className="absolute inset-0 opacity-10 bg-[url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI4IiBoZWlnaHQ9IjgiPgo8cmVjdCB3aWR0aD0iOCIgaGVpZ2h0PSI4IiBmaWxsPSIjZmZmIj48L3JlY3Q+CjxwYXRoIGQ9Ik0wIDBMOCA4Wk04IDBMMCA4WiIgc3Ryb2tlPSIjMDAwIiBzdHJva2Utd2lkdGg9IjEiPjwvcGF0aD4KPC9zdmc+')] mix-blend-multiply"></div>
@@ -1238,7 +1261,12 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                                 </div>
 
                                 <div className="flex-1 relative flex flex-col items-center">
-                                    <label className={`block w-full text-xs font-bold mb-1 text-center transition-colors ${isBodyFirstLocal ? 'text-indigo-600' : 'text-orange-600'}`}>PHASE 2 ({isBodyFirstLocal ? '足' : '身'})</label>
+                                    <label className={`block w-full text-xs font-bold mb-1 text-center transition-colors flex items-center justify-center gap-2 ${isBodyFirstLocal ? 'text-indigo-600' : 'text-orange-600'}`}>
+                                        PHASE 2 ({isBodyFirstLocal ? '足' : '身'})
+                                        <button onClick={() => setIsPhase2Locked(!isPhase2Locked)} className={`text-sm transition-all hover:scale-110 active:scale-95 ${isPhase2Locked ? 'text-red-500' : 'text-gray-300 hover:text-gray-500'}`} title={isPhase2Locked ? '解鎖 (Mở khoá)' : '鎖定 (Khoá)'}>
+                                            <i className={isPhase2Locked ? "fas fa-lock" : "fas fa-lock-open"}></i>
+                                        </button>
+                                    </label>
                                     <div className="text-[11px] font-bold text-slate-500 mb-1 text-center bg-slate-100/50 py-0.5 px-2 rounded-full border border-slate-200">
                                         {isSplitMode ? (
                                             <>接手師傅: <span className="text-orange-600 ml-1">{selectedStaff2}</span></>
@@ -1246,7 +1274,7 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                                             <>負責師傅: <span className="text-indigo-600 ml-1">{selectedStaff}</span></>
                                         )}
                                     </div>
-                                    <input type="number" value={phase2} onChange={(e) => handleChangeP2(e.target.value)} className={`w-full text-center text-3xl font-black border-b-2 focus:outline-none bg-transparent transition-colors ${isBodyFirstLocal ? 'text-indigo-900 border-indigo-200 focus:border-indigo-600' : 'text-orange-900 border-orange-200 focus:border-orange-600'}`} />
+                                    <input type="number" value={phase2} onChange={(e) => handleChangeP2(e.target.value)} disabled={isPhase2Locked} className={`w-full text-center text-3xl font-black border-b-2 focus:outline-none bg-transparent transition-colors ${isBodyFirstLocal ? 'text-indigo-900 border-indigo-200 focus:border-indigo-600' : 'text-orange-900 border-orange-200 focus:border-orange-600'} ${isPhase2Locked ? 'opacity-50 cursor-not-allowed bg-gray-50' : ''}`} />
                                     <span className="block text-center text-xs text-gray-400 mt-1">分鐘</span>
 
                                     <div className="mt-3 flex flex-col items-center animate-in fade-in w-full max-w-[140px]">
