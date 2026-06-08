@@ -2373,7 +2373,7 @@
                                                 <div className="flex gap-2 items-center overflow-x-auto pb-1">
                                                     <div className="w-10 shrink-0 h-[64px] rounded-lg bg-gray-200 hidden sm:flex items-center justify-center font-black text-lg text-slate-500">#{i + 1}</div>
 
-                                                    <select className="flex-[1] min-w-[100px] border-2 p-1 sm:p-2 rounded-lg font-bold text-sm sm:text-lg h-[64px] bg-white shrink-0" value={g.service} onChange={e => handleGuestUpdate(i, 'service', e.target.value)}>
+                                                    <select className="w-[140px] sm:w-[200px] min-w-[100px] border-2 p-1 sm:p-2 rounded-lg font-bold text-sm sm:text-lg h-[64px] bg-white shrink-0" value={g.service} onChange={e => handleGuestUpdate(i, 'service', e.target.value)}>
                                                         {(window.SERVICES_LIST || []).map(s => <option key={s} value={s}>{s}</option>)}
                                                     </select>
 
@@ -2421,9 +2421,12 @@
                                                     </button>
 
                                                     {isCombo && (
-                                                        <div className="shrink-0 flex items-center pl-1">
-                                                            <span className="text-sm sm:text-base text-orange-600 font-bold font-mono bg-orange-50 px-2 py-1.5 rounded-lg border border-orange-200 whitespace-nowrap">
+                                                        <div className="shrink-0 flex items-center pl-1 gap-2">
+                                                            <span className="text-sm sm:text-base text-orange-600 font-bold font-mono bg-orange-50 px-3 sm:px-4 py-1.5 rounded-lg border border-orange-200 whitespace-nowrap">
                                                                 {flow === 'BF' ? `身:${p1} ; 腳:${p2}` : `腳:${p1} ; 身:${p2}`}
+                                                            </span>
+                                                            <span className={`text-sm sm:text-base font-bold font-mono px-3 sm:px-4 py-1.5 rounded-lg border whitespace-nowrap ${flow === 'BF' ? 'text-indigo-600 bg-indigo-50 border-indigo-200' : 'text-emerald-600 bg-emerald-50 border-emerald-200'}`}>
+                                                                {flow === 'BF' ? 'BF' : 'FB'}
                                                             </span>
                                                         </div>
                                                     )}
