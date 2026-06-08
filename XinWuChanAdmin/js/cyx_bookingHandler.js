@@ -1245,9 +1245,11 @@
                 if (conflictFound) {
                     let matrixSqueeze = new VirtualMatrix();
                     let updatesProposed = [];
-                    const hardBookings = existingBookingsProcessed.filter(b => !b.isElastic);
+                    // [V119 FIX] User feedback: "không được dỡ các khách cũ" and "chỉ khoá cứng toạ độ của các khách đang phục vụ"
+                    const hardBookings = existingBookingsProcessed;
                     hardBookings.forEach(hb => {
-                        hb.blocks.forEach(blk => matrixSqueeze.tryAllocate(blk.type, blk.start, blk.end, hb.id, blk.forcedIndex, true));
+                        const isRunning = isStatusRunning(hb.originalData?.status);
+                        hb.blocks.forEach(blk => matrixSqueeze.tryAllocate(blk.type, blk.start, blk.end, hb.id, blk.forcedIndex, isRunning));
                     });
                     let squeezeScenarioPossible = false;
                     const placeNewGuestsElastically = (guestIndex, currentMatrix, currentDetails, currentUpdates) => {
@@ -1358,7 +1360,7 @@
                         }
                         scenarioFailed = true; continue;
                     }
-                    const softBookings = existingBookingsProcessed.filter(b => b.isElastic);
+                    const softBookings = []; // [V119 FIX] Disabled squeezing of existing bookings per user request
                     for (const sb of softBookings) {
                         const splits = generateElasticSplits(sb.duration, sb.elasticStep, sb.elasticLimit, null);
                         let fit = false;
