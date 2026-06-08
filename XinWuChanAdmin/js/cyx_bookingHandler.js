@@ -1527,7 +1527,7 @@
         return Array.from(mergedMap.values());
     };
 
-    const callCoreAvailabilityCheck = (date, time, guests, bookings, staffList) => {
+    const callCoreAvailabilityCheck = (date, time, guests, bookings, staffList, locationStr) => {
         syncServicesToCore();
         const now = new Date();
         const STATUS = getBookingStatus();
@@ -1691,7 +1691,7 @@
             });
         }
         try {
-            const result = CoreKernel.checkRequestAvailability(targetDateStandard, time, coreGuests, coreBookings, staffMap);
+            const result = CoreKernel.checkRequestAvailability(targetDateStandard, time, coreGuests, coreBookings, staffMap, { location: locationStr || '本館' });
             return result.feasible
                 ? { valid: true, details: result.details, proposedUpdates: result.proposedUpdates, debug: result.debug }
                 : { valid: false, reason: result.reason, debug: result.debug };
@@ -1773,11 +1773,13 @@
             time: getRoundedCurrentTime(), pax: 1, custName: '', custTitle: '', custPhone: '09', adminNote: ''
         });
 
+        const [selectedLocation, setSelectedLocation] = useState('本館');
         const [guestDetails, setGuestDetails] = useState([{ service: defaultService, staff: '隨機', isYouTui: false, isGuaSha: false, isHuaGuan: false, isBaGuan: false }]);
 
         useEffect(() => {
             if (editingBooking) {
                 let timeStr = getRoundedCurrentTime(); let dateStr = initialDate;
+                setSelectedLocation(editingBooking.location || '本館');
                 if (editingBooking.startTimeString) {
                     const parts = editingBooking.startTimeString.split(' ');
                     if (parts.length >= 2) {
@@ -1907,7 +1909,7 @@
             let localBookingsList = safeBookings;
             let finalBookings = mergeBookingData(serverBookingsList, localBookingsList);
             if (editingBooking) { finalBookings = finalBookings.filter(b => b.rowId !== editingBooking.rowId); }
-            const res = callCoreAvailabilityCheck(form.date, form.time, guestDetails, finalBookings, serverStaffList);
+            const res = callCoreAvailabilityCheck(form.date, form.time, guestDetails, finalBookings, serverStaffList, selectedLocation);
             if (res.valid) {
                 setCheckResult({ status: 'OK', message: "✅ 此時段可預約", coreDetails: res.details, debug: res.debug });
             } else {
@@ -2002,7 +2004,7 @@
                         }
                     }
 
-                    let checkRes = callCoreAvailabilityCheck(sugDate, tStr, guestDetails, finalBookings, serverStaffList);
+                    let checkRes = callCoreAvailabilityCheck(sugDate, tStr, guestDetails, finalBookings, serverStaffList, selectedLocation);
                     if (checkRes.valid) {
                         if (!found.some(f => f.time === tStr && f.date === sugDate)) {
                             found.push({ time: tStr, date: sugDate, daysToAdd });
@@ -2039,7 +2041,7 @@
             try {
                 let checkBookings = mergeBookingData(serverData?.bookings || [], safeBookings);
                 if (editingBooking) checkBookings = checkBookings.filter(b => b.rowId !== editingBooking.rowId);
-                const finalCheck = callCoreAvailabilityCheck(form.date, form.time, guestDetails, checkBookings, serverData?.staff || safeStaffList);
+                const finalCheck = callCoreAvailabilityCheck(form.date, form.time, guestDetails, checkBookings, serverData?.staff || safeStaffList, selectedLocation);
 
                 if (!finalCheck.valid) {
                     Swal.fire('系統提示', "⚠️ 數據已變更，無法預約：" + finalCheck.reason, 'error');
@@ -2114,6 +2116,7 @@
                     sdt: form.custPhone || "",
                     dichVu: detailedGuests.map(g => g.service).join(','),
                     pax: form.pax,
+                    location: selectedLocation,
                     ngayDen: normalizeDateStrict(form.date), // [V134.1 NÂNG CẤP] Use Calendar Date
                     gioDen: form.time,
                     nhanVien: detailedGuests[0].staff,
@@ -2206,7 +2209,19 @@
                 <div className="fixed inset-0 bg-slate-900/90 z-[100] flex items-center justify-center p-2 sm:p-6">
                     <div className="bg-white w-full max-w-[1200px] rounded-2xl shadow-2xl flex flex-col h-[98vh] sm:h-[90vh] overflow-hidden animate-fadeIn">
                         <div className={`${editingBooking ? 'bg-orange-600' : 'bg-[#0891b2]'} p-4 sm:p-6 text-white flex justify-between items-center shrink-0`}>
-                            <h3 className="font-bold text-xl sm:text-2xl whitespace-nowrap">{editingBooking ? "✏️ 修改預約" : "📅 預約"}</h3>
+                            <div className="flex items-center">
+                                <h3 className="font-bold text-xl sm:text-2xl whitespace-nowrap">{editingBooking ? "✏️ 修改預約" : "📅 預約"}</h3>
+                                <div className="flex bg-white/20 rounded-lg p-1 ml-4 shadow-inner border border-white/30 hidden sm:flex">
+                                    <button 
+                                        onClick={(e) => { e.preventDefault(); setSelectedLocation('本館'); setCheckResult(null); setSuggestions([]); }} 
+                                        className={`px-4 py-1.5 rounded-md font-bold text-sm sm:text-base transition-all ${selectedLocation === '本館' ? 'bg-white text-[#0891b2] shadow-md' : 'text-white hover:bg-white/10'}`}
+                                    >本館</button>
+                                    <button 
+                                        onClick={(e) => { e.preventDefault(); setSelectedLocation('對面館'); setCheckResult(null); setSuggestions([]); }} 
+                                        className={`px-4 py-1.5 rounded-md font-bold text-sm sm:text-base transition-all ${selectedLocation === '對面館' ? 'bg-white text-[#0891b2] shadow-md' : 'text-white hover:bg-white/10'}`}
+                                    >對面館</button>
+                                </div>
+                            </div>
                             <div className="flex items-center gap-2 sm:gap-4 flex-wrap justify-end">
                                 {step === 'CHECK' && (
                                     <>

@@ -52,8 +52,9 @@ function getSystemConfig() {
 
 // Alias ánh xạ cấu hình động để code phía dưới ngắn gọn và tương thích ngược, sử dụng getter
 const CONF = {
-    get MAX_CHAIRS() { return getSystemConfig().SCALE.MAX_CHAIRS; },
-    get MAX_BEDS() { return getSystemConfig().SCALE.MAX_BEDS; },
+    _tempLocation: '本館',
+    get MAX_CHAIRS() { return this._tempLocation === '對面館' ? (getSystemConfig().SCALE.OPP_CHAIRS || 4) : getSystemConfig().SCALE.MAX_CHAIRS; },
+    get MAX_BEDS() { return this._tempLocation === '對面館' ? (getSystemConfig().SCALE.OPP_BEDS || 6) : getSystemConfig().SCALE.MAX_BEDS; },
     get OPEN_HOUR() { return getSystemConfig().OPERATION_TIME.OPEN_HOUR; },
     get CLEANUP_BUFFER() { return getSystemConfig().BUFFERS.CLEANUP_MINUTES; },
     get TRANSITION_BUFFER() { return getSystemConfig().BUFFERS.TRANSITION_MINUTES; },
@@ -542,6 +543,9 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
     };
 
     relevantBookings.forEach(b => {
+        const bLoc = b.originalData?.location || b.location || '本館';
+        if (bLoc !== CONF._tempLocation) return;
+
         const bStart = getMinsFromTimeStr(b.startTimeString || b.startTime);
         const svcInfo = getServiceInfo(b.serviceCode, b.serviceName);
         const storedFlow = b.originalData?.flowCode || b.flow;
@@ -952,7 +956,8 @@ function isBlockSetAllocatable(blocks, matrix) {
 // PHẦN 7: CORE ENGINE V118.0
 // ============================================================================
 
-function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRaw, staffList) {
+function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRaw, staffList, options = {}) {
+    CONF._tempLocation = options.location || '本館';
     const requestStartMins = getMinsFromTimeStr(timeStr);
     if (requestStartMins === -1) return { feasible: false, reason: "❌ 錯誤：時間格式無效" };
 
@@ -1196,6 +1201,9 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
 
         let softsToSqueezeCandidates = [];
         for (const exB of existingBookingsProcessed) {
+            const exBLoc = exB.originalData?.location || exB.location || '本館';
+            if (exBLoc !== CONF._tempLocation) continue;
+
             let placedSuccessfully = true; let allocatedSlots = [];
             for (const block of exB.blocks) {
                 const realEnd = block.end;
@@ -1314,6 +1322,9 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
         // [V119 FIX] User feedback: "không được dỡ các khách cũ" and "chỉ khoá cứng toạ độ của các khách đang phục vụ"
         const hardBookings = existingBookingsProcessed;
         hardBookings.forEach(hb => {
+            const hbLoc = hb.originalData?.location || hb.location || '本館';
+            if (hbLoc !== CONF._tempLocation) return;
+
             let isRunning = false;
             if (hb.originalData && hb.originalData.status) {
                 const stLower = hb.originalData.status.toLowerCase();
