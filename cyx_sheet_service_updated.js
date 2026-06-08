@@ -370,7 +370,7 @@ async function syncData() {
         STATE.isSyncing = true;
         await syncBlacklist();
 
-        const resBooking = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: `${BOOKING_SHEET_NAME}!A:AK` });
+        const resBooking = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: `${BOOKING_SHEET_NAME}!A:AX` });
         const rowsBooking = resBooking.data.values;
         let tempBookings = [];
 
@@ -1095,7 +1095,7 @@ async function updateInlineBooking(rowId, updatedData) {
 
         const getRes = await sheets.spreadsheets.values.get({
             spreadsheetId: SHEET_ID,
-            range: `${BOOKING_SHEET_NAME}!A${rowId}:AK${rowId}`
+            range: `${BOOKING_SHEET_NAME}!A${rowId}:AX${rowId}`
         });
         
         let row = (getRes.data.values && getRes.data.values[0]) ? [...getRes.data.values[0]] : [];
@@ -1413,7 +1413,7 @@ async function updateInlineBooking(rowId, updatedData) {
 
         await sheets.spreadsheets.values.update({
             spreadsheetId: SHEET_ID,
-            range: `${BOOKING_SHEET_NAME}!A${rowId}:AK${rowId}`,
+            range: `${BOOKING_SHEET_NAME}!A${rowId}:AX${rowId}`,
             valueInputOption: 'USER_ENTERED',
             requestBody: { values: [[...row]] }
         });
