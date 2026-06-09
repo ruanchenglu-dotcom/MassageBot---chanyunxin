@@ -958,7 +958,7 @@ app.post('/api/admin-booking', async (req, res) => {
                     }
                     guestList.push({ serviceCode: iServiceCode, staffName: sId, flow: preferredFlow });
                 }
-                const checkResult = ResourceCore.checkRequestAvailability(opDateCheck, cyx_data.gioDen, guestList, relevantBookings, staffListMap);
+                const checkResult = ResourceCore.checkRequestAvailability(opDateCheck, cyx_data.gioDen, guestList, relevantBookings, staffListMap, { location: cyx_data.location || '本館' });
 
                 if (checkResult.feasible && checkResult.details && checkResult.details.length > 0) {
                     const optimalDetail = checkResult.details[0];
@@ -1017,7 +1017,7 @@ app.post('/api/admin-booking', async (req, res) => {
         guestDetails: cyx_data.guestDetails,
         phase1_duration: cyx_data.phase1_duration, phase2_duration: cyx_data.phase2_duration,
         isManualLocked: cyx_data.isManualLocked, flow: cyx_data.flow, serviceCode: cyx_data.serviceCode,
-        adminNote: cyx_data.adminNote
+        adminNote: cyx_data.adminNote, location: cyx_data.location
     });
 
     if (isSaved) {
