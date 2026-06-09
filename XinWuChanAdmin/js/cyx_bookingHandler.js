@@ -89,13 +89,13 @@
     const CoreKernel = (function () {
 
         // --- 1. CẤU HÌNH HỆ THỐNG ĐỘNG (DYNAMIC SYSTEM CONFIG) ---
-        const getSystemConfig = () => {
+        const getSystemConfig = (locationStr = '本館') => {
             const ext = window.SYSTEM_CONFIG || {};
             const scale = ext.SCALE || {};
             const opTime = ext.OPERATION_TIME || {};
             return {
-                MAX_CHAIRS: scale.MAX_CHAIRS || ext.MAX_CHAIRS,
-                MAX_BEDS: scale.MAX_BEDS || ext.MAX_BEDS,
+                MAX_CHAIRS: locationStr === '對面館' ? (scale.OPP_CHAIRS || 4) : (scale.MAX_CHAIRS || ext.MAX_CHAIRS),
+                MAX_BEDS: locationStr === '對面館' ? (scale.OPP_BEDS || 6) : (scale.MAX_BEDS || ext.MAX_BEDS),
                 MAX_TOTAL_GUESTS: ext.MAX_TOTAL_GUESTS || 18,
                 OPEN_HOUR: opTime.OPEN_HOUR || ext.OPEN_HOUR || 3,
                 CLEANUP_BUFFER: (ext.BUFFERS && ext.BUFFERS.CLEANUP_MINUTES) || ext.CLEANUP_BUFFER || 5,
@@ -309,8 +309,8 @@
         }
 
 
-        function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBookingsRaw, staffList, queryDateStr, isSimulation = false) {
-            const CONF = getSystemConfig();
+        function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBookingsRaw, staffList, queryDateStr, isSimulation = false, locationStr = '本館') {
+            const CONF = getSystemConfig(locationStr);
 
             const triggerSmartFailure = (reasonMsg, specificSuggestionMins = null) => {
                 if (isSimulation) return { pass: false, reason: reasonMsg };
@@ -325,7 +325,7 @@
                 let searchStart = Math.max(requestStart + 10, 0); 
                 
                 for (let t = searchStart; t <= 1800; t += 10) {
-                    let sim = validateGlobalCapacity(t, maxDuration, guestList, currentBookingsRaw, staffList, queryDateStr, true);
+                    let sim = validateGlobalCapacity(t, maxDuration, guestList, currentBookingsRaw, staffList, queryDateStr, true, locationStr);
                     if (sim.pass) {
                         foundMins = t;
                         break;
@@ -366,6 +366,7 @@
             relevantBookings.forEach(b => {
                 const bStart = getMinsFromTimeStr(b.startTime);
                 const svcInfo = SERVICES[b.serviceCode] || { name: b.serviceName };
+                const bLoc = b.originalData?.location || b.location || '本館';
                 const storedFlow = b.originalData?.flowCode || b.flow;
                 const isCombo = isComboService(svcInfo, b.serviceName, storedFlow);
                 const { p1, realDuration } = calculateRealDurations(b, b.duration || 60, isCombo);
@@ -389,6 +390,7 @@
                 }
 
                 const pushToMapFallback = (type, startT, endT) => {
+                    if (bLoc !== locationStr) return false;
                     if (resourceMap[type]) {
                         for (let i = 0; i < resourceMap[type].length; i++) {
                             const overlaps = resourceMap[type][i].some(blk => isOverlap(startT, endT, blk.start, blk.end));
@@ -402,6 +404,7 @@
                 };
 
                 const pushToMap = (res, startT, endT, fallbackType) => {
+                    if (bLoc !== locationStr) return;
                     let success = false;
                     if (res) {
                         const laneMatch = res.match(/(BED|CHAIR|床|足|腳)[-_ ]?(\d+)/i);
@@ -717,8 +720,8 @@
 
         // --- MATRIX ENGINE ---
         class VirtualMatrix {
-            constructor() {
-                const CONF = getSystemConfig();
+            constructor(locationStr = '本館') {
+                const CONF = getSystemConfig(locationStr);
                 this.lanes = {
                     'CHAIR': Array.from({ length: CONF.MAX_CHAIRS }, (_, i) => ({ id: `CHAIR-${i + 1}`, occupied: [] })),
                     'BED': Array.from({ length: CONF.MAX_BEDS }, (_, i) => ({ id: `BED-${i + 1}`, occupied: [] }))
@@ -924,8 +927,9 @@
         }
 
         // --- MAIN ENGINE ---
-        function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRaw, staffList) {
-            const CONF = getSystemConfig();
+        function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRaw, staffList, options = {}) {
+            const locationStr = options.location || '本館';
+            const CONF = getSystemConfig(locationStr);
             const requestStartMins = getMinsFromTimeStr(timeStr);
             if (requestStartMins === -1) return { feasible: false, reason: "❌ 錯誤：時間格式無效" };
 
@@ -942,7 +946,9 @@
                 guestList,
                 currentBookingsRaw,
                 staffList,
-                dateStr
+                dateStr,
+                false,
+                locationStr
             );
 
             if (!guardrailCheck.pass) {
@@ -1117,7 +1123,10 @@
                     
                     processedB.blocks.push({ start: bStart, end: bStart + realDuration + CONF.CLEANUP_BUFFER, type: rType, forcedIndex: forcedIdx });
                 }
-                existingBookingsProcessed.push(processedB);
+                const bLoc = b.originalData?.location || b.location || '本館';
+                if (bLoc === locationStr) {
+                    existingBookingsProcessed.push(processedB);
+                }
             });
 
             // GIAI ĐOẠN C: KỊCH BẢN KHÁCH MỚI
@@ -1151,7 +1160,7 @@
             let globalBestOutOfBoundSqueeze = null;
 
             for (let numBF of trySequence) {
-                let matrix = new VirtualMatrix();
+                let matrix = new VirtualMatrix(locationStr);
                 let scenarioDetails = [];
                 let scenarioUpdates = [];
                 let scenarioFailed = false;

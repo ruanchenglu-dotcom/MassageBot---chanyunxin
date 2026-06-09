@@ -1360,7 +1360,8 @@ async function updateInlineBooking(rowId, updatedData) {
                         }];
 
                         try {
-                            const checkResult = ResourceCore.checkRequestAvailability(normalizeDateStrict(opDate), opTime, guestList, relevantBookings, staffListMap);
+                            const targetLocation = updatedData.location !== undefined ? updatedData.location : (bookingData ? (bookingData.location || '本館') : '本館');
+                            const checkResult = ResourceCore.checkRequestAvailability(normalizeDateStrict(opDate), opTime, guestList, relevantBookings, staffListMap, { location: targetLocation });
                             if (checkResult.feasible && checkResult.details && checkResult.details.length > 0 && checkResult.details[0].phase1_res_idx) {
                                 bestPhase1 = checkResult.details[0].phase1_res_idx || "";
                                 bestPhase2 = checkResult.details[0].phase2_res_idx || "";
