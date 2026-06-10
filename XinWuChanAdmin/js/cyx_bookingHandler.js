@@ -2344,7 +2344,14 @@
                                     <div className="pt-2">
                                         {checkResult && checkResult.status === 'FAIL' && (
                                             <div className="space-y-4 animate-slideIn">
-                                                <div className="p-5 rounded-xl text-center font-bold text-xl border-2 bg-red-50 text-red-700 border-red-300">{checkResult.message}</div>
+                                                <div className="p-5 rounded-xl text-center font-bold text-xl border-2 bg-red-50 text-red-700 border-red-300">
+                                                    {(checkResult.message || "").split('\n').filter(line => line.includes('系統提示：')).map((line, idx) => (
+                                                        <div key={'blue-'+idx} className="text-blue-600 mb-3">{line}</div>
+                                                    ))}
+                                                    {(checkResult.message || "").split('\n').filter(line => !line.includes('系統提示：')).map((line, idx) => (
+                                                        <div key={'red-'+idx}>{line}</div>
+                                                    ))}
+                                                </div>
                                                 {suggestions.length > 0 && (
                                                     <div className="bg-yellow-50 p-4 rounded-xl border-2 border-yellow-300">
                                                         <div className="text-base font-bold text-yellow-800 mb-3">💡 建議時段:</div>

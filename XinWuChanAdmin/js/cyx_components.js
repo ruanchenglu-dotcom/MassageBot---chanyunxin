@@ -940,7 +940,12 @@ const AvailabilityCheckModal = ({ onClose, onSave, staffList, bookings, initialD
 
                             {checkResult && (
                                 <div className={`p-3 rounded text-center font-bold border-2 ${checkResult.status === 'OK' ? 'bg-green-100 text-green-700 border-green-200' : 'bg-red-100 text-red-700 border-red-200'}`}>
-                                    {checkResult.message}
+                                    {(checkResult.message || "").split('\n').filter(line => line.includes('系統提示：')).map((line, idx) => (
+                                                        <div key={'blue-'+idx} className="text-blue-600 mb-3">{line}</div>
+                                                    ))}
+                                    {(checkResult.message || "").split('\n').filter(line => !line.includes('系統提示：')).map((line, idx) => (
+                                                        <div key={'red-'+idx}>{line}</div>
+                                                    ))}
                                 </div>
                             )}
 
