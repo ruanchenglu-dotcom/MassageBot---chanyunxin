@@ -322,7 +322,7 @@ function checkLaneContinuity(laneOccupiedArr, start, end, customCleanup = null) 
     return true;
 }
 
-function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBookingsRaw, staffList, queryDateStr, isSimulation = false) {
+function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBookingsRaw, staffList, queryDateStr, isSimulation = false, locationStr = '本館') {
     // Helper to trigger smart search if not in simulation
     const triggerSmartFailure = (reasonMsg, specificSuggestionMins = null) => {
         if (isSimulation) return { pass: false, reason: reasonMsg };
@@ -338,7 +338,7 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
         
         // Quét đến cuối ngày hoặc ca đêm (1440 + 360 = 1800)
         for (let t = searchStart; t <= 1800; t += 10) {
-            let sim = validateGlobalCapacity(t, maxDuration, guestList, currentBookingsRaw, staffList, queryDateStr, true);
+            let sim = validateGlobalCapacity(t, maxDuration, guestList, currentBookingsRaw, staffList, queryDateStr, true, locationStr);
             if (sim.pass) {
                 foundMins = t;
                 break;
@@ -358,6 +358,9 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
 
     // 1. Lọc Booking hợp lệ
     const relevantBookings = currentBookingsRaw.filter(b => {
+        const bLoc = b.originalData?.location || b.location || '本館';
+        if (bLoc !== locationStr) return false;
+
         const bStart = getMinsFromTimeStr(b.startTimeString || b.startTime);
         if (bStart === -1) return false;
         if (!isActiveBookingStatus(b.status)) return false;
@@ -544,7 +547,7 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
 
     relevantBookings.forEach(b => {
         const bLoc = b.originalData?.location || b.location || '本館';
-        if (bLoc !== CONF._tempLocation) return;
+        if (bLoc !== locationStr) return;
 
         const bStart = getMinsFromTimeStr(b.startTimeString || b.startTime);
         const svcInfo = getServiceInfo(b.serviceCode, b.serviceName);
@@ -908,7 +911,7 @@ function generateElasticSplits(totalDuration, step = 0, limit = 0, customLockedP
 
     addOption(standardHalf);
 
-    let realStep = 1;
+    let realStep = step > 0 ? step : 5;
 
     if (isBF) {
         for (let p1 = scanMaxP1; p1 >= scanMinP1; p1 -= realStep) {

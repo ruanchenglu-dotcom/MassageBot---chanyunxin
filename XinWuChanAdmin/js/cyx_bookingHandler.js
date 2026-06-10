@@ -349,6 +349,9 @@
             };
 
             const relevantBookings = currentBookingsRaw.filter(b => {
+                const bLoc = b.originalData?.location || b.location || '本館';
+                if (bLoc !== locationStr) return false;
+
                 const bStart = getMinsFromTimeStr(b.startTime);
                 if (bStart === -1) return false;
                 if (!isActiveBookingStatus(b.status)) return false;
@@ -878,7 +881,7 @@
 
             addOption(standardHalf);
 
-            let realStep = 1;
+            let realStep = step > 0 ? step : 5;
 
             if (isBF) {
                 for (let p1 = scanMaxP1; p1 >= scanMinP1; p1 -= realStep) {

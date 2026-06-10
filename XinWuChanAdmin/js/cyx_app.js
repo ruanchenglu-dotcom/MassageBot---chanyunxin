@@ -1051,16 +1051,21 @@ const App = () => {
 
                     let targetResId = null;
                     if (b.storedLocation && !nextResourceState[b.storedLocation]) {
-                        if (/^(chair|bed)-\d$/.test(b.storedLocation)) {
+                        if (/^(opp-)?(chair|bed)-\d$/.test(b.storedLocation)) {
                             targetResId = b.storedLocation;
                         }
                     }
 
                     if (!targetResId) {
                         const type = (b.forceResourceType === 'BED' || b.flow === 'BODYSINGLE') ? 'bed' : 'chair';
-                        const limit = type === 'chair' ? window.SYSTEM_CONFIG?.SCALE?.MAX_CHAIRS : window.SYSTEM_CONFIG?.SCALE?.MAX_BEDS;
+                        const isOpp = b.location === '對面館';
+                        const prefix = isOpp ? `opp-${type}` : type;
+                        const limit = isOpp 
+                            ? (type === 'chair' ? (window.SYSTEM_CONFIG?.SCALE?.OPP_CHAIRS || 4) : (window.SYSTEM_CONFIG?.SCALE?.OPP_BEDS || 6))
+                            : (type === 'chair' ? (window.SYSTEM_CONFIG?.SCALE?.MAX_CHAIRS || 6) : (window.SYSTEM_CONFIG?.SCALE?.MAX_BEDS || 6));
+                            
                         for (let i = 1; i <= limit; i++) {
-                            const tid = `${type}-${i}`;
+                            const tid = `${prefix}-${i}`;
                             if (!nextResourceState[tid]) { targetResId = tid; break; }
                         }
                     }

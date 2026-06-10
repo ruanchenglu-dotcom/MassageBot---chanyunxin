@@ -386,17 +386,21 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
 
     const { availableP1Resources, p1ResourcesData } = useMemo(() => {
         const type = isBodyFirstLocal ? 'bed' : 'chair';
-        const maxCount = type === 'bed' ? getMaxBeds() : getMaxChairs();
+        const isOpp = booking?.location === '對面館';
+        const prefix = isOpp ? `opp-${type}` : type;
+        const maxCount = isOpp 
+            ? (type === 'bed' ? getOppBeds() : getOppChairs())
+            : (type === 'bed' ? getMaxBeds() : getMaxChairs());
         const availList = [];
         const allList = [];
         for (let i = 1; i <= maxCount; i++) {
-            const resId = `${type}-${i}`;
+            const resId = `${prefix}-${i}`;
             const isOverlap = checkOverlap(resId, startMins, switchMins, booking?.rowId);
             allList.push({ id: resId, isAvailable: !isOverlap });
             if (!isOverlap) availList.push(resId);
         }
         return { availableP1Resources: availList, p1ResourcesData: allList };
-    }, [isBodyFirstLocal, startMins, switchMins, timelineData, booking?.rowId]);
+    }, [isBodyFirstLocal, startMins, switchMins, timelineData, booking?.rowId, booking?.location]);
 
     const performServiceCheck = () => {
         const getDuration = (serviceName) => {
@@ -685,29 +689,40 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
     const { availableP2Resources, p2ResourcesData } = useMemo(() => {
         const type = isBodyFirstLocal ? 'chair' : 'bed';
         const p2Start = switchMins + 5;
-        const maxCount = type === 'bed' ? getMaxBeds() : getMaxChairs();
+        const isOpp = booking?.location === '對面館';
+        const prefix = isOpp ? `opp-${type}` : type;
+        const maxCount = isOpp 
+            ? (type === 'bed' ? getOppBeds() : getOppChairs())
+            : (type === 'bed' ? getMaxBeds() : getMaxChairs());
         const availList = [];
         const allList = [];
         for (let i = 1; i <= maxCount; i++) {
-            const resId = `${type}-${i}`;
+            const resId = `${prefix}-${i}`;
             const isOverlap = checkOverlap(resId, p2Start, endMins, booking?.rowId);
             allList.push({ id: resId, isAvailable: !isOverlap });
             if (!isOverlap) availList.push(resId);
         }
         return { availableP2Resources: availList, p2ResourcesData: allList };
-    }, [isBodyFirstLocal, switchMins, endMins, timelineData, booking?.rowId]);
+    }, [isBodyFirstLocal, switchMins, endMins, timelineData, booking?.rowId, booking?.location]);
 
     const { availableSingleResources, singleResourcesData } = useMemo(() => {
         let type = 'bed';
         if (booking.forceResourceType === 'CHAIR' || booking.flow === 'FOOTSINGLE') type = 'chair';
         else if (booking.forceResourceType === 'BED' || booking.flow === 'BODYSINGLE') type = 'bed';
-        else if (contextResourceId) type = contextResourceId.split('-')[0];
+        else if (contextResourceId) {
+            type = contextResourceId.includes('chair') ? 'chair' : 'bed';
+        }
 
-        const maxCount = type === 'bed' ? getMaxBeds() : getMaxChairs();
+        const isOpp = booking?.location === '對面館';
+        const prefix = isOpp ? `opp-${type}` : type;
+        const maxCount = isOpp 
+            ? (type === 'bed' ? getOppBeds() : getOppChairs())
+            : (type === 'bed' ? getMaxBeds() : getMaxChairs());
+            
         const availList = [];
         const allList = [];
         for (let i = 1; i <= maxCount; i++) {
-            const resId = `${type}-${i}`;
+            const resId = `${prefix}-${i}`;
             const isOverlap = checkOverlap(resId, startMins, endMins, booking?.rowId);
             allList.push({ id: resId, isAvailable: !isOverlap });
             if (!isOverlap) availList.push(resId);
