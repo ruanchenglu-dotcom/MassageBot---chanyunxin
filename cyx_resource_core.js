@@ -1161,7 +1161,7 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
                 if (m) forcedIdx = parseInt(m[0], 10);
             }
             
-            processedB.blocks.push({ start: bStart, end: bStart + realDuration + CONF.CLEANUP_BUFFER, type: rType, forcedIndex: forcedIdx });
+            processedB.blocks.push({ start: bStart, end: bStart + duration + CONF.CLEANUP_BUFFER, type: rType, forcedIndex: forcedIdx });
         }
         existingBookingsProcessed.push(processedB);
     });

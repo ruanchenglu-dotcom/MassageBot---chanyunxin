@@ -788,6 +788,7 @@ async function ghiVaoSheet(data, proposedUpdates = []) {
             row[33] = r2 ? String(r2).toUpperCase() : "";
             row[34] = rType ? String(rType).toUpperCase() : "";
 
+            const hasManualPhase = (data.phase1_duration !== undefined && data.phase1_duration !== null) || (data.phase2_duration !== undefined && data.phase2_duration !== null);
             const finalLockVal = resolveStrictLockState(data.isManualLocked, hasManualPhase, "FALSE");
             row[35] = finalLockVal;
             row[36] = data.flow_code_locked ? "TRUE" : "FALSE";
