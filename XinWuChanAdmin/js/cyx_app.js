@@ -3811,7 +3811,7 @@ const App = () => {
                                 <div className="flex flex-wrap gap-2">
                                     {paymentChoiceData.relatedIds.map(rid => (
                                         <span key={rid} className="bg-white border border-blue-200 text-blue-700 px-2 py-1 rounded text-xs font-mono font-bold shadow-sm">
-                                            {rid.replace('bed-', (window.SYSTEM_CONFIG?.UI_LABELS?.BED_PREFIX || '床') + ' ').replace('chair-', (window.SYSTEM_CONFIG?.UI_LABELS?.CHAIR_PREFIX || '腳') + ' ')}
+                                            {window.formatResourceLabel(rid, true)}
                                         </span>
                                     ))}
                                 </div>
@@ -3867,7 +3867,7 @@ const App = () => {
                                 <div className="flex flex-wrap gap-2">
                                     {startChoiceData.relatedDetails.map(item => (
                                         <span key={item.resourceId || Math.random()} className="bg-white border border-emerald-200 text-emerald-700 px-2 py-1 rounded text-xs font-mono font-bold shadow-sm">
-                                            {item.resourceId ? item.resourceId.replace('bed-', (window.SYSTEM_CONFIG?.UI_LABELS?.BED_PREFIX || '床') + ' ').replace('chair-', (window.SYSTEM_CONFIG?.UI_LABELS?.CHAIR_PREFIX || '腳') + ' ') : '已鎖定預測位置'}
+                                            {item.resourceId ? window.formatResourceLabel(item.resourceId, true) : '已鎖定預測位置'}
                                         </span>
                                     ))}
                                 </div>

@@ -246,6 +246,37 @@
     // ========================================================================
 
     /**
+     * Chuyển đổi ID tài nguyên (chair-1, opp-bed-1) thành nhãn hiển thị chính thức
+     * Dựa trên cấu hình UI_LABELS
+     */
+    window.formatResourceLabel = (rid, includeEmoji = false) => {
+        if (!rid) return '已鎖定預測位置';
+        const config = window.SYSTEM_CONFIG?.UI_LABELS || {};
+        const c1 = config.CHAIR_PREFIX1 || '腳1-';
+        const b1 = config.BED_PREFIX1 || '床1-';
+        const c2 = config.CHAIR_PREFIX2 || '腳2-';
+        const b2 = config.BED_PREFIX2 || '床2-';
+        
+        let res = rid;
+        let emoji = '';
+        if (res.startsWith('opp-chair-')) {
+            res = res.replace('opp-chair-', c2);
+            emoji = '👣 ';
+        } else if (res.startsWith('opp-bed-')) {
+            res = res.replace('opp-bed-', b2);
+            emoji = '🛏️ ';
+        } else if (res.startsWith('chair-')) {
+            res = res.replace('chair-', c1);
+            emoji = '👣 ';
+        } else if (res.startsWith('bed-')) {
+            res = res.replace('bed-', b1);
+            emoji = '🛏️ ';
+        }
+        
+        return includeEmoji ? emoji + res : res;
+    };
+
+    /**
      * Tính trọng số sắp xếp dựa trên cấu hình PREFIX từ SYSTEM_CONFIG
      * Giúp Timeline luôn hiển thị 足 (Ghế) trước, 床 (Giường) sau
      */
