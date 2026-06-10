@@ -905,7 +905,7 @@ function _checkOverlapConflict(rowId, dateStr, timeStr, duration, phase1Res, pha
             
             if (!res1 || !res2) {
                 const bResStr = b.allocated_resource || "";
-                const matches = [...bResStr.toString().matchAll(/((?:BED|CHAIR)[-_ ]?\d+)/gi)].map(m => m[1].toUpperCase());
+                const matches = [...bResStr.toString().matchAll(/((?:OPP-)?(?:BED|CHAIR)[-_ ]?\d+)/gi)].map(m => m[1].toUpperCase());
                 if (bFlow === 'BF') {
                     if (!res1) res1 = matches.find(r => r.includes('BED')) || matches[0];
                     if (!res2) res2 = matches.find(r => r.includes('CHAIR')) || matches[1];
@@ -929,7 +929,7 @@ function _checkOverlapConflict(rowId, dateStr, timeStr, duration, phase1Res, pha
             if (!blk.res) continue;
             for (const bBlk of bBlocks) {
                 if (bBlk.res) {
-                    const bBlkResArray = [...bBlk.res.toString().toUpperCase().matchAll(/((?:BED|CHAIR)[-_ ]?\d+)/gi)].map(m => m[1]);
+                    const bBlkResArray = [...bBlk.res.toString().toUpperCase().matchAll(/((?:OPP-)?(?:BED|CHAIR)[-_ ]?\d+)/gi)].map(m => m[1]);
                     const blkResClean = blk.res.toString().toUpperCase().trim();
                     if (bBlkResArray.includes(blkResClean) || bBlk.res.toString().toUpperCase() === blkResClean) {
                         const safeEndA = blk.end - ResourceCore.CONFIG.TOLERANCE;

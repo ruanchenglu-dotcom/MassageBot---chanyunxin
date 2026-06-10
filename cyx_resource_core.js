@@ -1006,7 +1006,7 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
     });
 
     // 1. GUARDRAIL CHECK (Đồng bộ Backend & Frontend V118)
-    const guardrailCheck = validateGlobalCapacity(requestStartMins, maxGuestDuration, guestList, filteredBookings, staffList, normalizedQueryDate);
+    const guardrailCheck = validateGlobalCapacity(requestStartMins, maxGuestDuration, guestList, filteredBookings, staffList, normalizedQueryDate, false, CONF._tempLocation);
     if (!guardrailCheck.pass) return { feasible: false, reason: guardrailCheck.reason, debug: guardrailCheck.debug };
     const resourceMap = guardrailCheck.resourceMap || { 'BED': [], 'CHAIR': [] };
 
