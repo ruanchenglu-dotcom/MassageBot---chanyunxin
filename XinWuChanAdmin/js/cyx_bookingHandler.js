@@ -320,6 +320,13 @@
                     const timeStr = getTimeStrFromMins(specificSuggestionMins);
                     debugInfo.suggestions.push({ time: timeStr, date: queryDateStr, daysToAdd: 0 });
                 }
+
+                let oppositeLoc = locationStr === '本館' ? '對面館' : '本館';
+                let oppositeSim = validateGlobalCapacity(requestStart, maxDuration, guestList, currentBookingsRaw, staffList, queryDateStr, true, oppositeLoc);
+                let oppositeSuggestion = "";
+                if (oppositeSim.pass) {
+                    oppositeSuggestion = `\n💡 系統提示：【${oppositeLoc}】在 ${getTimeStrFromMins(requestStart)} 仍有空位，可建議客人至${oppositeLoc}。`;
+                }
                 
                 let foundMins = -1;
                 let searchStart = Math.max(requestStart + 10, 0); 
@@ -337,9 +344,9 @@
                     if (foundMins !== specificSuggestionMins) {
                         debugInfo.suggestions.push({ time: timeStr, date: queryDateStr, daysToAdd: 0 });
                     }
-                    return { pass: false, reason: `${reasonMsg}\n💡 智能建議：最快可完整安排 (含所有階段) 的時間為 ${timeStr} 之後。`, debug: debugInfo };
+                    return { pass: false, reason: `${reasonMsg}${oppositeSuggestion}\n💡 智能建議：${locationStr}最快可完整安排 (含所有階段) 的時間為 ${timeStr} 之後。`, debug: debugInfo };
                 } else {
-                    return { pass: false, reason: `${reasonMsg}\n⚠️ 今日後續時段已無足夠資源可完整安排此預約。`, debug: debugInfo };
+                    return { pass: false, reason: `${reasonMsg}${oppositeSuggestion}\n⚠️ 今日後續時段已無足夠資源可完整安排此預約。`, debug: debugInfo };
                 }
             };
 
