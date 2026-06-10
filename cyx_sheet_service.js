@@ -488,6 +488,7 @@ async function syncData() {
                     phase1_resource: row[32],
                     phase2_resource: row[33],
                     resource_type: row[34],
+                    location: row[39] || '本館',
                     allocated_resource: null
                 });
             }
