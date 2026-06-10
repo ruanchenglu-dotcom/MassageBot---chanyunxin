@@ -1279,6 +1279,9 @@ const App = () => {
                 if (activeRowIds.has(String(b.rowId))) return;
                 const originalStart = safeTimeToMins(b.startTimeString);
                 let targetId = b.current_resource_id ? b.current_resource_id.toLowerCase() : (b.storedLocation ? b.storedLocation.toLowerCase() : null);
+                if (targetId && b.location === '對面館' && !targetId.startsWith('opp-')) {
+                    targetId = 'opp-' + targetId;
+                }
 
                 if (targetId) {
                     addToGrid(targetId, originalStart, originalStart + b.duration, b, { isCombo: false, isPending: true, priority: 3, isRunning: b.isRunningStatus });
@@ -1296,6 +1299,12 @@ const App = () => {
 
                     let pref1 = bookingItem.phase1_res_idx ? bookingItem.phase1_res_idx.toLowerCase() : null;
                     let pref2 = bookingItem.phase2_res_idx ? bookingItem.phase2_res_idx.toLowerCase() : null;
+                    
+                    if (bookingItem.location === '對面館') {
+                        if (pref1 && !pref1.startsWith('opp-')) pref1 = 'opp-' + pref1;
+                        if (pref2 && !pref2.startsWith('opp-')) pref2 = 'opp-' + pref2;
+                    }
+
                     const seq = bookingItem.flow || 'FB';
 
                     if (pref1 || pref2) {

@@ -570,7 +570,8 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
                     if (name.match(/BODY|指壓|油|BED|TOAN THAN|全身|油壓|SPA|BACK/)) inferredType = 'BED';
                 }
             }
-            uniqueMatches = [...new Set(backupMatches)].map(num => `${inferredType}-${num}`);
+            const prefixStr = (b.location === '對面館') ? 'OPP-' : '';
+            uniqueMatches = [...new Set(backupMatches)].map(num => `${prefixStr}${inferredType}-${num}`);
         }
 
         const pushToMapFallback = (type, startT, endT) => {
