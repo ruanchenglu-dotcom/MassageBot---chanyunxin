@@ -697,8 +697,8 @@
                             let oppositeLoc = locationStr === '本館' ? '對面館' : '本館';
                             let oppSim = validateGlobalCapacity(requestStart, maxDuration, [], currentBookingsRaw, staffList, queryDateStr, true, oppositeLoc);
                             let oppMap = oppSim.resourceMap;
-                            let oppConfMaxBeds = oppositeLoc === '對面館' ? (getSystemConfig().SCALE.OPP_BEDS || 6) : getSystemConfig().SCALE.MAX_BEDS;
-                            let oppConfMaxChairs = oppositeLoc === '對面館' ? (getSystemConfig().SCALE.OPP_CHAIRS || 4) : getSystemConfig().SCALE.MAX_CHAIRS;
+                            let oppConfMaxBeds = getSystemConfig(oppositeLoc).MAX_BEDS;
+                            let oppConfMaxChairs = getSystemConfig(oppositeLoc).MAX_CHAIRS;
                             
                             for (const testFlow of flowsToTry) {
                                 const splitsToTry = generateElasticSplits(duration, eStep, eLimit, null, svc, testFlow, true);
