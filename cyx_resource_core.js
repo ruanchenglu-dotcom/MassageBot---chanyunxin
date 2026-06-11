@@ -737,15 +737,61 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
             }
 
             if (!foundValidSplit) {
+                let crossLocationMsg = "";
+                if (locationStr === '本館' || locationStr === '對面館') {
+                    let oppositeLoc = locationStr === '本館' ? '對面館' : '本館';
+                    let oppSim = validateGlobalCapacity(requestStart, maxDuration, [], currentBookingsRaw, staffList, queryDateStr, true, oppositeLoc);
+                    let oppMap = oppSim.resourceMap;
+                    let oppConfMaxBeds = oppositeLoc === '對面館' ? (getSystemConfig().SCALE.OPP_BEDS || 6) : getSystemConfig().SCALE.MAX_BEDS;
+                    let oppConfMaxChairs = oppositeLoc === '對面館' ? (getSystemConfig().SCALE.OPP_CHAIRS || 4) : getSystemConfig().SCALE.MAX_CHAIRS;
+                    
+                    for (const testFlow of flowsToTry) {
+                        const splitsToTry = generateElasticSplits(duration, eStep, eLimit, null, svc.minFoot, svc.maxFoot, svc.minBody, svc.maxBody, testFlow, true);
+                        let foundCross = false;
+                        for (const split of splitsToTry) {
+                            if (split.shiftMins !== 0) continue;
+                            const p1 = split.p1;
+                            const p2 = split.p2;
+                            const tStart = requestStart;
+                            const tSwitch = tStart + p1 + CONF.TRANSITION_BUFFER;
+                            
+                            let loc1Idx = -1, loc2Idx = -1;
+                            
+                            const comboGuestsCount = guestList.filter(g => isComboService(getServiceInfo(g.serviceCode, g.serviceName), g.serviceCode, g.flowCode)).length;
+                            const isCrossSwapGroup = comboGuestsCount >= 2;
+                            const phase1Cleanup = isCrossSwapGroup ? Math.min(CONF.CLEANUP_BUFFER, CONF.TRANSITION_BUFFER) : CONF.CLEANUP_BUFFER;
+
+                            if (testFlow === 'BF') {
+                                for (let b = 0; b < CONF.MAX_BEDS; b++) { if (checkLaneContinuity(simulationMap.BED[b], tStart, tStart + p1, phase1Cleanup)) { loc1Idx = b; break; } }
+                                for (let c = 0; c < oppConfMaxChairs; c++) { if (checkLaneContinuity(oppMap.CHAIR[c], tSwitch, tSwitch + p2, CONF.CLEANUP_BUFFER)) { loc2Idx = c; break; } }
+                                if (loc1Idx !== -1 && loc2Idx !== -1) {
+                                    crossLocationMsg = `\n💡 跨館建議：【${locationStr}】目前僅有全身床位，【${oppositeLoc}】有足部座位。是否同意先在【${locationStr}】進行身體按摩，再移步至【${oppositeLoc}】完成足部按摩？`;
+                                    foundCross = true;
+                                    break;
+                                }
+                            } else {
+                                for (let c = 0; c < CONF.MAX_CHAIRS; c++) { if (checkLaneContinuity(simulationMap.CHAIR[c], tStart, tStart + p1, phase1Cleanup)) { loc1Idx = c; break; } }
+                                for (let b = 0; b < oppConfMaxBeds; b++) { if (checkLaneContinuity(oppMap.BED[b], tSwitch, tSwitch + p2, CONF.CLEANUP_BUFFER)) { loc2Idx = b; break; } }
+                                if (loc1Idx !== -1 && loc2Idx !== -1) {
+                                    crossLocationMsg = `\n💡 跨館建議：【${locationStr}】目前僅有足部座位，【${oppositeLoc}】有全身床位。是否同意先在【${locationStr}】進行足部按摩，再移步至【${oppositeLoc}】完成身體按摩？`;
+                                    foundCross = true;
+                                    break;
+                                }
+                            }
+                        }
+                        if (foundCross) break;
+                    }
+                }
+
                 if (bestOutOfBoundSplit) {
                     let rawSuggestedTime = requestStart + bestOutOfBoundSplit.shiftMins;
                     let suggestedTime = Math.ceil(rawSuggestedTime / 5) * 5;
                     let timeStr = getTimeStrFromMins(suggestedTime);
                     let actionText = suggestedTime > requestStart ? '稍晚' : '提早';
                     let shiftVal = Math.abs(suggestedTime - requestStart);
-                    return triggerSmartFailure(`⚠️ 在 ${getTimeStrFromMins(requestStart)} 沒有完美符合的連續空位。建議您${actionText} ${shiftVal} 分鐘，改為 ${timeStr} 預約以滿足套餐標準。`, suggestedTime);
+                    return triggerSmartFailure(`⚠️ 在 ${getTimeStrFromMins(requestStart)} 沒有完美符合的連續空位。建議您${actionText} ${shiftVal} 分鐘，改為 ${timeStr} 預約以滿足套餐標準。${crossLocationMsg}`, suggestedTime);
                 } else {
-                    return triggerSmartFailure(`⚠️ 在 ${getTimeStrFromMins(requestStart)} 沒有足夠的連續空位給套餐。`);
+                    return triggerSmartFailure(`⚠️ 在 ${getTimeStrFromMins(requestStart)} 沒有足夠的連續空位給套餐。${crossLocationMsg}`);
                 }
             }
 
