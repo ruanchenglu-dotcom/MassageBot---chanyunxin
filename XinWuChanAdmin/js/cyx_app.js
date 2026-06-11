@@ -887,7 +887,10 @@ const App = () => {
                     }
                 }
 
-                let computedStoredLocation = targetB.location || targetB.current_resource_id;
+                let computedStoredLocation = targetB.current_resource_id;
+                if (computedStoredLocation === '本館' || computedStoredLocation === '對面館') {
+                    computedStoredLocation = null;
+                }
                 if (!computedStoredLocation && safePhase1ResIdx) {
                     computedStoredLocation = safePhase1ResIdx.toLowerCase();
                 } else if (!computedStoredLocation && targetB.allocated_resource) {
@@ -1278,7 +1281,10 @@ const App = () => {
                 if (b.isDoneStatus) return;
                 if (activeRowIds.has(String(b.rowId))) return;
                 const originalStart = safeTimeToMins(b.startTimeString);
-                let targetId = b.current_resource_id ? b.current_resource_id.toLowerCase() : (b.storedLocation ? b.storedLocation.toLowerCase() : null);
+                let targetId = b.current_resource_id ? b.current_resource_id.toLowerCase() : (b.phase1_res_idx ? b.phase1_res_idx.toLowerCase() : (b.storedLocation ? b.storedLocation.toLowerCase() : null));
+                if (targetId === '本館' || targetId === '對面館') {
+                    targetId = b.phase1_res_idx ? b.phase1_res_idx.toLowerCase() : null;
+                }
                 if (targetId && b.location === '對面館' && !targetId.startsWith('opp-')) {
                     targetId = 'opp-' + targetId;
                 }
