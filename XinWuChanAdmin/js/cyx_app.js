@@ -3447,24 +3447,77 @@ const App = () => {
                         const bStart = window.safeTimeToMins ? window.safeTimeToMins(b.startTimeString) : safeTimeToMinsLocal(b.startTimeString);
                         const bEnd = bStart + parseInt(b.duration || 60, 10);
                         
+                        let actualBStart = bStart;
+                        let actualBEnd = bEnd;
+
+                        if (payload.meta && payload.meta.isCombo) {
+                            const split = window.getSmartSplit ? window.getSmartSplit(b, parseInt(b.duration || 60, 10), true, b.flow || 'FB') : { phase1: Math.floor(parseInt(b.duration || 60, 10) / 2), phase2: Math.ceil(parseInt(b.duration || 60, 10) / 2) };
+                            const transitionMins = window.SYSTEM_CONFIG?.BUFFERS?.TRANSITION_MINUTES || 5;
+                            
+                            if (payload.meta.phase === 1) {
+                                actualBStart = bStart;
+                                actualBEnd = bStart + split.phase1;
+                            } else {
+                                actualBStart = bStart + split.phase1 + transitionMins;
+                                actualBEnd = actualBStart + split.phase2;
+                                if (b.transition_time) {
+                                    const transMins = safeTimeToMinsLocal(b.transition_time);
+                                    if (transMins !== -1 && transMins > 0) {
+                                        actualBStart = transMins;
+                                        actualBEnd = transMins + split.phase2;
+                                    }
+                                }
+                            }
+                        }
+
                         let swapTarget = null;
                         for (let x of activeBookings) {
                             if (String(x.rowId) === String(b.rowId)) continue;
                             const xStart = window.safeTimeToMins ? window.safeTimeToMins(x.startTimeString) : safeTimeToMinsLocal(x.startTimeString);
                             const xEnd = xStart + parseInt(x.duration || 60, 10);
                             
-                            if (bStart < xEnd && xStart < bEnd) {
-                                const xResArray = [
-                                    String(x.current_resource_id).toUpperCase(),
-                                    String(x.location).toUpperCase(),
-                                    String(x.phase1_res_idx).toUpperCase(),
-                                    String(x.phase2_res_idx).toUpperCase(),
-                                    String(x.allocated_resource).toUpperCase()
-                                ];
-                                if (xResArray.includes(targetId)) {
-                                    swapTarget = x;
-                                    break;
+                            let xActualStart = xStart;
+                            let xActualEnd = xEnd;
+                            let isXInTarget = false;
+
+                            const isXCombo = x.category === 'COMBO' || (x.serviceName && x.serviceName.includes('套餐'));
+                            if (isXCombo) {
+                                const xSplit = window.getSmartSplit ? window.getSmartSplit(x, parseInt(x.duration || 60, 10), true, x.flow || 'FB') : { phase1: Math.floor(parseInt(x.duration || 60, 10) / 2), phase2: Math.ceil(parseInt(x.duration || 60, 10) / 2) };
+                                const transitionMins = window.SYSTEM_CONFIG?.BUFFERS?.TRANSITION_MINUTES || 5;
+                                
+                                const p1Id = String(x.phase1_res_idx).toUpperCase();
+                                const p2Id = String(x.phase2_res_idx).toUpperCase();
+                                
+                                if (p1Id === targetId && p2Id === targetId) {
+                                    xActualStart = xStart;
+                                    xActualEnd = xEnd;
+                                    isXInTarget = true;
+                                } else if (p1Id === targetId) {
+                                    xActualStart = xStart;
+                                    xActualEnd = xStart + xSplit.phase1;
+                                    isXInTarget = true;
+                                } else if (p2Id === targetId) {
+                                    xActualStart = xStart + xSplit.phase1 + transitionMins;
+                                    xActualEnd = xActualStart + xSplit.phase2;
+                                    if (x.transition_time) {
+                                        const transMins = safeTimeToMinsLocal(x.transition_time);
+                                        if (transMins !== -1 && transMins > 0) {
+                                            xActualStart = transMins;
+                                            xActualEnd = transMins + xSplit.phase2;
+                                        }
+                                    }
+                                    isXInTarget = true;
                                 }
+                            } else {
+                                const singleId = String(x.current_resource_id || x.location).toUpperCase();
+                                if (singleId === targetId) {
+                                    isXInTarget = true;
+                                }
+                            }
+                            
+                            if (isXInTarget && actualBStart < xActualEnd && xActualStart < actualBEnd) {
+                                swapTarget = x;
+                                break;
                             }
                         }
 
