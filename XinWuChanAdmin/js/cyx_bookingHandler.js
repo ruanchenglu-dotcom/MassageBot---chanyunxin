@@ -2053,7 +2053,46 @@
                 let uniqueCandidates = [...new Set(candidateMins)]
                     .filter(mins => mins > currMins)
                     .map(mins => Math.ceil(mins / 5) * 5)
-const handleFinalSave = async (e) => {
+                    .sort((a, b) => a - b);
+
+                // Loại bỏ trùng lặp lại sau khi đã làm tròn
+                uniqueCandidates = [...new Set(uniqueCandidates)];
+
+                // 4. Kiểm tra sự khả dụng của từng mốc
+                for (let nM of uniqueCandidates) {
+                    let daysToAdd = Math.floor(nM / 1440);
+                    let localM = nM % 1440;
+                    let h = Math.floor(localM / 60);
+                    let m = localM % 60;
+                    
+                    let tStr = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+                    let sugDate = form.date;
+                    
+                    if (daysToAdd > 0) {
+                        const dParts = sugDate.replace(/\//g, '-').split('-');
+                        if (dParts.length === 3) {
+                            let d = new Date(parseInt(dParts[0], 10), parseInt(dParts[1], 10) - 1, parseInt(dParts[2], 10));
+                            d.setDate(d.getDate() + daysToAdd);
+                            sugDate = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+                        }
+                    }
+
+                    let checkRes = callCoreAvailabilityCheck(sugDate, tStr, guestDetails, finalBookings, serverStaffList, selectedLocation);
+                    if (checkRes.valid) {
+                        if (!found.some(f => f.time === tStr && f.date === sugDate)) {
+                            found.push({ time: tStr, date: sugDate, daysToAdd });
+                        }
+                        if (found.length >= 4) break;
+                    } else {
+                        console.log(`[DEBUG] getSuggestions rejected ${tStr} because: ${checkRes.reason}`);
+                    }
+                }
+                setSuggestions(found);
+            }
+            setIsChecking(false);
+        };
+
+        const handleFinalSave = async (e) => {
             if (e) e.preventDefault(); if (isSubmitting) return;
 
             const finalCustName = (form.custName.trim() + (form.custTitle || '')).trim();
