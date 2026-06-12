@@ -161,6 +161,8 @@
 
     window.getPrice = (nameOrCode) => {
         if (!nameOrCode) return 0;
+        if (String(nameOrCode).includes('(跨館接續)')) return 0;
+        
         // 1. TÌM TRỰC TIẾP QUA MÃ DỊCH VỤ (VD: A3, F2)
         if (window.SERVICES_DATA && window.SERVICES_DATA[nameOrCode]) {
             return window.SERVICES_DATA[nameOrCode].price;

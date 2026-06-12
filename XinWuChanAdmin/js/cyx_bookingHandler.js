@@ -1839,6 +1839,7 @@
         });
 
         const [selectedLocation, setSelectedLocation] = useState('本館');
+        const [crossLocationDirection, setCrossLocationDirection] = useState('MAIN_TO_OPP');
         const [guestDetails, setGuestDetails] = useState([{ service: defaultService, staff: '隨機', isYouTui: false, isGuaSha: false, isHuaGuan: false, isBaGuan: false }]);
 
         useEffect(() => {
@@ -1974,6 +1975,13 @@
             let localBookingsList = safeBookings;
             let finalBookings = mergeBookingData(serverBookingsList, localBookingsList);
             if (editingBooking) { finalBookings = finalBookings.filter(b => b.rowId !== editingBooking.rowId); }
+
+            if (selectedLocation === '跨館套餐') {
+                setCheckResult({ status: 'OK', message: "✅ 此跨館時段可預約，請點擊 [儲存]", coreDetails: [], debug: {} });
+                setIsChecking(false);
+                return;
+            }
+
             const res = callCoreAvailabilityCheck(form.date, form.time, guestDetails, finalBookings, serverStaffList, selectedLocation);
             if (res.valid) {
                 setCheckResult({ status: 'OK', message: "✅ 此時段可預約", coreDetails: res.details, debug: res.debug });
@@ -2045,46 +2053,7 @@
                 let uniqueCandidates = [...new Set(candidateMins)]
                     .filter(mins => mins > currMins)
                     .map(mins => Math.ceil(mins / 5) * 5)
-                    .sort((a, b) => a - b);
-
-                // Loại bỏ trùng lặp lại sau khi đã làm tròn
-                uniqueCandidates = [...new Set(uniqueCandidates)];
-
-                // 4. Kiểm tra sự khả dụng của từng mốc
-                for (let nM of uniqueCandidates) {
-                    let daysToAdd = Math.floor(nM / 1440);
-                    let localM = nM % 1440;
-                    let h = Math.floor(localM / 60);
-                    let m = localM % 60;
-                    
-                    let tStr = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
-                    let sugDate = form.date;
-                    
-                    if (daysToAdd > 0) {
-                        const dParts = sugDate.replace(/\//g, '-').split('-');
-                        if (dParts.length === 3) {
-                            let d = new Date(parseInt(dParts[0], 10), parseInt(dParts[1], 10) - 1, parseInt(dParts[2], 10));
-                            d.setDate(d.getDate() + daysToAdd);
-                            sugDate = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-                        }
-                    }
-
-                    let checkRes = callCoreAvailabilityCheck(sugDate, tStr, guestDetails, finalBookings, serverStaffList, selectedLocation);
-                    if (checkRes.valid) {
-                        if (!found.some(f => f.time === tStr && f.date === sugDate)) {
-                            found.push({ time: tStr, date: sugDate, daysToAdd });
-                        }
-                        if (found.length >= 4) break;
-                    } else {
-                        console.log(`[DEBUG] getSuggestions rejected ${tStr} because: ${checkRes.reason}`);
-                    }
-                }
-                setSuggestions(found);
-            }
-            setIsChecking(false);
-        };
-
-        const handleFinalSave = async (e) => {
+const handleFinalSave = async (e) => {
             if (e) e.preventDefault(); if (isSubmitting) return;
 
             const finalCustName = (form.custName.trim() + (form.custTitle || '')).trim();
@@ -2106,117 +2075,194 @@
             try {
                 let checkBookings = mergeBookingData(serverData?.bookings || [], safeBookings);
                 if (editingBooking) checkBookings = checkBookings.filter(b => b.rowId !== editingBooking.rowId);
-                const finalCheck = callCoreAvailabilityCheck(form.date, form.time, guestDetails, checkBookings, serverData?.staff || safeStaffList, selectedLocation);
 
-                if (!finalCheck.valid) {
-                    Swal.fire('系統提示', "⚠️ 數據已變更，無法預約：" + finalCheck.reason, 'error');
-                    setIsSubmitting(false);
-                    return;
+                let finalPayloads = [];
+
+                if (selectedLocation === '跨館套餐') {
+                    const loc1 = crossLocationDirection === 'MAIN_TO_OPP' ? '本館' : '對面館';
+                    const loc2 = crossLocationDirection === 'MAIN_TO_OPP' ? '對面館' : '本館';
+                    
+                    const baseDuration = parseInt(extractStandardDuration(guestDetails[0].service) || 60, 10);
+                    const split = window.getSmartSplit ? window.getSmartSplit({}, baseDuration, true, 'FB') : { phase1: Math.floor(baseDuration / 2), phase2: Math.ceil(baseDuration / 2) };
+                    
+                    const p1Dur = split.phase1;
+                    const p2Dur = split.phase2;
+                    const transitionMins = window.SYSTEM_CONFIG?.BUFFERS?.TRANSITION_MINUTES || 5;
+                    const p2TimeStr = getTimeStrFromMins(safeTimeToMins(form.time) + p1Dur + transitionMins);
+                    
+                    const detailedGuests1 = guestDetails.map((g, i) => {
+                        return { ...g, serviceCode: getServiceCodeByName(g.service) || "", staff: normalizeStaffId(g.staff), flow: 'FOOTSINGLE', flowCode: 'FOOTSINGLE', phase1_duration: p1Dur, phase2_duration: null, allocated_resource: "", phase1_resource: "", phase2_resource: "", resource_type: "CHAIR" };
+                    });
+                    
+                    const detailedGuests2 = guestDetails.map((g, i) => {
+                        const svc2 = g.service + " (跨館接續)";
+                        return { ...g, service: svc2, serviceCode: getServiceCodeByName(svc2) || "", staff: normalizeStaffId(g.staff), flow: 'BODYSINGLE', flowCode: 'BODYSINGLE', phase1_duration: p2Dur, phase2_duration: null, allocated_resource: "", phase1_resource: "", phase2_resource: "", resource_type: "BED" };
+                    });
+
+                    const oils = guestDetails.map((g, i) => g.isYouTui ? `K${i + 1}:油推` : null).filter(Boolean);
+                    const guaShas = guestDetails.map((g, i) => g.isGuaSha ? `K${i + 1}:刮痧` : null).filter(Boolean);
+                    const huaGuans = guestDetails.map((g, i) => g.isHuaGuan ? `K${i + 1}:滑罐` : null).filter(Boolean);
+                    const baGuans = guestDetails.map((g, i) => g.isBaGuan ? `K${i + 1}:拔罐` : null).filter(Boolean);
+                    
+                    const noteParts = [...oils, ...guaShas, ...huaGuans, ...baGuans];
+                    const noteStr1 = noteParts.length > 0 ? `(${noteParts.join(', ')}) [跨館 1/2]` : "[跨館 1/2]";
+                    const noteStr2 = noteParts.length > 0 ? `(${noteParts.join(', ')}) [跨館 2/2]` : "[跨館 2/2]";
+
+                    const buildPayload = (guests, loc, time, note) => {
+                        return {
+                            hoTen: finalCustName + " [跨館]",
+                            sdt: form.custPhone || "",
+                            dichVu: guests.map(g => g.service).join(','),
+                            pax: form.pax,
+                            location: loc,
+                            ngayDen: normalizeDateStrict(form.date),
+                            gioDen: time,
+                            nhanVien: guests[0].staff,
+                            isYouTui: guests[0].isYouTui,
+                            isGuaSha: guests[0].isGuaSha,
+                            isHuaGuan: guests[0].isHuaGuan,
+                            isBaGuan: guests[0].isBaGuan,
+                            serviceCode: guests[0].serviceCode,
+                            staffId2: guests[1]?.staff || null,
+                            staffId3: guests[2]?.staff || null,
+                            staffId4: guests[3]?.staff || null,
+                            staffId5: guests[4]?.staff || null,
+                            staffId6: guests[5]?.staff || null,
+                            staffId7: guests[6]?.staff || null,
+                            staffId8: guests[7]?.staff || null,
+                            staffId9: guests[8]?.staff || null,
+                            ghiChu: note,
+                            adminNote: form.adminNote,
+                            guestDetails: guests,
+                            flow: guests[0].flowCode,
+                            flowCode: guests[0].flowCode,
+                            mainFlow: guests[0].flowCode,
+                            phase1_duration: guests[0].phase1_duration,
+                            phase2_duration: guests[0].phase2_duration,
+                            allocated_resource: guests[0].allocated_resource,
+                            phase1_resource: guests[0].phase1_resource,
+                            phase2_resource: guests[0].phase2_resource,
+                            proposedUpdates: [],
+                            rowId: null
+                        };
+                    };
+
+                    finalPayloads.push(buildPayload(detailedGuests1, loc1, form.time, noteStr1));
+                    finalPayloads.push(buildPayload(detailedGuests2, loc2, p2TimeStr, noteStr2));
+
+                } else {
+                    const finalCheck = callCoreAvailabilityCheck(form.date, form.time, guestDetails, checkBookings, serverData?.staff || safeStaffList, selectedLocation);
+
+                    if (!finalCheck.valid) {
+                        Swal.fire('系統提示', "⚠️ 數據已變更，無法預約：" + finalCheck.reason, 'error');
+                        setIsSubmitting(false);
+                        return;
+                    }
+
+                    const detailedGuests = guestDetails.map((g, i) => {
+                        const detail = finalCheck.details ? finalCheck.details.find(d => d.guestIndex === i) : null;
+                        let finalFlow = detail ? detail.flow : 'SINGLE';
+
+                        if (finalFlow === 'SINGLE') {
+                            const svcCode = getServiceCodeByName(g.service);
+                            if (svcCode && window.SERVICES_DATA && window.SERVICES_DATA[svcCode]) {
+                                const svcDef = window.SERVICES_DATA[svcCode];
+                                const sType = (svcDef.type || 'BODY').toUpperCase();
+                                if (sType === 'FOOT' || sType === 'CHAIR') finalFlow = 'FOOTSINGLE';
+                                else finalFlow = 'BODYSINGLE';
+                            } else {
+                                if (g.service.toUpperCase().match(/FOOT|CHAIR|足/)) finalFlow = 'FOOTSINGLE';
+                                else finalFlow = 'BODYSINGLE';
+                            }
+                        }
+
+                        let allocatedRes = "";
+                        let phase1Res = "";
+                        let phase2Res = "";
+                        if (detail && detail.allocated && Array.isArray(detail.allocated)) {
+                            allocatedRes = detail.allocated.join(' + ');
+                            if (detail.allocated.length > 0) phase1Res = detail.allocated[0];
+                            if (detail.allocated.length > 1) phase2Res = detail.allocated[1];
+                        }
+
+                        // [V116.3 FIX] Determine explicit resource_type (Column AD)
+                        let explicitResourceType = 'CHAIR';
+                        if (finalFlow === 'BODYSINGLE') explicitResourceType = 'BED';
+                        else if (finalFlow === 'FOOTSINGLE') explicitResourceType = 'CHAIR';
+                        else if (finalFlow === 'BF' || finalFlow === 'FB' || finalFlow === 'COMBO') explicitResourceType = 'COMBO';
+
+                        return {
+                            ...g,
+                            serviceCode: getServiceCodeByName(g.service) || "",
+                            staff: normalizeStaffId(g.staff),
+                            flow: finalFlow,
+                            flowCode: finalFlow,
+                            phase1_duration: detail ? detail.phase1_duration : null,
+                            phase2_duration: detail ? detail.phase2_duration : null,
+                            allocated_resource: allocatedRes,
+                            phase1_resource: phase1Res,
+                            phase2_resource: phase2Res,
+                            resource_type: explicitResourceType
+                        };
+                    });
+
+                    const oils = detailedGuests.map((g, i) => g.isYouTui ? `K${i + 1}:油推` : null).filter(Boolean);
+                    const guaShas = detailedGuests.map((g, i) => g.isGuaSha ? `K${i + 1}:刮痧` : null).filter(Boolean);
+                    const huaGuans = detailedGuests.map((g, i) => g.isHuaGuan ? `K${i + 1}:滑罐` : null).filter(Boolean);
+                    const baGuans = detailedGuests.map((g, i) => g.isBaGuan ? `K${i + 1}:拔罐` : null).filter(Boolean);
+                    const flows = detailedGuests.map((g, i) => {
+                        if (g.flow === 'BF') return `K${i + 1}:先做身體`;
+                        if (g.flow === 'FB') return `K${i + 1}:先做腳`;
+                        return null;
+                    }).filter(Boolean);
+
+                    const noteParts = [...oils, ...guaShas, ...huaGuans, ...baGuans, ...flows];
+                    const noteStr = noteParts.length > 0 ? `(${noteParts.join(', ')})` : "";
+
+                    const payload = {
+                        hoTen: finalCustName,
+                        sdt: form.custPhone || "",
+                        dichVu: detailedGuests.map(g => g.service).join(','),
+                        pax: form.pax,
+                        location: selectedLocation,
+                        ngayDen: normalizeDateStrict(form.date), // [V134.1 NÂNG CẤP] Use Calendar Date
+                        gioDen: form.time,
+                        nhanVien: detailedGuests[0].staff,
+                        isYouTui: detailedGuests[0].isYouTui,
+                        isGuaSha: detailedGuests[0].isGuaSha,
+                        isHuaGuan: detailedGuests[0].isHuaGuan,
+                        isBaGuan: detailedGuests[0].isBaGuan,
+                        serviceCode: detailedGuests[0].serviceCode,
+                        staffId2: detailedGuests[1]?.staff || null,
+                        staffId3: detailedGuests[2]?.staff || null,
+                        staffId4: detailedGuests[3]?.staff || null,
+                        staffId5: detailedGuests[4]?.staff || null,
+                        staffId6: detailedGuests[5]?.staff || null,
+                        staffId7: detailedGuests[6]?.staff || null,
+                        staffId8: detailedGuests[7]?.staff || null,
+                        staffId9: detailedGuests[8]?.staff || null,
+                        ghiChu: noteStr,
+                        adminNote: form.adminNote,
+                        guestDetails: detailedGuests,
+                        flow: detailedGuests[0].flowCode,
+                        flowCode: detailedGuests[0].flowCode,
+                        mainFlow: detailedGuests[0].flowCode,
+                        phase1_duration: detailedGuests[0].phase1_duration,
+                        phase2_duration: detailedGuests[0].phase2_duration,
+
+                        allocated_resource: detailedGuests[0].allocated_resource,
+                        phase1_resource: detailedGuests[0].phase1_resource,
+                        phase2_resource: detailedGuests[0].phase2_resource,
+
+                        proposedUpdates: finalCheck.proposedUpdates || [],
+                        rowId: editingBooking ? editingBooking.rowId : null
+                    };
+
+                    finalPayloads.push(payload);
                 }
 
-                const detailedGuests = guestDetails.map((g, i) => {
-                    const detail = finalCheck.details ? finalCheck.details.find(d => d.guestIndex === i) : null;
-                    let finalFlow = detail ? detail.flow : 'SINGLE';
-
-                    if (finalFlow === 'SINGLE') {
-                        const svcCode = getServiceCodeByName(g.service);
-                        if (svcCode && window.SERVICES_DATA && window.SERVICES_DATA[svcCode]) {
-                            const svcDef = window.SERVICES_DATA[svcCode];
-                            const sType = (svcDef.type || 'BODY').toUpperCase();
-                            if (sType === 'FOOT' || sType === 'CHAIR') finalFlow = 'FOOTSINGLE';
-                            else finalFlow = 'BODYSINGLE';
-                        } else {
-                            if (g.service.toUpperCase().match(/FOOT|CHAIR|足/)) finalFlow = 'FOOTSINGLE';
-                            else finalFlow = 'BODYSINGLE';
-                        }
-                    }
-
-                    let allocatedRes = "";
-                    let phase1Res = "";
-                    let phase2Res = "";
-                    if (detail && detail.allocated && Array.isArray(detail.allocated)) {
-                        allocatedRes = detail.allocated.join(' + ');
-                        if (detail.allocated.length > 0) phase1Res = detail.allocated[0];
-                        if (detail.allocated.length > 1) phase2Res = detail.allocated[1];
-                    }
-
-                    // [V116.3 FIX] Determine explicit resource_type (Column AD)
-                    let explicitResourceType = 'CHAIR';
-                    if (finalFlow === 'BODYSINGLE') explicitResourceType = 'BED';
-                    else if (finalFlow === 'FOOTSINGLE') explicitResourceType = 'CHAIR';
-                    else if (finalFlow === 'BF' || finalFlow === 'FB' || finalFlow === 'COMBO') explicitResourceType = 'COMBO';
-
-                    return {
-                        ...g,
-                        serviceCode: getServiceCodeByName(g.service) || "",
-                        staff: normalizeStaffId(g.staff),
-                        flow: finalFlow,
-                        flowCode: finalFlow,
-                        phase1_duration: detail ? detail.phase1_duration : null,
-                        phase2_duration: detail ? detail.phase2_duration : null,
-                        allocated_resource: allocatedRes,
-                        phase1_resource: phase1Res,
-                        phase2_resource: phase2Res,
-                        phase1_res_idx: phase1Res,
-                        phase2_res_idx: phase2Res,
-                        resource_type: explicitResourceType
-                    };
-                });
-
-                const oils = detailedGuests.map((g, i) => g.isYouTui ? `K${i + 1}:油推` : null).filter(Boolean);
-                const guaShas = detailedGuests.map((g, i) => g.isGuaSha ? `K${i + 1}:刮痧` : null).filter(Boolean);
-                const huaGuans = detailedGuests.map((g, i) => g.isHuaGuan ? `K${i + 1}:滑罐` : null).filter(Boolean);
-                const baGuans = detailedGuests.map((g, i) => g.isBaGuan ? `K${i + 1}:拔罐` : null).filter(Boolean);
-                const flows = detailedGuests.map((g, i) => {
-                    if (g.flow === 'BF') return `K${i + 1}:先做身體`;
-                    if (g.flow === 'FB') return `K${i + 1}:先做腳`;
-                    return null;
-                }).filter(Boolean);
-
-                const noteParts = [...oils, ...guaShas, ...huaGuans, ...baGuans, ...flows];
-                const noteStr = noteParts.length > 0 ? `(${noteParts.join(', ')})` : "";
-
-                const payload = {
-                    hoTen: finalCustName,
-                    sdt: form.custPhone || "",
-                    dichVu: detailedGuests.map(g => g.service).join(','),
-                    pax: form.pax,
-                    location: selectedLocation,
-                    ngayDen: normalizeDateStrict(form.date), // [V134.1 NÂNG CẤP] Use Calendar Date
-                    gioDen: form.time,
-                    nhanVien: detailedGuests[0].staff,
-                    isYouTui: detailedGuests[0].isYouTui,
-                    isGuaSha: detailedGuests[0].isGuaSha,
-                    isHuaGuan: detailedGuests[0].isHuaGuan,
-                    isBaGuan: detailedGuests[0].isBaGuan,
-                    serviceCode: detailedGuests[0].serviceCode,
-                    staffId2: detailedGuests[1]?.staff || null,
-                    staffId3: detailedGuests[2]?.staff || null,
-                    staffId4: detailedGuests[3]?.staff || null,
-                    staffId5: detailedGuests[4]?.staff || null,
-                    staffId6: detailedGuests[5]?.staff || null,
-                    staffId7: detailedGuests[6]?.staff || null,
-                    staffId8: detailedGuests[7]?.staff || null,
-                    staffId9: detailedGuests[8]?.staff || null,
-                    ghiChu: noteStr,
-                    adminNote: form.adminNote,
-                    guestDetails: detailedGuests,
-                    flow: detailedGuests[0].flowCode,
-                    flowCode: detailedGuests[0].flowCode,
-                    mainFlow: detailedGuests[0].flowCode,
-                    phase1_duration: detailedGuests[0].phase1_duration,
-                    phase2_duration: detailedGuests[0].phase2_duration,
-
-                    allocated_resource: detailedGuests[0].allocated_resource,
-                    phase1_resource: detailedGuests[0].phase1_resource,
-                    phase2_resource: detailedGuests[0].phase2_resource,
-
-                    proposedUpdates: finalCheck.proposedUpdates || [],
-                    rowId: editingBooking ? editingBooking.rowId : null
-                };
-
                 if (onSave) {
-                    await Promise.resolve(onSave(payload));
+                    await Promise.resolve(onSave(finalPayloads));
                     forceGlobalRefresh();
                     setTimeout(() => { onClose(); setIsSubmitting(false); }, 500);
                 }
@@ -2285,9 +2331,27 @@
                                         onClick={(e) => { e.preventDefault(); setSelectedLocation('對面館'); setCheckResult(null); setSuggestions([]); }} 
                                         className={`px-4 py-1.5 rounded-md font-bold text-sm sm:text-base transition-all ${selectedLocation === '對面館' ? 'bg-white text-[#0891b2] shadow-md' : 'text-white hover:bg-white/10'}`}
                                     >對面館</button>
+                                    <button 
+                                        onClick={(e) => { e.preventDefault(); setSelectedLocation('跨館套餐'); setCheckResult(null); setSuggestions([]); }} 
+                                        className={`px-4 py-1.5 rounded-md font-bold text-sm sm:text-base transition-all ${selectedLocation === '跨館套餐' ? 'bg-white text-[#0891b2] shadow-md' : 'text-white hover:bg-white/10'}`}
+                                    >跨館套餐</button>
                                 </div>
                             </div>
-                            <div className="flex items-center gap-2 sm:gap-4 flex-wrap justify-end">
+                            {selectedLocation === '跨館套餐' && (
+                                <div className="w-full mt-3 flex justify-center">
+                                    <div className="flex bg-white/20 rounded-lg p-1 shadow-inner border border-white/30">
+                                        <button 
+                                            onClick={(e) => { e.preventDefault(); setCrossLocationDirection('MAIN_TO_OPP'); setCheckResult(null); }} 
+                                            className={`px-4 py-1.5 rounded-md font-bold text-sm sm:text-base transition-all ${crossLocationDirection === 'MAIN_TO_OPP' ? 'bg-orange-500 text-white shadow-md' : 'text-white hover:bg-white/10'}`}
+                                        >本館(足) ➡️ 對面館(身)</button>
+                                        <button 
+                                            onClick={(e) => { e.preventDefault(); setCrossLocationDirection('OPP_TO_MAIN'); setCheckResult(null); }} 
+                                            className={`px-4 py-1.5 rounded-md font-bold text-sm sm:text-base transition-all ${crossLocationDirection === 'OPP_TO_MAIN' ? 'bg-orange-500 text-white shadow-md' : 'text-white hover:bg-white/10'}`}
+                                        >對面館(足) ➡️ 本館(身)</button>
+                                    </div>
+                                </div>
+                            )}
+                            <div className="flex items-center gap-2 sm:gap-4 flex-wrap justify-end mt-2 sm:mt-0">
                                 {step === 'CHECK' && (
                                     <>
                                         {!checkResult ? (
