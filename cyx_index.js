@@ -883,6 +883,33 @@ app.post('/api/admin-booking', async (req, res) => {
         const cyx_data = req.body;
         const SERVICES = SheetService.getServices();
 
+        if (Array.isArray(cyx_data)) {
+            let allSaved = true;
+            for (let i = 0; i < cyx_data.length; i++) {
+                const singleData = cyx_data[i];
+                let serviceDuration = singleData.duration;
+                if (!serviceDuration && singleData.serviceCode && SERVICES[singleData.serviceCode]) {
+                    serviceDuration = SERVICES[singleData.serviceCode].duration;
+                }
+                const isSaved = await SheetService.ghiVaoSheet({
+                    ngayDen: singleData.ngayDen, gioDen: singleData.gioDen, dichVu: singleData.dichVu, nhanVien: singleData.nhanVien,
+                    userId: 'ADMIN_WEB', sdt: singleData.sdt || '現場客', hoTen: singleData.hoTen || '現場客',
+                    trangThai: '已預約', pax: singleData.pax || 1, isOil: singleData.isOil || false,
+                    duration: serviceDuration,
+                    guestDetails: singleData.guestDetails,
+                    phase1_duration: singleData.phase1_duration, phase2_duration: singleData.phase2_duration,
+                    isManualLocked: singleData.isManualLocked, flow: singleData.flow, serviceCode: singleData.serviceCode,
+                    adminNote: singleData.adminNote, location: singleData.location
+                });
+                if (!isSaved) allSaved = false;
+            }
+            if (allSaved) {
+                return res.json({ success: true });
+            } else {
+                return res.status(500).json({ success: false, error: 'cyx_database Write Failed' });
+            }
+        }
+
         if (cyx_data.ngayDen) cyx_data.ngayDen = SheetService.normalizeDateStrict(cyx_data.ngayDen);
         let opDateCheck = cyx_data.ngayDen;
         const adminHr = parseInt(cyx_data.gioDen ? cyx_data.gioDen.split(':')[0] : "12", 10);

@@ -1500,9 +1500,6 @@
                         end: b.end,
                         staffName: assignedStaff,
                         assignedStaffs: [assignedStaff]
-                    }));
-                }
-
                 if (!staffAssignmentSuccess) { scenarioFailed = true; continue; }
 
                 // (V135) Removed DOUBLE-CHECK GUARDRAIL as it breaks Elastic Squeeze.
@@ -1537,7 +1534,7 @@
             }
         }
 
-        return { checkRequestAvailability, setDynamicServices };
+        return { checkRequestAvailability, setDynamicServices, getTimeStrFromMins, safeTimeToMins };
     })();
 
     // ========================================================================
@@ -2127,7 +2124,7 @@
                     const p1Dur = split.phase1;
                     const p2Dur = split.phase2;
                     const transitionMins = window.SYSTEM_CONFIG?.BUFFERS?.TRANSITION_MINUTES || 5;
-                    const p2TimeStr = getTimeStrFromMins(safeTimeToMins(form.time) + p1Dur + transitionMins);
+                    const p2TimeStr = CoreKernel.getTimeStrFromMins(CoreKernel.safeTimeToMins(form.time) + p1Dur + transitionMins);
                     
                     const detailedGuests1 = guestDetails.map((g, i) => {
                         return { ...g, serviceCode: getServiceCodeByName(g.service) || "", staff: normalizeStaffId(g.staff), flow: 'FOOTSINGLE', flowCode: 'FOOTSINGLE', phase1_duration: p1Dur, phase2_duration: null, allocated_resource: "", phase1_resource: "", phase2_resource: "", resource_type: "CHAIR" };
