@@ -1500,6 +1500,9 @@
                         end: b.end,
                         staffName: assignedStaff,
                         assignedStaffs: [assignedStaff]
+                    }));
+                }
+
                 if (!staffAssignmentSuccess) { scenarioFailed = true; continue; }
 
                 // (V135) Removed DOUBLE-CHECK GUARDRAIL as it breaks Elastic Squeeze.
