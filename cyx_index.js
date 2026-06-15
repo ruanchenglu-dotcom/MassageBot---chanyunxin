@@ -880,186 +880,151 @@ app.post('/api/update-single-staff-status', (req, res) => {
 app.post('/api/admin-booking', async (req, res) => {
     const releaseLock = await SheetService.bookingLock.acquire();
     try {
+        const cyx_data = req.body;
         const SERVICES = SheetService.getServices();
-        let items = [];
-        
-        if (Array.isArray(req.body)) {
-            items = req.body;
-        } else if (req.body && typeof req.body === 'object' && Object.keys(req.body).length > 0) {
-            const keys = Object.keys(req.body);
-            const isNumericKeys = keys.every(k => !isNaN(parseInt(k, 10)));
-            if (isNumericKeys && req.body['0'] && typeof req.body['0'] === 'object') {
-                items = Object.values(req.body);
-            } else {
-                items = [req.body];
-            }
-        } else if (req.body && typeof req.body === 'object') {
-            items = [req.body];
+
+        if (cyx_data.ngayDen) cyx_data.ngayDen = SheetService.normalizeDateStrict(cyx_data.ngayDen);
+        let opDateCheck = cyx_data.ngayDen;
+        const adminHr = parseInt(cyx_data.gioDen ? cyx_data.gioDen.split(':')[0] : "12", 10);
+        const openHour = getConfig().OPERATION_TIME.OPEN_HOUR || 8;
+        if (!isNaN(adminHr) && adminHr < openHour) {
+            const tempD = new Date(cyx_data.ngayDen);
+            tempD.setDate(tempD.getDate() - 1);
+            opDateCheck = SheetService.normalizeDateStrict(tempD);
         }
 
-        if (items.length === 0) {
-            return res.status(400).json({ success: false, error: "無效的數據格式 (Invalid Data)" });
+        if (!cyx_data.serviceCode || cyx_data.serviceCode === "") {
+            cyx_data.serviceCode = SheetService.smartFindServiceCode(cyx_data.dichVu);
+            console.log(`[API ADMIN] Auto-mapped Service Code: ${cyx_data.serviceCode}`);
         }
 
-        let allSaved = true;
-        let rejectError = null;
+        const hasExistingAllocation = cyx_data.guestDetails && cyx_data.guestDetails.length > 0 && 
+                                      (cyx_data.guestDetails[0].phase1_res_idx || cyx_data.guestDetails[0].phase1_resource);
 
-        for (let i = 0; i < items.length; i++) {
-            let cyx_data = items[i];
+        let hasConflict = false;
+        let serviceDuration = cyx_data.duration;
+        if (!serviceDuration && cyx_data.serviceCode && SERVICES[cyx_data.serviceCode]) {
+            serviceDuration = SERVICES[cyx_data.serviceCode].duration;
+        }
 
-            if (cyx_data.ngayDen) cyx_data.ngayDen = SheetService.normalizeDateStrict(cyx_data.ngayDen);
-            let opDateCheck = cyx_data.ngayDen;
-            const adminHr = parseInt(cyx_data.gioDen ? cyx_data.gioDen.split(':')[0] : "12", 10);
-            const openHour = getConfig().OPERATION_TIME.OPEN_HOUR || 8;
-            if (!isNaN(adminHr) && adminHr < openHour) {
-                const tempD = new Date(cyx_data.ngayDen);
-                tempD.setDate(tempD.getDate() - 1);
-                opDateCheck = SheetService.normalizeDateStrict(tempD);
-            }
-
-            if (!cyx_data.serviceCode || cyx_data.serviceCode === "") {
-                cyx_data.serviceCode = SheetService.smartFindServiceCode(cyx_data.dichVu);
-                console.log(`[API ADMIN] Auto-mapped Service Code: ${cyx_data.serviceCode}`);
-            }
-
-            const hasExistingAllocation = cyx_data.guestDetails && cyx_data.guestDetails.length > 0 && 
-                                          (cyx_data.guestDetails[0].phase1_res_idx || cyx_data.guestDetails[0].phase1_resource);
-
-            let hasConflict = false;
-            let serviceDuration = cyx_data.duration;
-            if (!serviceDuration && cyx_data.serviceCode && SERVICES[cyx_data.serviceCode]) {
-                serviceDuration = SERVICES[cyx_data.serviceCode].duration;
-            }
-
-            if (hasExistingAllocation && typeof SheetService._checkOverlapConflict === 'function') {
-                for (let j = 0; j < cyx_data.guestDetails.length; j++) {
-                    const item = cyx_data.guestDetails[j];
-                    let itemServiceCode = item.serviceCode || cyx_data.serviceCode;
-                    let itemDuration = serviceDuration;
-                    if (item.serviceCode && SERVICES[item.serviceCode]) {
-                        itemDuration = SERVICES[item.serviceCode].duration || serviceDuration;
-                    }
-                    
-                    let flow = item.flow || item.flowCode || cyx_data.flow || cyx_data.flowCode;
-                    let p1 = item.phase1_duration !== undefined ? item.phase1_duration : cyx_data.phase1_duration;
-                    let p2 = item.phase2_duration !== undefined ? item.phase2_duration : cyx_data.phase2_duration;
-                    if (p1 === undefined || p1 === null || p1 === "") p1 = itemDuration;
-                    
-                    const conflict = SheetService._checkOverlapConflict(
-                        cyx_data.rowId || 'TEMP_ID_NEW', opDateCheck, cyx_data.gioDen, itemDuration,
-                        item.phase1_res_idx || item.phase1_resource || cyx_data.phase1_res_idx || cyx_data.phase1_resource,
-                        item.phase2_res_idx || item.phase2_resource || cyx_data.phase2_res_idx || cyx_data.phase2_resource,
-                        p1, p2, flow
-                    );
-                    
-                    if (conflict) {
-                        console.log(`[ADMIN BOOKING] Conflict found for pre-allocated resource ${conflict.resource}. Conflict with RowId: ${conflict.conflictId}, Name: ${conflict.conflictName}. Re-allocating...`);
-                        hasConflict = true;
-                        break;
-                    }
+        if (hasExistingAllocation && typeof SheetService._checkOverlapConflict === 'function') {
+            for (let i = 0; i < cyx_data.guestDetails.length; i++) {
+                const item = cyx_data.guestDetails[i];
+                let itemServiceCode = item.serviceCode || cyx_data.serviceCode;
+                let itemDuration = serviceDuration;
+                if (item.serviceCode && SERVICES[item.serviceCode]) {
+                    itemDuration = SERVICES[item.serviceCode].duration || serviceDuration;
+                }
+                
+                let flow = item.flow || item.flowCode || cyx_data.flow || cyx_data.flowCode;
+                let p1 = item.phase1_duration !== undefined ? item.phase1_duration : cyx_data.phase1_duration;
+                let p2 = item.phase2_duration !== undefined ? item.phase2_duration : cyx_data.phase2_duration;
+                if (p1 === undefined || p1 === null || p1 === "") p1 = itemDuration;
+                
+                const conflict = SheetService._checkOverlapConflict(
+                    cyx_data.rowId || 'TEMP_ID_NEW', opDateCheck, cyx_data.gioDen, itemDuration,
+                    item.phase1_res_idx || item.phase1_resource || cyx_data.phase1_res_idx || cyx_data.phase1_resource,
+                    item.phase2_res_idx || item.phase2_resource || cyx_data.phase2_res_idx || cyx_data.phase2_resource,
+                    p1, p2, flow
+                );
+                
+                if (conflict) {
+                    console.log(`[ADMIN BOOKING] Conflict found for pre-allocated resource ${conflict.resource}. Conflict with RowId: ${conflict.conflictId}, Name: ${conflict.conflictName}. Re-allocating...`);
+                    hasConflict = true;
+                    break;
                 }
             }
+        }
 
-            if ((!cyx_data.flow && !hasExistingAllocation && ResourceCore.checkRequestAvailability) || hasConflict) {
-                try {
-                    const staffListMap = {}; SheetService.getStaffList().forEach(s => { staffListMap[s.id] = s; });
-                    const allBookingsForCheck = cyx_data.rowId ? SheetService.getBookings().filter(b => String(b.rowId) !== String(cyx_data.rowId)) : SheetService.getBookings();
-                    const relevantBookings = prepareBookingsForTimeline(allBookingsForCheck, opDateCheck);
-                    let serviceCode = 'UNKNOWN';
-                    if (cyx_data.serviceCode) serviceCode = cyx_data.serviceCode;
-                    else for (const key in SERVICES) { if (SERVICES[key].name === cyx_data.dichVu) { serviceCode = key; break; } }
+        if ((!cyx_data.flow && !hasExistingAllocation && ResourceCore.checkRequestAvailability) || hasConflict) {
+            try {
+                const staffListMap = {}; SheetService.getStaffList().forEach(s => { staffListMap[s.id] = s; });
+            const allBookingsForCheck = cyx_data.rowId ? SheetService.getBookings().filter(b => String(b.rowId) !== String(cyx_data.rowId)) : SheetService.getBookings();
+            const relevantBookings = prepareBookingsForTimeline(allBookingsForCheck, opDateCheck);
+            let serviceCode = 'UNKNOWN';
+            if (cyx_data.serviceCode) serviceCode = cyx_data.serviceCode;
+            else for (const key in SERVICES) { if (SERVICES[key].name === cyx_data.dichVu) { serviceCode = key; break; } }
 
-                    if (serviceCode !== 'UNKNOWN') {
-                        const guestList = []; const pax = cyx_data.pax || 1;
-                        for (let k = 0; k < pax; k++) {
-                            let sId = (cyx_data.nhanVien && cyx_data.nhanVien !== '隨機' && cyx_data.nhanVien !== 'ALL_STAFF') ? cyx_data.nhanVien : 'RANDOM';
-                            let preferredFlow = null;
-                            let iServiceCode = serviceCode;
-                            if (cyx_data.guestDetails && cyx_data.guestDetails[k]) {
-                                if (cyx_data.guestDetails[k].serviceCode) iServiceCode = cyx_data.guestDetails[k].serviceCode;
-                                if (cyx_data.guestDetails[k].staff) sId = cyx_data.guestDetails[k].staff;
-                                if (cyx_data.guestDetails[k].flow || cyx_data.guestDetails[k].flowCode) preferredFlow = cyx_data.guestDetails[k].flow || cyx_data.guestDetails[k].flowCode;
-                            }
-                            guestList.push({ serviceCode: iServiceCode, staffName: sId, flow: preferredFlow });
-                        }
-                        const checkResult = ResourceCore.checkRequestAvailability(opDateCheck, cyx_data.gioDen, guestList, relevantBookings, staffListMap, { location: cyx_data.location || '本館' });
+            if (serviceCode !== 'UNKNOWN') {
+                const guestList = []; const pax = cyx_data.pax || 1;
+                for (let i = 0; i < pax; i++) {
+                    let sId = (cyx_data.nhanVien && cyx_data.nhanVien !== '隨機' && cyx_data.nhanVien !== 'ALL_STAFF') ? cyx_data.nhanVien : 'RANDOM';
+                    let preferredFlow = null;
+                    let iServiceCode = serviceCode;
+                    if (cyx_data.guestDetails && cyx_data.guestDetails[i]) {
+                        if (cyx_data.guestDetails[i].serviceCode) iServiceCode = cyx_data.guestDetails[i].serviceCode;
+                        if (cyx_data.guestDetails[i].staff) sId = cyx_data.guestDetails[i].staff;
+                        if (cyx_data.guestDetails[i].flow || cyx_data.guestDetails[i].flowCode) preferredFlow = cyx_data.guestDetails[i].flow || cyx_data.guestDetails[i].flowCode;
+                    }
+                    guestList.push({ serviceCode: iServiceCode, staffName: sId, flow: preferredFlow });
+                }
+                const checkResult = ResourceCore.checkRequestAvailability(opDateCheck, cyx_data.gioDen, guestList, relevantBookings, staffListMap, { location: cyx_data.location || '本館' });
 
-                        if (checkResult.feasible && checkResult.details && checkResult.details.length > 0) {
-                            const optimalDetail = checkResult.details[0];
-                            const optimalFlow = optimalDetail.flow;
+                if (checkResult.feasible && checkResult.details && checkResult.details.length > 0) {
+                    const optimalDetail = checkResult.details[0];
+                    const optimalFlow = optimalDetail.flow;
 
-                            if (['BF', 'FB', 'FOOTSINGLE', 'BODYSINGLE'].includes(optimalFlow)) {
-                                cyx_data.flow = optimalFlow;
-                                if (cyx_data.phase1_duration === undefined) cyx_data.phase1_duration = optimalDetail.phase1_duration || optimalDetail.phase1;
-                                if (cyx_data.phase2_duration === undefined) cyx_data.phase2_duration = optimalDetail.phase2_duration || optimalDetail.phase2;
-                            }
+                    if (['BF', 'FB', 'FOOTSINGLE', 'BODYSINGLE'].includes(optimalFlow)) {
+                        cyx_data.flow = optimalFlow;
+                        if (cyx_data.phase1_duration === undefined) cyx_data.phase1_duration = optimalDetail.phase1_duration || optimalDetail.phase1;
+                        if (cyx_data.phase2_duration === undefined) cyx_data.phase2_duration = optimalDetail.phase2_duration || optimalDetail.phase2;
+                    }
 
-                            if (!cyx_data.guestDetails) cyx_data.guestDetails = [];
+                    if (!cyx_data.guestDetails) cyx_data.guestDetails = [];
 
-                            if (cyx_data.guestDetails.length === 0) {
-                                cyx_data.guestDetails.push({
-                                    serviceCode: serviceCode,
-                                    staff: cyx_data.nhanVien || 'RANDOM',
-                                    flow: optimalFlow,
-                                    phase1_duration: cyx_data.phase1_duration,
-                                    phase2_duration: cyx_data.phase2_duration,
-                                    phase1_res_idx: optimalDetail.phase1_res_idx ? String(optimalDetail.phase1_res_idx).toUpperCase() : undefined,
-                                    phase2_res_idx: optimalDetail.phase2_res_idx ? String(optimalDetail.phase2_res_idx).toUpperCase() : undefined,
-                                    resource_type: optimalFlow === 'FOOTSINGLE' ? 'CHAIR' : (optimalFlow === 'BODYSINGLE' ? 'BED' : 'COMBO')
-                                });
-                            } else {
-                                for (let k = 0; k < cyx_data.guestDetails.length; k++) {
-                                    const detail = checkResult.details[k] || optimalDetail;
-                                    if (detail) {
-                                        let r1 = detail.phase1_res_idx || cyx_data.guestDetails[k].phase1_res_idx;
-                                        let r2 = detail.phase2_res_idx || cyx_data.guestDetails[k].phase2_res_idx;
-                                        cyx_data.guestDetails[k].phase1_res_idx = r1 ? String(r1).toUpperCase() : r1;
-                                        cyx_data.guestDetails[k].phase2_res_idx = r2 ? String(r2).toUpperCase() : r2;
-                                        if (!cyx_data.guestDetails[k].flow) cyx_data.guestDetails[k].flow = detail.flow || optimalFlow;
-                                        if (!cyx_data.guestDetails[k].resource_type) {
-                                            cyx_data.guestDetails[k].resource_type = (detail.flow || optimalFlow) === 'FOOTSINGLE' ? 'CHAIR' : ((detail.flow || optimalFlow) === 'BODYSINGLE' ? 'BED' : 'COMBO');
-                                        }
-                                    }
+                    if (cyx_data.guestDetails.length === 0) {
+                        cyx_data.guestDetails.push({
+                            serviceCode: serviceCode,
+                            staff: cyx_data.nhanVien || 'RANDOM',
+                            flow: optimalFlow,
+                            phase1_duration: cyx_data.phase1_duration,
+                            phase2_duration: cyx_data.phase2_duration,
+                            phase1_res_idx: optimalDetail.phase1_res_idx ? String(optimalDetail.phase1_res_idx).toUpperCase() : undefined,
+                            phase2_res_idx: optimalDetail.phase2_res_idx ? String(optimalDetail.phase2_res_idx).toUpperCase() : undefined,
+                            resource_type: optimalFlow === 'FOOTSINGLE' ? 'CHAIR' : (optimalFlow === 'BODYSINGLE' ? 'BED' : 'COMBO')
+                        });
+                    } else {
+                        for (let i = 0; i < cyx_data.guestDetails.length; i++) {
+                            const detail = checkResult.details[i] || optimalDetail;
+                            if (detail) {
+                                let r1 = detail.phase1_res_idx || cyx_data.guestDetails[i].phase1_res_idx;
+                                let r2 = detail.phase2_res_idx || cyx_data.guestDetails[i].phase2_res_idx;
+                                cyx_data.guestDetails[i].phase1_res_idx = r1 ? String(r1).toUpperCase() : r1;
+                                cyx_data.guestDetails[i].phase2_res_idx = r2 ? String(r2).toUpperCase() : r2;
+                                if (!cyx_data.guestDetails[i].flow) cyx_data.guestDetails[i].flow = detail.flow || optimalFlow;
+                                if (!cyx_data.guestDetails[i].resource_type) {
+                                    cyx_data.guestDetails[i].resource_type = (detail.flow || optimalFlow) === 'FOOTSINGLE' ? 'CHAIR' : ((detail.flow || optimalFlow) === 'BODYSINGLE' ? 'BED' : 'COMBO');
                                 }
                             }
-                        } else {
-                            rejectError = "⚠️ 系統滿載：沒有足夠的連續空位給此預約。";
-                            break;
                         }
                     }
-                } catch (err) { console.error("[ADMIN AUTO-FLOW ERROR]", err); }
+                } else {
+                    // [V118.8 FIX] Chặn Cứng (Hard-Reject) nếu hết chỗ (không khả thi)
+                    return res.status(400).json({ success: false, error: "⚠️ 系統滿載：沒有足夠的連續空位給此預約。" });
+                }
             }
-            
-            if (rejectError) break;
+        } catch (err) { console.error("[ADMIN AUTO-FLOW ERROR]", err); }
+    }
 
-            if (cyx_data.flowCode && !cyx_data.flow) cyx_data.flow = cyx_data.flowCode;
+    if (cyx_data.flowCode && !cyx_data.flow) cyx_data.flow = cyx_data.flowCode;
 
-            // [V134 NÂNG CẤP] Bắt kết quả ghi Sheet
-            const isSaved = await SheetService.ghiVaoSheet({
-                ngayDen: cyx_data.ngayDen, gioDen: cyx_data.gioDen, dichVu: cyx_data.dichVu, nhanVien: cyx_data.nhanVien,
-                userId: 'ADMIN_WEB', sdt: cyx_data.sdt || '現場客', hoTen: cyx_data.hoTen || '現場客',
-                trangThai: '已預約', pax: cyx_data.pax || 1, isOil: cyx_data.isOil || false,
-                duration: serviceDuration,
-                guestDetails: cyx_data.guestDetails,
-                phase1_duration: cyx_data.phase1_duration, phase2_duration: cyx_data.phase2_duration,
-                isManualLocked: cyx_data.isManualLocked, flow: cyx_data.flow, serviceCode: cyx_data.serviceCode,
-                adminNote: cyx_data.adminNote, location: cyx_data.location
-            });
+    // [V134 NÂNG CẤP] Bắt kết quả ghi Sheet
+    const isSaved = await SheetService.ghiVaoSheet({
+        ngayDen: cyx_data.ngayDen, gioDen: cyx_data.gioDen, dichVu: cyx_data.dichVu, nhanVien: cyx_data.nhanVien,
+        userId: 'ADMIN_WEB', sdt: cyx_data.sdt || '現場客', hoTen: cyx_data.hoTen || '現場客',
+        trangThai: '已預約', pax: cyx_data.pax || 1, isOil: cyx_data.isOil || false,
+        duration: serviceDuration,
+        guestDetails: cyx_data.guestDetails,
+        phase1_duration: cyx_data.phase1_duration, phase2_duration: cyx_data.phase2_duration,
+        isManualLocked: cyx_data.isManualLocked, flow: cyx_data.flow, serviceCode: cyx_data.serviceCode,
+        adminNote: cyx_data.adminNote, location: cyx_data.location
+    });
 
-            if (!isSaved) {
-                allSaved = false;
-            }
-        }
-
-        if (rejectError) {
-            return res.status(400).json({ success: false, error: rejectError });
-        }
-
-        if (allSaved) {
-            res.json({ success: true });
-        } else {
-            res.status(500).json({ success: false, error: '儲存失敗' });
-        }
+    if (isSaved) {
+        res.json({ success: true });
+    } else {
+        res.status(500).json({ success: false, error: 'cyx_database Write Failed' });
+    }
     } finally {
         releaseLock();
     }
