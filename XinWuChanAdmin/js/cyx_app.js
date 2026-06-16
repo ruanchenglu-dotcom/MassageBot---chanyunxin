@@ -3694,8 +3694,10 @@ const App = () => {
         }
 
         try {
-            const res = await axios.post('/api/admin-booking', data);
-            if (res.data && res.data.error) throw new Error(res.data.error);
+            for (let item of checkList) {
+                const res = await axios.post('/api/admin-booking', item);
+                if (res.data && res.data.error) throw new Error(res.data.error);
+            }
             setShowAvailability(false);
             fetchData(true); // STRICT ONE-WAY FLOW
         } catch (error) {
