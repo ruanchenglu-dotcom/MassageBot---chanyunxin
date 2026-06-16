@@ -1600,8 +1600,8 @@
         const coreGuests = guests.map(g => {
             let foundCode = getServiceCodeByName(g.service);
             const svcDef = window.SERVICES_DATA && foundCode ? window.SERVICES_DATA[foundCode] : null;
-            let impliedFlow = undefined;
-            if (svcDef) {
+            let impliedFlow = g.flowCode || undefined;
+            if (!impliedFlow && svcDef) {
                 const cat = (svcDef.category || '').toUpperCase();
                 const sType = (svcDef.type || 'BODY').toUpperCase();
                 if (cat !== 'COMBO' && cat !== 'MIXED') {
