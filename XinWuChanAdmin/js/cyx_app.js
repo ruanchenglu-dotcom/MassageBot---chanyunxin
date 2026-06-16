@@ -1289,8 +1289,22 @@ const App = () => {
                     targetId = 'opp-' + targetId;
                 }
 
+                if (!targetId) {
+                    const expectedType = b.forceResourceType ? b.forceResourceType.toLowerCase() : (b.type ? b.type.toLowerCase() : 'chair');
+                    const isCrossShop = (b.originalName && b.originalName.includes('[跨館]')) || (b.serviceName && b.serviceName.includes('跨館'));
+                    const dur = isCrossShop && b.phase1_duration ? parseInt(b.phase1_duration) : parseInt(b.duration || 60);
+                    const mockReserved = {}; 
+                    
+                    targetId = window.MatrixHelper?.findBestSlot(expectedType, originalStart, originalStart + dur, timelineGrid, mockReserved, null, b.rowId) || `${expectedType}-1`;
+                    if (b.location === '對面館' && targetId && !targetId.startsWith('opp-')) {
+                        targetId = 'opp-' + targetId;
+                    }
+                }
+
                 if (targetId) {
-                    addToGrid(targetId, originalStart, originalStart + b.duration, b, { isCombo: false, isPending: true, priority: 3, isRunning: b.isRunningStatus });
+                    const isCrossShop = (b.originalName && b.originalName.includes('[跨館]')) || (b.serviceName && b.serviceName.includes('跨館'));
+                    const drawDur = isCrossShop && b.phase1_duration ? parseInt(b.phase1_duration) : parseInt(b.duration || 60);
+                    addToGrid(targetId, originalStart, originalStart + drawDur, b, { isCombo: false, isPending: true, priority: 3, isRunning: b.isRunningStatus });
                 }
             });
 
