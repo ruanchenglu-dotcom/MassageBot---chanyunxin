@@ -1977,7 +1977,33 @@
             if (editingBooking) { finalBookings = finalBookings.filter(b => b.rowId !== editingBooking.rowId); }
 
             if (selectedLocation === '跨館套餐') {
-                setCheckResult({ status: 'OK', message: "✅ 此跨館時段可預約，請點擊 [儲存]", coreDetails: [], debug: {} });
+                const loc1 = crossLocationDirection === 'MAIN_TO_OPP' ? '本館' : '對面館';
+                const loc2 = crossLocationDirection === 'MAIN_TO_OPP' ? '對面館' : '本館';
+                
+                const baseDuration = parseInt(extractStandardDuration(guestDetails[0].service) || 60, 10);
+                const split = window.getSmartSplit ? window.getSmartSplit({}, baseDuration, true, 'FB') : { phase1: Math.floor(baseDuration / 2), phase2: Math.ceil(baseDuration / 2) };
+                
+                const p1Dur = split.phase1;
+                const transitionMins = window.SYSTEM_CONFIG?.BUFFERS?.TRANSITION_MINUTES || 5;
+                const p2TimeStr = CoreKernel.getTimeStrFromMins ? CoreKernel.getTimeStrFromMins(safeTimeToMins(form.time) + p1Dur + transitionMins) : form.time;
+
+                const detailedGuests1 = guestDetails.map((g) => ({ ...g, flow: 'FOOTSINGLE', flowCode: 'FOOTSINGLE', resource_type: 'CHAIR' }));
+                const detailedGuests2 = guestDetails.map((g) => ({ ...g, flow: 'BODYSINGLE', flowCode: 'BODYSINGLE', resource_type: 'BED' }));
+
+                const res1 = callCoreAvailabilityCheck(form.date, form.time, detailedGuests1, finalBookings, serverStaffList, loc1);
+                const res2 = callCoreAvailabilityCheck(form.date, p2TimeStr, detailedGuests2, finalBookings, serverStaffList, loc2);
+
+                if (res1.valid && res2.valid) {
+                    setCheckResult({ 
+                        status: 'OK', 
+                        message: "✅ 此跨館時段可預約，已為您分配對應資源", 
+                        coreDetails: { phase1: res1.details, phase2: res2.details }, 
+                        debug: {} 
+                    });
+                } else {
+                    const failMsg = [!res1.valid ? `[${loc1}]: ${res1.reason}` : '', !res2.valid ? `[${loc2}]: ${res2.reason}` : ''].filter(Boolean).join(' | ');
+                    setCheckResult({ status: 'FAIL', message: `❌ 跨館預約失敗: ${failMsg}`, debug: {} });
+                }
                 setIsChecking(false);
                 return;
             }
@@ -2129,13 +2155,18 @@
                     const transitionMins = window.SYSTEM_CONFIG?.BUFFERS?.TRANSITION_MINUTES || 5;
                     const p2TimeStr = CoreKernel.getTimeStrFromMins(safeTimeToMins(form.time) + p1Dur + transitionMins);
                     
+                    const phase1Details = checkResult?.coreDetails?.phase1 || [];
+                    const phase2Details = checkResult?.coreDetails?.phase2 || [];
+
                     const detailedGuests1 = guestDetails.map((g, i) => {
-                        return { ...g, serviceCode: getServiceCodeByName(g.service) || "", staff: normalizeStaffId(g.staff), flow: 'FOOTSINGLE', flowCode: 'FOOTSINGLE', phase1_duration: p1Dur, phase2_duration: null, allocated_resource: "", phase1_resource: "", phase2_resource: "", resource_type: "CHAIR" };
+                        const assignedRes1 = phase1Details[i] ? phase1Details[i].assignedResource : "";
+                        return { ...g, serviceCode: getServiceCodeByName(g.service) || "", staff: normalizeStaffId(g.staff), flow: 'FOOTSINGLE', flowCode: 'FOOTSINGLE', phase1_duration: p1Dur, phase2_duration: null, allocated_resource: assignedRes1, phase1_resource: assignedRes1, phase2_resource: "", resource_type: "CHAIR" };
                     });
                     
                     const detailedGuests2 = guestDetails.map((g, i) => {
                         const svc2 = g.service + " (跨館接續)";
-                        return { ...g, service: svc2, serviceCode: getServiceCodeByName(svc2) || "", staff: normalizeStaffId(g.staff), flow: 'BODYSINGLE', flowCode: 'BODYSINGLE', phase1_duration: p2Dur, phase2_duration: null, allocated_resource: "", phase1_resource: "", phase2_resource: "", resource_type: "BED" };
+                        const assignedRes2 = phase2Details[i] ? phase2Details[i].assignedResource : "";
+                        return { ...g, service: svc2, serviceCode: getServiceCodeByName(svc2) || "", staff: normalizeStaffId(g.staff), flow: 'BODYSINGLE', flowCode: 'BODYSINGLE', phase1_duration: p2Dur, phase2_duration: null, allocated_resource: assignedRes2, phase1_resource: assignedRes2, phase2_resource: "", resource_type: "BED" };
                     });
 
                     const oils = guestDetails.map((g, i) => g.isYouTui ? `K${i + 1}:油推` : null).filter(Boolean);
