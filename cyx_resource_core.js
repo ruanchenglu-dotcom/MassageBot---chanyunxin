@@ -669,7 +669,7 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
     for (let i = 0; i < guestList.length; i++) {
         const g = guestList[i];
         const svc = getServiceInfo(g.serviceCode, g.serviceName);
-        const duration = svc.duration || 60;
+        const duration = g.overrideDuration || svc.duration || 60;
         const explicitFlow = g.flowCode || null;
         const isCombo = isComboService(svc, g.serviceCode, explicitFlow);
         const guestIdKey = g.idx !== undefined ? g.idx : i; // Đảm bảo mapping đúng index của khách
@@ -1047,7 +1047,7 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
 
     let maxGuestDuration = 0;
     guestList.forEach(g => {
-        const dur = getServiceInfo(g.serviceCode, g.serviceName).duration || 60;
+        const dur = g.overrideDuration || getServiceInfo(g.serviceCode, g.serviceName).duration || 60;
         if (dur > maxGuestDuration) maxGuestDuration = dur;
     });
 

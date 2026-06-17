@@ -626,7 +626,7 @@
             for (let i = 0; i < guestList.length; i++) {
                 const g = guestList[i];
                 const svc = SERVICES[g.serviceCode] || { duration: 60 };
-                const duration = svc.duration || 60;
+                const duration = g.overrideDuration || svc.duration || 60;
                 const isCombo = isComboService(svc, g.serviceCode, g.flowCode);
                 const guestIdKey = g.idx !== undefined ? g.idx : i; // Đảm bảo đúng index
 
@@ -1621,7 +1621,8 @@
             return {
                 serviceCode: foundCode || g.service,
                 staffName: normalizedStaff,
-                flowCode: impliedFlow
+                flowCode: impliedFlow,
+                overrideDuration: g.overrideDuration
             };
         });
 
@@ -1987,8 +1988,8 @@
                 const transitionMins = window.SYSTEM_CONFIG?.BUFFERS?.TRANSITION_MINUTES || 5;
                 const p2TimeStr = CoreKernel.getTimeStrFromMins ? CoreKernel.getTimeStrFromMins(safeTimeToMins(form.time) + p1Dur + transitionMins) : form.time;
 
-                const detailedGuests1 = guestDetails.map((g) => ({ ...g, flow: 'FOOTSINGLE', flowCode: 'FOOTSINGLE', resource_type: 'CHAIR' }));
-                const detailedGuests2 = guestDetails.map((g) => ({ ...g, flow: 'BODYSINGLE', flowCode: 'BODYSINGLE', resource_type: 'BED' }));
+                const detailedGuests1 = guestDetails.map((g) => ({ ...g, flow: 'FOOTSINGLE', flowCode: 'FOOTSINGLE', resource_type: 'CHAIR', overrideDuration: p1Dur }));
+                const detailedGuests2 = guestDetails.map((g) => ({ ...g, flow: 'BODYSINGLE', flowCode: 'BODYSINGLE', resource_type: 'BED', overrideDuration: split.phase2 || (baseDuration - p1Dur) }));
 
                 const res1 = callCoreAvailabilityCheck(form.date, form.time, detailedGuests1, finalBookings, serverStaffList, loc1);
                 const res2 = callCoreAvailabilityCheck(form.date, p2TimeStr, detailedGuests2, finalBookings, serverStaffList, loc2);
