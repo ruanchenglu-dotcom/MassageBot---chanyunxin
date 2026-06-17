@@ -1995,10 +1995,22 @@
                 const res2 = callCoreAvailabilityCheck(form.date, p2TimeStr, detailedGuests2, finalBookings, serverStaffList, loc2);
 
                 if (res1.valid && res2.valid) {
+                    const combinedDetails = guestDetails.map((g, i) => {
+                        const d1 = res1.details ? res1.details[i] : {};
+                        const d2 = res2.details ? res2.details[i] : {};
+                        return {
+                            service: g.service,
+                            phase1_duration: p1Dur,
+                            phase2_duration: split.phase2 || (baseDuration - p1Dur),
+                            flow: 'FB',
+                            allocated: [...(d1.allocated || []), ...(d2.allocated || [])],
+                            staff: d1.staff || g.staff || '隨機'
+                        };
+                    });
                     setCheckResult({ 
                         status: 'OK', 
                         message: "✅ 此跨館時段可預約，已為您分配對應資源", 
-                        coreDetails: { phase1: res1.details, phase2: res2.details }, 
+                        coreDetails: combinedDetails, 
                         debug: {} 
                     });
                 } else {
