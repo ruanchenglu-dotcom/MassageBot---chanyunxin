@@ -2222,6 +2222,7 @@
                             flow: guests[0].flowCode,
                             flowCode: guests[0].flowCode,
                             mainFlow: guests[0].flowCode,
+                            duration: guests[0].phase1_duration,
                             phase1_duration: guests[0].phase1_duration,
                             phase2_duration: guests[0].phase2_duration,
                             allocated_resource: guests[0].allocated_resource,

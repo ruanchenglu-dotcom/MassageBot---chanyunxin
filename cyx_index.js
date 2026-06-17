@@ -951,12 +951,13 @@ app.post('/api/admin-booking', async (req, res) => {
                     let sId = (cyx_data.nhanVien && cyx_data.nhanVien !== '隨機' && cyx_data.nhanVien !== 'ALL_STAFF') ? cyx_data.nhanVien : 'RANDOM';
                     let preferredFlow = null;
                     let iServiceCode = serviceCode;
+                    let iOverrideDuration = cyx_data.duration;
                     if (cyx_data.guestDetails && cyx_data.guestDetails[i]) {
                         if (cyx_data.guestDetails[i].serviceCode) iServiceCode = cyx_data.guestDetails[i].serviceCode;
                         if (cyx_data.guestDetails[i].staff) sId = cyx_data.guestDetails[i].staff;
                         if (cyx_data.guestDetails[i].flow || cyx_data.guestDetails[i].flowCode) preferredFlow = cyx_data.guestDetails[i].flow || cyx_data.guestDetails[i].flowCode;
                     }
-                    guestList.push({ serviceCode: iServiceCode, staffName: sId, flow: preferredFlow });
+                    guestList.push({ serviceCode: iServiceCode, staffName: sId, flow: preferredFlow, overrideDuration: iOverrideDuration });
                 }
                 const checkResult = ResourceCore.checkRequestAvailability(opDateCheck, cyx_data.gioDen, guestList, relevantBookings, staffListMap, { location: cyx_data.location || '本館' });
 
