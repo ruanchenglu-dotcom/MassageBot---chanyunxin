@@ -1041,6 +1041,8 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
 
     const filteredBookings = currentBookingsRaw.filter(b => {
         if (!b || !b.startTimeString) return false;
+        const bLoc = b.originalData?.location || b.location || '本館';
+        if (bLoc !== CONF._tempLocation) return false;
         if (b.opDate) return normalizeDateStrict(b.opDate) === shiftedQueryDate;
 
         let rawDate = b.startTimeString.split(' ')[0];

@@ -925,7 +925,7 @@ app.post('/api/admin-booking', async (req, res) => {
                     cyx_data.rowId || 'TEMP_ID_NEW', opDateCheck, cyx_data.gioDen, itemDuration,
                     item.phase1_res_idx || item.phase1_resource || cyx_data.phase1_res_idx || cyx_data.phase1_resource,
                     item.phase2_res_idx || item.phase2_resource || cyx_data.phase2_res_idx || cyx_data.phase2_resource,
-                    p1, p2, flow
+                    p1, p2, flow, cyx_data.location || '本館'
                 );
                 
                 if (conflict) {

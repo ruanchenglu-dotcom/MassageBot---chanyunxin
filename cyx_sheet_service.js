@@ -855,7 +855,7 @@ async function updateBookingStatus(rowId, newStatus) {
     } catch (e) { console.error('Update Status Error:', e); return false; }
 }
 
-function _checkOverlapConflict(rowId, dateStr, timeStr, duration, phase1Res, phase2Res, p1Dur, p2Dur, flow) {
+function _checkOverlapConflict(rowId, dateStr, timeStr, duration, phase1Res, phase2Res, p1Dur, p2Dur, flow, locationStr = '本館') {
     if (!phase1Res && !phase2Res) return null;
     
     const startMins = ResourceCore.getMinsFromTimeStr(timeStr);
@@ -875,10 +875,11 @@ function _checkOverlapConflict(rowId, dateStr, timeStr, duration, phase1Res, pha
         if (res) blocks.push({ start: startMins, end: startMins + durMins + ResourceCore.CONFIG.CLEANUP_BUFFER, res: res });
     }
     
-    const bookingsOnDate = STATE.cachedBookings.filter(b => 
-        normalizeDateStrict(b.opDate || b.startTimeString) === normalizeDateStrict(dateStr) 
-        && b.rowId != rowId
-    );
+    const bookingsOnDate = STATE.cachedBookings.filter(b => {
+        const bLoc = b.originalData?.location || b.location || '本館';
+        return normalizeDateStrict(b.opDate || b.startTimeString) === normalizeDateStrict(dateStr) 
+            && b.rowId != rowId && bLoc === locationStr;
+    });
     
     for (const b of bookingsOnDate) {
         if (!b.status) continue;
