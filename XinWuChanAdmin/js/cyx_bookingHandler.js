@@ -554,7 +554,7 @@
                 else if (req === 'MALE' || req === '男' || req === '男師') maleReqCount++;
                 else if (req && req !== '隨機' && req !== 'Any' && req !== 'undefined' && req !== 'null') {
                     const sId = normId(req);
-                    specificStaffReqs.push({ req: sId, rawReq: req, duration: (SERVICES[g.serviceCode] || { duration: 60 }).duration || 60 });
+                    specificStaffReqs.push({ req: sId, rawReq: req, duration: g.overrideDuration || (SERVICES[g.serviceCode] || { duration: 60 }).duration || 60 });
                 }
             });
 
@@ -992,7 +992,7 @@
             let maxGuestDuration = 0;
             guestList.forEach(g => {
                 const s = SERVICES[g.serviceCode] || { duration: 60 };
-                const dur = s.duration || 60;
+                const dur = g.overrideDuration || s.duration || 60;
                 if (dur > maxGuestDuration) maxGuestDuration = dur;
             });
 
@@ -1248,7 +1248,7 @@
                         const cIdx = comboGuests.findIndex(cg => cg.idx === ng.idx);
                         if (cIdx >= 0 && cIdx < numBF) { flow = 'BF'; }
                     } else { flow = ng.flowCode || 'SINGLE'; }
-                    const duration = svc.duration || 60;
+                    const duration = ng.overrideDuration || svc.duration || 60;
                     let blocks = [];
                     if (isThisGuestCombo) {
                         const p1Standard = Math.floor(duration / 2);

@@ -388,7 +388,7 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
     
     guestList.forEach(g => {
         const svcInfo = getServiceInfo(g.serviceCode, g.serviceName);
-        const dur = svcInfo.duration || 60;
+        const dur = g.overrideDuration || svcInfo.duration || 60;
         timePoints.add(requestStart + dur);
     });
 
@@ -446,7 +446,7 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
         
         guestList.forEach(g => {
             const svcInfo = getServiceInfo(g.serviceCode, g.serviceName);
-            const dur = svcInfo.duration || 60;
+            const dur = g.overrideDuration || svcInfo.duration || 60;
             if (tCheck >= requestStart && tCheck < requestStart + dur) {
                 newGuestsActive++;
                 const req = g.staff;
@@ -489,7 +489,7 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
     guestList.forEach(g => {
         const req = g.staff;
         const svcInfo = getServiceInfo(g.serviceCode, g.serviceName);
-        const dur = svcInfo.duration || 60;
+        const dur = g.overrideDuration || svcInfo.duration || 60;
         if (req && req !== 'RANDOM' && req !== '隨機' && req !== 'Any' && req !== 'undefined' && req !== 'null' 
             && req !== 'FEMALE' && req !== 'MALE' && req !== '女' && req !== '男' && req !== '女師' && req !== '男師' && req !== 'OIL') {
             const sId = normId(req);
@@ -1288,7 +1288,7 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
                 if (cIdx >= 0 && cIdx < numBF) { flow = 'BF'; }
             } else { flow = inferFlowFromService(svc, ng.flowCode); }
 
-            const duration = svc.duration || 60; let blocks = []; let elasticOptions = [];
+            const duration = ng.overrideDuration || svc.duration || 60; let blocks = []; let elasticOptions = [];
             if (isThisGuestCombo) {
                 const p1Standard = Math.floor(duration / 2); const p2Standard = duration - p1Standard;
                 const isCrossSwapGroup = comboGuests.length >= 2 && numBF > 0 && numBF < comboGuests.length;
