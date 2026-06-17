@@ -552,6 +552,16 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
         'CHAIR': Array.from({ length: CONF.MAX_CHAIRS }, () => [])
     };
 
+    relevantBookings.sort((a, b) => {
+        const hasA = Boolean(a.allocated_resource || a.phase1_res_idx || a.phase2_res_idx);
+        const hasB = Boolean(b.allocated_resource || b.phase1_res_idx || b.phase2_res_idx);
+        if (hasA && !hasB) return -1;
+        if (!hasA && hasB) return 1;
+        const startA = getMinsFromTimeStr(a.startTimeString || a.startTime);
+        const startB = getMinsFromTimeStr(b.startTimeString || b.startTime);
+        return startA - startB;
+    });
+
     relevantBookings.forEach(b => {
         const bLoc = b.originalData?.location || b.location || '本館';
         if (bLoc !== locationStr) return;

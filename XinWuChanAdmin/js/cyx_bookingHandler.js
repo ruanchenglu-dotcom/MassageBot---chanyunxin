@@ -2011,6 +2011,8 @@
                         status: 'OK', 
                         message: "✅ 此跨館時段可預約，已為您分配對應資源", 
                         coreDetails: combinedDetails, 
+                        phase1Details: res1.details,
+                        phase2Details: res2.details,
                         debug: {} 
                     });
                 } else {
@@ -2168,8 +2170,8 @@
                     const transitionMins = window.SYSTEM_CONFIG?.BUFFERS?.TRANSITION_MINUTES || 5;
                     const p2TimeStr = CoreKernel.getTimeStrFromMins(safeTimeToMins(form.time) + p1Dur + transitionMins);
                     
-                    const phase1Details = checkResult?.coreDetails?.phase1 || [];
-                    const phase2Details = checkResult?.coreDetails?.phase2 || [];
+                    const phase1Details = checkResult?.phase1Details || [];
+                    const phase2Details = checkResult?.phase2Details || [];
 
                     const detailedGuests1 = guestDetails.map((g, i) => {
                         const assignedRes1 = phase1Details[i] ? phase1Details[i].assignedResource : "";
