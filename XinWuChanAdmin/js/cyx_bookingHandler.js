@@ -2174,13 +2174,13 @@
                     const phase2Details = checkResult?.phase2Details || [];
 
                     const detailedGuests1 = guestDetails.map((g, i) => {
-                        const assignedRes1 = phase1Details[i] ? phase1Details[i].assignedResource : "";
+                        const assignedRes1 = phase1Details[i] ? (phase1Details[i].allocated?.[0] || phase1Details[i].phase1_res_idx || "") : "";
                         return { ...g, serviceCode: getServiceCodeByName(g.service) || "", staff: normalizeStaffId(g.staff), flow: 'FOOTSINGLE', flowCode: 'FOOTSINGLE', phase1_duration: p1Dur, phase2_duration: null, allocated_resource: assignedRes1, phase1_resource: assignedRes1, phase2_resource: "", resource_type: "CHAIR" };
                     });
                     
                     const detailedGuests2 = guestDetails.map((g, i) => {
                         const svc2 = g.service + " (跨館接續)";
-                        const assignedRes2 = phase2Details[i] ? phase2Details[i].assignedResource : "";
+                        const assignedRes2 = phase2Details[i] ? (phase2Details[i].allocated?.[0] || phase2Details[i].phase1_res_idx || "") : "";
                         return { ...g, service: svc2, serviceCode: getServiceCodeByName(svc2) || "", staff: normalizeStaffId(g.staff), flow: 'BODYSINGLE', flowCode: 'BODYSINGLE', phase1_duration: p2Dur, phase2_duration: null, allocated_resource: assignedRes2, phase1_resource: assignedRes2, phase2_resource: "", resource_type: "BED" };
                     });
 
