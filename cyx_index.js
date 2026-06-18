@@ -951,13 +951,16 @@ app.post('/api/admin-booking', async (req, res) => {
                     let sId = (cyx_data.nhanVien && cyx_data.nhanVien !== '隨機' && cyx_data.nhanVien !== 'ALL_STAFF') ? cyx_data.nhanVien : 'RANDOM';
                     let preferredFlow = null;
                     let iServiceCode = serviceCode;
+                    let iServiceName = cyx_data.dichVu || '';
                     let iOverrideDuration = cyx_data.duration;
                     if (cyx_data.guestDetails && cyx_data.guestDetails[i]) {
                         if (cyx_data.guestDetails[i].serviceCode) iServiceCode = cyx_data.guestDetails[i].serviceCode;
+                        if (cyx_data.guestDetails[i].service) iServiceName = cyx_data.guestDetails[i].service;
                         if (cyx_data.guestDetails[i].staff) sId = cyx_data.guestDetails[i].staff;
                         if (cyx_data.guestDetails[i].flow || cyx_data.guestDetails[i].flowCode) preferredFlow = cyx_data.guestDetails[i].flow || cyx_data.guestDetails[i].flowCode;
+                        if (cyx_data.guestDetails[i].duration || cyx_data.guestDetails[i].phase1_duration) iOverrideDuration = cyx_data.guestDetails[i].duration || cyx_data.guestDetails[i].phase1_duration;
                     }
-                    guestList.push({ serviceCode: iServiceCode, staffName: sId, flow: preferredFlow, overrideDuration: iOverrideDuration });
+                    guestList.push({ serviceCode: iServiceCode, serviceName: iServiceName, staffName: sId, flow: preferredFlow, flowCode: preferredFlow, overrideDuration: iOverrideDuration, idx: i });
                 }
                 const checkResult = ResourceCore.checkRequestAvailability(opDateCheck, cyx_data.gioDen, guestList, relevantBookings, staffListMap, { location: cyx_data.location || '本館' });
 
