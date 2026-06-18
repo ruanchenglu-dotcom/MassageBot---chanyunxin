@@ -322,8 +322,14 @@ function checkLaneContinuity(laneOccupiedArr, start, end, customCleanup = null) 
     return true;
 }
 
-function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBookingsRaw, staffList, queryDateStr, isSimulation = false, locationStr = '本館') {
-    // Helper to trigger smart search if not in simulation
+function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBookingsRaw, staffList, queryDateStr, isSimulation = false, locationStrIn = '本館') {
+    const CONF = getSystemConfig();
+    CONF._tempLocation = locationStrIn;
+    let locationStr = locationStrIn;
+    if (locationStr !== '本館' && locationStr !== '對面館') {
+        if (locationStr.includes('對面館') && !locationStr.includes('本館')) locationStr = '對面館';
+        else locationStr = '本館';
+    }
     const triggerSmartFailure = (reasonMsg, specificSuggestionMins = null) => {
         if (isSimulation) return { pass: false, reason: reasonMsg };
         
@@ -1026,7 +1032,12 @@ function isBlockSetAllocatable(blocks, matrix) {
 // ============================================================================
 
 function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRaw, staffList, options = {}) {
-    CONF._tempLocation = options.location || '本館';
+    let loc = options.location || '本館';
+    if (loc !== '本館' && loc !== '對面館') {
+        if (loc.includes('對面館') && !loc.includes('本館')) loc = '對面館';
+        else loc = '本館';
+    }
+    CONF._tempLocation = loc;
     const requestStartMins = getMinsFromTimeStr(timeStr);
     if (requestStartMins === -1) return { feasible: false, reason: "❌ 錯誤：時間格式無效" };
 

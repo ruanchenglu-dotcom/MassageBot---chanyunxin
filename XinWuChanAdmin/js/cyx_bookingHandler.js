@@ -1846,7 +1846,19 @@
         useEffect(() => {
             if (editingBooking) {
                 let timeStr = getRoundedCurrentTime(); let dateStr = initialDate;
-                setSelectedLocation(editingBooking.location || '本館');
+                let locStr = editingBooking.location || '本館';
+                if (locStr.includes('->') || locStr.includes('➡️') || locStr === '跨館套餐') {
+                    setSelectedLocation('跨館套餐');
+                    if (locStr.includes('本館(足)') && locStr.indexOf('本館(足)') === 0) {
+                        setCrossLocationDirection('MAIN_TO_OPP');
+                    } else if (locStr.includes('對面館(足)') && locStr.indexOf('對面館(足)') === 0) {
+                        setCrossLocationDirection('OPP_TO_MAIN');
+                    } else if (locStr.includes('本館')) {
+                        setCrossLocationDirection('MAIN_TO_OPP');
+                    }
+                } else {
+                    setSelectedLocation(locStr);
+                }
                 if (editingBooking.startTimeString) {
                     const parts = editingBooking.startTimeString.split(' ');
                     if (parts.length >= 2) {
