@@ -2352,7 +2352,7 @@
                     forceGlobalRefresh();
                     setTimeout(() => { onClose(); setIsSubmitting(false); }, 500);
                 }
-            } catch (err) { Swal.fire('系統提示', "儲存失敗：" + err.message, 'error'); setIsSubmitting(false); }
+            } catch (err) { Swal.fire('系統提示', "儲存失敗：" + (err.response?.data?.error || err.message), 'error'); setIsSubmitting(false); }
         };
 
         const HOURS_LIST = ['05', '06', '07', '08', '09', '10', '11', '12', '13', '14', '15', '16', '17', '18', '19', '20', '21', '22', '23', '00', '01', '02', '03', '04'];

@@ -1001,7 +1001,8 @@ app.post('/api/admin-booking', async (req, res) => {
                     }
                 } else {
                     // [V118.8 FIX] Chặn Cứng (Hard-Reject) nếu hết chỗ (không khả thi)
-                    return res.status(400).json({ success: false, error: "⚠️ 系統滿載：沒有足夠的連續空位給此預約。" });
+                    const errorReason = checkResult.reason ? `：${checkResult.reason}` : "";
+                    return res.status(400).json({ success: false, error: `⚠️ 系統滿載：沒有足夠的連續空位給此預約${errorReason}` });
                 }
             }
         } catch (err) { console.error("[ADMIN AUTO-FLOW ERROR]", err); }
@@ -1024,7 +1025,7 @@ app.post('/api/admin-booking', async (req, res) => {
     if (isSaved) {
         res.json({ success: true });
     } else {
-        res.status(500).json({ success: false, error: 'cyx_database Write Failed' });
+        res.status(500).json({ success: false, error: '系統錯誤：無法寫入資料庫' });
     }
     } finally {
         releaseLock();
@@ -1037,10 +1038,10 @@ app.post('/api/inline-update-booking', async (req, res) => {
     try {
         const { rowId, updatedData } = req.body;
         if (!rowId || !updatedData) {
-            return res.status(400).json({ success: false, error: 'Thiếu thông欠 rowId hoặc updatedData' });
+            return res.status(400).json({ success: false, error: '缺少 rowId 或 updatedData' });
         }
         await SheetService.updateInlineBooking(rowId, updatedData);
-        res.json({ success: true, message: 'Cập nhật thành công (Update Success)' });
+        res.json({ success: true, message: '更新成功' });
     } catch (e) {
         console.error('[INLINE UPDATE ERROR]', e);
         res.status(500).json({ success: false, error: e.message });
