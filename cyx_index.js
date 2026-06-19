@@ -960,6 +960,7 @@ app.post('/api/admin-booking', async (req, res) => {
                         if (cyx_data.guestDetails[i].flow || cyx_data.guestDetails[i].flowCode) preferredFlow = cyx_data.guestDetails[i].flow || cyx_data.guestDetails[i].flowCode;
                         if (cyx_data.guestDetails[i].duration || cyx_data.guestDetails[i].phase1_duration) iOverrideDuration = cyx_data.guestDetails[i].duration || cyx_data.guestDetails[i].phase1_duration;
                     }
+                    console.log(`[DEBUG-FLOW] guestList push idx ${i}: iServiceCode=${iServiceCode}, preferredFlow=${preferredFlow}`);
                     guestList.push({ serviceCode: iServiceCode, serviceName: iServiceName, staffName: sId, flow: preferredFlow, flowCode: preferredFlow, overrideDuration: iOverrideDuration, idx: i });
                 }
                 const checkResult = ResourceCore.checkRequestAvailability(opDateCheck, cyx_data.gioDen, guestList, relevantBookings, staffListMap, { location: cyx_data.location || '本館' });
@@ -1005,6 +1006,7 @@ app.post('/api/admin-booking', async (req, res) => {
                 } else {
                     // [V118.8 FIX] Chặn Cứng (Hard-Reject) nếu hết chỗ (không khả thi)
                     const errorReason = checkResult.reason ? `：${checkResult.reason}` : "";
+                    console.log(`[DEBUG-FLOW] checkResult.feasible=false! errorReason=${errorReason}, guestList=`, JSON.stringify(guestList));
                     return res.status(400).json({ success: false, error: `⚠️ 系統滿載：沒有足夠的連續空位給此預約${errorReason}` });
                 }
             }
