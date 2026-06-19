@@ -936,7 +936,9 @@ app.post('/api/admin-booking', async (req, res) => {
             }
         }
 
-        if ((!cyx_data.flow && !hasExistingAllocation && ResourceCore.checkRequestAvailability) || hasConflict) {
+        // [V135 FIX] Smarter condition for reallocation
+        let shouldReallocate = !hasExistingAllocation && ResourceCore.checkRequestAvailability;
+        if (shouldReallocate || hasConflict) {
             try {
                 const staffListMap = {}; SheetService.getStaffList().forEach(s => { staffListMap[s.id] = s; });
             const allBookingsForCheck = cyx_data.rowId ? SheetService.getBookings().filter(b => String(b.rowId) !== String(cyx_data.rowId)) : SheetService.getBookings();

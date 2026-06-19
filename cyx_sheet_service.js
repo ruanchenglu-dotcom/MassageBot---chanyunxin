@@ -931,12 +931,18 @@ function _checkOverlapConflict(rowId, dateStr, timeStr, duration, phase1Res, pha
             if (!blk.res) continue;
             for (const bBlk of bBlocks) {
                 if (bBlk.res) {
-                    const bBlkResArray = [...bBlk.res.toString().toUpperCase().matchAll(/((?:OPP-)?(?:BED|CHAIR)[-_ ]?\d+)/gi)].map(m => m[1]);
-                    const blkResClean = blk.res.toString().toUpperCase().trim();
-                    if (bBlkResArray.includes(blkResClean) || bBlk.res.toString().toUpperCase() === blkResClean) {
+                    const bBlkResArray = [...bBlk.res.toString().toUpperCase().matchAll(/((?:OPP-)?(?:BED|CHAIR)[-_ ]?\d+)/gi)].map(m => m[1].replace('OPP-', ''));
+                    const blkResClean = blk.res.toString().toUpperCase().trim().replace('OPP-', '');
+                    
+                    if (bBlkResArray.includes(blkResClean) || bBlk.res.toString().toUpperCase().replace('OPP-', '') === blkResClean) {
                         const safeEndA = blk.end - ResourceCore.CONFIG.TOLERANCE;
                         const safeEndB = bBlk.end - ResourceCore.CONFIG.TOLERANCE;
-                        if ((blk.start < safeEndB) && (bBlk.start < safeEndA)) {
+                        const safeStartA = blk.start + ResourceCore.CONFIG.TOLERANCE;
+                        const safeStartB = bBlk.start + ResourceCore.CONFIG.TOLERANCE;
+
+                        // Align overlap logic exactly with frontend checkLaneContinuity:
+                        // b.start < safeEnd && safeStart < b.end
+                        if ((bBlk.start < safeEndA) && (safeStartA < bBlk.end)) {
                             return { conflictId: b.rowId, conflictName: b.hoTen || b.customerName, resource: blk.res };
                         }
                     }
