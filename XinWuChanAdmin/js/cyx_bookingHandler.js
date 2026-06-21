@@ -1537,7 +1537,7 @@
             }
         }
 
-        return { checkRequestAvailability, setDynamicServices, getTimeStrFromMins };
+        return { checkRequestAvailability, setDynamicServices, getTimeStrFromMins, generateElasticSplits };
     })();
 
     // ========================================================================
@@ -1994,42 +1994,67 @@
                 const loc2 = crossLocationDirection === 'MAIN_TO_OPP' ? '對面館' : '本館';
                 
                 const baseDuration = parseInt(extractStandardDuration(guestDetails[0].service) || 60, 10);
-                const split = window.getSmartSplit ? window.getSmartSplit({}, baseDuration, true, 'FB') : { phase1: Math.floor(baseDuration / 2), phase2: Math.ceil(baseDuration / 2) };
                 
-                const p1Dur = split.phase1;
-                const transitionMins = window.SYSTEM_CONFIG?.BUFFERS?.TRANSITION_MINUTES || 5;
-                const p2TimeStr = CoreKernel.getTimeStrFromMins ? CoreKernel.getTimeStrFromMins(safeTimeToMins(form.time) + p1Dur + transitionMins) : form.time;
+                const svcDef = window.CoreKernel && window.CoreKernel.SERVICES ? window.CoreKernel.SERVICES[guestDetails[0].serviceCode || 'UNKNOWN'] : null;
+                const eLimit = svcDef ? (svcDef.elasticLimit || 15) : 15;
+                const splitsToTry = CoreKernel.generateElasticSplits(baseDuration, 1, eLimit, null, svcDef, 'FB', false);
+                
+                let foundValid = false;
+                let finalRes1 = null, finalRes2 = null;
+                let finalP1Dur = null, finalP2Dur = null;
 
-                const detailedGuests1 = guestDetails.map((g) => ({ ...g, flow: 'FOOTSINGLE', flowCode: 'FOOTSINGLE', resource_type: 'CHAIR', overrideDuration: p1Dur }));
-                const detailedGuests2 = guestDetails.map((g) => ({ ...g, flow: 'BODYSINGLE', flowCode: 'BODYSINGLE', resource_type: 'BED', overrideDuration: split.phase2 || (baseDuration - p1Dur) }));
+                for (const split of splitsToTry) {
+                    if (split.shiftMins !== 0) continue; 
+                    
+                    const p1Dur = split.p1;
+                    const transitionMins = window.SYSTEM_CONFIG?.BUFFERS?.TRANSITION_MINUTES || 5;
+                    const p2TimeStr = CoreKernel.getTimeStrFromMins ? CoreKernel.getTimeStrFromMins(safeTimeToMins(form.time) + p1Dur + transitionMins) : form.time;
 
-                const res1 = callCoreAvailabilityCheck(form.date, form.time, detailedGuests1, finalBookings, serverStaffList, loc1);
-                const res2 = callCoreAvailabilityCheck(form.date, p2TimeStr, detailedGuests2, finalBookings, serverStaffList, loc2);
+                    const detailedGuests1 = guestDetails.map((g) => ({ ...g, flow: 'FOOTSINGLE', flowCode: 'FOOTSINGLE', resource_type: 'CHAIR', overrideDuration: p1Dur }));
+                    const detailedGuests2 = guestDetails.map((g) => ({ ...g, flow: 'BODYSINGLE', flowCode: 'BODYSINGLE', resource_type: 'BED', overrideDuration: split.p2 || (baseDuration - p1Dur) }));
 
-                if (res1.valid && res2.valid) {
+                    const res1 = callCoreAvailabilityCheck(form.date, form.time, detailedGuests1, finalBookings, serverStaffList, loc1);
+                    const res2 = callCoreAvailabilityCheck(form.date, p2TimeStr, detailedGuests2, finalBookings, serverStaffList, loc2);
+
+                    if (res1.valid && res2.valid) {
+                        foundValid = true;
+                        finalRes1 = res1;
+                        finalRes2 = res2;
+                        finalP1Dur = p1Dur;
+                        finalP2Dur = split.p2 || (baseDuration - p1Dur);
+                        break;
+                    }
+                }
+
+                if (foundValid) {
                     const combinedDetails = guestDetails.map((g, i) => {
-                        const d1 = res1.details ? res1.details[i] : {};
-                        const d2 = res2.details ? res2.details[i] : {};
+                        const d1 = finalRes1.details ? finalRes1.details[i] : {};
+                        const d2 = finalRes2.details ? finalRes2.details[i] : {};
                         return {
                             service: g.service,
-                            phase1_duration: p1Dur,
-                            phase2_duration: split.phase2 || (baseDuration - p1Dur),
+                            phase1_duration: finalP1Dur,
+                            phase2_duration: finalP2Dur,
                             flow: 'FB',
                             allocated: [...(d1.allocated || []), ...(d2.allocated || [])],
                             staff: d1.staff || g.staff || '隨機'
                         };
                     });
+                    
+                    let msg = "✅ 此跨館時段可預約，已為您分配對應資源";
+                    if (finalP1Dur !== Math.floor(baseDuration / 2)) {
+                        msg += ` (✅ 系統已自動啟動彈性時間安排以符合空位: 腳${finalP1Dur}/身${finalP2Dur})`;
+                    }
+
                     setCheckResult({ 
                         status: 'OK', 
-                        message: "✅ 此跨館時段可預約，已為您分配對應資源", 
+                        message: msg, 
                         coreDetails: combinedDetails, 
-                        phase1Details: res1.details,
-                        phase2Details: res2.details,
+                        phase1Details: finalRes1.details,
+                        phase2Details: finalRes2.details,
                         debug: {} 
                     });
                 } else {
-                    const failMsg = [!res1.valid ? `[${loc1}]: ${res1.reason}` : '', !res2.valid ? `[${loc2}]: ${res2.reason}` : ''].filter(Boolean).join(' | ');
-                    setCheckResult({ status: 'FAIL', message: `❌ 跨館預約失敗: ${failMsg}`, debug: {} });
+                    setCheckResult({ status: 'FAIL', message: `❌ 跨館預約失敗: 沒有足夠的連續空位給此跨館預約`, debug: {} });
                 }
                 setIsChecking(false);
                 return;
@@ -2175,10 +2200,14 @@
                     const loc2 = crossLocationDirection === 'MAIN_TO_OPP' ? '對面館' : '本館';
                     
                     const baseDuration = parseInt(extractStandardDuration(guestDetails[0].service) || 60, 10);
-                    const split = window.getSmartSplit ? window.getSmartSplit({}, baseDuration, true, 'FB') : { phase1: Math.floor(baseDuration / 2), phase2: Math.ceil(baseDuration / 2) };
+                    let p1Dur = Math.floor(baseDuration / 2);
+                    let p2Dur = Math.ceil(baseDuration / 2);
                     
-                    const p1Dur = split.phase1;
-                    const p2Dur = split.phase2;
+                    if (checkResult && checkResult.coreDetails && checkResult.coreDetails[0]) {
+                        p1Dur = checkResult.coreDetails[0].phase1_duration || p1Dur;
+                        p2Dur = checkResult.coreDetails[0].phase2_duration || p2Dur;
+                    }
+                    
                     const transitionMins = window.SYSTEM_CONFIG?.BUFFERS?.TRANSITION_MINUTES || 5;
                     const p2TimeStr = CoreKernel.getTimeStrFromMins(safeTimeToMins(form.time) + p1Dur + transitionMins);
                     
@@ -2202,6 +2231,10 @@
                     const baGuans = guestDetails.map((g, i) => g.isBaGuan ? `K${i + 1}:拔罐` : null).filter(Boolean);
                     
                     const noteParts = [...oils, ...guaShas, ...huaGuans, ...baGuans];
+                    if (p1Dur !== Math.floor(baseDuration / 2)) {
+                        noteParts.push(`⚠️ 系統已自動啟動彈性時間安排`);
+                    }
+                    
                     const noteStr1 = noteParts.length > 0 ? `(${noteParts.join(', ')}) [跨館 1/2]` : "[跨館 1/2]";
                     const noteStr2 = noteParts.length > 0 ? `(${noteParts.join(', ')}) [跨館 2/2]` : "[跨館 2/2]";
 

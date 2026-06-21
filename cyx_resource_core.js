@@ -1633,12 +1633,13 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
 const CoreAPI = {
     checkRequestAvailability, setDynamicServices, get SERVICES() { return SERVICES; },
     CONFIG: CONF, // Giữ tên biến CONFIG khi xuất ra để tương thích ngược với index.js cũ nếu có
-    getMinsFromTimeStr, getTimeStrFromMins, getTaipeiNow, normalizeDateStrict, inferFlowFromService
+    getMinsFromTimeStr, getTimeStrFromMins, getTaipeiNow, normalizeDateStrict, inferFlowFromService, generateElasticSplits
 };
 
 if (typeof module !== 'undefined' && module.exports) module.exports = CoreAPI;
 if (typeof window !== 'undefined') {
     window.ResourceCore = CoreAPI; window.checkRequestAvailability = CoreAPI.checkRequestAvailability;
     window.setDynamicServices = CoreAPI.setDynamicServices; window.normalizeDateStrict = CoreAPI.normalizeDateStrict;
+    window.generateElasticSplits = CoreAPI.generateElasticSplits;
     console.log("✅ Resource Core V118.0 Loaded: DATA & CONTINUOUS SCAN SYNCED.");
 }
