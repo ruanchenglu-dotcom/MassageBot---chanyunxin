@@ -911,8 +911,11 @@ app.post('/api/admin-booking', async (req, res) => {
             for (let i = 0; i < cyx_data.guestDetails.length; i++) {
                 const item = cyx_data.guestDetails[i];
                 let itemServiceCode = item.serviceCode || cyx_data.serviceCode;
-                let itemDuration = serviceDuration;
-                if (item.serviceCode && SERVICES[item.serviceCode]) {
+                // [NÂNG CẤP]: Ưu tiên lấy duration thực tế truyền từ frontend (đặc biệt cho 跨館套餐)
+                let itemDuration = cyx_data.duration || serviceDuration;
+                if (item.duration || item.phase1_duration) {
+                    itemDuration = item.duration || item.phase1_duration;
+                } else if (item.serviceCode && SERVICES[item.serviceCode]) {
                     itemDuration = SERVICES[item.serviceCode].duration || serviceDuration;
                 }
                 
