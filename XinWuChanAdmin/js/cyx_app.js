@@ -1290,15 +1290,7 @@ const App = () => {
                 }
 
                 if (!targetId) {
-                    const expectedType = b.forceResourceType ? b.forceResourceType.toLowerCase() : (b.type ? b.type.toLowerCase() : 'chair');
-                    const isCrossShop = (b.originalName && b.originalName.includes('[跨館]')) || (b.serviceName && b.serviceName.includes('跨館'));
-                    const dur = isCrossShop && b.phase1_duration ? parseInt(b.phase1_duration) : parseInt(b.duration || 60);
-                    const mockReserved = {}; 
-                    
-                    targetId = window.MatrixHelper?.findBestSlot(expectedType, originalStart, originalStart + dur, timelineGrid, mockReserved, null, b.rowId) || `${expectedType}-1`;
-                    if (b.location === '對面館' && targetId && !targetId.startsWith('opp-')) {
-                        targetId = 'opp-' + targetId;
-                    }
+                    // Do not auto-assign. Let it remain unassigned.
                 }
 
                 if (targetId) {
@@ -1348,40 +1340,26 @@ const App = () => {
                         }
 
                         if (pref1) {
-                            let finalPref1 = pref1;
                             let isClash1 = false;
-                            if (timelineGrid[finalPref1]) {
-                                for (const slot of timelineGrid[finalPref1]) {
+                            if (timelineGrid[pref1]) {
+                                for (const slot of timelineGrid[pref1]) {
                                     if (String(slot.booking.rowId) !== String(bookingItem.rowId) && window.MatrixHelper?.isOverlap(originalStart, p1End, slot.start, slot.end)) {
                                         isClash1 = true; break;
                                     }
                                 }
                             }
-                            if (isClash1) {
-                                const p1Type = finalPref1.includes('chair') ? 'chair' : 'bed';
-                                const isOpp = finalPref1.includes('opp-');
-                                const bestSlot1 = window.MatrixHelper?.findBestSlot(p1Type, originalStart, p1End, timelineGrid, {}, null, bookingItem.rowId, isOpp);
-                                if (bestSlot1) { finalPref1 = bestSlot1; isClash1 = false; }
-                            }
-                            addToGrid(finalPref1, originalStart, p1End, bookingItem, { isCombo: true, phase: 1, sequence: seq, targetId: pref2, isPending: true, priority: 3, isRunning: bookingItem.isRunningStatus, isOverlapped: isClash1 });
+                            addToGrid(pref1, originalStart, p1End, bookingItem, { isCombo: true, phase: 1, sequence: seq, targetId: pref2, isPending: true, priority: 3, isRunning: bookingItem.isRunningStatus, isOverlapped: isClash1 });
                         }
                         if (pref2) {
-                            let finalPref2 = pref2;
                             let isClash2 = false;
-                            if (timelineGrid[finalPref2]) {
-                                for (const slot of timelineGrid[finalPref2]) {
+                            if (timelineGrid[pref2]) {
+                                for (const slot of timelineGrid[pref2]) {
                                     if (String(slot.booking.rowId) !== String(bookingItem.rowId) && window.MatrixHelper?.isOverlap(p2Start, p2End, slot.start, slot.end)) {
                                         isClash2 = true; break;
                                     }
                                 }
                             }
-                            if (isClash2) {
-                                const p2Type = finalPref2.includes('chair') ? 'chair' : 'bed';
-                                const isOpp = finalPref2.includes('opp-');
-                                const bestSlot2 = window.MatrixHelper?.findBestSlot(p2Type, p2Start, p2End, timelineGrid, {}, null, bookingItem.rowId, isOpp);
-                                if (bestSlot2) { finalPref2 = bestSlot2; isClash2 = false; }
-                            }
-                            addToGrid(finalPref2, p2Start, p2End, bookingItem, { isCombo: true, phase: 2, sequence: seq, isPending: true, priority: 3, isRunning: bookingItem.isRunningStatus, isOverlapped: isClash2 });
+                            addToGrid(pref2, p2Start, p2End, bookingItem, { isCombo: true, phase: 2, sequence: seq, isPending: true, priority: 3, isRunning: bookingItem.isRunningStatus, isOverlapped: isClash2 });
                         }
                     }
                 });
@@ -3572,37 +3550,8 @@ const App = () => {
                         }
 
                         if (swapTarget) {
-                            const sourceId = payload.sourceRowId.toUpperCase();
-                            let swapData = { rowId: swapTarget.rowId, is_locked: "TRUE", forceSync: true };
-                            
-                            if (payload.meta && payload.meta.isCombo) {
-                                if (payload.meta.phase === 1) updateData.phase1_res_idx = targetId;
-                                else updateData.phase2_res_idx = targetId;
-                            } else {
-                                updateData.current_resource_id = targetId;
-                                updateData.location = targetId;
-                            }
-                            
-                            if (swapTarget.phase1_res_idx || swapTarget.phase2_res_idx) {
-                                if (String(swapTarget.phase1_res_idx).toUpperCase() === targetId) swapData.phase1_res_idx = sourceId;
-                                if (String(swapTarget.phase2_res_idx).toUpperCase() === targetId) swapData.phase2_res_idx = sourceId;
-                            } else {
-                                swapData.current_resource_id = sourceId;
-                                swapData.location = sourceId;
-                            }
-
-                            Swal.fire({ title: '儲存中，請稍候...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
-                            Promise.all([
-                                universalSend('/api/update-booking-details', updateData),
-                                universalSend('/api/update-booking-details', swapData)
-                            ]).then(() => {
-                                Swal.close();
-                                fetchData(true);
-                            }).catch(err => {
-                                Swal.fire('系統提示', "⚠️ 儲存失敗！請檢查網路連線。", 'warning');
-                                fetchData(true);
-                            });
-
+                            Swal.fire('系統提示', '⚠️ 無法移動！該時段已被佔用，請選擇其他空位。', 'warning');
+                            return;
                         } else {
                             if (payload.meta && payload.meta.isCombo) {
                                 if (payload.meta.phase === 1) updateData.phase1_res_idx = targetId;
