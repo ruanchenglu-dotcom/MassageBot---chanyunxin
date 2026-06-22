@@ -1945,7 +1945,12 @@ const TimelineView = ({ timelineData, onEditPhase, liveStatusData, staffList, st
                                             if (isRunning) specialBorderClass = "border-2 border-red-500 shadow-[0_0_8px_rgba(239,68,68,0.6)] z-20";
                                             else if (comboSequence === 'BF') specialBorderClass = "border-l-[6px] border-l-indigo-700 bf-indicator shadow-indigo-200";
 
-                                            if (isTimeAnomaly) {
+                                            const isOverlapped = slot.meta?.isOverlapped === true;
+                                            if (isOverlapped) {
+                                                specialBorderClass = "border-[3px] border-red-600 shadow-[0_0_10px_rgba(220,38,38,0.8)] animate-pulse z-30";
+                                            }
+
+                                            if (isTimeAnomaly && !isOverlapped) {
                                                 if (!isRunning) {
                                                     specialBorderClass = "ring-2 ring-orange-500 shadow-[0_0_10px_rgba(249,115,22,0.6)] animate-pulse z-20";
                                                 } else {
@@ -1964,11 +1969,12 @@ const TimelineView = ({ timelineData, onEditPhase, liveStatusData, staffList, st
                                                     }}
                                                     className={`absolute top-1 bottom-1 rounded px-2 py-1 flex flex-col justify-between text-xs overflow-hidden shadow-sm z-10 cursor-pointer transition-all timeline-block group ${bgClass} ${specialBorderClass}`}
                                                     style={{ left: `${leftPos}px`, width: `${width}px` }}
-                                                    title={`${booking.serviceName}\n${isRunning ? `🔥 ${STATUS.SERVING}` : ''}${isSyncPending && !isRunning ? '\n⏳ 同步中...' : ''}${isTimeAnomaly ? '\n⚠️ 時長異常' : ''}${hasNote ? `\n📝 備註: ${booking.adminNote}` : ''}`}
+                                                    title={`${booking.serviceName}\n${isRunning ? `🔥 ${STATUS.SERVING}` : ''}${isSyncPending && !isRunning ? '\n⏳ 同步中...' : ''}${isTimeAnomaly ? '\n⚠️ 時長異常' : ''}${isOverlapped ? '\n⚠️ 時段衝突' : ''}${hasNote ? `\n📝 備註: ${booking.adminNote}` : ''}`}
                                                     onClick={(e) => { if (showControlBtn) { e.stopPropagation(); handleOpenControl(booking, slot.meta, row.id); } }}
                                                 >
                                                     <div className="flex justify-between items-start w-full leading-tight mb-0.5 gap-1">
                                                         <div className="font-bold truncate text-[11px] flex-1 flex items-center gap-1">
+                                                            {isOverlapped && <span className="text-red-600 animate-pulse" title="時段衝突">⚠️</span>}
                                                             {label}
                                                         </div>
                                                         {comboSequence && (

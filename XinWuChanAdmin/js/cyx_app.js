@@ -1348,10 +1348,40 @@ const App = () => {
                         }
 
                         if (pref1) {
-                            addToGrid(pref1, originalStart, p1End, bookingItem, { isCombo: true, phase: 1, sequence: seq, targetId: pref2, isPending: true, priority: 3, isRunning: bookingItem.isRunningStatus });
+                            let finalPref1 = pref1;
+                            let isClash1 = false;
+                            if (timelineGrid[finalPref1]) {
+                                for (const slot of timelineGrid[finalPref1]) {
+                                    if (String(slot.booking.rowId) !== String(bookingItem.rowId) && window.MatrixHelper?.isOverlap(originalStart, p1End, slot.start, slot.end)) {
+                                        isClash1 = true; break;
+                                    }
+                                }
+                            }
+                            if (isClash1) {
+                                const p1Type = finalPref1.includes('chair') ? 'chair' : 'bed';
+                                const isOpp = finalPref1.includes('opp-');
+                                const bestSlot1 = window.MatrixHelper?.findBestSlot(p1Type, originalStart, p1End, timelineGrid, {}, null, bookingItem.rowId, isOpp);
+                                if (bestSlot1) { finalPref1 = bestSlot1; isClash1 = false; }
+                            }
+                            addToGrid(finalPref1, originalStart, p1End, bookingItem, { isCombo: true, phase: 1, sequence: seq, targetId: pref2, isPending: true, priority: 3, isRunning: bookingItem.isRunningStatus, isOverlapped: isClash1 });
                         }
                         if (pref2) {
-                            addToGrid(pref2, p2Start, p2End, bookingItem, { isCombo: true, phase: 2, sequence: seq, isPending: true, priority: 3, isRunning: bookingItem.isRunningStatus });
+                            let finalPref2 = pref2;
+                            let isClash2 = false;
+                            if (timelineGrid[finalPref2]) {
+                                for (const slot of timelineGrid[finalPref2]) {
+                                    if (String(slot.booking.rowId) !== String(bookingItem.rowId) && window.MatrixHelper?.isOverlap(p2Start, p2End, slot.start, slot.end)) {
+                                        isClash2 = true; break;
+                                    }
+                                }
+                            }
+                            if (isClash2) {
+                                const p2Type = finalPref2.includes('chair') ? 'chair' : 'bed';
+                                const isOpp = finalPref2.includes('opp-');
+                                const bestSlot2 = window.MatrixHelper?.findBestSlot(p2Type, p2Start, p2End, timelineGrid, {}, null, bookingItem.rowId, isOpp);
+                                if (bestSlot2) { finalPref2 = bestSlot2; isClash2 = false; }
+                            }
+                            addToGrid(finalPref2, p2Start, p2End, bookingItem, { isCombo: true, phase: 2, sequence: seq, isPending: true, priority: 3, isRunning: bookingItem.isRunningStatus, isOverlapped: isClash2 });
                         }
                     }
                 });
