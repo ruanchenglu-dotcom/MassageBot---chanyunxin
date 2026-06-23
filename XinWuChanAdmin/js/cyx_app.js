@@ -3552,148 +3552,183 @@ const App = () => {
                         }
 
                         if (swapTarget) {
-                            if (swapTarget.is_locked === "TRUE" || swapTarget.isManualLocked) {
-                                Swal.fire('系統提示', '⚠️ 無法移動！目標位置的客人已鎖定位子，無法自動排開。', 'warning');
-                                return;
-                            }
-                            
-                            let targetIdUpper = String(targetId).toUpperCase();
-                            let prefixMatch = targetIdUpper.match(/^(.+?-)/);
-                            let prefix = prefixMatch ? prefixMatch[1] : targetIdUpper.substring(0, 1) + '1-';
-                            let maxCount = (targetIdUpper.includes('床') || targetIdUpper.includes('BED')) ? (window.SYSTEM_CONFIG?.SCALE?.MAX_BEDS || 6) : (window.SYSTEM_CONFIG?.SCALE?.MAX_CHAIRS || 6);
-                            if (targetIdUpper.includes('OPP-CHAIR')) maxCount = window.SYSTEM_CONFIG?.SCALE?.OPP_CHAIRS || 4;
-                            if (targetIdUpper.includes('OPP-BED')) maxCount = window.SYSTEM_CONFIG?.SCALE?.OPP_BEDS || 6;
-                            
-                            let allResources = [];
-                            for (let i = 1; i <= maxCount; i++) {
-                                allResources.push(prefix + i);
-                            }
+                            const executeSwap = () => {
+                                let targetIdUpper = String(targetId).toUpperCase();
+                                let bSourceId = null;
+                                if (payload.meta && payload.meta.isCombo) {
+                                    bSourceId = payload.meta.phase === 1 ? String(b.phase1_res_idx).toUpperCase() : String(b.phase2_res_idx).toUpperCase();
+                                } else {
+                                    bSourceId = String(b.current_resource_id || b.location).toUpperCase();
+                                }
 
-                            let sActualStart = 0;
-                            let sActualEnd = 0;
-                            let isSCombo = swapTarget.category === 'COMBO' || (swapTarget.serviceName && swapTarget.serviceName.includes('套餐'));
-                            const sStart = window.safeTimeToMins ? window.safeTimeToMins(swapTarget.startTimeString) : safeTimeToMinsLocal(swapTarget.startTimeString);
-                            
-                            if (isSCombo) {
-                                const sSplit = window.getSmartSplit ? window.getSmartSplit(swapTarget, parseInt(swapTarget.duration || 60, 10), true, swapTarget.flow || 'FB') : { phase1: Math.floor(parseInt(swapTarget.duration || 60, 10) / 2), phase2: Math.ceil(parseInt(swapTarget.duration || 60, 10) / 2) };
-                                const transitionMins = window.SYSTEM_CONFIG?.BUFFERS?.TRANSITION_MINUTES || 5;
-                                const p1Id = String(swapTarget.phase1_res_idx).toUpperCase();
-                                const p2Id = String(swapTarget.phase2_res_idx).toUpperCase();
+                                let prefixMatch = targetIdUpper.match(/^(.+?-)/);
+                                let prefix = prefixMatch ? prefixMatch[1] : targetIdUpper.substring(0, 1) + '1-';
+                                let maxCount = (targetIdUpper.includes('床') || targetIdUpper.includes('BED')) ? (window.SYSTEM_CONFIG?.SCALE?.MAX_BEDS || 6) : (window.SYSTEM_CONFIG?.SCALE?.MAX_CHAIRS || 6);
+                                if (targetIdUpper.includes('OPP-CHAIR')) maxCount = window.SYSTEM_CONFIG?.SCALE?.OPP_CHAIRS || 4;
+                                if (targetIdUpper.includes('OPP-BED')) maxCount = window.SYSTEM_CONFIG?.SCALE?.OPP_BEDS || 6;
                                 
-                                if (p1Id === targetIdUpper) {
-                                    sActualStart = sStart;
-                                    sActualEnd = sStart + sSplit.phase1;
-                                } else if (p2Id === targetIdUpper) {
-                                    sActualStart = sStart + sSplit.phase1 + transitionMins;
-                                    sActualEnd = sActualStart + sSplit.phase2;
-                                    if (swapTarget.transition_time) {
-                                        const transMins = safeTimeToMinsLocal(swapTarget.transition_time);
-                                        if (transMins !== -1 && transMins > 0) {
-                                            sActualStart = transMins;
-                                            sActualEnd = transMins + sSplit.phase2;
+                                let allResources = [];
+                                for (let i = 1; i <= maxCount; i++) {
+                                    allResources.push(prefix + i);
+                                }
+
+                                let candidateResources = [];
+                                if (bSourceId && bSourceId !== targetIdUpper) {
+                                    candidateResources.push(bSourceId);
+                                }
+                                for (let rId of allResources) {
+                                    if (rId !== targetIdUpper && rId !== bSourceId) {
+                                        candidateResources.push(rId);
+                                    }
+                                }
+
+                                let sActualStart = 0;
+                                let sActualEnd = 0;
+                                let isSCombo = swapTarget.category === 'COMBO' || (swapTarget.serviceName && swapTarget.serviceName.includes('套餐'));
+                                const sStart = window.safeTimeToMins ? window.safeTimeToMins(swapTarget.startTimeString) : safeTimeToMinsLocal(swapTarget.startTimeString);
+                                
+                                if (isSCombo) {
+                                    const sSplit = window.getSmartSplit ? window.getSmartSplit(swapTarget, parseInt(swapTarget.duration || 60, 10), true, swapTarget.flow || 'FB') : { phase1: Math.floor(parseInt(swapTarget.duration || 60, 10) / 2), phase2: Math.ceil(parseInt(swapTarget.duration || 60, 10) / 2) };
+                                    const transitionMins = window.SYSTEM_CONFIG?.BUFFERS?.TRANSITION_MINUTES || 5;
+                                    const p1Id = String(swapTarget.phase1_res_idx).toUpperCase();
+                                    const p2Id = String(swapTarget.phase2_res_idx).toUpperCase();
+                                    
+                                    if (p1Id === targetIdUpper) {
+                                        sActualStart = sStart;
+                                        sActualEnd = sStart + sSplit.phase1;
+                                    } else if (p2Id === targetIdUpper) {
+                                        sActualStart = sStart + sSplit.phase1 + transitionMins;
+                                        sActualEnd = sActualStart + sSplit.phase2;
+                                        if (swapTarget.transition_time) {
+                                            const transMins = safeTimeToMinsLocal(swapTarget.transition_time);
+                                            if (transMins !== -1 && transMins > 0) {
+                                                sActualStart = transMins;
+                                                sActualEnd = transMins + sSplit.phase2;
+                                            }
                                         }
+                                    } else {
+                                        sActualStart = sStart;
+                                        sActualEnd = sStart + parseInt(swapTarget.duration || 60, 10);
                                     }
                                 } else {
                                     sActualStart = sStart;
                                     sActualEnd = sStart + parseInt(swapTarget.duration || 60, 10);
                                 }
-                            } else {
-                                sActualStart = sStart;
-                                sActualEnd = sStart + parseInt(swapTarget.duration || 60, 10);
-                            }
 
-                            let foundEmptyRes = null;
-                            for (let rId of allResources) {
-                                if (rId === targetIdUpper) continue;
-                                
-                                let isOccupied = false;
-                                for (let x of activeBookings) {
-                                    if (String(x.rowId) === String(swapTarget.rowId)) continue;
-                                    if (String(x.rowId) === String(b.rowId)) continue;
+                                let foundEmptyRes = null;
+                                for (let rId of candidateResources) {
+                                    let isOccupied = false;
+                                    for (let x of activeBookings) {
+                                        if (String(x.rowId) === String(swapTarget.rowId)) continue;
+                                        if (String(x.rowId) === String(b.rowId)) continue;
 
-                                    const xStart = window.safeTimeToMins ? window.safeTimeToMins(x.startTimeString) : safeTimeToMinsLocal(x.startTimeString);
-                                    let xActualStart = xStart;
-                                    let xActualEnd = xStart + parseInt(x.duration || 60, 10);
-                                    let isXInTarget = false;
+                                        const xStart = window.safeTimeToMins ? window.safeTimeToMins(x.startTimeString) : safeTimeToMinsLocal(x.startTimeString);
+                                        let xActualStart = xStart;
+                                        let xActualEnd = xStart + parseInt(x.duration || 60, 10);
+                                        let isXInTarget = false;
 
-                                    const isXCombo = x.category === 'COMBO' || (x.serviceName && x.serviceName.includes('套餐'));
-                                    if (isXCombo) {
-                                        const xSplit = window.getSmartSplit ? window.getSmartSplit(x, parseInt(x.duration || 60, 10), true, x.flow || 'FB') : { phase1: Math.floor(parseInt(x.duration || 60, 10) / 2), phase2: Math.ceil(parseInt(x.duration || 60, 10) / 2) };
-                                        const transitionMins = window.SYSTEM_CONFIG?.BUFFERS?.TRANSITION_MINUTES || 5;
-                                        const xp1Id = String(x.phase1_res_idx).toUpperCase();
-                                        const xp2Id = String(x.phase2_res_idx).toUpperCase();
-                                        
-                                        if (xp1Id === rId && xp2Id === rId) {
-                                            isXInTarget = true;
-                                        } else if (xp1Id === rId) {
-                                            xActualEnd = xStart + xSplit.phase1;
-                                            isXInTarget = true;
-                                        } else if (xp2Id === rId) {
-                                            xActualStart = xStart + xSplit.phase1 + transitionMins;
-                                            xActualEnd = xActualStart + xSplit.phase2;
-                                            if (x.transition_time) {
-                                                const transMins = safeTimeToMinsLocal(x.transition_time);
-                                                if (transMins !== -1 && transMins > 0) {
-                                                    xActualStart = transMins;
-                                                    xActualEnd = transMins + xSplit.phase2;
+                                        const isXCombo = x.category === 'COMBO' || (x.serviceName && x.serviceName.includes('套餐'));
+                                        if (isXCombo) {
+                                            const xSplit = window.getSmartSplit ? window.getSmartSplit(x, parseInt(x.duration || 60, 10), true, x.flow || 'FB') : { phase1: Math.floor(parseInt(x.duration || 60, 10) / 2), phase2: Math.ceil(parseInt(x.duration || 60, 10) / 2) };
+                                            const transitionMins = window.SYSTEM_CONFIG?.BUFFERS?.TRANSITION_MINUTES || 5;
+                                            const xp1Id = String(x.phase1_res_idx).toUpperCase();
+                                            const xp2Id = String(x.phase2_res_idx).toUpperCase();
+                                            
+                                            if (xp1Id === rId && xp2Id === rId) {
+                                                isXInTarget = true;
+                                            } else if (xp1Id === rId) {
+                                                xActualEnd = xStart + xSplit.phase1;
+                                                isXInTarget = true;
+                                            } else if (xp2Id === rId) {
+                                                xActualStart = xStart + xSplit.phase1 + transitionMins;
+                                                xActualEnd = xActualStart + xSplit.phase2;
+                                                if (x.transition_time) {
+                                                    const transMins = safeTimeToMinsLocal(x.transition_time);
+                                                    if (transMins !== -1 && transMins > 0) {
+                                                        xActualStart = transMins;
+                                                        xActualEnd = transMins + xSplit.phase2;
+                                                    }
                                                 }
+                                                isXInTarget = true;
                                             }
-                                            isXInTarget = true;
+                                        } else {
+                                            const singleId = String(x.current_resource_id || x.location).toUpperCase();
+                                            if (singleId === rId) {
+                                                isXInTarget = true;
+                                            }
                                         }
-                                    } else {
-                                        const singleId = String(x.current_resource_id || x.location).toUpperCase();
-                                        if (singleId === rId) {
-                                            isXInTarget = true;
+
+                                        if (isXInTarget && sActualStart < xActualEnd && xActualStart < sActualEnd) {
+                                            isOccupied = true;
+                                            break;
                                         }
                                     }
-
-                                    if (isXInTarget && sActualStart < xActualEnd && xActualStart < sActualEnd) {
-                                        isOccupied = true;
+                                    
+                                    if (!isOccupied) {
+                                        foundEmptyRes = rId;
                                         break;
                                     }
                                 }
-                                
-                                if (!isOccupied) {
-                                    foundEmptyRes = rId;
-                                    break;
+
+                                if (!foundEmptyRes) {
+                                    Swal.fire('系統提示', '⚠️ 無法移動！目標位置已被佔用，且系統無法自動排開其他客人（無足夠空位）。', 'warning');
+                                    return;
                                 }
-                            }
 
-                            if (!foundEmptyRes) {
-                                Swal.fire('系統提示', '⚠️ 無法移動！目標位置已被佔用，且系統無法自動排開其他客人（無足夠空位）。', 'warning');
-                                return;
-                            }
+                                let batchPayloads = [];
+                                let swapUpdateData = { rowId: swapTarget.rowId, forceSync: true };
+                                
+                                if (swapTarget.is_locked === "TRUE" || swapTarget.isManualLocked) {
+                                    swapUpdateData.is_locked = "TRUE";
+                                    swapUpdateData.isManualLocked = true;
+                                }
 
-                            let batchPayloads = [];
-                            let swapUpdateData = { rowId: swapTarget.rowId, forceSync: true };
-                            if (isSCombo) {
-                                const p1Id = String(swapTarget.phase1_res_idx).toUpperCase();
-                                const p2Id = String(swapTarget.phase2_res_idx).toUpperCase();
-                                if (p1Id === targetIdUpper) swapUpdateData.phase1_res_idx = foundEmptyRes.toLowerCase();
-                                if (p2Id === targetIdUpper) swapUpdateData.phase2_res_idx = foundEmptyRes.toLowerCase();
+                                if (isSCombo) {
+                                    const p1Id = String(swapTarget.phase1_res_idx).toUpperCase();
+                                    const p2Id = String(swapTarget.phase2_res_idx).toUpperCase();
+                                    if (p1Id === targetIdUpper) swapUpdateData.phase1_res_idx = foundEmptyRes.toLowerCase();
+                                    if (p2Id === targetIdUpper) swapUpdateData.phase2_res_idx = foundEmptyRes.toLowerCase();
+                                } else {
+                                    swapUpdateData.current_resource_id = foundEmptyRes.toLowerCase();
+                                    swapUpdateData.location = foundEmptyRes.toLowerCase();
+                                }
+                                batchPayloads.push(swapUpdateData);
+
+                                if (payload.meta && payload.meta.isCombo) {
+                                    if (payload.meta.phase === 1) updateData.phase1_res_idx = targetId;
+                                    else updateData.phase2_res_idx = targetId;
+                                } else {
+                                    updateData.current_resource_id = targetId;
+                                    updateData.location = targetId;
+                                }
+                                batchPayloads.push(updateData);
+
+                                Swal.fire({ title: '系統正在嘗試自動重新安排座位...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
+                                universalSend('/api/batch-process-bookings', { payloads: batchPayloads }).then((res) => {
+                                    Swal.close();
+                                    fetchData(true);
+                                }).catch(err => {
+                                    Swal.fire('系統提示', "⚠️ 儲存失敗！請檢查網路連線。", 'warning');
+                                    fetchData(true);
+                                });
+                            };
+
+                            if (swapTarget.is_locked === "TRUE" || swapTarget.isManualLocked) {
+                                Swal.fire({
+                                    title: '系統提示',
+                                    text: '⚠️ 目標位置的客人已鎖定位子，確定要強制換位嗎？',
+                                    icon: 'warning',
+                                    showCancelButton: true,
+                                    confirmButtonText: '確定換位',
+                                    cancelButtonText: '取消'
+                                }).then((result) => {
+                                    if (result.isConfirmed) {
+                                        executeSwap();
+                                    }
+                                });
                             } else {
-                                swapUpdateData.current_resource_id = foundEmptyRes.toLowerCase();
-                                swapUpdateData.location = foundEmptyRes.toLowerCase();
+                                executeSwap();
                             }
-                            batchPayloads.push(swapUpdateData);
-
-                            if (payload.meta && payload.meta.isCombo) {
-                                if (payload.meta.phase === 1) updateData.phase1_res_idx = targetId;
-                                else updateData.phase2_res_idx = targetId;
-                            } else {
-                                updateData.current_resource_id = targetId;
-                                updateData.location = targetId;
-                            }
-                            batchPayloads.push(updateData);
-
-                            Swal.fire({ title: '系統正在嘗試自動重新安排座位...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
-                            universalSend('/api/batch-process-bookings', { payloads: batchPayloads }).then((res) => {
-                                Swal.close();
-                                fetchData(true);
-                            }).catch(err => {
-                                Swal.fire('系統提示', "⚠️ 儲存失敗！請檢查網路連線。", 'warning');
-                                fetchData(true);
-                            });
                         } else {
                             if (payload.meta && payload.meta.isCombo) {
                                 if (payload.meta.phase === 1) updateData.phase1_res_idx = targetId;
