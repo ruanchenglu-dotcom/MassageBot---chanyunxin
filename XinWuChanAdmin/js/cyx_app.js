@@ -1099,8 +1099,10 @@ const App = () => {
 
             const addToGrid = (resId, start, end, booking, meta) => {
                 if (booking.isDoneStatus) return;
-                if (!timelineGrid[resId]) timelineGrid[resId] = [];
-                timelineGrid[resId].push({ start, end, booking, meta });
+                if (!resId) return;
+                const rIdStr = String(resId).toLowerCase();
+                if (!timelineGrid[rIdStr]) timelineGrid[rIdStr] = [];
+                timelineGrid[rIdStr].push({ start, end, booking, meta });
             };
 
             Object.keys(nextResourceState).forEach(key => {
@@ -3555,9 +3557,13 @@ const App = () => {
                                 return;
                             }
                             
-                            let prefixMatch = targetId.match(/^(.+?-)/);
-                            let prefix = prefixMatch ? prefixMatch[1] : targetId.substring(0, 1) + '1-';
-                            let maxCount = (targetId.includes('床') || targetId.includes('BED')) ? (window.SYSTEM_CONFIG?.SCALE?.MAX_BEDS || 6) : (window.SYSTEM_CONFIG?.SCALE?.MAX_CHAIRS || 6);
+                            let targetIdUpper = String(targetId).toUpperCase();
+                            let prefixMatch = targetIdUpper.match(/^(.+?-)/);
+                            let prefix = prefixMatch ? prefixMatch[1] : targetIdUpper.substring(0, 1) + '1-';
+                            let maxCount = (targetIdUpper.includes('床') || targetIdUpper.includes('BED')) ? (window.SYSTEM_CONFIG?.SCALE?.MAX_BEDS || 6) : (window.SYSTEM_CONFIG?.SCALE?.MAX_CHAIRS || 6);
+                            if (targetIdUpper.includes('OPP-CHAIR')) maxCount = window.SYSTEM_CONFIG?.SCALE?.OPP_CHAIRS || 4;
+                            if (targetIdUpper.includes('OPP-BED')) maxCount = window.SYSTEM_CONFIG?.SCALE?.OPP_BEDS || 6;
+                            
                             let allResources = [];
                             for (let i = 1; i <= maxCount; i++) {
                                 allResources.push(prefix + i);
@@ -3574,10 +3580,10 @@ const App = () => {
                                 const p1Id = String(swapTarget.phase1_res_idx).toUpperCase();
                                 const p2Id = String(swapTarget.phase2_res_idx).toUpperCase();
                                 
-                                if (p1Id === targetId) {
+                                if (p1Id === targetIdUpper) {
                                     sActualStart = sStart;
                                     sActualEnd = sStart + sSplit.phase1;
-                                } else if (p2Id === targetId) {
+                                } else if (p2Id === targetIdUpper) {
                                     sActualStart = sStart + sSplit.phase1 + transitionMins;
                                     sActualEnd = sActualStart + sSplit.phase2;
                                     if (swapTarget.transition_time) {
@@ -3598,7 +3604,7 @@ const App = () => {
 
                             let foundEmptyRes = null;
                             for (let rId of allResources) {
-                                if (rId === targetId) continue;
+                                if (rId === targetIdUpper) continue;
                                 
                                 let isOccupied = false;
                                 for (let x of activeBookings) {
@@ -3663,11 +3669,11 @@ const App = () => {
                             if (isSCombo) {
                                 const p1Id = String(swapTarget.phase1_res_idx).toUpperCase();
                                 const p2Id = String(swapTarget.phase2_res_idx).toUpperCase();
-                                if (p1Id === targetId) swapUpdateData.phase1_res_idx = foundEmptyRes;
-                                if (p2Id === targetId) swapUpdateData.phase2_res_idx = foundEmptyRes;
+                                if (p1Id === targetIdUpper) swapUpdateData.phase1_res_idx = foundEmptyRes.toLowerCase();
+                                if (p2Id === targetIdUpper) swapUpdateData.phase2_res_idx = foundEmptyRes.toLowerCase();
                             } else {
-                                swapUpdateData.current_resource_id = foundEmptyRes;
-                                swapUpdateData.location = foundEmptyRes;
+                                swapUpdateData.current_resource_id = foundEmptyRes.toLowerCase();
+                                swapUpdateData.location = foundEmptyRes.toLowerCase();
                             }
                             batchPayloads.push(swapUpdateData);
 

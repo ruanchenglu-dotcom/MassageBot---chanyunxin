@@ -112,7 +112,12 @@ function getNext15Days() {
 
 // --- BỘ LỌC TUYỆT ĐỐI ±8 TIẾNG (Chống vẽ đè ca đêm) ---
 function prepareBookingsForTimeline(bookings, opDateCheck) {
-    const dParts = opDateCheck.replace(/\//g, '-').split('-');
+    if (!opDateCheck) {
+        console.warn("[WARN] prepareBookingsForTimeline: opDateCheck is missing, falling back to today.");
+        const now = new Date();
+        opDateCheck = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    }
+    const dParts = String(opDateCheck).replace(/\//g, '-').split('-');
     const refDateObj = new Date(parseInt(dParts[0], 10), parseInt(dParts[1], 10) - 1, parseInt(dParts[2], 10), 0, 0, 0);
     const refTimeMs = refDateObj.getTime();
     
