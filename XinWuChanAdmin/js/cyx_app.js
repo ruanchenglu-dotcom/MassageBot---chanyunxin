@@ -3690,6 +3690,12 @@ const App = () => {
             for (let item of checkList) {
                 const res = await axios.post('/api/admin-booking', item);
                 if (res.data && res.data.error) throw new Error(res.data.error);
+                
+                // [RACE CONDITION FIX]: Add a small delay between consecutive booking requests
+                // to give the backend enough time to finish syncData() completely.
+                if (checkList.length > 1) {
+                    await new Promise(r => setTimeout(r, 500));
+                }
             }
             setShowAvailability(false);
             fetchData(true); // STRICT ONE-WAY FLOW

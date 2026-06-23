@@ -816,8 +816,8 @@ async function ghiVaoSheet(data, proposedUpdates = []) {
                     phase1_duration: r[28],
                     phase2_duration: r[30],
                     duration: (parseInt(r[28]) || 0) + (parseInt(r[30]) || 0),
-                    phase1_res_idx: r[32],
-                    phase2_res_idx: r[33],
+                    phase1_res_idx: r[32] || body.phase1_res_idx || body.phase1_resource,
+                    phase2_res_idx: r[33] || body.phase2_res_idx || body.phase2_resource,
                     location: r[39]
                 });
             });
@@ -832,7 +832,8 @@ async function ghiVaoSheet(data, proposedUpdates = []) {
             await batchUpdateMultipleBookings(proposedUpdates);
         }
 
-        triggerSyncDebounced();
+        // [RACE CONDITION FIX]: Synchronous update of cache immediately after Google Sheet is updated to avoid overlapping requests 
+        await syncData();
 
         // [V1.5 NÂNG CẤP] Trả về true nếu toàn bộ quá trình ghi trên API thành công
         return true;
