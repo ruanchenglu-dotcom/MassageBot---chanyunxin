@@ -3591,7 +3591,27 @@ const App = () => {
                                 Swal.fire('系統提示', '⚠️ 目標位置的客人正在服務中，無法自動換位！請手動調整。', 'warning');
                                 return;
                             }
-                            if (swapTarget.is_locked === "TRUE" || swapTarget.isManualLocked || swapTarget.phase1_locked === "TRUE" || swapTarget.phase1_locked === true || swapTarget.phase2_locked === "TRUE" || swapTarget.phase2_locked === true) {
+                            
+                            let isTargetPhaseLocked = false;
+                            const isSwapCombo = swapTarget.category === 'COMBO' || (swapTarget.serviceName && swapTarget.serviceName.includes('套餐'));
+                            let targetIdUpper = String(targetId).toUpperCase();
+                            
+                            if (isSwapCombo) {
+                                const p1Id = String(swapTarget.phase1_res_idx).toUpperCase();
+                                const p2Id = String(swapTarget.phase2_res_idx).toUpperCase();
+                                if (p1Id === targetIdUpper && (swapTarget.phase1_locked === "TRUE" || swapTarget.phase1_locked === true)) {
+                                    isTargetPhaseLocked = true;
+                                }
+                                if (p2Id === targetIdUpper && (swapTarget.phase2_locked === "TRUE" || swapTarget.phase2_locked === true)) {
+                                    isTargetPhaseLocked = true;
+                                }
+                            } else {
+                                if (swapTarget.phase1_locked === "TRUE" || swapTarget.phase1_locked === true) {
+                                    isTargetPhaseLocked = true;
+                                }
+                            }
+
+                            if (isTargetPhaseLocked) {
                                 Swal.fire('系統提示', '⚠️ 目標位置的客人已鎖定座位，無法自動換位！', 'warning');
                                 return;
                             }
