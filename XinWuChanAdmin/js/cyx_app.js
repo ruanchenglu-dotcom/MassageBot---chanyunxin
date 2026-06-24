@@ -3796,8 +3796,163 @@ const App = () => {
                                 }
 
                                 if (!allFoundEmptyRes) {
-                                    Swal.fire('系統提示', '⚠️ 系統無法移動！目標位置已被佔用，且無足夠空位排開其他客人。', 'warning');
-                                    return;
+                                    let multiSwapSuccess = false;
+                                    let multiBatchPayloads = [];
+
+                                    if (bSourceId && bSourceId !== targetIdUpper) {
+                                        const getBookingTimesOnRes = (bx, targetResId) => {
+                                            const bxStart = window.safeTimeToMins ? window.safeTimeToMins(bx.startTimeString) : safeTimeToMinsLocal(bx.startTimeString);
+                                            const isBxCombo = bx.category === 'COMBO' || (bx.serviceName && bx.serviceName.includes('套餐'));
+                                            if (isBxCombo) {
+                                                const bxSplit = window.getSmartSplit ? window.getSmartSplit(bx, parseInt(bx.duration || 60, 10), true, bx.flow || 'FB') : { phase1: Math.floor(parseInt(bx.duration || 60, 10) / 2), phase2: Math.ceil(parseInt(bx.duration || 60, 10) / 2) };
+                                                const transitionMins = window.SYSTEM_CONFIG?.BUFFERS?.TRANSITION_MINUTES || 5;
+                                                const p1Id = String(bx.phase1_res_idx).toUpperCase();
+                                                const p2Id = String(bx.phase2_res_idx).toUpperCase();
+                                                
+                                                if (p1Id === targetResId) {
+                                                    return { start: bxStart, end: bxStart + bxSplit.phase1, phase: 1 };
+                                                } else if (p2Id === targetResId) {
+                                                    let p2Start = bxStart + bxSplit.phase1 + transitionMins;
+                                                    let p2End = p2Start + bxSplit.phase2;
+                                                    if (bx.transition_time) {
+                                                        const transMins = safeTimeToMinsLocal(bx.transition_time);
+                                                        if (transMins !== -1 && transMins > 0) {
+                                                            p2Start = transMins;
+                                                            p2End = transMins + bxSplit.phase2;
+                                                        }
+                                                    }
+                                                    return { start: p2Start, end: p2End, phase: 2 };
+                                                }
+                                            } else {
+                                                const singleId = String(bx.current_resource_id || bx.location).toUpperCase();
+                                                if (singleId === targetResId) {
+                                                    return { start: bxStart, end: bxStart + parseInt(bx.duration || 60, 10), phase: 0 };
+                                                }
+                                            }
+                                            return null;
+                                        };
+
+                                        let swapGroupT = new Map();
+                                        let swapGroupS = new Map();
+                                        let queueT = [...swapTargets];
+                                        let queueS = [];
+                                        
+                                        swapTargets.forEach(t => swapGroupT.set(t.rowId, t));
+                                        
+                                        let isConnectedComponentValid = true;
+                                        let visitedT = new Set(swapTargets.map(t => t.rowId));
+                                        let visitedS = new Set();
+
+                                        while (queueT.length > 0 || queueS.length > 0) {
+                                            if (queueT.length > 0) {
+                                                let t = queueT.pop();
+                                                let tTimes = getBookingTimesOnRes(t, targetIdUpper);
+                                                if (!tTimes) continue;
+                                                
+                                                for (let s of activeBookings) {
+                                                    if (String(s.rowId) === String(b.rowId)) continue;
+                                                    let sTimes = getBookingTimesOnRes(s, bSourceId);
+                                                    if (sTimes) {
+                                                        if (tTimes.start < sTimes.end && sTimes.start < tTimes.end) {
+                                                            if (!visitedS.has(s.rowId)) {
+                                                                visitedS.add(s.rowId);
+                                                                swapGroupS.set(s.rowId, s);
+                                                                queueS.push(s);
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                            if (queueS.length > 0) {
+                                                let s = queueS.pop();
+                                                let sTimes = getBookingTimesOnRes(s, bSourceId);
+                                                if (!sTimes) continue;
+                                                
+                                                for (let t of activeBookings) {
+                                                    if (String(t.rowId) === String(b.rowId)) continue;
+                                                    let tTimes = getBookingTimesOnRes(t, targetIdUpper);
+                                                    if (tTimes) {
+                                                        if (sTimes.start < tTimes.end && tTimes.start < sTimes.end) {
+                                                            if (!visitedT.has(t.rowId)) {
+                                                                visitedT.add(t.rowId);
+                                                                swapGroupT.set(t.rowId, t);
+                                                                queueT.push(t);
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+
+                                        const checkLocked = (groupMap, targetRes) => {
+                                            for (let customer of groupMap.values()) {
+                                                if (customer.isRunningStatus || customer.status === 'DOING') return true;
+                                                let isSwapCombo = customer.category === 'COMBO' || (customer.serviceName && customer.serviceName.includes('套餐'));
+                                                if (isSwapCombo) {
+                                                    let times = getBookingTimesOnRes(customer, targetRes);
+                                                    if (times && times.phase === 1 && (customer.phase1_locked === "TRUE" || customer.phase1_locked === true)) return true;
+                                                    if (times && times.phase === 2 && (customer.phase2_locked === "TRUE" || customer.phase2_locked === true)) return true;
+                                                } else {
+                                                    if (customer.is_locked === "TRUE" || customer.isManualLocked) return true;
+                                                    if (customer.phase1_locked === "TRUE" || customer.phase1_locked === true) return true;
+                                                }
+                                            }
+                                            return false;
+                                        };
+
+                                        if (checkLocked(swapGroupT, targetIdUpper) || checkLocked(swapGroupS, bSourceId)) {
+                                            isConnectedComponentValid = false;
+                                        }
+
+                                        if (isConnectedComponentValid) {
+                                            for (let t of swapGroupT.values()) {
+                                                let p = { rowId: t.rowId, forceSync: true };
+                                                if (t.is_locked === "TRUE" || t.isManualLocked) {
+                                                    p.is_locked = "TRUE";
+                                                    p.isManualLocked = true;
+                                                }
+                                                let isSCombo = t.category === 'COMBO' || (t.serviceName && t.serviceName.includes('套餐'));
+                                                if (isSCombo) {
+                                                    const p1Id = String(t.phase1_res_idx).toUpperCase();
+                                                    const p2Id = String(t.phase2_res_idx).toUpperCase();
+                                                    if (p1Id === targetIdUpper) p.phase1_res_idx = bSourceId.toLowerCase();
+                                                    if (p2Id === targetIdUpper) p.phase2_res_idx = bSourceId.toLowerCase();
+                                                } else {
+                                                    p.current_resource_id = bSourceId.toLowerCase();
+                                                    p.location = bSourceId.toLowerCase();
+                                                }
+                                                multiBatchPayloads.push(p);
+                                            }
+
+                                            for (let s of swapGroupS.values()) {
+                                                let p = { rowId: s.rowId, forceSync: true };
+                                                if (s.is_locked === "TRUE" || s.isManualLocked) {
+                                                    p.is_locked = "TRUE";
+                                                    p.isManualLocked = true;
+                                                }
+                                                let isSCombo = s.category === 'COMBO' || (s.serviceName && s.serviceName.includes('套餐'));
+                                                if (isSCombo) {
+                                                    const p1Id = String(s.phase1_res_idx).toUpperCase();
+                                                    const p2Id = String(s.phase2_res_idx).toUpperCase();
+                                                    if (p1Id === bSourceId) p.phase1_res_idx = targetIdUpper.toLowerCase();
+                                                    if (p2Id === bSourceId) p.phase2_res_idx = targetIdUpper.toLowerCase();
+                                                } else {
+                                                    p.current_resource_id = targetIdUpper.toLowerCase();
+                                                    p.location = targetIdUpper.toLowerCase();
+                                                }
+                                                multiBatchPayloads.push(p);
+                                            }
+                                            
+                                            multiSwapSuccess = true;
+                                        }
+                                    }
+
+                                    if (!multiSwapSuccess) {
+                                        Swal.fire('系統提示', '⚠️ 系統無法移動此客人！目標位置已被佔用，且無法進行換位排程。', 'warning');
+                                        return;
+                                    } else {
+                                        batchPayloads = multiBatchPayloads;
+                                    }
                                 }
 
                                 batchPayloads.push(updateData);
