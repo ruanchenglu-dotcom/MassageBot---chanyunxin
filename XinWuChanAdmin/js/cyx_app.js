@@ -3585,7 +3585,23 @@ const App = () => {
                             }
                         }
 
-                        if (swapTargets.length > 0) {
+                        let bSourceId = null;
+                        if (payload.sourceRowId) {
+                            bSourceId = String(payload.sourceRowId).toUpperCase();
+                        } else if (payload.meta && payload.meta.isCombo) {
+                            bSourceId = payload.meta.phase === 1 ? String(b.phase1_res_idx).toUpperCase() : String(b.phase2_res_idx).toUpperCase();
+                        } else {
+                            bSourceId = String(b.current_resource_id || b.location).toUpperCase();
+                        }
+
+                        if (bSourceId === String(targetId).toUpperCase()) {
+                            setControlCenterData(null);
+                            break;
+                        }
+
+                        const executeSingleMove = () => {
+                            // --- Bắt đầu Original Single Move/Swap Logic ---
+                            if (swapTargets.length > 0) {
                             let hasRunning = false;
                             let hasLocked = false;
                             
@@ -3965,7 +3981,90 @@ const App = () => {
                                     Swal.fire('系統提示', "⚠️ 儲存失敗！請檢查網路連線。", 'warning');
                                     fetchData(true);
                                 });
-                            };
+                            }
+                            // --- Kết thúc Original Single Move/Swap Logic ---
+                        };
+
+                        Swal.fire({
+                            title: '確認移動方式',
+                            text: '您想要僅移動此客人，還是將兩張床（或座位）的所有行程完全互換？',
+                            icon: 'question',
+                            showDenyButton: true,
+                            showCancelButton: true,
+                            confirmButtonText: '完全互換整張床',
+                            denyButtonText: '僅移動此客人',
+                            cancelButtonText: '取消',
+                            confirmButtonColor: '#3085d6',
+                            denyButtonColor: '#17a2b8',
+                        }).then((result) => {
+                            if (result.isConfirmed) {
+                                let batchPayloads = [];
+                                const activeBookingsLocal = bookings.filter(x => {
+                                    if (x.isDoneStatus) return false;
+                                    const bDateStr = x.startTimeString ? x.startTimeString.split(' ')[0].replace(/\//g, '-') : '';
+                                    return bDateStr === viewDate.replace(/\//g, '-');
+                                });
+
+                                let targetIdUpperLocal = String(targetId).toUpperCase();
+                                let bSourceIdLocal = String(bSourceId).toUpperCase();
+
+                                activeBookingsLocal.forEach(x => {
+                                    let isXCombo = x.category === 'COMBO' || (x.serviceName && x.serviceName.includes('套餐'));
+                                    let needsUpdate = false;
+                                    let p = { rowId: x.rowId, forceSync: true };
+
+                                    if (isXCombo) {
+                                        const p1Id = String(x.phase1_res_idx).toUpperCase();
+                                        const p2Id = String(x.phase2_res_idx).toUpperCase();
+                                        
+                                        if (p1Id === bSourceIdLocal) { p.phase1_res_idx = targetIdUpperLocal.toLowerCase(); needsUpdate = true; }
+                                        else if (p1Id === targetIdUpperLocal) { p.phase1_res_idx = bSourceIdLocal.toLowerCase(); needsUpdate = true; }
+                                        
+                                        if (p2Id === bSourceIdLocal) { p.phase2_res_idx = targetIdUpperLocal.toLowerCase(); needsUpdate = true; }
+                                        else if (p2Id === targetIdUpperLocal) { p.phase2_res_idx = bSourceIdLocal.toLowerCase(); needsUpdate = true; }
+                                    } else {
+                                        const singleId = String(x.current_resource_id || x.location).toUpperCase();
+                                        if (singleId === bSourceIdLocal) {
+                                            p.current_resource_id = targetIdUpperLocal.toLowerCase();
+                                            p.location = targetIdUpperLocal.toLowerCase();
+                                            needsUpdate = true;
+                                        } else if (singleId === targetIdUpperLocal) {
+                                            p.current_resource_id = bSourceIdLocal.toLowerCase();
+                                            p.location = bSourceIdLocal.toLowerCase();
+                                            needsUpdate = true;
+                                        }
+                                    }
+                                    
+                                    if (needsUpdate) {
+                                        if (true) {
+                                            p.is_locked = "TRUE";
+                                            p.isManualLocked = true;
+                                        }
+                                        batchPayloads.push(p);
+                                    }
+                                });
+
+                                Swal.fire({ title: '系統正在執行整床互換...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
+                                universalSend('/api/batch-process-bookings', { payloads: batchPayloads }).then((res) => {
+                                    Swal.close();
+                                    fetchData(true);
+                                }).catch(err => {
+                                    Swal.fire('系統提示', "⚠️ 儲存失敗！請檢查網路連線。", 'warning');
+                                    fetchData(true);
+                                });
+
+                            } else if (result.isDenied) {
+                                executeSingleMove();
+                            }
+                            // Do not clear immediately if cancelled or waiting for promise, 
+                            // setControlCenterData is handled eventually by fetchData or user interaction, 
+                            // but we can clear it here for safety if cancelled.
+                            if (!result.isConfirmed && !result.isDenied) {
+                                setControlCenterData(null);
+                            }
+                        });
+                        return; // Prevent immediate setControlCenterData(null) at the end of the block
+;
 
                             executeSwap();
                         } else {
