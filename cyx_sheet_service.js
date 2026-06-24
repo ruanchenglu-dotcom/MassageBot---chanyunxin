@@ -816,8 +816,8 @@ async function ghiVaoSheet(data, proposedUpdates = []) {
                     phase1_duration: r[28],
                     phase2_duration: r[30],
                     duration: (parseInt(r[28]) || 0) + (parseInt(r[30]) || 0),
-                    phase1_res_idx: r[32] || body.phase1_res_idx || body.phase1_resource,
-                    phase2_res_idx: r[33] || body.phase2_res_idx || body.phase2_resource,
+                    phase1_res_idx: r[32] || data.phase1_res_idx || data.phase1_resource,
+                    phase2_res_idx: r[33] || data.phase2_res_idx || data.phase2_resource,
                     location: r[39]
                 });
             });
