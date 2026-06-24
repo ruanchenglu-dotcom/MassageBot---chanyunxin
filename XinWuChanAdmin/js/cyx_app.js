@@ -3459,7 +3459,42 @@ const App = () => {
                     if (b) {
                         const targetId = payload.targetRowId.toUpperCase();
                         let updateData = { rowId: b.rowId, is_locked: "TRUE", isManualLocked: true, forceSync: true };
-                        
+
+                        if (payload.meta && payload.meta.isCombo) {
+                            const isTargetBed = targetId.includes('床') || targetId.includes('BED');
+                            const bFlow = b.flow || 'FB';
+                            const bPhase1IsChair = bFlow === 'FB';
+                            
+                            if (payload.meta.phase === 1) {
+                                if ((bPhase1IsChair && isTargetBed) || (!bPhase1IsChair && !isTargetBed)) {
+                                    if (b.flow_code_locked === "TRUE" || b.flow_code_locked === true) {
+                                        Swal.fire('系統提示', '⚠️ 此客人已鎖定流程，無法更換至不同類型的座位！', 'warning');
+                                        return;
+                                    }
+                                    updateData.flow = bFlow === 'BF' ? 'FB' : 'BF';
+                                    updateData.phase1_res_idx = targetId;
+                                    updateData.phase2_res_idx = b.phase1_res_idx;
+                                } else {
+                                    updateData.phase1_res_idx = targetId;
+                                }
+                            } else {
+                                if ((!bPhase1IsChair && isTargetBed) || (bPhase1IsChair && !isTargetBed)) {
+                                    if (b.flow_code_locked === "TRUE" || b.flow_code_locked === true) {
+                                        Swal.fire('系統提示', '⚠️ 此客人已鎖定流程，無法更換至不同類型的座位！', 'warning');
+                                        return;
+                                    }
+                                    updateData.flow = bFlow === 'BF' ? 'FB' : 'BF';
+                                    updateData.phase1_res_idx = b.phase2_res_idx;
+                                    updateData.phase2_res_idx = targetId;
+                                } else {
+                                    updateData.phase2_res_idx = targetId;
+                                }
+                            }
+                        } else {
+                            updateData.current_resource_id = targetId;
+                            updateData.location = targetId;
+                        }
+
                         const activeBookings = bookings.filter(x => {
                             if (x.isDoneStatus) return false;
                             const bDateStr = x.startTimeString ? x.startTimeString.split(' ')[0].replace(/\//g, '-') : '';
@@ -3552,6 +3587,15 @@ const App = () => {
                         }
 
                         if (swapTarget) {
+                            if (swapTarget.isRunningStatus || swapTarget.status === 'DOING') {
+                                Swal.fire('系統提示', '⚠️ 目標位置的客人正在服務中，無法自動換位！請手動調整。', 'warning');
+                                return;
+                            }
+                            if (swapTarget.is_locked === "TRUE" || swapTarget.isManualLocked || swapTarget.phase1_locked === "TRUE" || swapTarget.phase1_locked === true || swapTarget.phase2_locked === "TRUE" || swapTarget.phase2_locked === true) {
+                                Swal.fire('系統提示', '⚠️ 目標位置的客人已鎖定座位，無法自動換位！', 'warning');
+                                return;
+                            }
+
                             const executeSwap = () => {
                                 let targetIdUpper = String(targetId).toUpperCase();
                                 let bSourceId = null;
@@ -3698,13 +3742,6 @@ const App = () => {
                                 }
                                 batchPayloads.push(swapUpdateData);
 
-                                if (payload.meta && payload.meta.isCombo) {
-                                    if (payload.meta.phase === 1) updateData.phase1_res_idx = targetId;
-                                    else updateData.phase2_res_idx = targetId;
-                                } else {
-                                    updateData.current_resource_id = targetId;
-                                    updateData.location = targetId;
-                                }
                                 batchPayloads.push(updateData);
 
                                 Swal.fire({ title: '系統正在嘗試自動重新安排座位...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
@@ -3717,31 +3754,8 @@ const App = () => {
                                 });
                             };
 
-                            if (swapTarget.is_locked === "TRUE" || swapTarget.isManualLocked) {
-                                Swal.fire({
-                                    title: '系統提示',
-                                    text: '⚠️ 目標位置的客人已鎖定位子，確定要強制換位嗎？',
-                                    icon: 'warning',
-                                    showCancelButton: true,
-                                    confirmButtonText: '確定換位',
-                                    cancelButtonText: '取消'
-                                }).then((result) => {
-                                    if (result.isConfirmed) {
-                                        executeSwap();
-                                    }
-                                });
-                            } else {
-                                executeSwap();
-                            }
+                            executeSwap();
                         } else {
-                            if (payload.meta && payload.meta.isCombo) {
-                                if (payload.meta.phase === 1) updateData.phase1_res_idx = targetId;
-                                else updateData.phase2_res_idx = targetId;
-                            } else {
-                                updateData.current_resource_id = targetId;
-                                updateData.location = targetId;
-                            }
-                            
                             Swal.fire({ title: '儲存中，請稍候...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
                             universalSend('/api/update-booking-details', updateData).then((res) => {
                                 Swal.close();
