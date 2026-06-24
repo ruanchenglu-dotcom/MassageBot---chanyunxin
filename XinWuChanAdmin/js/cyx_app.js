@@ -3585,16 +3585,16 @@ const App = () => {
                             }
                         }
 
-                        let bSourceId = null;
+                        let bSourceIdLocal = null;
                         if (payload.sourceRowId) {
-                            bSourceId = String(payload.sourceRowId).toUpperCase();
+                            bSourceIdLocal = String(payload.sourceRowId).toUpperCase();
                         } else if (payload.meta && payload.meta.isCombo) {
-                            bSourceId = payload.meta.phase === 1 ? String(b.phase1_res_idx).toUpperCase() : String(b.phase2_res_idx).toUpperCase();
+                            bSourceIdLocal = payload.meta.phase === 1 ? String(b.phase1_res_idx).toUpperCase() : String(b.phase2_res_idx).toUpperCase();
                         } else {
-                            bSourceId = String(b.current_resource_id || b.location).toUpperCase();
+                            bSourceIdLocal = String(b.current_resource_id || b.location).toUpperCase();
                         }
 
-                        if (bSourceId === String(targetId).toUpperCase()) {
+                        if (bSourceIdLocal === String(targetId).toUpperCase()) {
                             setControlCenterData(null);
                             break;
                         }
@@ -3981,7 +3981,21 @@ const App = () => {
                                     Swal.fire('系統提示', "⚠️ 儲存失敗！請檢查網路連線。", 'warning');
                                     fetchData(true);
                                 });
-                            }
+                            };
+
+                            executeSwap();
+                        } else {
+                            Swal.fire({ title: '儲存中，請稍候...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
+                            universalSend('/api/update-booking-details', updateData).then((res) => {
+                                Swal.close();
+                                fetchData(true);
+                            }).catch(err => {
+                                Swal.fire('系統提示', "⚠️ 儲存失敗！請檢查網路連線。", 'warning');
+                                fetchData(true);
+                            });
+                        }
+                    }
+                }
                             // --- Kết thúc Original Single Move/Swap Logic ---
                         };
 
@@ -4006,7 +4020,6 @@ const App = () => {
                                 });
 
                                 let targetIdUpperLocal = String(targetId).toUpperCase();
-                                let bSourceIdLocal = String(bSourceId).toUpperCase();
 
                                 activeBookingsLocal.forEach(x => {
                                     let isXCombo = x.category === 'COMBO' || (x.serviceName && x.serviceName.includes('套餐'));
@@ -4056,29 +4069,11 @@ const App = () => {
                             } else if (result.isDenied) {
                                 executeSingleMove();
                             }
-                            // Do not clear immediately if cancelled or waiting for promise, 
-                            // setControlCenterData is handled eventually by fetchData or user interaction, 
-                            // but we can clear it here for safety if cancelled.
                             if (!result.isConfirmed && !result.isDenied) {
                                 setControlCenterData(null);
                             }
                         });
-                        return; // Prevent immediate setControlCenterData(null) at the end of the block
-;
-
-                            executeSwap();
-                        } else {
-                            Swal.fire({ title: '儲存中，請稍候...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
-                            universalSend('/api/update-booking-details', updateData).then((res) => {
-                                Swal.close();
-                                fetchData(true);
-                            }).catch(err => {
-                                Swal.fire('系統提示', "⚠️ 儲存失敗！請檢查網路連線。", 'warning');
-                                fetchData(true);
-                            });
-                        }
-                    }
-                }
+                        return;
                 setControlCenterData(null);
                 break;
 
