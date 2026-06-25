@@ -357,7 +357,8 @@
 
             const relevantBookings = currentBookingsRaw.filter(b => {
                 const bLoc = b.originalData?.location || b.location || '本館';
-                if (bLoc !== locationStr) return false;
+                const isResourceStr = /(BED|CHAIR|床|足|腳)[-_ ]?\d+/i.test(bLoc);
+                if (bLoc !== locationStr && !isResourceStr) return false;
 
                 const bStart = getMinsFromTimeStr(b.startTime);
                 if (bStart === -1) return false;
@@ -400,7 +401,8 @@
                 }
 
                 const pushToMapFallback = (type, startT, endT) => {
-                    if (bLoc !== locationStr) return false;
+                    const isResourceStr = /(BED|CHAIR|床|足|腳)[-_ ]?\d+/i.test(bLoc);
+                    if (bLoc !== locationStr && !isResourceStr) return false;
                     if (resourceMap[type]) {
                         for (let i = 0; i < resourceMap[type].length; i++) {
                             const overlaps = resourceMap[type][i].some(blk => isOverlap(startT, endT, blk.start, blk.end));
@@ -414,7 +416,8 @@
                 };
 
                 const pushToMap = (res, startT, endT, fallbackType) => {
-                    if (bLoc !== locationStr) return;
+                    const isResourceStr = /(BED|CHAIR|床|足|腳)[-_ ]?\d+/i.test(bLoc);
+                    if (bLoc !== locationStr && !isResourceStr) return;
                     let success = false;
                     if (res) {
                         const laneMatch = res.match(/(BED|CHAIR|床|足|腳)[-_ ]?(\d+)/i);
