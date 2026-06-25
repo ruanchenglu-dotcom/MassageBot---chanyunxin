@@ -3997,6 +3997,8 @@ const App = () => {
                     }
                 }
                             // --- Kết thúc Original Single Move/Swap Logic ---
+                        };
+
                         try {
                             console.log('Executing Single Move...');
                             executeSingleMove();
