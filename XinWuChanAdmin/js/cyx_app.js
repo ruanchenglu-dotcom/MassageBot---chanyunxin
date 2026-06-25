@@ -3727,6 +3727,9 @@ const App = () => {
                                         isTargetPhaseLocked = true;
                                     }
                                 } else {
+                                    if (swapTarget.is_locked === "TRUE" || swapTarget.isManualLocked) {
+                                        isTargetPhaseLocked = true;
+                                    }
                                     if (swapTarget.phase1_locked === "TRUE" || swapTarget.phase1_locked === true) {
                                         isTargetPhaseLocked = true;
                                     }
@@ -4017,8 +4020,8 @@ const App = () => {
                                                 if (isSCombo) {
                                                     const p1Id = String(t.phase1_res_idx).toUpperCase();
                                                     const p2Id = String(t.phase2_res_idx).toUpperCase();
-                                                    if (p1Id === targetIdUpper) p.phase1_res_idx = bSourceId.toLowerCase();
-                                                    if (p2Id === targetIdUpper) p.phase2_res_idx = bSourceId.toLowerCase();
+                                                    if (isSameBed(p1Id, targetIdUpper)) p.phase1_res_idx = bSourceId.toLowerCase();
+                                                    if (isSameBed(p2Id, targetIdUpper)) p.phase2_res_idx = bSourceId.toLowerCase();
                                                 } else {
                                                     p.current_resource_id = bSourceId.toLowerCase();
                                                     p.location = bSourceId.toLowerCase();
@@ -4036,8 +4039,8 @@ const App = () => {
                                                 if (isSCombo) {
                                                     const p1Id = String(s.phase1_res_idx).toUpperCase();
                                                     const p2Id = String(s.phase2_res_idx).toUpperCase();
-                                                    if (p1Id === bSourceId) p.phase1_res_idx = targetIdUpper.toLowerCase();
-                                                    if (p2Id === bSourceId) p.phase2_res_idx = targetIdUpper.toLowerCase();
+                                                    if (isSameBed(p1Id, bSourceId)) p.phase1_res_idx = targetIdUpper.toLowerCase();
+                                                    if (isSameBed(p2Id, bSourceId)) p.phase2_res_idx = targetIdUpper.toLowerCase();
                                                 } else {
                                                     p.current_resource_id = targetIdUpper.toLowerCase();
                                                     p.location = targetIdUpper.toLowerCase();
