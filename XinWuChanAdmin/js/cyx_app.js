@@ -3989,7 +3989,6 @@ const App = () => {
 
                                         const checkLocked = (groupMap, targetRes) => {
                                             for (let customer of groupMap.values()) {
-                                                if (customer.isRunningStatus || customer.status === 'DOING') return true;
                                                 let isSwapCombo = customer.category === 'COMBO' || (customer.serviceName && customer.serviceName.includes('套餐')) || customer.flow === 'FB' || customer.flow === 'BF';
                                                 if (isSwapCombo) {
                                                     let times = getBookingTimesOnRes(customer, targetRes);
