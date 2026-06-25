@@ -3994,22 +3994,20 @@ const App = () => {
                                 fetchData(true);
                             });
                         }
-                    }
-                }
-                            // --- Kết thúc Original Single Move/Swap Logic ---
-                        };
+                    }; // Kết thúc executeSingleMove
 
-                        try {
-                            console.log('Executing Single Move...');
-                            executeSingleMove();
-                        } catch (e) {
-                            console.error(e);
-                            Swal.fire('Lỗi Logic JS', e.message, 'error');
-                        }
-                        setControlCenterData(null);
-                        return;
-                setControlCenterData(null);
-                break;
+                    try {
+                        console.log('Executing Single Move...');
+                        executeSingleMove();
+                    } catch (e) {
+                        console.error(e);
+                        Swal.fire('Lỗi Logic JS', e.message, 'error');
+                    }
+                } // Kết thúc if(b)
+            } // Kết thúc if(payload...)
+            
+            setControlCenterData(null);
+            break;
 
             case 'TOGGLE_SEQUENCE':
                 if (targetBooking && payload.newFlow) {
