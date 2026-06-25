@@ -3668,6 +3668,197 @@ const App = () => {
                             break;
                         }
 
+                        // [GROUP SWAP ENHANCEMENT START]
+                        const findGroupMembers = (baseBooking) => {
+                            if (!baseBooking) return [];
+                            let groupMap = new Map();
+                            groupMap.set(baseBooking.rowId, baseBooking);
+                            const hasGroupSuffix = (name) => /\(\d+\/\d+\)/.test(name || "");
+                            const getBaseName = (name) => name ? name.replace(/\(\d+\/\d+\)/g, '').trim() : "";
+                            const baseHasSuffix = hasGroupSuffix(baseBooking.customerName);
+                            const baseNameStr = getBaseName(baseBooking.customerName);
+
+                            for (let bx of activeBookings) {
+                                if (groupMap.has(bx.rowId)) continue;
+                                let isSameGroup = false;
+                                if (baseBooking.phone && bx.phone && baseBooking.phone === bx.phone) {
+                                    isSameGroup = true;
+                                }
+                                if (!isSameGroup && baseHasSuffix && hasGroupSuffix(bx.customerName)) {
+                                    if (baseNameStr && baseNameStr === getBaseName(bx.customerName)) {
+                                        isSameGroup = true;
+                                    }
+                                }
+                                if (isSameGroup) {
+                                    groupMap.set(bx.rowId, bx);
+                                }
+                            }
+                            return Array.from(groupMap.values());
+                        };
+
+                        const dragGroup = findGroupMembers(b);
+                        let targetGroup = [];
+                        if (swapTargets.length > 0) {
+                            swapTargets.forEach(t => {
+                                let tg = findGroupMembers(t);
+                                tg.forEach(x => { if (!targetGroup.find(y => y.rowId === x.rowId)) targetGroup.push(x); });
+                            });
+                        }
+                        const isGroupSwap = dragGroup.length > 1 || targetGroup.length > 1;
+
+                        const executeGroupSwap = () => {
+                            let groupMapS = new Map();
+                            let groupMapT = new Map();
+                            dragGroup.forEach(x => groupMapS.set(x.rowId, x));
+                            targetGroup.forEach(x => groupMapT.set(x.rowId, x));
+
+                            const checkLocked = (gMap) => {
+                                for (let customer of gMap.values()) {
+                                    if (customer.isRunningStatus || customer.status === 'DOING') return true;
+                                    if (customer.phase1_locked === "TRUE" || customer.phase1_locked === true) return true;
+                                    if (customer.phase2_locked === "TRUE" || customer.phase2_locked === true) return true;
+                                }
+                                return false;
+                            };
+
+                            if (checkLocked(groupMapS) || checkLocked(groupMapT)) {
+                                Swal.fire('系統提示', '⚠️ 群組內有客人正在服務中或已鎖定座位，無法自動互換！', 'warning');
+                                return;
+                            }
+
+                            let targetIdUpper = String(targetId).toUpperCase();
+                            let sBeds = [];
+                            let sArray = Array.from(groupMapS.values());
+                            sArray = sArray.filter(x => String(x.rowId) !== String(b.rowId));
+                            sArray.unshift(b);
+                            
+                            for (let s of sArray) {
+                                let bed = null;
+                                if (String(s.rowId) === String(b.rowId)) {
+                                    bed = bSourceIdLocal;
+                                } else {
+                                    const isSCombo = s.category === 'COMBO' || (s.serviceName && s.serviceName.includes('套餐')) || s.flow === 'FB' || s.flow === 'BF';
+                                    if (isSCombo && payload.meta && payload.meta.isCombo) {
+                                        bed = payload.meta.phase === 1 ? String(s.phase1_res_idx).toUpperCase() : String(s.phase2_res_idx).toUpperCase();
+                                    } else {
+                                        bed = String(s.current_resource_id || s.location).toUpperCase();
+                                    }
+                                }
+                                if (bed && bed !== "NULL" && bed !== "UNDEFINED" && bed !== "") sBeds.push(bed);
+                            }
+                            
+                            let tBeds = [];
+                            let tArray = Array.from(groupMapT.values());
+                            let tTarget = tArray.find(x => {
+                                let p1 = String(x.phase1_res_idx).toUpperCase();
+                                let p2 = String(x.phase2_res_idx).toUpperCase();
+                                let curr = String(x.current_resource_id || x.location).toUpperCase();
+                                return p1 === targetIdUpper || p2 === targetIdUpper || curr === targetIdUpper;
+                            });
+                            if (tTarget) {
+                                tArray = tArray.filter(x => String(x.rowId) !== String(tTarget.rowId));
+                                tArray.unshift(tTarget);
+                            }
+                            
+                            for (let t of tArray) {
+                                let bed = null;
+                                if (tTarget && String(t.rowId) === String(tTarget.rowId)) {
+                                    bed = targetIdUpper;
+                                } else {
+                                    const isTCombo = t.category === 'COMBO' || (t.serviceName && t.serviceName.includes('套餐')) || t.flow === 'FB' || t.flow === 'BF';
+                                    if (isTCombo && payload.meta && payload.meta.isCombo) {
+                                        bed = payload.meta.phase === 1 ? String(t.phase1_res_idx).toUpperCase() : String(t.phase2_res_idx).toUpperCase();
+                                    } else {
+                                        bed = String(t.current_resource_id || t.location).toUpperCase();
+                                    }
+                                }
+                                if (bed && bed !== "NULL" && bed !== "UNDEFINED" && bed !== "") tBeds.push(bed);
+                            }
+                            
+                            tBeds = tBeds.filter(x => x !== targetIdUpper);
+                            tBeds.unshift(targetIdUpper);
+                            
+                            let prefixMatch = targetIdUpper.match(/^(.+?-)/);
+                            let prefix = prefixMatch ? prefixMatch[1] : targetIdUpper.substring(0, 1) + '1-';
+                            let maxCount = (targetIdUpper.includes('床') || targetIdUpper.includes('BED')) ? (window.SYSTEM_CONFIG?.SCALE?.MAX_BEDS || 6) : (window.SYSTEM_CONFIG?.SCALE?.MAX_CHAIRS || 6);
+                            if (targetIdUpper.includes('OPP-CHAIR')) maxCount = window.SYSTEM_CONFIG?.SCALE?.OPP_CHAIRS || 4;
+                            if (targetIdUpper.includes('OPP-BED')) maxCount = window.SYSTEM_CONFIG?.SCALE?.OPP_BEDS || 6;
+                            
+                            let allValidBeds = [];
+                            for (let i = 1; i <= maxCount; i++) allValidBeds.push(prefix + i);
+                            
+                            const getEmptyBed = (excludeList) => {
+                                for (let bed of allValidBeds) {
+                                    if (!excludeList.includes(bed) && !tBeds.includes(bed) && !sBeds.includes(bed)) {
+                                        return bed;
+                                    }
+                                }
+                                return null;
+                            };
+                            
+                            let payloadsArray = [];
+                            let usedBeds = [];
+                            
+                            for (let i = 0; i < sArray.length; i++) {
+                                let assignedBed = tBeds[i];
+                                if (!assignedBed) assignedBed = getEmptyBed(usedBeds);
+                                if (!assignedBed) assignedBed = targetIdUpper;
+                                usedBeds.push(assignedBed);
+                                
+                                let p = { rowId: sArray[i].rowId, forceSync: true };
+                                const isSCombo = sArray[i].category === 'COMBO' || (sArray[i].serviceName && sArray[i].serviceName.includes('套餐')) || sArray[i].flow === 'FB' || sArray[i].flow === 'BF';
+                                if (isSCombo && payload.meta && payload.meta.isCombo) {
+                                    if (payload.meta.phase === 1) p.phase1_res_idx = assignedBed.toLowerCase();
+                                    else p.phase2_res_idx = assignedBed.toLowerCase();
+                                } else {
+                                    p.current_resource_id = assignedBed.toLowerCase();
+                                    p.location = assignedBed.toLowerCase();
+                                }
+                                payloadsArray.push(p);
+                            }
+                            
+                            for (let i = 0; i < tArray.length; i++) {
+                                let assignedBed = sBeds[i];
+                                if (!assignedBed) assignedBed = getEmptyBed(usedBeds);
+                                if (!assignedBed) assignedBed = bSourceIdLocal || targetIdUpper;
+                                usedBeds.push(assignedBed);
+                                
+                                let p = { rowId: tArray[i].rowId, forceSync: true };
+                                const isTCombo = tArray[i].category === 'COMBO' || (tArray[i].serviceName && tArray[i].serviceName.includes('套餐')) || tArray[i].flow === 'FB' || tArray[i].flow === 'BF';
+                                
+                                if (isTCombo) {
+                                    const p1Id = String(tArray[i].phase1_res_idx).toUpperCase();
+                                    const p2Id = String(tArray[i].phase2_res_idx).toUpperCase();
+                                    let oldBed = tBeds[i] || targetIdUpper;
+                                    if (p1Id === oldBed) p.phase1_res_idx = assignedBed.toLowerCase();
+                                    else if (p2Id === oldBed) p.phase2_res_idx = assignedBed.toLowerCase();
+                                    else {
+                                        if (payload.meta && payload.meta.phase === 1) p.phase1_res_idx = assignedBed.toLowerCase();
+                                        else p.phase2_res_idx = assignedBed.toLowerCase();
+                                    }
+                                } else {
+                                    p.current_resource_id = assignedBed.toLowerCase();
+                                    p.location = assignedBed.toLowerCase();
+                                }
+                                payloadsArray.push(p);
+                            }
+                            
+                            universalSend('/api/batch-process-bookings', { payloads: payloadsArray }).then((res) => {
+                                Swal.fire('系統提示', '團體座位互換成功！', 'success');
+                                fetchData(true);
+                            }).catch(err => {
+                                Swal.fire('系統提示', "⚠️ 儲存失敗！請檢查網路連線。", 'warning');
+                                fetchData(true);
+                            });
+                        };
+
+                        if (isGroupSwap) {
+                            executeGroupSwap();
+                            setControlCenterData(null);
+                            break;
+                        }
+                        // [GROUP SWAP ENHANCEMENT END]
+
                         const executeSingleMove = () => {
                             // --- Bắt đầu Original Single Move/Swap Logic ---
                             if (swapTargets.length > 0) {
