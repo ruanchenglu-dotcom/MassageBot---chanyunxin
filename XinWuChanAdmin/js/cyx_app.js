@@ -3536,52 +3536,15 @@ const App = () => {
                         }
 
                         let swapTargets = [];
-                        for (let x of activeBookings) {
-                            if (String(x.rowId) === String(b.rowId)) continue;
-                            const xStart = window.safeTimeToMins ? window.safeTimeToMins(x.startTimeString) : safeTimeToMinsLocal(x.startTimeString);
-                            const xEnd = xStart + parseInt(x.duration || 60, 10);
-                            
-                            let xActualStart = xStart;
-                            let xActualEnd = xEnd;
-                            let isXInTarget = false;
-
-                            const isXCombo = x.category === 'COMBO' || (x.serviceName && x.serviceName.includes('套餐'));
-                            if (isXCombo) {
-                                const xSplit = window.getSmartSplit ? window.getSmartSplit(x, parseInt(x.duration || 60, 10), true, x.flow || 'FB') : { phase1: Math.floor(parseInt(x.duration || 60, 10) / 2), phase2: Math.ceil(parseInt(x.duration || 60, 10) / 2) };
-                                const transitionMins = window.SYSTEM_CONFIG?.BUFFERS?.TRANSITION_MINUTES || 5;
+                        const targetIdLower = String(targetId).toLowerCase();
+                        if (timelineData && timelineData[targetIdLower]) {
+                            for (let slot of timelineData[targetIdLower]) {
+                                if (!slot || !slot.booking) continue;
+                                if (String(slot.booking.rowId) === String(b.rowId)) continue;
                                 
-                                const p1Id = String(x.phase1_res_idx).toUpperCase();
-                                const p2Id = String(x.phase2_res_idx).toUpperCase();
-                                
-                                if (p1Id === targetId && p2Id === targetId) {
-                                    xActualStart = xStart;
-                                    xActualEnd = xEnd;
-                                    isXInTarget = true;
-                                } else if (p1Id === targetId) {
-                                    xActualStart = xStart;
-                                    xActualEnd = xStart + xSplit.phase1;
-                                    isXInTarget = true;
-                                } else if (p2Id === targetId) {
-                                    xActualStart = xStart + xSplit.phase1 + transitionMins;
-                                    xActualEnd = xActualStart + xSplit.phase2;
-                                    if (x.transition_time) {
-                                        const transMins = safeTimeToMinsLocal(x.transition_time);
-                                        if (transMins !== -1 && transMins > 0) {
-                                            xActualStart = transMins;
-                                            xActualEnd = transMins + xSplit.phase2;
-                                        }
-                                    }
-                                    isXInTarget = true;
+                                if (actualBStart < slot.end && slot.start < actualBEnd) {
+                                    swapTargets.push(slot.booking);
                                 }
-                            } else {
-                                const singleId = String(x.current_resource_id || x.location).toUpperCase();
-                                if (singleId === targetId) {
-                                    isXInTarget = true;
-                                }
-                            }
-                            
-                            if (isXInTarget && actualBStart < xActualEnd && xActualStart < actualBEnd) {
-                                swapTargets.push(x);
                             }
                         }
 
