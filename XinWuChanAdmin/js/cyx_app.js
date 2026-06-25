@@ -3675,19 +3675,6 @@ const App = () => {
                             }
                         }
 
-                        let swapTargets = [];
-                        const targetIdLower = String(targetId).toLowerCase();
-                        if (timelineData && timelineData[targetIdLower]) {
-                            for (let slot of timelineData[targetIdLower]) {
-                                if (!slot || !slot.booking) continue;
-                                if (String(slot.booking.rowId) === String(b.rowId)) continue;
-                                
-                                if (actualBStart < slot.end && slot.start < actualBEnd) {
-                                    swapTargets.push(slot.booking);
-                                }
-                            }
-                        }
-
                         let bSourceIdLocal = null;
                         if (payload.sourceRowId) {
                             bSourceIdLocal = String(payload.sourceRowId).toUpperCase();
@@ -3702,405 +3689,38 @@ const App = () => {
                             break;
                         }
 
-                        const executeSingleMove = () => {
-                            // --- Bắt đầu Original Single Move/Swap Logic ---
-                            if (swapTargets.length > 0) {
-                            let hasRunning = false;
-                            let hasLocked = false;
+                        try {
+                            console.log('Executing Smart Scheduler...');
+                            const isMovedCombo = payload.meta && payload.meta.isCombo;
+                            const targetPhase = isMovedCombo ? payload.meta.phase : 0;
                             
-                            for (let swapTarget of swapTargets) {
-                                if (swapTarget.isRunningStatus || swapTarget.status === 'DOING') {
-                                    hasRunning = true;
-                                }
-                                
-                                let isTargetPhaseLocked = false;
-                                const isSwapCombo = swapTarget.category === 'COMBO' || (swapTarget.serviceName && swapTarget.serviceName.includes('套餐'));
-                                let targetIdUpper = String(targetId).toUpperCase();
-                                
-                                if (isSwapCombo) {
-                                    const p1Id = String(swapTarget.phase1_res_idx).toUpperCase();
-                                    const p2Id = String(swapTarget.phase2_res_idx).toUpperCase();
-                                    if (p1Id === targetIdUpper && (swapTarget.phase1_locked === "TRUE" || swapTarget.phase1_locked === true)) {
-                                        isTargetPhaseLocked = true;
-                                    }
-                                    if (p2Id === targetIdUpper && (swapTarget.phase2_locked === "TRUE" || swapTarget.phase2_locked === true)) {
-                                        isTargetPhaseLocked = true;
-                                    }
-                                } else {
-                                    if (swapTarget.is_locked === "TRUE" || swapTarget.isManualLocked) {
-                                        isTargetPhaseLocked = true;
-                                    }
-                                    if (swapTarget.phase1_locked === "TRUE" || swapTarget.phase1_locked === true) {
-                                        isTargetPhaseLocked = true;
-                                    }
-                                }
-    
-                                if (isTargetPhaseLocked) {
-                                    hasLocked = true;
-                                }
-                            }
-
-                            if (hasRunning) {
-                                Swal.fire('系統提示', '⚠️ 目標位置的客人正在服務中，無法自動換位！請手動調整。', 'warning');
-                                return;
-                            }
+                            const payloads = window.SmartScheduler.solve(activeBookings, b.rowId, targetId, targetPhase, isMovedCombo);
                             
-                            if (hasLocked) {
-                                Swal.fire('系統提示', '⚠️ 目標位置的客人已鎖定座位，無法自動換位！', 'warning');
-                                return;
-                            }
-
-                            const executeSwap = () => {
-                                let targetIdUpper = String(targetId).toUpperCase();
-                                let bSourceId = null;
-                                if (payload.sourceRowId) {
-                                    bSourceId = String(payload.sourceRowId).toUpperCase();
-                                } else if (payload.meta && payload.meta.isCombo) {
-                                    bSourceId = payload.meta.phase === 1 ? String(b.phase1_res_idx).toUpperCase() : String(b.phase2_res_idx).toUpperCase();
-                                } else {
-                                    bSourceId = String(b.current_resource_id || b.location).toUpperCase();
-                                }
-
-                                let prefixMatch = targetIdUpper.match(/^(.+?-)/);
-                                let prefix = prefixMatch ? prefixMatch[1] : targetIdUpper.substring(0, 1) + '1-';
-                                let maxCount = (targetIdUpper.includes('床') || targetIdUpper.includes('BED')) ? (window.SYSTEM_CONFIG?.SCALE?.MAX_BEDS || 6) : (window.SYSTEM_CONFIG?.SCALE?.MAX_CHAIRS || 6);
-                                if (targetIdUpper.includes('OPP-CHAIR')) maxCount = window.SYSTEM_CONFIG?.SCALE?.OPP_CHAIRS || 4;
-                                if (targetIdUpper.includes('OPP-BED')) maxCount = window.SYSTEM_CONFIG?.SCALE?.OPP_BEDS || 6;
-                                
-                                let allResources = [];
-                                for (let i = 1; i <= maxCount; i++) {
-                                    allResources.push(prefix + i);
-                                }
-
-                                let candidateResources = [];
-                                // [NÂNG CẤP HOÁN ĐỔI AN TOÀN] - Push bSourceId lên đầu tiên (nếu cùng loại với resource đang thao tác)
-                                if (bSourceId && bSourceId !== targetIdUpper && allResources.includes(bSourceId)) {
-                                    candidateResources.push(bSourceId);
-                                }
-                                
-                                for (let rId of allResources) {
-                                    if (rId !== targetIdUpper && !candidateResources.includes(rId)) {
-                                        candidateResources.push(rId);
-                                    }
-                                }
-
-                                let batchPayloads = [];
-                                let allFoundEmptyRes = true;
-                                let newlyAllocatedRes = []; // Keep track of dynamically allocated resources
-
-                                for (let swapTarget of swapTargets) {
-                                    let foundEmptyRes = null;
-                                    let sActualStart = 0;
-                                    let sActualEnd = 0;
-                                    let isSCombo = swapTarget.category === 'COMBO' || (swapTarget.serviceName && swapTarget.serviceName.includes('套餐'));
-                                    const sStart = window.safeTimeToMins ? window.safeTimeToMins(swapTarget.startTimeString) : safeTimeToMinsLocal(swapTarget.startTimeString);
-                                    
-                                    if (isSCombo) {
-                                        const sSplit = window.getSmartSplit ? window.getSmartSplit(swapTarget, parseInt(swapTarget.duration || 60, 10), true, swapTarget.flow || 'FB') : { phase1: Math.floor(parseInt(swapTarget.duration || 60, 10) / 2), phase2: Math.ceil(parseInt(swapTarget.duration || 60, 10) / 2) };
-                                        const transitionMins = window.SYSTEM_CONFIG?.BUFFERS?.TRANSITION_MINUTES || 5;
-                                        const p1Id = String(swapTarget.phase1_res_idx).toUpperCase();
-                                        const p2Id = String(swapTarget.phase2_res_idx).toUpperCase();
-                                        
-                                        if (p1Id === targetIdUpper) {
-                                            sActualStart = sStart;
-                                            sActualEnd = sStart + sSplit.phase1;
-                                        } else if (p2Id === targetIdUpper) {
-                                            sActualStart = sStart + sSplit.phase1 + transitionMins;
-                                            sActualEnd = sActualStart + sSplit.phase2;
-                                            if (swapTarget.transition_time) {
-                                                const transMins = safeTimeToMinsLocal(swapTarget.transition_time);
-                                                if (transMins !== -1 && transMins > 0) {
-                                                    sActualStart = transMins;
-                                                    sActualEnd = transMins + sSplit.phase2;
-                                                }
-                                            }
-                                        } else {
-                                            sActualStart = sStart;
-                                            sActualEnd = sStart + parseInt(swapTarget.duration || 60, 10);
-                                        }
-                                    } else {
-                                        sActualStart = sStart;
-                                        sActualEnd = sStart + parseInt(swapTarget.duration || 60, 10);
-                                    }
-
-                                    for (let rId of candidateResources) {
-                                        let isOccupied = false;
-
-                                        // 1. Check against newly allocated resources from previous swapTargets in this loop
-                                        let newlyAllocatedConflict = false;
-                                        for (let alloc of newlyAllocatedRes) {
-                                            if (alloc.resId === rId) {
-                                                if (sActualStart < alloc.end && alloc.start < sActualEnd) {
-                                                    newlyAllocatedConflict = true;
-                                                    break;
-                                                }
-                                            }
-                                        }
-                                        if (newlyAllocatedConflict) continue;
-
-                                        // 2. Check against timelineData
-                                        const tIdLower = String(rId).toLowerCase();
-                                        if (timelineData && timelineData[tIdLower]) {
-                                            for (let slot of timelineData[tIdLower]) {
-                                                if (!slot || !slot.booking) continue;
-                                                if (String(slot.booking.rowId) === String(swapTarget.rowId)) continue;
-                                                if (String(slot.booking.rowId) === String(b.rowId)) continue;
-                                                
-                                                if (sActualStart < slot.end && slot.start < sActualEnd) {
-                                                    isOccupied = true;
-                                                    break;
-                                                }
-                                            }
-                                        }
-                                        
-                                        if (!isOccupied) {
-                                            foundEmptyRes = rId;
-                                            break;
-                                        } else if (rId === bSourceId) {
-                                            // Nâng cấp: Nếu rId là bSourceId mà bị chiếm dụng (cấn), 
-                                            // NGỪNG tìm giường trống khác để BẮT BUỘC kích hoạt logic Swap cả 2 block!
-                                            break;
-                                        }
-                                    }
-
-                                    if (!foundEmptyRes) {
-                                        allFoundEmptyRes = false;
-                                        break;
-                                    }
-
-                                    newlyAllocatedRes.push({ resId: foundEmptyRes, start: sActualStart, end: sActualEnd });
-
-                                    let swapUpdateData = { rowId: swapTarget.rowId, forceSync: true };
-                                    
-                                    if (swapTarget.is_locked === "TRUE" || swapTarget.isManualLocked) {
-                                        swapUpdateData.is_locked = "TRUE";
-                                        swapUpdateData.isManualLocked = true;
-                                    }
-
-                                    if (isSCombo) {
-                                        const p1Id = String(swapTarget.phase1_res_idx).toUpperCase();
-                                        const p2Id = String(swapTarget.phase2_res_idx).toUpperCase();
-                                        if (p1Id === targetIdUpper) swapUpdateData.phase1_res_idx = foundEmptyRes.toLowerCase();
-                                        if (p2Id === targetIdUpper) swapUpdateData.phase2_res_idx = foundEmptyRes.toLowerCase();
-                                    } else {
-                                        swapUpdateData.current_resource_id = foundEmptyRes.toLowerCase();
-                                        swapUpdateData.location = foundEmptyRes.toLowerCase();
-                                    }
-                                    batchPayloads.push(swapUpdateData);
-                                }
-
-                                if (!allFoundEmptyRes) {
-                                    let multiSwapSuccess = false;
-                                    let multiBatchPayloads = [];
-                                    let swapGroupT = new Map();
-                                    let swapGroupS = new Map();
-
-                                    if (bSourceId && bSourceId !== targetIdUpper) {
-                                        const getBookingTimesOnRes = (bx, targetResId) => {
-                                            const bxStart = window.safeTimeToMins ? window.safeTimeToMins(bx.startTimeString) : safeTimeToMinsLocal(bx.startTimeString);
-                                            const isBxCombo = bx.category === 'COMBO' || (bx.serviceName && bx.serviceName.includes('套餐')) || bx.flow === 'FB' || bx.flow === 'BF';
-                                            const targetClean = String(targetResId).trim().toUpperCase();
-                                            
-                                            const isSameBed = (id1, id2) => {
-                                                if (!id1 || !id2) return false;
-                                                let s1 = String(id1).trim().toUpperCase().replace(/BED/g, '床').replace(/\s+/g, '');
-                                                let s2 = String(id2).trim().toUpperCase().replace(/BED/g, '床').replace(/\s+/g, '');
-                                                return s1 === s2;
-                                            };
-
-                                            if (isBxCombo) {
-                                                const bxSplit = window.getSmartSplit ? window.getSmartSplit(bx, parseInt(bx.duration || 60, 10), true, bx.flow || 'FB') : { phase1: Math.floor(parseInt(bx.duration || 60, 10) / 2), phase2: Math.ceil(parseInt(bx.duration || 60, 10) / 2) };
-                                                const transitionMins = window.SYSTEM_CONFIG?.BUFFERS?.TRANSITION_MINUTES || 5;
-                                                const p1Id = String(bx.phase1_res_idx || '').trim().toUpperCase();
-                                                const p2Id = String(bx.phase2_res_idx || '').trim().toUpperCase();
-                                                
-                                                if (isSameBed(p1Id, targetClean)) {
-                                                    return { start: bxStart, end: bxStart + bxSplit.phase1, phase: 1 };
-                                                } else if (isSameBed(p2Id, targetClean)) {
-                                                    let p2Start = bxStart + bxSplit.phase1 + transitionMins;
-                                                    let p2End = p2Start + bxSplit.phase2;
-                                                    if (bx.transition_time) {
-                                                        const transMins = safeTimeToMinsLocal(bx.transition_time);
-                                                        if (transMins !== -1 && transMins > 0) {
-                                                            p2Start = transMins;
-                                                            p2End = transMins + bxSplit.phase2;
-                                                        }
-                                                    }
-                                                    return { start: p2Start, end: p2End, phase: 2 };
-                                                }
-                                            } else {
-                                                const singleId = String(bx.current_resource_id || bx.location || '').trim().toUpperCase();
-                                                if (isSameBed(singleId, targetClean)) {
-                                                    return { start: bxStart, end: bxStart + parseInt(bx.duration || 60, 10), phase: 0 };
-                                                }
-                                            }
-                                            return null;
-                                        };
-
-                                        swapGroupT = new Map();
-                                        swapGroupS = new Map();
-
-                                        let queueT = [...swapTargets];
-                                        let queueS = [];
-                                        
-                                        swapTargets.forEach(t => swapGroupT.set(t.rowId, t));
-                                        
-                                        let isConnectedComponentValid = true;
-                                        let visitedT = new Set(swapTargets.map(t => t.rowId));
-                                        let visitedS = new Set();
-
-                                        while (queueT.length > 0 || queueS.length > 0) {
-                                            if (queueT.length > 0) {
-                                                let t = queueT.pop();
-                                                let tTimes = getBookingTimesOnRes(t, targetIdUpper);
-                                                if (!tTimes) continue;
-                                                
-                                                for (let s of activeBookings) {
-                                                    if (String(s.rowId) === String(b.rowId)) continue;
-                                                    let sTimes = getBookingTimesOnRes(s, bSourceId);
-                                                    if (sTimes) {
-                                                        if (tTimes.start < sTimes.end && sTimes.start < tTimes.end) {
-                                                            if (!visitedS.has(s.rowId)) {
-                                                                visitedS.add(s.rowId);
-                                                                swapGroupS.set(s.rowId, s);
-                                                                queueS.push(s);
-                                                            }
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                            if (queueS.length > 0) {
-                                                let s = queueS.pop();
-                                                let sTimes = getBookingTimesOnRes(s, bSourceId);
-                                                if (!sTimes) continue;
-                                                
-                                                for (let t of activeBookings) {
-                                                    if (String(t.rowId) === String(b.rowId)) continue;
-                                                    let tTimes = getBookingTimesOnRes(t, targetIdUpper);
-                                                    if (tTimes) {
-                                                        if (sTimes.start < tTimes.end && tTimes.start < sTimes.end) {
-                                                            if (!visitedT.has(t.rowId)) {
-                                                                visitedT.add(t.rowId);
-                                                                swapGroupT.set(t.rowId, t);
-                                                                queueT.push(t);
-                                                            }
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                        }
-
-                                        const checkLocked = (groupMap, targetRes) => {
-                                            for (let customer of groupMap.values()) {
-                                                let isSwapCombo = customer.category === 'COMBO' || (customer.serviceName && customer.serviceName.includes('套餐')) || customer.flow === 'FB' || customer.flow === 'BF';
-                                                if (isSwapCombo) {
-                                                    let times = getBookingTimesOnRes(customer, targetRes);
-                                                    if (times && times.phase === 1 && (customer.phase1_locked === "TRUE" || customer.phase1_locked === true)) return true;
-                                                    if (times && times.phase === 2 && (customer.phase2_locked === "TRUE" || customer.phase2_locked === true)) return true;
-                                                } else {
-                                                    if (customer.is_locked === "TRUE" || customer.isManualLocked) return true;
-                                                    if (customer.phase1_locked === "TRUE" || customer.phase1_locked === true) return true;
-                                                }
-                                            }
-                                            return false;
-                                        };
-
-                                        if (checkLocked(swapGroupT, targetIdUpper) || checkLocked(swapGroupS, bSourceId)) {
-                                            isConnectedComponentValid = false;
-                                        }
-
-                                        if (isConnectedComponentValid) {
-                                            for (let t of swapGroupT.values()) {
-                                                let p = { rowId: t.rowId, forceSync: true };
-                                                if (t.is_locked === "TRUE" || t.isManualLocked) {
-                                                    p.is_locked = "TRUE";
-                                                    p.isManualLocked = true;
-                                                }
-                                                let isSCombo = t.category === 'COMBO' || (t.serviceName && t.serviceName.includes('套餐')) || t.flow === 'FB' || t.flow === 'BF';
-                                                if (isSCombo) {
-                                                    const p1Id = String(t.phase1_res_idx).toUpperCase();
-                                                    const p2Id = String(t.phase2_res_idx).toUpperCase();
-                                                    if (isSameBed(p1Id, targetIdUpper)) p.phase1_res_idx = bSourceId.toLowerCase();
-                                                    if (isSameBed(p2Id, targetIdUpper)) p.phase2_res_idx = bSourceId.toLowerCase();
-                                                } else {
-                                                    p.current_resource_id = bSourceId.toLowerCase();
-                                                    p.location = bSourceId.toLowerCase();
-                                                }
-                                                multiBatchPayloads.push(p);
-                                            }
-
-                                            for (let s of swapGroupS.values()) {
-                                                let p = { rowId: s.rowId, forceSync: true };
-                                                if (s.is_locked === "TRUE" || s.isManualLocked) {
-                                                    p.is_locked = "TRUE";
-                                                    p.isManualLocked = true;
-                                                }
-                                                let isSCombo = s.category === 'COMBO' || (s.serviceName && s.serviceName.includes('套餐')) || s.flow === 'FB' || s.flow === 'BF';
-                                                if (isSCombo) {
-                                                    const p1Id = String(s.phase1_res_idx).toUpperCase();
-                                                    const p2Id = String(s.phase2_res_idx).toUpperCase();
-                                                    if (isSameBed(p1Id, bSourceId)) p.phase1_res_idx = targetIdUpper.toLowerCase();
-                                                    if (isSameBed(p2Id, bSourceId)) p.phase2_res_idx = targetIdUpper.toLowerCase();
-                                                } else {
-                                                    p.current_resource_id = targetIdUpper.toLowerCase();
-                                                    p.location = targetIdUpper.toLowerCase();
-                                                }
-                                                multiBatchPayloads.push(p);
-                                            }
-                                            
-                                            multiSwapSuccess = true;
-                                        }
-                                    }
-
-                                    if (!multiSwapSuccess) {
-                                        Swal.fire({
-                                            title: '系統提示',
-                                            text: '⚠️ 無法換位：目標位置的客人已鎖定座位，且沒有其他合適的空位可供安排。',
-                                            icon: 'warning',
-                                            confirmButtonColor: '#3085d6',
-                                            confirmButtonText: '確定'
-                                        }).then(() => {
-                                            fetchData(true);
-                                        });
-                                        return;
-                                    } else {
-                                        batchPayloads = multiBatchPayloads;
-                                    }
-                                }
-
-                                batchPayloads.push(updateData);
-
-                                Swal.fire({ title: '系統正在嘗試自動重新安排座位...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
-                                universalSend('/api/batch-process-bookings', { payloads: batchPayloads }).then((res) => {
+                            if (payloads && payloads.length > 0) {
+                                Swal.fire({ title: '系統正在重新安排排程...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
+                                universalSend('/api/batch-process-bookings', { payloads: payloads }).then((res) => {
                                     Swal.close();
                                     fetchData(true);
                                 }).catch(err => {
                                     Swal.fire('系統提示', "⚠️ 儲存失敗！請檢查網路連線。", 'warning');
                                     fetchData(true);
                                 });
-                            };
-
-                            executeSwap();
-                        } else {
-                            Swal.fire({ title: '儲存中，請稍候...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
-                            universalSend('/api/update-booking-details', updateData).then((res) => {
-                                Swal.close();
-                                fetchData(true);
-                            }).catch(err => {
-                                Swal.fire('系統提示', "⚠️ 儲存失敗！請檢查網路連線。", 'warning');
-                                fetchData(true);
-                            });
+                            } else {
+                                Swal.fire({
+                                    title: '系統提示',
+                                    text: '⚠️ 無法換位：目前的時段已滿或客人已鎖定座位，系統無法自動重新安排。',
+                                    icon: 'warning',
+                                    confirmButtonColor: '#3085d6',
+                                    confirmButtonText: '確定'
+                                }).then(() => {
+                                    fetchData(true);
+                                });
+                            }
+                        } catch (e) {
+                            console.error('Smart Scheduler error:', e);
+                            Swal.fire('Lỗi Logic JS', e.message, 'error');
                         }
-                    }; // Kết thúc executeSingleMove
-
-                    try {
-                        console.log('Executing Single Move...');
-                        executeSingleMove();
-                    } catch (e) {
-                        console.error(e);
-                        Swal.fire('Lỗi Logic JS', e.message, 'error');
-                    }
-                } // Kết thúc if(b)
+                    } // Kết thúc if(b)
             } // Kết thúc if(payload...)
             
             setControlCenterData(null);
