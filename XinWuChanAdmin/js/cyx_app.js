@@ -3732,50 +3732,18 @@ const App = () => {
                                         }
                                         if (newlyAllocatedConflict) continue;
 
-                                        // 2. Check against activeBookings
-                                        for (let x of activeBookings) {
-                                            if (String(x.rowId) === String(swapTarget.rowId)) continue;
-                                            if (String(x.rowId) === String(b.rowId)) continue;
-
-                                            const xStart = window.safeTimeToMins ? window.safeTimeToMins(x.startTimeString) : safeTimeToMinsLocal(x.startTimeString);
-                                            let xActualStart = xStart;
-                                            let xActualEnd = xStart + parseInt(x.duration || 60, 10);
-                                            let isXInTarget = false;
-
-                                            const isXCombo = x.category === 'COMBO' || (x.serviceName && x.serviceName.includes('套餐'));
-                                            if (isXCombo) {
-                                                const xSplit = window.getSmartSplit ? window.getSmartSplit(x, parseInt(x.duration || 60, 10), true, x.flow || 'FB') : { phase1: Math.floor(parseInt(x.duration || 60, 10) / 2), phase2: Math.ceil(parseInt(x.duration || 60, 10) / 2) };
-                                                const transitionMins = window.SYSTEM_CONFIG?.BUFFERS?.TRANSITION_MINUTES || 5;
-                                                const xp1Id = String(x.phase1_res_idx).toUpperCase();
-                                                const xp2Id = String(x.phase2_res_idx).toUpperCase();
+                                        // 2. Check against timelineData
+                                        const tIdLower = String(rId).toLowerCase();
+                                        if (timelineData && timelineData[tIdLower]) {
+                                            for (let slot of timelineData[tIdLower]) {
+                                                if (!slot || !slot.booking) continue;
+                                                if (String(slot.booking.rowId) === String(swapTarget.rowId)) continue;
+                                                if (String(slot.booking.rowId) === String(b.rowId)) continue;
                                                 
-                                                if (xp1Id === rId && xp2Id === rId) {
-                                                    isXInTarget = true;
-                                                } else if (xp1Id === rId) {
-                                                    xActualEnd = xStart + xSplit.phase1;
-                                                    isXInTarget = true;
-                                                } else if (xp2Id === rId) {
-                                                    xActualStart = xStart + xSplit.phase1 + transitionMins;
-                                                    xActualEnd = xActualStart + xSplit.phase2;
-                                                    if (x.transition_time) {
-                                                        const transMins = safeTimeToMinsLocal(x.transition_time);
-                                                        if (transMins !== -1 && transMins > 0) {
-                                                            xActualStart = transMins;
-                                                            xActualEnd = transMins + xSplit.phase2;
-                                                        }
-                                                    }
-                                                    isXInTarget = true;
+                                                if (sActualStart < slot.end && slot.start < sActualEnd) {
+                                                    isOccupied = true;
+                                                    break;
                                                 }
-                                            } else {
-                                                const singleId = String(x.current_resource_id || x.location).toUpperCase();
-                                                if (singleId === rId) {
-                                                    isXInTarget = true;
-                                                }
-                                            }
-
-                                            if (isXInTarget && sActualStart < xActualEnd && xActualStart < sActualEnd) {
-                                                isOccupied = true;
-                                                break;
                                             }
                                         }
                                         
