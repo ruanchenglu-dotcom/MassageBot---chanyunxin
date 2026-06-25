@@ -3853,6 +3853,10 @@ const App = () => {
                                         if (!isOccupied) {
                                             foundEmptyRes = rId;
                                             break;
+                                        } else if (rId === bSourceId) {
+                                            // Nâng cấp: Nếu rId là bSourceId mà bị chiếm dụng (cấn), 
+                                            // NGỪNG tìm giường trống khác để BẮT BUỘC kích hoạt logic Swap cả 2 block!
+                                            break;
                                         }
                                     }
 
@@ -3893,15 +3897,23 @@ const App = () => {
                                             const bxStart = window.safeTimeToMins ? window.safeTimeToMins(bx.startTimeString) : safeTimeToMinsLocal(bx.startTimeString);
                                             const isBxCombo = bx.category === 'COMBO' || (bx.serviceName && bx.serviceName.includes('套餐')) || bx.flow === 'FB' || bx.flow === 'BF';
                                             const targetClean = String(targetResId).trim().toUpperCase();
+                                            
+                                            const isSameBed = (id1, id2) => {
+                                                if (!id1 || !id2) return false;
+                                                let s1 = String(id1).trim().toUpperCase().replace(/BED/g, '床').replace(/\s+/g, '');
+                                                let s2 = String(id2).trim().toUpperCase().replace(/BED/g, '床').replace(/\s+/g, '');
+                                                return s1 === s2;
+                                            };
+
                                             if (isBxCombo) {
                                                 const bxSplit = window.getSmartSplit ? window.getSmartSplit(bx, parseInt(bx.duration || 60, 10), true, bx.flow || 'FB') : { phase1: Math.floor(parseInt(bx.duration || 60, 10) / 2), phase2: Math.ceil(parseInt(bx.duration || 60, 10) / 2) };
                                                 const transitionMins = window.SYSTEM_CONFIG?.BUFFERS?.TRANSITION_MINUTES || 5;
                                                 const p1Id = String(bx.phase1_res_idx || '').trim().toUpperCase();
                                                 const p2Id = String(bx.phase2_res_idx || '').trim().toUpperCase();
                                                 
-                                                if (p1Id === targetClean) {
+                                                if (isSameBed(p1Id, targetClean)) {
                                                     return { start: bxStart, end: bxStart + bxSplit.phase1, phase: 1 };
-                                                } else if (p2Id === targetClean) {
+                                                } else if (isSameBed(p2Id, targetClean)) {
                                                     let p2Start = bxStart + bxSplit.phase1 + transitionMins;
                                                     let p2End = p2Start + bxSplit.phase2;
                                                     if (bx.transition_time) {
@@ -3915,7 +3927,7 @@ const App = () => {
                                                 }
                                             } else {
                                                 const singleId = String(bx.current_resource_id || bx.location || '').trim().toUpperCase();
-                                                if (singleId === targetClean) {
+                                                if (isSameBed(singleId, targetClean)) {
                                                     return { start: bxStart, end: bxStart + parseInt(bx.duration || 60, 10), phase: 0 };
                                                 }
                                             }
@@ -3978,7 +3990,7 @@ const App = () => {
                                         const checkLocked = (groupMap, targetRes) => {
                                             for (let customer of groupMap.values()) {
                                                 if (customer.isRunningStatus || customer.status === 'DOING') return true;
-                                                let isSwapCombo = customer.category === 'COMBO' || (customer.serviceName && customer.serviceName.includes('套餐'));
+                                                let isSwapCombo = customer.category === 'COMBO' || (customer.serviceName && customer.serviceName.includes('套餐')) || customer.flow === 'FB' || customer.flow === 'BF';
                                                 if (isSwapCombo) {
                                                     let times = getBookingTimesOnRes(customer, targetRes);
                                                     if (times && times.phase === 1 && (customer.phase1_locked === "TRUE" || customer.phase1_locked === true)) return true;
@@ -4002,7 +4014,7 @@ const App = () => {
                                                     p.is_locked = "TRUE";
                                                     p.isManualLocked = true;
                                                 }
-                                                let isSCombo = t.category === 'COMBO' || (t.serviceName && t.serviceName.includes('套餐'));
+                                                let isSCombo = t.category === 'COMBO' || (t.serviceName && t.serviceName.includes('套餐')) || t.flow === 'FB' || t.flow === 'BF';
                                                 if (isSCombo) {
                                                     const p1Id = String(t.phase1_res_idx).toUpperCase();
                                                     const p2Id = String(t.phase2_res_idx).toUpperCase();
@@ -4021,7 +4033,7 @@ const App = () => {
                                                     p.is_locked = "TRUE";
                                                     p.isManualLocked = true;
                                                 }
-                                                let isSCombo = s.category === 'COMBO' || (s.serviceName && s.serviceName.includes('套餐'));
+                                                let isSCombo = s.category === 'COMBO' || (s.serviceName && s.serviceName.includes('套餐')) || s.flow === 'FB' || s.flow === 'BF';
                                                 if (isSCombo) {
                                                     const p1Id = String(s.phase1_res_idx).toUpperCase();
                                                     const p2Id = String(s.phase2_res_idx).toUpperCase();
