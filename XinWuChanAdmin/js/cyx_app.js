@@ -3997,9 +3997,13 @@ const App = () => {
                     }
                 }
                             // --- Kết thúc Original Single Move/Swap Logic ---
-                        };
-
-                        executeSingleMove();
+                        try {
+                            console.log('Executing Single Move...');
+                            executeSingleMove();
+                        } catch (e) {
+                            console.error(e);
+                            Swal.fire('Lỗi Logic JS', e.message, 'error');
+                        }
                         setControlCenterData(null);
                         return;
                 setControlCenterData(null);

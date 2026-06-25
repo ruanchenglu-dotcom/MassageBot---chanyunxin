@@ -11,6 +11,9 @@
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
+    "@babel/cli": "^8.0.1",
+    "@babel/core": "^8.0.1",
+    "@babel/preset-react": "^8.0.1",
     "@line/bot-sdk": "^10.5.0",
     "cors": "^2.8.5",
     "dotenv": "^17.2.3",
