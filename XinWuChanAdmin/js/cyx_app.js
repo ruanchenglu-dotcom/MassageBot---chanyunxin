@@ -3523,8 +3523,24 @@ const App = () => {
                             srcBookings.forEach(b => {
                                 let p = { rowId: b.rowId, forceSync: true };
                                 if (b.category === 'COMBO' || (b.serviceName && b.serviceName.includes('套餐'))) {
-                                    if (String(b.phase1_res_idx).toUpperCase() === srcIdUpper) p.phase1_res_idx = tgtIdUpper.toLowerCase();
-                                    if (String(b.phase2_res_idx).toUpperCase() === srcIdUpper) p.phase2_res_idx = tgtIdUpper.toLowerCase();
+                                    let newP1 = b.phase1_res_idx;
+                                    let newP2 = b.phase2_res_idx;
+                                    let p1Changed = false;
+                                    let p2Changed = false;
+
+                                    if (String(b.phase1_res_idx).toUpperCase() === srcIdUpper) { newP1 = tgtIdUpper.toLowerCase(); p1Changed = true; }
+                                    if (String(b.phase2_res_idx).toUpperCase() === srcIdUpper) { newP2 = tgtIdUpper.toLowerCase(); p2Changed = true; }
+
+                                    const isBed = (id) => id && (String(id).toUpperCase().includes('床') || String(id).toUpperCase().includes('BED'));
+                                    
+                                    if (newP1 && newP2 && isBed(newP1) === isBed(newP2)) {
+                                        if (p1Changed && !p2Changed) newP2 = srcIdUpper.toLowerCase();
+                                        else if (p2Changed && !p1Changed) newP1 = srcIdUpper.toLowerCase();
+                                    }
+
+                                    p.phase1_res_idx = newP1;
+                                    p.phase2_res_idx = newP2;
+                                    p.flow = isBed(newP1) ? 'BF' : 'FB';
                                 } else {
                                     p.current_resource_id = tgtIdUpper.toLowerCase();
                                     p.location = tgtIdUpper.toLowerCase();
@@ -3535,8 +3551,24 @@ const App = () => {
                             tgtBookings.forEach(b => {
                                 let p = { rowId: b.rowId, forceSync: true };
                                 if (b.category === 'COMBO' || (b.serviceName && b.serviceName.includes('套餐'))) {
-                                    if (String(b.phase1_res_idx).toUpperCase() === tgtIdUpper) p.phase1_res_idx = srcIdUpper.toLowerCase();
-                                    if (String(b.phase2_res_idx).toUpperCase() === tgtIdUpper) p.phase2_res_idx = srcIdUpper.toLowerCase();
+                                    let newP1 = b.phase1_res_idx;
+                                    let newP2 = b.phase2_res_idx;
+                                    let p1Changed = false;
+                                    let p2Changed = false;
+
+                                    if (String(b.phase1_res_idx).toUpperCase() === tgtIdUpper) { newP1 = srcIdUpper.toLowerCase(); p1Changed = true; }
+                                    if (String(b.phase2_res_idx).toUpperCase() === tgtIdUpper) { newP2 = srcIdUpper.toLowerCase(); p2Changed = true; }
+
+                                    const isBed = (id) => id && (String(id).toUpperCase().includes('床') || String(id).toUpperCase().includes('BED'));
+                                    
+                                    if (newP1 && newP2 && isBed(newP1) === isBed(newP2)) {
+                                        if (p1Changed && !p2Changed) newP2 = tgtIdUpper.toLowerCase();
+                                        else if (p2Changed && !p1Changed) newP1 = tgtIdUpper.toLowerCase();
+                                    }
+
+                                    p.phase1_res_idx = newP1;
+                                    p.phase2_res_idx = newP2;
+                                    p.flow = isBed(newP1) ? 'BF' : 'FB';
                                 } else {
                                     p.current_resource_id = srcIdUpper.toLowerCase();
                                     p.location = srcIdUpper.toLowerCase();
@@ -3571,31 +3603,33 @@ const App = () => {
                             const bFlow = b.flow || 'FB';
                             const bPhase1IsChair = bFlow === 'FB';
                             
+                            const isBed = (id) => id && (String(id).toUpperCase().includes('床') || String(id).toUpperCase().includes('BED'));
+                            let newP1 = b.phase1_res_idx;
+                            let newP2 = b.phase2_res_idx;
+
                             if (payload.meta.phase === 1) {
-                                if ((bPhase1IsChair && isTargetBed) || (!bPhase1IsChair && !isTargetBed)) {
-                                    if (b.flow_code_locked === "TRUE" || b.flow_code_locked === true) {
-                                        Swal.fire('系統提示', '⚠️ 此客人已鎖定流程，無法更換至不同類型的座位！', 'warning');
-                                        return;
-                                    }
-                                    updateData.flow = bFlow === 'BF' ? 'FB' : 'BF';
-                                    updateData.phase1_res_idx = targetId;
-                                    updateData.phase2_res_idx = b.phase1_res_idx;
-                                } else {
-                                    updateData.phase1_res_idx = targetId;
-                                }
+                                newP1 = targetId;
                             } else {
-                                if ((!bPhase1IsChair && isTargetBed) || (bPhase1IsChair && !isTargetBed)) {
-                                    if (b.flow_code_locked === "TRUE" || b.flow_code_locked === true) {
-                                        Swal.fire('系統提示', '⚠️ 此客人已鎖定流程，無法更換至不同類型的座位！', 'warning');
-                                        return;
-                                    }
-                                    updateData.flow = bFlow === 'BF' ? 'FB' : 'BF';
-                                    updateData.phase1_res_idx = b.phase2_res_idx;
-                                    updateData.phase2_res_idx = targetId;
+                                newP2 = targetId;
+                            }
+
+                            // Tuyệt đối không để trùng loại tài nguyên
+                            if (newP1 && newP2 && isBed(newP1) === isBed(newP2)) {
+                                if (b.flow_code_locked === "TRUE" || b.flow_code_locked === true) {
+                                    Swal.fire('系統提示', '⚠️ 此客人已鎖定流程，無法更換至不同類型的座位！', 'warning');
+                                    return;
+                                }
+                                // Đảo pha còn lại
+                                if (payload.meta.phase === 1) {
+                                    newP2 = b.phase1_res_idx;
                                 } else {
-                                    updateData.phase2_res_idx = targetId;
+                                    newP1 = b.phase2_res_idx;
                                 }
                             }
+
+                            updateData.phase1_res_idx = newP1;
+                            updateData.phase2_res_idx = newP2;
+                            updateData.flow = isBed(newP1) ? 'BF' : 'FB';
                         } else {
                             updateData.current_resource_id = targetId;
                             updateData.location = targetId;
