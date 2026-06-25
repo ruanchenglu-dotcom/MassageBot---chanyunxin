@@ -3453,6 +3453,112 @@ const App = () => {
                 setControlCenterData(null);
                 break;
 
+            case 'SWAP_ENTIRE_ROWS':
+                if (payload.sourceRowId && payload.targetRowId) {
+                    const srcIdUpper = String(payload.sourceRowId).toUpperCase();
+                    const tgtIdUpper = String(payload.targetRowId).toUpperCase();
+                    
+                    if (srcIdUpper === tgtIdUpper) break;
+
+                    const bDateStrCurrent = viewDate.replace(/\//g, '-');
+                    
+                    const srcBookings = bookings.filter(x => {
+                        if (x.isDoneStatus) return false;
+                        const bDateStr = x.startTimeString ? x.startTimeString.split(' ')[0].replace(/\//g, '-') : '';
+                        if (bDateStr !== bDateStrCurrent) return false;
+                        
+                        let isSrc = false;
+                        if (x.category === 'COMBO' || (x.serviceName && x.serviceName.includes('套餐'))) {
+                            if (String(x.phase1_res_idx).toUpperCase() === srcIdUpper || String(x.phase2_res_idx).toUpperCase() === srcIdUpper) {
+                                isSrc = true;
+                            }
+                        } else {
+                            if (String(x.current_resource_id || x.location).toUpperCase() === srcIdUpper) {
+                                isSrc = true;
+                            }
+                        }
+                        return isSrc;
+                    });
+                    
+                    const tgtBookings = bookings.filter(x => {
+                        if (x.isDoneStatus) return false;
+                        const bDateStr = x.startTimeString ? x.startTimeString.split(' ')[0].replace(/\//g, '-') : '';
+                        if (bDateStr !== bDateStrCurrent) return false;
+                        
+                        let isTgt = false;
+                        if (x.category === 'COMBO' || (x.serviceName && x.serviceName.includes('套餐'))) {
+                            if (String(x.phase1_res_idx).toUpperCase() === tgtIdUpper || String(x.phase2_res_idx).toUpperCase() === tgtIdUpper) {
+                                isTgt = true;
+                            }
+                        } else {
+                            if (String(x.current_resource_id || x.location).toUpperCase() === tgtIdUpper) {
+                                isTgt = true;
+                            }
+                        }
+                        return isTgt;
+                    });
+
+                    const hasRunning = [...srcBookings, ...tgtBookings].some(b => b.isRunningStatus || b.status === 'DOING');
+                    if (hasRunning) {
+                        Swal.fire('系統提示', '⚠️ 無法互換！其中一張床有正在服務中的客人。', 'warning');
+                        return;
+                    }
+
+                    if (srcBookings.length === 0 && tgtBookings.length === 0) {
+                        Swal.fire('系統提示', '⚠️ 兩張床目前都沒有任何排程。', 'info');
+                        return;
+                    }
+
+                    Swal.fire({
+                        title: '系統確認',
+                        text: `您確定要互換 [${srcIdUpper}] 與 [${tgtIdUpper}] 的所有排程嗎？`,
+                        icon: 'question',
+                        showCancelButton: true,
+                        confirmButtonText: '確定',
+                        cancelButtonText: '取消'
+                    }).then((result) => {
+                        if (result.isConfirmed) {
+                            let batchPayloads = [];
+                            
+                            srcBookings.forEach(b => {
+                                let p = { rowId: b.rowId, forceSync: true };
+                                if (b.category === 'COMBO' || (b.serviceName && b.serviceName.includes('套餐'))) {
+                                    if (String(b.phase1_res_idx).toUpperCase() === srcIdUpper) p.phase1_res_idx = tgtIdUpper.toLowerCase();
+                                    if (String(b.phase2_res_idx).toUpperCase() === srcIdUpper) p.phase2_res_idx = tgtIdUpper.toLowerCase();
+                                } else {
+                                    p.current_resource_id = tgtIdUpper.toLowerCase();
+                                    p.location = tgtIdUpper.toLowerCase();
+                                }
+                                batchPayloads.push(p);
+                            });
+                            
+                            tgtBookings.forEach(b => {
+                                let p = { rowId: b.rowId, forceSync: true };
+                                if (b.category === 'COMBO' || (b.serviceName && b.serviceName.includes('套餐'))) {
+                                    if (String(b.phase1_res_idx).toUpperCase() === tgtIdUpper) p.phase1_res_idx = srcIdUpper.toLowerCase();
+                                    if (String(b.phase2_res_idx).toUpperCase() === tgtIdUpper) p.phase2_res_idx = srcIdUpper.toLowerCase();
+                                } else {
+                                    p.current_resource_id = srcIdUpper.toLowerCase();
+                                    p.location = srcIdUpper.toLowerCase();
+                                }
+                                batchPayloads.push(p);
+                            });
+
+                            if (batchPayloads.length > 0) {
+                                Swal.fire({ title: '系統正在互換排程...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
+                                universalSend('/api/batch-process-bookings', { payloads: batchPayloads }).then((res) => {
+                                    Swal.fire('系統提示', '互換成功！', 'success');
+                                    fetchData(true);
+                                }).catch(err => {
+                                    Swal.fire('系統提示', "⚠️ 儲存失敗！請檢查網路連線。", 'warning');
+                                    fetchData(true);
+                                });
+                            }
+                        }
+                    });
+                }
+                break;
+
             case 'MOVE_BOOKING_ROW':
                 if (payload.currentBookingId && payload.targetRowId) {
                     const b = Array.isArray(bookings) ? bookings.find(x => String(x.rowId) === String(payload.currentBookingId)) : null;

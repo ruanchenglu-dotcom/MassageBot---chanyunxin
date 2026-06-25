@@ -1844,14 +1844,29 @@ const TimelineView = ({ timelineData, onEditPhase, liveStatusData, staffList, st
                                             const dataStr = e.dataTransfer.getData('text/plain');
                                             if (dataStr) {
                                                 const data = JSON.parse(dataStr);
-                                                if (data.sourceRowId !== row.id && onEditPhase) {
+                                                if (data.type === 'ROW_SWAP') {
+                                                    if (data.sourceRowId !== row.id && onEditPhase) {
+                                                        onEditPhase('SWAP_ENTIRE_ROWS', { sourceRowId: data.sourceRowId, targetRowId: row.id });
+                                                    }
+                                                } else if (data.sourceRowId !== row.id && onEditPhase) {
                                                     onEditPhase('MOVE_BOOKING_ROW', { currentBookingId: data.bookingId, sourceRowId: data.sourceRowId, targetRowId: row.id, meta: data.meta });
                                                 }
                                             }
                                         } catch (err) { console.error('Drag drop parse error:', err); }
                                     }}
                                 >
-                                    <div className={`sticky left-0 z-20 shrink-0 border-r border-slate-300 flex items-center justify-center font-bold text-sm shadow-[2px_0_5px_rgba(0,0,0,0.05)] ${row.type === 'chair' ? 'bg-teal-50 text-teal-800' : 'bg-purple-50 text-purple-800'}`} style={{ width: `${LEFT_COL_WIDTH}px` }}>{row.label}</div>
+                                    <div 
+                                        className={`sticky left-0 z-20 shrink-0 border-r border-slate-300 flex items-center justify-center font-bold text-sm shadow-[2px_0_5px_rgba(0,0,0,0.05)] ${row.type === 'chair' ? 'bg-teal-50 text-teal-800' : 'bg-purple-50 text-purple-800'} cursor-grab active:cursor-grabbing hover:opacity-80 transition-opacity`} 
+                                        style={{ width: `${LEFT_COL_WIDTH}px` }}
+                                        draggable={true}
+                                        title="拖曳此處以互換整排客人"
+                                        onDragStart={(e) => {
+                                            e.dataTransfer.setData('text/plain', JSON.stringify({
+                                                type: 'ROW_SWAP',
+                                                sourceRowId: row.id
+                                            }));
+                                        }}
+                                    >{row.label}</div>
                                     <div className="relative flex-1 h-full">
                                         <div className="absolute inset-0 flex pointer-events-none z-0">{hours.map(h => (<div key={h} className="shrink-0 border-r border-slate-200 h-full border-dashed" style={{ width: `${HOUR_WIDTH}px` }}></div>))}</div>
                                         {safeData[row.id] && safeData[row.id].map((slot, idx) => {
