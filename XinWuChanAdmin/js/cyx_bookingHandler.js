@@ -1183,7 +1183,8 @@
                     processedB.blocks.push({ start: bStart, end: bStart + realDuration + CONF.CLEANUP_BUFFER, type: rType, forcedIndex: forcedIdx });
                 }
                 const bLoc = b.originalData?.location || b.location || '本館';
-                if (bLoc === locationStr) {
+                const isResourceStr = /(BED|CHAIR|床|足|腳)[-_ ]?\d+/i.test(bLoc);
+                if (bLoc === locationStr || isResourceStr) {
                     existingBookingsProcessed.push(processedB);
                 }
             });
