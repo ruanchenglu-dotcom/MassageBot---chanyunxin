@@ -4052,55 +4052,12 @@ const App = () => {
                                     if (!multiSwapSuccess) {
                                         Swal.fire({
                                             title: '系統提示',
-                                            text: '⚠️ 發現目標位置的客人已鎖定座位或存在衝突。是否強制執行換位排程？',
+                                            text: '⚠️ 無法換位：目標位置的客人已鎖定座位，且沒有其他合適的空位可供安排。',
                                             icon: 'warning',
-                                            showCancelButton: true,
                                             confirmButtonColor: '#3085d6',
-                                            cancelButtonColor: '#d33',
-                                            confirmButtonText: '強制換位',
-                                            cancelButtonText: '取消'
-                                        }).then((result) => {
-                                            if (result.isConfirmed) {
-                                                let forcedBatchPayloads = [];
-                                                for (let t of swapGroupT.values()) {
-                                                    let p = { rowId: t.rowId, forceSync: true };
-                                                    let isSCombo = t.category === 'COMBO' || (t.serviceName && t.serviceName.includes('套餐')) || t.flow === 'FB' || t.flow === 'BF';
-                                                    if (isSCombo) {
-                                                        const p1Id = String(t.phase1_res_idx || '').trim().toUpperCase();
-                                                        const p2Id = String(t.phase2_res_idx || '').trim().toUpperCase();
-                                                        if (p1Id === String(targetIdUpper).trim()) p.phase1_res_idx = String(bSourceId).toLowerCase();
-                                                        if (p2Id === String(targetIdUpper).trim()) p.phase2_res_idx = String(bSourceId).toLowerCase();
-                                                    } else {
-                                                        p.current_resource_id = String(bSourceId).toLowerCase();
-                                                        p.location = String(bSourceId).toLowerCase();
-                                                    }
-                                                    forcedBatchPayloads.push(p);
-                                                }
-                                                for (let s of swapGroupS.values()) {
-                                                    let p = { rowId: s.rowId, forceSync: true };
-                                                    let isSCombo = s.category === 'COMBO' || (s.serviceName && s.serviceName.includes('套餐')) || s.flow === 'FB' || s.flow === 'BF';
-                                                    if (isSCombo) {
-                                                        const p1Id = String(s.phase1_res_idx || '').trim().toUpperCase();
-                                                        const p2Id = String(s.phase2_res_idx || '').trim().toUpperCase();
-                                                        if (p1Id === String(bSourceId).trim()) p.phase1_res_idx = String(targetIdUpper).toLowerCase();
-                                                        if (p2Id === String(bSourceId).trim()) p.phase2_res_idx = String(targetIdUpper).toLowerCase();
-                                                    } else {
-                                                        p.current_resource_id = String(targetIdUpper).toLowerCase();
-                                                        p.location = String(targetIdUpper).toLowerCase();
-                                                    }
-                                                    forcedBatchPayloads.push(p);
-                                                }
-                                                forcedBatchPayloads.push(updateData);
-                                                
-                                                Swal.fire({ title: '強制換位中，請稍候...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
-                                                universalSend('/api/batch-process-bookings', { payloads: forcedBatchPayloads }).then((res) => {
-                                                    Swal.close();
-                                                    fetchData(true);
-                                                }).catch(err => {
-                                                    Swal.fire('系統提示', "⚠️ 儲存失敗！請檢查網路連線。", 'warning');
-                                                    fetchData(true);
-                                                });
-                                            }
+                                            confirmButtonText: '確定'
+                                        }).then(() => {
+                                            fetchData(true);
                                         });
                                         return;
                                     } else {
