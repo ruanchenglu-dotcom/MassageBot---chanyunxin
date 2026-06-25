@@ -1261,7 +1261,7 @@ const App = () => {
                 const comboSubGroup = [];
                 group.forEach(b => {
                     const isForceSingle = b.forceResourceType !== null;
-                    const isCombo = !isForceSingle && (b.category === 'COMBO' || (b.serviceName && b.serviceName.includes('套餐')));
+                    const isCombo = !isForceSingle && (b.category === 'COMBO' || (b.serviceName && b.serviceName.includes('套餐')) || b.flow === 'FB' || b.flow === 'BF');
                     
                     if (isCombo) {
                         comboSubGroup.push(b);
@@ -1447,7 +1447,7 @@ const App = () => {
                     const pos = activeGridPositions[rId];
                     if (!pos) return;
 
-                    const isCombo = b.category === 'COMBO' || (b.serviceName && b.serviceName.includes('套餐'));
+                    const isCombo = b.category === 'COMBO' || (b.serviceName && b.serviceName.includes('套餐')) || b.flow === 'FB' || b.flow === 'BF';
 
                     if (isCombo && pos.p1 && pos.p2) {
                         const sheetP1 = (b.phase1_res_idx || '').toUpperCase();
@@ -2942,7 +2942,7 @@ const App = () => {
         const current = resourceState[id]; if (!current) return;
         if (action === 'start') {
             const isStrict = current.booking.isForcedSingle === true;
-            const isCombo = !isStrict && (current.booking.category === 'COMBO' || (current.booking.serviceName && current.booking.serviceName.includes('套餐')));
+            const isCombo = !isStrict && (current.booking.category === 'COMBO' || (current.booking.serviceName && current.booking.serviceName.includes('套餐')) || current.booking.flow === 'FB' || current.booking.flow === 'BF');
 
             if (isCombo && !current.isRunning) { setComboStartData({ id, booking: current.booking }); return; }
             executeStart(id, null);
