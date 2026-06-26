@@ -247,8 +247,29 @@
     // 5. SẮP XẾP & HIỂN THỊ (UI RENDERING)
     // ========================================================================
 
+    window.normalizeResourceId = (rawId) => {
+        if (!rawId) return rawId;
+        let id = String(rawId).toUpperCase().trim();
+        let match = id.match(/\d+/g);
+        let num = match && match.length > 0 ? match[match.length - 1] : '';
+        if (!num) return id; 
+        
+        let isOpp = id.includes('OPP') || id.includes('對') || id.includes('2-');
+        let isChair = id.includes('CHAIR') || id.includes('腳');
+        let isBed = id.includes('BED') || id.includes('床') || id.includes('本');
+        
+        if (!isChair && !isBed) {
+             if (id.includes('本') || id.includes('對')) isBed = true; 
+             else isChair = true; 
+        }
+        
+        let building = isOpp ? '2' : '1';
+        let type = isChair ? 'CHAIR' : 'BED';
+        return `${type}-${building}-${num}`;
+    };
+
     /**
-     * Chuyển đổi ID tài nguyên (chair-1, opp-bed-1) thành nhãn hiển thị chính thức
+     * Chuyển đổi ID tài nguyên (CHAIR-1-1, BED-2-1) thành nhãn hiển thị chính thức
      * Dựa trên cấu hình UI_LABELS
      */
     window.formatResourceLabel = (rid, includeEmoji = false) => {
@@ -259,19 +280,19 @@
         const c2 = config.CHAIR_PREFIX2 || '腳2-';
         const b2 = config.BED_PREFIX2 || '床2-';
         
-        let res = rid;
+        let res = window.normalizeResourceId(rid);
         let emoji = '';
-        if (res.startsWith('opp-chair-')) {
-            res = res.replace('opp-chair-', c2);
+        if (res.startsWith('CHAIR-1-')) {
+            res = res.replace('CHAIR-1-', c1);
             emoji = '👣 ';
-        } else if (res.startsWith('opp-bed-')) {
-            res = res.replace('opp-bed-', b2);
+        } else if (res.startsWith('BED-1-')) {
+            res = res.replace('BED-1-', b1);
             emoji = '🛏️ ';
-        } else if (res.startsWith('chair-')) {
-            res = res.replace('chair-', c1);
+        } else if (res.startsWith('CHAIR-2-')) {
+            res = res.replace('CHAIR-2-', c2);
             emoji = '👣 ';
-        } else if (res.startsWith('bed-')) {
-            res = res.replace('bed-', b1);
+        } else if (res.startsWith('BED-2-')) {
+            res = res.replace('BED-2-', b2);
             emoji = '🛏️ ';
         }
         

@@ -1583,10 +1583,10 @@ const TimelineView = ({ timelineData, onEditPhase, liveStatusData, staffList, st
         const maxBeds = window.SYSTEM_CONFIG?.SCALE?.MAX_BEDS || 6;
         const oppChairs = window.SYSTEM_CONFIG?.SCALE?.OPP_CHAIRS || 4;
         const oppBeds = window.SYSTEM_CONFIG?.SCALE?.OPP_BEDS || 6;
-        for (let i = 1; i <= maxChairs; i++) allSlots.push(`chair-${i}`);
-        for (let i = 1; i <= maxBeds; i++) allSlots.push(`bed-${i}`);
-        for (let i = 1; i <= oppChairs; i++) allSlots.push(`opp-chair-${i}`);
-        for (let i = 1; i <= oppBeds; i++) allSlots.push(`opp-bed-${i}`);
+        for (let i = 1; i <= maxChairs; i++) allSlots.push(`CHAIR-1-${i}`);
+        for (let i = 1; i <= maxBeds; i++) allSlots.push(`BED-1-${i}`);
+        for (let i = 1; i <= oppChairs; i++) allSlots.push(`CHAIR-2-${i}`);
+        for (let i = 1; i <= oppBeds; i++) allSlots.push(`BED-2-${i}`);
         const groupSlots = allSlots.filter(slotId => {
             const res = liveStatusData[slotId];
             return res && res.booking && String(res.booking.rowId) === String(targetRowId);
@@ -1696,15 +1696,15 @@ const TimelineView = ({ timelineData, onEditPhase, liveStatusData, staffList, st
         const numChairs = getMaxChairs();
         const numBeds = getMaxBeds();
         rows = [
-            ...Array.from({ length: numChairs }, (_, i) => ({ id: `chair-${i + 1}`, label: `${c_prefix}${i + 1}`, type: 'chair' })),
-            ...Array.from({ length: numBeds }, (_, i) => ({ id: `bed-${i + 1}`, label: `${b_prefix}${i + 1}`, type: 'bed' }))
+            ...Array.from({ length: numChairs }, (_, i) => ({ id: `CHAIR-1-${i + 1}`, label: `${c_prefix}${i + 1}`, type: 'chair' })),
+            ...Array.from({ length: numBeds }, (_, i) => ({ id: `BED-1-${i + 1}`, label: `${b_prefix}${i + 1}`, type: 'bed' }))
         ];
     } else {
         const oppChairs = getOppChairs();
         const oppBeds = getOppBeds();
         rows = [
-            ...Array.from({ length: oppChairs }, (_, i) => ({ id: `opp-chair-${i + 1}`, label: `${c_prefix}${i + 1}`, type: 'chair' })),
-            ...Array.from({ length: oppBeds }, (_, i) => ({ id: `opp-bed-${i + 1}`, label: `${b_prefix}${i + 1}`, type: 'bed' }))
+            ...Array.from({ length: oppChairs }, (_, i) => ({ id: `CHAIR-2-${i + 1}`, label: `${c_prefix}${i + 1}`, type: 'chair' })),
+            ...Array.from({ length: oppBeds }, (_, i) => ({ id: `BED-2-${i + 1}`, label: `${b_prefix}${i + 1}`, type: 'bed' }))
         ];
     }
 

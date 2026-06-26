@@ -137,9 +137,10 @@ const MatrixHelper = {
     },
     countAvailableResources: (type, start, end, gridState, reservedTimes, ignoreRowId = null) => {
         let count = 0;
-        const limit = type.includes('chair') ? window.SYSTEM_CONFIG.SCALE.MAX_CHAIRS : window.SYSTEM_CONFIG.SCALE.MAX_BEDS;
+        const typeUp = type.toUpperCase();
+        const limit = typeUp.includes('CHAIR') ? window.SYSTEM_CONFIG.SCALE.MAX_CHAIRS : window.SYSTEM_CONFIG.SCALE.MAX_BEDS;
         for (let i = 1; i <= limit; i++) {
-            const id = `${type}-${i}`;
+            const id = `${typeUp.includes('CHAIR') ? 'CHAIR' : 'BED'}-1-${i}`;
             if (reservedTimes[id] && start < reservedTimes[id]) continue;
             let isClash = false;
             if (gridState[id]) {
@@ -156,18 +157,19 @@ const MatrixHelper = {
         return count;
     },
     findBestSlot: (type, start, end, gridState, reservedTimes, preferredIndexOrId = null, ignoreRowId = null, preferOpposite = false) => {
-        const limitMain = type.includes('chair') ? (window.SYSTEM_CONFIG?.SCALE?.MAX_CHAIRS || 6) : (window.SYSTEM_CONFIG?.SCALE?.MAX_BEDS || 6);
-        const limitOpp = type.includes('chair') ? (window.SYSTEM_CONFIG?.SCALE?.OPP_CHAIRS || 4) : (window.SYSTEM_CONFIG?.SCALE?.OPP_BEDS || 6);
+        const typeUp = type.toUpperCase().includes('CHAIR') ? 'CHAIR' : 'BED';
+        const limitMain = typeUp === 'CHAIR' ? (window.SYSTEM_CONFIG?.SCALE?.MAX_CHAIRS || 6) : (window.SYSTEM_CONFIG?.SCALE?.MAX_BEDS || 6);
+        const limitOpp = typeUp === 'CHAIR' ? (window.SYSTEM_CONFIG?.SCALE?.OPP_CHAIRS || 4) : (window.SYSTEM_CONFIG?.SCALE?.OPP_BEDS || 6);
 
         if (preferredIndexOrId) {
             let id;
             if (typeof preferredIndexOrId === 'string' && preferredIndexOrId.includes('-')) {
                 id = preferredIndexOrId;
             } else {
-                id = preferOpposite ? `opp-${type}-${preferredIndexOrId}` : `${type}-${preferredIndexOrId}`;
+                id = preferOpposite ? `${typeUp}-2-${preferredIndexOrId}` : `${typeUp}-1-${preferredIndexOrId}`;
             }
 
-            if (id.includes(type)) {
+            if (id.includes(typeUp)) {
                 let valid = true;
                 if (reservedTimes[id] && start < reservedTimes[id]) valid = false;
                 if (valid && gridState[id]) {
@@ -200,20 +202,20 @@ const MatrixHelper = {
 
         if (preferOpposite) {
             for (let i = 1; i <= limitOpp; i++) {
-                const id = `opp-${type}-${i}`;
+                const id = `${typeUp}-2-${i}`;
                 if (checkSlot(id)) return id;
             }
             for (let i = 1; i <= limitMain; i++) {
-                const id = `${type}-${i}`;
+                const id = `${typeUp}-1-${i}`;
                 if (checkSlot(id)) return id;
             }
         } else {
             for (let i = 1; i <= limitMain; i++) {
-                const id = `${type}-${i}`;
+                const id = `${typeUp}-1-${i}`;
                 if (checkSlot(id)) return id;
             }
             for (let i = 1; i <= limitOpp; i++) {
-                const id = `opp-${type}-${i}`;
+                const id = `${typeUp}-2-${i}`;
                 if (checkSlot(id)) return id;
             }
         }
@@ -379,10 +381,10 @@ const App = () => {
         const maxBeds = window.SYSTEM_CONFIG?.SCALE?.MAX_BEDS || 6;
         const oppChairs = window.SYSTEM_CONFIG?.SCALE?.OPP_CHAIRS || 4;
         const oppBeds = window.SYSTEM_CONFIG?.SCALE?.OPP_BEDS || 6;
-        for (let i = 1; i <= maxChairs; i++) allSlots.push(`chair-${i}`);
-        for (let i = 1; i <= maxBeds; i++) allSlots.push(`bed-${i}`);
-        for (let i = 1; i <= oppChairs; i++) allSlots.push(`opp-chair-${i}`);
-        for (let i = 1; i <= oppBeds; i++) allSlots.push(`opp-bed-${i}`);
+        for (let i = 1; i <= maxChairs; i++) allSlots.push(`CHAIR-1-${i}`);
+        for (let i = 1; i <= maxBeds; i++) allSlots.push(`BED-1-${i}`);
+        for (let i = 1; i <= oppChairs; i++) allSlots.push(`CHAIR-2-${i}`);
+        for (let i = 1; i <= oppBeds; i++) allSlots.push(`BED-2-${i}`);
         const groupSlots = allSlots.filter(slotId => {
             const res = resourceState[slotId];
             return res && res.booking && String(res.booking.rowId) === String(targetRowId);
@@ -1054,18 +1056,18 @@ const App = () => {
 
                     let targetResId = null;
                     if (b.storedLocation && !nextResourceState[b.storedLocation]) {
-                        if (/^(opp-)?(chair|bed)-\d$/.test(b.storedLocation)) {
+                        if (/^(CHAIR|BED)-[12]-\d+$/i.test(b.storedLocation)) {
                             targetResId = b.storedLocation;
                         }
                     }
 
                     if (!targetResId) {
-                        const type = (b.forceResourceType === 'BED' || b.flow === 'BODYSINGLE') ? 'bed' : 'chair';
+                        const type = (b.forceResourceType === 'BED' || b.flow === 'BODYSINGLE') ? 'BED' : 'CHAIR';
                         const isOpp = b.location === '對面館';
-                        const prefix = isOpp ? `opp-${type}` : type;
+                        const prefix = `${type}-${isOpp ? '2' : '1'}`;
                         const limit = isOpp 
-                            ? (type === 'chair' ? (window.SYSTEM_CONFIG?.SCALE?.OPP_CHAIRS || 4) : (window.SYSTEM_CONFIG?.SCALE?.OPP_BEDS || 6))
-                            : (type === 'chair' ? (window.SYSTEM_CONFIG?.SCALE?.MAX_CHAIRS || 6) : (window.SYSTEM_CONFIG?.SCALE?.MAX_BEDS || 6));
+                            ? (type === 'CHAIR' ? (window.SYSTEM_CONFIG?.SCALE?.OPP_CHAIRS || 4) : (window.SYSTEM_CONFIG?.SCALE?.OPP_BEDS || 6))
+                            : (type === 'CHAIR' ? (window.SYSTEM_CONFIG?.SCALE?.MAX_CHAIRS || 6) : (window.SYSTEM_CONFIG?.SCALE?.MAX_BEDS || 6));
                             
                         for (let i = 1; i <= limit; i++) {
                             const tid = `${prefix}-${i}`;
@@ -1119,7 +1121,7 @@ const App = () => {
                     if (isComboSvc && !isStrict && !tempState[key].comboMeta) {
                         const seq = b.flow || 'FB';
                         let determinedPhase = 1;
-                        const isChair = key.includes('chair');
+                        const isChair = key.toUpperCase().includes('CHAIR');
                         if ((seq === 'FB' && isChair) || (seq === 'BF' && !isChair)) {
                             determinedPhase = 1;
                         } else {
@@ -1141,7 +1143,7 @@ const App = () => {
                         if (tempState[key].comboMeta.phase !== undefined) {
                             isPhase1 = (tempState[key].comboMeta.phase === 1);
                         } else {
-                            isPhase1 = (seq === 'FB' && key.includes('chair')) || (seq === 'BF' && key.includes('bed'));
+                            isPhase1 = (seq === 'FB' && key.toUpperCase().includes('CHAIR')) || (seq === 'BF' && key.toUpperCase().includes('BED'));
                             tempState[key].comboMeta.phase = isPhase1 ? 1 : 2;
                         }
 
@@ -1168,7 +1170,7 @@ const App = () => {
                 const item = tempState[key];
                 if (item.comboMeta && !item.booking.isForcedSingle) {
                     const seq = item.comboMeta.sequence || 'FB';
-                    const isChair = key.includes('chair');
+                    const isChair = key.toUpperCase().includes('CHAIR');
 
                     let isPhase1 = false;
                     if (item.comboMeta.phase !== undefined) {
@@ -1374,10 +1376,10 @@ const App = () => {
             const maxBeds = window.SYSTEM_CONFIG?.SCALE?.MAX_BEDS || 6;
             const oppChairs = window.SYSTEM_CONFIG?.SCALE?.OPP_CHAIRS || 4;
             const oppBeds = window.SYSTEM_CONFIG?.SCALE?.OPP_BEDS || 6;
-            for (let i = 1; i <= maxChairs; i++) allSlots.push(`chair-${i}`);
-            for (let i = 1; i <= maxBeds; i++) allSlots.push(`bed-${i}`);
-            for (let i = 1; i <= oppChairs; i++) allSlots.push(`opp-chair-${i}`);
-            for (let i = 1; i <= oppBeds; i++) allSlots.push(`opp-bed-${i}`);
+            for (let i = 1; i <= maxChairs; i++) allSlots.push(`CHAIR-1-${i}`);
+            for (let i = 1; i <= maxBeds; i++) allSlots.push(`BED-1-${i}`);
+            for (let i = 1; i <= oppChairs; i++) allSlots.push(`CHAIR-2-${i}`);
+            for (let i = 1; i <= oppBeds; i++) allSlots.push(`BED-2-${i}`);
 
             allSlots.forEach(resId => {
                 if (tempState[resId]) return;
@@ -2480,7 +2482,6 @@ const App = () => {
         let designatedStaff = current.booking.serviceStaff || current.booking.staffId || current.booking.ServiceStaff || current.booking.technician || current.booking.requestedStaff;
         if (!designatedStaff || designatedStaff === 'undefined' || designatedStaff === 'null') designatedStaff = '隨機';
 
-        // Cẩn thận normalize lại (dù đã normalize từ đầu)
         designatedStaff = normalizeStaffId(designatedStaff);
 
         let finalServiceStaff = designatedStaff;
@@ -2500,9 +2501,9 @@ const App = () => {
         if (isComboService) {
             if (!comboSequence) {
                 if (!current.booking.flow || current.booking.flow === 'null') {
-                    const physicalType = currentId.split('-')[0];
-                    if (physicalType === 'bed') actualSeq = 'BF';
-                    else if (physicalType === 'chair') actualSeq = 'FB';
+                    const physicalType = currentId.split('-')[0].toUpperCase();
+                    if (physicalType === 'BED') actualSeq = 'BF';
+                    else if (physicalType === 'CHAIR') actualSeq = 'FB';
                 } else {
                     actualSeq = current.booking.flow;
                 }
@@ -2515,12 +2516,12 @@ const App = () => {
                 }
 
                 if (ghostTargetId) {
-                    const currentPhysicalType = currentId.split('-')[0];
-                    const targetPhysicalType = ghostTargetId.split('-')[0];
+                    const currentPhysicalType = currentId.split('-')[0].toUpperCase();
+                    const targetPhysicalType = ghostTargetId.split('-')[0].toUpperCase();
                     if (currentPhysicalType === targetPhysicalType) {
                         if (!silentMode) {
-                            const c_prefix = window.SYSTEM_CONFIG?.UI_LABELS?.CHAIR_PREFIX || '腳';
-                            Swal.fire('系統提示', `⚠️ 預約錯誤: Phase 1 (${currentPhysicalType === 'chair' ? c_prefix + '部' : '身體'}) 和 Phase 2 (${targetPhysicalType === 'chair' ? c_prefix + '部' : '身體'}) 不能在同一個區域！\n(套餐必須包含一個床位和一個${c_prefix}部區)\n請重新調整座位！`, 'warning');
+                            const c_prefix = window.SYSTEM_CONFIG?.UI_LABELS?.CHAIR_PREFIX1 || '腳';
+                            Swal.fire('系統提示', `⚠️ 預約錯誤: Phase 1 (${currentPhysicalType === 'CHAIR' ? c_prefix + '部' : '身體'}) 和 Phase 2 (${targetPhysicalType === 'CHAIR' ? c_prefix + '部' : '身體'}) 不能在同一個區域！\n(套餐必須包含一個床位和一個${c_prefix}部區)\n請重新調整座位！`, 'warning');
                         }
                         setSyncLock(false);
                         return;
@@ -2538,7 +2539,7 @@ const App = () => {
 
         if (comboSequence && !isStrict) {
             const currentType = id.split('-')[0];
-            const targetType = comboSequence === 'BF' ? 'bed' : 'chair';
+            const targetType = comboSequence === 'BF' ? 'BED' : 'CHAIR';
 
             if ((comboSequence === 'BF' && currentType === 'chair') ||
                 (comboSequence === 'FB' && currentType === 'bed')) {
@@ -2554,10 +2555,10 @@ const App = () => {
             }
         } else if (isStrict) {
             const type = id.split('-')[0];
-            const force = current.booking.forceResourceType === 'CHAIR' ? 'chair' : 'bed';
-            if (type !== force) {
-                const c_prefix = window.SYSTEM_CONFIG?.UI_LABELS?.CHAIR_PREFIX || '腳';
-                if (!silentMode) Swal.fire('系統提示', `⚠️ 位置錯誤：此顧客必須安排在 ${force === 'chair' ? c_prefix + '部區' : '身體區'}!`, 'warning');
+            const force = current.booking.forceResourceType === 'CHAIR' ? 'CHAIR' : 'BED';
+            if (force !== type.toUpperCase()) {
+                const c_prefix = window.SYSTEM_CONFIG?.UI_LABELS?.CHAIR_PREFIX1 || '腳';
+                if (!silentMode) Swal.fire('系統提示', `⚠️ 位置錯誤：此顧客必須安排在 ${force === 'CHAIR' ? c_prefix + '部區' : '身體區'}!`, 'warning');
                 setSyncLock(false);
                 return;
             }
@@ -2565,7 +2566,7 @@ const App = () => {
 
         if (['隨機', '男', '女', 'Oil'].some(k => designatedStaff.includes(k))) {
             if (!staffList || staffList.length === 0) {
-                if (!silentMode) Swal.fire('系統提示', "⚠️ 員工資料為空，請稍後再試！", 'warning');
+                if (!silentMode) Swal.fire('系統提示', "⚠️ 員工資料為空，請稍後再試！`, 'warning');
                 setSyncLock(false); return;
             }
 
@@ -2584,7 +2585,6 @@ const App = () => {
             const openHour = window.SYSTEM_CONFIG?.OPERATION_TIME?.OPEN_HOUR || 5;
             const currentMins = nowObj.getHours() * 60 + nowObj.getMinutes() + (nowObj.getHours() < openHour ? 1440 : 0);
 
-            // GỌI THUẬT TOÁN TỪ SSOT
             let foundStaff = null;
             if (window.StaffSorter && window.StaffSorter.findBestStaffForSingle) {
                 foundStaff = window.StaffSorter.findBestStaffForSingle(current.booking, readyCandidates, statusData, bookings, currentMins);
@@ -2601,12 +2601,10 @@ const App = () => {
             finalServiceStaff = normalizeStaffId(foundStaff.id);
         }
 
-        // [V118 SSOT] Gọi cổng API quản lý vòng đời (Stage 2: Start Work)
         let newStatusData = statusData;
         if (window.StaffSorter?.processStartWork) {
             newStatusData = await window.StaffSorter.processStartWork([finalServiceStaff], statusData, Date.now());
         } else {
-            // Fallback nếu thiếu Module
             const currentStaffTime = statusData[finalServiceStaff]?.stafftime || Date.now();
             newStatusData = {
                 ...statusData,
@@ -2704,7 +2702,6 @@ const App = () => {
         allItemsToStart.forEach(item => {
             if (!item.booking) return;
 
-            // [NÂNG CẤP V1.5] BẢO TOÀN TUYỆT ĐỐI TÀI NGUYÊN ĐÃ XẾP SẴN TRÊN GOOGLE SHEETS
             const sheetP1 = item.booking.phase1_res_idx;
             if (sheetP1 && sheetP1 !== '隨機' && sheetP1 !== 'undefined' && sheetP1 !== '') {
                 item.resourceId = sheetP1.toLowerCase();
@@ -2749,7 +2746,6 @@ const App = () => {
         const openHour = window.SYSTEM_CONFIG?.OPERATION_TIME?.OPEN_HOUR || 5;
         const currentMins = nowObj.getHours() * 60 + nowObj.getMinutes() + (nowObj.getHours() < openHour ? 1440 : 0);
 
-        // GỌI THUẬT TOÁN TỪ SSOT
         let assignments = {};
         if (window.StaffSorter && window.StaffSorter.assignStaffForBatch) {
             assignments = window.StaffSorter.assignStaffForBatch(validItems, readyCandidates, nextStatusData, bookings, currentMins);
@@ -2761,21 +2757,17 @@ const App = () => {
         let failedToStartCount = 0;
         const unassignedItems = [];
 
-        // [V116.8 LỖI SẮP XẾP] Sắp xếp lại validItems theo thời gian dòng chờ (stafftime cũ)
-        // Ai chờ lâu nhất (stafftime nhỏ nhất) sẽ đứng trước để được cấp mốc thời gian MỚI nhỏ nhất.
         validItems.sort((a, b) => {
             const staffA = normalizeStaffId(assignments[a.resourceId]);
             const staffB = normalizeStaffId(assignments[b.resourceId]);
             const timeA = nextStatusData[staffA]?.stafftime || Number.MAX_SAFE_INTEGER;
             const timeB = nextStatusData[staffB]?.stafftime || Number.MAX_SAFE_INTEGER;
-            if (timeA !== timeB) return timeA - timeB; // Tăng dần (nhỏ nhất / chờ lâu nhất đứng đầu)
-            // [V116.9 LỖI ĐẢO CHIỀU] Phân định (Tie-breaker) bắt buộc khi 2 thẻ bấm Ready cùng lúc
+            if (timeA !== timeB) return timeA - timeB; 
             return window.sortIdAsc ? window.sortIdAsc({ id: staffA }, { id: staffB }) : 0;
         });
 
         const baseNow = Date.now();
 
-        // [V118 SSOT] Xử lý cập nhật State theo Batch qua API processStartWork
         const staffListToStart = [];
         validItems.forEach(item => {
             const fStaff = normalizeStaffId(assignments[item.resourceId]);
@@ -2789,9 +2781,8 @@ const App = () => {
 
         if (window.StaffSorter?.processStartWork && staffListToStart.length > 0) {
             const updatedStatusData = await window.StaffSorter.processStartWork(staffListToStart, nextStatusData, baseNow);
-            Object.assign(nextStatusData, updatedStatusData); // Apply vào nextStatusData
+            Object.assign(nextStatusData, updatedStatusData); 
         } else {
-            // Fallback nếu thiếu Module
             staffListToStart.forEach((sId, index) => {
                 const currentStaffTime = nextStatusData[sId]?.stafftime || baseNow;
                 nextStatusData[sId] = {
@@ -2803,7 +2794,6 @@ const App = () => {
             });
         }
 
-        // Gom payload cập nhật Google Sheets
         const batchPayloads = [];
 
         validItems.forEach((item, index) => {
@@ -2844,9 +2834,9 @@ const App = () => {
 
             if (isComboService) {
                 if (!current.booking.flow || current.booking.flow === 'null') {
-                    const physicalType = resourceId.split('-')[0];
-                    if (physicalType === 'bed') actualSeq = 'BF';
-                    else if (physicalType === 'chair') actualSeq = 'FB';
+                    const physicalType = resourceId.split('-')[0].toUpperCase();
+                    if (physicalType === 'BED') actualSeq = 'BF';
+                    else if (physicalType === 'CHAIR') actualSeq = 'FB';
                 } else {
                     actualSeq = current.booking.flow;
                 }
@@ -2909,7 +2899,6 @@ const App = () => {
                 };
             }
 
-            // [V118 PATCH] Đẩy vào danh sách GOM NHÓM (Batch)
             batchPayloads.push({
                 rowId: current.booking.rowId,
                 [primaryKey]: finalServiceStaff,

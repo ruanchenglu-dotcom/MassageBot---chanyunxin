@@ -40,6 +40,18 @@ const SYSTEM_CONFIG = {
         BLACKLIST_SHEET_NAME: '黑名單',     // Danh sách đen khách hàng
     },
 
+    // Định dạng ID Tài nguyên Chuẩn
+    RESOURCE_FORMAT: {
+        MAIN: {
+            CHAIR_PREFIX: 'CHAIR-1-',
+            BED_PREFIX: 'BED-1-'
+        },
+        OPP: {
+            CHAIR_PREFIX: 'CHAIR-2-',
+            BED_PREFIX: 'BED-2-'
+        }
+    },
+
     // Quy mô chi nhánh
     SCALE: {
         MAX_CHAIRS: 6, // Số lượng ghế (腳) - 本館

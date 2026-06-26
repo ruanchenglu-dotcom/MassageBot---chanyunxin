@@ -71,6 +71,32 @@ const SERVICES_DATA = require('./cyx_data.js').SERVICES_DATA;
 // --- CONFIGURATION ---
 const SHEET_ID = process.env.SHEET_ID;
 
+function normalizeResourceId(id) {
+    if (!id || typeof id !== 'string') return id;
+    let rId = id.toUpperCase();
+    if (rId.includes('OPP-CHAIR') || rId.includes('OPP_CHAIR') || rId.includes('OPP-腳') || rId.includes('對面-腳') || rId.match(/^對面館.*腳/)) {
+        let numMatch = rId.match(/\d+/);
+        return `CHAIR-2-${numMatch ? numMatch[0] : '1'}`;
+    }
+    if (rId.includes('OPP-BED') || rId.includes('OPP_BED') || rId.includes('OPP-床') || rId.includes('對面-床') || rId.match(/^對面館.*床/)) {
+        let numMatch = rId.match(/\d+/);
+        return `BED-2-${numMatch ? numMatch[0] : '1'}`;
+    }
+    if (rId.includes('CHAIR') || rId.includes('腳') || rId.includes('本館-腳') || rId.match(/^本館.*腳/)) {
+        let numMatch = rId.match(/\d+/);
+        if (!rId.includes('CHAIR-2-')) {
+            return `CHAIR-1-${numMatch ? numMatch[0] : '1'}`;
+        }
+    }
+    if (rId.includes('BED') || rId.includes('床') || rId.includes('本館-床') || rId.match(/^本館.*床/)) {
+        let numMatch = rId.match(/\d+/);
+        if (!rId.includes('BED-2-')) {
+            return `BED-1-${numMatch ? numMatch[0] : '1'}`;
+        }
+    }
+    return rId;
+}
+
 // Define Status Keywords (The Source of Truth)
 const STATUS_KEYWORDS = {
     RUNNING: ['Running', '服務中', 'Serving', '🟡'],
@@ -785,8 +811,8 @@ async function ghiVaoSheet(data, proposedUpdates = []) {
             if (!r2) r2 = data.phase2_res_idx || data.phase2Resource || data.phase2_resource;
             if (!rType) rType = data.resource_type || data.resourceType;
 
-            row[32] = r1 ? String(r1).toUpperCase() : "";
-            row[33] = r2 ? String(r2).toUpperCase() : "";
+            row[32] = r1 ? normalizeResourceId(r1) : "";
+            row[33] = r2 ? normalizeResourceId(r2) : "";
             row[34] = rType ? String(rType).toUpperCase() : "";
 
             const hasManualPhase = (data.phase1_duration !== undefined && data.phase1_duration !== null) || (data.phase2_duration !== undefined && data.phase2_duration !== null);
@@ -908,7 +934,7 @@ function _checkOverlapConflict(rowId, dateStr, timeStr, duration, phase1Res, pha
             
             if (!res1 || !res2) {
                 const bResStr = b.allocated_resource || "";
-                const matches = [...bResStr.toString().matchAll(/((?:OPP-)?(?:BED|CHAIR)[-_ ]?\d+)/gi)].map(m => m[1].toUpperCase());
+                const matches = [...bResStr.toString().matchAll(/((?:BED|CHAIR)-[12]-\d+)/gi)].map(m => m[1].toUpperCase());
                 if (bFlow === 'BF') {
                     if (!res1) res1 = matches.find(r => r.includes('BED')) || matches[0];
                     if (!res2) res2 = matches.find(r => r.includes('CHAIR')) || matches[1];
@@ -932,10 +958,10 @@ function _checkOverlapConflict(rowId, dateStr, timeStr, duration, phase1Res, pha
             if (!blk.res) continue;
             for (const bBlk of bBlocks) {
                 if (bBlk.res) {
-                    const bBlkResArray = [...bBlk.res.toString().toUpperCase().matchAll(/((?:OPP-)?(?:BED|CHAIR)[-_ ]?\d+)/gi)].map(m => m[1].replace('OPP-', ''));
-                    const blkResClean = blk.res.toString().toUpperCase().trim().replace('OPP-', '');
+                    const bBlkResArray = [...bBlk.res.toString().toUpperCase().matchAll(/((?:BED|CHAIR)-[12]-\d+)/gi)].map(m => m[1]);
+                    const blkResClean = blk.res.toString().toUpperCase().trim();
                     
-                    if (bBlkResArray.includes(blkResClean) || bBlk.res.toString().toUpperCase().replace('OPP-', '') === blkResClean) {
+                    if (bBlkResArray.includes(blkResClean) || bBlk.res.toString().toUpperCase() === blkResClean) {
                         const safeEndA = blk.end - ResourceCore.CONFIG.TOLERANCE;
                         const safeEndB = bBlk.end - ResourceCore.CONFIG.TOLERANCE;
                         const safeStartA = blk.start + ResourceCore.CONFIG.TOLERANCE;
@@ -962,16 +988,16 @@ async function updateBookingDetails(body) {
     let totalDuration = bookingData ? bookingData.duration : (safeParseInt(body.duration, 60));
 
     let phase1Res = body.phase1_res_idx !== undefined ? body.phase1_res_idx : (body.phase1_resource !== undefined ? body.phase1_resource : body.phase1Resource);
-    if (phase1Res !== undefined && phase1Res !== null) phase1Res = String(phase1Res).toUpperCase();
+    if (phase1Res !== undefined && phase1Res !== null) phase1Res = normalizeResourceId(phase1Res);
     
     // Chỉ fallback cho các dịch vụ ĐƠN LẺ (Single), KHÔNG được fallback cho dịch vụ COMBO
     const isCombo = bookingData ? (bookingData.category === 'COMBO' || (bookingData.serviceName && bookingData.serviceName.includes('套餐'))) : false;
     if (!isCombo && phase1Res === undefined && (body.location !== undefined || body.current_resource_id !== undefined)) {
         phase1Res = body.location !== undefined ? body.location : body.current_resource_id;
-        if (phase1Res !== undefined && phase1Res !== null) phase1Res = String(phase1Res).toUpperCase();
+        if (phase1Res !== undefined && phase1Res !== null) phase1Res = normalizeResourceId(phase1Res);
     }
     let phase2Res = body.phase2_res_idx !== undefined ? body.phase2_res_idx : (body.phase2_resource !== undefined ? body.phase2_resource : body.phase2Resource);
-    if (phase2Res !== undefined && phase2Res !== null) phase2Res = String(phase2Res).toUpperCase();
+    if (phase2Res !== undefined && phase2Res !== null) phase2Res = normalizeResourceId(phase2Res);
     
     // [V135] GUARDRAIL: Check Resource Overlap before allowing manual override
     let checkDate = body.date || (bookingData ? (bookingData.opDate || bookingData.startTimeString) : null);
@@ -1401,8 +1427,8 @@ async function updateInlineBooking(rowId, updatedData) {
                         }
                     }
 
-                    row[32] = bestPhase1 ? String(bestPhase1).toUpperCase() : "";
-                    row[33] = bestPhase2 ? String(bestPhase2).toUpperCase() : "";
+                    row[32] = bestPhase1 ? normalizeResourceId(bestPhase1) : "";
+                    row[33] = bestPhase2 ? normalizeResourceId(bestPhase2) : "";
                 }
                 row[35] = newResType;
             }

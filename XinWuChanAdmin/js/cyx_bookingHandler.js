@@ -383,7 +383,7 @@
                 const { p1, realDuration } = calculateRealDurations(b, b.duration || 60, isCombo);
 
                 const rIdStr = (b.phase1_res_idx || "") + " " + (b.phase2_res_idx || "") + " " + (b.allocated_resource || "") + " " + (b.location || "") + " " + (b.current_resource_id || "") + " " + (b.rowId || "");
-                const matches = [...rIdStr.matchAll(/((?:BED|CHAIR|床|足|腳)[-_ ]?\d+)/gi)].map(m => m[1].toUpperCase());
+                const matches = [...rIdStr.matchAll(/((?:BED|CHAIR)-[12]-\d+)/gi)].map(m => m[1].toUpperCase());
                 let uniqueMatches = [...new Set(matches)];
 
                 // [V118.8 FIX] Hỗ trợ trích xuất số ghế/giường nếu chuỗi chỉ có số đơn thuần (phòng ngừa Bóng Ma Toạ Độ)
@@ -397,7 +397,8 @@
                             if (name.match(/BODY|指壓|油|BED|TOAN THAN|全身|油壓|SPA|BACK/)) inferredType = 'BED';
                         }
                     }
-                    uniqueMatches = [...new Set(backupMatches)].map(num => `${inferredType}-${num}`);
+                    const bPrefix = (bLoc === '對面館') ? '2' : '1';
+                    uniqueMatches = [...new Set(backupMatches)].map(num => `${inferredType}-${bPrefix}-${num}`);
                 }
 
                 const pushToMapFallback = (type, startT, endT) => {
@@ -1077,7 +1078,7 @@
                 // [V135 FIX] LUÔN ưu tiên lấy toạ độ thực tế một cách toàn diện như Guardrail
                 // Điều này ngăn chặn Bóng Ma Toạ Độ do Matrix gán nhầm ghế/giường đã có khách.
                 const rIdStr = (b.phase1_res_idx || "") + " " + (b.phase2_res_idx || "") + " " + (b.allocated_resource || "") + " " + (b.location || "") + " " + (b.current_resource_id || "") + " " + (b.rowId || "");
-                const matches = [...rIdStr.matchAll(/((?:BED|CHAIR|床|足|腳)[-_ ]?\d+)/gi)].map(m => m[1].toUpperCase());
+                const matches = [...rIdStr.matchAll(/((?:BED|CHAIR)-[12]-\d+)/gi)].map(m => m[1].toUpperCase());
                 let uniqueMatches = [...new Set(matches)];
 
                 if (uniqueMatches.length === 0) {
@@ -1090,7 +1091,8 @@
                             if (name.match(/BODY|指壓|油|BED|TOAN THAN|全身|油壓|SPA|BACK/)) inferredType = 'BED';
                         }
                     }
-                    uniqueMatches = [...new Set(backupMatches)].map(num => `${inferredType}-${num}`);
+                    const bPrefix = (bLoc === '對面館') ? '2' : '1';
+                    uniqueMatches = [...new Set(backupMatches)].map(num => `${inferredType}-${bPrefix}-${num}`);
                 }
                 
                 if (!anchorIndex && b._virtualInheritanceIndex && !isRunning) {
