@@ -17,6 +17,15 @@ window.SmartScheduler = (function() {
         return window.safeTimeToMins ? window.safeTimeToMins(timeStr) : safeTimeToMinsLocal(timeStr);
     };
 
+    const minsToTimeString = (mins, originDateStr) => {
+        let h = Math.floor(mins / 60);
+        let m = mins % 60;
+        let hh = String(h).padStart(2, '0');
+        let mm = String(m).padStart(2, '0');
+        let datePart = originDateStr ? originDateStr.split(' ')[0] : '';
+        return datePart ? `${datePart} ${hh}:${mm}` : `${hh}:${mm}`;
+    };
+
     // Helper: Lấy danh sách tài nguyên khả dụng cùng loại/khu vực
     const getCandidateResources = (currentResId) => {
         if (!currentResId) return [];
@@ -58,7 +67,8 @@ window.SmartScheduler = (function() {
 
     // Tính toán Start/End thực tế cho 1 booking dựa trên assignment
     const getAssignedTimes = (b, assignment) => {
-        const bStart = getSafeTime(b.startTimeString);
+        const timeShift = assignment.timeShift || 0;
+        const bStart = getSafeTime(b.startTimeString) + timeShift;
         const duration = parseInt(b.duration || 60, 10);
         const isCombo = isComboBooking(b);
         
@@ -75,15 +85,16 @@ window.SmartScheduler = (function() {
         const flow = assignment.flow || b.flow || 'FB';
         const split = window.getSmartSplit ? window.getSmartSplit(b, duration, true, flow) : { phase1: Math.floor(duration / 2), phase2: Math.ceil(duration / 2) };
         const transitionMins = window.SYSTEM_CONFIG?.BUFFERS?.TRANSITION_MINUTES || 5;
+        const transitionShift = assignment.transitionShift || 0;
         
         let p1End = bStart + split.phase1;
-        let p2Start = p1End + transitionMins;
+        let p2Start = p1End + transitionMins + transitionShift;
         let p2End = p2Start + split.phase2;
         
         if (b.transition_time) {
             const transMins = getSafeTime(b.transition_time);
             if (transMins !== -1 && transMins > 0) {
-                p2Start = transMins;
+                p2Start = transMins + timeShift + transitionShift;
                 p2End = p2Start + split.phase2;
             }
         }
@@ -221,11 +232,14 @@ window.SmartScheduler = (function() {
                 assignmentOriginal = {
                     flow: b.flow || 'FB',
                     phase1_res: String(b.phase1_res_idx || '').toUpperCase(),
-                    phase2_res: String(b.phase2_res_idx || '').toUpperCase()
+                    phase2_res: String(b.phase2_res_idx || '').toUpperCase(),
+                    timeShift: 0,
+                    transitionShift: 0
                 };
             } else {
                 assignmentOriginal = {
-                    res: String(b.current_resource_id || b.location || '').toUpperCase()
+                    res: String(b.current_resource_id || b.location || '').toUpperCase(),
+                    timeShift: 0
                 };
             }
             originalState[bRowIdStr] = assignmentOriginal;
@@ -236,6 +250,9 @@ window.SmartScheduler = (function() {
                 fixedTimes.push(getAssignedTimes(b, assignmentOriginal));
             } else {
                 let domains = [];
+                let allowedTimeShifts = [-5, 0, 5];
+                let allowedTransShifts = [-10, -5, 0, 5, 10];
+
                 if (isCombo) {
                     const bedCandidates = getCandidateResources(b.flow === 'FB' ? b.phase2_res_idx : b.phase1_res_idx); 
                     const chairCandidates = getCandidateResources(b.flow === 'FB' ? b.phase1_res_idx : b.phase2_res_idx); 
@@ -254,7 +271,11 @@ window.SmartScheduler = (function() {
 
                         for (let r1 of c1) {
                             for (let r2 of c2) {
-                                domains.push({ flow: f, phase1_res: r1, phase2_res: r2 });
+                                for (let ts of allowedTimeShifts) {
+                                    for (let trs of allowedTransShifts) {
+                                        domains.push({ flow: f, phase1_res: r1, phase2_res: r2, timeShift: ts, transitionShift: trs });
+                                    }
+                                }
                             }
                         }
                     }
@@ -266,6 +287,8 @@ window.SmartScheduler = (function() {
                         else if (bSourceId && d1.phase1_res === bSourceId) score1 += 4;
                         if (d1.phase2_res === assignmentOriginal.phase2_res) score1 += 5;
                         else if (bSourceId && d1.phase2_res === bSourceId) score1 += 4;
+                        score1 -= Math.abs(d1.timeShift);
+                        score1 -= Math.abs(d1.transitionShift);
                         
                         let score2 = 0;
                         if (d2.flow === assignmentOriginal.flow) score2 += 10;
@@ -273,6 +296,8 @@ window.SmartScheduler = (function() {
                         else if (bSourceId && d2.phase1_res === bSourceId) score2 += 4;
                         if (d2.phase2_res === assignmentOriginal.phase2_res) score2 += 5;
                         else if (bSourceId && d2.phase2_res === bSourceId) score2 += 4;
+                        score2 -= Math.abs(d2.timeShift);
+                        score2 -= Math.abs(d2.transitionShift);
                         
                         return score2 - score1;
                     });
@@ -280,15 +305,21 @@ window.SmartScheduler = (function() {
                 } else {
                     const cands = getCandidateResources(assignmentOriginal.res);
                     for (let r of cands) {
-                        domains.push({ res: r });
+                        for (let ts of allowedTimeShifts) {
+                            domains.push({ res: r, timeShift: ts });
+                        }
                     }
                     domains.sort((d1, d2) => {
                         let s1 = 0;
                         if (d1.res === assignmentOriginal.res) s1 += 10;
                         else if (bSourceId && d1.res === bSourceId) s1 += 8;
+                        s1 -= Math.abs(d1.timeShift);
+
                         let s2 = 0;
                         if (d2.res === assignmentOriginal.res) s2 += 10;
                         else if (bSourceId && d2.res === bSourceId) s2 += 8;
+                        s2 -= Math.abs(d2.timeShift);
+
                         return s2 - s1;
                     });
                 }
@@ -352,14 +383,14 @@ window.SmartScheduler = (function() {
             let p = { rowId: rowId, forceSync: true };
             
             if (newAssignt.flow !== undefined) {
-                if (newAssignt.flow !== orig.flow || newAssignt.phase1_res !== orig.phase1_res || newAssignt.phase2_res !== orig.phase2_res) {
+                if (newAssignt.flow !== orig.flow || newAssignt.phase1_res !== orig.phase1_res || newAssignt.phase2_res !== orig.phase2_res || newAssignt.timeShift !== 0 || newAssignt.transitionShift !== 0) {
                     isChanged = true;
                     p.flow = newAssignt.flow;
                     p.phase1_res_idx = newAssignt.phase1_res.toLowerCase();
                     p.phase2_res_idx = newAssignt.phase2_res.toLowerCase();
                 }
             } else {
-                if (newAssignt.res !== orig.res) {
+                if (newAssignt.res !== orig.res || newAssignt.timeShift !== 0) {
                     isChanged = true;
                     p.current_resource_id = newAssignt.res.toLowerCase();
                     p.location = newAssignt.res.toLowerCase();
@@ -369,6 +400,33 @@ window.SmartScheduler = (function() {
             if (isChanged) {
                 p.is_locked = "TRUE";
                 p.isManualLocked = true;
+                
+                const bOrigin = activeBookings.find(x => String(x.rowId) === bRowIdStr);
+                if (bOrigin && (newAssignt.timeShift !== 0 || newAssignt.transitionShift !== 0)) {
+                    if (newAssignt.timeShift !== 0) {
+                        const originStartMins = getSafeTime(bOrigin.startTimeString);
+                        p.startTimeString = minsToTimeString(originStartMins + newAssignt.timeShift, bOrigin.startTimeString);
+                    }
+                    if (newAssignt.transitionShift !== 0) {
+                        const duration = parseInt(bOrigin.duration || 60, 10);
+                        const flow = newAssignt.flow || bOrigin.flow || 'FB';
+                        const split = window.getSmartSplit ? window.getSmartSplit(bOrigin, duration, true, flow) : { phase1: Math.floor(duration / 2), phase2: Math.ceil(duration / 2) };
+                        const bStartMins = getSafeTime(bOrigin.startTimeString) + (newAssignt.timeShift || 0);
+                        let p1EndMins = bStartMins + split.phase1;
+                        let currentTransMins = p1EndMins;
+                        if (bOrigin.transition_time) {
+                            const oldTransMins = getSafeTime(bOrigin.transition_time);
+                            if (oldTransMins !== -1 && oldTransMins > 0) {
+                                currentTransMins = oldTransMins + (newAssignt.timeShift || 0);
+                            }
+                        } else {
+                            currentTransMins = p1EndMins + (window.SYSTEM_CONFIG?.BUFFERS?.TRANSITION_MINUTES || 5);
+                        }
+                        
+                        p.transition_time = minsToTimeString(currentTransMins + newAssignt.transitionShift, bOrigin.startTimeString);
+                    }
+                }
+                
                 payloads.push(p);
             }
         }

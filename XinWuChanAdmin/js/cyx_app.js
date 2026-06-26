@@ -3708,7 +3708,7 @@ const App = () => {
                             } else {
                                 Swal.fire({
                                     title: '系統提示',
-                                    text: '⚠️ 無法換位：目前的時段已滿或客人已鎖定座位，系統無法自動重新安排。',
+                                    text: '⚠️ 無法換位：空間不足或客人已鎖定，系統無法自動排程。',
                                     icon: 'warning',
                                     confirmButtonColor: '#3085d6',
                                     confirmButtonText: '確定'
@@ -3718,7 +3718,7 @@ const App = () => {
                             }
                         } catch (e) {
                             console.error('Smart Scheduler error:', e);
-                            Swal.fire('Lỗi Logic JS', e.message, 'error');
+                            Swal.fire('系統錯誤', e.message, 'error');
                         }
                     } // Kết thúc if(b)
             } // Kết thúc if(payload...)
