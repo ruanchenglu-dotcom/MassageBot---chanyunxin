@@ -302,6 +302,177 @@ window.SmartScheduler = (function() {
 
         let state = { iterations: 0 };
 
+        // [NÂNG CẤP] GROUP SWAP (Đổi chéo cụm giữa 2 giường)
+        let isGroupSwapSuccess = false;
+        let groupSwapAssignments = {};
+
+        if (bSourceId && bSourceId !== targetIdUpper) {
+            let queueT = []; // blocks moving to targetIdUpper
+            let queueS = []; // blocks moving to bSourceId
+            let groupT = new Map();
+            let groupS = new Map();
+            let visited = new Set();
+            
+            queueT.push(movedBForSource);
+            groupT.set(movedIdStr, movedBForSource);
+            visited.add(movedIdStr);
+            
+            let isValidGroup = true;
+
+            const isSameBedHelper = (id1, id2) => {
+                if (!id1 || !id2) return false;
+                return String(id1).trim().toUpperCase().replace(/BED/g, '床').replace(/\s+/g, '') === String(id2).trim().toUpperCase().replace(/BED/g, '床').replace(/\s+/g, '');
+            };
+
+            // Calculate assignment for the moved block
+            let movedAssignment = {};
+            if (isComboBooking(movedBForSource)) {
+                movedAssignment.flow = isTargetPhaseLocked(movedBForSource, true) && movedBForSource.flow_code_locked ? movedBForSource.flow : (targetIdUpper.includes('床') || targetIdUpper.includes('BED') ? 'BF' : 'FB');
+                if (movedBForSource.flow_code_locked === "TRUE" || movedBForSource.flow_code_locked === true) movedAssignment.flow = movedBForSource.flow; 
+                movedAssignment.phase1_res = String(movedBForSource.phase1_res_idx).toUpperCase();
+                movedAssignment.phase2_res = String(movedBForSource.phase2_res_idx).toUpperCase();
+                if (targetPhase === 1) movedAssignment.phase1_res = targetIdUpper;
+                else movedAssignment.phase2_res = targetIdUpper;
+                const isBed = (id) => id && (String(id).toUpperCase().includes('床') || String(id).toUpperCase().includes('BED'));
+                if (movedAssignment.phase1_res && movedAssignment.phase2_res && isBed(movedAssignment.phase1_res) === isBed(movedAssignment.phase2_res)) {
+                    if (targetPhase === 1) movedAssignment.phase2_res = String(movedBForSource.phase1_res_idx).toUpperCase();
+                    else movedAssignment.phase1_res = String(movedBForSource.phase2_res_idx).toUpperCase();
+                }
+                movedAssignment.flow = isBed(movedAssignment.phase1_res) ? 'BF' : 'FB';
+            } else {
+                movedAssignment.res = targetIdUpper;
+            }
+
+            const getTimesOnRes = (b, resId, isNewAssignment, targetRes = null) => {
+                let assignment = { ...originalState[String(b.rowId)] };
+                if (isNewAssignment) {
+                    if (String(b.rowId) === movedIdStr) {
+                        assignment = movedAssignment;
+                    } else if (isComboBooking(b)) {
+                        let p1Id = String(b.phase1_res_idx).toUpperCase();
+                        let p2Id = String(b.phase2_res_idx).toUpperCase();
+                        if (isSameBedHelper(p1Id, resId)) assignment.phase1_res = targetRes;
+                        if (isSameBedHelper(p2Id, resId)) assignment.phase2_res = targetRes;
+                    } else {
+                        assignment.res = targetRes || targetIdUpper;
+                    }
+                }
+                let times = getAssignedTimes(b, assignment);
+                return times.filter(t => isSameBedHelper(t.res, targetRes || resId));
+            };
+
+            while (queueT.length > 0 || queueS.length > 0) {
+                if (queueT.length > 0) {
+                    let b = queueT.shift();
+                    if (String(b.rowId) !== movedIdStr && isTargetPhaseLocked(b, isComboBooking(b))) { isValidGroup = false; break; }
+                    
+                    let bTimesOnTarget = getTimesOnRes(b, bSourceId, true, targetIdUpper); 
+                    for (let other of activeBookings) {
+                        if (visited.has(String(other.rowId))) continue;
+                        let otherOrigTimesOnTarget = getTimesOnRes(other, targetIdUpper, false);
+                        if (otherOrigTimesOnTarget.length > 0 && hasConflict(bTimesOnTarget, otherOrigTimesOnTarget)) {
+                            visited.add(String(other.rowId));
+                            groupS.set(String(other.rowId), other);
+                            queueS.push(other);
+                        }
+                    }
+                }
+                if (queueS.length > 0) {
+                    let b = queueS.shift();
+                    if (isTargetPhaseLocked(b, isComboBooking(b))) { isValidGroup = false; break; }
+                    
+                    let bTimesOnSource = getTimesOnRes(b, targetIdUpper, true, bSourceId); 
+                    for (let other of activeBookings) {
+                        if (visited.has(String(other.rowId))) continue;
+                        let otherOrigTimesOnSource = getTimesOnRes(other, bSourceId, false);
+                        if (otherOrigTimesOnSource.length > 0 && hasConflict(bTimesOnSource, otherOrigTimesOnSource)) {
+                            visited.add(String(other.rowId));
+                            groupT.set(String(other.rowId), other);
+                            queueT.push(other);
+                        }
+                    }
+                }
+            }
+
+            if (isValidGroup) {
+                for (let b of groupT.values()) {
+                    let bTimes = getTimesOnRes(b, bSourceId, true, targetIdUpper);
+                    for (let other of activeBookings) {
+                        if (!visited.has(String(other.rowId))) {
+                            let otherTimes = getTimesOnRes(other, targetIdUpper, false);
+                            if (hasConflict(bTimes, otherTimes)) { isValidGroup = false; break; }
+                        }
+                    }
+                    if (!isValidGroup) break;
+                }
+                for (let b of groupS.values()) {
+                    let bTimes = getTimesOnRes(b, targetIdUpper, true, bSourceId);
+                    for (let other of activeBookings) {
+                        if (!visited.has(String(other.rowId))) {
+                            let otherTimes = getTimesOnRes(other, bSourceId, false);
+                            if (hasConflict(bTimes, otherTimes)) { isValidGroup = false; break; }
+                        }
+                    }
+                    if (!isValidGroup) break;
+                }
+            }
+
+            if (isValidGroup) {
+                isGroupSwapSuccess = true;
+                for (let b of groupT.values()) {
+                    if (String(b.rowId) === movedIdStr) {
+                        groupSwapAssignments[String(b.rowId)] = movedAssignment;
+                    } else {
+                        let assignment = { ...originalState[String(b.rowId)] };
+                        if (isComboBooking(b)) {
+                            let p1Id = String(b.phase1_res_idx).toUpperCase();
+                            let p2Id = String(b.phase2_res_idx).toUpperCase();
+                            if (isSameBedHelper(p1Id, bSourceId)) assignment.phase1_res = targetIdUpper;
+                            if (isSameBedHelper(p2Id, bSourceId)) assignment.phase2_res = targetIdUpper;
+                        } else {
+                            assignment.res = targetIdUpper;
+                        }
+                        groupSwapAssignments[String(b.rowId)] = assignment;
+                    }
+                }
+                for (let b of groupS.values()) {
+                    let assignment = { ...originalState[String(b.rowId)] };
+                    if (isComboBooking(b)) {
+                        let p1Id = String(b.phase1_res_idx).toUpperCase();
+                        let p2Id = String(b.phase2_res_idx).toUpperCase();
+                        if (isSameBedHelper(p1Id, targetIdUpper)) assignment.phase1_res = bSourceId;
+                        if (isSameBedHelper(p2Id, targetIdUpper)) assignment.phase2_res = bSourceId;
+                    } else {
+                        assignment.res = bSourceId;
+                    }
+                    groupSwapAssignments[String(b.rowId)] = assignment;
+                }
+            }
+        }
+        
+        if (isGroupSwapSuccess) {
+            console.log("SMART SCHEDULER: Group Swap Success!");
+            let payloads = [];
+            for (let rowId in groupSwapAssignments) {
+                let newAssignt = groupSwapAssignments[rowId];
+                let orig = originalState[rowId];
+                let p = { rowId: rowId, forceSync: true };
+                
+                if (newAssignt.flow !== undefined) {
+                    p.flow = newAssignt.flow;
+                    p.phase1_res_idx = newAssignt.phase1_res.toLowerCase();
+                    p.phase2_res_idx = newAssignt.phase2_res.toLowerCase();
+                } else {
+                    p.current_resource_id = newAssignt.res.toLowerCase();
+                    p.location = newAssignt.res.toLowerCase();
+                }
+                p.is_locked = "TRUE";
+                p.isManualLocked = true;
+                payloads.push(p);
+            }
+            return payloads;
+        }
+
         // [NÂNG CẤP] Kiểm tra cứng các khối cố định (fixedTimes) trước khi backtrack
         for (let i = 0; i < fixedTimes.length; i++) {
             for (let j = i + 1; j < fixedTimes.length; j++) {
