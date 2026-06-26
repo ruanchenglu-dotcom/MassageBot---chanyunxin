@@ -1653,15 +1653,17 @@ async function batchUpdateMultipleBookings(updatesArray) {
             // ===============================================
         });
 
-        if (dataToUpdate.length > 0) {
+        const validDataToUpdate = dataToUpdate.filter(d => !String(d.range).includes('OPT_'));
+        
+        if (validDataToUpdate.length > 0) {
             await sheets.spreadsheets.values.batchUpdate({
                 spreadsheetId: SHEET_ID,
                 requestBody: {
                     valueInputOption: 'USER_ENTERED',
-                    data: dataToUpdate
+                    data: validDataToUpdate
                 }
             });
-            console.log(`[BATCH UPDATE MULTIPLE] Success: ${dataToUpdate.length} updates for ${updatesArray.length} bookings.`);
+            console.log(`[BATCH UPDATE MULTIPLE] Success: ${validDataToUpdate.length} updates for ${updatesArray.length} bookings.`);
         }
 
         if (hasForceSync) triggerSyncDebounced(100); else triggerSyncDebounced();

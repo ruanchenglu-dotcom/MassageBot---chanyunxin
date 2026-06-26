@@ -126,7 +126,7 @@ window.SmartScheduler = (function() {
             return { ...assignments };
         }
         
-        if (state.iterations > 5000) {
+        if (state.iterations > 500000) {
             return null; 
         }
         state.iterations++;
@@ -171,6 +171,7 @@ window.SmartScheduler = (function() {
     const solve = (activeBookings, movedBookingId, targetResource, targetPhase, isMovedCombo) => {
         let variables = [];
         let fixedTimes = [];
+        let movedTimes = null;
         let originalState = {}; 
 
         const movedIdStr = String(movedBookingId);
@@ -213,15 +214,16 @@ window.SmartScheduler = (function() {
                 } else {
                     assignment.res = targetIdUpper;
                 }
-                fixedTimes.push(getAssignedTimes(b, assignment));
+                movedTimes = getAssignedTimes(b, assignment);
+                fixedTimes.push(movedTimes);
                 continue;
             }
 
-            let locked1 = (b.phase1_locked === "TRUE" || b.phase1_locked === true);
-            let locked2 = (b.phase2_locked === "TRUE" || b.phase2_locked === true);
-            let locked = (b.is_locked === "TRUE" || b.isManualLocked);
+            let locked1 = false;
+            let locked2 = false;
+            let locked = false;
             
-            if (b.isRunningStatus || b.status === 'DOING' || b.isDoneStatus) {
+            if (b.isRunningStatus || b.status === 'DOING') {
                 locked = true;
                 locked1 = true;
                 locked2 = true;
@@ -250,7 +252,7 @@ window.SmartScheduler = (function() {
                 fixedTimes.push(getAssignedTimes(b, assignmentOriginal));
             } else {
                 let domains = [];
-                let allowedTimeShifts = [-5, 0, 5];
+                let allowedTimeShifts = [0];
                 let allowedTransShifts = [-10, -5, 0, 5, 10];
 
                 if (isCombo) {
@@ -333,11 +335,11 @@ window.SmartScheduler = (function() {
 
         let state = { iterations: 0 };
 
-        // [NÂNG CẤP] Kiểm tra cứng các khối cố định (fixedTimes) trước khi backtrack
-        for (let i = 0; i < fixedTimes.length; i++) {
-            for (let j = i + 1; j < fixedTimes.length; j++) {
-                if (hasConflict(fixedTimes[i], fixedTimes[j])) {
-                    // Cấn đè trực tiếp lên khách đang phục vụ hoặc khách bị khoá cứng!
+        // [NÂNG CẤP] Chỉ kiểm tra khối vừa kéo thả xem có đè lên các khối cố định khác không
+        if (movedTimes) {
+            for (let ft of fixedTimes) {
+                if (ft !== movedTimes && hasConflict(movedTimes, ft)) {
+                    // Cấn đè trực tiếp lên khách đang phục vụ
                     return null;
                 }
             }
