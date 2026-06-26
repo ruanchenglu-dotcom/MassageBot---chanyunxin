@@ -2520,7 +2520,7 @@ const App = () => {
                     const targetPhysicalType = ghostTargetId.split('-')[0].toUpperCase();
                     if (currentPhysicalType === targetPhysicalType) {
                         if (!silentMode) {
-                            const c_prefix = window.SYSTEM_CONFIG?.UI_LABELS?.CHAIR_PREFIX1 || '腳';
+                            const c_prefix = window.SYSTEM_CONFIG?.UI_LABELS?.CHAIR_PREFIX || '腳';
                             Swal.fire('系統提示', `⚠️ 預約錯誤: Phase 1 (${currentPhysicalType === 'CHAIR' ? c_prefix + '部' : '身體'}) 和 Phase 2 (${targetPhysicalType === 'CHAIR' ? c_prefix + '部' : '身體'}) 不能在同一個區域！\n(套餐必須包含一個床位和一個${c_prefix}部區)\n請重新調整座位！`, 'warning');
                         }
                         setSyncLock(false);
@@ -2557,7 +2557,7 @@ const App = () => {
             const type = id.split('-')[0];
             const force = current.booking.forceResourceType === 'CHAIR' ? 'CHAIR' : 'BED';
             if (force !== type.toUpperCase()) {
-                const c_prefix = window.SYSTEM_CONFIG?.UI_LABELS?.CHAIR_PREFIX1 || '腳';
+                const c_prefix = window.SYSTEM_CONFIG?.UI_LABELS?.CHAIR_PREFIX || '腳';
                 if (!silentMode) Swal.fire('系統提示', `⚠️ 位置錯誤：此顧客必須安排在 ${force === 'CHAIR' ? c_prefix + '部區' : '身體區'}!`, 'warning');
                 setSyncLock(false);
                 return;
@@ -2566,7 +2566,7 @@ const App = () => {
 
         if (['隨機', '男', '女', 'Oil'].some(k => designatedStaff.includes(k))) {
             if (!staffList || staffList.length === 0) {
-                if (!silentMode) Swal.fire('系統提示', "⚠️ 員工資料為空，請稍後再試！`, 'warning');
+                if (!silentMode) Swal.fire('系統提示', "⚠️ 員工資料為空，請稍後再試！", 'warning');
                 setSyncLock(false); return;
             }
 
