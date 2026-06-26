@@ -165,6 +165,17 @@ window.SmartScheduler = (function() {
         const movedIdStr = String(movedBookingId);
         const targetIdUpper = String(targetResource).toUpperCase();
 
+        let bSourceId = null;
+        const movedBForSource = activeBookings.find(x => String(x.rowId) === movedIdStr);
+        if (movedBForSource) {
+            if (isMovedCombo) {
+                bSourceId = targetPhase === 1 ? movedBForSource.phase1_res_idx : movedBForSource.phase2_res_idx;
+            } else {
+                bSourceId = movedBForSource.current_resource_id || movedBForSource.location;
+            }
+        }
+        if (bSourceId) bSourceId = String(bSourceId).toUpperCase();
+
         for (let b of activeBookings) {
             const isCombo = isComboBooking(b);
             const bRowIdStr = String(b.rowId);
@@ -250,14 +261,18 @@ window.SmartScheduler = (function() {
                     
                     domains.sort((d1, d2) => {
                         let score1 = 0;
-                        if (d1.flow === assignmentOriginal.flow) score1 += 10; // ĐIỂM ƯU TIÊN GIỮ NGUYÊN LUỒNG
+                        if (d1.flow === assignmentOriginal.flow) score1 += 10; 
                         if (d1.phase1_res === assignmentOriginal.phase1_res) score1 += 5;
+                        else if (bSourceId && d1.phase1_res === bSourceId) score1 += 4;
                         if (d1.phase2_res === assignmentOriginal.phase2_res) score1 += 5;
+                        else if (bSourceId && d1.phase2_res === bSourceId) score1 += 4;
                         
                         let score2 = 0;
                         if (d2.flow === assignmentOriginal.flow) score2 += 10;
                         if (d2.phase1_res === assignmentOriginal.phase1_res) score2 += 5;
+                        else if (bSourceId && d2.phase1_res === bSourceId) score2 += 4;
                         if (d2.phase2_res === assignmentOriginal.phase2_res) score2 += 5;
+                        else if (bSourceId && d2.phase2_res === bSourceId) score2 += 4;
                         
                         return score2 - score1;
                     });
@@ -268,7 +283,13 @@ window.SmartScheduler = (function() {
                         domains.push({ res: r });
                     }
                     domains.sort((d1, d2) => {
-                        return (d1.res === assignmentOriginal.res ? -1 : 1) - (d2.res === assignmentOriginal.res ? -1 : 1);
+                        let s1 = 0;
+                        if (d1.res === assignmentOriginal.res) s1 += 10;
+                        else if (bSourceId && d1.res === bSourceId) s1 += 8;
+                        let s2 = 0;
+                        if (d2.res === assignmentOriginal.res) s2 += 10;
+                        else if (bSourceId && d2.res === bSourceId) s2 += 8;
+                        return s2 - s1;
                     });
                 }
 
@@ -280,6 +301,17 @@ window.SmartScheduler = (function() {
         }
 
         let state = { iterations: 0 };
+
+        // [NÂNG CẤP] Kiểm tra cứng các khối cố định (fixedTimes) trước khi backtrack
+        for (let i = 0; i < fixedTimes.length; i++) {
+            for (let j = i + 1; j < fixedTimes.length; j++) {
+                if (hasConflict(fixedTimes[i], fixedTimes[j])) {
+                    // Cấn đè trực tiếp lên khách đang phục vụ hoặc khách bị khoá cứng!
+                    return null;
+                }
+            }
+        }
+
         const result = backtrack(variables, {}, fixedTimes, 0, state);
         
         if (!result) return null; 
