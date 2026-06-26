@@ -488,7 +488,7 @@ const App = () => {
         const unmappedItems = unmappedBookings.map(b => {
             let foundResId = b.phase1_res_idx || b.current_resource_id || b.location || b.storedLocation;
             if (foundResId) {
-                foundResId = foundResId.toLowerCase();
+                foundResId = foundResId.toUpperCase();
             } else if (timelineData) {
                 for (const [resId, slots] of Object.entries(timelineData)) {
                     const matchedSlot = slots.find(s => String(s.booking.rowId) === String(b.rowId));
@@ -894,9 +894,9 @@ const App = () => {
                     computedStoredLocation = null;
                 }
                 if (!computedStoredLocation && safePhase1ResIdx) {
-                    computedStoredLocation = safePhase1ResIdx.toLowerCase();
+                    computedStoredLocation = safePhase1ResIdx.toUpperCase();
                 } else if (!computedStoredLocation && targetB.allocated_resource) {
-                    computedStoredLocation = targetB.allocated_resource.split('+')[0].trim().toLowerCase();
+                    computedStoredLocation = targetB.allocated_resource.split('+')[0].trim().toUpperCase();
                 }
 
                 return {
@@ -1021,12 +1021,12 @@ const App = () => {
                         // [V136 NÂNG CẤP] Dò tìm sự thay đổi vị trí vật lý để sửa key
                         let expectedKey = key;
                         if (res.comboMeta && res.comboMeta.phase === 2) {
-                            if (freshData.phase2_res_idx) expectedKey = freshData.phase2_res_idx.toLowerCase();
+                            if (freshData.phase2_res_idx) expectedKey = freshData.phase2_res_idx.toUpperCase();
                         } else {
-                            if (freshData.phase1_res_idx) expectedKey = freshData.phase1_res_idx.toLowerCase();
-                            else if (freshData.storedLocation) expectedKey = freshData.storedLocation.toLowerCase();
-                            else if (freshData.current_resource_id) expectedKey = freshData.current_resource_id.toLowerCase();
-                            else if (freshData.location) expectedKey = freshData.location.toLowerCase();
+                            if (freshData.phase1_res_idx) expectedKey = freshData.phase1_res_idx.toUpperCase();
+                            else if (freshData.storedLocation) expectedKey = freshData.storedLocation.toUpperCase();
+                            else if (freshData.current_resource_id) expectedKey = freshData.current_resource_id.toUpperCase();
+                            else if (freshData.location) expectedKey = freshData.location.toUpperCase();
                         }
 
                         if (expectedKey && expectedKey !== key) {
@@ -1102,7 +1102,7 @@ const App = () => {
             const addToGrid = (resId, start, end, booking, meta) => {
                 if (booking.isDoneStatus) return;
                 if (!resId) return;
-                const rIdStr = String(resId).toLowerCase();
+                const rIdStr = String(resId).toUpperCase();
                 if (!timelineGrid[rIdStr]) timelineGrid[rIdStr] = [];
                 timelineGrid[rIdStr].push({ start, end, booking, meta });
             };
@@ -1131,7 +1131,7 @@ const App = () => {
                             sequence: seq,
                             phase: determinedPhase,
                             flex: 0,
-                            targetId: b.phase2_res_idx ? b.phase2_res_idx.toLowerCase() : null
+                            targetId: b.phase2_res_idx ? b.phase2_res_idx.toUpperCase() : null
                         };
                     }
 
@@ -1197,7 +1197,7 @@ const App = () => {
                             p2End = p2Start + split.phase2;
                         }
 
-                        let finalTargetId = item.booking.phase2_res_idx ? item.booking.phase2_res_idx.toLowerCase() : null;
+                        let finalTargetId = item.booking.phase2_res_idx ? item.booking.phase2_res_idx.toUpperCase() : null;
 
                         if (finalTargetId) {
                             addToGrid(finalTargetId, p2Start, p2End, item.booking, {
@@ -1221,7 +1221,7 @@ const App = () => {
                             p1Start = p1End - split.phase1;
                         }
 
-                        let reconstructedId = item.booking.phase1_res_idx ? item.booking.phase1_res_idx.toLowerCase() : null;
+                        let reconstructedId = item.booking.phase1_res_idx ? item.booking.phase1_res_idx.toUpperCase() : null;
 
                         if (reconstructedId) {
                             addToGrid(reconstructedId, p1Start, p1End, item.booking, {
@@ -1285,9 +1285,9 @@ const App = () => {
                 if (b.isDoneStatus) return;
                 if (activeRowIds.has(String(b.rowId))) return;
                 const originalStart = safeTimeToMins(b.startTimeString);
-                let targetId = b.current_resource_id ? b.current_resource_id.toLowerCase() : (b.phase1_res_idx ? b.phase1_res_idx.toLowerCase() : (b.storedLocation ? b.storedLocation.toLowerCase() : null));
+                let targetId = b.current_resource_id ? b.current_resource_id.toUpperCase() : (b.phase1_res_idx ? b.phase1_res_idx.toUpperCase() : (b.storedLocation ? b.storedLocation.toUpperCase() : null));
                 if (targetId === '本館' || targetId === '對面館') {
-                    targetId = b.phase1_res_idx ? b.phase1_res_idx.toLowerCase() : null;
+                    targetId = b.phase1_res_idx ? b.phase1_res_idx.toUpperCase() : null;
                 }
                 if (targetId && b.location === '對面館' && !targetId.startsWith('opp-')) {
                     targetId = 'opp-' + targetId;
@@ -1313,8 +1313,8 @@ const App = () => {
                     if (bookingItem.forceResourceType) return;
                     if (activeRowIds.has(String(bookingItem.rowId))) return;
 
-                    let pref1 = bookingItem.phase1_res_idx ? bookingItem.phase1_res_idx.toLowerCase() : null;
-                    let pref2 = bookingItem.phase2_res_idx ? bookingItem.phase2_res_idx.toLowerCase() : null;
+                    let pref1 = bookingItem.phase1_res_idx ? bookingItem.phase1_res_idx.toUpperCase() : null;
+                    let pref2 = bookingItem.phase2_res_idx ? bookingItem.phase2_res_idx.toUpperCase() : null;
                     
                     if (bookingItem.location === '對面館') {
                         if (pref1 && !pref1.startsWith('opp-')) pref1 = 'opp-' + pref1;
@@ -1919,11 +1919,11 @@ const App = () => {
         const isForcedSingle = targetBooking.isForcedSingle === true || currentFlow === 'FOOTSINGLE' || currentFlow === 'BODYSINGLE';
         const isLongSingle = isForcedSingle && parseInt(targetBooking.duration || 100) > 70;
 
-        let s1 = customP1Res && customP1Res !== 'auto' ? customP1Res.toLowerCase() : null;
+        let s1 = customP1Res && customP1Res !== 'auto' ? customP1Res.toUpperCase() : null;
         if (!s1) s1 = MatrixHelper.findBestSlot(p1Type, tryStart, tryStart + newPhase1Duration, timelineData, mockActiveEndTimes, null, rowId, isLongSingle) || (isLongSingle ? `opp-${p1Type}-1` : `${p1Type}-1`);
 
         const p2Start = tryStart + newPhase1Duration + 5;
-        let s2 = customP2Res && customP2Res !== 'auto' ? customP2Res.toLowerCase() : null;
+        let s2 = customP2Res && customP2Res !== 'auto' ? customP2Res.toUpperCase() : null;
         if (!s2) s2 = MatrixHelper.findBestSlot(p2Type, p2Start, p2Start + newPhase2Duration, timelineData, mockActiveEndTimes, null, rowId) || `${p2Type}-1`;
 
         Swal.fire({
@@ -2045,11 +2045,11 @@ const App = () => {
             }
         }
 
-        let s1 = newResId && newResId !== 'auto' ? newResId.toLowerCase() : null;
+        let s1 = newResId && newResId !== 'auto' ? newResId.toUpperCase() : null;
         if (!s1) {
             s1 = targetBooking.current_resource_id || targetBooking.location || null;
         }
-        if (s1) s1 = s1.toLowerCase();
+        if (s1) s1 = s1.toUpperCase();
 
         Swal.fire({
             title: '儲存中，請稍候...',
@@ -2510,9 +2510,9 @@ const App = () => {
             }
 
             if (!comboMeta) {
-                let ghostTargetId = current.booking.phase2_res_idx ? current.booking.phase2_res_idx.toLowerCase() : null;
+                let ghostTargetId = current.booking.phase2_res_idx ? current.booking.phase2_res_idx.toUpperCase() : null;
                 if (!ghostTargetId) {
-                    ghostTargetId = current.booking.phase1_res_idx && current.booking.phase1_res_idx.toLowerCase() !== currentId ? current.booking.phase1_res_idx.toLowerCase() : null;
+                    ghostTargetId = current.booking.phase1_res_idx && current.booking.phase1_res_idx.toUpperCase() !== currentId ? current.booking.phase1_res_idx.toUpperCase() : null;
                 }
 
                 if (ghostTargetId) {
@@ -2704,13 +2704,13 @@ const App = () => {
 
             const sheetP1 = item.booking.phase1_res_idx;
             if (sheetP1 && sheetP1 !== '隨機' && sheetP1 !== 'undefined' && sheetP1 !== '') {
-                item.resourceId = sheetP1.toLowerCase();
+                item.resourceId = sheetP1.toUpperCase();
             }
 
             if (!item.resourceId) {
                 let targetId = item.booking.phase1_res_idx || item.booking.current_resource_id || item.booking.storedLocation;
                 if (targetId) {
-                    item.resourceId = targetId.toLowerCase();
+                    item.resourceId = targetId.toUpperCase();
                 }
             }
             if (!item.resourceId && timelineData) {
@@ -2842,10 +2842,10 @@ const App = () => {
                 }
 
                 if (!newComboMeta) {
-                    let projectedTargetId = current.booking.phase2_res_idx ? current.booking.phase2_res_idx.toLowerCase() : null;
+                    let projectedTargetId = current.booking.phase2_res_idx ? current.booking.phase2_res_idx.toUpperCase() : null;
                     newComboMeta = { sequence: actualSeq, phase: 1, flex: 0, targetId: projectedTargetId };
                 } else {
-                    let projectedTargetId = current.booking.phase2_res_idx ? current.booking.phase2_res_idx.toLowerCase() : newComboMeta.targetId;
+                    let projectedTargetId = current.booking.phase2_res_idx ? current.booking.phase2_res_idx.toUpperCase() : newComboMeta.targetId;
                     newComboMeta = { ...newComboMeta, phase: 1, sequence: actualSeq, targetId: projectedTargetId };
                 }
             } else {
@@ -3517,22 +3517,22 @@ const App = () => {
                                     let p1Changed = false;
                                     let p2Changed = false;
 
-                                    if (String(b.phase1_res_idx).toUpperCase() === srcIdUpper) { newP1 = tgtIdUpper.toLowerCase(); p1Changed = true; }
-                                    if (String(b.phase2_res_idx).toUpperCase() === srcIdUpper) { newP2 = tgtIdUpper.toLowerCase(); p2Changed = true; }
+                                    if (String(b.phase1_res_idx).toUpperCase() === srcIdUpper) { newP1 = tgtIdUpper.toUpperCase(); p1Changed = true; }
+                                    if (String(b.phase2_res_idx).toUpperCase() === srcIdUpper) { newP2 = tgtIdUpper.toUpperCase(); p2Changed = true; }
 
                                     const isBed = (id) => id && (String(id).toUpperCase().includes('床') || String(id).toUpperCase().includes('BED'));
                                     
                                     if (newP1 && newP2 && isBed(newP1) === isBed(newP2)) {
-                                        if (p1Changed && !p2Changed) newP2 = srcIdUpper.toLowerCase();
-                                        else if (p2Changed && !p1Changed) newP1 = srcIdUpper.toLowerCase();
+                                        if (p1Changed && !p2Changed) newP2 = srcIdUpper.toUpperCase();
+                                        else if (p2Changed && !p1Changed) newP1 = srcIdUpper.toUpperCase();
                                     }
 
                                     p.phase1_res_idx = newP1;
                                     p.phase2_res_idx = newP2;
                                     p.flow = isBed(newP1) ? 'BF' : 'FB';
                                 } else {
-                                    p.current_resource_id = tgtIdUpper.toLowerCase();
-                                    p.location = tgtIdUpper.toLowerCase();
+                                    p.current_resource_id = tgtIdUpper.toUpperCase();
+                                    p.location = tgtIdUpper.toUpperCase();
                                 }
                                 batchPayloads.push(p);
                             });
@@ -3545,22 +3545,22 @@ const App = () => {
                                     let p1Changed = false;
                                     let p2Changed = false;
 
-                                    if (String(b.phase1_res_idx).toUpperCase() === tgtIdUpper) { newP1 = srcIdUpper.toLowerCase(); p1Changed = true; }
-                                    if (String(b.phase2_res_idx).toUpperCase() === tgtIdUpper) { newP2 = srcIdUpper.toLowerCase(); p2Changed = true; }
+                                    if (String(b.phase1_res_idx).toUpperCase() === tgtIdUpper) { newP1 = srcIdUpper.toUpperCase(); p1Changed = true; }
+                                    if (String(b.phase2_res_idx).toUpperCase() === tgtIdUpper) { newP2 = srcIdUpper.toUpperCase(); p2Changed = true; }
 
                                     const isBed = (id) => id && (String(id).toUpperCase().includes('床') || String(id).toUpperCase().includes('BED'));
                                     
                                     if (newP1 && newP2 && isBed(newP1) === isBed(newP2)) {
-                                        if (p1Changed && !p2Changed) newP2 = tgtIdUpper.toLowerCase();
-                                        else if (p2Changed && !p1Changed) newP1 = tgtIdUpper.toLowerCase();
+                                        if (p1Changed && !p2Changed) newP2 = tgtIdUpper.toUpperCase();
+                                        else if (p2Changed && !p1Changed) newP1 = tgtIdUpper.toUpperCase();
                                     }
 
                                     p.phase1_res_idx = newP1;
                                     p.phase2_res_idx = newP2;
                                     p.flow = isBed(newP1) ? 'BF' : 'FB';
                                 } else {
-                                    p.current_resource_id = srcIdUpper.toLowerCase();
-                                    p.location = srcIdUpper.toLowerCase();
+                                    p.current_resource_id = srcIdUpper.toUpperCase();
+                                    p.location = srcIdUpper.toUpperCase();
                                 }
                                 batchPayloads.push(p);
                             });
