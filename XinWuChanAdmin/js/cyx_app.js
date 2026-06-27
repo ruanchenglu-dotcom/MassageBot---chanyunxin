@@ -1331,7 +1331,7 @@ const App = () => {
 
                         if (bookingItem.transition_time) {
                             const transMins = safeTimeToMins(bookingItem.transition_time);
-                            if (transMins !== -1) {
+                            if (transMins !== -1 && transMins > originalStart) {
                                 p1End = Math.min(p1End, transMins);
                                 p2Start = transMins;
                             }
@@ -3568,10 +3568,23 @@ const App = () => {
                             if (batchPayloads.length > 0) {
                                 Swal.fire({ title: '系統正在互換排程...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
                                 universalSend('/api/batch-process-bookings', { payloads: batchPayloads }).then((res) => {
+                                    if (res && res.data && res.data.success === false && res.data.error) {
+                                        throw new Error(res.data.error);
+                                    }
                                     Swal.fire('系統提示', '互換成功！', 'success');
                                     fetchData(true);
                                 }).catch(err => {
-                                    Swal.fire('系統提示', "⚠️ 儲存失敗！請檢查網路連線。", 'warning');
+                                    let errorMsg = "⚠️ 儲存失敗！請檢查網路連線。";
+                                    let errStr = err && err.message ? err.message : String(err);
+                                    if (err && err.response && err.response.data && err.response.data.error) {
+                                        errStr = err.response.data.error;
+                                    }
+                                    if (errStr.includes('RESOURCE_CONFLICT')) {
+                                        errorMsg = "⚠️ 資源衝突：該座位/床位在該時段已被佔用！";
+                                    } else if (errStr !== "[object Object]") {
+                                        errorMsg = "⚠️ 系統提示：" + errStr;
+                                    }
+                                    Swal.fire('系統提示', errorMsg, 'warning');
                                     fetchData(true);
                                 });
                             }
@@ -3688,10 +3701,23 @@ const App = () => {
                             if (payloads && payloads.length > 0) {
                                 Swal.fire({ title: '系統正在重新安排排程...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
                                 universalSend('/api/batch-process-bookings', { payloads: payloads }).then((res) => {
+                                    if (res && res.data && res.data.success === false && res.data.error) {
+                                        throw new Error(res.data.error);
+                                    }
                                     Swal.close();
                                     fetchData(true);
                                 }).catch(err => {
-                                    Swal.fire('系統提示', "⚠️ 儲存失敗！請檢查網路連線。", 'warning');
+                                    let errorMsg = "⚠️ 儲存失敗！請檢查網路連線。";
+                                    let errStr = err && err.message ? err.message : String(err);
+                                    if (err && err.response && err.response.data && err.response.data.error) {
+                                        errStr = err.response.data.error;
+                                    }
+                                    if (errStr.includes('RESOURCE_CONFLICT')) {
+                                        errorMsg = "⚠️ 資源衝突：該座位/床位在該時段已被佔用！";
+                                    } else if (errStr !== "[object Object]") {
+                                        errorMsg = "⚠️ 系統提示：" + errStr;
+                                    }
+                                    Swal.fire('系統提示', errorMsg, 'warning');
                                     fetchData(true);
                                 });
                             } else {

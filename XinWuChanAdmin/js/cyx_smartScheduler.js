@@ -426,6 +426,8 @@ window.SmartScheduler = (function() {
                         }
                         
                         p.transition_time = minsToTimeString(currentTransMins + newAssignt.transitionShift, bOrigin.startTimeString);
+                        p.phase1_duration = split.phase1;
+                        p.phase2_duration = split.phase2;
                     }
                 }
                 

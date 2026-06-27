@@ -1205,7 +1205,7 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                                 <div className="flex-1 relative flex flex-col items-center">
                                     <label className={`block w-full text-xs font-bold mb-1 text-center transition-colors flex items-center justify-center gap-2 ${isBodyFirstLocal ? 'text-orange-600' : 'text-indigo-600'}`}>
                                         PHASE 1 ({isBodyFirstLocal ? '身' : '足'})
-                                        <button onClick={() => setIsPhase1Locked(!isPhase1Locked)} className={`text-sm transition-all hover:scale-110 active:scale-95 ${isPhase1Locked ? 'text-red-500' : 'text-gray-300 hover:text-gray-500'}`} title={isPhase1Locked ? '解鎖 (Mở khoá)' : '鎖定 (Khoá)'}>
+                                        <button onClick={() => setIsPhase1Locked(!isPhase1Locked)} className={`text-sm transition-all hover:scale-110 active:scale-95 ${isPhase1Locked ? 'text-red-500' : 'text-gray-300 hover:text-gray-500'}`} title={isPhase1Locked ? '解鎖' : '鎖定'}>
                                             <i className={isPhase1Locked ? "fas fa-lock" : "fas fa-lock-open"}></i>
                                         </button>
                                     </label>
@@ -1245,7 +1245,7 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
 
                                 <div className="shrink-0 flex flex-col items-center justify-start pt-2">
                                     <div className="mb-2 relative">
-                                        <button onClick={() => setIsFlowLocked(!isFlowLocked)} className={`text-sm transition-all hover:scale-110 active:scale-95 z-10 relative ${isFlowLocked ? 'text-red-500' : 'text-gray-300 hover:text-gray-500'}`} title={isFlowLocked ? '解鎖 (Mở khoá)' : '鎖定 (Khoá)'}>
+                                        <button onClick={() => setIsFlowLocked(!isFlowLocked)} className={`text-sm transition-all hover:scale-110 active:scale-95 z-10 relative ${isFlowLocked ? 'text-red-500' : 'text-gray-300 hover:text-gray-500'}`} title={isFlowLocked ? '解鎖' : '鎖定'}>
                                             <i className={isFlowLocked ? "fas fa-lock" : "fas fa-lock-open"}></i>
                                         </button>
                                     </div>
@@ -1278,7 +1278,7 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                                 <div className="flex-1 relative flex flex-col items-center">
                                     <label className={`block w-full text-xs font-bold mb-1 text-center transition-colors flex items-center justify-center gap-2 ${isBodyFirstLocal ? 'text-indigo-600' : 'text-orange-600'}`}>
                                         PHASE 2 ({isBodyFirstLocal ? '足' : '身'})
-                                        <button onClick={() => setIsPhase2Locked(!isPhase2Locked)} className={`text-sm transition-all hover:scale-110 active:scale-95 ${isPhase2Locked ? 'text-red-500' : 'text-gray-300 hover:text-gray-500'}`} title={isPhase2Locked ? '解鎖 (Mở khoá)' : '鎖定 (Khoá)'}>
+                                        <button onClick={() => setIsPhase2Locked(!isPhase2Locked)} className={`text-sm transition-all hover:scale-110 active:scale-95 ${isPhase2Locked ? 'text-red-500' : 'text-gray-300 hover:text-gray-500'}`} title={isPhase2Locked ? '解鎖' : '鎖定'}>
                                             <i className={isPhase2Locked ? "fas fa-lock" : "fas fa-lock-open"}></i>
                                         </button>
                                     </label>

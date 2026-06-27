@@ -1678,6 +1678,35 @@ async function batchUpdateMultipleBookings(updatesArray) {
                     if (isNaN(p1Dur)) p1Dur = 0; if (isNaN(p2Dur)) p2Dur = 0;
                     
                     let finalFlow = flowVal !== undefined ? flowVal : (bookingData ? bookingData.flow : "FB");
+                    
+                    if (!p1Dur && totalDuration) p1Dur = Math.floor(totalDuration / 2);
+                    if (!p2Dur && totalDuration) p2Dur = totalDuration - p1Dur;
+
+                    // [GUARDRAIL] Check Resource Overlap before allowing batch update
+                    let checkDate = body.date || (bookingData ? (bookingData.opDate || bookingData.startTimeString) : null);
+                    let checkTime = body.startTime || (bookingData ? (bookingData.startTimeString || bookingData.startTime) : null);
+                    if (checkDate && checkTime && (phase1Res || phase2Res)) {
+                        const conflict = typeof _checkOverlapConflict === 'function' ? _checkOverlapConflict(rowId, checkDate, checkTime, totalDuration, phase1Res, phase2Res, p1Dur, p2Dur, finalFlow) : null;
+                        if (conflict) {
+                            throw new Error(`RESOURCE_CONFLICT|${conflict.resource}|${conflict.conflictName}`);
+                        }
+                    }
+
+                    const isComboCalc = (finalFlow === 'FB' || finalFlow === 'BF');
+                    const transitionBuffer = isComboCalc ? (typeof ResourceCore !== 'undefined' && ResourceCore.CONFIG ? ResourceCore.CONFIG.TRANSITION_BUFFER : 3) : 0;
+                    
+                    if (isComboCalc) {
+                        if (body.transition_time !== undefined && body.transition_time !== null) {
+                            dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!AD${rowId}`, values: [[body.transition_time]] });
+                        } else {
+                            dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!AD${rowId}`, values: [[typeof ResourceCore !== 'undefined' ? ResourceCore.getTimeStrFromMins(startMins + p1Dur + transitionBuffer) : ""]] });
+                        }
+                    } else {
+                        dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!AD${rowId}`, values: [[""]] });
+                    }
+                    dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!AF${rowId}`, values: [[typeof ResourceCore !== 'undefined' ? ResourceCore.getTimeStrFromMins(startMins + p1Dur + p2Dur + transitionBuffer) : ""]] });
+                }
+            }
                     const isComboCalc = (finalFlow === 'FB' || finalFlow === 'BF');
                     const transitionBuffer = isComboCalc ? (typeof ResourceCore !== 'undefined' && ResourceCore.CONFIG ? ResourceCore.CONFIG.TRANSITION_BUFFER : 3) : 0;
                     
