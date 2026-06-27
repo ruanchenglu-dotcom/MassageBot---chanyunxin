@@ -421,7 +421,7 @@
                     if (bLoc !== locationStr && !isResourceStr) return;
                     let success = false;
                     if (res) {
-                        const laneMatch = res.match(/(BED|CHAIR|床|足|腳)[-_ ]?(\d+)/i);
+                        const laneMatch = res.match(/(BED|CHAIR|床|足|腳)[-_ ]?(?:\d+[-_ ])?(\d+)/i);
                         if (laneMatch) {
                             const type = (laneMatch[1].toUpperCase().includes('BED') || laneMatch[1].includes('床')) ? 'BED' : 'CHAIR';
                             const idx = parseInt(laneMatch[2]) - 1;
@@ -1141,13 +1141,13 @@
                             res1 = uniqueMatches.find(r => r.includes('CHAIR') || r.includes('足')) || uniqueMatches[0];
                             res2 = uniqueMatches.find(r => r.includes('BED') || r.includes('床')) || uniqueMatches[1];
                         }
-                        if (res1) { const m = res1.match(/(\d+)/); if (m) p1Index = parseInt(m[0], 10); }
-                        if (res2) { const m = res2.match(/(\d+)/); if (m) p2Index = parseInt(m[0], 10); }
+                        if (res1) { const m = res1.match(/(\d+)$/); if (m) p1Index = parseInt(m[1], 10); }
+                        if (res2) { const m = res2.match(/(\d+)$/); if (m) p2Index = parseInt(m[1], 10); }
                     } else if (uniqueMatches.length === 1) {
                         const mType = (uniqueMatches[0].toUpperCase().includes('BED') || uniqueMatches[0].includes('床')) ? 'BED' : 'CHAIR';
-                        const m = uniqueMatches[0].match(/(\d+)/);
+                        const m = uniqueMatches[0].match(/(\d+)$/);
                         if (m) {
-                            const parsedIdx = parseInt(m[0], 10);
+                            const parsedIdx = parseInt(m[1], 10);
                             if (isBodyFirst) {
                                 if (mType === 'BED') p1Index = parsedIdx;
                                 else p2Index = parsedIdx;
@@ -1178,8 +1178,8 @@
                     
                     let forcedIdx = anchorIndex;
                     if (uniqueMatches.length > 0) {
-                        const m = uniqueMatches[0].match(/(\d+)/);
-                        if (m) forcedIdx = parseInt(m[0], 10);
+                        const m = uniqueMatches[0].match(/(\d+)$/);
+                        if (m) forcedIdx = parseInt(m[1], 10);
                     }
                     
                     processedB.blocks.push({ start: bStart, end: bStart + realDuration + CONF.CLEANUP_BUFFER, type: rType, forcedIndex: forcedIdx });
