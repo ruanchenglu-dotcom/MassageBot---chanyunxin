@@ -30,12 +30,28 @@ window.SmartScheduler = (function() {
     const getCandidateResources = (currentResId) => {
         if (!currentResId) return [];
         let rId = String(currentResId).toUpperCase().trim();
-        let prefixMatch = rId.match(/^(.+?-)/);
-        let prefix = prefixMatch ? prefixMatch[1] : rId.substring(0, 1) + '1-';
-        
-        let maxCount = (rId.includes('床') || rId.includes('BED')) ? (window.SYSTEM_CONFIG?.SCALE?.MAX_BEDS || 6) : (window.SYSTEM_CONFIG?.SCALE?.MAX_CHAIRS || 6);
-        if (rId.includes('OPP-CHAIR')) maxCount = window.SYSTEM_CONFIG?.SCALE?.OPP_CHAIRS || 4;
-        if (rId.includes('OPP-BED')) maxCount = window.SYSTEM_CONFIG?.SCALE?.OPP_BEDS || 6;
+        let prefix = 'CHAIR-1-';
+        let maxCount = window.SYSTEM_CONFIG?.SCALE?.MAX_CHAIRS || 6;
+
+        if (rId.includes('OPP-CHAIR') || rId.includes('OPP_CHAIR')) {
+            prefix = 'CHAIR-2-';
+            maxCount = window.SYSTEM_CONFIG?.SCALE?.OPP_CHAIRS || 4;
+        } else if (rId.includes('OPP-BED') || rId.includes('OPP_BED')) {
+            prefix = 'BED-2-';
+            maxCount = window.SYSTEM_CONFIG?.SCALE?.OPP_BEDS || 6;
+        } else if (rId.includes('BED-2') || rId.includes('床2')) {
+            prefix = 'BED-2-';
+            maxCount = window.SYSTEM_CONFIG?.SCALE?.OPP_BEDS || 6;
+        } else if (rId.includes('CHAIR-2') || rId.includes('腳2')) {
+            prefix = 'CHAIR-2-';
+            maxCount = window.SYSTEM_CONFIG?.SCALE?.OPP_CHAIRS || 4;
+        } else if (rId.includes('BED') || rId.includes('床')) {
+            prefix = 'BED-1-';
+            maxCount = window.SYSTEM_CONFIG?.SCALE?.MAX_BEDS || 6;
+        } else {
+            prefix = 'CHAIR-1-';
+            maxCount = window.SYSTEM_CONFIG?.SCALE?.MAX_CHAIRS || 6;
+        }
         
         let resources = [];
         for (let i = 1; i <= maxCount; i++) {
@@ -366,12 +382,12 @@ window.SmartScheduler = (function() {
                     if (targetPhase === 1) assignment.phase2_res = String(movedB.phase1_res_idx).toUpperCase();
                     else assignment.phase1_res = String(movedB.phase2_res_idx).toUpperCase();
                 }
-                movedPayload.phase1_res_idx = assignment.phase1_res.toLowerCase();
-                movedPayload.phase2_res_idx = assignment.phase2_res.toLowerCase();
+                movedPayload.phase1_res_idx = assignment.phase1_res.toUpperCase();
+                movedPayload.phase2_res_idx = assignment.phase2_res.toUpperCase();
                 movedPayload.flow = isBed(assignment.phase1_res) ? 'BF' : 'FB';
             } else {
-                movedPayload.current_resource_id = targetIdUpper.toLowerCase();
-                movedPayload.location = targetIdUpper.toLowerCase();
+                movedPayload.current_resource_id = targetIdUpper.toUpperCase();
+                movedPayload.location = targetIdUpper.toUpperCase();
             }
             payloads.push(movedPayload);
         }
@@ -388,14 +404,14 @@ window.SmartScheduler = (function() {
                 if (newAssignt.flow !== orig.flow || newAssignt.phase1_res !== orig.phase1_res || newAssignt.phase2_res !== orig.phase2_res || newAssignt.timeShift !== 0 || newAssignt.transitionShift !== 0) {
                     isChanged = true;
                     p.flow = newAssignt.flow;
-                    p.phase1_res_idx = newAssignt.phase1_res.toLowerCase();
-                    p.phase2_res_idx = newAssignt.phase2_res.toLowerCase();
+                    p.phase1_res_idx = newAssignt.phase1_res.toUpperCase();
+                    p.phase2_res_idx = newAssignt.phase2_res.toUpperCase();
                 }
             } else {
                 if (newAssignt.res !== orig.res || newAssignt.timeShift !== 0) {
                     isChanged = true;
-                    p.current_resource_id = newAssignt.res.toLowerCase();
-                    p.location = newAssignt.res.toLowerCase();
+                    p.current_resource_id = newAssignt.res.toUpperCase();
+                    p.location = newAssignt.res.toUpperCase();
                 }
             }
 

@@ -1625,14 +1625,24 @@ async function batchUpdateMultipleBookings(updatesArray) {
             // Chỉ fallback cho các dịch vụ ĐƠN LẺ (Single), KHÔNG được fallback cho dịch vụ COMBO
             let bookingData = STATE.cachedBookings.find(b => b.rowId == rowId);
             const isCombo = bookingData ? (bookingData.category === 'COMBO' || (bookingData.serviceName && bookingData.serviceName.includes('套餐'))) : false;
+            
+            let isBedP1 = guessIsBed(body.category || bookingData?.category, flowVal || bookingData?.flow, 1);
+            let isBedP2 = guessIsBed(body.category || bookingData?.category, flowVal || bookingData?.flow, 2);
+
             if (!isCombo && phase1Res === undefined && (body.location !== undefined || body.current_resource_id !== undefined)) {
                 phase1Res = body.location !== undefined ? body.location : body.current_resource_id;
             }
-            if (phase1Res !== undefined) dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!AG${rowId}`, values: [[phase1Res]] });
+            if (phase1Res !== undefined) {
+                phase1Res = normalizeResourceId(phase1Res, isBedP1);
+                dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!AG${rowId}`, values: [[phase1Res]] });
+            }
 
             let phase2Res = body.phase2_res_idx !== undefined ? body.phase2_res_idx : (body.phase2_resource !== undefined ? body.phase2_resource : body.phase2Resource);
             if (body.newPhase2Res !== undefined) phase2Res = body.newPhase2Res;
-            if (phase2Res !== undefined) dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!AH${rowId}`, values: [[phase2Res]] });
+            if (phase2Res !== undefined) {
+                phase2Res = normalizeResourceId(phase2Res, isBedP2);
+                dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!AH${rowId}`, values: [[phase2Res]] });
+            }
 
             const resourceType = body.resource_type !== undefined ? body.resource_type : body.resourceType;
             if (resourceType !== undefined) dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!AI${rowId}`, values: [[resourceType ? String(resourceType).toUpperCase() : ""]] });
