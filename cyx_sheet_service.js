@@ -909,7 +909,7 @@ async function updateBookingStatus(rowId, newStatus) {
     } catch (e) { console.error('Update Status Error:', e); return false; }
 }
 
-function _checkOverlapConflict(rowId, dateStr, timeStr, duration, phase1Res, phase2Res, p1Dur, p2Dur, flow, locationStr = '本館') {
+function _checkOverlapConflict(rowId, dateStr, timeStr, duration, phase1Res, phase2Res, p1Dur, p2Dur, flow, locationStr = '本館', ignoreRowIds = []) {
     if (!phase1Res && !phase2Res) return null;
     
     const startMins = ResourceCore.getMinsFromTimeStr(timeStr);
@@ -932,7 +932,9 @@ function _checkOverlapConflict(rowId, dateStr, timeStr, duration, phase1Res, pha
     const bookingsOnDate = STATE.cachedBookings.filter(b => {
         const bLoc = b.originalData?.location || b.location || '本館';
         return normalizeDateStrict(b.opDate || b.startTimeString) === normalizeDateStrict(dateStr) 
-            && b.rowId != rowId && bLoc === locationStr;
+            && b.rowId != rowId 
+            && (!ignoreRowIds || !ignoreRowIds.includes(String(b.rowId)))
+            && bLoc === locationStr;
     });
     
     for (const b of bookingsOnDate) {
@@ -1577,6 +1579,8 @@ async function batchUpdateMultipleBookings(updatesArray) {
     try {
         const dataToUpdate = [];
         let hasForceSync = false;
+        
+        const batchRowIds = updatesArray.map(u => String(u.rowId));
 
         updatesArray.forEach(body => {
             const rowId = body.rowId;
@@ -1696,7 +1700,8 @@ async function batchUpdateMultipleBookings(updatesArray) {
                     let checkDate = body.date || (bookingData ? (bookingData.opDate || bookingData.startTimeString) : null);
                     let checkTime = body.startTime || (bookingData ? (bookingData.startTimeString || bookingData.startTime) : null);
                     if (checkDate && checkTime && (phase1Res || phase2Res)) {
-                        const conflict = typeof _checkOverlapConflict === 'function' ? _checkOverlapConflict(rowId, checkDate, checkTime, totalDuration, phase1Res, phase2Res, p1Dur, p2Dur, finalFlow) : null;
+                        const bLoc = body.location || (bookingData ? bookingData.location : '本館');
+                        const conflict = typeof _checkOverlapConflict === 'function' ? _checkOverlapConflict(rowId, checkDate, checkTime, totalDuration, phase1Res, phase2Res, p1Dur, p2Dur, finalFlow, bLoc, batchRowIds) : null;
                         if (conflict) {
                             throw new Error(`RESOURCE_CONFLICT|${conflict.resource}|${conflict.conflictName}`);
                         }
