@@ -85,8 +85,8 @@ function normalizeResourceId(id, isBed = null) {
     
     if (rId.match(/^BED-1$/)) return 'BED-1-1';
     if (rId.match(/^CHAIR-1$/)) return 'CHAIR-1-1';
-    if (rId.match(/^BED-2$/)) return 'BED-2-1';
-    if (rId.match(/^CHAIR-2$/)) return 'CHAIR-2-1';
+    if (rId.match(/^BED-2$/)) return 'BED-1-2';
+    if (rId.match(/^CHAIR-2$/)) return 'CHAIR-1-2';
 
     if (rId.includes('OPP-CHAIR') || rId.includes('OPP_CHAIR') || rId.includes('OPP-腳') || rId.includes('對面-腳') || rId.match(/^對面館.*腳/)) {
         let numMatches = rId.match(/\d+/g);

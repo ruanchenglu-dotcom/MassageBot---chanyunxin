@@ -615,10 +615,12 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
         const pushToMap = (res, startT, endT, fallbackType) => {
             let success = false;
             if (res) {
-                const laneMatch = res.match(/(BED|CHAIR|床|足)[-_ ]?(\d+)/i);
-                if (laneMatch) {
-                    const type = (laneMatch[1].toUpperCase().includes('BED') || laneMatch[1].includes('床')) ? 'BED' : 'CHAIR';
-                    const idx = parseInt(laneMatch[2]) - 1;
+                const isBed = res.toUpperCase().includes('BED') || res.includes('床');
+                const isChair = res.toUpperCase().includes('CHAIR') || res.includes('足');
+                const numMatches = res.match(/\d+/g);
+                if ((isBed || isChair) && numMatches) {
+                    const type = isBed ? 'BED' : 'CHAIR';
+                    const idx = parseInt(numMatches[numMatches.length - 1], 10) - 1;
                     if (resourceMap[type] && resourceMap[type][idx]) {
                         resourceMap[type][idx].push({ start: startT, end: endT });
                         success = true;
@@ -1201,13 +1203,13 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
                     res1 = uniqueMatches.find(r => r.includes('CHAIR') || r.includes('足')) || uniqueMatches[0];
                     res2 = uniqueMatches.find(r => r.includes('BED') || r.includes('床')) || uniqueMatches[1];
                 }
-                if (res1) { const m = res1.match(/(\d+)/); if (m) p1Index = parseInt(m[0], 10); }
-                if (res2) { const m = res2.match(/(\d+)/); if (m) p2Index = parseInt(m[0], 10); }
+                if (res1) { const m = res1.match(/\d+/g); if (m) p1Index = parseInt(m[m.length - 1], 10); }
+                if (res2) { const m = res2.match(/\d+/g); if (m) p2Index = parseInt(m[m.length - 1], 10); }
             } else if (uniqueMatches.length === 1) {
                 const mType = (uniqueMatches[0].toUpperCase().includes('BED') || uniqueMatches[0].includes('床')) ? 'BED' : 'CHAIR';
-                const m = uniqueMatches[0].match(/(\d+)/);
+                const m = uniqueMatches[0].match(/\d+/g);
                 if (m) {
-                    const parsedIdx = parseInt(m[0], 10);
+                    const parsedIdx = parseInt(m[m.length - 1], 10);
                     if (isBodyFirst) {
                         if (mType === 'BED') p1Index = parsedIdx;
                         else p2Index = parsedIdx;
@@ -1239,8 +1241,8 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
             
             let forcedIdx = anchorIndex;
             if (uniqueMatches.length > 0) {
-                const m = uniqueMatches[0].match(/(\d+)/);
-                if (m) forcedIdx = parseInt(m[0], 10);
+                const m = uniqueMatches[0].match(/\d+/g);
+                if (m) forcedIdx = parseInt(m[m.length - 1], 10);
             }
             
             processedB.blocks.push({ start: bStart, end: bStart + duration + CONF.CLEANUP_BUFFER, type: rType, forcedIndex: forcedIdx });
