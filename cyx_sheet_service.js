@@ -76,10 +76,10 @@ function normalizeResourceId(id, isBed = null) {
     let rId = id.toUpperCase();
 
     if (rId.includes('本') && !rId.includes('腳') && !rId.includes('床') && !rId.includes('BED') && !rId.includes('CHAIR')) {
-        let numMatch = rId.match(/\d+/);
-        if (numMatch) {
-            if (isBed === true) return `BED-1-${numMatch[0]}`;
-            if (isBed === false) return `CHAIR-1-${numMatch[0]}`;
+        let numMatches = rId.match(/\d+/g);
+        if (numMatches) {
+            if (isBed === true) return `BED-1-${numMatches[numMatches.length - 1]}`;
+            if (isBed === false) return `CHAIR-1-${numMatches[numMatches.length - 1]}`;
         }
     }
     
@@ -89,23 +89,23 @@ function normalizeResourceId(id, isBed = null) {
     if (rId.match(/^CHAIR-2$/)) return 'CHAIR-2-1';
 
     if (rId.includes('OPP-CHAIR') || rId.includes('OPP_CHAIR') || rId.includes('OPP-腳') || rId.includes('對面-腳') || rId.match(/^對面館.*腳/)) {
-        let numMatch = rId.match(/\d+/);
-        return `CHAIR-2-${numMatch ? numMatch[0] : '1'}`;
+        let numMatches = rId.match(/\d+/g);
+        return `CHAIR-2-${numMatches ? numMatches[numMatches.length - 1] : '1'}`;
     }
     if (rId.includes('OPP-BED') || rId.includes('OPP_BED') || rId.includes('OPP-床') || rId.includes('對面-床') || rId.match(/^對面館.*床/)) {
-        let numMatch = rId.match(/\d+/);
-        return `BED-2-${numMatch ? numMatch[0] : '1'}`;
+        let numMatches = rId.match(/\d+/g);
+        return `BED-2-${numMatches ? numMatches[numMatches.length - 1] : '1'}`;
     }
     if (rId.includes('CHAIR') || rId.includes('腳') || rId.includes('本館-腳') || rId.match(/^本館.*腳/)) {
-        let numMatch = rId.match(/\d+/);
+        let numMatches = rId.match(/\d+/g);
         if (!rId.includes('CHAIR-2-')) {
-            return `CHAIR-1-${numMatch ? numMatch[0] : '1'}`;
+            return `CHAIR-1-${numMatches ? numMatches[numMatches.length - 1] : '1'}`;
         }
     }
     if (rId.includes('BED') || rId.includes('床') || rId.includes('本館-床') || rId.match(/^本館.*床/)) {
-        let numMatch = rId.match(/\d+/);
+        let numMatches = rId.match(/\d+/g);
         if (!rId.includes('BED-2-')) {
-            return `BED-1-${numMatch ? numMatch[0] : '1'}`;
+            return `BED-1-${numMatches ? numMatches[numMatches.length - 1] : '1'}`;
         }
     }
     return rId;
