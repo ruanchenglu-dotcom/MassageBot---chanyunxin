@@ -1707,17 +1707,6 @@ async function batchUpdateMultipleBookings(updatesArray) {
                     dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!AF${rowId}`, values: [[typeof ResourceCore !== 'undefined' ? ResourceCore.getTimeStrFromMins(startMins + p1Dur + p2Dur + transitionBuffer) : ""]] });
                 }
             }
-                    const isComboCalc = (finalFlow === 'FB' || finalFlow === 'BF');
-                    const transitionBuffer = isComboCalc ? (typeof ResourceCore !== 'undefined' && ResourceCore.CONFIG ? ResourceCore.CONFIG.TRANSITION_BUFFER : 3) : 0;
-                    
-                    if (isComboCalc) {
-                        dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!AD${rowId}`, values: [[typeof ResourceCore !== 'undefined' ? ResourceCore.getTimeStrFromMins(startMins + p1Dur + transitionBuffer) : ""]] });
-                    } else {
-                        dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!AD${rowId}`, values: [[""]] });
-                    }
-                    dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!AF${rowId}`, values: [[typeof ResourceCore !== 'undefined' ? ResourceCore.getTimeStrFromMins(startMins + p1Dur + p2Dur + transitionBuffer) : ""]] });
-                }
-            }
 
             // === [V136 OPTIMISTIC CACHE UPDATE] 防衝突機制 ===
             if (bookingData) {
