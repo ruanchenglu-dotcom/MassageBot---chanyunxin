@@ -1027,8 +1027,10 @@ async function updateBookingDetails(body) {
     const isCombo = bookingData ? (bookingData.category === 'COMBO' || (bookingData.serviceName && bookingData.serviceName.includes('套餐'))) : false;
     if (!isCombo && phase1Res === undefined && (body.location !== undefined || body.current_resource_id !== undefined)) {
         phase1Res = body.location !== undefined ? body.location : body.current_resource_id;
-    let phase2Res = body.phase2_res_idx !== undefined ? body.phase2_res_idx : (body.phase2_resource !== undefined ? body.phase2_resource : body.phase2Resource);
-    if (phase2Res !== undefined && phase2Res !== null) phase2Res = normalizeResourceId(phase2Res);
+    }
+    
+    if (phase1Res !== undefined && phase1Res !== null) phase1Res = normalizeResourceId(phase1Res, isBedP1);
+    if (phase2Res !== undefined && phase2Res !== null) phase2Res = normalizeResourceId(phase2Res, isBedP2);
     
     // [V135] GUARDRAIL: Check Resource Overlap before allowing manual override
     let checkDate = body.date || (bookingData ? (bookingData.opDate || bookingData.startTimeString) : null);
@@ -1113,7 +1115,6 @@ async function updateBookingDetails(body) {
         updateCell('AX', body.adminNote);
     }
 
-    const flowVal = body.flow || body.flow_code;
     if (flowVal !== undefined) updateCell('Z', flowVal);
 
     if (phase1Res !== undefined) updateCell('AG', phase1Res);
