@@ -3527,8 +3527,8 @@ const App = () => {
                                         else if (p2Changed && !p1Changed) newP1 = srcIdUpper.toUpperCase();
                                     }
 
-                                    p.phase1_res_idx = newP1;
-                                    p.phase2_res_idx = newP2;
+                                    p.phase1_res_idx = newP1 ? String(newP1).toUpperCase() : "";
+                                    p.phase2_res_idx = newP2 ? String(newP2).toUpperCase() : "";
                                     p.flow = isBed(newP1) ? 'BF' : 'FB';
                                 } else {
                                     p.current_resource_id = tgtIdUpper.toUpperCase();
@@ -3555,8 +3555,8 @@ const App = () => {
                                         else if (p2Changed && !p1Changed) newP1 = tgtIdUpper.toUpperCase();
                                     }
 
-                                    p.phase1_res_idx = newP1;
-                                    p.phase2_res_idx = newP2;
+                                    p.phase1_res_idx = newP1 ? String(newP1).toUpperCase() : "";
+                                    p.phase2_res_idx = newP2 ? String(newP2).toUpperCase() : "";
                                     p.flow = isBed(newP1) ? 'BF' : 'FB';
                                 } else {
                                     p.current_resource_id = srcIdUpper.toUpperCase();
@@ -3616,8 +3616,8 @@ const App = () => {
                                 }
                             }
 
-                            updateData.phase1_res_idx = newP1;
-                            updateData.phase2_res_idx = newP2;
+                            updateData.phase1_res_idx = newP1 ? String(newP1).toUpperCase() : "";
+                            updateData.phase2_res_idx = newP2 ? String(newP2).toUpperCase() : "";
                             updateData.flow = isBed(newP1) ? 'BF' : 'FB';
                         } else {
                             updateData.current_resource_id = targetId;

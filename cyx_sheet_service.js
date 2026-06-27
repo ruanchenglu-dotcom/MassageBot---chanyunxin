@@ -71,9 +71,23 @@ const SERVICES_DATA = require('./cyx_data.js').SERVICES_DATA;
 // --- CONFIGURATION ---
 const SHEET_ID = process.env.SHEET_ID;
 
-function normalizeResourceId(id) {
+function normalizeResourceId(id, isBed = null) {
     if (!id || typeof id !== 'string') return id;
     let rId = id.toUpperCase();
+
+    if (rId.includes('本') && !rId.includes('腳') && !rId.includes('床') && !rId.includes('BED') && !rId.includes('CHAIR')) {
+        let numMatch = rId.match(/\d+/);
+        if (numMatch) {
+            if (isBed === true) return `BED-1-${numMatch[0]}`;
+            if (isBed === false) return `CHAIR-1-${numMatch[0]}`;
+        }
+    }
+    
+    if (rId.match(/^BED-1$/)) return 'BED-1-1';
+    if (rId.match(/^CHAIR-1$/)) return 'CHAIR-1-1';
+    if (rId.match(/^BED-2$/)) return 'BED-2-1';
+    if (rId.match(/^CHAIR-2$/)) return 'CHAIR-2-1';
+
     if (rId.includes('OPP-CHAIR') || rId.includes('OPP_CHAIR') || rId.includes('OPP-腳') || rId.includes('對面-腳') || rId.match(/^對面館.*腳/)) {
         let numMatch = rId.match(/\d+/);
         return `CHAIR-2-${numMatch ? numMatch[0] : '1'}`;
@@ -95,6 +109,16 @@ function normalizeResourceId(id) {
         }
     }
     return rId;
+}
+
+function guessIsBed(category, flow, phaseNum) {
+    if (category === 'BODY' || category === 'ADDON') return true;
+    if (category === 'FOOT') return false;
+    if (category === 'COMBO' || String(category).includes('套餐')) {
+        if (flow === 'FB') return phaseNum === 2;
+        if (flow === 'BF') return phaseNum === 1;
+    }
+    return null;
 }
 
 // Define Status Keywords (The Source of Truth)
@@ -811,8 +835,10 @@ async function ghiVaoSheet(data, proposedUpdates = []) {
             if (!r2) r2 = data.phase2_res_idx || data.phase2Resource || data.phase2_resource;
             if (!rType) rType = data.resource_type || data.resourceType;
 
-            row[32] = r1 ? normalizeResourceId(r1) : "";
-            row[33] = r2 ? normalizeResourceId(r2) : "";
+            let isBedP1 = guessIsBed(guestDetail.category, guestDetail.flow, 1);
+            let isBedP2 = guessIsBed(guestDetail.category, guestDetail.flow, 2);
+            row[32] = r1 ? normalizeResourceId(r1, isBedP1) : "";
+            row[33] = r2 ? normalizeResourceId(r2, isBedP2) : "";
             row[34] = rType ? String(rType).toUpperCase() : "";
 
             const hasManualPhase = (data.phase1_duration !== undefined && data.phase1_duration !== null) || (data.phase2_duration !== undefined && data.phase2_duration !== null);
@@ -986,16 +1012,21 @@ async function updateBookingDetails(body) {
 
     let bookingData = STATE.cachedBookings.find(b => b.rowId == rowId);
     let totalDuration = bookingData ? bookingData.duration : (safeParseInt(body.duration, 60));
+    const flowVal = body.flow || body.flow_code;
+
+    let isBedP1 = guessIsBed(body.category || bookingData?.category, flowVal || bookingData?.flow, 1);
+    let isBedP2 = guessIsBed(body.category || bookingData?.category, flowVal || bookingData?.flow, 2);
 
     let phase1Res = body.phase1_res_idx !== undefined ? body.phase1_res_idx : (body.phase1_resource !== undefined ? body.phase1_resource : body.phase1Resource);
-    if (phase1Res !== undefined && phase1Res !== null) phase1Res = normalizeResourceId(phase1Res);
+    if (phase1Res !== undefined && phase1Res !== null) phase1Res = normalizeResourceId(phase1Res, isBedP1);
+    
+    let phase2Res = body.phase2_res_idx !== undefined ? body.phase2_res_idx : (body.phase2_resource !== undefined ? body.phase2_resource : body.phase2Resource);
+    if (phase2Res !== undefined && phase2Res !== null) phase2Res = normalizeResourceId(phase2Res, isBedP2);
     
     // Chỉ fallback cho các dịch vụ ĐƠN LẺ (Single), KHÔNG được fallback cho dịch vụ COMBO
     const isCombo = bookingData ? (bookingData.category === 'COMBO' || (bookingData.serviceName && bookingData.serviceName.includes('套餐'))) : false;
     if (!isCombo && phase1Res === undefined && (body.location !== undefined || body.current_resource_id !== undefined)) {
         phase1Res = body.location !== undefined ? body.location : body.current_resource_id;
-        if (phase1Res !== undefined && phase1Res !== null) phase1Res = normalizeResourceId(phase1Res);
-    }
     let phase2Res = body.phase2_res_idx !== undefined ? body.phase2_res_idx : (body.phase2_resource !== undefined ? body.phase2_resource : body.phase2Resource);
     if (phase2Res !== undefined && phase2Res !== null) phase2Res = normalizeResourceId(phase2Res);
     
@@ -1427,8 +1458,8 @@ async function updateInlineBooking(rowId, updatedData) {
                         }
                     }
 
-                    row[32] = bestPhase1 ? normalizeResourceId(bestPhase1) : "";
-                    row[33] = bestPhase2 ? normalizeResourceId(bestPhase2) : "";
+                    row[32] = bestPhase1 ? normalizeResourceId(bestPhase1, guessIsBed(bookingData?.category, bookingData?.flow, 1)) : "";
+                    row[33] = bestPhase2 ? normalizeResourceId(bestPhase2, guessIsBed(bookingData?.category, bookingData?.flow, 2)) : "";
                 }
                 row[35] = newResType;
             }
