@@ -225,7 +225,7 @@ window.SmartScheduler = (function() {
             if (isMovedCombo) {
                 bSourceId = targetPhase === 1 ? movedBForSource.phase1_res_idx : movedBForSource.phase2_res_idx;
             } else {
-                bSourceId = movedBForSource.current_resource_id || movedBForSource.location;
+                bSourceId = movedBForSource.current_resource_id || movedBForSource.phase1_res_idx || movedBForSource.location || movedBForSource.storedLocation;
             }
         }
         if (bSourceId) bSourceId = normalizeRes(bSourceId);
@@ -282,7 +282,7 @@ window.SmartScheduler = (function() {
                 };
             } else {
                 assignmentOriginal = {
-                    res: normalizeRes(b.current_resource_id || b.location),
+                    res: normalizeRes(b.current_resource_id || b.phase1_res_idx || b.location || b.storedLocation),
                     timeShift: 0
                 };
             }
