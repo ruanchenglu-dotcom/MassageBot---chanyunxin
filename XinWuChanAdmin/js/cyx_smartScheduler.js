@@ -92,9 +92,7 @@ window.SmartScheduler = (function() {
 
     const isSameRes = (id1, id2) => {
         if (!id1 || !id2) return false;
-        let s1 = String(id1).trim().toUpperCase().replace(/BED/g, '床').replace(/\s+/g, '');
-        let s2 = String(id2).trim().toUpperCase().replace(/BED/g, '床').replace(/\s+/g, '');
-        return s1 === s2;
+        return normalizeRes(id1) === normalizeRes(id2);
     };
 
     const isTargetPhaseLocked = (b, isCombo) => {

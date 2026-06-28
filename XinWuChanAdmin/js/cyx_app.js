@@ -3449,6 +3449,21 @@ const App = () => {
                     
                     if (srcIdUpper === tgtIdUpper) break;
 
+                    const normalizeResLocal = (res) => {
+                        if (!res) return '';
+                        let s = String(res).toUpperCase().trim();
+                        let match = s.match(/^(CHAIR|BED|OPP-CHAIR|OPP-BED|OPP_CHAIR|OPP_BED)-?(\d+)-?(\d+)?$/);
+                        if (match) return `${match[1].replace('_', '-')}-1-${match[3] || match[2]}`;
+                        match = s.match(/^(CHAIR|BED|OPP-CHAIR|OPP-BED|OPP_CHAIR|OPP_BED)\s*(\d+)$/);
+                        if (match) return `${match[1].replace('_', '-')}-1-${match[2]}`;
+                        match = s.match(/^(床|腳|椅|對面床|對面腳|對面椅)-?(\d+)-?(\d+)?$/);
+                        if (match) {
+                            let type = match[1] === '床' ? 'BED' : (match[1] === '對面床' ? 'OPP-BED' : (match[1] === '對面腳' || match[1] === '對面椅' ? 'OPP-CHAIR' : 'CHAIR'));
+                            return `${type}-1-${match[3] || match[2]}`;
+                        }
+                        return s;
+                    };
+
                     const bDateStrCurrent = viewDate.replace(/\//g, '-');
                     
                     const srcBookings = bookings.filter(x => {
@@ -3458,11 +3473,11 @@ const App = () => {
                         
                         let isSrc = false;
                         if (x.category === 'COMBO' || (x.serviceName && x.serviceName.includes('套餐'))) {
-                            if (String(x.phase1_res_idx).toUpperCase() === srcIdUpper || String(x.phase2_res_idx).toUpperCase() === srcIdUpper) {
+                            if (normalizeResLocal(x.phase1_res_idx) === srcIdUpper || normalizeResLocal(x.phase2_res_idx) === srcIdUpper) {
                                 isSrc = true;
                             }
                         } else {
-                            if (String(x.current_resource_id || x.location).toUpperCase() === srcIdUpper) {
+                            if (normalizeResLocal(x.current_resource_id || x.location) === srcIdUpper) {
                                 isSrc = true;
                             }
                         }
@@ -3476,11 +3491,11 @@ const App = () => {
                         
                         let isTgt = false;
                         if (x.category === 'COMBO' || (x.serviceName && x.serviceName.includes('套餐'))) {
-                            if (String(x.phase1_res_idx).toUpperCase() === tgtIdUpper || String(x.phase2_res_idx).toUpperCase() === tgtIdUpper) {
+                            if (normalizeResLocal(x.phase1_res_idx) === tgtIdUpper || normalizeResLocal(x.phase2_res_idx) === tgtIdUpper) {
                                 isTgt = true;
                             }
                         } else {
-                            if (String(x.current_resource_id || x.location).toUpperCase() === tgtIdUpper) {
+                            if (normalizeResLocal(x.current_resource_id || x.location) === tgtIdUpper) {
                                 isTgt = true;
                             }
                         }
@@ -3517,8 +3532,8 @@ const App = () => {
                                     let p1Changed = false;
                                     let p2Changed = false;
 
-                                    if (String(b.phase1_res_idx).toUpperCase() === srcIdUpper) { newP1 = tgtIdUpper.toUpperCase(); p1Changed = true; }
-                                    if (String(b.phase2_res_idx).toUpperCase() === srcIdUpper) { newP2 = tgtIdUpper.toUpperCase(); p2Changed = true; }
+                                    if (normalizeResLocal(b.phase1_res_idx) === srcIdUpper) { newP1 = tgtIdUpper.toUpperCase(); p1Changed = true; }
+                                    if (normalizeResLocal(b.phase2_res_idx) === srcIdUpper) { newP2 = tgtIdUpper.toUpperCase(); p2Changed = true; }
 
                                     const isBed = (id) => id && (String(id).toUpperCase().includes('床') || String(id).toUpperCase().includes('BED'));
                                     
@@ -3545,8 +3560,8 @@ const App = () => {
                                     let p1Changed = false;
                                     let p2Changed = false;
 
-                                    if (String(b.phase1_res_idx).toUpperCase() === tgtIdUpper) { newP1 = srcIdUpper.toUpperCase(); p1Changed = true; }
-                                    if (String(b.phase2_res_idx).toUpperCase() === tgtIdUpper) { newP2 = srcIdUpper.toUpperCase(); p2Changed = true; }
+                                    if (normalizeResLocal(b.phase1_res_idx) === tgtIdUpper) { newP1 = srcIdUpper.toUpperCase(); p1Changed = true; }
+                                    if (normalizeResLocal(b.phase2_res_idx) === tgtIdUpper) { newP2 = srcIdUpper.toUpperCase(); p2Changed = true; }
 
                                     const isBed = (id) => id && (String(id).toUpperCase().includes('床') || String(id).toUpperCase().includes('BED'));
                                     
