@@ -60,6 +60,32 @@ window.SmartScheduler = (function() {
         return resources;
     };
 
+    const normalizeRes = (res) => {
+        if (!res) return '';
+        let s = String(res).toUpperCase().trim();
+        let match = s.match(/^(CHAIR|BED|OPP-CHAIR|OPP-BED|OPP_CHAIR|OPP_BED)-?(\d+)-?(\d+)?$/);
+        if (match) {
+            let type = match[1].replace('_', '-');
+            let num = match[3] || match[2];
+            return `${type}-1-${num}`;
+        }
+        match = s.match(/^(CHAIR|BED|OPP-CHAIR|OPP-BED|OPP_CHAIR|OPP_BED)\s*(\d+)$/);
+        if (match) {
+            let type = match[1].replace('_', '-');
+            return `${type}-1-${match[2]}`;
+        }
+        match = s.match(/^(床|腳|椅|對面床|對面腳|對面椅)-?(\d+)-?(\d+)?$/);
+        if (match) {
+            let type = 'CHAIR';
+            if (match[1] === '床') type = 'BED';
+            else if (match[1] === '對面床') type = 'OPP-BED';
+            else if (match[1] === '對面腳' || match[1] === '對面椅') type = 'OPP-CHAIR';
+            let num = match[3] || match[2];
+            return `${type}-1-${num}`;
+        }
+        return s;
+    };
+
     const isComboBooking = (b) => {
         return b.category === 'COMBO' || (b.serviceName && b.serviceName.includes('套餐')) || b.flow === 'FB' || b.flow === 'BF';
     };
@@ -202,7 +228,7 @@ window.SmartScheduler = (function() {
                 bSourceId = movedBForSource.current_resource_id || movedBForSource.location;
             }
         }
-        if (bSourceId) bSourceId = String(bSourceId).toUpperCase();
+        if (bSourceId) bSourceId = normalizeRes(bSourceId);
 
         for (let b of activeBookings) {
             const isCombo = isComboBooking(b);
@@ -249,14 +275,14 @@ window.SmartScheduler = (function() {
             if (isCombo) {
                 assignmentOriginal = {
                     flow: b.flow || 'FB',
-                    phase1_res: String(b.phase1_res_idx || '').toUpperCase(),
-                    phase2_res: String(b.phase2_res_idx || '').toUpperCase(),
+                    phase1_res: normalizeRes(b.phase1_res_idx),
+                    phase2_res: normalizeRes(b.phase2_res_idx),
                     timeShift: 0,
                     transitionShift: 0
                 };
             } else {
                 assignmentOriginal = {
-                    res: String(b.current_resource_id || b.location || '').toUpperCase(),
+                    res: normalizeRes(b.current_resource_id || b.location),
                     timeShift: 0
                 };
             }
