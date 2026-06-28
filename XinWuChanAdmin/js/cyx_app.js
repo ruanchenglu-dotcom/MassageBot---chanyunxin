@@ -3452,14 +3452,41 @@ const App = () => {
                     const normalizeResLocal = (res) => {
                         if (!res) return '';
                         let s = String(res).toUpperCase().trim();
+                        
                         let match = s.match(/^(CHAIR|BED|OPP-CHAIR|OPP-BED|OPP_CHAIR|OPP_BED)-?(\d+)-?(\d+)?$/);
-                        if (match) return `${match[1].replace('_', '-')}-1-${match[3] || match[2]}`;
+                        if (match) {
+                            let type = match[1].replace('_', '-');
+                            let floor = match[3] ? match[2] : '1';
+                            let num = match[3] || match[2];
+                            if (type === 'OPP-CHAIR') { type = 'CHAIR'; floor = '2'; }
+                            if (type === 'OPP-BED') { type = 'BED'; floor = '2'; }
+                            return `${type}-${floor}-${num}`;
+                        }
+                        
                         match = s.match(/^(CHAIR|BED|OPP-CHAIR|OPP-BED|OPP_CHAIR|OPP_BED)\s*(\d+)$/);
-                        if (match) return `${match[1].replace('_', '-')}-1-${match[2]}`;
+                        if (match) {
+                            let type = match[1].replace('_', '-');
+                            let floor = '1';
+                            if (type === 'OPP-CHAIR') { type = 'CHAIR'; floor = '2'; }
+                            if (type === 'OPP-BED') { type = 'BED'; floor = '2'; }
+                            return `${type}-${floor}-${match[2]}`;
+                        }
+                        
                         match = s.match(/^(床|腳|椅|對面床|對面腳|對面椅)-?(\d+)-?(\d+)?$/);
                         if (match) {
-                            let type = match[1] === '床' ? 'BED' : (match[1] === '對面床' ? 'OPP-BED' : (match[1] === '對面腳' || match[1] === '對面椅' ? 'OPP-CHAIR' : 'CHAIR'));
-                            return `${type}-1-${match[3] || match[2]}`;
+                            let type = 'CHAIR';
+                            let floor = match[3] ? match[2] : '1';
+                            if (match[1] === '床') {
+                                type = 'BED';
+                            } else if (match[1] === '對面床') {
+                                type = 'BED';
+                                floor = '2';
+                            } else if (match[1] === '對面腳' || match[1] === '對面椅') {
+                                type = 'CHAIR';
+                                floor = '2';
+                            }
+                            let num = match[3] || match[2];
+                            return `${type}-${floor}-${num}`;
                         }
                         return s;
                     };
