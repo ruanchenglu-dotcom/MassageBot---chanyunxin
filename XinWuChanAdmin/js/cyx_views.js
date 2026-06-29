@@ -178,6 +178,11 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
     const [localFlow, setLocalFlow] = useState(currentSequence);
     const isBodyFirstLocal = localFlow === 'BF';
 
+    const [showGroupUpdatePrompt, setShowGroupUpdatePrompt] = useState(false);
+    const [groupMembersToUpdate, setGroupMembersToUpdate] = useState([]);
+    const [isGroupMode, setIsGroupMode] = useState(false);
+
+
     const [isPhase1Locked, setIsPhase1Locked] = useState(booking.phase1_locked === "TRUE" || booking.phase1_locked === true);
     const [isPhase2Locked, setIsPhase2Locked] = useState(booking.phase2_locked === "TRUE" || booking.phase2_locked === true);
     const [isFlowLocked, setIsFlowLocked] = useState(booking.flow_code_locked === "TRUE" || booking.flow_code_locked === true);
@@ -403,7 +408,39 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
         return { availableP1Resources: availList, p1ResourcesData: allList };
     }, [isBodyFirstLocal, startMins, switchMins, timelineData, booking?.rowId, booking?.location]);
 
-    const performServiceCheck = () => {
+    const handleCheckClick = () => {
+        const safeBookings = Array.isArray(bookings) ? bookings : [];
+        const groupMembers = safeBookings.filter(b => {
+            if (String(b.rowId) === String(booking.rowId)) return false;
+            if (b.startTimeString !== booking.startTimeString) return false;
+            
+            const bStatus = b.status || '';
+            const isCancelled = bStatus === STATUS.CANCELLED || bStatus.includes('取消') || bStatus.includes('Cancel');
+            const isNoShow = bStatus === STATUS.NOSHOW || bStatus.includes('爽約') || bStatus.toUpperCase().includes('NOSHOW');
+            const isDone = bStatus === STATUS.COMPLETED || bStatus.includes('完成') || bStatus.includes('✅');
+            if (isCancelled || isNoShow || isDone) return false;
+            
+            if (b.sdt && booking.sdt && b.sdt === booking.sdt) return true;
+            if (b.phone && booking.phone && b.phone === booking.phone) return true;
+            if (b.contactInfo && booking.contactInfo && b.contactInfo === booking.contactInfo) return true;
+            
+            const cleanName1 = (b.originalName || '').replace(/\(\d+\/\d+\)/g, '').trim();
+            const cleanName2 = (booking.originalName || '').replace(/\(\d+\/\d+\)/g, '').trim();
+            if (cleanName1 && cleanName2 && cleanName1 === cleanName2) return true;
+            
+            return false;
+        });
+
+        if (groupMembers.length > 0) {
+            setGroupMembersToUpdate(groupMembers);
+            setShowGroupUpdatePrompt(true);
+        } else {
+            setIsGroupMode(false);
+            performServiceCheck(false);
+        }
+    };
+
+    const performServiceCheck = (checkIsGroup = isGroupMode) => {
         const getDuration = (serviceName) => {
             if (!serviceName) return 60;
             const match = serviceName.match(/(190|180|170|160|150|140|130|120|110|100|90|80|75|70|65|60|55|50|45|40|35|30)/);
@@ -449,6 +486,7 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
         const safeBookings = Array.isArray(bookings) ? bookings : [];
         const todays = safeBookings.filter(b => {
             if (String(b.rowId) === String(booking.rowId)) return false;
+            if (checkIsGroup && groupMembersToUpdate.some(gb => String(gb.rowId) === String(b.rowId))) return false;
             const bStatus = b.status || '';
             const isCancelled = bStatus === STATUS.CANCELLED || bStatus.includes('取消') || bStatus.includes('Cancel');
             const isNoShow = bStatus === STATUS.NOSHOW || bStatus.includes('爽約') || bStatus.toUpperCase().includes('NOSHOW');
@@ -1141,11 +1179,15 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                                 {selectedService !== (booking.cleanServiceName || getCleanServiceName(booking.serviceName)) && (
                                     <>
                                         {scanServiceStatus !== 'OK' ? (
-                                            <button onClick={performServiceCheck} className="absolute right-8 top-1.5 bottom-1.5 bg-blue-600 text-white text-xs font-bold px-3 rounded hover:bg-blue-700 animate-pulse">
+                                            <button onClick={handleCheckClick} className="absolute right-8 top-1.5 bottom-1.5 bg-blue-600 text-white text-xs font-bold px-3 rounded hover:bg-blue-700 animate-pulse">
                                                 🔍 查詢
                                             </button>
                                         ) : (
-                                            <button onClick={() => triggerAction('UPDATE_SERVICE', { newService: selectedService })} className="absolute right-8 top-1.5 bottom-1.5 bg-green-500 text-white text-xs font-bold px-3 rounded hover:bg-green-600">
+                                            <button onClick={() => triggerAction('UPDATE_SERVICE', { 
+                                                newService: selectedService, 
+                                                updateGroup: isGroupMode, 
+                                                groupMemberIds: isGroupMode ? groupMembersToUpdate.map(b => b.rowId) : null 
+                                            })} className="absolute right-8 top-1.5 bottom-1.5 bg-green-500 text-white text-xs font-bold px-3 rounded hover:bg-green-600">
                                                 💾 保存
                                             </button>
                                         )}

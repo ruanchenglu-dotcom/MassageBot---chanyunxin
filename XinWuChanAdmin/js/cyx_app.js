@@ -3370,6 +3370,14 @@ const App = () => {
                         nhanVien: targetBooking.requestedStaff || targetBooking.staffId || targetBooking.serviceStaff
                     };
                     handleInlineUpdate(targetBooking.rowId, updatedData);
+                    
+                    if (payload.updateGroup && Array.isArray(payload.groupMemberIds)) {
+                        payload.groupMemberIds.forEach(id => {
+                            if (String(id) !== String(targetBooking.rowId)) {
+                                handleInlineUpdate(id, updatedData);
+                            }
+                        });
+                    }
                 }
                 setControlCenterData(null);
                 break;
