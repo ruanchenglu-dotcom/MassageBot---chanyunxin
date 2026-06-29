@@ -394,7 +394,8 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
         const availList = [];
         const allList = [];
         for (let i = 1; i <= maxCount; i++) {
-            const resId = `${prefix}-${i}`;
+            const rawId = `${prefix}-${i}`;
+            const resId = window.normalizeResourceId(rawId) || rawId;
             const isOverlap = checkOverlap(resId, startMins, switchMins, booking?.rowId);
             allList.push({ id: resId, isAvailable: !isOverlap });
             if (!isOverlap) availList.push(resId);
@@ -697,7 +698,8 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
         const availList = [];
         const allList = [];
         for (let i = 1; i <= maxCount; i++) {
-            const resId = `${prefix}-${i}`;
+            const rawId = `${prefix}-${i}`;
+            const resId = window.normalizeResourceId(rawId) || rawId;
             const isOverlap = checkOverlap(resId, p2Start, endMins, booking?.rowId);
             allList.push({ id: resId, isAvailable: !isOverlap });
             if (!isOverlap) availList.push(resId);
@@ -722,7 +724,8 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
         const availList = [];
         const allList = [];
         for (let i = 1; i <= maxCount; i++) {
-            const resId = `${prefix}-${i}`;
+            const rawId = `${prefix}-${i}`;
+            const resId = window.normalizeResourceId(rawId) || rawId;
             const isOverlap = checkOverlap(resId, startMins, endMins, booking?.rowId);
             allList.push({ id: resId, isAvailable: !isOverlap });
             if (!isOverlap) availList.push(resId);
