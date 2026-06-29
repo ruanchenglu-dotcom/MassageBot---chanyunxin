@@ -391,10 +391,10 @@ window.SmartScheduler = (function() {
                     
                     domains.sort((d1, d2) => {
                         let score1 = 0;
-                        if (d1.flow === assignmentOriginal.flow) score1 += 10; 
-                        if (d1.phase1_res === assignmentOriginal.phase1_res) score1 += 5;
+                        if (d1.flow === assignmentOriginal.flow) score1 += 10000; 
+                        if (d1.phase1_res === assignmentOriginal.phase1_res) score1 += 10000;
                         else if (bSourceId && d1.phase1_res === bSourceId) score1 += 4;
-                        if (d1.phase2_res === assignmentOriginal.phase2_res) score1 += 5;
+                        if (d1.phase2_res === assignmentOriginal.phase2_res) score1 += 10000;
                         else if (bSourceId && d1.phase2_res === bSourceId) score1 += 4;
                         score1 -= Math.abs(d1.timeShift);
                         score1 -= Math.abs(d1.transitionShift);
@@ -402,10 +402,10 @@ window.SmartScheduler = (function() {
                         score1 += calculateGapScore(t1, allExistingTimes);
                         
                         let score2 = 0;
-                        if (d2.flow === assignmentOriginal.flow) score2 += 10;
-                        if (d2.phase1_res === assignmentOriginal.phase1_res) score2 += 5;
+                        if (d2.flow === assignmentOriginal.flow) score2 += 10000;
+                        if (d2.phase1_res === assignmentOriginal.phase1_res) score2 += 10000;
                         else if (bSourceId && d2.phase1_res === bSourceId) score2 += 4;
-                        if (d2.phase2_res === assignmentOriginal.phase2_res) score2 += 5;
+                        if (d2.phase2_res === assignmentOriginal.phase2_res) score2 += 10000;
                         else if (bSourceId && d2.phase2_res === bSourceId) score2 += 4;
                         score2 -= Math.abs(d2.timeShift);
                         score2 -= Math.abs(d2.transitionShift);
@@ -424,14 +424,14 @@ window.SmartScheduler = (function() {
                     }
                     domains.sort((d1, d2) => {
                         let s1 = 0;
-                        if (d1.res === assignmentOriginal.res) s1 += 10;
+                        if (d1.res === assignmentOriginal.res) s1 += 10000;
                         else if (bSourceId && d1.res === bSourceId) s1 += 8;
                         s1 -= Math.abs(d1.timeShift);
                         let t1 = getAssignedTimes(b, d1);
                         s1 += calculateGapScore(t1, allExistingTimes);
 
                         let s2 = 0;
-                        if (d2.res === assignmentOriginal.res) s2 += 10;
+                        if (d2.res === assignmentOriginal.res) s2 += 10000;
                         else if (bSourceId && d2.res === bSourceId) s2 += 8;
                         s2 -= Math.abs(d2.timeShift);
                         let t2 = getAssignedTimes(b, d2);
