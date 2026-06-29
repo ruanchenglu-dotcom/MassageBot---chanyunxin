@@ -669,8 +669,9 @@ const App = () => {
     // 3. CORE LOGIC (FETCH & RENDER) 
     const fetchData = async (actionType = false) => {
         const isManual = actionType === true;
+        const isClearOverrides = actionType === 'CLEAR_OVERRIDES';
         const isInternalSave = actionType === 'KEEP_OVERRIDES';
-        const isForceFetch = isManual || isInternalSave;
+        const isForceFetch = isManual || isInternalSave || isClearOverrides;
 
         if (syncLock && !isForceFetch) return;
         if (quotaError && !isForceFetch) return;
@@ -678,9 +679,11 @@ const App = () => {
         // Block auto-polling if manual refresh is spinning
         if (!isForceFetch && isManualRefreshingRef.current) return;
 
-        if (isManual) {
-            setIsManualRefreshing(true);
-            isManualRefreshingRef.current = true;
+        if (isManual || isClearOverrides) {
+            if (isManual) {
+                setIsManualRefreshing(true);
+                isManualRefreshingRef.current = true;
+            }
             // Dọn dẹp localOverridesRef để ép client hiển thị dữ liệu gốc từ Server
             localOverridesRef.current = {};
         }
@@ -1920,11 +1923,25 @@ const App = () => {
         const isLongSingle = isForcedSingle && parseInt(targetBooking.duration || 100) > 70;
 
         let s1 = customP1Res && customP1Res !== 'auto' ? customP1Res.toUpperCase() : null;
-        if (!s1) s1 = MatrixHelper.findBestSlot(p1Type, tryStart, tryStart + newPhase1Duration, timelineData, mockActiveEndTimes, null, rowId, isLongSingle) || (isLongSingle ? `opp-${p1Type}-1` : `${p1Type}-1`);
+        if (!s1) {
+            s1 = MatrixHelper.findBestSlot(p1Type, tryStart, tryStart + newPhase1Duration, timelineData, mockActiveEndTimes, null, rowId, isLongSingle);
+            if (!s1) {
+                Swal.fire('系統提示', '⚠️ 更改失敗：該時段已無空床位/座位。', 'warning');
+                return;
+            }
+        }
 
         const p2Start = tryStart + newPhase1Duration + 5;
         let s2 = customP2Res && customP2Res !== 'auto' ? customP2Res.toUpperCase() : null;
-        if (!s2) s2 = MatrixHelper.findBestSlot(p2Type, p2Start, p2Start + newPhase2Duration, timelineData, mockActiveEndTimes, null, rowId) || `${p2Type}-1`;
+        if (!s2 && currentFlow.match(/FB|BF/)) {
+            s2 = MatrixHelper.findBestSlot(p2Type, p2Start, p2Start + newPhase2Duration, timelineData, mockActiveEndTimes, null, rowId);
+            if (!s2) {
+                Swal.fire('系統提示', '⚠️ 更改失敗：該時段已無空床位/座位可供套餐使用。', 'warning');
+                return;
+            }
+        } else if (!s2) {
+            s2 = `${p2Type}-1`;
+        }
 
         Swal.fire({
             title: '儲存中，請稍候...',
@@ -2006,7 +2023,10 @@ const App = () => {
             } else {
                 Swal.fire('系統提示', "⚠️ 儲存失敗！請檢查網路連線。", 'warning');
             }
-            fetchData(true); // Đảm bảo lấy lại dữ liệu thật nếu lỗi
+            if (localOverridesRef.current[rowId]) {
+                delete localOverridesRef.current[rowId];
+            }
+            fetchData('CLEAR_OVERRIDES'); // Đảm bảo lấy lại dữ liệu thật nếu lỗi
         }
     };
 
@@ -2174,12 +2194,27 @@ const App = () => {
 
         const isForcedSingle = booking.isForcedSingle === true || targetFlow === 'FOOTSINGLE' || targetFlow === 'BODYSINGLE';
         const isLongSingle = isForcedSingle && totalDuration > 70;
-        const s1 = MatrixHelper.findBestSlot(p1Type, tryStart, tryStart + split.phase1, timelineData, mockActiveEndTimes, null, rowId, isLongSingle) || (isLongSingle ? `opp-${p1Type}-1` : `${p1Type}-1`);
+        
+        const s1 = MatrixHelper.findBestSlot(p1Type, tryStart, tryStart + split.phase1, timelineData, mockActiveEndTimes, null, rowId, isLongSingle);
+        if (!s1) {
+            Swal.fire('系統提示', '⚠️ 更改失敗：該時段已無空床位/座位。', 'warning');
+            return;
+        }
+        
         const p2Start = tryStart + split.phase1 + 5;
-        const s2 = MatrixHelper.findBestSlot(p2Type, p2Start, p2Start + split.phase2, timelineData, mockActiveEndTimes, null, rowId) || `${p2Type}-1`;
+        let s2 = null;
+        if (targetFlow === 'FB' || targetFlow === 'BF') {
+            s2 = MatrixHelper.findBestSlot(p2Type, p2Start, p2Start + split.phase2, timelineData, mockActiveEndTimes, null, rowId);
+            if (!s2) {
+                Swal.fire('系統提示', '⚠️ 更改失敗：該時段已無空床位/座位可供套餐使用。', 'warning');
+                return;
+            }
+        } else {
+            s2 = `${p2Type}-1`;
+        }
 
         const phase1_res_idx = s1.toUpperCase();
-        const phase2_res_idx = s2.toUpperCase();
+        const phase2_res_idx = s2 ? s2.toUpperCase() : "";
 
         if (!localOverridesRef.current[rowId]) localOverridesRef.current[rowId] = {};
         localOverridesRef.current[rowId].flow = targetFlow;
@@ -2257,7 +2292,10 @@ const App = () => {
             } else {
                 Swal.fire('系統提示', "⚠️ 儲存失敗！請檢查網路連線。", 'warning');
             }
-            fetchData(false);
+            if (localOverridesRef.current[rowId]) {
+                delete localOverridesRef.current[rowId];
+            }
+            fetchData('CLEAR_OVERRIDES');
         }
     };
 
