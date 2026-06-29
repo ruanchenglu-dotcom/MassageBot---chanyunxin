@@ -2026,6 +2026,7 @@ const App = () => {
             if (localOverridesRef.current[rowId]) {
                 delete localOverridesRef.current[rowId];
             }
+            setControlCenterData(null);
             fetchData('CLEAR_OVERRIDES'); // Đảm bảo lấy lại dữ liệu thật nếu lỗi
         }
     };
@@ -2295,6 +2296,7 @@ const App = () => {
             if (localOverridesRef.current[rowId]) {
                 delete localOverridesRef.current[rowId];
             }
+            setControlCenterData(null);
             fetchData('CLEAR_OVERRIDES');
         }
     };

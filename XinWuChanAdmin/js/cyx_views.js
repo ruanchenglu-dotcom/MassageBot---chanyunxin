@@ -1253,7 +1253,6 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                                         onClick={() => {
                                             if (isFlowLocked) return;
                                             const newFlow = isBodyFirstLocal ? 'FB' : 'BF';
-                                            setLocalFlow(newFlow);
                                             triggerAction('TOGGLE_SEQUENCE', { newFlow: newFlow });
                                         }}
                                         disabled={isFlowLocked}
