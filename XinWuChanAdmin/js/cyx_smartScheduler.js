@@ -228,11 +228,44 @@ window.SmartScheduler = (function() {
         return null;
     };
 
+    const calculateGapScore = (proposedTimes, allExistingTimes) => {
+        let score = 0;
+        for (let pt of proposedTimes) {
+            let pRes = pt.res;
+            if (!pRes) continue;
+            
+            let resTimes = allExistingTimes.filter(t => isSameRes(t.res, pRes));
+            if (resTimes.length === 0) {
+                score += 2; 
+                continue;
+            }
+            
+            let minGap = 9999;
+            for (let rt of resTimes) {
+                let gapBefore = pt.start - rt.end;
+                if (gapBefore >= 0 && gapBefore < minGap) minGap = gapBefore;
+                
+                let gapAfter = rt.start - pt.end;
+                if (gapAfter >= 0 && gapAfter < minGap) minGap = gapAfter;
+            }
+            
+            if (minGap === 0) {
+                score += 50; 
+            } else if (minGap > 0 && minGap < 40) {
+                score -= 20; 
+            } else if (minGap >= 60) {
+                score += 5; 
+            }
+        }
+        return score;
+    };
+
     const solve = (activeBookings, movedBookingId, targetResource, targetPhase, isMovedCombo) => {
         let variables = [];
         let fixedTimes = [];
         let movedTimes = null;
         let originalState = {}; 
+        let allExistingTimes = [];
 
         const movedIdStr = String(movedBookingId);
         const targetIdUpper = String(targetResource).toUpperCase();
@@ -247,6 +280,31 @@ window.SmartScheduler = (function() {
             }
         }
         if (bSourceId) bSourceId = normalizeRes(bSourceId);
+
+        for (let b of activeBookings) {
+            const bRowIdStr = String(b.rowId);
+            const isCombo = isComboBooking(b);
+            let assignmentOriginal = {};
+            if (isCombo) {
+                assignmentOriginal = {
+                    flow: b.flow || 'FB',
+                    phase1_res: normalizeRes(b.phase1_res_idx),
+                    phase2_res: normalizeRes(b.phase2_res_idx),
+                    timeShift: 0,
+                    transitionShift: 0
+                };
+            } else {
+                assignmentOriginal = {
+                    res: normalizeRes(b.current_resource_id || b.phase1_res_idx || b.location || b.storedLocation),
+                    timeShift: 0
+                };
+            }
+            originalState[bRowIdStr] = assignmentOriginal;
+
+            if (bRowIdStr !== movedIdStr) {
+                allExistingTimes.push(...getAssignedTimes(b, assignmentOriginal));
+            }
+        }
 
         for (let b of activeBookings) {
             const isCombo = isComboBooking(b);
@@ -289,22 +347,7 @@ window.SmartScheduler = (function() {
                 locked2 = true;
             }
 
-            let assignmentOriginal = {};
-            if (isCombo) {
-                assignmentOriginal = {
-                    flow: b.flow || 'FB',
-                    phase1_res: normalizeRes(b.phase1_res_idx),
-                    phase2_res: normalizeRes(b.phase2_res_idx),
-                    timeShift: 0,
-                    transitionShift: 0
-                };
-            } else {
-                assignmentOriginal = {
-                    res: normalizeRes(b.current_resource_id || b.phase1_res_idx || b.location || b.storedLocation),
-                    timeShift: 0
-                };
-            }
-            originalState[bRowIdStr] = assignmentOriginal;
+            let assignmentOriginal = originalState[bRowIdStr];
 
             if (isCombo && locked1 && locked2) {
                 fixedTimes.push(getAssignedTimes(b, assignmentOriginal));
@@ -351,6 +394,8 @@ window.SmartScheduler = (function() {
                         else if (bSourceId && d1.phase2_res === bSourceId) score1 += 4;
                         score1 -= Math.abs(d1.timeShift);
                         score1 -= Math.abs(d1.transitionShift);
+                        let t1 = getAssignedTimes(b, d1);
+                        score1 += calculateGapScore(t1, allExistingTimes);
                         
                         let score2 = 0;
                         if (d2.flow === assignmentOriginal.flow) score2 += 10;
@@ -360,6 +405,8 @@ window.SmartScheduler = (function() {
                         else if (bSourceId && d2.phase2_res === bSourceId) score2 += 4;
                         score2 -= Math.abs(d2.timeShift);
                         score2 -= Math.abs(d2.transitionShift);
+                        let t2 = getAssignedTimes(b, d2);
+                        score2 += calculateGapScore(t2, allExistingTimes);
                         
                         return score2 - score1;
                     });
@@ -376,11 +423,15 @@ window.SmartScheduler = (function() {
                         if (d1.res === assignmentOriginal.res) s1 += 10;
                         else if (bSourceId && d1.res === bSourceId) s1 += 8;
                         s1 -= Math.abs(d1.timeShift);
+                        let t1 = getAssignedTimes(b, d1);
+                        s1 += calculateGapScore(t1, allExistingTimes);
 
                         let s2 = 0;
                         if (d2.res === assignmentOriginal.res) s2 += 10;
                         else if (bSourceId && d2.res === bSourceId) s2 += 8;
                         s2 -= Math.abs(d2.timeShift);
+                        let t2 = getAssignedTimes(b, d2);
+                        s2 += calculateGapScore(t2, allExistingTimes);
 
                         return s2 - s1;
                     });
