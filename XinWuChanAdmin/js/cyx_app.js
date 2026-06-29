@@ -1943,6 +1943,27 @@ const App = () => {
             s2 = `${p2Type}-1`;
         }
 
+        const currentShop = (targetBooking.location === '對面館' || (targetBooking.current_resource_id && targetBooking.current_resource_id.includes('-2-')) || (targetBooking.phase1_res_idx && targetBooking.phase1_res_idx.includes('-2-'))) ? 2 : 1;
+        const isS1CrossAuto = (!customP1Res || customP1Res === 'auto') && s1 && ((currentShop === 1 && s1.includes('-2-')) || (currentShop === 2 && s1.includes('-1-')));
+        const isS2CrossAuto = (!customP2Res || customP2Res === 'auto') && s2 && ((currentShop === 1 && s2.includes('-2-')) || (currentShop === 2 && s2.includes('-1-')));
+
+        if (isS1CrossAuto || isS2CrossAuto) {
+            const crossShopName = currentShop === 1 ? '對面館' : '本館';
+            const result = await Swal.fire({
+                title: '跨館安排提示',
+                html: `當前館別已滿，系統將自動把部分或全部行程安排至 <b>【${crossShopName}】</b>。<br/><br/>請問是否確認此跨館安排並通知客人？`,
+                icon: 'info',
+                showCancelButton: true,
+                confirmButtonText: '確認安排',
+                cancelButtonText: '取消',
+                confirmButtonColor: '#3085d6',
+                cancelButtonColor: '#d33'
+            });
+            if (!result.isConfirmed) {
+                return;
+            }
+        }
+
         Swal.fire({
             title: '儲存中，請稍候...',
             allowOutsideClick: false,
@@ -2212,6 +2233,27 @@ const App = () => {
             }
         } else {
             s2 = `${p2Type}-1`;
+        }
+
+        const currentShop = (booking.location === '對面館' || (booking.current_resource_id && booking.current_resource_id.includes('-2-')) || (booking.phase1_res_idx && booking.phase1_res_idx.includes('-2-'))) ? 2 : 1;
+        const isS1Cross = s1 && ((currentShop === 1 && s1.includes('-2-')) || (currentShop === 2 && s1.includes('-1-')));
+        const isS2Cross = s2 && ((currentShop === 1 && s2.includes('-2-')) || (currentShop === 2 && s2.includes('-1-')));
+
+        if (isS1Cross || isS2Cross) {
+            const crossShopName = currentShop === 1 ? '對面館' : '本館';
+            const result = await Swal.fire({
+                title: '跨館安排提示',
+                html: `當前館別已滿，系統將自動把部分或全部行程安排至 <b>【${crossShopName}】</b>。<br/><br/>請問是否確認此跨館安排並通知客人？`,
+                icon: 'info',
+                showCancelButton: true,
+                confirmButtonText: '確認安排',
+                cancelButtonText: '取消',
+                confirmButtonColor: '#3085d6',
+                cancelButtonColor: '#d33'
+            });
+            if (!result.isConfirmed) {
+                return;
+            }
         }
 
         const phase1_res_idx = s1.toUpperCase();
