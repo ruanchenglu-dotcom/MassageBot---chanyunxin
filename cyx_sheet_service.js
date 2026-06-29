@@ -1580,7 +1580,32 @@ async function batchUpdateMultipleBookings(updatesArray) {
         const dataToUpdate = [];
         let hasForceSync = false;
         
-        const batchRowIds = updatesArray.map(u => String(u.rowId));
+        // [GUARDRAIL V136] Create simulated cache to catch cross-conflicts within the batch
+        let originalCachedBookings = STATE.cachedBookings;
+        let simulatedBookings = STATE.cachedBookings.map(b => ({...b}));
+        
+        updatesArray.forEach(body => {
+            const rowId = body.rowId;
+            let b = simulatedBookings.find(x => String(x.rowId) === String(rowId));
+            if (!b) {
+                b = { rowId: rowId, originalData: {} };
+                simulatedBookings.push(b);
+            }
+            if (body.date) { b.opDate = normalizeDateStrict(body.date); b.startTimeString = b.startTimeString || b.startTime; }
+            if (body.startTime) { b.startTimeString = String(body.startTime); if (b.startTimeString.length > 5) b.startTimeString = b.startTimeString.substring(0, 5); }
+            if (body.phase1_res_idx !== undefined) b.phase1_res_idx = body.phase1_res_idx;
+            if (body.phase2_res_idx !== undefined) b.phase2_res_idx = body.phase2_res_idx;
+            if (body.duration !== undefined) b.duration = body.duration;
+            if (body.phase1_duration !== undefined) b.phase1_duration = body.phase1_duration;
+            if (body.phase2_duration !== undefined) b.phase2_duration = body.phase2_duration;
+            if (body.flow !== undefined) b.flow = body.flow;
+            if (body.location !== undefined) { b.location = body.location; if (b.originalData) b.originalData.location = body.location; }
+            if (body.status !== undefined) b.status = body.status;
+            if (body.transition_time !== undefined) b.transition_time = body.transition_time;
+            if (body.allocated_resource !== undefined) b.allocated_resource = body.allocated_resource;
+        });
+
+        STATE.cachedBookings = simulatedBookings;
 
         updatesArray.forEach(body => {
             const rowId = body.rowId;
@@ -1701,8 +1726,10 @@ async function batchUpdateMultipleBookings(updatesArray) {
                     let checkTime = body.startTime || (bookingData ? (bookingData.startTimeString || bookingData.startTime) : null);
                     if (checkDate && checkTime && (phase1Res || phase2Res)) {
                         const bLoc = body.location || (bookingData ? bookingData.location : '本館');
-                        const conflict = typeof _checkOverlapConflict === 'function' ? _checkOverlapConflict(rowId, checkDate, checkTime, totalDuration, phase1Res, phase2Res, p1Dur, p2Dur, finalFlow, bLoc, batchRowIds) : null;
+                        // Use [] instead of batchRowIds to enable cross-checking within the simulated batch
+                        const conflict = typeof _checkOverlapConflict === 'function' ? _checkOverlapConflict(rowId, checkDate, checkTime, totalDuration, phase1Res, phase2Res, p1Dur, p2Dur, finalFlow, bLoc, []) : null;
                         if (conflict) {
+                            STATE.cachedBookings = originalCachedBookings; // Revert before throw
                             throw new Error(`RESOURCE_CONFLICT|${conflict.resource}|${conflict.conflictName}`);
                         }
                     }

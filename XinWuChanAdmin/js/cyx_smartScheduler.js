@@ -132,11 +132,13 @@ window.SmartScheduler = (function() {
         const duration = parseInt(b.duration || 60, 10);
         const isCombo = isComboBooking(b);
         
+        const cleanupMins = typeof window !== 'undefined' && window.getCleanupBuffer ? window.getCleanupBuffer() : (window.SYSTEM_CONFIG?.BUFFERS?.CLEANUP_MINUTES || 5);
+
         if (!isCombo) {
             return [{
                 res: assignment.res,
                 start: bStart,
-                end: bStart + duration,
+                end: bStart + duration + cleanupMins,
                 phase: 0
             }];
         }
@@ -159,17 +161,19 @@ window.SmartScheduler = (function() {
             }
         }
 
+        const p1Cleanup = Math.min(cleanupMins, transitionMins);
         return [
-            { res: assignment.phase1_res, start: bStart, end: p1End, phase: 1 },
-            { res: assignment.phase2_res, start: p2Start, end: p2End, phase: 2 }
+            { res: assignment.phase1_res, start: bStart, end: p1End + p1Cleanup, phase: 1 },
+            { res: assignment.phase2_res, start: p2Start, end: p2End + cleanupMins, phase: 2 }
         ];
     };
 
     const hasConflict = (times1, times2) => {
+        const tol = window.SYSTEM_CONFIG?.TOLERANCE || 1;
         for (let t1 of times1) {
             for (let t2 of times2) {
                 if (isSameRes(t1.res, t2.res)) {
-                    if (t1.start < t2.end && t2.start < t1.end) {
+                    if (t1.start < t2.end - tol && t2.start < t1.end - tol) {
                         return true;
                     }
                 }
