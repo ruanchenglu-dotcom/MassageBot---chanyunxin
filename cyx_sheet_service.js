@@ -1271,7 +1271,7 @@ async function updateInlineBooking(rowId, updatedData) {
                 }
             }
 
-            if (checkDate && checkTime && (phase1Res || phase2Res)) {
+            if (checkDate && checkTime && (phase1Res || phase2Res) && updatedData.ignoreOverlap !== true) {
                 let p1Dur = updatedData.phase1_duration !== undefined ? updatedData.phase1_duration : bookingData.phase1_duration;
                 let p2Dur = updatedData.phase2_duration !== undefined ? updatedData.phase2_duration : bookingData.phase2_duration;
                 let flow = bookingData.flow;

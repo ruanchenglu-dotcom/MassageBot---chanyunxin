@@ -3372,6 +3372,7 @@ const App = () => {
                     handleInlineUpdate(targetBooking.rowId, updatedData);
                     
                     if (payload.updateGroup && Array.isArray(payload.groupMemberIds)) {
+                        updatedData.ignoreOverlap = true;
                         payload.groupMemberIds.forEach(id => {
                             if (String(id) !== String(targetBooking.rowId)) {
                                 handleInlineUpdate(id, updatedData);
