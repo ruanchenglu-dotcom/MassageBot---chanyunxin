@@ -412,7 +412,6 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
         const safeBookings = Array.isArray(bookings) ? bookings : [];
         const groupMembers = safeBookings.filter(b => {
             if (String(b.rowId) === String(booking.rowId)) return false;
-            if (b.startTimeString !== booking.startTimeString) return false;
             
             const bStatus = b.status || '';
             const isCancelled = bStatus === STATUS.CANCELLED || bStatus.includes('取消') || bStatus.includes('Cancel');
@@ -420,14 +419,33 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
             const isDone = bStatus === STATUS.COMPLETED || bStatus.includes('完成') || bStatus.includes('✅');
             if (isCancelled || isNoShow || isDone) return false;
             
-            if (b.sdt && booking.sdt && b.sdt === booking.sdt) return true;
-            if (b.phone && booking.phone && b.phone === booking.phone) return true;
-            if (b.contactInfo && booking.contactInfo && b.contactInfo === booking.contactInfo) return true;
+            // Nếu có (1/2), (2/2) và cùng tên gốc
+            const cleanName1 = (b.originalName || b.customerName || b.hoTen || '').replace(/\(\d+\/\d+\)/g, '').trim();
+            const cleanName2 = (booking.originalName || booking.customerName || booking.hoTen || '').replace(/\(\d+\/\d+\)/g, '').trim();
+            const hasFraction1 = /\(\d+\/\d+\)/.test(b.originalName || b.customerName || b.hoTen || '');
+            const hasFraction2 = /\(\d+\/\d+\)/.test(booking.originalName || booking.customerName || booking.hoTen || '');
             
-            const cleanName1 = (b.originalName || '').replace(/\(\d+\/\d+\)/g, '').trim();
-            const cleanName2 = (booking.originalName || '').replace(/\(\d+\/\d+\)/g, '').trim();
-            if (cleanName1 && cleanName2 && cleanName1 === cleanName2) return true;
+            if (cleanName1 && cleanName2 && cleanName1 === cleanName2 && (hasFraction1 || hasFraction2)) {
+                return true;
+            }
             
+            // Nếu không có fraction, check SDT
+            const phone1 = (b.sdt || b.phone || b.contactInfo || '').trim();
+            const phone2 = (booking.sdt || booking.phone || booking.contactInfo || '').trim();
+            
+            if (phone1 && phone2 && phone1 === phone2 && phone1 !== '0' && phone1 !== '無' && phone1 !== 'none') {
+                // Cùng SĐT và khoảng thời gian đến gần nhau (trong 60p)
+                const getMins = (bk) => {
+                    let t = bk.startTimeString || bk.startTime || bk.gioDen || '00:00';
+                    if (t.includes(' ')) t = t.split(' ')[1];
+                    if (!t.includes(':')) return 0;
+                    const parts = t.split(':');
+                    return parseInt(parts[0]) * 60 + parseInt(parts[1]);
+                };
+                if (Math.abs(getMins(b) - getMins(booking)) <= 60) {
+                    return true;
+                }
+            }
             return false;
         });
 
@@ -897,6 +915,51 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
 
     return (
         <div className="fixed inset-0 z-[3000] flex items-center justify-center bg-black/70 backdrop-blur-sm animate-in fade-in duration-200 p-4">
+            {showGroupUpdatePrompt && (
+                <div className="absolute inset-0 z-[3100] flex flex-col items-center justify-center bg-slate-900/60 backdrop-blur-sm rounded-2xl animate-in fade-in">
+                    <div className="bg-white rounded-xl shadow-2xl p-6 max-w-sm w-full mx-4 animate-in slide-in-from-bottom-4">
+                        <div className="text-center mb-5">
+                            <div className="w-16 h-16 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center mx-auto mb-3">
+                                <i className="fas fa-users text-3xl"></i>
+                            </div>
+                            <h3 className="text-lg font-bold text-slate-800 mb-1">同行群組修改</h3>
+                            <p className="text-sm text-slate-500 font-medium">
+                                系統檢測到這是一個 <span className="font-bold text-blue-600">{groupMembersToUpdate.length + 1}</span> 人的同行群組。<br/>請問您要修改單人還是全組？
+                            </p>
+                        </div>
+                        <div className="space-y-3">
+                            <button 
+                                onClick={() => {
+                                    setIsGroupMode(false);
+                                    setShowGroupUpdatePrompt(false);
+                                    performServiceCheck(false);
+                                }}
+                                className="w-full py-3 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-lg transition-colors flex items-center justify-center gap-2"
+                            >
+                                <i className="fas fa-user"></i> 僅修改此人 ({booking.originalName || booking.customerName})
+                            </button>
+                            <button 
+                                onClick={() => {
+                                    setIsGroupMode(true);
+                                    setShowGroupUpdatePrompt(false);
+                                    performServiceCheck(true);
+                                }}
+                                className="w-full py-3 px-4 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg transition-colors shadow-md shadow-blue-200 flex items-center justify-center gap-2"
+                            >
+                                <i className="fas fa-users"></i> 修改全組 ({groupMembersToUpdate.length + 1} 人)
+                            </button>
+                        </div>
+                        <div className="mt-4 text-center">
+                            <button 
+                                onClick={() => setShowGroupUpdatePrompt(false)}
+                                className="text-xs text-slate-400 hover:text-slate-600 font-bold underline underline-offset-2"
+                            >
+                                取消 (Cancel)
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
             <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden border border-slate-300 flex flex-col max-h-[90vh] relative">
                 {/* Modal Header... */}
                 {/* ... (Giữ nguyên nội dung header cũ để tiết kiệm không gian hiển thị mã) ... */}
