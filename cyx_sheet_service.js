@@ -1331,7 +1331,7 @@ async function updateInlineBooking(rowId, updatedData) {
                 let phase2_dur = "";
                 
                 if (svcDef.category === 'COMBO') {
-                    newFlow = 'FB';
+                    newFlow = updatedData.flow || 'FB';
                     newResType = 'COMBO';
                     if (updatedData.phase1_duration !== undefined) {
                         phase1_dur = updatedData.phase1_duration;
@@ -1367,18 +1367,23 @@ async function updateInlineBooking(rowId, updatedData) {
 
                     if (isComboUpgrade && bestPhase1) {
                         // [NÂNG CẤP COMBO]: Đã có vị trí, chỉ tìm vị trí đối nghịch cho Phase 2
-                        let isP1Chair = bestPhase1.toUpperCase().includes('CHAIR') || bestPhase1.includes('足');
-                        let isP1Bed = bestPhase1.toUpperCase().includes('BED') || bestPhase1.includes('床');
-                        
-                        if (isP1Chair) {
-                            newFlow = 'FB';
+                        if (updatedData.flow) {
+                            newFlow = updatedData.flow;
                             row[25] = newFlow;
-                        } else if (isP1Bed) {
-                            newFlow = 'BF';
-                            row[25] = newFlow;
-                            // Hoán đổi thời lượng vì Flow đổi
-                            const temp = row[28]; row[28] = row[30]; row[30] = temp;
-                            phase1_dur = row[28]; phase2_dur = row[30];
+                        } else {
+                            let isP1Chair = bestPhase1.toUpperCase().includes('CHAIR') || bestPhase1.includes('足');
+                            let isP1Bed = bestPhase1.toUpperCase().includes('BED') || bestPhase1.includes('床');
+                            
+                            if (isP1Chair) {
+                                newFlow = 'FB';
+                                row[25] = newFlow;
+                            } else if (isP1Bed) {
+                                newFlow = 'BF';
+                                row[25] = newFlow;
+                                // Hoán đổi thời lượng vì Flow đổi
+                                const temp = row[28]; row[28] = row[30]; row[30] = temp;
+                                phase1_dur = row[28]; phase2_dur = row[30];
+                            }
                         }
 
                         const opDate = updatedData.ngayDen !== undefined ? formattedDate : (bookingData.opDate || bookingData.startTimeString);
@@ -1388,10 +1393,11 @@ async function updateInlineBooking(rowId, updatedData) {
                         let targetResType = newFlow === 'FB' ? 'BED' : 'CHAIR';
                         const config = getConfig();
                         let maxCount = targetResType === 'BED' ? (config.SCALE.MAX_BEDS || 12) : (config.SCALE.MAX_CHAIRS || 12);
+                        let branchPrefix = bestPhase1 && bestPhase1.includes('-2-') ? '-2-' : '-1-';
                         
                         let foundP2 = false;
                         for (let i = 1; i <= maxCount; i++) {
-                            let testRes = `${targetResType}-${i}`;
+                            let testRes = `${targetResType}${branchPrefix}${i}`;
                             const conflict = _checkOverlapConflict(rowId, opDate, opTime, duration, bestPhase1, testRes, phase1_dur, phase2_dur, newFlow);
                             if (!conflict) {
                                 bestPhase2 = testRes;
