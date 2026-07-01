@@ -3372,20 +3372,24 @@ const App = () => {
 
                     const mainUpdate = getUpdatedData(targetBooking);
                     if (payload.updateGroup) mainUpdate.ignoreOverlap = true;
-                    handleInlineUpdate(targetBooking.rowId, mainUpdate);
                     
                     if (payload.updateGroup && Array.isArray(payload.groupMemberIds)) {
-                        payload.groupMemberIds.forEach(id => {
-                            const memberBooking = (liveData?.bookings || window.bookings || []).find(b => String(b.rowId) === String(id));
-                            if (memberBooking) {
-                                const memberUpdate = getUpdatedData(memberBooking);
-                                memberUpdate.ignoreOverlap = true;
-                                handleInlineUpdate(id, memberUpdate);
-                            } else {
-                                const fallbackUpdate = { ...mainUpdate, ignoreOverlap: true };
-                                handleInlineUpdate(id, fallbackUpdate);
+                        (async () => {
+                            await handleInlineUpdate(targetBooking.rowId, mainUpdate);
+                            for (const id of payload.groupMemberIds) {
+                                const memberBooking = (liveData?.bookings || window.bookings || []).find(b => String(b.rowId) === String(id));
+                                if (memberBooking) {
+                                    const memberUpdate = getUpdatedData(memberBooking);
+                                    memberUpdate.ignoreOverlap = true;
+                                    await handleInlineUpdate(id, memberUpdate);
+                                } else {
+                                    const fallbackUpdate = { ...mainUpdate, ignoreOverlap: true };
+                                    await handleInlineUpdate(id, fallbackUpdate);
+                                }
                             }
-                        });
+                        })();
+                    } else {
+                        handleInlineUpdate(targetBooking.rowId, mainUpdate);
                     }
                 }
                 setControlCenterData(null);
