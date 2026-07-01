@@ -1331,7 +1331,12 @@ async function updateInlineBooking(rowId, updatedData) {
                 let phase2_dur = "";
                 
                 if (svcDef.category === 'COMBO') {
-                    newFlow = 'FB';
+                    let oldFlow = bookingData ? bookingData.flow : null;
+                    if (oldFlow === 'FB' || oldFlow === 'BF') {
+                        newFlow = oldFlow;
+                    } else {
+                        newFlow = 'FB';
+                    }
                     newResType = 'COMBO';
                     if (updatedData.phase1_duration !== undefined) {
                         phase1_dur = updatedData.phase1_duration;
@@ -1362,11 +1367,15 @@ async function updateInlineBooking(rowId, updatedData) {
 
                 if (oldCategory !== svcDef.category || bookingData.serviceCode !== sCode) {
                     let bestPhase1 = bookingData ? (bookingData.phase1_res_idx || bookingData.allocated_resource || "") : "";
-                    let bestPhase2 = "";
+                    let bestPhase2 = bookingData ? (bookingData.phase2_res_idx || "") : "";
                     let isComboUpgrade = (svcDef.category === 'COMBO');
 
-                    if (isComboUpgrade && bestPhase1) {
+                    if (oldCategory === 'COMBO' && svcDef.category === 'COMBO') {
+                        // NẾU TỪ COMBO SANG COMBO: Giữ nguyên Phase 1 và Phase 2 cũ, không đi tìm lại Phase 2
+                        // Flow và durations đã được xử lý ở trên
+                    } else if (isComboUpgrade && bestPhase1 && oldCategory !== 'COMBO') {
                         // [NÂNG CẤP COMBO]: Đã có vị trí, chỉ tìm vị trí đối nghịch cho Phase 2
+                        bestPhase2 = "";
                         let isP1Chair = bestPhase1.toUpperCase().includes('CHAIR') || bestPhase1.includes('足');
                         let isP1Bed = bestPhase1.toUpperCase().includes('BED') || bestPhase1.includes('床');
                         
