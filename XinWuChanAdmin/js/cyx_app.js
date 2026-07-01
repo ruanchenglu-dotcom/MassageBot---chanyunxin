@@ -3358,24 +3358,32 @@ const App = () => {
 
             case 'UPDATE_SERVICE':
                 if (payload.newService && targetBooking) {
-                    const updatedData = {
-                        ngayDen: targetBooking.date || targetBooking.opDate,
-                        gioDen: targetBooking.startTimeString ? targetBooking.startTimeString.split(' ')[1] : targetBooking.startTime,
-                        hoTen: targetBooking.originalName || targetBooking.customerName,
+                    const getUpdatedData = (bookingObj) => ({
+                        ngayDen: bookingObj.date || bookingObj.opDate,
+                        gioDen: bookingObj.startTimeString ? bookingObj.startTimeString.split(' ')[1] : bookingObj.startTime,
+                        hoTen: bookingObj.originalName || bookingObj.customerName,
                         dichVu: payload.newService,
-                        isYouTui: targetBooking.isYouTui,
-                        isGuaSha: targetBooking.isGuaSha,
-                        sdt: targetBooking.sdt || targetBooking.phone,
-                        trangThai: targetBooking.status,
-                        nhanVien: targetBooking.requestedStaff || targetBooking.staffId || targetBooking.serviceStaff
-                    };
-                    handleInlineUpdate(targetBooking.rowId, updatedData);
+                        isYouTui: bookingObj.isYouTui,
+                        isGuaSha: bookingObj.isGuaSha,
+                        sdt: bookingObj.sdt || bookingObj.phone,
+                        trangThai: bookingObj.status,
+                        nhanVien: bookingObj.requestedStaff || bookingObj.staffId || bookingObj.serviceStaff
+                    });
+
+                    const mainUpdate = getUpdatedData(targetBooking);
+                    if (payload.updateGroup) mainUpdate.ignoreOverlap = true;
+                    handleInlineUpdate(targetBooking.rowId, mainUpdate);
                     
                     if (payload.updateGroup && Array.isArray(payload.groupMemberIds)) {
-                        updatedData.ignoreOverlap = true;
                         payload.groupMemberIds.forEach(id => {
-                            if (String(id) !== String(targetBooking.rowId)) {
-                                handleInlineUpdate(id, updatedData);
+                            const memberBooking = (liveData?.bookings || window.bookings || []).find(b => String(b.rowId) === String(id));
+                            if (memberBooking) {
+                                const memberUpdate = getUpdatedData(memberBooking);
+                                memberUpdate.ignoreOverlap = true;
+                                handleInlineUpdate(id, memberUpdate);
+                            } else {
+                                const fallbackUpdate = { ...mainUpdate, ignoreOverlap: true };
+                                handleInlineUpdate(id, fallbackUpdate);
                             }
                         });
                     }
