@@ -1535,7 +1535,7 @@ const App = () => {
         fetchData(true);
     };
 
-    const handleInlineUpdate = async (rowId, updatedData) => {
+    const handleInlineUpdate = async (rowId, updatedData, isSilent = false) => {
         try {
             const currentBooking = bookings.find(b => String(b.rowId) === String(rowId));
             if (currentBooking) {
@@ -1595,13 +1595,15 @@ const App = () => {
                 }
             }
 
-            Swal.fire({
-                title: '儲存中，請稍候...',
-                allowOutsideClick: false,
-                didOpen: () => {
-                    Swal.showLoading();
-                }
-            });
+            if (!isSilent) {
+                Swal.fire({
+                    title: '儲存中，請稍候...',
+                    allowOutsideClick: false,
+                    didOpen: () => {
+                        Swal.showLoading();
+                    }
+                });
+            }
 
             const res = await axios.post('/api/inline-update-booking', {
                 rowId: rowId,
@@ -1617,8 +1619,10 @@ const App = () => {
                 delete localOverridesRef.current[String(rowId)];
             }
 
-            Swal.close();
-            fetchData(true); // STRICT ONE-WAY FLOW: Ép tải lại từ Sheet
+            if (!isSilent) {
+                Swal.close();
+                fetchData(true); // STRICT ONE-WAY FLOW: Ép tải lại từ Sheet
+            }
 
         } catch (e) {
             console.error("Inline update failed:", e);
@@ -1631,7 +1635,7 @@ const App = () => {
             } else {
                 Swal.fire('系統提示', errorMsg || "⚠️ 儲存失敗，請檢查網路連線。", 'warning');
             }
-            fetchData(true); // Đảm bảo lấy lại dữ liệu thật nếu lỗi
+            if (!isSilent) fetchData(true); // Đảm bảo lấy lại dữ liệu thật nếu lỗi
         }
     };
 
@@ -3375,18 +3379,29 @@ const App = () => {
                     
                     if (payload.updateGroup && Array.isArray(payload.groupMemberIds)) {
                         (async () => {
-                            await handleInlineUpdate(targetBooking.rowId, mainUpdate);
+                            Swal.fire({
+                                title: '儲存中，請稍候...',
+                                allowOutsideClick: false,
+                                didOpen: () => {
+                                    Swal.showLoading();
+                                }
+                            });
+                            
+                            await handleInlineUpdate(targetBooking.rowId, mainUpdate, true);
                             for (const id of payload.groupMemberIds) {
-                                const memberBooking = (liveData?.bookings || window.bookings || []).find(b => String(b.rowId) === String(id));
+                                const memberBooking = (bookings || window.bookings || []).find(b => String(b.rowId) === String(id));
                                 if (memberBooking) {
                                     const memberUpdate = getUpdatedData(memberBooking);
                                     memberUpdate.ignoreOverlap = true;
-                                    await handleInlineUpdate(id, memberUpdate);
+                                    await handleInlineUpdate(id, memberUpdate, true);
                                 } else {
                                     const fallbackUpdate = { ...mainUpdate, ignoreOverlap: true };
-                                    await handleInlineUpdate(id, fallbackUpdate);
+                                    await handleInlineUpdate(id, fallbackUpdate, true);
                                 }
                             }
+                            
+                            Swal.close();
+                            fetchData(true);
                         })();
                     } else {
                         handleInlineUpdate(targetBooking.rowId, mainUpdate);
