@@ -715,26 +715,41 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
         if (currentRes) {
             const oldService = booking.serviceName || '';
             const oldCat = getServiceCategory(oldService);
-            const isSameCategory = (oldCat === editServiceCategory) && (editServiceCategory !== 'COMBO');
+            const isSameCategory = (oldCat === editServiceCategory);
 
             if (isSameCategory) {
-                const isResConflict = todays.some(b => {
-                    const bTimeStr = (b.startTimeString || ' ').split(' ')[1] || '00:00';
-                    const bStart = timeStrToMins(bTimeStr);
-                    const bEnd = bStart + getDuration(b.serviceName);
-                    const isTimeConflict = (startMins < bEnd && endMins > bStart);
-                    
-                    const bResStr = b.phase1_res_idx || b.allocated_resource || b.current_resource_id || '';
-                    const bResArray = [...bResStr.toString().matchAll(/((?:BED|CHAIR)[-_ ]?\d+)/gi)].map(m => m[1].toUpperCase());
-                    const currentResClean = currentRes.toString().toUpperCase().trim();
-                    
-                    return isTimeConflict && (bResArray.includes(currentResClean) || bResStr.toString().toUpperCase() === currentResClean);
-                });
+                if (editServiceCategory === 'COMBO') {
+                    // Check phase 1
+                    if (booking.phase1_res_idx && checkOverlap(booking.phase1_res_idx, startMins, editPhase1End, booking.rowId)) {
+                        setScanServiceStatus('FAILED');
+                        setScanServiceMessage(`❌ 原座位時段衝突`);
+                        return;
+                    }
+                    // Check phase 2
+                    if (booking.phase2_res_idx && checkOverlap(booking.phase2_res_idx, switchMins + 5, endMins, booking.rowId)) {
+                        setScanServiceStatus('FAILED');
+                        setScanServiceMessage(`❌ 原座位時段衝突`);
+                        return;
+                    }
+                } else {
+                    const isResConflict = todays.some(b => {
+                        const bTimeStr = (b.startTimeString || ' ').split(' ')[1] || '00:00';
+                        const bStart = timeStrToMins(bTimeStr);
+                        const bEnd = bStart + getDuration(b.serviceName);
+                        const isTimeConflict = (startMins < bEnd && endMins > bStart);
+                        
+                        const bResStr = b.phase1_res_idx || b.allocated_resource || b.current_resource_id || '';
+                        const bResArray = [...bResStr.toString().matchAll(/((?:BED|CHAIR)[-_ ]?\d+)/gi)].map(m => m[1].toUpperCase());
+                        const currentResClean = currentRes.toString().toUpperCase().trim();
+                        
+                        return isTimeConflict && (bResArray.includes(currentResClean) || bResStr.toString().toUpperCase() === currentResClean);
+                    });
 
-                if (isResConflict) {
-                    setScanServiceStatus('FAILED');
-                    setScanServiceMessage(`❌ 原座位時段衝突`);
-                    return;
+                    if (isResConflict) {
+                        setScanServiceStatus('FAILED');
+                        setScanServiceMessage(`❌ 原座位時段衝突`);
+                        return;
+                    }
                 }
             }
         }
