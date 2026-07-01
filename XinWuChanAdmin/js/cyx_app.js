@@ -1556,8 +1556,7 @@ const App = () => {
                         updatedData.duration = newStandardDur;
                         const isCombo = updatedData.dichVu.includes('套餐') || (window.SERVICES_DATA && window.SERVICES_DATA[updatedData.dichVu] && window.SERVICES_DATA[updatedData.dichVu].category === 'COMBO');
                         if (isCombo) {
-                            const comboFlow = updatedData.flow || 'FB';
-                            const split = getSmartSplit(currentBooking, newStandardDur, true, comboFlow);
+                            const split = getSmartSplit(currentBooking, newStandardDur, true, 'FB');
                             updatedData.phase1_duration = split.phase1;
                             updatedData.phase2_duration = split.phase2;
                         } else {
@@ -3372,8 +3371,7 @@ const App = () => {
                         isGuaSha: bookingObj.isGuaSha,
                         sdt: bookingObj.sdt || bookingObj.phone,
                         trangThai: bookingObj.status,
-                        nhanVien: bookingObj.requestedStaff || bookingObj.staffId || bookingObj.serviceStaff,
-                        flow: payload.flow
+                        nhanVien: bookingObj.requestedStaff || bookingObj.staffId || bookingObj.serviceStaff
                     });
 
                     const mainUpdate = getUpdatedData(targetBooking);

@@ -1249,8 +1249,7 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                                             <button onClick={() => triggerAction('UPDATE_SERVICE', { 
                                                 newService: selectedService, 
                                                 updateGroup: isGroupMode, 
-                                                groupMemberIds: isGroupMode ? groupMembersToUpdate.map(b => b.rowId) : null,
-                                                flow: localFlow
+                                                groupMemberIds: isGroupMode ? groupMembersToUpdate.map(b => b.rowId) : null 
                                             })} className="absolute right-8 top-1.5 bottom-1.5 bg-green-500 text-white text-xs font-bold px-3 rounded hover:bg-green-600">
                                                 💾 保存
                                             </button>
