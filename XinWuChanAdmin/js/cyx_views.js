@@ -419,29 +419,42 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
             const isDone = bStatus === STATUS.COMPLETED || bStatus.includes('完成') || bStatus.includes('✅');
             if (isCancelled || isNoShow || isDone) return false;
             
+            // Lấy thông tin SDT
+            const phone1 = (b.sdt || b.phone || b.contactInfo || '').trim();
+            const phone2 = (booking.sdt || booking.phone || booking.contactInfo || '').trim();
+            
+            const isValidPhone1 = phone1 && phone1 !== '0' && phone1 !== '無' && phone1 !== 'none';
+            const isValidPhone2 = phone2 && phone2 !== '0' && phone2 !== '無' && phone2 !== 'none';
+
+            // Nếu cả hai đều có SĐT hợp lệ nhưng khác nhau -> KHÔNG CÙNG NHÓM (Chặn lập tức)
+            if (isValidPhone1 && isValidPhone2 && phone1 !== phone2) {
+                return false;
+            }
+
             // Nếu có (1/2), (2/2) và cùng tên gốc
             const cleanName1 = (b.originalName || b.customerName || b.hoTen || '').replace(/\(\d+\/\d+\)/g, '').trim();
             const cleanName2 = (booking.originalName || booking.customerName || booking.hoTen || '').replace(/\(\d+\/\d+\)/g, '').trim();
             const hasFraction1 = /\(\d+\/\d+\)/.test(b.originalName || b.customerName || b.hoTen || '');
             const hasFraction2 = /\(\d+\/\d+\)/.test(booking.originalName || booking.customerName || booking.hoTen || '');
             
+            const getMins = (bk) => {
+                let t = bk.startTimeString || bk.startTime || bk.gioDen || '00:00';
+                if (t.includes(' ')) t = t.split(' ')[1];
+                if (!t.includes(':')) return 0;
+                const parts = t.split(':');
+                return parseInt(parts[0]) * 60 + parseInt(parts[1]);
+            };
+
             if (cleanName1 && cleanName2 && cleanName1 === cleanName2 && (hasFraction1 || hasFraction2)) {
-                return true;
+                // Thêm điều kiện thời gian cho an toàn (cách nhau ko quá 60 phút)
+                if (Math.abs(getMins(b) - getMins(booking)) <= 60) {
+                    return true;
+                }
             }
             
             // Nếu không có fraction, check SDT
-            const phone1 = (b.sdt || b.phone || b.contactInfo || '').trim();
-            const phone2 = (booking.sdt || booking.phone || booking.contactInfo || '').trim();
-            
-            if (phone1 && phone2 && phone1 === phone2 && phone1 !== '0' && phone1 !== '無' && phone1 !== 'none') {
+            if (isValidPhone1 && isValidPhone2 && phone1 === phone2) {
                 // Cùng SĐT và khoảng thời gian đến gần nhau (trong 60p)
-                const getMins = (bk) => {
-                    let t = bk.startTimeString || bk.startTime || bk.gioDen || '00:00';
-                    if (t.includes(' ')) t = t.split(' ')[1];
-                    if (!t.includes(':')) return 0;
-                    const parts = t.split(':');
-                    return parseInt(parts[0]) * 60 + parseInt(parts[1]);
-                };
                 if (Math.abs(getMins(b) - getMins(booking)) <= 60) {
                     return true;
                 }
