@@ -1612,12 +1612,16 @@ const App = () => {
                         updatedData.duration = newStandardDur;
                         const isCombo = updatedData.dichVu.includes('套餐') || (window.SERVICES_DATA && window.SERVICES_DATA[updatedData.dichVu] && window.SERVICES_DATA[updatedData.dichVu].category === 'COMBO');
                         if (isCombo) {
-                            const split = getSmartSplit(currentBooking, newStandardDur, true, 'FB');
-                            updatedData.phase1_duration = split.phase1;
-                            updatedData.phase2_duration = split.phase2;
+                            if (updatedData.phase1_duration === undefined || updatedData.phase1_duration === null) {
+                                const split = getSmartSplit(currentBooking, newStandardDur, true, 'FB');
+                                updatedData.phase1_duration = split.phase1;
+                                updatedData.phase2_duration = split.phase2;
+                            }
                         } else {
-                            updatedData.phase1_duration = newStandardDur;
-                            updatedData.phase2_duration = "";
+                            if (updatedData.phase1_duration === undefined || updatedData.phase1_duration === null) {
+                                updatedData.phase1_duration = newStandardDur;
+                                updatedData.phase2_duration = "";
+                            }
                         }
                     }
                 }
