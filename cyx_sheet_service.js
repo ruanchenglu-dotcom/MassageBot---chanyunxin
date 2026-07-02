@@ -1370,8 +1370,9 @@ async function updateInlineBooking(rowId, updatedData) {
                     let bestPhase2 = bookingData ? (bookingData.phase2_res_idx || "") : "";
                     let isComboUpgrade = (svcDef.category === 'COMBO');
 
-                    if (oldCategory === 'COMBO' && svcDef.category === 'COMBO') {
-                        // NẾU TỪ COMBO SANG COMBO: Giữ nguyên Phase 1 và Phase 2 cũ, không đi tìm lại Phase 2
+                    if (oldCategory === svcDef.category) {
+                        // NẾU CÙNG CATEGORY (COMBO->COMBO, FOOT->FOOT, BODY->BODY)
+                        // Chỉ thay đổi độ dài, giữ nguyên vị trí cũ, không đi tìm lại ghế
                         // Flow và durations đã được xử lý ở trên
                     } else if (isComboUpgrade && bestPhase1 && oldCategory !== 'COMBO') {
                         // [NÂNG CẤP COMBO]: Đã có vị trí, chỉ tìm vị trí đối nghịch cho Phase 2
