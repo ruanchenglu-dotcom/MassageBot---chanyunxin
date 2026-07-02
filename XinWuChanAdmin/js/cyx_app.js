@@ -549,26 +549,17 @@ const App = () => {
         if (!booking || !standardDuration) return;
         const rowId = String(booking.rowId);
         const newDuration = parseInt(standardDuration, 10);
+        const oldDuration = parseInt(booking.duration || 0, 10);
+        const isCombo = booking.category === 'COMBO' || (booking.serviceName && booking.serviceName.includes('套餐'));
 
-        Swal.fire({ title: '確認', text: `💡 溫馨提示：請問確定要將時長強制同步為標準時間 (${newDuration} 分鐘) 嗎？`, icon: 'warning', showCancelButton: true, confirmButtonText: '確定', cancelButtonText: '取消' }).then(async (res) => { if (res.isConfirmed) { 
+        const applyDurationUpdate = async (finalP1, finalP2) => {
             setSyncLock(true);
             setTimeout(() => setSyncLock(false), 3000);
 
-            let newP1 = booking.phase1_duration;
-            let newP2 = booking.phase2_duration;
-            if (booking.category === 'COMBO' || (booking.serviceName && booking.serviceName.includes('套餐'))) {
-                const split = getSmartSplit(booking, newDuration, true, booking.flow || 'FB');
-                newP1 = split.phase1;
-                newP2 = split.phase2;
-            } else {
-                newP1 = null;
-                newP2 = null;
-            }
-
             if (!localOverridesRef.current[rowId]) localOverridesRef.current[rowId] = {};
             localOverridesRef.current[rowId].duration = newDuration;
-            if (newP1 !== null) localOverridesRef.current[rowId].phase1_duration = newP1;
-            if (newP2 !== null) localOverridesRef.current[rowId].phase2_duration = newP2;
+            if (finalP1 !== null) localOverridesRef.current[rowId].phase1_duration = finalP1;
+            if (finalP2 !== null) localOverridesRef.current[rowId].phase2_duration = finalP2;
 
             const newState = { ...resourceState };
             let updated = false;
@@ -578,8 +569,8 @@ const App = () => {
                     res.booking.duration = newDuration;
                     res.booking.isTimeAnomaly = false;
                     res.booking.anomalyDiff = 0;
-                    if (newP1 !== null) res.booking.phase1_duration = newP1;
-                    if (newP2 !== null) res.booking.phase2_duration = newP2;
+                    if (finalP1 !== null) res.booking.phase1_duration = finalP1;
+                    if (finalP2 !== null) res.booking.phase2_duration = finalP2;
                     updated = true;
                 }
             });
@@ -593,15 +584,80 @@ const App = () => {
                     is_locked: "TRUE",
                     forceSync: true
                 };
-                if (newP1 !== null) {
-                    updatePayload.phase1_duration = newP1;
-                    updatePayload.phase2_duration = newP2;
+                if (finalP1 !== null) {
+                    updatePayload.phase1_duration = finalP1;
+                    updatePayload.phase2_duration = finalP2;
                 }
                 await universalSend('/api/update-booking-details', updatePayload);
             } catch (e) {
                 Swal.fire('系統提示', "💡 溫馨提示：資料同步發生異常，請幫忙確認一下網路連線喔！", 'warning');
             }
-        } });
+        };
+
+        if (isCombo && oldDuration > 0 && newDuration > oldDuration) {
+            const extraTime = newDuration - oldDuration;
+            Swal.fire({
+                title: '套餐時間延長',
+                html: `系統偵測到套餐總時長增加 <b>${extraTime} 分鐘</b><br/><br/>請問您要將這 ${extraTime} 分鐘加在哪個項目？`,
+                icon: 'question',
+                showCancelButton: true,
+                showDenyButton: true,
+                confirmButtonText: '加在腳部',
+                denyButtonText: '加在身體',
+                cancelButtonText: '平均分配',
+                confirmButtonColor: '#3085d6',
+                denyButtonColor: '#28a745',
+                cancelButtonColor: '#6c757d'
+            }).then((res) => {
+                if (res.isDismissed && res.dismiss !== Swal.DismissReason.cancel) {
+                    return;
+                }
+                
+                let newP1 = booking.phase1_duration ? parseInt(booking.phase1_duration, 10) : null;
+                let newP2 = booking.phase2_duration ? parseInt(booking.phase2_duration, 10) : null;
+                
+                if (newP1 === null || newP2 === null) {
+                    const split = getSmartSplit(booking, newDuration, true, booking.flow || 'FB');
+                    newP1 = split.phase1;
+                    newP2 = split.phase2;
+                } else {
+                    if (res.isConfirmed) {
+                        newP1 += extraTime;
+                    } else if (res.isDenied) {
+                        newP2 += extraTime;
+                    } else if (res.dismiss === Swal.DismissReason.cancel) {
+                        const split = getSmartSplit(booking, newDuration, true, booking.flow || 'FB');
+                        newP1 = split.phase1;
+                        newP2 = split.phase2;
+                    }
+                }
+                
+                applyDurationUpdate(newP1, newP2);
+            });
+        } else {
+            Swal.fire({ 
+                title: '確認', 
+                text: `💡 溫馨提示：請問確定要將時長強制同步為標準時間 (${newDuration} 分鐘) 嗎？`, 
+                icon: 'warning', 
+                showCancelButton: true, 
+                confirmButtonText: '確定', 
+                cancelButtonText: '取消' 
+            }).then((res) => { 
+                if (res.isConfirmed) { 
+                    let newP1 = booking.phase1_duration;
+                    let newP2 = booking.phase2_duration;
+                    if (isCombo) {
+                        const split = getSmartSplit(booking, newDuration, true, booking.flow || 'FB');
+                        newP1 = split.phase1;
+                        newP2 = split.phase2;
+                    } else {
+                        newP1 = null;
+                        newP2 = null;
+                    }
+                    applyDurationUpdate(newP1, newP2);
+                } 
+            });
+        }
     };
 
     // --- AUTO-TRANSITION WATCHDOG ---
