@@ -458,7 +458,7 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
         }
     };
 
-    const performServiceCheck = (checkIsGroup = isGroupMode) => {
+    const performServiceCheck = (checkIsGroup = isGroupMode, overridePhase1 = null) => {
         const getDuration = (serviceName) => {
             if (!serviceName) return 60;
             const match = serviceName.match(/(190|180|170|160|150|140|130|120|110|100|90|80|75|70|65|60|55|50|45|40|35|30)/);
@@ -490,15 +490,19 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
         let isComboEdit = editServiceCategory === 'COMBO';
         
         if (isComboEdit) {
-            const getSmartSplit = window.getComboSplit || ((dur) => {
-                if (dur === 130) return { phase1: 70, phase2: 60 };
-                if (dur === 120) return { phase1: 70, phase2: 50 };
-                if (dur === 110) return { phase1: 70, phase2: 40 };
-                if (dur === 100) return { phase1: 60, phase2: 40 };
-                return { phase1: Math.floor(dur / 2), phase2: dur - Math.floor(dur / 2) };
-            });
-            const split = getSmartSplit(newDuration);
-            editPhase1End = startMins + split.phase1;
+            if (overridePhase1 !== null) {
+                editPhase1End = startMins + overridePhase1;
+            } else {
+                const getSmartSplit = window.getComboSplit || ((dur) => {
+                    if (dur === 130) return { phase1: 70, phase2: 60 };
+                    if (dur === 120) return { phase1: 70, phase2: 50 };
+                    if (dur === 110) return { phase1: 70, phase2: 40 };
+                    if (dur === 100) return { phase1: 60, phase2: 40 };
+                    return { phase1: Math.floor(dur / 2), phase2: dur - Math.floor(dur / 2) };
+                });
+                const split = getSmartSplit(newDuration);
+                editPhase1End = startMins + split.phase1;
+            }
         }
 
         const safeBookings = Array.isArray(bookings) ? bookings : [];
@@ -633,6 +637,27 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                 return;
             }
             if (currentChairLoad > getMaxChairs() && isNewChairHigher) {
+                if (isComboEdit && newDuration > oldDur && overridePhase1 === null && !isBodyFirstLocal) {
+                    const extraTime = newDuration - oldDur;
+                    setScanServiceStatus('FAILED');
+                    setScanServiceMessage("❌ 足底區客滿");
+                    
+                    Swal.fire({
+                        title: '足底區客滿',
+                        html: `目前足底區已滿，無法按預設比例延長時間。<br/><br/>請問是否保持腳部 <b>${oldP1Dur} 分鐘</b>，並將增加的時間 (+${extraTime}分) 全部加到身體？<br/>(即：腳部 ${oldP1Dur}分, 身體 ${newDuration - oldP1Dur}分)`,
+                        icon: 'question',
+                        showCancelButton: true,
+                        confirmButtonText: '同意 (加在身體)',
+                        cancelButtonText: '取消'
+                    }).then((res) => {
+                        if (res.isConfirmed) {
+                            setPhase1(oldP1Dur);
+                            performServiceCheck(checkIsGroup, oldP1Dur);
+                        }
+                    });
+                    return;
+                }
+                
                 setScanServiceStatus('FAILED');
                 setScanServiceMessage("❌ 足底區客滿");
                 return;
@@ -1264,7 +1289,8 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                                             <button onClick={() => triggerAction('UPDATE_SERVICE', { 
                                                 newService: selectedService, 
                                                 updateGroup: isGroupMode, 
-                                                groupMemberIds: isGroupMode ? groupMembersToUpdate.map(b => b.rowId) : null 
+                                                groupMemberIds: isGroupMode ? groupMembersToUpdate.map(b => b.rowId) : null,
+                                                newPhase1: phase1
                                             })} className="absolute right-8 top-1.5 bottom-1.5 bg-green-500 text-white text-xs font-bold px-3 rounded hover:bg-green-600">
                                                 💾 保存
                                             </button>

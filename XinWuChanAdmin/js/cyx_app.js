@@ -3418,17 +3418,28 @@ const App = () => {
 
             case 'UPDATE_SERVICE':
                 if (payload.newService && targetBooking) {
-                    const getUpdatedData = (bookingObj) => ({
-                        ngayDen: bookingObj.date || bookingObj.opDate,
-                        gioDen: bookingObj.startTimeString ? bookingObj.startTimeString.split(' ')[1] : bookingObj.startTime,
-                        hoTen: bookingObj.originalName || bookingObj.customerName,
-                        dichVu: payload.newService,
-                        isYouTui: bookingObj.isYouTui,
-                        isGuaSha: bookingObj.isGuaSha,
-                        sdt: bookingObj.sdt || bookingObj.phone,
-                        trangThai: bookingObj.status,
-                        nhanVien: bookingObj.requestedStaff || bookingObj.staffId || bookingObj.serviceStaff
-                    });
+                    const getUpdatedData = (bookingObj) => {
+                        const data = {
+                            ngayDen: bookingObj.date || bookingObj.opDate,
+                            gioDen: bookingObj.startTimeString ? bookingObj.startTimeString.split(' ')[1] : bookingObj.startTime,
+                            hoTen: bookingObj.originalName || bookingObj.customerName,
+                            dichVu: payload.newService,
+                            isYouTui: bookingObj.isYouTui,
+                            isGuaSha: bookingObj.isGuaSha,
+                            sdt: bookingObj.sdt || bookingObj.phone,
+                            trangThai: bookingObj.status,
+                            nhanVien: bookingObj.requestedStaff || bookingObj.staffId || bookingObj.serviceStaff
+                        };
+                        if (payload.newPhase1 !== undefined && payload.newPhase1 !== null) {
+                            data.phase1_duration = payload.newPhase1;
+                            const match = payload.newService.match(/(190|180|170|160|150|140|130|120|110|100|90|80|75|70|65|60|55|50|45|40|35|30)/);
+                            if (match) {
+                                const newTotal = parseInt(match[0], 10);
+                                data.phase2_duration = newTotal - payload.newPhase1;
+                            }
+                        }
+                        return data;
+                    };
 
                     const mainUpdate = getUpdatedData(targetBooking);
                     if (payload.updateGroup) mainUpdate.ignoreOverlap = true;
