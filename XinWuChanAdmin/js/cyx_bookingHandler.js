@@ -920,6 +920,16 @@
             let lowerBoundP1 = Math.max(strictMinP1, totalDuration - strictMaxP2);
             let upperBoundP1 = Math.min(strictMaxP1, totalDuration - strictMinP2);
 
+            // [BẢN VÁ LỖI]: Áp dụng thuật toán co giãn thời gian (Elastic Time) nếu có limit
+            if (limit > 0) {
+                const flexLower = standardHalf - limit;
+                const flexUpper = standardHalf + limit;
+                // Mở rộng biên độ dựa theo limit cấu hình từ trước (vd: 70/30)
+                // nhưng vẫn đảm bảo an toàn tuyệt đối (không nhỏ hơn 15 phút)
+                lowerBoundP1 = Math.min(lowerBoundP1, Math.max(15, flexLower));
+                upperBoundP1 = Math.max(upperBoundP1, Math.min(totalDuration - 15, flexUpper));
+            }
+
             let scanMinP1 = includeOutOfBounds ? 15 : lowerBoundP1;
             let scanMaxP1 = includeOutOfBounds ? (totalDuration - 15) : upperBoundP1;
 
