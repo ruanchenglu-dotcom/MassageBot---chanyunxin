@@ -921,14 +921,9 @@ console.log('DEBUG_SPLITS:', { duration, eStep, eLimit, svc, testFlow, splitsToT
             let lowerBoundP1 = Math.max(strictMinP1, totalDuration - strictMaxP2);
             let upperBoundP1 = Math.min(strictMaxP1, totalDuration - strictMinP2);
 
-            // [BẢN VÁ LỖI]: Áp dụng thuật toán co giãn thời gian (Elastic Time) nếu có limit
             if (limit > 0) {
-                const flexLower = standardHalf - limit;
-                const flexUpper = standardHalf + limit;
-                // Mở rộng biên độ dựa theo limit cấu hình từ trước (vd: 70/30)
-                // nhưng vẫn đảm bảo an toàn tuyệt đối (không nhỏ hơn 15 phút)
-                lowerBoundP1 = Math.min(lowerBoundP1, Math.max(15, flexLower));
-                upperBoundP1 = Math.max(upperBoundP1, Math.min(totalDuration - 15, flexUpper));
+                lowerBoundP1 = Math.max(lowerBoundP1, standardHalf - limit);
+                upperBoundP1 = Math.min(upperBoundP1, standardHalf + limit);
             }
 
             let scanMinP1 = includeOutOfBounds ? 15 : lowerBoundP1;
@@ -951,16 +946,27 @@ console.log('DEBUG_SPLITS:', { duration, eStep, eLimit, svc, testFlow, splitsToT
 
             let realStep = step > 0 ? step : 5;
 
+            const p1List = [];
+            let curMax = standardHalf;
+            while (curMax + realStep <= scanMaxP1) curMax += realStep;
+            
+            let curMin = standardHalf;
+            while (curMin - realStep >= scanMinP1) curMin -= realStep;
+
             if (isBF) {
-                for (let p1 = scanMaxP1; p1 >= scanMinP1; p1 -= realStep) {
+                for (let p1 = curMax; p1 >= curMin; p1 -= realStep) {
                     if (p1 === standardHalf) continue;
-                    addOption(p1);
+                    p1List.push(p1);
                 }
             } else {
-                for (let p1 = scanMinP1; p1 <= scanMaxP1; p1 += realStep) {
+                for (let p1 = curMin; p1 <= curMax; p1 += realStep) {
                     if (p1 === standardHalf) continue;
-                    addOption(p1);
+                    p1List.push(p1);
                 }
+            }
+
+            for (const p1 of p1List) {
+                addOption(p1);
             }
 
             const uniqueOptions = [];
