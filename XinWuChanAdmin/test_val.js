@@ -1,3 +1,532 @@
+const window = { SERVICES_DATA: {} };
+const locationStr = '本館';
+/**
+ * ============================================================================
+ * FILE: js/cyx_data.js (HOẶC dùng cho Backend)
+ * PHIÊN BẢN: V1.5 (EXACT SHEET NAMES, VARIABLES & GLOBAL STATUS)
+ * ============================================================================
+ * MỤC TIÊU: 
+ * 1. Quản lý toàn bộ thông số kỹ thuật của tiệm 禪云心養生館 tại một nơi.
+ * 2. Cung cấp dữ liệu dự phòng (Fallback) cho bảng giá và quy mô hệ thống.
+ * 3. Hỗ trợ chạy trên cả môi trường Frontend (Browser/React) và Backend (Node.js).
+ * * * * * UPDATE V1.5:
+ * + [FEATURE] Khai báo Object BOOKING_STATUS toàn cục bằng tiếng Trung Phồn Thể để quản lý trạng thái đồng nhất (SSOT).
+ * * * * * UPDATE V1.4:
+ * + [FIX] Cập nhật block SHEET_NAMES với đúng cấu trúc tên biến và tên sheet Phồn Thể (預約表, 技師班表, 服務價目).
+ * * * * * UPDATE V1.3:
+ * + [FIX] Đổi toàn bộ Key của SERVICES_DATA sang service_code (A3, A2, F3...) để đồng bộ với Sheet.
+ * + [FEATURE] Cập nhật giá tiền, thời gian, số tiết (blocks) và hoa hồng (commission) khớp 100% với Sheet mới.
+ * * * * * UPDATE V1.2:
+ * + [FEATURE] Thêm block API_CONFIG để quản lý tập trung tần suất đồng bộ (SYNC_INTERVAL).
+ */
+
+// ============================================================================
+// 1. KHAI BÁO CẤU HÌNH TRUNG TÂM (Độc lập môi trường)
+// ============================================================================
+
+const SYSTEM_CONFIG = {
+    SHOP_INFO: {
+        NAME: '心悟禪養身館',
+        BRANCH: '中和', // Chi nhánh 中和
+        VERSION: 'V1.5_Universal'
+    },
+
+    // Cấu hình Database (Google Sheets) - Chuẩn tên biến & tên sheet Phồn Thể
+    SHEET_NAMES: {
+        BOOKING_SHEET_NAME: '預約表',       // Dữ liệu đặt lịch chung
+        STAFF_SHEET_NAME: '技師班表',       // Bảng chia ca/lịch làm việc của kỹ thuật viên
+        MENU_SHEET_NAME: '服務價目',        // Bảng giá dịch vụ hệ thống
+
+        // Các sheet bổ sung (dựa trên cấu trúc tab hiện tại)
+        STAFF_LIST_SHEET_NAME: 'name',      // Danh sách hồ sơ kỹ thuật viên
+        BLACKLIST_SHEET_NAME: '黑名單',     // Danh sách đen khách hàng
+    },
+
+    // Định dạng ID Tài nguyên Chuẩn
+    RESOURCE_FORMAT: {
+        MAIN: {
+            CHAIR_PREFIX: 'CHAIR-1-',
+            BED_PREFIX: 'BED-1-'
+        },
+        OPP: {
+            CHAIR_PREFIX: 'CHAIR-2-',
+            BED_PREFIX: 'BED-2-'
+        }
+    },
+
+    // Quy mô chi nhánh
+    SCALE: {
+        MAX_CHAIRS: 6, // Số lượng ghế (腳) - 本館
+        MAX_BEDS: 6,   // Số lượng giường (床) - 本館
+        OPP_CHAIRS: 4, // Số lượng ghế (腳) - 對面館
+        OPP_BEDS: 6,   // Số lượng giường (床) - 對面館
+        get TOTAL_RESOURCES() { return this.MAX_CHAIRS + this.MAX_BEDS + this.OPP_CHAIRS + this.OPP_BEDS; }
+    },
+
+    // Quản lý thời gian vận hành
+    OPERATION_TIME: {
+        OPEN_HOUR: 8,        // Giờ bắt đầu Timeline (08:00 AM)
+        CUT_OFF_HOUR: 2,     // Giờ chốt sổ ngày hôm sau (03:00 AM)
+        MINUTES_PER_SLOT: 1, // Đơn vị chia nhỏ nhất trên Timeline
+        // Tự động tính tổng số phút vận hành trong ngày (24 tiếng = 1440 phút + 120 phút)
+        get TOTAL_TIMELINE_MINS() {
+            let hours = (24 - this.OPEN_HOUR) + this.CUT_OFF_HOUR + 2;
+            return hours * 60;
+        }
+    },
+
+    // Thời gian đệm (Buffers)
+    BUFFERS: {
+        CLEANUP_MINUTES: 1,    // Thời gian dọn dẹp sau mỗi ca
+        TRANSITION_MINUTES: 1  // Thời gian chuyển giữa ghế và giường (nếu có combo)
+    },
+
+    // Logic nhân viên và dịch vụ
+    LOGIC_RULES: {
+        STAFF_ID_MODE: 'NUMBER',         // Sử dụng số thay vì họ tên (ID Numbers)
+        USE_TIME_PRECISION: true,        // Sử dụng miliseconds để xếp hàng công bằng
+        SHORT_SERVICE_NO_PRIORITY: false, // Dịch vụ 1 block (35-40p) được ưu tiên về đầu hàng
+        AUTO_SYNC_GOOGLE_SHEETS: true,
+        TOLERANCE: 1                     // Mức độ ưu tiên khớp giờ nối tiếp liền kề (hủy bỏ buffer)
+    },
+
+    // Cấu hình tối ưu hóa API & Mạng
+    API_CONFIG: {
+        SYNC_INTERVAL: 30000, // Tần suất đồng bộ Google Sheets (30 giây/lần)
+        MAX_RETRIES: 3        // Số lần lỗi API liên tiếp tối đa trước khi gửi cảnh báo LINE
+    },
+
+    // Nhãn giao diện (Tiếng Trung Phồn Thể)
+    UI_LABELS: {
+        MAIN_BRANCH: '本館',
+        OPP_BRANCH: '對面館',
+        CHAIR_PREFIX1: '腳1-', //本館 ghế
+        BED_PREFIX1: '床1-',  //本館 giường
+        CHAIR_PREFIX2: '腳2-', //對面館 ghế
+        BED_PREFIX2: '床2-',  //對面館 giường
+
+        MINUTES_UNIT: '分',
+        PRICE_UNIT: '元',
+        LOADING_DATA: '資料庫連接中...',
+        SYSTEM_UPDATE: '系統更新中請稍後'
+    },
+
+    // Tham số tài chính
+    FINANCE: {
+        DEFAULT_JIE_PRICE: 250, // Giá 1 tiết cơ bản
+        OIL_BONUS: 200            // Thưởng tinh dầu
+    }
+};
+
+// ============================================================================
+// 2. TRẠNG THÁI BOOKING & DỮ LIỆU DỊCH VỤ DỰ PHÒNG (FALLBACK)
+// ============================================================================
+
+// Hằng số quản lý trạng thái Booking (Single Source of Truth)
+const BOOKING_STATUS = {
+    CONFIRMED: '已預約',   // Đã đặt lịch
+    WAITING: '等待中',     // Đang chờ tới lượt
+    SERVING: '服務中',     // Đang trong quá trình phục vụ
+    COMPLETED: '已完成',   // Đã hoàn thành xong dịch vụ
+    CANCELLED: '已取消',   // Đã hủy lịch
+    NOSHOW: '爽約'         // Khách không đến
+};
+
+const DYNAMIC_PRICES_MAP = null;
+
+const SERVICES_DATA = {
+
+    'A3': { name: '套餐 (100分)', duration: 100, price: 999, type: 'BED', category: 'COMBO', blocks: 3, commission: 250, elasticStep: 1, elasticLimit: 30, minFoot: 30, maxFoot: 60, minBody: 40, maxBody: 70 },
+    'A4': { name: '套餐 (130分)', duration: 130, price: 1500, type: 'BED', category: 'COMBO', blocks: 4, commission: 250, elasticStep: 1, elasticLimit: 40, minFoot: 30, maxFoot: 90, minBody: 40, maxBody: 100 },
+
+    'A2': { name: '套餐 (70分)', duration: 70, price: 900, type: 'BED', category: 'COMBO', blocks: 2, commission: 250, elasticStep: 1, elasticLimit: 20, minFoot: 30, maxFoot: 40, minBody: 30, maxBody: 40 },
+
+    'F3': { name: '腳底按摩 (90分)', duration: 90, price: 1200, type: 'CHAIR', category: 'FOOT', blocks: 3, commission: 250 },
+    'F2': { name: '腳底按摩 (70分)', duration: 70, price: 900, type: 'CHAIR', category: 'FOOT', blocks: 2, commission: 250 },
+    'F1': { name: '腳底按摩 (40分)', duration: 40, price: 500, type: 'CHAIR', category: 'FOOT', blocks: 1, commission: 250 },
+
+    'B4': { name: '身體按摩 (120分)', duration: 120, price: 1500, type: 'BED', category: 'BODY', blocks: 4, commission: 250 },
+    'B3': { name: '身體按摩 (90分)', duration: 90, price: 1200, type: 'BED', category: 'BODY', blocks: 3, commission: 250 },
+    'B2': { name: '身體按摩 (70分)', duration: 70, price: 900, type: 'BED', category: 'BODY', blocks: 2, commission: 250 },
+    'B1': { name: '身體按摩 (35分)', duration: 35, price: 500, type: 'BED', category: 'BODY', blocks: 1, commission: 250 },
+
+    'C1': { name: '拔罐/刮痧 (35分)', duration: 35, price: 500, type: 'BED', category: 'ADDON', blocks: 1, commission: 250 },
+    //'C2': { name: '修指甲/修腳皮 (35分)', duration: 35, price: 500, type: 'CHAIR', category: 'ADDON', blocks: 1, commission: 250 }
+};
+
+
+const SERVICES_LIST = Object.keys(SERVICES_DATA);
+
+// ============================================================================
+// 3. XUẤT MODULE (UNIVERSAL EXPORT LOGIC)
+// ============================================================================
+
+// A. Môi trường Browser / Frontend (Gắn vào window)
+if (typeof window !== 'undefined') {
+    window.SYSTEM_CONFIG = SYSTEM_CONFIG;
+    window.BOOKING_STATUS = BOOKING_STATUS;
+    window.DYNAMIC_PRICES_MAP = DYNAMIC_PRICES_MAP;
+    window.SERVICES_DATA = SERVICES_DATA;
+    window.SERVICES_LIST = SERVICES_LIST;
+
+    console.log(`[Frontend Data] Loaded config for ${SYSTEM_CONFIG.SHOP_INFO.NAME} - ${SYSTEM_CONFIG.SHOP_INFO.BRANCH}`);
+}
+
+// B. Môi trường Node.js / Backend (Sử dụng 
+/**
+ * ============================================================================
+ * FILE: js/utils.js
+ * PHIÊN BẢN: V110.0 (CENTRALIZED & DYNAMIC)
+ * MÔ TẢ: CÁC HÀM HỖ TRỢ TOÀN CỤC (GLOBAL UTILITIES)
+ * CẬP NHẬT: 
+ * 1. Chuyển toàn bộ tham số cứng sang tham chiếu window.SYSTEM_CONFIG.
+ * 2. Cập nhật nhãn giao diện sang Tiếng Trung Phồn Thể (Traditional Chinese).
+ * 3. Thêm các hàm lấy Buffer Time (Dọn dẹp/Chuyển đổi) từ cấu hình.
+ * 4. Bổ sung hàm SSOT normalizeStaffId để chuẩn hóa ID nhân viên.
+ * 5. Nâng cấp sortIdAsc để hỗ trợ sắp xếp toán học cho ID dạng số.
+ * ============================================================================
+ */
+
+(function () {
+    // Kiểm tra cấu hình hệ thống, dự phòng nếu chưa load kịp
+    const CONFIG = window.SYSTEM_CONFIG || {
+        SHOP_INFO: { VERSION: 'V110.0 fallback' },
+        OPERATION_TIME: { OPEN_HOUR: 5 },
+        BUFFERS: { CLEANUP_MINUTES: 5, TRANSITION_MINUTES: 5 },
+        UI_LABELS: { CHAIR_PREFIX: '足', BED_PREFIX: '床' },
+        FINANCE: { OIL_BONUS: 0 }
+    };
+
+    console.log(`🚀 Utils Module Loaded: ${CONFIG.SHOP_INFO.VERSION} (Dynamic Logic Ready)`);
+
+    // ========================================================================
+    // 1. QUẢN LÝ DỊCH VỤ & THỜI GIAN (TIME MANAGEMENT)
+    // ========================================================================
+
+    /**
+     * Lấy thời lượng dịch vụ an toàn
+     */
+    window.getSafeDuration = (serviceName, fallbackDuration) => {
+        if (!serviceName) return fallbackDuration || 60;
+        if (window.SERVICES_DATA && window.SERVICES_DATA[serviceName]) {
+            return window.SERVICES_DATA[serviceName].duration;
+        }
+        if (window.SERVICES_LIST && window.SERVICES_DATA) {
+            const key = window.SERVICES_LIST.find(k => String(serviceName).includes(k));
+            if (key && window.SERVICES_DATA[key]) {
+                return window.SERVICES_DATA[key].duration;
+            }
+            
+            const cleanName = String(serviceName).replace(/\s+/g, '').toLowerCase();
+            for (let code of window.SERVICES_LIST) {
+                const data = window.SERVICES_DATA[code];
+                if (data && data.name) {
+                    const cleanDataName = String(data.name).replace(/\s+/g, '').toLowerCase();
+                    if (cleanName === cleanDataName || cleanDataName.includes(cleanName) || cleanName.includes(cleanDataName)) {
+                        return data.duration;
+                    }
+                }
+            }
+        }
+        return fallbackDuration || 60;
+    };
+
+    /**
+     * Lấy ngày giờ chuẩn Đài Loan (UTC+8)
+     */
+    window.getTaipeiDate = () => {
+        return new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Taipei' }));
+    };
+
+    /**
+     * Định dạng ngày cho <input type="date"> (YYYY-MM-DD)
+     * Dựa trên OPEN_HOUR trong cấu hình
+     */
+    window.getOperationalDateInputFormat = () => {
+        const now = window.getTaipeiDate();
+        const openHour = CONFIG.OPERATION_TIME.OPEN_HOUR;
+
+        // Nếu giờ hiện tại < giờ mở cửa, tính là ngày làm việc hôm trước
+        if (now.getHours() < openHour) {
+            now.setDate(now.getDate() - 1);
+        }
+        const y = now.getFullYear();
+        const m = (now.getMonth() + 1).toString().padStart(2, '0');
+        const d = now.getDate().toString().padStart(2, '0');
+        return `${y}-${m}-${d}`;
+    };
+
+    /**
+     * Kiểm tra booking có thuộc ngày vận hành không (Hỗ trợ qua đêm)
+     */
+    window.isWithinOperationalDay = (bookingDateStr, bookingTimeStr, targetViewDateStr) => {
+        if (!bookingDateStr || !bookingTimeStr) return false;
+        const openHour = CONFIG.OPERATION_TIME.OPEN_HOUR;
+
+        const opDateStr = targetViewDateStr
+            ? targetViewDateStr.replace(/-/g, '/')
+            : window.getOperationalDateInputFormat().replace(/-/g, '/');
+
+        let d = new Date(bookingDateStr);
+        if (isNaN(d.getTime())) {
+            d = new Date(bookingDateStr.replace(/-/g, '/'));
+        }
+
+        const bDateStr = `${d.getFullYear()}/${(d.getMonth() + 1).toString().padStart(2, '0')}/${d.getDate().toString().padStart(2, '0')}`;
+        const [h, m] = bookingTimeStr.split(':').map(Number);
+
+        // TH1: Cùng ngày dương lịch và >= giờ mở cửa
+        if (bDateStr === opDateStr && h >= openHour) return true;
+
+        // TH2: Ngày hôm sau nhưng < giờ mở cửa (Ca đêm)
+        const nextDay = new Date(opDateStr);
+        nextDay.setDate(nextDay.getDate() + 1);
+        const nextDayStr = `${nextDay.getFullYear()}/${(nextDay.getMonth() + 1).toString().padStart(2, '0')}/${nextDay.getDate().toString().padStart(2, '0')}`;
+
+        if (bDateStr === nextDayStr && h < openHour) return true;
+
+        return false;
+    };
+
+    /**
+     * Chuyển đổi giờ thành phút tính từ mốc 00:00 của ngày vận hành
+     * Ví dụ: 01:00 AM -> 1500 phút (vì thuộc ca đêm ngày hôm trước)
+     */
+    window.normalizeToTimelineMins = (timeStr) => {
+        if (!timeStr) return 0;
+        const openHour = CONFIG.OPERATION_TIME.OPEN_HOUR;
+        try {
+            const [h, m] = timeStr.split(':').map(Number);
+            if (isNaN(h) || isNaN(m)) return 0;
+
+            let totalMins = h * 60 + m;
+            // Nếu giờ < giờ mở cửa, coi như là giờ ca đêm (cộng 24h)
+            if (h < openHour) totalMins += 24 * 60;
+            return totalMins;
+        } catch (e) {
+            return 0;
+        }
+    };
+
+    /**
+     * Chuyển phút timeline ngược lại thành HH:mm hiển thị
+     */
+    window.formatMinutesToTime = (totalMins) => {
+        let h = Math.floor(totalMins / 60);
+        let m = totalMins % 60;
+        if (h >= 24) h -= 24;
+        return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+    };
+
+    // ========================================================================
+    // 2. THỜI GIAN ĐỆM (BUFFERS)
+    // ========================================================================
+
+    window.getCleanupBuffer = () => {
+        return (CONFIG.BUFFERS && CONFIG.BUFFERS.CLEANUP_MINUTES) ? CONFIG.BUFFERS.CLEANUP_MINUTES : 10;
+    };
+
+    window.getTransitionBuffer = () => {
+        return (CONFIG.BUFFERS && CONFIG.BUFFERS.TRANSITION_MINUTES) ? CONFIG.BUFFERS.TRANSITION_MINUTES : 5;
+    };
+
+    // ========================================================================
+    // 3. TÍNH TOÁN GIÁ & LOGIC COMBO
+    // ========================================================================
+
+    window.getPrice = (nameOrCode) => {
+        if (!nameOrCode) return 0;
+        if (String(nameOrCode).includes('(跨館接續)')) return 0;
+        
+        // 1. TÌM TRỰC TIẾP QUA MÃ DỊCH VỤ (VD: A3, F2)
+        if (window.SERVICES_DATA && window.SERVICES_DATA[nameOrCode]) {
+            return window.SERVICES_DATA[nameOrCode].price;
+        }
+        
+        const cleanQuery = String(nameOrCode).replace(/\s+/g, '').toLowerCase();
+
+        // 2. NẾU KHÔNG TÌM THẤY THEO MÃ, TÌM THEO TÊN TRONG TRƯỜNG HỢP TRUYỀN VÀO TÊN (VD: 套餐(120分))
+        if (window.SERVICES_LIST && window.SERVICES_DATA) {
+            for (let code of window.SERVICES_LIST) {
+                const data = window.SERVICES_DATA[code];
+                if (data && data.name) {
+                    const cleanDataName = String(data.name).replace(/\s+/g, '').toLowerCase();
+                    if (cleanQuery === cleanDataName || cleanDataName.includes(cleanQuery) || cleanQuery.includes(cleanDataName)) {
+                        return data.price;
+                    }
+                }
+            }
+        }
+
+        // 3. FALLBACK THEO BẢNG GIÁ ĐỘNG NẾU CÓ
+        if (window.DYNAMIC_PRICES_MAP) {
+            const found = Object.values(window.DYNAMIC_PRICES_MAP).find(s => {
+                const sName = String(s.name || '').replace(/\s+/g, '').toLowerCase();
+                return sName === cleanQuery || sName.includes(cleanQuery) || cleanQuery.includes(sName);
+            });
+            if (found && typeof found.price === 'number') {
+                return found.price;
+            }
+        }
+
+        return 0;
+    };
+
+    window.getOilPrice = (isYouTuiFlagOrString) => {
+        let isYouTui = false;
+        if (typeof isYouTuiFlagOrString === 'boolean') isYouTui = isYouTuiFlagOrString;
+        else if (typeof isYouTuiFlagOrString === 'string' && (isYouTuiFlagOrString === 'true' || isYouTuiFlagOrString === 'Yes' || isYouTuiFlagOrString === '是' || isYouTuiFlagOrString.includes('油') || isYouTuiFlagOrString.includes('Oil'))) isYouTui = true;
+        
+        if (!isYouTui) return 0;
+        
+        const oilRate = (CONFIG.FINANCE && CONFIG.FINANCE.OIL_BONUS !== undefined) ? CONFIG.FINANCE.OIL_BONUS : 0;
+        return oilRate;
+    };
+
+    window.stringToColor = (str) => {
+        if (!str) return '#cccccc';
+        let hash = 0;
+        for (let i = 0; i < str.length; i++) {
+            hash = str.charCodeAt(i) + ((hash << 5) - hash);
+        }
+        const c = (hash & 0x00FFFFFF).toString(16).toUpperCase();
+        return '#' + '00000'.substring(0, 6 - c.length) + c;
+    };
+
+    window.getComboSplit = (duration, isMaxMode, sequence = 'FB', customPhase1 = null) => {
+        const dur = parseInt(duration);
+        if (!dur || isNaN(dur)) return { phase1: 0, phase2: 0, type1: '?', type2: '?' };
+
+        let p1 = (customPhase1 !== null && !isNaN(customPhase1) && customPhase1 > 0)
+            ? parseInt(customPhase1)
+            : Math.floor(dur / 2);
+            
+        if (p1 >= dur && dur > 0) {
+            p1 = Math.floor(dur / 2);
+        }
+        
+        let p2 = dur - p1;
+
+        if (sequence === 'BF') {
+            return { phase1: p1, phase2: p2, type1: 'BODY', type2: 'FOOT' };
+        } else {
+            return { phase1: p1, phase2: p2, type1: 'FOOT', type2: 'BODY' };
+        }
+    };
+
+    // ========================================================================
+    // 4. QUẢN LÝ NHÂN VIÊN (STAFF MANAGEMENT) - NEW SSOT
+    // ========================================================================
+
+    // ========================================================================
+    // 5. SẮP XẾP & HIỂN THỊ (UI RENDERING)
+    // ========================================================================
+
+    window.normalizeResourceId = (rawId) => {
+        if (!rawId) return rawId;
+        let id = String(rawId).toUpperCase().trim();
+        let match = id.match(/\d+/g);
+        let num = match && match.length > 0 ? match[match.length - 1] : '';
+        if (!num) return id; 
+        
+        let isOpp = id.includes('OPP') || id.includes('對') || id.includes('2-');
+        let isChair = id.includes('CHAIR') || id.includes('腳');
+        let isBed = id.includes('BED') || id.includes('床') || id.includes('本');
+        
+        if (!isChair && !isBed) {
+             if (id.includes('本') || id.includes('對')) isBed = true; 
+             else isChair = true; 
+        }
+        
+        let building = isOpp ? '2' : '1';
+        let type = isChair ? 'CHAIR' : 'BED';
+        return `${type}-${building}-${num}`;
+    };
+
+    /**
+     * Chuyển đổi ID tài nguyên (CHAIR-1-1, BED-2-1) thành nhãn hiển thị chính thức
+     * Dựa trên cấu hình UI_LABELS
+     */
+    window.formatResourceLabel = (rid, includeEmoji = false) => {
+        if (!rid) return '已鎖定預測位置';
+        const config = window.SYSTEM_CONFIG?.UI_LABELS || {};
+        const c1 = config.CHAIR_PREFIX1 || '腳1-';
+        const b1 = config.BED_PREFIX1 || '床1-';
+        const c2 = config.CHAIR_PREFIX2 || '腳2-';
+        const b2 = config.BED_PREFIX2 || '床2-';
+        
+        let res = window.normalizeResourceId(rid);
+        let emoji = '';
+        if (res.startsWith('CHAIR-1-')) {
+            res = res.replace('CHAIR-1-', c1);
+            emoji = '👣 ';
+        } else if (res.startsWith('BED-1-')) {
+            res = res.replace('BED-1-', b1);
+            emoji = '🛏️ ';
+        } else if (res.startsWith('CHAIR-2-')) {
+            res = res.replace('CHAIR-2-', c2);
+            emoji = '👣 ';
+        } else if (res.startsWith('BED-2-')) {
+            res = res.replace('BED-2-', b2);
+            emoji = '🛏️ ';
+        }
+        
+        return includeEmoji ? emoji + res : res;
+    };
+
+    /**
+     * Tính trọng số sắp xếp dựa trên cấu hình PREFIX từ SYSTEM_CONFIG
+     * Giúp Timeline luôn hiển thị 足 (Ghế) trước, 床 (Giường) sau
+     */
+    window.getWeight = (id) => {
+        if (!id) return 9999;
+        const chairPrefix = CONFIG.UI_LABELS.CHAIR_PREFIX; // 足
+        const bedPrefix = CONFIG.UI_LABELS.BED_PREFIX;     // 床
+
+        const num = parseInt(id.replace(/\D/g, ''));
+        const base = isNaN(num) ? 9000 + id.charCodeAt(0) : num;
+
+        // Nếu ID chứa ký hiệu Giường hoặc chữ BED/BODY -> Đẩy xuống dưới (2000+)
+        if (id.includes(bedPrefix) || id.toLowerCase().includes('bed') || id.toUpperCase().includes('BODY')) {
+            return 2000 + base;
+        }
+        // Nếu ID chứa ký hiệu Ghế hoặc chữ CHAIR/FOOT -> Xếp lên trên (1000+)
+        if (id.includes(chairPrefix) || id.toLowerCase().includes('chair') || id.toUpperCase().includes('FOOT')) {
+            return 1000 + base;
+        }
+        return base;
+    };
+
+    /**
+     * Sắp xếp tăng dần hỗ trợ cả Resource ID và Staff ID
+     */
+    window.sortIdAsc = (a, b) => {
+        const idA = a.id ? String(a.id) : '';
+        const idB = b.id ? String(b.id) : '';
+
+        // Ép sang số để kiểm tra
+        const numA = Number(idA);
+        const numB = Number(idB);
+
+        // Nếu cả hai ID đều là số thuần túy (VD: Staff ID "1", "2", "10")
+        // So sánh trực tiếp bằng toán học để đảm bảo 1 -> 2 -> 10
+        if (!isNaN(numA) && !isNaN(numB) && idA !== '' && idB !== '') {
+            return numA - numB;
+        }
+
+        // Fallback: Nếu chứa ký tự (VD: "足1", "床10"), sử dụng logic trọng số
+        return window.getWeight(idA) - window.getWeight(idB);
+    };
+
+    /**
+     * Nhãn hiển thị quy trình dịch vụ (Tiếng Trung Phồn Thể)
+     */
+    window.getFlowLabel = (sequence) => {
+        if (sequence === 'BF') return "🛏️ 身體 (Body) ➜ 👣 足部 (Foot)";
+        return "👣 足部 (Foot) ➜ 🛏️ 身體 (Body)";
+    };
+
+})();
 /**
  * =================================================================================================
  * PROJECT: XINWUCHAN MASSAGE BOT - FRONTEND CONTROLLER & LOGIC BRIDGE
@@ -2868,3 +3397,4 @@ console.log('DEBUG_SPLITS:', { duration, eStep, eLimit, svc, testFlow, splitsToT
     setTimeout(() => { clearInterval(overrideInterval); }, 5000);
 
 })();
+module.exports = { validateGlobalCapacity };

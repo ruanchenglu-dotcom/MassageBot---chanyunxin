@@ -976,14 +976,6 @@ function generateElasticSplits(totalDuration, step = 0, limit = 0, customLockedP
     let lowerBoundP1 = Math.max(strictMinP1, totalDuration - strictMaxP2);
     let upperBoundP1 = Math.min(strictMaxP1, totalDuration - strictMinP2);
 
-    // [BẢN VÁ LỖI]: Áp dụng thuật toán co giãn thời gian (Elastic Time) nếu có limit
-    if (limit > 0) {
-        const flexLower = standardHalf - limit;
-        const flexUpper = standardHalf + limit;
-        lowerBoundP1 = Math.max(lowerBoundP1, Math.max(15, flexLower));
-        upperBoundP1 = Math.min(upperBoundP1, Math.min(totalDuration - 15, flexUpper));
-    }
-
     let scanMinP1 = includeOutOfBounds ? 15 : lowerBoundP1;
     let scanMaxP1 = includeOutOfBounds ? (totalDuration - 15) : upperBoundP1;
 
@@ -1004,27 +996,16 @@ function generateElasticSplits(totalDuration, step = 0, limit = 0, customLockedP
 
     let realStep = step > 0 ? step : 5;
 
-    const p1List = [];
-    let curMax = standardHalf;
-    while (curMax + realStep <= scanMaxP1) curMax += realStep;
-    
-    let curMin = standardHalf;
-    while (curMin - realStep >= scanMinP1) curMin -= realStep;
-
     if (isBF) {
-        for (let p1 = curMax; p1 >= curMin; p1 -= realStep) {
+        for (let p1 = scanMaxP1; p1 >= scanMinP1; p1 -= realStep) {
             if (p1 === standardHalf) continue;
-            p1List.push(p1);
+            addOption(p1);
         }
     } else {
-        for (let p1 = curMin; p1 <= curMax; p1 += realStep) {
+        for (let p1 = scanMinP1; p1 <= scanMaxP1; p1 += realStep) {
             if (p1 === standardHalf) continue;
-            p1List.push(p1);
+            addOption(p1);
         }
-    }
-    
-    for (const p1 of p1List) {
-        addOption(p1);
     }
 
     const uniqueOptions = [];
