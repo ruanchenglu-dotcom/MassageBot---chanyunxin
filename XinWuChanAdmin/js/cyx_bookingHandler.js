@@ -922,8 +922,10 @@ console.log('DEBUG_SPLITS:', { duration, eStep, eLimit, svc, testFlow, splitsToT
             let upperBoundP1 = Math.min(strictMaxP1, totalDuration - strictMinP2);
 
             if (limit > 0) {
-                lowerBoundP1 = Math.max(lowerBoundP1, standardHalf - limit);
-                upperBoundP1 = Math.min(upperBoundP1, standardHalf + limit);
+                const flexLower = standardHalf - limit;
+                const flexUpper = standardHalf + limit;
+                lowerBoundP1 = Math.max(lowerBoundP1, Math.max(15, flexLower));
+                upperBoundP1 = Math.min(upperBoundP1, Math.min(totalDuration - 15, flexUpper));
             }
 
             let scanMinP1 = includeOutOfBounds ? 15 : lowerBoundP1;

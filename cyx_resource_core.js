@@ -1372,12 +1372,12 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
                     scenarioDetails.push({ guestIndex: ng.idx, service: svc.name, price: svc.price, phase1_duration: p1Standard, phase2_duration: p2Standard, flow: 'BF', timeStr: timeStr, allocated: [] });
 
                     splits.forEach(split => {
-                        const sT1End = requestStartMins + split.p2; const sT2Start = sT1End + CONF.TRANSITION_BUFFER;
+                        const sT1End = requestStartMins + split.p1; const sT2Start = sT1End + CONF.TRANSITION_BUFFER;
                         elasticOptions.push({
                             p1: split.p1, p2: split.p2,
                             blocks: [
                                 { start: requestStartMins, end: sT1End + phase1Cleanup, type: 'BED' },
-                                { start: sT2Start, end: sT2Start + split.p1 + CONF.CLEANUP_BUFFER, type: 'CHAIR' }
+                                { start: sT2Start, end: sT2Start + split.p2 + CONF.CLEANUP_BUFFER, type: 'CHAIR' }
                             ]
                         });
                     });
@@ -1460,10 +1460,11 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
                         let splitsToTry = [];
                         if (item.isCombo) {
                             // Backend version: Use full generator parameters to respect sheet config bounds
-                            const minFoot = item.guest.minFoot; const maxFoot = item.guest.maxFoot;
-                            const minBody = item.guest.minBody; const maxBody = item.guest.maxBody;
-                            const elasticStep = item.guest.elasticStep || 1;
-                            const elasticLimit = item.guest.elasticLimit || 20;
+                            const svcDef = SERVICES_DATA[item.guest.serviceCode] || {};
+                            const minFoot = svcDef.minFoot; const maxFoot = svcDef.maxFoot;
+                            const minBody = svcDef.minBody; const maxBody = svcDef.maxBody;
+                            const elasticStep = svcDef.elasticStep || 1;
+                            const elasticLimit = svcDef.elasticLimit || 20;
                             splitsToTry = generateElasticSplits(item.duration, elasticStep, elasticLimit, null, minFoot, maxFoot, minBody, maxBody, item.flow, true);
                         } else {
                             splitsToTry = [{ p1: item.duration, p2: 0, deviation: 0 }];
