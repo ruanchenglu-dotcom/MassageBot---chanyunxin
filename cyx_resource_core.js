@@ -359,7 +359,7 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
         let searchStart = Math.max(requestStart + 10, 0); 
         
         // Quét đến cuối ngày hoặc ca đêm (1440 + 360 = 1800)
-        for (let t = searchStart; t <= 1800; t += 10) {
+        for (let t = searchStart; t <= 1800; t += 1) {
             let sim = validateGlobalCapacity(t, maxDuration, guestList, currentBookingsRaw, staffList, queryDateStr, true, locationStr);
             if (sim.pass) {
                 foundMins = t;
@@ -812,7 +812,7 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
 
                 if (bestOutOfBoundSplit) {
                     let rawSuggestedTime = requestStart + bestOutOfBoundSplit.shiftMins;
-                    let suggestedTime = Math.ceil(rawSuggestedTime / 5) * 5;
+                    let suggestedTime = rawSuggestedTime;
                     let timeStr = getTimeStrFromMins(suggestedTime);
                     let actionText = suggestedTime > requestStart ? '稍晚' : '提早';
                     let shiftVal = Math.abs(suggestedTime - requestStart);
