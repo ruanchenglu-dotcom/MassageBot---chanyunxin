@@ -210,18 +210,49 @@ function findBestSlots(selectedDate, serviceCode, guestPrefs, travelTime = 0) {
     const openHour = getConfig().OPERATION_TIME.OPEN_HOUR || 8;
     const minTimeMs = nowTaipei.getTime() + (travelTime * 60000);
 
-    for (let h = 0; h < 24; h += 1) {
-        for (let m = 0; m < 60; m += 20) {
-            const slotTime = new Date(sYear, sMonth - 1, sDay, h, m, 0);
-            if (slotTime.getTime() <= minTimeMs) continue;
+    // --- NÂNG CẤP V118.9: Thu thập mốc giờ lẻ từ thời gian kết thúc của các đơn trước đó ---
+    let candidateMins = [];
+    for (let h = 0; h < 24; h++) {
+        for (let m = 0; m < 60; m += 30) { candidateMins.push(h * 60 + m); } // Dự phòng quán rỗng
+    }
+    const CLEANUP = getConfig().BUFFERS?.CLEANUP_MINUTES || 1;
+    const TRANS = getConfig().BUFFERS?.TRANSITION_MINUTES || 1;
+    [...relevantBookingsYesterday, ...relevantBookingsToday].forEach(b => {
+        let tStr = b.startTimeString ? b.startTimeString.split(' ')[1] : b.startTime;
+        if(tStr) {
+            let pts = tStr.split(':');
+            let mins = parseInt(pts[0])*60 + parseInt(pts[1]);
+            let d = parseInt(b.duration) || 60;
+            candidateMins.push(mins + d + CLEANUP);
+            candidateMins.push(mins + d + TRANS);
+            let p1 = parseInt(b.phase1_duration) || (b.originalData ? parseInt(b.originalData.phase1_duration) : 0);
+            if(p1 > 0) {
+                candidateMins.push(mins + p1 + CLEANUP);
+                candidateMins.push(mins + p1 + TRANS);
+            }
+        }
+    });
 
-            const timeStr = `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
-            const isNightShift = h < openHour;
-            const activeBookings = isNightShift ? relevantBookingsYesterday : relevantBookingsToday;
-            const activeStaffMap = isNightShift ? staffListMapYesterday : staffListMapToday;
+    let uniqueCandidates = [...new Set(candidateMins)].sort((a,b)=>a-b);
 
-            const result = ResourceCore.checkRequestAvailability(cleanSelectedDate, timeStr, guestList, activeBookings, activeStaffMap);
-            if (result.feasible) candidates.push({ timeStr: timeStr, sortVal: h * 60 + m, score: 10, label: `${timeStr}` });
+    for (let mins of uniqueCandidates) {
+        let h = Math.floor(mins / 60); let m = mins % 60;
+        if(h >= 24) continue;
+        
+        const slotTime = new Date(sYear, sMonth - 1, sDay, h, m, 0);
+        if (slotTime.getTime() <= minTimeMs) continue;
+
+        const timeStr = `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
+        const isNightShift = h < openHour;
+        const activeBookings = isNightShift ? relevantBookingsYesterday : relevantBookingsToday;
+        const activeStaffMap = isNightShift ? staffListMapYesterday : staffListMapToday;
+
+        const result = ResourceCore.checkRequestAvailability(cleanSelectedDate, timeStr, guestList, activeBookings, activeStaffMap);
+        if (result.feasible) {
+            // Lọc bớt trùng lặp sát nhau nếu cần, hoặc để Line hiển thị. Để đơn giản, đẩy luôn vào candidates
+            if (!candidates.some(c => c.timeStr === timeStr)) {
+                candidates.push({ timeStr: timeStr, sortVal: mins, score: 10, label: `${timeStr}` });
+            }
         }
     }
     candidates.sort((a, b) => a.sortVal - b.sortVal);
@@ -280,18 +311,48 @@ function generateTimeBubbles(selectedDate, serviceCode, guestPrefs, travelTime =
     const openHour = getConfig().OPERATION_TIME.OPEN_HOUR || 8;
     const minTimeMs = nowTaipei.getTime() + (travelTime * 60000);
 
-    for (let h = 0; h < 24; h += 1) {
-        for (let m = 0; m < 60; m += 20) {
-            const slotTime = new Date(sYear, sMonth - 1, sDay, h, m, 0);
-            if (slotTime.getTime() <= minTimeMs) continue;
+    // --- NÂNG CẤP V118.9: Thu thập mốc giờ lẻ từ thời gian kết thúc của các đơn trước đó ---
+    let candidateMins = [];
+    for (let h = 0; h < 24; h++) {
+        for (let m = 0; m < 60; m += 30) { candidateMins.push(h * 60 + m); }
+    }
+    const CLEANUP = getConfig().BUFFERS?.CLEANUP_MINUTES || 1;
+    const TRANS = getConfig().BUFFERS?.TRANSITION_MINUTES || 1;
+    [...relevantBookingsYesterday, ...relevantBookingsToday].forEach(b => {
+        let tStr = b.startTimeString ? b.startTimeString.split(' ')[1] : b.startTime;
+        if(tStr) {
+            let pts = tStr.split(':');
+            let mins = parseInt(pts[0])*60 + parseInt(pts[1]);
+            let d = parseInt(b.duration) || 60;
+            candidateMins.push(mins + d + CLEANUP);
+            candidateMins.push(mins + d + TRANS);
+            let p1 = parseInt(b.phase1_duration) || (b.originalData ? parseInt(b.originalData.phase1_duration) : 0);
+            if(p1 > 0) {
+                candidateMins.push(mins + p1 + CLEANUP);
+                candidateMins.push(mins + p1 + TRANS);
+            }
+        }
+    });
 
-            const timeStr = `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
-            const isNightShift = h < openHour;
-            const activeBookings = isNightShift ? relevantBookingsYesterday : relevantBookingsToday;
-            const activeStaffMap = isNightShift ? staffListMapYesterday : staffListMapToday;
+    let uniqueCandidates = [...new Set(candidateMins)].sort((a,b)=>a-b);
 
-            const result = ResourceCore.checkRequestAvailability(cleanSelectedDate, timeStr, guestList, activeBookings, activeStaffMap);
-            if (result.feasible) validSlots.push({ h, m, timeStr });
+    for (let mins of uniqueCandidates) {
+        let h = Math.floor(mins / 60); let m = mins % 60;
+        if(h >= 24) continue;
+
+        const slotTime = new Date(sYear, sMonth - 1, sDay, h, m, 0);
+        if (slotTime.getTime() <= minTimeMs) continue;
+
+        const timeStr = `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
+        const isNightShift = h < openHour;
+        const activeBookings = isNightShift ? relevantBookingsYesterday : relevantBookingsToday;
+        const activeStaffMap = isNightShift ? staffListMapYesterday : staffListMapToday;
+
+        const result = ResourceCore.checkRequestAvailability(cleanSelectedDate, timeStr, guestList, activeBookings, activeStaffMap);
+        if (result.feasible) {
+            if (!validSlots.some(v => v.timeStr === timeStr)) {
+                validSlots.push({ h, m, timeStr });
+            }
         }
     }
 

@@ -1,14 +1,19 @@
-Khởi động Browser Agent, mở ứng dụng web ở localhost. 
+Khởi động Browser Agent, mở ứng dụng web ở localhost.
 
 taskkill /F /IM node.exe 
 
 ./len "time"
 
-chạy taskkill /F /IM node.exe tắt node và chạy lại  node cyx_index.js
+chạy taskkill /F /IM node.exe tắt node   
 
-phân tích bằng tiếng việt.giao diện ngôn ngữ UX/UI tiếng trung phồn thể,không chứa ngôn ngữ khác.lên kế hoạch nâng cấp chi tiết và ghi rõ các file cần nâng cấp, không viết code vội để tôi duyệt trước.
+chạy node cyx_index.js
 
-[Approve / Chấp thuận].giao diện ngôn ngữ app UX/UI tiếng trung phồn thể không chứa ngôn ngữ khác. ok hãy tiến hành nâng cấp các file và nhớ giữ lại các tính năng còn lại hoạt động như cũ nhé.sau khi nâng cấp xong chạy lệnh ./len "time" (restart) máy chủ node cyx_index.js dưới nền để áp dụng các thay đổi API mới ngay lập tức.. 
+kiểm tra và phân tích lỗi tất cả các file.giải thích bằng tiếng việt.lên kế hoạch nâng cấp chi tiết mà không ảnh hưởng đến các tính năng khác. giao diện ngôn ngữ UX/UI tiếng trung phồn thể,không chứa ngôn ngữ khác.. và ghi rõ các file cần nâng cấp, không viết code vội để tôi duyệt trước.
 
+nhiệm vụ 1:[Approve / Chấp thuận].giao diện ngôn ngữ app UX/UI tiếng trung phồn thể không chứa ngôn ngữ khác. ok hãy tiến hành nâng cấp các file và nhớ giữ lại các tính năng còn lại hoạt động như cũ nhé.
+nhiệm vụ 2:sau khi thành công chạy lệnh ./len "time" update code mới lên render ngay lập tức.   
 
+ 
+
+[Approve / Chấp thuận]. ok hãy tiến hành nâng cấp các file và nhớ giữ lại các tính năng còn lại hoạt động như cũ nhé.
 

@@ -2154,14 +2154,11 @@ console.log('DEBUG_SPLITS:', { duration, eStep, eLimit, svc, testFlow, splitsToT
                     }
                 });
 
-                // 3. Lọc và sắp xếp các mốc thời gian ứng viên
+                // 3. Lọc và sắp xếp các mốc thời gian ứng viên (ĐÃ XÓA LÀM TRÒN 5 PHÚT ĐỂ TÌM EXACT GAP)
                 let uniqueCandidates = [...new Set(candidateMins)]
                     .filter(mins => mins > currMins)
-                    .map(mins => Math.ceil(mins / 5) * 5)
                     .sort((a, b) => a - b);
 
-                // Loại bỏ trùng lặp lại sau khi đã làm tròn
-                uniqueCandidates = [...new Set(uniqueCandidates)];
 
                 // 4. Kiểm tra sự khả dụng của từng mốc
                 for (let nM of uniqueCandidates) {
