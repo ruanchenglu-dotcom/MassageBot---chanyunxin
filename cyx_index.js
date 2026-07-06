@@ -159,6 +159,7 @@ function prepareBookingsForTimeline(bookings, opDateCheck) {
 
 // Thuật toán tìm giờ trống tốt nhất (Sử dụng ResourceCore)
 function findBestSlots(selectedDate, serviceCode, guestPrefs, travelTime = 0) {
+    ResourceCore.setDynamicServices(SheetService.getServices());
     const STAFF_LIST = SheetService.getStaffList();
     const isSystemHealthy = SheetService.getIsSystemHealthy();
     const cachedBookings = SheetService.getBookings();
@@ -261,6 +262,7 @@ function findBestSlots(selectedDate, serviceCode, guestPrefs, travelTime = 0) {
 
 // Tạo Bubble chọn giờ (Time Bubbles)
 function generateTimeBubbles(selectedDate, serviceCode, guestPrefs, travelTime = 0) {
+    ResourceCore.setDynamicServices(SheetService.getServices());
     const STAFF_LIST = SheetService.getStaffList();
     const isSystemHealthy = SheetService.getIsSystemHealthy();
     const cachedBookings = SheetService.getBookings();
@@ -948,6 +950,7 @@ app.post('/api/admin-booking', async (req, res) => {
     try {
         const cyx_data = req.body;
         const SERVICES = SheetService.getServices();
+        ResourceCore.setDynamicServices(SERVICES);
 
         if (cyx_data.ngayDen) cyx_data.ngayDen = SheetService.normalizeDateStrict(cyx_data.ngayDen);
         let opDateCheck = cyx_data.ngayDen;

@@ -4,7 +4,7 @@
  * PHIÊN BẢN: V1.5 (EXACT SHEET NAMES, VARIABLES & GLOBAL STATUS)
  * ============================================================================
  * MỤC TIÊU: 
- * 1. Quản lý toàn bộ thông số kỹ thuật của tiệm 禪云心養生館 tại một nơi.
+ * 1. Quản lý toàn bộ thông số kỹ thuật của tiệm 養生館 tại một nơi.
  * 2. Cung cấp dữ liệu dự phòng (Fallback) cho bảng giá và quy mô hệ thống.
  * 3. Hỗ trợ chạy trên cả môi trường Frontend (Browser/React) và Backend (Node.js).
  * * * * * UPDATE V1.5:

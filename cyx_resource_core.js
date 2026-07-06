@@ -29,7 +29,7 @@ function getSystemConfig() {
             const dataModule = require('./cyx_data.js');
             dynamicConfig = dataModule.SYSTEM_CONFIG;
         } catch (e) {
-            console.warn("⚠️ [CORE V118.0] Không tìm thấy file ./cyx_data.js qua require. Chờ Fallback.");
+            console.warn("⚠️ [CORE V118.0] 無法透過 require 找到 ./cyx_data.js。等待 Fallback。");
         }
     }
 
@@ -838,7 +838,7 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
                 simulationMap[rType][foundIdx].push({ start: requestStart, end: requestStart + duration + CONF.CLEANUP_BUFFER });
                 suggestedLanes[guestIdKey] = { [rType]: foundIdx + 1 };
             } else {
-                return triggerSmartFailure(`⚠️ 已經沒有連續 ${duration} 分鐘的空${rType === 'BED' ? '床位' : '座位'}。`);
+                    return triggerSmartFailure(`⚠️ 已經沒有連續 ${duration} 分鐘的空${rType === 'BED' ? '床位' : '座位'}。`);
             }
         }
     }
