@@ -1,3 +1,19 @@
+
+const window = {};
+let CONF = { MAX_BEDS: 9, MAX_CHAIRS: 6, TOLERANCE: 5, CLEANUP_BUFFER: 1, TRANSITION_BUFFER: 5 };
+function getSystemConfig() { return CONF; }
+function getServiceInfo(code) { 
+    return { duration: 100, category: 'COMBO', elasticLimit: 30, minFoot: 30, maxFoot: 60, minBody: 40, maxBody: 70 }; 
+}
+function triggerSmartFailure(msg, suggested) { return { pass: false, error: msg, suggested }; }
+function getTimeStrFromMins(mins) {
+    let h = Math.floor(mins / 60); let m = mins % 60;
+    if (h >= 24) h -= 24;
+    return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+}
+function isComboService() { return true; }
+function normalizeDateStrict(d) { return d; }
+let SERVICES = { 'A3': getServiceInfo() };
 /**
  * =================================================================================================
  * PROJECT: XINWUCHAN MASSAGE BOT - FRONTEND CONTROLLER & LOGIC BRIDGE
@@ -309,7 +325,7 @@
         }
 
 
-        function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBookingsRaw, staffList, queryDateStr, isSimulation = false, locationStr = '本館') {
+        window.validateGlobalCapacity = function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBookingsRaw, staffList, queryDateStr, isSimulation = false, locationStr = '本館') {
             const CONF = getSystemConfig(locationStr);
 
             const triggerSmartFailure = (reasonMsg, specificSuggestionMins = null) => {
@@ -2020,8 +2036,7 @@ console.log('DEBUG_SPLITS:', { duration, eStep, eLimit, svc, testFlow, splitsToT
                 
                 const svcDef = window.CoreKernel && window.CoreKernel.SERVICES ? window.CoreKernel.SERVICES[guestDetails[0].serviceCode || 'UNKNOWN'] : null;
                 const eLimit = svcDef ? (svcDef.elasticLimit || 15) : 15;
-                const flowPrimary = guestDetails[0].flowCode || 'FB';
-                const splitsToTry = CoreKernel.generateElasticSplits(baseDuration, 1, eLimit, null, svcDef ? svcDef.minFoot : null, svcDef ? svcDef.maxFoot : null, svcDef ? svcDef.minBody : null, svcDef ? svcDef.maxBody : null, flowPrimary, false);
+                const splitsToTry = CoreKernel.generateElasticSplits(baseDuration, 1, eLimit, null, svcDef, 'FB', false);
                 
                 let foundValid = false;
                 let finalRes1 = null, finalRes2 = null;
@@ -2875,3 +2890,13 @@ console.log('DEBUG_SPLITS:', { duration, eStep, eLimit, svc, testFlow, splitsToT
     setTimeout(() => { clearInterval(overrideInterval); }, 5000);
 
 })();
+const res = window.validateGlobalCapacity(1080, 100, [{ idx: 0, serviceCode: 'A3', flowCode: 'BF' }], 
+[
+    { startTime: '18:00', duration: 70, type: 'CHAIR', laneIndex: 0 },
+    { startTime: '18:00', duration: 70, type: 'CHAIR', laneIndex: 1 },
+    { startTime: '18:00', duration: 70, type: 'CHAIR', laneIndex: 2 },
+    { startTime: '18:00', duration: 70, type: 'CHAIR', laneIndex: 3 },
+    { startTime: '18:00', duration: 70, type: 'CHAIR', laneIndex: 4 },
+    { startTime: '18:00', duration: 70, type: 'CHAIR', laneIndex: 5 }
+], [], '2026/07/02', false, '本館');
+console.log(JSON.stringify(res, null, 2));
