@@ -1,80 +1,9 @@
-function generateElasticSplits(totalDuration, step = 0, limit = 0, customLockedPhase1 = null, svcDef = null, flow = 'FB') {
-    if (customLockedPhase1 !== null && customLockedPhase1 !== undefined && !isNaN(customLockedPhase1)) {
-        return [{ p1: parseInt(customLockedPhase1), p2: totalDuration - parseInt(customLockedPhase1), deviation: 999 }];
-    }
-    const standardHalf = Math.floor(totalDuration / 2);
-    let options = [];
-    
-    let minP1 = 15, maxP1 = totalDuration - 15;
-    let minP2 = 15, maxP2 = totalDuration - 15;
+const core = require('./cyx_resource_core.js');
 
-    if (svcDef) {
-        const isBF = (flow === 'BF');
-        if (isBF) {
-            if (svcDef.minBody) minP1 = Math.max(minP1, svcDef.minBody);
-            if (svcDef.maxBody) maxP1 = Math.min(maxP1, svcDef.maxBody);
-            if (svcDef.minFoot) minP2 = Math.max(minP2, svcDef.minFoot);
-            if (svcDef.maxFoot) maxP2 = Math.min(maxP2, svcDef.maxFoot);
-        } else {
-            if (svcDef.minFoot) minP1 = Math.max(minP1, svcDef.minFoot);
-            if (svcDef.maxFoot) maxP1 = Math.min(maxP1, svcDef.maxFoot);
-            if (svcDef.minBody) minP2 = Math.max(minP2, svcDef.minBody);
-            if (svcDef.maxBody) maxP2 = Math.min(maxP2, svcDef.maxBody);
-        }
-    }
+let duration = 100;
+let step = 1; 
+let limit = 20;
+let flow = 'FB';
+let isScanMode = true;
 
-    // Push 50/50 đầu tiên nếu hợp lệ
-    let p2_standard = totalDuration - standardHalf;
-    if (standardHalf >= minP1 && standardHalf <= maxP1 && p2_standard >= minP2 && p2_standard <= maxP2) {
-        options.push({ p1: standardHalf, p2: p2_standard, deviation: 0 });
-    }
-
-    if (!step || !limit || step <= 0 || limit <= 0) {
-        if (options.length === 0) options.push({ p1: standardHalf, p2: p2_standard, deviation: 0 });
-        return options;
-    }
-
-    // Quét tuyến tính từ giới hạn dưới đến giới hạn trên
-    for (let currentDeviation = -limit; currentDeviation <= limit; currentDeviation += step) {
-        if (currentDeviation === 0) continue; // Đã thử 50/50 ở trên
-        let p1_A = standardHalf + currentDeviation;
-        let p2_A = totalDuration - p1_A;
-        if (p1_A >= minP1 && p1_A <= maxP1 && p2_A >= minP2 && p2_A <= maxP2) {
-            options.push({ p1: p1_A, p2: p2_A, deviation: currentDeviation });
-        }
-    }
-
-    const uniqueOptions = [];
-    const seen = new Set();
-    for (const opt of options) {
-        const key = `${opt.p1}-${opt.p2}`;
-        if (!seen.has(key)) {
-            seen.add(key);
-            uniqueOptions.push(opt);
-        }
-    }
-    if (uniqueOptions.length === 0) uniqueOptions.push({ p1: standardHalf, p2: p2_standard, deviation: 0 });
-    return uniqueOptions;
-}
-
-const svc = {
-  name: 'Combo 100',
-  duration: 100,
-  type: 'BED',
-  category: 'COMBO',
-  price: 1000,
-  elasticStep: 200,
-  elasticLimit: 0,
-  minFoot: 30,
-  maxFoot: 70,
-  minBody: 30,
-  maxBody: 70,
-  blocks: 1,
-  commission: 3
-};
-
-const eStep = svc.elasticStep || 1;
-const eLimit = svc.elasticLimit || 20;
-
-console.log("FB:", generateElasticSplits(100, eStep, eLimit, null, svc, 'FB'));
-console.log("BF:", generateElasticSplits(100, eStep, eLimit, null, svc, 'BF'));
+console.log(core.generateElasticSplits(duration, step, limit, null, 30, 60, 40, 70, flow, isScanMode));
