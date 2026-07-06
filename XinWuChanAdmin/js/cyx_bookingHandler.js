@@ -1367,14 +1367,16 @@ console.log('DEBUG_SPLITS:', { duration, eStep, eLimit, svc, testFlow, splitsToT
                             let testBlocks = [];
                             if (item.isCombo) {
                                 if (item.flow === 'FB') {
-                                    const t1End = requestStartMins + split.p1;
+                                    const tStart = requestStartMins + (split.shiftMins || 0);
+                                    const t1End = tStart + split.p1;
                                     const t2Start = t1End + CONF.TRANSITION_BUFFER;
-                                    testBlocks.push({ start: requestStartMins, end: t1End + CONF.CLEANUP_BUFFER, type: 'CHAIR' });
+                                    testBlocks.push({ start: tStart, end: t1End + CONF.CLEANUP_BUFFER, type: 'CHAIR' });
                                     testBlocks.push({ start: t2Start, end: t2Start + split.p2 + CONF.CLEANUP_BUFFER, type: 'BED' });
                                 } else {
-                                    const t1End = requestStartMins + split.p1;
+                                    const tStart = requestStartMins + (split.shiftMins || 0);
+                                    const t1End = tStart + split.p1;
                                     const t2Start = t1End + CONF.TRANSITION_BUFFER;
-                                    testBlocks.push({ start: requestStartMins, end: t1End + CONF.CLEANUP_BUFFER, type: 'BED' });
+                                    testBlocks.push({ start: tStart, end: t1End + CONF.CLEANUP_BUFFER, type: 'BED' });
                                     testBlocks.push({ start: t2Start, end: t2Start + split.p2 + CONF.CLEANUP_BUFFER, type: 'CHAIR' });
                                 }
                             } else {
@@ -1404,7 +1406,6 @@ console.log('DEBUG_SPLITS:', { duration, eStep, eLimit, svc, testFlow, splitsToT
                                     if (!scenarioBestOutOfBoundSqueeze) {
                                         scenarioBestOutOfBoundSqueeze = { guestIdx: item.guest.idx, shiftMins: split.shiftMins, p1: split.p1, p2: split.p2, flow: item.flow };
                                     }
-                                    continue;
                                 }
                                 const detail = currentDetails.find(d => d.guestIndex === item.guest.idx);
                                 let oldP1, oldP2, oldAllocated;

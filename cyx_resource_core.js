@@ -716,7 +716,7 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
                 for (const split of splitsToTry) {
                     const p1 = split.p1;
                     const p2 = split.p2;
-                    const tStart = requestStart;
+                    const tStart = requestStart + (split.shiftMins || 0);
                     const tSwitch = tStart + p1 + CONF.TRANSITION_BUFFER;
                     const comboGuestsCount = guestList.filter(g => isComboService(getServiceInfo(g.serviceCode, g.serviceName), g.serviceCode, g.flowCode)).length;
                     const isCrossSwapGroup = comboGuestsCount >= 2;
@@ -779,7 +779,7 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
                             if (split.shiftMins !== 0) continue;
                             const p1 = split.p1;
                             const p2 = split.p2;
-                            const tStart = requestStart;
+                            const tStart = requestStart + (split.shiftMins || 0);
                             const tSwitch = tStart + p1 + CONF.TRANSITION_BUFFER;
                             
                             let loc1Idx = -1, loc2Idx = -1;
@@ -1474,14 +1474,16 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
                             let testBlocks = [];
                             if (item.isCombo) {
                                 if (item.flow === 'FB') {
-                                    const t1End = requestStartMins + split.p1;
+                                    const tStart = requestStartMins + (split.shiftMins || 0);
+                                    const t1End = tStart + split.p1;
                                     const t2Start = t1End + CONF.TRANSITION_BUFFER;
-                                    testBlocks.push({ start: requestStartMins, end: t1End + CONF.CLEANUP_BUFFER, type: 'CHAIR' });
+                                    testBlocks.push({ start: tStart, end: t1End + CONF.CLEANUP_BUFFER, type: 'CHAIR' });
                                     testBlocks.push({ start: t2Start, end: t2Start + split.p2 + CONF.CLEANUP_BUFFER, type: 'BED' });
                                 } else {
-                                    const t1End = requestStartMins + split.p1;
+                                    const tStart = requestStartMins + (split.shiftMins || 0);
+                                    const t1End = tStart + split.p1;
                                     const t2Start = t1End + CONF.TRANSITION_BUFFER;
-                                    testBlocks.push({ start: requestStartMins, end: t1End + CONF.CLEANUP_BUFFER, type: 'BED' });
+                                    testBlocks.push({ start: tStart, end: t1End + CONF.CLEANUP_BUFFER, type: 'BED' });
                                     testBlocks.push({ start: t2Start, end: t2Start + split.p2 + CONF.CLEANUP_BUFFER, type: 'CHAIR' });
                                 }
                             } else {
@@ -1511,7 +1513,6 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
                                     if (!scenarioBestOutOfBoundSqueeze) {
                                         scenarioBestOutOfBoundSqueeze = { guestIdx: item.guest.idx, shiftMins: split.shiftMins, p1: split.p1, p2: split.p2, flow: item.flow };
                                     }
-                                    continue;
                                 }
                                 const detail = currentDetails.find(d => d.guestIndex === item.guest.idx);
                                 let oldP1, oldP2, oldAllocated;
