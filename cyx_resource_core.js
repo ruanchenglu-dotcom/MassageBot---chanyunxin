@@ -1480,7 +1480,28 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
 
                     let squeezeScenarioPossible = false;
                     const placeNewGuestsElastically = (guestIndex, currentMatrix, currentDetails, currentUpdates) => {
-                        if (guestIndex >= newGuestBlocksMap.length) return true;
+                        if (guestIndex >= newGuestBlocksMap.length) {
+                            let tempTimeline = [];
+                            Object.values(currentMatrix.lanes).forEach(group => group.forEach(lane => lane.occupied.forEach(occ => {
+                                const ex = existingBookingsProcessed.find(e => e.id === occ.ownerId);
+                                if (ex) tempTimeline.push({ start: occ.start, end: occ.end, staffName: ex.staffName, resourceType: lane.id });
+                            })));
+                            let staffOk = true;
+                            for (let i = 0; i < newGuestBlocksMap.length; i++) {
+                                const gOwnerId = `NEW_GUEST_${newGuestBlocksMap[i].guest.idx}`;
+                                let gBlocks = [];
+                                Object.values(currentMatrix.lanes).forEach(group => group.forEach(lane => lane.occupied.forEach(occ => {
+                                    if (occ.ownerId === gOwnerId) gBlocks.push(occ);
+                                })));
+                                gBlocks.sort((a, b) => a.start - b.start);
+                                if (gBlocks.length > 0) {
+                                    let assigned = findAvailableStaff(newGuestBlocksMap[i].guest.staffName, gBlocks[0].start, gBlocks[gBlocks.length - 1].end, staffList, tempTimeline, dateStr);
+                                    if (!assigned) { staffOk = false; break; }
+                                    gBlocks.forEach(b => tempTimeline.push({ start: b.start, end: b.end, staffName: assigned }));
+                                }
+                            }
+                            return staffOk;
+                        }
                         
                         const item = newGuestBlocksMap[guestIndex];
                         const useSuggestedLanes = false;
@@ -1493,7 +1514,7 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
                         let splitsToTry = [];
                         if (item.isCombo) {
                             // Backend version: Use full generator parameters to respect sheet config bounds
-                            const svcDef = SERVICES_DATA[item.guest.serviceCode] || {};
+                            const svcDef = getServiceInfo(item.guest.serviceCode, item.guest.serviceName);
                             const minFoot = svcDef.minFoot; const maxFoot = svcDef.maxFoot;
                             const minBody = svcDef.minBody; const maxBody = svcDef.maxBody;
                             const elasticStep = svcDef.elasticStep || 1;
