@@ -921,13 +921,6 @@ console.log('DEBUG_SPLITS:', { duration, eStep, eLimit, svc, testFlow, splitsToT
             let lowerBoundP1 = Math.max(strictMinP1, totalDuration - strictMaxP2);
             let upperBoundP1 = Math.min(strictMaxP1, totalDuration - strictMinP2);
 
-            if (limit > 0) {
-                const flexLower = standardHalf - limit;
-                const flexUpper = standardHalf + limit;
-                lowerBoundP1 = Math.max(lowerBoundP1, Math.max(15, flexLower));
-                upperBoundP1 = Math.min(upperBoundP1, Math.min(totalDuration - 15, flexUpper));
-            }
-
             let scanMinP1 = includeOutOfBounds ? 15 : lowerBoundP1;
             let scanMaxP1 = includeOutOfBounds ? (totalDuration - 15) : upperBoundP1;
 
@@ -1356,17 +1349,24 @@ console.log('DEBUG_SPLITS:', { duration, eStep, eLimit, svc, testFlow, splitsToT
                         let splitsToTry = [];
                         if (item.isCombo) {
                             const svcDef = SERVICES[item.guest.serviceCode];
-                            const eStep = svcDef ? (svcDef.elasticStep || 10) : 10;
-                            const eLimit = svcDef ? (svcDef.elasticLimit || 30) : 30;
-                            splitsToTry = generateElasticSplits(item.duration, eStep, eLimit, null, svcDef, item.flow, true);
+                            const eStep = svcDef ? (svcDef.elasticStep || 1) : 1;
+                            
+                            const flowsToTest = (item.guest.flowCode) ? [item.flow] : [item.flow, item.flow === 'FB' ? 'BF' : 'FB'];
+
+                            for (const testFlow of flowsToTest) {
+                                const splits = generateElasticSplits(item.duration, eStep, 0, null, svcDef, testFlow, true);
+                                for (const sp of splits) {
+                                    splitsToTry.push({ ...sp, flow: testFlow });
+                                }
+                            }
                         } else {
-                            splitsToTry = [{ p1: item.duration, p2: 0, deviation: 0 }];
+                            splitsToTry = [{ p1: item.duration, p2: 0, deviation: 0, flow: item.flow }];
                         }
 
                         for (const split of splitsToTry) {
                             let testBlocks = [];
                             if (item.isCombo) {
-                                if (item.flow === 'FB') {
+                                if (split.flow === 'FB') {
                                     const tStart = requestStartMins + (split.shiftMins || 0);
                                     const t1End = tStart + split.p1;
                                     const t2Start = t1End + CONF.TRANSITION_BUFFER;
@@ -1404,7 +1404,7 @@ console.log('DEBUG_SPLITS:', { duration, eStep, eLimit, svc, testFlow, splitsToT
                             if (fit) {
                                 if (split.shiftMins !== 0) {
                                     if (!scenarioBestOutOfBoundSqueeze) {
-                                        scenarioBestOutOfBoundSqueeze = { guestIdx: item.guest.idx, shiftMins: split.shiftMins, p1: split.p1, p2: split.p2, flow: item.flow };
+                                        scenarioBestOutOfBoundSqueeze = { guestIdx: item.guest.idx, shiftMins: split.shiftMins, p1: split.p1, p2: split.p2, flow: split.flow };
                                     }
                                 }
                                 const detail = currentDetails.find(d => d.guestIndex === item.guest.idx);

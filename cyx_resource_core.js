@@ -976,14 +976,6 @@ function generateElasticSplits(totalDuration, step = 0, limit = 0, customLockedP
     let lowerBoundP1 = Math.max(strictMinP1, totalDuration - strictMaxP2);
     let upperBoundP1 = Math.min(strictMaxP1, totalDuration - strictMinP2);
 
-    // [BẢN VÁ LỖI]: Áp dụng thuật toán co giãn thời gian (Elastic Time) nếu có limit
-    if (limit > 0) {
-        const flexLower = standardHalf - limit;
-        const flexUpper = standardHalf + limit;
-        lowerBoundP1 = Math.max(lowerBoundP1, Math.max(15, flexLower));
-        upperBoundP1 = Math.min(upperBoundP1, Math.min(totalDuration - 15, flexUpper));
-    }
-
     let scanMinP1 = includeOutOfBounds ? 15 : lowerBoundP1;
     let scanMaxP1 = includeOutOfBounds ? (totalDuration - 15) : upperBoundP1;
 
