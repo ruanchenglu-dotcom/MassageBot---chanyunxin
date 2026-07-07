@@ -1019,6 +1019,7 @@ function generateElasticSplits(totalDuration, step = 0, limit = 0, customLockedP
     addOption(standardHalf);
 
     let realStep = step > 0 ? step : 5;
+    if (realStep > 30) realStep = 5; // V118 FIX: Sanitize extremely large steps caused by spreadsheet misalignments
 
     const p1List = [];
     let curMax = standardHalf;

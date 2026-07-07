@@ -940,6 +940,7 @@ console.log('DEBUG_SPLITS:', { duration, eStep, eLimit, svc, testFlow, splitsToT
             addOption(standardHalf);
 
             let realStep = step > 0 ? step : 5;
+            if (realStep > 30) realStep = 5; // V118 FIX: Sanitize extremely large steps
 
             const p1List = [];
             let curMax = standardHalf;
