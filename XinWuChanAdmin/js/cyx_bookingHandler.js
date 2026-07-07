@@ -642,7 +642,7 @@
                     const flowsToTry = (g.flowCode === 'FB' || g.flowCode === 'BF') ? [g.flowCode] : ['FB', 'BF'];
                     
                     for (const testFlow of flowsToTry) {
-                        const splitsToTry = generateElasticSplits(duration, eStep, eLimit, null, svc, testFlow, true);
+                        const splitsToTry = generateElasticSplits(duration, eStep, eLimit, null, svc.minFoot, svc.maxFoot, svc.minBody, svc.maxBody, testFlow, true);
 console.log('DEBUG_SPLITS:', { duration, eStep, eLimit, svc, testFlow, splitsToTry });
                         
                         for (const split of splitsToTry) {
@@ -706,7 +706,7 @@ console.log('DEBUG_SPLITS:', { duration, eStep, eLimit, svc, testFlow, splitsToT
                             let oppConfMaxChairs = getSystemConfig(oppositeLoc).MAX_CHAIRS;
                             
                             for (const testFlow of flowsToTry) {
-                                const splitsToTry = generateElasticSplits(duration, eStep, eLimit, null, svc, testFlow, true);
+                                const splitsToTry = generateElasticSplits(duration, eStep, eLimit, null, svc.minFoot, svc.maxFoot, svc.minBody, svc.maxBody, testFlow, true);
                                 let foundCross = false;
                                 for (const split of splitsToTry) {
                                     if (split.shiftMins !== 0) continue;
@@ -893,7 +893,7 @@ console.log('DEBUG_SPLITS:', { duration, eStep, eLimit, svc, testFlow, splitsToT
             }
         }
 
-        function generateElasticSplits(totalDuration, step = 0, limit = 0, customLockedPhase1 = null, svcDef = null, flow = 'FB', includeOutOfBounds = false) {
+        function generateElasticSplits(totalDuration, step = 0, limit = 0, customLockedPhase1 = null, minFoot = null, maxFoot = null, minBody = null, maxBody = null, flow = 'FB', includeOutOfBounds = false) {
             if (customLockedPhase1 !== null && customLockedPhase1 !== undefined && !isNaN(customLockedPhase1)) {
                 return [{ p1: parseInt(customLockedPhase1), p2: totalDuration - parseInt(customLockedPhase1), deviation: 999, shiftMins: 0 }];
             }
@@ -904,18 +904,16 @@ console.log('DEBUG_SPLITS:', { duration, eStep, eLimit, svc, testFlow, splitsToT
             let strictMinP2 = 15, strictMaxP2 = totalDuration - 15;
 
             const isBF = (flow === 'BF');
-            if (svcDef) {
-                if (isBF) {
-                    if (svcDef.minBody) strictMinP1 = Math.max(strictMinP1, svcDef.minBody);
-                    if (svcDef.maxBody) strictMaxP1 = Math.min(strictMaxP1, svcDef.maxBody);
-                    if (svcDef.minFoot) strictMinP2 = Math.max(strictMinP2, svcDef.minFoot);
-                    if (svcDef.maxFoot) strictMaxP2 = Math.min(strictMaxP2, svcDef.maxFoot);
-                } else {
-                    if (svcDef.minFoot) strictMinP1 = Math.max(strictMinP1, svcDef.minFoot);
-                    if (svcDef.maxFoot) strictMaxP1 = Math.min(strictMaxP1, svcDef.maxFoot);
-                    if (svcDef.minBody) strictMinP2 = Math.max(strictMinP2, svcDef.minBody);
-                    if (svcDef.maxBody) strictMaxP2 = Math.min(strictMaxP2, svcDef.maxBody);
-                }
+            if (isBF) {
+                if (minBody) strictMinP1 = Math.max(strictMinP1, minBody);
+                if (maxBody) strictMaxP1 = Math.min(strictMaxP1, maxBody);
+                if (minFoot) strictMinP2 = Math.max(strictMinP2, minFoot);
+                if (maxFoot) strictMaxP2 = Math.min(strictMaxP2, maxFoot);
+            } else {
+                if (minFoot) strictMinP1 = Math.max(strictMinP1, minFoot);
+                if (maxFoot) strictMaxP1 = Math.min(strictMaxP1, maxFoot);
+                if (minBody) strictMinP2 = Math.max(strictMinP2, minBody);
+                if (maxBody) strictMaxP2 = Math.min(strictMaxP2, maxBody);
             }
 
             let lowerBoundP1 = Math.max(strictMinP1, totalDuration - strictMaxP2);
@@ -1355,7 +1353,7 @@ console.log('DEBUG_SPLITS:', { duration, eStep, eLimit, svc, testFlow, splitsToT
                             const flowsToTest = (item.guest.flowCode) ? [item.flow] : [item.flow, item.flow === 'FB' ? 'BF' : 'FB'];
 
                             for (const testFlow of flowsToTest) {
-                                const splits = generateElasticSplits(item.duration, eStep, 0, null, svcDef, testFlow, true);
+                                const splits = generateElasticSplits(item.duration, eStep, 0, null, svcDef ? svcDef.minFoot : null, svcDef ? svcDef.maxFoot : null, svcDef ? svcDef.minBody : null, svcDef ? svcDef.maxBody : null, testFlow, true);
                                 for (const sp of splits) {
                                     splitsToTry.push({ ...sp, flow: testFlow });
                                 }
@@ -1454,7 +1452,7 @@ console.log('DEBUG_SPLITS:', { duration, eStep, eLimit, svc, testFlow, splitsToT
                     }
                     const softBookings = []; // [V119 FIX] Disabled squeezing of existing bookings per user request
                     for (const sb of softBookings) {
-                        const splits = generateElasticSplits(sb.duration, sb.elasticStep, sb.elasticLimit, null);
+                        const splits = generateElasticSplits(sb.duration, sb.elasticStep, sb.elasticLimit, null, sb.minFoot, sb.maxFoot, sb.minBody, sb.maxBody, sb.flow);
                         let fit = false;
                         for (const split of splits) {
                             const sP1End = sb.startMins + split.p1;
