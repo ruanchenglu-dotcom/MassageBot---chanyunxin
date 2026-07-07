@@ -435,6 +435,7 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
         let currentStaffBusy = 0;
         let currentFemaleBusy = 0;
         let currentMaleBusy = 0;
+        let elasticStaffCount = 0;
         
         relevantBookings.forEach(b => {
             const bS = getMinsFromTimeStr(b.startTimeString || b.startTime);
@@ -447,6 +448,18 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
             
             if (tCheck >= bS && tCheck < bE) {
                 currentStaffBusy += staffsInBooking.length;
+                
+                const isLockedRaw = b.originalData?.isManualLocked || b.isManualLocked;
+                const isLocked = (isLockedRaw === true || isLockedRaw === 'TRUE');
+                let isRunning = false;
+                if (b.originalData && b.originalData.status) {
+                    const stLower = b.originalData.status.toLowerCase();
+                    isRunning = stLower.includes('running') || stLower.includes('服務中') || stLower.includes('đang phục vụ');
+                }
+                if (isCombo && !isLocked && !isRunning) {
+                    elasticStaffCount += staffsInBooking.length;
+                }
+
                 for (const staffName of staffsInBooking) {
                     const sInfo = staffList[staffName] || Object.values(staffList).find(s => normId(s.name) === normId(staffName) || normId(s.id) === normId(staffName)) || {};
                     if (sInfo.gender === 'F' || sInfo.gender === '女' || sInfo.group === '女') currentFemaleBusy++;
@@ -458,12 +471,15 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
         let newGuestsActive = 0;
         let newFemaleReq = 0;
         let newMaleReq = 0;
+        let comboGuestCount = 0;
         
         guestList.forEach(g => {
             const svcInfo = getServiceInfo(g.serviceCode, g.serviceName);
             const dur = g.overrideDuration || svcInfo.duration || 60;
             if (tCheck >= requestStart && tCheck < requestStart + dur) {
                 newGuestsActive++;
+                const storedFlow = g.flowCode || 'FB';
+                if (isComboService(svcInfo, g.serviceName, storedFlow)) comboGuestCount++;
                 const req = g.staff;
                 // Nếu khách chọn dầu (OIL), mặc định yêu cầu nữ (trừ khi có config khác)
                 if (req === 'FEMALE' || req === '女' || req === '女師' || req === 'OIL') newFemaleReq++;
@@ -488,14 +504,19 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
         const currentFemaleSupply = currentAvailableStaff.filter(s => s.gender === 'F' || s.gender === '女').length;
         const currentMaleSupply = currentAvailableStaff.filter(s => s.gender === 'M' || s.gender === '男').length;
         
-        if (newFemaleReq > 0 && (currentFemaleBusy + newFemaleReq) > currentFemaleSupply) {
-            return triggerSmartFailure(`⚠️ 該時段女技師不足。女師總共: ${currentFemaleSupply}, 忙碌中: ${currentFemaleBusy}, 欲預約: ${newFemaleReq}`);
+        // [V119 FIX] Trong Continuous Scan, KHÔNG block nếu booking đang chiếm dụng có thể Squeeze (co giãn)
+        // Đồng thời, Combo guest có transition buffer (5 phút) không cần staff, nên nếu tCheck vô tình rơi vào transition, currentStaffBusy có thể full.
+        // Ta sẽ cho qua (defer cho Matrix) nếu tCheck chỉ thiếu hụt đúng bằng số lượng Combo Guest.
+        const allowedDeficit = comboGuestCount > 0 ? comboGuestCount : 0;
+
+        if (newFemaleReq > 0 && (currentFemaleBusy - elasticStaffCount + newFemaleReq) > currentFemaleSupply + allowedDeficit) {
+            return triggerSmartFailure(`⚠️ 該時段女技師不足。女師總共: ${currentFemaleSupply}, 忙碌中(固定): ${Math.max(0, currentFemaleBusy - elasticStaffCount)}, 欲預約: ${newFemaleReq}`);
         }
-        if (newMaleReq > 0 && (currentMaleBusy + newMaleReq) > currentMaleSupply) {
-            return triggerSmartFailure(`⚠️ 該時段男技師不足。男師總共: ${currentMaleSupply}, 忙碌中: ${currentMaleBusy}, 欲預約: ${newMaleReq}`);
+        if (newMaleReq > 0 && (currentMaleBusy - elasticStaffCount + newMaleReq) > currentMaleSupply + allowedDeficit) {
+            return triggerSmartFailure(`⚠️ 該時段男技師不足。男師總共: ${currentMaleSupply}, 忙碌中(固定): ${Math.max(0, currentMaleBusy - elasticStaffCount)}, 欲預約: ${newMaleReq}`);
         }
-        if ((currentStaffBusy + newGuestsActive) > currentSupplyCount) {
-            return triggerSmartFailure(`⚠️ 該時段技師總數不足。總共: ${currentSupplyCount}, 忙碌中: ${currentStaffBusy}, 新客: ${newGuestsActive}`);
+        if ((currentStaffBusy - elasticStaffCount + newGuestsActive) > currentSupplyCount + allowedDeficit) {
+            return triggerSmartFailure(`⚠️ 該時段技師總數不足。總共: ${currentSupplyCount}, 忙碌中(固定): ${Math.max(0, currentStaffBusy - elasticStaffCount)}, 新客: ${newGuestsActive}`);
         }
     }
 
@@ -879,19 +900,22 @@ class VirtualMatrix {
         if (preferredIndex !== null && preferredIndex > 0 && preferredIndex <= resourceGroup.length) {
             const targetLane = resourceGroup[preferredIndex - 1];
             if (isForced || this.checkLaneFree(targetLane, start, end).free) {
+                console.log(`[ALLOCATE-PREF] ${type} ${start}->${end} for ${ownerId} in ${targetLane.id}`);
                 return this.allocateToLane(targetLane, start, end, ownerId);
             }
         }
         
-        // [V118.9 FIX] 恢復「從上到下緊湊排列」(Top-Down Packing) 邏輯，取消空位優先分配以避免視覺空隙。
-        // 不再根據 occupied.length 進行排序，而是保留原始順序 (CHAIR-1, CHAIR-2...) 進行分配。
+        console.log(`[TRY-ALLOCATE] ownerId=${ownerId}, type=${type}, pref=${preferredIndex}, len=${resourceGroup.length}`);
+        
         let sortedLanes = [...resourceGroup];
 
         for (let lane of sortedLanes) {
             const check = this.checkLaneFree(lane, start, end);
             if (check.free) {
+                console.log(`[ALLOCATE] ${type} ${start}->${end} for ${ownerId} in ${lane.id}`);
                 return this.allocateToLane(lane, start, end, ownerId);
             } else {
+                console.log(`[ALLOCATE-FAIL] ${type} ${start}->${end} for ${ownerId} in ${lane.id} BLOCKED BY ${check.blocker.ownerId} (${check.blocker.start}-${check.blocker.end})`);
                 this.blockLog.push(`❌ ${lane.id} 被 ${check.blocker.ownerId} 擋住`);
             }
         }
@@ -989,12 +1013,26 @@ function generateElasticSplits(totalDuration, step = 0, limit = 0, customLockedP
         
         if (!includeOutOfBounds && shiftMins !== 0) return;
         
+        // V118.5 FIX: Even if includeOutOfBounds is true, NEVER violate explicit min/max bounds if they are provided!
+        if (isBF) {
+            if (minBody != null && p1 < minBody) return;
+            if (maxBody != null && p1 > maxBody) return;
+            if (minFoot != null && p2 < minFoot) return;
+            if (maxFoot != null && p2 > maxFoot) return;
+        } else {
+            if (minFoot != null && p1 < minFoot) return;
+            if (maxFoot != null && p1 > maxFoot) return;
+            if (minBody != null && p2 < minBody) return;
+            if (maxBody != null && p2 > maxBody) return;
+        }
+        
         options.push({ p1: p1, p2: p2, deviation: Math.abs(p1 - standardHalf), shiftMins: shiftMins });
     };
 
     addOption(standardHalf);
 
     let realStep = step > 0 ? step : 5;
+    if (realStep > 30) realStep = 5; // V118 FIX: Sanitize extremely large steps caused by spreadsheet misalignments
 
     const p1List = [];
     let curMax = standardHalf;
@@ -1267,6 +1305,7 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
             
             processedB.blocks.push({ start: bStart, end: bStart + duration + CONF.CLEANUP_BUFFER, type: rType, forcedIndex: forcedIdx });
         }
+        console.log(`[PREPROCESS] Pushed booking ${processedB.id} to existingBookingsProcessed with blocks: `, JSON.stringify(processedB.blocks));
         existingBookingsProcessed.push(processedB);
     });
 
@@ -1277,10 +1316,18 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
     const maxBF = comboGuests.length;
     let trySequence = [];
 
-    if (maxBF === 2) { trySequence = [0, 2, 1]; }
+    if (maxBF === 2) { trySequence = [1, 0, 2]; } // [V119 FIX] Luôn thử 1 BF / 1 FB trước để cân bằng
+    else if (maxBF === 1) {
+        const prefFlow = comboGuests[0].flowCode || comboGuests[0].flow || 'FB';
+        if (prefFlow === 'BF') {
+            trySequence = [1, 0];
+        } else {
+            trySequence = [0, 1];
+        }
+    }
     else if (maxBF > 0) {
         let mid = maxBF / 2;
-        // trySequence.push(Math.ceil(mid));
+        trySequence.push(Math.ceil(mid));
         if (Math.floor(mid) !== Math.ceil(mid)) trySequence.push(Math.floor(mid));
         let step = 1;
         while (true) {
@@ -1308,10 +1355,13 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
             const exBLoc = exB.originalData?.location || exB.location || '本館';
             if (exBLoc !== CONF._tempLocation) continue;
 
+            console.log(`[MATRIX] Processing existing booking ${exB.id} for Matrix`);
+
             let placedSuccessfully = true; let allocatedSlots = [];
             for (const block of exB.blocks) {
                 const realEnd = block.end;
                 // --- V118.4 FIX: Ép buộc đặt chỗ (isForced = true) cho các Booking đã có sẵn ---
+                console.log(`[MATRIX] Trying to allocate ${block.type} ${block.start}->${realEnd} for ${exB.id} with forcedIndex ${block.forcedIndex}`);
                 const slotId = matrix.tryAllocate(block.type, block.start, realEnd, exB.id, block.forcedIndex, true);
                 if (!slotId) { placedSuccessfully = false; break; }
                 allocatedSlots.push(slotId);
@@ -1330,8 +1380,13 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
 
             if (isThisGuestCombo) {
                 const cIdx = comboGuests.findIndex(cg => cg.idx === ng.idx);
+                console.log(`[DEBUG-FLOW] isThisGuestCombo=true, cIdx=${cIdx}, numBF=${numBF}`);
                 if (cIdx >= 0 && cIdx < numBF) { flow = 'BF'; }
-            } else { flow = inferFlowFromService(svc, ng.flowCode); }
+            } else { 
+                flow = inferFlowFromService(svc, ng.flowCode); 
+                console.log(`[DEBUG-FLOW] isThisGuestCombo=false, inferFlow=${flow}`);
+            }
+            console.log(`[DEBUG-FLOW] Final flow=${flow}`);
 
             const duration = ng.overrideDuration || svc.duration || 60; let blocks = []; let elasticOptions = [];
             if (isThisGuestCombo) {
@@ -1439,7 +1494,28 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
 
                     let squeezeScenarioPossible = false;
                     const placeNewGuestsElastically = (guestIndex, currentMatrix, currentDetails, currentUpdates) => {
-                        if (guestIndex >= newGuestBlocksMap.length) return true;
+                        if (guestIndex >= newGuestBlocksMap.length) {
+                            let tempTimeline = [];
+                            Object.values(currentMatrix.lanes).forEach(group => group.forEach(lane => lane.occupied.forEach(occ => {
+                                const ex = existingBookingsProcessed.find(e => e.id === occ.ownerId);
+                                if (ex) tempTimeline.push({ start: occ.start, end: occ.end, staffName: ex.staffName, resourceType: lane.id });
+                            })));
+                            let staffOk = true;
+                            for (let i = 0; i < newGuestBlocksMap.length; i++) {
+                                const gOwnerId = `NEW_GUEST_${newGuestBlocksMap[i].guest.idx}`;
+                                let gBlocks = [];
+                                Object.values(currentMatrix.lanes).forEach(group => group.forEach(lane => lane.occupied.forEach(occ => {
+                                    if (occ.ownerId === gOwnerId) gBlocks.push(occ);
+                                })));
+                                gBlocks.sort((a, b) => a.start - b.start);
+                                if (gBlocks.length > 0) {
+                                    let assigned = findAvailableStaff(newGuestBlocksMap[i].guest.staffName, gBlocks[0].start, gBlocks[gBlocks.length - 1].end, staffList, tempTimeline, dateStr);
+                                    if (!assigned) { staffOk = false; break; }
+                                    gBlocks.forEach(b => tempTimeline.push({ start: b.start, end: b.end, staffName: assigned }));
+                                }
+                            }
+                            return staffOk;
+                        }
                         
                         const item = newGuestBlocksMap[guestIndex];
                         const useSuggestedLanes = false;
@@ -1452,7 +1528,7 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
                         let splitsToTry = [];
                         if (item.isCombo) {
                             // Backend version: Use full generator parameters to respect sheet config bounds
-                            const svcDef = SERVICES_DATA[item.guest.serviceCode] || {};
+                            const svcDef = getServiceInfo(item.guest.serviceCode, item.guest.serviceName);
                             const minFoot = svcDef.minFoot; const maxFoot = svcDef.maxFoot;
                             const minBody = svcDef.minBody; const maxBody = svcDef.maxBody;
                             const elasticStep = svcDef.elasticStep || 1;
@@ -1618,7 +1694,7 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
             item.blocks.forEach(b => flatTimeline.push({ start: b.start, end: b.end, staffName: assignedStaff }));
         }
 
-        if (!staffAssignmentSuccess) { scenarioFailed = true; continue; }
+        if (!staffAssignmentSuccess) { console.log('Staff assignment failed'); scenarioFailed = true; continue; }
 
         // --- V118.4 DOUBLE-CHECK GUARDRAIL: Removed because resourceMap is static and fails valid squeeze scenarios ---
         let collisionDetected = false;

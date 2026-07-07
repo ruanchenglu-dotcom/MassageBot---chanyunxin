@@ -329,9 +329,9 @@
                 }
                 
                 let foundMins = -1;
-                let searchStart = Math.max(requestStart + 10, 0); 
+                let searchStart = Math.max(requestStart + 5, 0); 
                 
-                for (let t = searchStart; t <= 1800; t += 10) {
+                for (let t = searchStart; t <= 1800; t += 5) {
                     let sim = validateGlobalCapacity(t, maxDuration, guestList, currentBookingsRaw, staffList, queryDateStr, true, locationStr);
                     if (sim.pass) {
                         foundMins = t;

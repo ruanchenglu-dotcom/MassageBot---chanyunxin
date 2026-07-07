@@ -356,7 +356,7 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
         }
         
         let foundMins = -1;
-        let searchStart = Math.max(requestStart + 10, 0); 
+        let searchStart = Math.max(requestStart + 5, 0); 
         
         // Quét đến cuối ngày hoặc ca đêm (1440 + 360 = 1800)
         for (let t = searchStart; t <= 1800; t += 1) {

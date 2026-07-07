@@ -285,7 +285,7 @@ const AbsenceCheckModal = ({ data, staffList, bookings, statusData, localShifts,
         const safeStatusData = statusData || {};
         const safeLocalShifts = localShifts || {};
 
-        for (let t = absStart; t < absEnd; t += 10) {
+        for (let t = absStart; t < absEnd; t += 5) {
             let currentLoad = 0;
             for (const b of activeBookings) {
                 const bStart = getBookingMins(b.startTimeString);
