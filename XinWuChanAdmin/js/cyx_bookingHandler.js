@@ -931,6 +931,19 @@ console.log('DEBUG_SPLITS:', { duration, eStep, eLimit, svc, testFlow, splitsToT
                 else if (p1 < lowerBoundP1) shiftMins = p1 - lowerBoundP1;
                 
                 if (!includeOutOfBounds && shiftMins !== 0) return;
+
+                // V118.5 FIX: Even if includeOutOfBounds is true, NEVER violate explicit min/max bounds if they are provided!
+                if (isBF) {
+                    if (minBody != null && p1 < minBody) return;
+                    if (maxBody != null && p1 > maxBody) return;
+                    if (minFoot != null && p2 < minFoot) return;
+                    if (maxFoot != null && p2 > maxFoot) return;
+                } else {
+                    if (minFoot != null && p1 < minFoot) return;
+                    if (maxFoot != null && p1 > maxFoot) return;
+                    if (minBody != null && p2 < minBody) return;
+                    if (maxBody != null && p2 > maxBody) return;
+                }
                 
                 options.push({ p1: p1, p2: p2, deviation: Math.abs(p1 - standardHalf), shiftMins: shiftMins });
             };
