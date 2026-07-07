@@ -190,8 +190,11 @@ window.SmartScheduler = (function() {
             return { ...assignments };
         }
         
-        if (state.iterations > 500000) {
+        if (state.iterations > 10000) {
             return null; 
+        }
+        if (Date.now() - state.startTime > 300) {
+            return null; // Quá 300ms thì ngừng luôn để tránh treo UI
         }
         state.iterations++;
 
@@ -448,7 +451,7 @@ window.SmartScheduler = (function() {
             }
         }
 
-        let state = { iterations: 0 };
+        let state = { iterations: 0, startTime: Date.now() };
 
         // [NÂNG CẤP] Chỉ kiểm tra khối vừa kéo thả xem có đè lên các khối cố định khác không
         if (movedTimes) {
