@@ -699,13 +699,26 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
             let res1 = null, res2 = null;
             let type1 = 'BED'; let type2 = 'CHAIR';
             let isBodyFirst = true;
+            const noteContent = (b.note || b.ghiChu || b.originalData?.ghiChu || "").toString().toUpperCase();
+            const isRunningStatus = b.status && (b.status.includes('進行') || b.status.includes('SERVING') || b.status.includes('Check-in') || b.status === '已報到');
 
-            if (storedFlow === 'BF') isBodyFirst = true;
-            else if (storedFlow === 'FB') isBodyFirst = false;
-            else {
-                const noteContent = (b.note || b.ghiChu || b.originalData?.ghiChu || "").toString().toUpperCase();
-                if (noteContent.includes('BF') || noteContent.includes('BODY FIRST') || noteContent.includes('先做身體')) isBodyFirst = true;
-                else if (b._impliedFlow === 'BF') isBodyFirst = true;
+            if ((isRunningStatus || b.phase1_res_idx || b.allocated_resource) && (b.phase1_res_idx || b.allocated_resource)) {
+                const resToCheck = b.phase1_res_idx || b.allocated_resource;
+                if (resToCheck.includes('BED') || resToCheck.includes('BODY') || resToCheck.includes('床')) isBodyFirst = true;
+                else if (resToCheck.includes('CHAIR') || resToCheck.includes('FOOT') || resToCheck.includes('足') || resToCheck.includes('腳')) isBodyFirst = false;
+                else {
+                    if (storedFlow === 'BF') isBodyFirst = true;
+                    else if (storedFlow === 'FB') isBodyFirst = false;
+                    else if (noteContent.includes('BF') || noteContent.includes('BODY FIRST') || noteContent.includes('先做身體')) isBodyFirst = true;
+                    else if (b._impliedFlow === 'BF') isBodyFirst = true;
+                }
+            } else {
+                if (storedFlow === 'BF') isBodyFirst = true;
+                else if (storedFlow === 'FB') isBodyFirst = false;
+                else {
+                    if (noteContent.includes('BF') || noteContent.includes('BODY FIRST') || noteContent.includes('先做身體')) isBodyFirst = true;
+                    else if (b._impliedFlow === 'BF') isBodyFirst = true;
+                }
             }
 
             if (uniqueMatches.length >= 2) {
@@ -1274,12 +1287,23 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
             let isBodyFirst = false;
             const noteContent = (b.note || b.ghiChu || b.originalData?.ghiChu || "").toString().toUpperCase();
 
-            if (storedFlow === 'BF') isBodyFirst = true;
-            else if (storedFlow === 'FB') isBodyFirst = false;
-            else {
-                if (noteContent.includes('BF') || noteContent.includes('BODY FIRST') || noteContent.includes('先做身體')) isBodyFirst = true;
-                else if (isRunning && b.allocated_resource && (b.allocated_resource.includes('BED') || b.allocated_resource.includes('BODY'))) isBodyFirst = true;
-                else if (b._impliedFlow === 'BF') isBodyFirst = true;
+            if ((isRunning || b.phase1_res_idx || b.allocated_resource) && (b.phase1_res_idx || b.allocated_resource)) {
+                const resToCheck = b.phase1_res_idx || b.allocated_resource;
+                if (resToCheck.includes('BED') || resToCheck.includes('BODY') || resToCheck.includes('床')) isBodyFirst = true;
+                else if (resToCheck.includes('CHAIR') || resToCheck.includes('FOOT') || resToCheck.includes('足') || resToCheck.includes('腳')) isBodyFirst = false;
+                else {
+                    if (storedFlow === 'BF') isBodyFirst = true;
+                    else if (storedFlow === 'FB') isBodyFirst = false;
+                    else if (noteContent.includes('BF') || noteContent.includes('BODY FIRST') || noteContent.includes('先做身體')) isBodyFirst = true;
+                    else if (b._impliedFlow === 'BF') isBodyFirst = true;
+                }
+            } else {
+                if (storedFlow === 'BF') isBodyFirst = true;
+                else if (storedFlow === 'FB') isBodyFirst = false;
+                else {
+                    if (noteContent.includes('BF') || noteContent.includes('BODY FIRST') || noteContent.includes('先做身體')) isBodyFirst = true;
+                    else if (b._impliedFlow === 'BF') isBodyFirst = true;
+                }
             }
 
             let p1Index = null;
