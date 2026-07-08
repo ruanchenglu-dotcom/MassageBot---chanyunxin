@@ -2251,6 +2251,15 @@ console.log('DEBUG_SPLITS:', { duration, eStep, eLimit, svc, testFlow, splitsToT
                         console.log(`[DEBUG] getSuggestions rejected ${tStr} because: ${checkRes.reason}`);
                     }
                 }
+                
+                // NÂNG CẤP: Sắp xếp các gợi ý theo thứ tự thời gian tăng dần
+                found.sort((a, b) => {
+                    if (a.daysToAdd !== b.daysToAdd) return a.daysToAdd - b.daysToAdd;
+                    let aMins = parseInt(a.time.split(':')[0]) * 60 + parseInt(a.time.split(':')[1]);
+                    let bMins = parseInt(b.time.split(':')[0]) * 60 + parseInt(b.time.split(':')[1]);
+                    return aMins - bMins;
+                });
+                
                 setSuggestions(found);
             }
             setIsChecking(false);
