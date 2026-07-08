@@ -355,26 +355,59 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
             oppositeSuggestion = `\n💡 系統提示：【${oppositeLoc}】在 ${getTimeStrFromMins(requestStart)} 仍有空位，可建議客人至${oppositeLoc}。`;
         }
         
-        let foundMins = -1;
-        let searchStart = Math.max(requestStart + 5, 0); 
+        let foundMinsAfter = -1;
+        let searchStartAfter = Math.max(requestStart + 5, 0); 
         
         // Quét đến cuối ngày hoặc ca đêm (1440 + 360 = 1800)
-        for (let t = searchStart; t <= 1800; t += 1) {
+        for (let t = searchStartAfter; t <= 1800; t += 1) {
             let sim = validateGlobalCapacity(t, maxDuration, guestList, currentBookingsRaw, staffList, queryDateStr, true, locationStr);
             if (sim.pass) {
-                foundMins = t;
+                foundMinsAfter = t;
                 break;
             }
         }
         
-        if (foundMins !== -1) {
-            const timeStr = getTimeStrFromMins(foundMins);
-            if (foundMins !== specificSuggestionMins) {
-                debugInfo.suggestions.push({ time: timeStr, date: queryDateStr, daysToAdd: 0 });
+        let foundMinsBefore = -1;
+        let lowerBound = 0;
+        try {
+             const normQueryDate = queryDateStr ? queryDateStr.replace(/\//g, '-') : '';
+             const today = new Date();
+             const tzOffset = today.getTimezoneOffset() * 60000;
+             const localToday = (new Date(today - tzOffset)).toISOString().split('T')[0];
+             if (normQueryDate === localToday) {
+                 lowerBound = today.getHours() * 60 + today.getMinutes() + 5;
+             }
+        } catch (e) {}
+
+        let searchStartBefore = requestStart - 5;
+        for (let t = searchStartBefore; t >= lowerBound; t -= 1) {
+            let sim = validateGlobalCapacity(t, maxDuration, guestList, currentBookingsRaw, staffList, queryDateStr, true, locationStr);
+            if (sim.pass) {
+                foundMinsBefore = t;
+                break;
             }
-            return { pass: false, reason: `${reasonMsg}${oppositeSuggestion}\n💡 智能建議：${locationStr}最快可完整安排 (含所有階段) 的時間為 ${timeStr} 之後。`, debug: debugInfo };
+        }
+        
+        if (foundMinsAfter !== -1 || foundMinsBefore !== -1) {
+            let suggestionText = "";
+            if (foundMinsBefore !== -1 && foundMinsAfter !== -1) {
+                const timeStrBefore = getTimeStrFromMins(foundMinsBefore);
+                const timeStrAfter = getTimeStrFromMins(foundMinsAfter);
+                suggestionText = `💡 智能建議：${locationStr}最接近可完整安排的時間為 ${timeStrBefore} 或 ${timeStrAfter} 之後。`;
+                if (foundMinsBefore !== specificSuggestionMins) debugInfo.suggestions.push({ time: timeStrBefore, date: queryDateStr, daysToAdd: 0 });
+                if (foundMinsAfter !== specificSuggestionMins) debugInfo.suggestions.push({ time: timeStrAfter, date: queryDateStr, daysToAdd: 0 });
+            } else if (foundMinsBefore !== -1) {
+                const timeStrBefore = getTimeStrFromMins(foundMinsBefore);
+                suggestionText = `💡 智能建議：${locationStr}最接近可完整安排的時間為 ${timeStrBefore}。`;
+                if (foundMinsBefore !== specificSuggestionMins) debugInfo.suggestions.push({ time: timeStrBefore, date: queryDateStr, daysToAdd: 0 });
+            } else {
+                const timeStrAfter = getTimeStrFromMins(foundMinsAfter);
+                suggestionText = `💡 智能建議：${locationStr}最快可完整安排 (含所有階段) 的時間為 ${timeStrAfter} 之後。`;
+                if (foundMinsAfter !== specificSuggestionMins) debugInfo.suggestions.push({ time: timeStrAfter, date: queryDateStr, daysToAdd: 0 });
+            }
+            return { pass: false, reason: `${reasonMsg}${oppositeSuggestion}\n${suggestionText}`, debug: debugInfo };
         } else {
-            return { pass: false, reason: `${reasonMsg}${oppositeSuggestion}\n⚠️ 今日後續時段已無足夠資源可完整安排此預約。`, debug: debugInfo };
+            return { pass: false, reason: `${reasonMsg}${oppositeSuggestion}\n⚠️ 今日已無足夠資源可完整安排此預約。`, debug: debugInfo };
         }
     };
 

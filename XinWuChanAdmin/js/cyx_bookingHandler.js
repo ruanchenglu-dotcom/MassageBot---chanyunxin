@@ -328,25 +328,58 @@
                     oppositeSuggestion = `\n💡 系統提示：【${oppositeLoc}】在 ${getTimeStrFromMins(requestStart)} 仍有空位，可建議客人至${oppositeLoc}。`;
                 }
                 
-                let foundMins = -1;
-                let searchStart = Math.max(requestStart + 5, 0); 
+                let foundMinsAfter = -1;
+                let searchStartAfter = Math.max(requestStart + 5, 0); 
                 
-                for (let t = searchStart; t <= 1800; t += 5) {
+                for (let t = searchStartAfter; t <= 1800; t += 5) {
                     let sim = validateGlobalCapacity(t, maxDuration, guestList, currentBookingsRaw, staffList, queryDateStr, true, locationStr);
                     if (sim.pass) {
-                        foundMins = t;
+                        foundMinsAfter = t;
                         break;
                     }
                 }
                 
-                if (foundMins !== -1) {
-                    const timeStr = getTimeStrFromMins(foundMins);
-                    if (foundMins !== specificSuggestionMins) {
-                        debugInfo.suggestions.push({ time: timeStr, date: queryDateStr, daysToAdd: 0 });
+                let foundMinsBefore = -1;
+                let lowerBound = 0;
+                try {
+                     const normQueryDate = queryDateStr ? (typeof normalizeDateStrict === 'function' ? normalizeDateStrict(queryDateStr) : queryDateStr.replace(/\//g, '-')) : '';
+                     const today = new Date();
+                     const tzOffset = today.getTimezoneOffset() * 60000;
+                     const localToday = (new Date(today - tzOffset)).toISOString().split('T')[0];
+                     if (normQueryDate === localToday) {
+                         lowerBound = today.getHours() * 60 + today.getMinutes() + 5;
+                     }
+                } catch (e) {}
+
+                let searchStartBefore = requestStart - 5;
+                for (let t = searchStartBefore; t >= lowerBound; t -= 5) {
+                    let sim = validateGlobalCapacity(t, maxDuration, guestList, currentBookingsRaw, staffList, queryDateStr, true, locationStr);
+                    if (sim.pass) {
+                        foundMinsBefore = t;
+                        break;
                     }
-                    return { pass: false, reason: `${reasonMsg}${oppositeSuggestion}\n💡 智能建議：${locationStr}最快可完整安排 (含所有階段) 的時間為 ${timeStr} 之後。`, debug: debugInfo };
+                }
+                
+                if (foundMinsAfter !== -1 || foundMinsBefore !== -1) {
+                    let suggestionText = "";
+                    if (foundMinsBefore !== -1 && foundMinsAfter !== -1) {
+                        const timeStrBefore = getTimeStrFromMins(foundMinsBefore);
+                        const timeStrAfter = getTimeStrFromMins(foundMinsAfter);
+                        suggestionText = `💡 智能建議：${locationStr}最接近可完整安排的時間為 ${timeStrBefore} 或 ${timeStrAfter} 之後。`;
+                        if (foundMinsBefore !== specificSuggestionMins) debugInfo.suggestions.push({ time: timeStrBefore, date: queryDateStr, daysToAdd: 0 });
+                        if (foundMinsAfter !== specificSuggestionMins) debugInfo.suggestions.push({ time: timeStrAfter, date: queryDateStr, daysToAdd: 0 });
+                    } else if (foundMinsBefore !== -1) {
+                        const timeStrBefore = getTimeStrFromMins(foundMinsBefore);
+                        suggestionText = `💡 智能建議：${locationStr}最接近可完整安排的時間為 ${timeStrBefore}。`;
+                        if (foundMinsBefore !== specificSuggestionMins) debugInfo.suggestions.push({ time: timeStrBefore, date: queryDateStr, daysToAdd: 0 });
+                    } else {
+                        const timeStrAfter = getTimeStrFromMins(foundMinsAfter);
+                        suggestionText = `💡 智能建議：${locationStr}最快可完整安排 (含所有階段) 的時間為 ${timeStrAfter} 之後。`;
+                        if (foundMinsAfter !== specificSuggestionMins) debugInfo.suggestions.push({ time: timeStrAfter, date: queryDateStr, daysToAdd: 0 });
+                    }
+                    return { pass: false, reason: `${reasonMsg}${oppositeSuggestion}\n${suggestionText}`, debug: debugInfo };
                 } else {
-                    return { pass: false, reason: `${reasonMsg}${oppositeSuggestion}\n⚠️ 今日後續時段已無足夠資源可完整安排此預約。`, debug: debugInfo };
+                    return { pass: false, reason: `${reasonMsg}${oppositeSuggestion}\n⚠️ 今日已無足夠資源可完整安排此預約。`, debug: debugInfo };
                 }
             };
 
@@ -2125,13 +2158,16 @@ console.log('DEBUG_SPLITS:', { duration, eStep, eLimit, svc, testFlow, splitsToT
 
                 let candidateMins = [];
 
-                // 1. Dựng các mốc ứng viên theo chu kỳ 10 phút (Dự phòng trường hợp quán rỗng)
-                for (let i = 1; i <= 24; i++) {
-                    candidateMins.push(currMins + (i * 10));
+                // 1. Dựng các mốc ứng viên theo chu kỳ 5 phút cả 2 chiều
+                for (let i = 1; i <= 48; i++) {
+                    candidateMins.push(currMins + (i * 5));
+                    candidateMins.push(currMins - (i * 5));
                 }
 
                 // 2. Thu thập thời gian kết thúc của các đơn đang chiếm dụng
                 const reqDate = form.date.replace(/\//g, '-');
+                let maxReqDuration = guestDetails.reduce((max, g) => Math.max(max, parseInt(g.duration || 60, 10)), 0);
+                
                 finalBookings.forEach(b => {
                     let bDate = b.opDate;
                     if (!bDate && b.startTimeString) {
@@ -2152,6 +2188,9 @@ console.log('DEBUG_SPLITS:', { duration, eStep, eLimit, svc, testFlow, splitsToT
                                 candidateMins.push(endMins + CLEANUP_BUFFER);
                                 candidateMins.push(endMins + TRANSITION_BUFFER);
                                 
+                                // Gợi ý khách vào ngay TRƯỚC khi một booking khác bắt đầu
+                                candidateMins.push(startMins - maxReqDuration - CLEANUP_BUFFER);
+                                
                                 // Lấy thêm mốc kết thúc của Phase 1 nếu là Combo
                                 let p1Dur = parseInt(b.phase1_duration, 10);
                                 if (isNaN(p1Dur) && b.originalData && b.originalData.phase1_duration) {
@@ -2160,16 +2199,27 @@ console.log('DEBUG_SPLITS:', { duration, eStep, eLimit, svc, testFlow, splitsToT
                                 if (!isNaN(p1Dur) && p1Dur > 0) {
                                     candidateMins.push(startMins + p1Dur + CLEANUP_BUFFER);
                                     candidateMins.push(startMins + p1Dur + TRANSITION_BUFFER);
+                                    candidateMins.push(startMins + p1Dur - maxReqDuration - CLEANUP_BUFFER);
                                 }
                             }
                         }
                     }
                 });
 
-                // 3. Lọc và sắp xếp các mốc thời gian ứng viên (ĐÃ XÓA LÀM TRÒN 5 PHÚT ĐỂ TÌM EXACT GAP)
+                // 3. Lọc và sắp xếp các mốc thời gian ứng viên
+                let today = new Date();
+                let tzOffset = today.getTimezoneOffset() * 60000;
+                let localToday = (new Date(today - tzOffset)).toISOString().split('T')[0];
+                let currentRealMins = today.getHours() * 60 + today.getMinutes();
+                let isToday = (reqDate === localToday);
+
                 let uniqueCandidates = [...new Set(candidateMins)]
-                    .filter(mins => mins > currMins)
-                    .sort((a, b) => a - b);
+                    .filter(mins => {
+                        if (mins === currMins || mins < 0 || mins > 1800) return false;
+                        if (isToday && mins <= currentRealMins + 5) return false;
+                        return true;
+                    })
+                    .sort((a, b) => Math.abs(a - currMins) - Math.abs(b - currMins));
 
 
                 // 4. Kiểm tra sự khả dụng của từng mốc
