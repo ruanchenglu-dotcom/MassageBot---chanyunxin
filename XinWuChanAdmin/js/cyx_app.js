@@ -26,6 +26,7 @@ const APP_STATUS = window.BOOKING_STATUS || {
     WAITING: '等待中',
     SERVING: '服務中',
     COMPLETED: '已完成',
+    PAID: '已結帳',
     CANCELLED: '已取消'
 };
 
@@ -3382,6 +3383,19 @@ const App = () => {
                         activeItem: { resourceId: null, booking: targetBooking },
                         relatedItems: []
                     });
+                }
+                setControlCenterData(null);
+                break;
+
+            case 'PAID':
+                if (targetBooking) {
+                    Swal.fire({ title: '確認', text: '確定標記為已結帳嗎？', icon: 'info', showCancelButton: true, confirmButtonText: '確定', cancelButtonText: '取消' }).then((res) => { if (res.isConfirmed) { 
+                        const ridStr = String(targetBooking.rowId);
+                        if (localOverridesRef.current[ridStr]) delete localOverridesRef.current[ridStr];
+                        axios.post('/api/update-status', { rowId: targetBooking.rowId, status: APP_STATUS.PAID })
+                            .then(() => fetchData(false))
+                            .catch(() => Swal.fire('系統提示', '結帳標記失敗，請檢查網路。', 'warning'));
+                    } });
                 }
                 setControlCenterData(null);
                 break;

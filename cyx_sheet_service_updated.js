@@ -63,7 +63,8 @@ const STATUS_KEYWORDS = {
     CANCELLED: ['取消', 'Cancelled', 'Cancel', '❌'],
     NOSHOW: ['爽約', 'Noshow', 'No Show'],
     WAITING: ['Waiting', 'chờ', 'waiting'],
-    DONE: ['Done', 'hoàn thành', 'Completed', '✅']
+    DONE: ['Done', 'hoàn thành', 'Completed', '✅'],
+    PAID: ['結帳', '已結帳']
 };
 
 // --- GOOGLE AUTHENTICATION ---

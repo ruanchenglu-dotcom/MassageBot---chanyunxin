@@ -45,6 +45,7 @@ const getBookingStatus = () => window.BOOKING_STATUS || {
     WAITING: '等待中',
     SERVING: '服務中',
     COMPLETED: '已完成',
+    PAID: '已結帳',
     CANCELLED: '已取消'
 };
 
@@ -1557,7 +1558,7 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
 
                 {/* ACTION FOOTER */}
                 <div className="p-4 bg-white border-t border-slate-200 shrink-0">
-                    <div className={`grid gap-3 ${!isRunning && isGroupBooking ? 'grid-cols-5' : 'grid-cols-4'}`}>
+                    <div className={`grid gap-3 ${!isRunning && isGroupBooking ? 'grid-cols-6' : 'grid-cols-5'}`}>
                         {!isRunning ? (
                             isGroupBooking ? (
                                 <>
@@ -1572,7 +1573,8 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                                 {isPaused ? <><i className="fas fa-play text-xl mb-0.5"></i><span className="text-xs">繼續</span></> : <><i className="fas fa-pause text-xl mb-0.5"></i><span className="text-xs">暫停</span></>}
                             </button>
                         )}
-                        <button onClick={handleFinishRequest} className="col-span-1 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold shadow-lg shadow-blue-200 flex flex-col items-center justify-center transform active:scale-95 transition-all"><i className="fas fa-check-circle text-xl mb-0.5"></i><span className="text-xs">結帳 ({STATUS.COMPLETED})</span></button>
+                        <button onClick={() => { onClose(); triggerAction('PAID'); }} className="col-span-1 bg-teal-50 hover:bg-teal-100 text-teal-700 border border-teal-200 rounded-xl font-bold flex flex-col items-center justify-center transform active:scale-95 transition-all shadow-sm"><i className="fas fa-file-invoice-dollar text-xl mb-0.5"></i><span className="text-xs">結帳 ({STATUS.PAID})</span></button>
+                        <button onClick={handleFinishRequest} className="col-span-1 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold shadow-lg shadow-blue-200 flex flex-col items-center justify-center transform active:scale-95 transition-all"><i className="fas fa-check-circle text-xl mb-0.5"></i><span className="text-xs">完成 ({STATUS.COMPLETED})</span></button>
                         <button onClick={() => { onClose(); triggerAction('CANCEL'); }} className="col-span-1 bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 rounded-xl font-bold flex flex-col items-center justify-center transform active:scale-95 transition-all"><i className="fas fa-trash-alt text-xl mb-0.5"></i><span className="text-xs">取消 ({STATUS.CANCELLED})</span></button>
                         <button onClick={() => { onClose(); triggerAction('NOSHOW'); }} className="col-span-1 bg-orange-50 hover:bg-orange-100 text-orange-600 border border-orange-200 rounded-xl font-bold flex flex-col items-center justify-center transform active:scale-95 transition-all"><i className="fas fa-user-slash text-xl mb-0.5"></i><span className="text-xs">爽約 ({STATUS.NOSHOW})</span></button>
                     </div>
@@ -2118,8 +2120,13 @@ const TimelineView = ({ timelineData, onEditPhase, liveStatusData, staffList, st
 
                                             let specialBorderClass = "border border-black/5";
 
-                                            if (isRunning) specialBorderClass = "border-2 border-red-500 shadow-[0_0_8px_rgba(239,68,68,0.6)] z-20";
-                                            else if (comboSequence === 'BF') specialBorderClass = "border-l-[6px] border-l-indigo-700 bf-indicator shadow-indigo-200";
+                                            if (rawStatus === STATUS.WAITING || rawStatus.includes('等待中')) {
+                                                specialBorderClass = "border-2 border-blue-400 shadow-[0_0_8px_rgba(56,187,248,0.6)] animate-pulse z-20";
+                                            } else if (comboSequence === 'BF') {
+                                                specialBorderClass = "border-l-[6px] border-l-indigo-700 bf-indicator shadow-indigo-200";
+                                            }
+
+                                            if (isRunning) specialBorderClass = "border-2 border-slate-900 shadow-[0_0_8px_rgba(15,23,42,0.6)] z-20";
 
                                             const isOverlapped = slot.meta?.isOverlapped === true;
                                             if (isOverlapped) {

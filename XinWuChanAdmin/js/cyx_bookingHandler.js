@@ -45,6 +45,7 @@
             WAITING: '等待中',
             SERVING: '服務中',
             COMPLETED: '已完成',
+            PAID: '已結帳',
             CANCELLED: '已取消'
         };
     };

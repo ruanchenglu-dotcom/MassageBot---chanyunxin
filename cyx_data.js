@@ -126,6 +126,7 @@ const BOOKING_STATUS = {
     WAITING: '等待中',     // Đang chờ tới lượt
     SERVING: '服務中',     // Đang trong quá trình phục vụ
     COMPLETED: '已完成',   // Đã hoàn thành xong dịch vụ
+    PAID: '已結帳',        // Đã thanh toán (khách trả tiền trước hoặc sau)
     CANCELLED: '已取消',   // Đã hủy lịch
     NOSHOW: '爽約'         // Khách không đến
 };
