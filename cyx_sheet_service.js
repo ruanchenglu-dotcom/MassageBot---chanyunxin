@@ -902,7 +902,7 @@ async function updateBookingStatus(rowId, newStatus) {
     try {
         if (!rowId) throw new Error("RowID required");
         await sheets.spreadsheets.values.update({
-            spreadsheetId: SHEET_ID, range: `${BOOKING_SHEET_NAME}!H${rowId}`,
+            spreadsheetId: SHEET_ID, range: `${BOOKING_SHEET_NAME}!J${rowId}`,
             valueInputOption: 'USER_ENTERED', requestBody: { values: [[newStatus]] }
         });
         triggerSyncDebounced();
@@ -1080,43 +1080,40 @@ async function updateBookingDetails(body) {
         updateCell('B', timeVal);
     }
     if (body.customerName) updateCell('C', body.customerName);
-    if (body.serviceName) updateCell('D', body.serviceName);
-    if (body.isOil !== undefined) updateCell('E', body.isOil ? "Yes" : "");
-    if (body.pax) updateCell('F', body.pax);
-    if (body.phone) updateCell('G', body.phone);
-    if (body.mainStatus) updateCell('H', body.mainStatus);
+    if (body.phone) updateCell('D', body.phone);
+    if (body.serviceName) updateCell('E', body.serviceName);
+    if (body.isOil !== undefined) updateCell('F', body.isOil ? "Yes" : "");
+    if (body.isGuaSha !== undefined) updateCell('G', body.isGuaSha ? "Yes" : "");
+    if (body.isHuaGuan !== undefined) updateCell('H', body.isHuaGuan ? "Yes" : "");
+    if (body.isBaGuan !== undefined) updateCell('I', body.isBaGuan ? "Yes" : "");
+    
+    if (body.mainStatus) updateCell('J', body.mainStatus);
 
     if (body.requestedStaff !== undefined) {
-        updateCell('I', body.requestedStaff);
+        updateCell('K', body.requestedStaff);
+    }
+    
+    if (body.adminNote !== undefined) {
+        updateCell('L', body.adminNote);
     }
 
     const staff1 = body['服務師傅1'] || body.ServiceStaff1 || body.staff1 || body.serviceStaff || body.staffId;
     if (staff1 !== undefined && staff1 !== '隨機') {
-        updateCell('K', staff1);
+        updateCell('M', staff1);
     }
 
     const staff2 = body['服務師傅2'] || body.ServiceStaff2 || body.staff2 || body.staffId2;
     if (staff2 !== undefined) {
-        updateCell('L', staff2);
+        updateCell('N', staff2);
     }
 
     const staff3 = body['服務師傅3'] || body.ServiceStaff3 || body.staff3 || body.staffId3;
     if (staff3 !== undefined) {
-        updateCell('M', staff3);
+        updateCell('O', staff3);
     }
 
-    if (body.staff1_blocks !== undefined) updateCell('N', body.staff1_blocks);
-    if (body.staff2_blocks !== undefined) updateCell('O', body.staff2_blocks);
-
-    if (body.isGuaSha !== undefined) {
-        // Chuyển isGuaSha ra khỏi Q để không đè Giá Tiền
-        updateCell('AW', body.isGuaSha ? "Yes" : "");
-    }
-
-    if (body.adminNote !== undefined) {
-        // Chuyển adminNote ra khỏi R để không đè Tiền Mặt
-        updateCell('AX', body.adminNote);
-    }
+    if (body.staff1_blocks !== undefined) updateCell('P', body.staff1_blocks);
+    if (body.staff2_blocks !== undefined) updateCell('Q', body.staff2_blocks);
 
     if (flowVal !== undefined) updateCell('Z', flowVal);
 
