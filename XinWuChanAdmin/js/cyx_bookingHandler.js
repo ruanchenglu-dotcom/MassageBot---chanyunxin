@@ -1363,7 +1363,7 @@ console.log('DEBUG_SPLITS:', { duration, eStep, eLimit, svc, testFlow, splitsToT
                             const svcDef = SERVICES[item.guest.serviceCode];
                             const eStep = svcDef ? (svcDef.elasticStep || 1) : 1;
                             
-                            const flowsToTest = (item.guest.flowCode) ? [item.flow] : [item.flow, item.flow === 'FB' ? 'BF' : 'FB'];
+                            const flowsToTest = [item.flow];
 
                             for (const testFlow of flowsToTest) {
                                 const splits = generateElasticSplits(item.duration, eStep, 0, null, svcDef ? svcDef.minFoot : null, svcDef ? svcDef.maxFoot : null, svcDef ? svcDef.minBody : null, svcDef ? svcDef.maxBody : null, testFlow, true);
