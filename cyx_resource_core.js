@@ -355,11 +355,52 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
             oppositeSuggestion = `\n💡 系統提示：【${oppositeLoc}】在 ${getTimeStrFromMins(requestStart)} 仍有空位，可建議客人至${oppositeLoc}。`;
         }
         
+        let snapMins = new Set();
+        let maxReqDur = guestList.reduce((max, g) => Math.max(max, parseInt(g.duration || 60, 10)), 0);
+        const normQDate = queryDateStr ? (typeof normalizeDateStrict === 'function' ? normalizeDateStrict(queryDateStr) : queryDateStr.replace(/\//g, '-')) : '';
+        const cleanBuffer = CONF.CLEANUP_BUFFER || 5;
+        const transBuffer = CONF.TRANSITION_BUFFER || 5;
+        
+        currentBookingsRaw.forEach(b => {
+            if (b.status === 'CANCELLED' || b.status === 'NO_SHOW') return;
+            let bDate = b.opDate || (b.startTimeString ? b.startTimeString.split(' ')[0].replace(/\//g, '-') : '');
+            if (bDate === normQDate) {
+                let bTime = b.startTimeString ? b.startTimeString.split(' ')[1] : b.startTime;
+                if (bTime) {
+                    let [h, m] = bTime.split(':').map(Number);
+                    if (!isNaN(h) && !isNaN(m)) {
+                        let start = h * 60 + m;
+                        let dur = parseInt(b.duration, 10) || 60;
+                        let end = start + dur;
+                        snapMins.add(end + cleanBuffer);
+                        snapMins.add(end + transBuffer);
+                        snapMins.add(start - maxReqDur - cleanBuffer);
+                        let p1Dur = parseInt(b.phase1_duration, 10) || (b.originalData && parseInt(b.originalData.phase1_duration, 10));
+                        if (!isNaN(p1Dur) && p1Dur > 0) {
+                            snapMins.add(start + p1Dur + cleanBuffer);
+                            snapMins.add(start + p1Dur + transBuffer);
+                            snapMins.add(start + p1Dur - maxReqDur - cleanBuffer);
+                        }
+                    }
+                }
+            }
+        });
+
         let foundMinsAfter = -1;
         let searchStartAfter = Math.max(requestStart + 5, 0); 
-        
-        // Quét đến cuối ngày hoặc ca đêm (1440 + 360 = 1800)
-        for (let t = searchStartAfter; t <= 1800; t += 1) {
+        let afterCandidates = [];
+        for (let i = 0; i <= 240; i++) {
+            let t = searchStartAfter + i * 1;
+            if (t <= 1800) afterCandidates.push(t);
+        }
+        afterCandidates.sort((a, b) => {
+            let aSnap = snapMins.has(a);
+            let bSnap = snapMins.has(b);
+            if (aSnap && !bSnap) return -1;
+            if (!aSnap && bSnap) return 1;
+            return a - b;
+        });
+        for (let t of afterCandidates) {
             let sim = validateGlobalCapacity(t, maxDuration, guestList, currentBookingsRaw, staffList, queryDateStr, true, locationStr);
             if (sim.pass) {
                 foundMinsAfter = t;
@@ -370,17 +411,28 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
         let foundMinsBefore = -1;
         let lowerBound = 0;
         try {
-             const normQueryDate = queryDateStr ? queryDateStr.replace(/\//g, '-') : '';
              const today = new Date();
              const tzOffset = today.getTimezoneOffset() * 60000;
              const localToday = (new Date(today - tzOffset)).toISOString().split('T')[0];
-             if (normQueryDate === localToday) {
+             if (normQDate === localToday) {
                  lowerBound = today.getHours() * 60 + today.getMinutes() + 5;
              }
         } catch (e) {}
 
         let searchStartBefore = requestStart - 5;
-        for (let t = searchStartBefore; t >= lowerBound; t -= 1) {
+        let beforeCandidates = [];
+        for (let i = 0; i <= 240; i++) {
+            let t = searchStartBefore - i * 1;
+            if (t >= lowerBound) beforeCandidates.push(t);
+        }
+        beforeCandidates.sort((a, b) => {
+            let aSnap = snapMins.has(a);
+            let bSnap = snapMins.has(b);
+            if (aSnap && !bSnap) return -1;
+            if (!aSnap && bSnap) return 1;
+            return b - a;
+        });
+        for (let t of beforeCandidates) {
             let sim = validateGlobalCapacity(t, maxDuration, guestList, currentBookingsRaw, staffList, queryDateStr, true, locationStr);
             if (sim.pass) {
                 foundMinsBefore = t;
