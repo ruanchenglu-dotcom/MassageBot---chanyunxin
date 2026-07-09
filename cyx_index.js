@@ -1179,10 +1179,28 @@ app.post('/api/batch-process-bookings', async (req, res) => {
         }
         console.log("=== BATCH CHECKOUT PAYLOADS ===");
         console.log(JSON.stringify(req.body.payloads, null, 2));
+        
+        // Handle voucher marking if a voucher is submitted
+        const todayStr = SheetService.normalizeDateStrict(SheetService.getTaipeiNow());
+        for (const payload of req.body.payloads) {
+            if (payload.voucher) {
+                await SheetService.markVoucherUsed(payload.voucher, todayStr);
+            }
+        }
+        
         await SheetService.batchUpdateMultipleBookings(req.body.payloads);
         res.json({ success: true });
     } catch (e) { 
         console.error('[BATCH PROCESS ERROR]', e); 
+        res.status(500).json({ success: false, error: e.message }); 
+    }
+});
+
+app.get('/api/vouchers', async (req, res) => {
+    try {
+        const unusedVouchers = await SheetService.getUnusedVouchers();
+        res.json(unusedVouchers);
+    } catch (e) { 
         res.status(500).json({ success: false, error: e.message }); 
     }
 });

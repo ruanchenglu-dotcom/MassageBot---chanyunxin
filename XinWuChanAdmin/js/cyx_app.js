@@ -3170,7 +3170,7 @@ const App = () => {
 
     const handleToggleMax = async (resId) => { const res = resourceState[resId]; if (!res) return; updateResource({ ...resourceState, [resId]: { ...res, isMaxMode: !res.isMaxMode } }); };
 
-    const handleConfirmPayment = async (itemsToPay, totalAmount, finalPricesMap = {}) => {
+    const handleConfirmPayment = async (itemsToPay, totalAmount, finalPricesMap = {}, paymentInfo = {}) => {
         try {
             setSyncLock(true); setTimeout(() => setSyncLock(false), 5000);
             const newState = { ...resourceState };
@@ -3226,6 +3226,14 @@ const App = () => {
                     } else {
                         console.warn(`[CHECKOUT WARNING] Không tìm thấy giá tiền cho Row ${rid} trong:`, finalPricesMap);
                     }
+                    
+                    // Assign payment info (split cash/transfer across multiple rows? No, just assign to the first row for now, or all rows if split? For simplicity, we can assign the total payment info to the first row to avoid duplication in the sheet, or distribute it. Let's assign to the first row being checked out)
+                    if (i === 0) {
+                        if (paymentInfo.cash !== undefined) updatesByRow[rid].cash = paymentInfo.cash;
+                        if (paymentInfo.transfer !== undefined) updatesByRow[rid].transfer = paymentInfo.transfer;
+                        if (paymentInfo.voucher) updatesByRow[rid].voucher = paymentInfo.voucher;
+                    }
+                    updatesByRow[rid].checkout_status = '已結帳';
                 }
                 // Do not update statusColEnglish to COMPLETED here as per user request
 

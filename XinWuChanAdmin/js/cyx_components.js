@@ -994,7 +994,27 @@ const BillingModal = ({ activeItem, relatedItems, onConfirm, onCancel }) => {
 
     const [finalPrices, setFinalPrices] = useState({});
     const [editingPriceId, setEditingPriceId] = useState(null);
-    const [cashGiven, setCashGiven] = useState('');
+    
+    // New payment states
+    const [cash, setCash] = useState('');
+    const [transfer, setTransfer] = useState('');
+    const [selectedBook, setSelectedBook] = useState('');
+    const [selectedVoucher, setSelectedVoucher] = useState('');
+    const [vouchersData, setVouchersData] = useState([]);
+    const [loadingVouchers, setLoadingVouchers] = useState(false);
+
+    useEffect(() => {
+        setLoadingVouchers(true);
+        fetch('/api/vouchers')
+            .then(res => res.json())
+            .then(data => {
+                if (data.success && Array.isArray(data.data)) {
+                    setVouchersData(data.data);
+                }
+            })
+            .catch(err => console.error("Error fetching vouchers", err))
+            .finally(() => setLoadingVouchers(false));
+    }, []);
 
     useEffect(() => {
         const initialPrices = {};
@@ -1036,15 +1056,19 @@ const BillingModal = ({ activeItem, relatedItems, onConfirm, onCancel }) => {
     }
 
     const totalAmount = calculateTotal();
-    const cashVal = parseInt(cashGiven) || 0;
-    const changeAmount = cashVal >= totalAmount ? cashVal - totalAmount : (cashGiven ? (cashVal - totalAmount) : 0);
+    const activeVoucher = vouchersData.find(b => b.id === selectedBook)?.unusedVouchers?.find(v => v.id === selectedVoucher);
+    const voucherValue = activeVoucher ? activeVoucher.faceValue : 0;
+    const cashVal = parseInt(cash) || 0;
+    const transferVal = parseInt(transfer) || 0;
+    const totalPaid = cashVal + transferVal + voucherValue;
+    const changeAmount = totalPaid - totalAmount;
 
     return (
         <div className="fixed inset-0 bg-slate-900/90 z-[90] flex items-center justify-center p-4">
             <div className="bg-white w-full max-w-md rounded-2xl shadow-2xl modal-animate overflow-hidden flex flex-col max-h-[90vh]">
                 <div className="bg-emerald-600 p-4 text-white text-center shrink-0"><h3 className="text-xl font-bold flex justify-center items-center gap-2"><i className="fas fa-file-invoice-dollar"></i> 結帳清單</h3></div>
-                <div className="p-6 flex-1 overflow-y-auto custom-scrollbar">
-                    <div className="space-y-3">{targetItems.map(item => {
+                <div className="p-4 flex-1 overflow-y-auto custom-scrollbar">
+                    <div className="space-y-3 mb-4">{targetItems.map(item => {
                         const b = item.booking || {};
                         const staffDisplay = b.serviceStaff || b.staffId || b.ServiceStaff || b.StaffId || b.technician || '隨機';
                         const isEditing = editingPriceId === b.rowId;
@@ -1078,29 +1102,81 @@ const BillingModal = ({ activeItem, relatedItems, onConfirm, onCancel }) => {
                             </div>
                         );
                     })}</div>
-                </div>
-                <div className="p-5 border-t bg-white shadow-[0_-5px_15px_rgba(0,0,0,0.05)]">
-                    <div className="flex items-center justify-between mb-3 bg-slate-50 p-3 rounded-lg border border-slate-200">
-                        <span className="text-slate-600 font-bold text-sm">客付金額</span>
-                        <div className="flex items-center">
-                            <span className="text-slate-500 font-bold mr-1">$</span>
-                            <input 
-                                type="number" 
-                                placeholder="0" 
-                                value={cashGiven} 
-                                onChange={(e) => setCashGiven(e.target.value)}
-                                className="w-24 text-right bg-white border border-slate-300 rounded p-1 font-mono font-bold text-lg text-slate-800 focus:outline-none focus:border-emerald-500"
-                            />
+
+                    {/* PAYMENT METHODS */}
+                    <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-4">
+                        <h4 className="font-bold text-slate-700 border-b pb-2 mb-2">付款方式</h4>
+                        
+                        <div className="flex items-center justify-between">
+                            <label className="text-slate-600 font-bold text-sm flex items-center gap-2"><i className="fas fa-money-bill-wave text-green-600"></i> 現金</label>
+                            <div className="flex items-center">
+                                <span className="text-slate-500 font-bold mr-1">$</span>
+                                <input type="number" placeholder="0" value={cash} onChange={(e) => setCash(e.target.value)} className="w-24 text-right bg-white border border-slate-300 rounded p-1.5 font-mono font-bold text-lg text-slate-800 focus:outline-none focus:border-emerald-500" />
+                            </div>
+                        </div>
+
+                        <div className="flex items-center justify-between">
+                            <label className="text-slate-600 font-bold text-sm flex items-center gap-2"><i className="fas fa-exchange-alt text-blue-600"></i> 轉帳</label>
+                            <div className="flex items-center">
+                                <span className="text-slate-500 font-bold mr-1">$</span>
+                                <input type="number" placeholder="0" value={transfer} onChange={(e) => setTransfer(e.target.value)} className="w-24 text-right bg-white border border-slate-300 rounded p-1.5 font-mono font-bold text-lg text-slate-800 focus:outline-none focus:border-emerald-500" />
+                            </div>
+                        </div>
+
+                        <div className="border-t pt-3 mt-3">
+                            <label className="text-slate-600 font-bold text-sm flex items-center gap-2 mb-2"><i className="fas fa-ticket-alt text-orange-500"></i> 票卷</label>
+                            <div className="flex gap-2">
+                                <select 
+                                    className="flex-1 bg-white border border-slate-300 rounded p-2 text-sm focus:outline-none focus:border-emerald-500"
+                                    value={selectedBook}
+                                    onChange={(e) => { setSelectedBook(e.target.value); setSelectedVoucher(''); }}
+                                    disabled={loadingVouchers}
+                                >
+                                    <option value="">-- 選擇票卷本 --</option>
+                                    {vouchersData.map(b => (
+                                        <option key={b.id} value={b.id}>{b.id} (剩 {b.unusedVouchers.length} 張)</option>
+                                    ))}
+                                </select>
+                                <select 
+                                    className="flex-1 bg-white border border-slate-300 rounded p-2 text-sm focus:outline-none focus:border-emerald-500"
+                                    value={selectedVoucher}
+                                    onChange={(e) => setSelectedVoucher(e.target.value)}
+                                    disabled={!selectedBook}
+                                >
+                                    <option value="">-- 選擇票卷 --</option>
+                                    {selectedBook && vouchersData.find(b => b.id === selectedBook)?.unusedVouchers.map(v => (
+                                        <option key={v.id} value={v.id}>{v.id} (${v.faceValue})</option>
+                                    ))}
+                                </select>
+                            </div>
+                            {voucherValue > 0 && (
+                                <div className="text-right text-orange-600 font-bold text-sm mt-1">
+                                    票卷折抵: -${voucherValue}
+                                </div>
+                            )}
                         </div>
                     </div>
-                    {cashGiven && (
-                        <div className={`flex justify-between items-center mb-3 px-3 ${changeAmount < 0 ? 'text-red-500' : 'text-blue-600'}`}>
-                            <span className="font-bold text-sm">找零:</span>
-                            <span className="font-mono font-bold text-xl">${changeAmount}</span>
+                </div>
+
+                <div className="p-5 border-t bg-white shadow-[0_-5px_15px_rgba(0,0,0,0.05)]">
+                    <div className="flex justify-between items-end mb-2">
+                        <span className="text-gray-500 font-bold text-lg">總金額:</span>
+                        <span className="text-4xl font-black text-slate-800 tracking-tight">${totalAmount}</span>
+                    </div>
+                    
+                    {totalPaid > 0 && (
+                        <div className={`flex justify-between items-center mb-4 px-1 ${changeAmount < 0 ? 'text-red-500' : 'text-blue-600'}`}>
+                            <span className="font-bold text-sm">{changeAmount < 0 ? '尚欠:' : '找零:'}</span>
+                            <span className="font-mono font-bold text-xl">${Math.abs(changeAmount)}</span>
                         </div>
                     )}
-                    <div className="flex justify-between items-end mb-4"><span className="text-gray-500 font-bold text-lg">總金額:</span><span className="text-5xl font-black text-emerald-600 tracking-tight">${totalAmount}</span></div>
-                    <button onClick={() => onConfirm(targetItems, totalAmount, finalPrices)} className="w-full p-4 rounded-xl font-bold bg-emerald-600 text-white hover:bg-emerald-700 shadow-lg text-lg flex justify-center items-center gap-2 transition-transform hover:scale-[1.02]">✅ 確認收款</button>
+
+                    <button 
+                        onClick={() => onConfirm(targetItems, totalAmount, finalPrices, { cash: cashVal, transfer: transferVal, voucher: selectedVoucher || null })} 
+                        className="w-full p-4 rounded-xl font-bold bg-emerald-600 text-white hover:bg-emerald-700 shadow-lg text-lg flex justify-center items-center gap-2 transition-transform hover:scale-[1.02]"
+                    >
+                        ✅ 確認收款
+                    </button>
                     <button onClick={onCancel} className="w-full py-3 text-gray-400 font-bold hover:text-gray-600 mt-2">返回</button>
                 </div>
             </div>

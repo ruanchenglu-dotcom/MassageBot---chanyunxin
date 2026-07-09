@@ -760,17 +760,6 @@ async function ghiVaoSheet(data, proposedUpdates = []) {
                 if (guestDetail.staff1_blocks !== undefined) row[15] = guestDetail.staff1_blocks;
                 if (guestDetail.staff2_blocks !== undefined) row[16] = guestDetail.staff2_blocks;
             }
-            if (data.final_price !== undefined) {
-                row[18] = data.final_price;
-            } else if (guestDetail && guestDetail.final_price !== undefined) {
-                row[18] = guestDetail.final_price;
-            }
-
-            let adminNoteVal = data.adminNote;
-            if (guestDetail && guestDetail.adminNote) {
-                adminNoteVal = guestDetail.adminNote;
-            } row[11] = adminNoteVal || "";
-
             let sCode = data.serviceCode;
             if (guestDetail && guestDetail.serviceCode) sCode = guestDetail.serviceCode;
             if (!sCode && svcName) {
@@ -778,6 +767,25 @@ async function ghiVaoSheet(data, proposedUpdates = []) {
                 sCode = smartFindServiceCode(cleanSvcName);
             }
             row[24] = sCode || "";
+
+            if (data.final_price !== undefined) {
+                row[18] = data.final_price;
+            } else if (guestDetail && guestDetail.final_price !== undefined) {
+                row[18] = guestDetail.final_price;
+            } else {
+                let calculatedPrice = 0;
+                if (sCode && STATE.SERVICES[sCode]) {
+                    calculatedPrice = parseInt(STATE.SERVICES[sCode].price) || 0;
+                }
+                const oilBonus = (getConfig().FINANCE && getConfig().FINANCE.OIL_BONUS !== undefined) ? getConfig().FINANCE.OIL_BONUS : 0;
+                if (isYouTui) calculatedPrice += oilBonus;
+                row[18] = calculatedPrice > 0 ? calculatedPrice : "";
+            }
+
+            let adminNoteVal = data.adminNote;
+            if (guestDetail && guestDetail.adminNote) {
+                adminNoteVal = guestDetail.adminNote;
+            } row[11] = adminNoteVal || "";
 
             let flowVal = null;
             if (guestDetail) flowVal = guestDetail.flow || guestDetail.flowCode;
@@ -1687,6 +1695,10 @@ async function batchUpdateMultipleBookings(updatesArray) {
             if (body.final_price !== undefined) {
                 dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!Q${rowId}`, values: [[body.final_price]] });
             }
+            if (body.cash !== undefined) dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!T${rowId}`, values: [[body.cash]] });
+            if (body.transfer !== undefined) dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!U${rowId}`, values: [[body.transfer]] });
+            if (body.voucher !== undefined) dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!V${rowId}`, values: [[body.voucher]] });
+            if (body.checkout_status !== undefined) dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!W${rowId}`, values: [[body.checkout_status]] });
 
             let totalDuration = bookingData ? bookingData.duration : (safeParseInt(body.duration, 60));
             let currentLockState = bookingData ? bookingData.isManualLocked : false;
@@ -1930,7 +1942,93 @@ async function getTodaySalary() {
     }
 }
 
-// =============================================================================
+function columnToLetter(column) {
+    let temp, letter = '';
+    while (column >= 0) {
+        temp = column % 26;
+        letter = String.fromCharCode(temp + 65) + letter;
+        column = Math.floor((column - temp) / 26) - 1;
+    }
+    return letter;
+}
+
+async function getUnusedVouchers() {
+    try {
+        const sheets = getGoogleSheetsClient();
+        const res = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: '票卷!A:ZZ' });
+        const rows = res.data.values || [];
+        const books = {};
+
+        for (let rowIdx = 0; rowIdx < rows.length; rowIdx++) {
+            const row = rows[rowIdx];
+            for (let colIdx = 0; colIdx < row.length; colIdx++) {
+                const cell = String(row[colIdx] || '').trim();
+                // Match book header like A001, B001, A101
+                if (/^[A-Z]\d{3}$/.test(cell)) {
+                    if (row[colIdx + 1] === '日期') {
+                        const bookId = cell;
+                        if (!books[bookId]) {
+                            books[bookId] = { id: bookId, unusedVouchers: [] };
+                        }
+                        
+                        for (let i = rowIdx + 1; i < rows.length; i++) {
+                            const vRow = rows[i] || [];
+                            const vId = String(vRow[colIdx] || '').trim();
+                            if (!vId || /^[A-Z]\d{3}$/.test(vId)) break;
+                            
+                            const usedDate = String(vRow[colIdx + 1] || '').trim();
+                            if (!usedDate) {
+                                let faceValue = 400;
+                                if (vId.startsWith('AA ')) faceValue = 200;
+                                
+                                books[bookId].unusedVouchers.push({
+                                    id: vId,
+                                    faceValue: faceValue,
+                                    rowIdx: i,
+                                    colIdx: colIdx
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        return { success: true, data: Object.values(books).filter(b => b.unusedVouchers.length > 0) };
+    } catch (e) {
+        console.error('Error getUnusedVouchers', e);
+        return { success: false, error: e.message };
+    }
+}
+
+async function markVoucherUsed(voucherId, dateStr) {
+    try {
+        const sheets = getGoogleSheetsClient();
+        const res = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: '票卷!A:ZZ' });
+        const rows = res.data.values || [];
+        
+        for (let r = 0; r < rows.length; r++) {
+            for (let c = 0; c < rows[r].length; c++) {
+                if (String(rows[r][c] || '').trim() === voucherId) {
+                    const colLetter = columnToLetter(c + 1);
+                    const range = `票卷!${colLetter}${r + 1}`;
+                    await sheets.spreadsheets.values.update({
+                        spreadsheetId: SHEET_ID,
+                        range: range,
+                        valueInputOption: 'USER_ENTERED',
+                        requestBody: { values: [[dateStr]] }
+                    });
+                    return true;
+                }
+            }
+        }
+        return false;
+    } catch (e) {
+        console.error('Error markVoucherUsed', e);
+        return false;
+    }
+}
+
 // =============================================================================
 // PHẦN 5: EXPORTS
 // =============================================================================
@@ -1960,6 +2058,8 @@ module.exports = {
     getScheduleMap: () => STATE.scheduleMap,
     getLastSyncTime: () => STATE.lastSyncTime,
     getIsSystemHealthy: () => STATE.isSystemHealthy,
+    getUnusedVouchers,
+    markVoucherUsed,
     getMatrixDebug: () => STATE.LAST_CALCULATED_MATRIX,
     getQuickNotes: () => STATE.QUICK_NOTES,
     getBlacklist: () => STATE.BLACKLIST,
