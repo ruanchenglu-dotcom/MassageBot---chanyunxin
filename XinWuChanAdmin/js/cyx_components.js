@@ -9,6 +9,20 @@ const TimePicker24H = ({ value, onChange, className }) => {
     const val = value || "00:00";
     const [h, m] = val.split(":");
 
+    const config = window.SYSTEM_CONFIG?.OPERATION_TIME || { OPEN_HOUR: 8, CUT_OFF_HOUR: 2 };
+    const openHour = config.OPEN_HOUR;
+    const cutOffHour = config.CUT_OFF_HOUR;
+
+    const hoursArray = [];
+    let endDisplayHr = (cutOffHour - 1 + 24) % 24;
+    let currentHr = openHour;
+
+    for (let i = 0; i < 24; i++) {
+        hoursArray.push(String(currentHr).padStart(2, '0'));
+        if (currentHr === endDisplayHr) break;
+        currentHr = (currentHr + 1) % 24;
+    }
+
     return (
         <div className={`flex items-center justify-between bg-white ${className || 'border rounded p-1'} focus-within:ring-2 focus-within:ring-blue-200 transition-all cursor-pointer`}>
             <div className="flex items-center justify-center w-full">
@@ -18,7 +32,7 @@ const TimePicker24H = ({ value, onChange, className }) => {
                     className="appearance-none bg-transparent text-center font-mono outline-none cursor-pointer hover:bg-slate-100 rounded w-full"
                     style={{ textAlignLast: 'center' }}
                 >
-                    {Array.from({length: 24}, (_, i) => String(i).padStart(2, '0')).map(hour => (
+                    {hoursArray.map(hour => (
                         <option key={hour} value={hour}>{hour}</option>
                     ))}
                 </select>
