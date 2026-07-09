@@ -751,7 +751,7 @@ async function ghiVaoSheet(data, proposedUpdates = []) {
                 row[10] = data.nhanVien || defaultRequestedStaff;
             }
 
-            row[23] = colJ_LineID; row[22] = colK_Created;
+            row[23] = colJ_LineID; row[40] = colK_Created;
 
             if (guestDetail) {
                 if (guestDetail.staffId) row[12] = guestDetail.staffId;

@@ -3227,7 +3227,7 @@ const App = () => {
                         console.warn(`[CHECKOUT WARNING] Không tìm thấy giá tiền cho Row ${rid} trong:`, finalPricesMap);
                     }
                 }
-                updatesByRow[rid][statusColEnglish] = APP_STATUS.COMPLETED;
+                // Do not update statusColEnglish to COMPLETED here as per user request
 
                 let staffId = null;
                 
@@ -3296,9 +3296,8 @@ const App = () => {
             Object.assign(newStatusData, finalStatusData);
 
             Object.values(updatesByRow).forEach(updatePayload => {
-                // [Nâng cấp & Sửa Lỗi] Bất cứ khi nào thu ngân bấm Xác nhận Thanh toán, luôn đánh dấu Hàng là Hoàn Thành Toàn Bộ
-                // (Bỏ qua đếm số lượng Phase/Thợ vì thợ Phase 1 đã được trả về READY lúc Chia Đơn)
-                updatePayload.mainStatus = APP_STATUS.COMPLETED;
+                // Chỉ ghi 已結帳 vào cột W (thông qua checkout_status), KHÔNG cập nhật mainStatus
+                updatePayload.checkout_status = '已結帳';
                 
                 if (updatePayload.originalBooking !== undefined) {
                     delete updatePayload.originalBooking;
@@ -3383,6 +3382,19 @@ const App = () => {
                         activeItem: { resourceId: null, booking: targetBooking },
                         relatedItems: []
                     });
+                }
+                setControlCenterData(null);
+                break;
+
+            case 'FINISH_QUICK':
+                if (targetBooking) {
+                    Swal.fire({ title: '確認', text: '確定標記為已完成嗎？', icon: 'info', showCancelButton: true, confirmButtonText: '確定', cancelButtonText: '取消' }).then((res) => { if (res.isConfirmed) { 
+                        const ridStr = String(targetBooking.rowId);
+                        if (localOverridesRef.current[ridStr]) delete localOverridesRef.current[ridStr];
+                        axios.post('/api/update-status', { rowId: targetBooking.rowId, status: APP_STATUS.COMPLETED })
+                            .then(() => fetchData(false))
+                            .catch(() => Swal.fire('系統提示', '完成標記失敗，請檢查網路。', 'warning'));
+                    } });
                 }
                 setControlCenterData(null);
                 break;

@@ -687,7 +687,7 @@ async function ghiVaoSheet(data, proposedUpdates = []) {
                 row[10] = data.nhanVien || defaultRequestedStaff;
             }
 
-            row[23] = colJ_LineID; row[22] = colK_Created;
+            row[23] = colJ_LineID; row[40] = colK_Created;
 
             if (guestDetail) {
                 if (guestDetail.staffId) row[12] = guestDetail.staffId;
@@ -1502,6 +1502,8 @@ async function batchUpdateMultipleBookings(updatesArray) {
 
             const flowVal = body.flow || body.flow_code;
             if (flowVal !== undefined) dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!Z${rowId}`, values: [[flowVal]] });
+
+            if (body.checkout_status !== undefined) dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!W${rowId}`, values: [[body.checkout_status]] });
 
             let phase1Res = body.phase1_res_idx !== undefined ? body.phase1_res_idx : (body.phase1_resource !== undefined ? body.phase1_resource : body.phase1Resource);
             
