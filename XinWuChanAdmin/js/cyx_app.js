@@ -500,17 +500,32 @@ const App = () => {
         if (!currentBooking) return [];
         const currentGroupStr = getGroupStr(currentBooking);
         const relatedItems = [];
+        const seenRowIds = new Set([String(currentBooking.rowId)]);
         
         Object.keys(resourceState).forEach(k => {
             if (k !== excludeResourceId && (resourceState[k].isRunning || resourceState[k].isPreview === true)) {
                 const otherBooking = resourceState[k].booking;
                 const otherGroupStr = getGroupStr(otherBooking);
                 
-                if (currentGroupStr !== '_' && currentGroupStr === otherGroupStr) {
+                if (currentGroupStr !== '_' && currentGroupStr === otherGroupStr && !seenRowIds.has(String(otherBooking.rowId))) {
                     relatedItems.push({ resourceId: k, booking: otherBooking });
+                    seenRowIds.add(String(otherBooking.rowId));
                 }
             }
         });
+        
+        if (liveData && liveData.bookings) {
+            liveData.bookings.forEach(b => {
+                if (b.status === 'CANCELLED' || b.status === 'NOSHOW' || b.status === 'COMPLETED' || b.status === 'PAID' || b.checkout_status === '已結帳') return;
+                if (b.date !== currentBooking.date) return;
+                
+                const otherGroupStr = getGroupStr(b);
+                if (currentGroupStr !== '_' && currentGroupStr === otherGroupStr && !seenRowIds.has(String(b.rowId))) {
+                    relatedItems.push({ resourceId: `unassigned_${b.rowId}`, booking: b });
+                    seenRowIds.add(String(b.rowId));
+                }
+            });
+        }
         
         return relatedItems;
     };
