@@ -230,7 +230,6 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
         return getProcessedStaffList(activeStaffList, statusData, selectedStaff2);
     }, [staffList, statusData, selectedStaff2]);
 
-    const [showPaymentOptions, setShowPaymentOptions] = useState(false);
     const [startTimeStr, setStartTimeStr] = useState("12:00");
 
     const timeStrToMins = (timeStr) => {
@@ -275,7 +274,6 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                 setBlocks1(booking.staff1_blocks || totalBlocks);
             }
 
-            setShowPaymentOptions(false);
             setLocalFlow((meta && meta.sequence) ? meta.sequence : (booking.flow || 'FB'));
 
             setIsPhase1Locked(booking.phase1_locked === "TRUE" || booking.phase1_locked === true);
@@ -898,14 +896,11 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
     const triggerAction = (actionType, payload = {}) => {
         const fullPayload = { ...payload, bookingId: booking.rowId, currentBooking: booking, resourceId: contextResourceId, currentMeta: meta };
         onAction(actionType, fullPayload);
-        if (showPaymentOptions) setShowPaymentOptions(false);
     };
 
     const handleFinishRequest = (e) => {
         if (e) e.stopPropagation();
-        const pax = parseInt(booking.pax) || 1;
-        if (pax > 1) setShowPaymentOptions(true);
-        else triggerAction('FINISH', { scope: 'INDIVIDUAL' });
+        triggerAction('FINISH');
     };
 
     const isRunning = liveData && liveData.isRunning;
@@ -1580,29 +1575,7 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                     </div>
                 </div>
 
-                {showPaymentOptions && (
-                    <div className="absolute inset-0 z-[3010] bg-slate-900/95 flex flex-col items-center justify-center p-6 animate-in fade-in zoom-in duration-200">
-                        <div className="w-full max-w-sm bg-white rounded-2xl shadow-2xl overflow-hidden">
-                            <div className="bg-indigo-600 p-4 text-center">
-                                <h3 className="text-white font-bold text-xl">結帳方式選擇</h3>
-                                <p className="text-indigo-200 text-sm mt-1">{booking.customerName} ({booking.pax} 人)</p>
-                            </div>
-                            <div className="p-6 space-y-4">
-                                <button onClick={() => triggerAction('FINISH', { scope: 'INDIVIDUAL' })} className="w-full py-4 bg-white border-2 border-indigo-100 hover:border-indigo-500 hover:bg-indigo-50 rounded-xl flex items-center p-4 transition-all group transform active:scale-95">
-                                    <div className="w-12 h-12 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center text-xl mr-4 group-hover:scale-110 transition-transform"><i className="fas fa-user"></i></div>
-                                    <div className="text-left"><div className="font-bold text-slate-800 text-lg">分開結帳</div><div className="text-xs text-slate-500">只結算此位客人的費用</div></div>
-                                </button>
-                                <button onClick={() => triggerAction('FINISH', { scope: 'GROUP' })} className="w-full py-4 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-xl flex items-center p-4 shadow-lg hover:shadow-xl hover:from-blue-500 hover:to-indigo-500 transition-all group transform active:scale-95">
-                                    <div className="w-12 h-12 rounded-full bg-white/20 flex items-center justify-center text-xl mr-4 group-hover:scale-110 transition-transform"><i className="fas fa-users"></i></div>
-                                    <div className="text-left"><div className="font-bold text-white text-lg">團體結帳</div><div className="text-xs text-blue-100">結算全體 {booking.pax} 位客人的總費用</div></div>
-                                </button>
-                            </div>
-                            <div className="bg-slate-50 p-3 text-center border-t border-slate-200">
-                                <button onClick={() => setShowPaymentOptions(false)} className="text-slate-500 hover:text-slate-700 text-sm font-bold underline">取消</button>
-                            </div>
-                        </div>
-                    </div>
-                )}
+
             </div>
         </div>
     );

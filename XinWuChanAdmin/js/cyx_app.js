@@ -428,39 +428,32 @@ const App = () => {
             });
     };
 
+    const getGroupStr = (b) => {
+        if (!b) return '_';
+        const rawName = b.customerName || b.originalName || b.name || b.custName || '';
+        const rootName = rawName.split('(')[0].trim();
+        const rootPhone = (b.sdt || b.phone || b.custPhone || '').trim();
+        return `${rootName}_${rootPhone}`;
+    };
+
     const findRelatedWaitingBookings = (currentBooking, excludeResourceId) => {
         if (!currentBooking) return [];
         const currentRowId = String(currentBooking.rowId);
-        const currentPhone = getNormalizedPhone(currentBooking);
-        
-        const hasGroupSuffix = (name) => /\(\d+\/\d+\)/.test(name || "");
-        const getBaseName = (name) => {
-            if (!name) return "";
-            return name.replace(/\(\d+\/\d+\)/, '').trim().toLowerCase();
-        };
-        const currentHasSuffix = hasGroupSuffix(currentBooking.customerName);
-        const currentNameBase = getBaseName(currentBooking.customerName);
+        const currentGroupStr = getGroupStr(currentBooking);
 
         const mappedFromResource = [];
-        const seenMappedRowIds = new Set([currentRowId]); // LOẠI BỎ CHÍNH NÓ (Ngăn bóng ma Phase 2 của Combo tự nhận diện)
+        const seenMappedRowIds = new Set([currentRowId]); 
         
         Object.keys(resourceState).forEach(k => {
             if (k !== excludeResourceId && !resourceState[k].isRunning && resourceState[k].isPreview === true) {
-                // [NÂNG CẤP V1.5] Bỏ qua Phase 2 của Combo (Chỉ lấy tài nguyên Phase 1 để bắt đầu xuất phát đúng Ghế/Giường)
                 if (resourceState[k].comboMeta && resourceState[k].comboMeta.phase === 2) return;
 
                 const otherBooking = resourceState[k].booking;
                 const otherRowId = String(otherBooking.rowId);
-                const otherPhone = getNormalizedPhone(otherBooking);
+                const otherGroupStr = getGroupStr(otherBooking);
                 
                 if (!seenMappedRowIds.has(otherRowId)) {
-                    const isSamePhone = currentPhone && currentPhone.length >= 4 && currentPhone === otherPhone;
-                    
-                    const otherHasSuffix = hasGroupSuffix(otherBooking.customerName);
-                    const otherNameBase = getBaseName(otherBooking.customerName);
-                    const isSameNameGroup = currentHasSuffix && otherHasSuffix && currentNameBase && currentNameBase === otherNameBase;
-
-                    if (isSamePhone || isSameNameGroup) {
+                    if (currentGroupStr !== '_' && currentGroupStr === otherGroupStr) {
                         seenMappedRowIds.add(otherRowId);
                         mappedFromResource.push({ resourceId: k, booking: otherBooking });
                     }
@@ -475,15 +468,10 @@ const App = () => {
             if (b.isDoneStatus || b.isRunningStatus) return false;
             if (mappedRowIds.has(String(b.rowId))) return false;
 
-            // Thêm kiểm tra loại trừ bóng ma chính nó
             if (String(b.rowId) === currentRowId) return false;
 
-            const otherPhone = getNormalizedPhone(b);
-            if (currentPhone && currentPhone.length >= 4 && currentPhone === otherPhone) {
-                // Đã loại bỏ ràng buộc thời gian (t1 === t2). Chỉ duy nhất nhóm theo Số Điện Thoại.
-                return true;
-            }
-            return false;
+            const otherGroupStr = getGroupStr(b);
+            return (currentGroupStr !== '_' && currentGroupStr === otherGroupStr);
         });
 
         const unmappedItems = unmappedBookings.map(b => {
@@ -510,23 +498,16 @@ const App = () => {
 
     const findRelatedForCheckout = (currentBooking, excludeResourceId) => {
         if (!currentBooking) return [];
-        const currentRowId = String(currentBooking.rowId);
-        const currentPhone = getNormalizedPhone(currentBooking);
-
+        const currentGroupStr = getGroupStr(currentBooking);
         const relatedItems = [];
-        const seenRowIds = new Set([currentRowId]); // LOẠI BỎ CHÍNH NÓ LÚC CHECKOUT: Không đếm nó là 1 khách hàng đi cùng
         
         Object.keys(resourceState).forEach(k => {
             if (k !== excludeResourceId && (resourceState[k].isRunning || resourceState[k].isPreview === true)) {
                 const otherBooking = resourceState[k].booking;
-                const otherRowId = String(otherBooking.rowId);
-                const otherPhone = getNormalizedPhone(otherBooking);
+                const otherGroupStr = getGroupStr(otherBooking);
                 
-                if (!seenRowIds.has(otherRowId)) {
-                    if (currentPhone && currentPhone.length >= 4 && currentPhone === otherPhone) {
-                        seenRowIds.add(otherRowId);
-                        relatedItems.push({ resourceId: k, booking: otherBooking });
-                    }
+                if (currentGroupStr !== '_' && currentGroupStr === otherGroupStr) {
+                    relatedItems.push({ resourceId: k, booking: otherBooking });
                 }
             }
         });
@@ -1302,14 +1283,7 @@ const App = () => {
 
             const groupedPending = {};
             pendingBookings.forEach(b => {
-                const timeKey = (b.startTimeString || "").split(' ')[1] || '00:00';
-                const phoneRaw = b.phone || b.sdt || b.custPhone || "";
-                const phoneKey = phoneRaw.replace(/\D/g, '').slice(-6);
-                const nameKey = (b.customerName || "Guest").trim();
-                let groupKey;
-                if (phoneKey.length >= 3) groupKey = `${timeKey}_P_${phoneKey}`;
-                else if (nameKey.length > 0 && nameKey !== 'Guest') groupKey = `${timeKey}_N_${nameKey}`;
-                else groupKey = `ROW_${b.rowId}`;
+                const groupKey = getGroupStr(b);
                 if (!groupedPending[groupKey]) groupedPending[groupKey] = [];
                 groupedPending[groupKey].push(b);
             });
@@ -1643,7 +1617,7 @@ const App = () => {
                 if (finalCheck && finalCheck.valid && finalCheck.hasElasticWarning && finalCheck.warningMsgs && finalCheck.warningMsgs.length > 0) {
                     const confirmResult = await Swal.fire({
                         title: '⚠️ 彈性安排提示',
-                        html: finalCheck.warningMsgs.join('<br>') + '<br><br>請問是否確認接受此彈性安排？',
+                        html: finalCheck.warningMsgs.join('<br>') + '<br><br>請問是否確認此彈性安排？',
                         icon: 'warning',
                         showCancelButton: true,
                         confirmButtonText: '✅ 確認',
@@ -3120,17 +3094,10 @@ const App = () => {
             } });
         }
         else if (action === 'finish') {
-            const related = findRelatedForCheckout(current.booking, id);
-            if (related.length > 0) {
-                setPaymentChoiceData({
-                    resourceId: id,
-                    booking: current.booking,
-                    relatedIds: related.map(r => r.resourceId),
-                    relatedDetails: related
-                });
-            } else {
-                setBillingData({ activeItem: { resourceId: id, booking: current.booking }, relatedItems: [] });
-            }
+            setBillingData({
+                activeItem: { resourceId: id, booking: current.booking },
+                relatedItems: findRelatedForCheckout(current.booking, id)
+            });
         }
     };
 
@@ -3370,25 +3337,10 @@ const App = () => {
                 break;
 
             case 'FINISH':
-                if (targetResourceId && targetBooking) {
-                    const related = findRelatedForCheckout(targetBooking, targetResourceId);
-                    if (related.length > 0) {
-                        setPaymentChoiceData({
-                            resourceId: targetResourceId,
-                            booking: targetBooking,
-                            relatedIds: related.map(r => r.resourceId),
-                            relatedDetails: related
-                        });
-                    } else {
-                        setBillingData({
-                            activeItem: { resourceId: targetResourceId, booking: targetBooking },
-                            relatedItems: []
-                        });
-                    }
-                } else if (targetBooking) {
+                if (targetBooking) {
                     setBillingData({
-                        activeItem: { resourceId: null, booking: targetBooking },
-                        relatedItems: []
+                        activeItem: { resourceId: targetResourceId, booking: targetBooking },
+                        relatedItems: findRelatedForCheckout(targetBooking, targetResourceId)
                     });
                 }
                 setControlCenterData(null);
@@ -4290,59 +4242,7 @@ const App = () => {
                 </div>
             )}
 
-            {paymentChoiceData && (
-                <div className="fixed inset-0 bg-black/60 z-[60] flex items-center justify-center animate-fade-in">
-                    <div className="bg-white rounded-xl shadow-2xl w-[450px] overflow-hidden animate-slide-up border border-slate-200">
-                        <div className="bg-gradient-to-r from-indigo-600 to-blue-600 p-4 text-white">
-                            <h3 className="text-xl font-bold flex items-center">
-                                <i className="fas fa-cash-register mr-2"></i>
-                                結帳方式選擇
-                            </h3>
-                            <p className="text-indigo-100 text-sm mt-1 opacity-90">系統檢測到關聯訂單 (Group Detected)</p>
-                        </div>
-                        <div className="p-6">
-                            <div className="bg-blue-50 p-4 rounded-lg border border-blue-100 mb-5">
-                                <div className="flex justify-between items-center mb-2">
-                                    <span className="font-bold text-blue-800 text-sm">主客 (Main Guest):</span>
-                                    <span className="font-bold text-slate-800">{paymentChoiceData.booking.customerName}</span>
-                                </div>
-                                <div className="border-t border-blue-200 my-2"></div>
-                                <div className="text-xs text-blue-600 font-bold mb-2">關聯床位 (Related Seats) - {paymentChoiceData.relatedIds.length} 位:</div>
-                                <div className="flex flex-wrap gap-2">
-                                    {paymentChoiceData.relatedIds.map(rid => (
-                                        <span key={rid} className="bg-white border border-blue-200 text-blue-700 px-2 py-1 rounded text-xs font-mono font-bold shadow-sm">
-                                            {window.formatResourceLabel(rid, true)}
-                                        </span>
-                                    ))}
-                                </div>
-                            </div>
-                            <div className="space-y-3">
-                                <button
-                                    onClick={() => handleProcessPaymentChoice('COMBINED')}
-                                    className="w-full bg-indigo-600 hover:bg-indigo-700 text-white py-3.5 rounded-lg font-bold flex items-center justify-center gap-3 transition-colors shadow-lg shadow-indigo-200 group"
-                                >
-                                    <div className="bg-white/20 w-8 h-8 rounded-full flex items-center justify-center group-hover:scale-110 transition-transform"><i className="fas fa-users"></i></div>
-                                    <div className="text-left">
-                                        <div className="text-sm leading-tight">合併結帳 (Pay All)</div>
-                                        <div className="text-[10px] opacity-80 font-normal">總共 {paymentChoiceData.relatedIds.length + 1} 位</div>
-                                    </div>
-                                </button>
-                                <button
-                                    onClick={() => handleProcessPaymentChoice('SEPARATE')}
-                                    className="w-full bg-white border-2 border-slate-200 hover:border-indigo-500 hover:bg-indigo-50 text-slate-700 hover:text-indigo-700 py-3.5 rounded-lg font-bold flex items-center justify-center gap-3 transition-all group"
-                                >
-                                    <div className="bg-slate-100 w-8 h-8 rounded-full flex items-center justify-center text-slate-500 group-hover:text-indigo-600 group-hover:bg-indigo-100 transition-colors"><i className="fas fa-user"></i></div>
-                                    <div className="text-left">
-                                        <div className="text-sm leading-tight">分開結帳 (Pay Individual)</div>
-                                        <div className="text-[10px] opacity-80 font-normal">僅結算此位</div>
-                                    </div>
-                                </button>
-                            </div>
-                            <button onClick={() => setPaymentChoiceData(null)} className="w-full mt-6 text-gray-400 hover:text-gray-600 font-bold text-xs uppercase tracking-wider text-center">關閉 / 返回 (Cancel)</button>
-                        </div>
-                    </div>
-                </div>
-            )}
+
 
             {startChoiceData && (
                 <div className="fixed inset-0 bg-black/60 z-[10000] flex items-center justify-center animate-fade-in">
