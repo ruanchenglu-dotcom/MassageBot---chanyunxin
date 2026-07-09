@@ -514,8 +514,8 @@ const App = () => {
             }
         });
         
-        if (liveData && liveData.bookings) {
-            liveData.bookings.forEach(b => {
+        if (bookings) {
+            bookings.forEach(b => {
                 if (b.status === 'CANCELLED' || b.status === 'NOSHOW' || b.status === 'COMPLETED' || b.status === 'PAID' || b.checkout_status === '已結帳') return;
                 if (b.date !== currentBooking.date) return;
                 
