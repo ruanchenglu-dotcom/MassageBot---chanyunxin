@@ -1067,9 +1067,9 @@ const BillingModal = ({ activeItem, relatedItems, onConfirm, onCancel }) => {
 
     return (
         <div className="fixed inset-0 bg-slate-900/90 z-[90] flex items-center justify-center p-4">
-            <div className="bg-white w-full max-w-4xl rounded-2xl shadow-2xl modal-animate overflow-hidden flex flex-col max-h-[95vh]">
+            <div className="bg-white w-full max-w-5xl rounded-2xl shadow-2xl modal-animate overflow-hidden flex flex-col max-h-[95vh]">
                 <div className="bg-emerald-600 p-3 text-white text-center shrink-0"><h3 className="text-xl font-bold flex justify-center items-center gap-2"><i className="fas fa-file-invoice-dollar"></i> 結帳清單</h3></div>
-                <div className="p-4 flex-1 overflow-y-auto custom-scrollbar flex flex-col md:flex-row gap-6">
+                <div className="p-4 flex-1 overflow-y-auto custom-scrollbar flex flex-col lg:flex-row gap-6">
                     <div className="flex-1 space-y-2">{targetItems.map(item => {
                         const b = item.booking || {};
                         const staffDisplay = b.serviceStaff || b.staffId || b.ServiceStaff || b.StaffId || b.technician || '隨機';
@@ -1106,7 +1106,7 @@ const BillingModal = ({ activeItem, relatedItems, onConfirm, onCancel }) => {
                     })}</div>
 
                     {/* PAYMENT METHODS */}
-                    <div className="w-full md:w-[320px] bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-4 shrink-0 h-fit">
+                    <div className="w-full lg:w-[260px] bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-4 shrink-0 h-fit">
                         <h4 className="font-bold text-slate-700 border-b pb-2 mb-2">付款方式</h4>
                         
                         <div className="flex items-center justify-between">
@@ -1124,8 +1124,11 @@ const BillingModal = ({ activeItem, relatedItems, onConfirm, onCancel }) => {
                                 <input type="number" placeholder="0" value={transfer} onChange={(e) => setTransfer(e.target.value)} className="w-24 text-right bg-white border border-slate-300 rounded p-1.5 font-mono font-bold text-lg text-slate-800 focus:outline-none focus:border-emerald-500" />
                             </div>
                         </div>
+                    </div>
 
-                        <div className="border-t pt-3 mt-3">
+                    {/* VOUCHER METHODS */}
+                    <div className="w-full lg:w-[320px] bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-4 shrink-0 h-fit">
+                        <div className="pt-1">
                             <label className="text-slate-600 font-bold text-sm flex items-center gap-2 mb-2"><i className="fas fa-ticket-alt text-orange-500"></i> 票卷折抵</label>
                             <div className="flex flex-col gap-2">
                                 <select 
