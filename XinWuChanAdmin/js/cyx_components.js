@@ -1067,17 +1067,17 @@ const BillingModal = ({ activeItem, relatedItems, onConfirm, onCancel }) => {
 
     return (
         <div className="fixed inset-0 bg-slate-900/90 z-[90] flex items-center justify-center p-4">
-            <div className="bg-white w-full max-w-xl rounded-2xl shadow-2xl modal-animate overflow-hidden flex flex-col max-h-[90vh]">
-                <div className="bg-emerald-600 p-4 text-white text-center shrink-0"><h3 className="text-xl font-bold flex justify-center items-center gap-2"><i className="fas fa-file-invoice-dollar"></i> 結帳清單</h3></div>
+            <div className="bg-white w-full max-w-2xl rounded-2xl shadow-2xl modal-animate overflow-hidden flex flex-col max-h-[95vh]">
+                <div className="bg-emerald-600 p-3 text-white text-center shrink-0"><h3 className="text-xl font-bold flex justify-center items-center gap-2"><i className="fas fa-file-invoice-dollar"></i> 結帳清單</h3></div>
                 <div className="p-4 flex-1 overflow-y-auto custom-scrollbar">
-                    <div className="space-y-3 mb-4">{targetItems.map(item => {
+                    <div className="space-y-2 mb-4">{targetItems.map(item => {
                         const b = item.booking || {};
                         const staffDisplay = b.serviceStaff || b.staffId || b.ServiceStaff || b.StaffId || b.technician || '隨機';
                         const isEditing = editingPriceId === b.rowId;
                         const currentPrice = finalPrices[b.rowId] !== undefined ? finalPrices[b.rowId] : 0;
 
                         return (
-                            <div key={item.resourceId} className="flex flex-col p-3 rounded-lg border border-slate-200 bg-slate-50">
+                            <div key={item.resourceId} className="flex flex-col p-2.5 rounded-lg border border-slate-200 bg-slate-50">
                                 <div className="flex items-center justify-between">
                                     <div className="flex-1">
                                         <div className="font-bold text-slate-800 flex items-center gap-2">{b.customerName} <span className="text-xs text-white bg-indigo-500 px-1.5 py-0.5 rounded shadow-sm">{staffDisplay}</span></div>

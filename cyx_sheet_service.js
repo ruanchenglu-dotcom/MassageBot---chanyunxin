@@ -1131,7 +1131,7 @@ async function updateBookingDetails(body) {
     const resourceType = body.resource_type !== undefined ? body.resource_type : body.resourceType;
     if (resourceType !== undefined) updateCell('AI', resourceType ? String(resourceType).toUpperCase() : "");
 
-    if (body.final_price !== undefined) updateCell('Q', body.final_price);
+    if (body.final_price !== undefined) updateCell('S', body.final_price);
 
     let currentLockState = bookingData ? bookingData.isManualLocked : false;
     let hasManualPhaseChange = false;
@@ -1693,7 +1693,7 @@ async function batchUpdateMultipleBookings(updatesArray) {
             if (resourceType !== undefined) dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!AI${rowId}`, values: [[resourceType ? String(resourceType).toUpperCase() : ""]] });
 
             if (body.final_price !== undefined) {
-                dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!Q${rowId}`, values: [[body.final_price]] });
+                dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!S${rowId}`, values: [[body.final_price]] });
             }
             if (body.cash !== undefined) dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!T${rowId}`, values: [[body.cash]] });
             if (body.transfer !== undefined) dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!U${rowId}`, values: [[body.transfer]] });
