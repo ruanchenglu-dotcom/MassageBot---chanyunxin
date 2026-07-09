@@ -999,7 +999,7 @@ const BillingModal = ({ activeItem, relatedItems, onConfirm, onCancel }) => {
     const [cash, setCash] = useState('');
     const [transfer, setTransfer] = useState('');
     const [selectedBook, setSelectedBook] = useState('');
-    const [selectedVoucher, setSelectedVoucher] = useState('');
+    const [selectedVouchers, setSelectedVouchers] = useState([]);
     const [vouchersData, setVouchersData] = useState([]);
     const [loadingVouchers, setLoadingVouchers] = useState(false);
 
@@ -1056,8 +1056,10 @@ const BillingModal = ({ activeItem, relatedItems, onConfirm, onCancel }) => {
     }
 
     const totalAmount = calculateTotal();
-    const activeVoucher = vouchersData.find(b => b.id === selectedBook)?.unusedVouchers?.find(v => v.id === selectedVoucher);
-    const voucherValue = activeVoucher ? activeVoucher.faceValue : 0;
+    const voucherValue = selectedVouchers.reduce((sum, vId) => {
+        const v = vouchersData.find(b => b.id === selectedBook)?.unusedVouchers?.find(item => item.id === vId);
+        return sum + (v ? parseInt(v.faceValue) || 0 : 0);
+    }, 0);
     const cashVal = parseInt(cash) || 0;
     const transferVal = parseInt(transfer) || 0;
     const totalPaid = cashVal + transferVal + voucherValue;
@@ -1065,7 +1067,7 @@ const BillingModal = ({ activeItem, relatedItems, onConfirm, onCancel }) => {
 
     return (
         <div className="fixed inset-0 bg-slate-900/90 z-[90] flex items-center justify-center p-4">
-            <div className="bg-white w-full max-w-md rounded-2xl shadow-2xl modal-animate overflow-hidden flex flex-col max-h-[90vh]">
+            <div className="bg-white w-full max-w-xl rounded-2xl shadow-2xl modal-animate overflow-hidden flex flex-col max-h-[90vh]">
                 <div className="bg-emerald-600 p-4 text-white text-center shrink-0"><h3 className="text-xl font-bold flex justify-center items-center gap-2"><i className="fas fa-file-invoice-dollar"></i> 結帳清單</h3></div>
                 <div className="p-4 flex-1 overflow-y-auto custom-scrollbar">
                     <div className="space-y-3 mb-4">{targetItems.map(item => {
@@ -1124,34 +1126,51 @@ const BillingModal = ({ activeItem, relatedItems, onConfirm, onCancel }) => {
                         </div>
 
                         <div className="border-t pt-3 mt-3">
-                            <label className="text-slate-600 font-bold text-sm flex items-center gap-2 mb-2"><i className="fas fa-ticket-alt text-orange-500"></i> 票卷</label>
-                            <div className="flex gap-2">
+                            <label className="text-slate-600 font-bold text-sm flex items-center gap-2 mb-2"><i className="fas fa-ticket-alt text-orange-500"></i> 票卷折抵</label>
+                            <div className="flex flex-col gap-2">
                                 <select 
-                                    className="flex-1 bg-white border border-slate-300 rounded p-2 text-sm focus:outline-none focus:border-emerald-500"
+                                    className="w-full bg-white border border-slate-300 rounded p-2 text-sm focus:outline-none focus:border-emerald-500 font-bold"
                                     value={selectedBook}
-                                    onChange={(e) => { setSelectedBook(e.target.value); setSelectedVoucher(''); }}
+                                    onChange={(e) => { setSelectedBook(e.target.value); setSelectedVouchers([]); }}
                                     disabled={loadingVouchers}
                                 >
-                                    <option value="">-- 選擇票卷本 --</option>
+                                    <option value="">-- 請選擇票卷本 --</option>
                                     {vouchersData.map(b => (
-                                        <option key={b.id} value={b.id}>{b.id} (剩 {b.unusedVouchers.length} 張)</option>
+                                        <option key={b.id} value={b.id}>{b.id} (剩餘 {b.unusedVouchers.length} 張)</option>
                                     ))}
                                 </select>
-                                <select 
-                                    className="flex-1 bg-white border border-slate-300 rounded p-2 text-sm focus:outline-none focus:border-emerald-500"
-                                    value={selectedVoucher}
-                                    onChange={(e) => setSelectedVoucher(e.target.value)}
-                                    disabled={!selectedBook}
-                                >
-                                    <option value="">-- 選擇票卷 --</option>
-                                    {selectedBook && vouchersData.find(b => b.id === selectedBook)?.unusedVouchers.map(v => (
-                                        <option key={v.id} value={v.id}>{v.id} (${v.faceValue})</option>
-                                    ))}
-                                </select>
+                                
+                                {selectedBook && (
+                                    <div className="mt-2 bg-slate-100 p-3 rounded-lg border border-slate-200">
+                                        <div className="text-xs text-slate-500 mb-2 font-bold">請勾選要使用的票卷：</div>
+                                        <div className="grid grid-cols-2 gap-2 max-h-40 overflow-y-auto custom-scrollbar pr-1">
+                                            {vouchersData.find(b => b.id === selectedBook)?.unusedVouchers.map(v => (
+                                                <label key={v.id} className={`flex items-center gap-2 text-sm p-2 border rounded cursor-pointer transition-colors ${selectedVouchers.includes(v.id) ? 'bg-orange-100 border-orange-400 text-orange-800 font-bold' : 'bg-white border-slate-300 hover:bg-slate-50'}`}>
+                                                    <input 
+                                                        type="checkbox" 
+                                                        className="w-4 h-4 text-orange-500 rounded focus:ring-orange-500"
+                                                        checked={selectedVouchers.includes(v.id)}
+                                                        onChange={(e) => {
+                                                            if (e.target.checked) {
+                                                                setSelectedVouchers([...selectedVouchers, v.id]);
+                                                            } else {
+                                                                setSelectedVouchers(selectedVouchers.filter(id => id !== v.id));
+                                                            }
+                                                        }}
+                                                    />
+                                                    <span className="truncate">{v.id} (${v.faceValue})</span>
+                                                </label>
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
                             </div>
-                            {voucherValue > 0 && (
-                                <div className="text-right text-orange-600 font-bold text-sm mt-1">
-                                    票卷折抵: -${voucherValue}
+                            {selectedVouchers.length > 0 && (
+                                <div className="flex justify-between items-center mt-3 p-2 bg-orange-50 rounded border border-orange-200">
+                                    <div className="text-orange-700 font-bold text-sm">已選 {selectedVouchers.length} 張</div>
+                                    <div className="text-right text-orange-600 font-black text-lg">
+                                        折抵: -${voucherValue}
+                                    </div>
                                 </div>
                             )}
                         </div>
@@ -1172,7 +1191,7 @@ const BillingModal = ({ activeItem, relatedItems, onConfirm, onCancel }) => {
                     )}
 
                     <button 
-                        onClick={() => onConfirm(targetItems, totalAmount, finalPrices, { cash: cashVal, transfer: transferVal, voucher: selectedVoucher || null })} 
+                        onClick={() => onConfirm(targetItems, totalAmount, finalPrices, { cash: cashVal, transfer: transferVal, voucher: selectedVouchers.length > 0 ? selectedVouchers : null })} 
                         className="w-full p-4 rounded-xl font-bold bg-emerald-600 text-white hover:bg-emerald-700 shadow-lg text-lg flex justify-center items-center gap-2 transition-transform hover:scale-[1.02]"
                     >
                         ✅ 確認收款

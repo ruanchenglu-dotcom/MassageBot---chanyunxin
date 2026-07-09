@@ -1184,7 +1184,14 @@ app.post('/api/batch-process-bookings', async (req, res) => {
         const todayStr = SheetService.normalizeDateStrict(SheetService.getTaipeiNow());
         for (const payload of req.body.payloads) {
             if (payload.voucher) {
-                await SheetService.markVoucherUsed(payload.voucher, todayStr);
+                if (Array.isArray(payload.voucher)) {
+                    for (const v of payload.voucher) {
+                        await SheetService.markVoucherUsed(v, todayStr);
+                    }
+                    payload.voucher = payload.voucher.join(', ');
+                } else {
+                    await SheetService.markVoucherUsed(payload.voucher, todayStr);
+                }
             }
         }
         
