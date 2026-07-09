@@ -1833,11 +1833,17 @@ const TimelineView = ({ timelineData, onEditPhase, liveStatusData, staffList, st
         "bg-slate-200 text-slate-900 border-slate-300 hover:bg-slate-300"
     ];
 
-    const getRowIdColor = (rowId) => {
-        if (!rowId) return colorPalette[0];
+    const getGroupColor = (booking) => {
+        if (!booking) return colorPalette[0];
+        const rawName = booking.customerName || booking.originalName || booking.name || booking.custName || '';
+        const rootName = rawName.split('(')[0].trim();
+        const rootPhone = (booking.sdt || booking.phone || booking.custPhone || '').trim();
+        const groupStr = `${rootName}_${rootPhone}`;
+        
+        if (!groupStr || groupStr === '_') return colorPalette[0];
+        
         let hash = 0;
-        const str = String(rowId);
-        for (let i = 0; i < str.length; i++) { hash = str.charCodeAt(i) + ((hash << 5) - hash); }
+        for (let i = 0; i < groupStr.length; i++) { hash = groupStr.charCodeAt(i) + ((hash << 5) - hash); }
         const index = Math.abs(hash) % colorPalette.length;
         return colorPalette[index];
     };
@@ -2046,7 +2052,7 @@ const TimelineView = ({ timelineData, onEditPhase, liveStatusData, staffList, st
                                             const startOffset = startMins - (startHour * 60);
                                             const leftPos = startOffset * PIXELS_PER_MIN;
                                             const width = duration * PIXELS_PER_MIN;
-                                            let bgClass = getRowIdColor(slot.booking.rowId);
+                                            let bgClass = getGroupColor(booking);
 
                                             const label = getDisplayLabel(booking);
                                             const isYouTui = booking.isYouTui || (booking.serviceName && booking.serviceName.includes('油'));
