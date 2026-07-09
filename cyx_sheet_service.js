@@ -1954,7 +1954,6 @@ function columnToLetter(column) {
 
 async function getUnusedVouchers() {
     try {
-        const sheets = getGoogleSheetsClient();
         const res = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: '票卷!A:ZZ' });
         const rows = res.data.values || [];
         const books = {};
@@ -2003,7 +2002,6 @@ async function getUnusedVouchers() {
 
 async function markVoucherUsed(voucherId, dateStr) {
     try {
-        const sheets = getGoogleSheetsClient();
         const res = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: '票卷!A:ZZ' });
         const rows = res.data.values || [];
         

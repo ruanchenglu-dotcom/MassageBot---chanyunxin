@@ -989,7 +989,7 @@ window.AvailabilityCheckModal = AvailabilityCheckModal;
  */
 const BillingModal = ({ activeItem, relatedItems, onConfirm, onCancel }) => {
     const hasGroup = relatedItems && relatedItems.length > 0;
-    const [step, setStep] = useState('CONFIRM'); // Bỏ qua step CHOICE thừa thãi
+    const [step, setStep] = useState(hasGroup ? 'CHOICE' : 'CONFIRM');
     const [targetItems, setTargetItems] = useState(hasGroup ? [activeItem, ...relatedItems] : [activeItem]);
 
     const [finalPrices, setFinalPrices] = useState({});
