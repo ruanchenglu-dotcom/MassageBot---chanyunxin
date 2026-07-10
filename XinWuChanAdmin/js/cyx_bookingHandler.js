@@ -2623,7 +2623,15 @@ console.log('DEBUG_SPLITS:', { duration, eStep, eLimit, svc, testFlow, splitsToT
             } catch (err) { Swal.fire('系統提示', "儲存失敗：" + (err.response?.data?.error || err.message), 'error'); setIsSubmitting(false); }
         };
 
-        const HOURS_LIST = ['05', '06', '07', '08', '09', '10', '11', '12', '13', '14', '15', '16', '17', '18', '19', '20', '21', '22', '23', '00', '01', '02', '03', '04'];
+        const configTime = window.SYSTEM_CONFIG?.OPERATION_TIME || { OPEN_HOUR: 8, CUT_OFF_HOUR: 2 };
+        const HOURS_LIST = [];
+        let endDisplayHr = (configTime.CUT_OFF_HOUR - 1 + 24) % 24;
+        let currentHr = configTime.OPEN_HOUR;
+        for (let i = 0; i < 24; i++) {
+            HOURS_LIST.push(String(currentHr).padStart(2, '0'));
+            if (currentHr === endDisplayHr) break;
+            currentHr = (currentHr + 1) % 24;
+        }
         const MINUTES_STEP = ['00', '05', '10', '15', '20', '25', '30', '35', '40', '45', '50', '55'];
         const [cH, cM] = (form.time || "12:00").split(':');
 
