@@ -1581,8 +1581,45 @@ const App = () => {
         fetchData(true);
     };
 
-    const handleInlineUpdate = async (rowId, updatedData, isSilent = false) => {
+    const handleInlineUpdate = async (rowIdOrIds, updatedData, isSilent = false) => {
         try {
+            if (Array.isArray(rowIdOrIds)) {
+                if (updatedData.nhanVien !== undefined) updatedData.nhanVien = normalizeStaffId(updatedData.nhanVien);
+                if (updatedData.requestedStaff !== undefined) updatedData.requestedStaff = normalizeStaffId(updatedData.requestedStaff);
+
+                if (!isSilent) {
+                    Swal.fire({
+                        title: '整組資料儲存中，請稍候...',
+                        allowOutsideClick: false,
+                        didOpen: () => {
+                            Swal.showLoading();
+                        }
+                    });
+                }
+
+                const res = await axios.post('/api/inline-update-group', {
+                    rowIds: rowIdOrIds,
+                    updatedData: updatedData
+                });
+
+                if (res.data && res.data.error) {
+                    throw new Error(res.data.error);
+                }
+
+                rowIdOrIds.forEach(id => {
+                    if (localOverridesRef.current[String(id)]) {
+                        delete localOverridesRef.current[String(id)];
+                    }
+                });
+
+                if (!isSilent) {
+                    Swal.close();
+                    fetchData(true);
+                }
+                return;
+            }
+
+            const rowId = rowIdOrIds;
             const currentBooking = bookings.find(b => String(b.rowId) === String(rowId));
             if (currentBooking) {
                 const isYouTuiToggledOn = updatedData.isYouTui === true && !currentBooking.isYouTui;

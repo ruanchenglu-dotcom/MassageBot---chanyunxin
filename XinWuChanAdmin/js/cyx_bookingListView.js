@@ -16,6 +16,8 @@
         const [editFormData, setEditFormData] = useState({});
         const [scanStatus, setScanStatus] = useState(null);
         const [scanMessage, setScanMessage] = useState('');
+        const [isGroupUpdate, setIsGroupUpdate] = useState(false);
+        const [changedFields, setChangedFields] = useState({});
         const [checkinPhoneFilter, setCheckinPhoneFilter] = useState('');
 
         const handleCheckinClick = () => {
@@ -138,6 +140,8 @@
             setEditingRowId(booking.rowId);
             setScanStatus(null);
             setScanMessage('');
+            setIsGroupUpdate(false);
+            setChangedFields({});
 
             // Xử lý tách chuỗi để hiển thị trên form cho đúng (Ngày và Giờ)
             const dateTimeParts = (booking.startTimeString || ' ').split(' ');
@@ -173,6 +177,8 @@
             setEditFormData({});
             setScanStatus(null);
             setScanMessage('');
+            setIsGroupUpdate(false);
+            setChangedFields({});
         };
 
         // Xử lý thay đổi dữ liệu trong ô input
@@ -180,10 +186,12 @@
             setEditFormData(prev => ({ ...prev, [field]: value }));
             setScanStatus(null);
             setScanMessage('');
+            setIsGroupUpdate(false);
+            setChangedFields({});
         };
 
         // Hàm kiểm tra khả dụng (Strict Scan)
-        const performStrictCheck = () => {
+        const performStrictCheck = async () => {
             const getMins = (timeStr) => {
                 if (!timeStr) return 0;
                 const [h, m] = timeStr.split(':').map(Number);
@@ -199,11 +207,6 @@
                 return 60;
             };
 
-            const startMins = getMins(editFormData.time);
-            const duration = getDuration(editFormData.service);
-            const endMins = startMins + duration;
-
-            // Lấy danh mục dịch vụ thông minh (Smart Category Detection)
             const getServiceCategory = (serviceName) => {
                 if (!serviceName) return 'BODY';
                 if (window.SERVICES_DATA) {
@@ -219,46 +222,109 @@
                 return 'BODY';
             };
 
-            const editServiceCategory = getServiceCategory(editFormData.service);
             const currentBookingObj = safeBookings.find(b => b.rowId === editingRowId);
-            const currentPax = currentBookingObj ? (parseInt(currentBookingObj.pax, 10) || 1) : 1;
+            if (!currentBookingObj) return;
 
-            // Tính toán khoảng thời gian cho từng Phase nếu là Combo
-            let editPhase1End = startMins + duration;
-            let isComboEdit = editServiceCategory === 'COMBO';
+            let detectedChanges = {};
+            const origDate = currentBookingObj.date || (currentBookingObj.startTimeString ? currentBookingObj.startTimeString.split(' ')[0].replace(/\//g, '-') : '');
+            if (editFormData.date !== origDate) detectedChanges.ngayDen = editFormData.date.replace(/-/g, '/');
             
-            if (isComboEdit) {
-                const getSmartSplit = window.getComboSplit || ((dur) => {
-                    if (dur === 130) return { phase1: 70, phase2: 60 };
-                    if (dur === 120) return { phase1: 70, phase2: 50 };
-                    if (dur === 110) return { phase1: 70, phase2: 40 };
-                    if (dur === 100) return { phase1: 60, phase2: 40 };
-                    return { phase1: Math.floor(dur / 2), phase2: dur - Math.floor(dur / 2) };
-                });
-                const split = getSmartSplit(duration);
-                editPhase1End = startMins + split.phase1;
+            const origTime = (currentBookingObj.startTimeString || ' ').split(' ')[1] ? (currentBookingObj.startTimeString || ' ').split(' ')[1].substring(0, 5) : (currentBookingObj.startTime || '12:00').substring(0, 5);
+            if (editFormData.time !== origTime) detectedChanges.gioDen = editFormData.time;
+            
+            if (editFormData.service !== currentBookingObj.serviceName) detectedChanges.dichVu = editFormData.service;
+            if (editFormData.isYouTui !== (currentBookingObj.isYouTui === true || currentBookingObj.isYouTui === 'Yes' || (currentBookingObj.serviceName || '').includes('油'))) detectedChanges.isYouTui = editFormData.isYouTui;
+            if (editFormData.isGuaSha !== (currentBookingObj.isGuaSha === true || currentBookingObj.isGuaSha === 'Yes')) detectedChanges.isGuaSha = editFormData.isGuaSha;
+            if (editFormData.status !== currentBookingObj.status) detectedChanges.trangThai = editFormData.status;
+            
+            const origPhone = currentBookingObj.phone || currentBookingObj.sdt || currentBookingObj.custPhone || '';
+            if (editFormData.phone !== origPhone) detectedChanges.sdt = editFormData.phone;
+            
+            const rawName = currentBookingObj.originalName || currentBookingObj.customerName || '';
+            const nameMatch = rawName.match(/^(.*?)(?:\s*(\(\d+\/\d+\)))?$/);
+            const cleanName = nameMatch && nameMatch[1] ? nameMatch[1].trim() : rawName.split('(')[0].trim();
+            if (editFormData.name !== cleanName) detectedChanges.hoTenBase = editFormData.name;
+            
+            const origStaff = currentBookingObj.staffId || '隨機';
+            if (editFormData.staff !== origStaff) detectedChanges.nhanVien = editFormData.staff;
+
+            let applyingToGroup = false;
+            let groupMembers = [];
+            
+            if (Object.keys(detectedChanges).length > 0 && currentBookingObj.groupKey) {
+                groupMembers = safeBookings.filter(b => b.groupKey === currentBookingObj.groupKey);
+                if (groupMembers.length > 1) {
+                    const result = await Swal.fire({
+                        title: '⚠️ 發現同組客人',
+                        text: `您修改了預約資料。請問是要將這些變更套用到這 ${groupMembers.length} 位顧客的整組預約，還是僅修改目前這位？`,
+                        icon: 'question',
+                        showCancelButton: true,
+                        showDenyButton: true,
+                        confirmButtonText: '✅ 整組套用',
+                        denyButtonText: '👤 僅修改這位',
+                        cancelButtonText: '❌ 取消'
+                    });
+
+                    if (result.isDismissed) {
+                        return; // Cancelled check
+                    }
+                    if (result.isConfirmed) {
+                        applyingToGroup = true;
+                        setIsGroupUpdate(true);
+                        setChangedFields(detectedChanges);
+                    }
+                }
             }
 
-            // Lọc ra các booking của ngày đang sửa (Bỏ qua chính nó)
+            const membersToSimulate = applyingToGroup ? groupMembers : [currentBookingObj];
+
             const todays = safeBookings.filter(b => {
-                if (b.rowId === editingRowId) return false;
+                if (membersToSimulate.some(m => m.rowId === b.rowId)) return false;
                 const bStatus = b.status || '';
                 const isCancelled = bStatus === STATUS.CANCELLED || bStatus.includes('取消') || bStatus.includes('Cancel');
                 const isNoShow = bStatus === STATUS.NOSHOW || bStatus.includes('爽約') || bStatus.toUpperCase().includes('NOSHOW');
                 const isDone = bStatus === STATUS.COMPLETED || bStatus.includes('完成') || bStatus.includes('✅');
-                
                 return !isCancelled && !isNoShow && !isDone;
             });
 
-            // 1. Staff Capacity Check
             const totalStaffCapacity = (staffList || []).length;
             let maxConcurrency = 0;
-            
-            // 2. Resource Check (Tách biệt theo từng Phase 5 phút)
             let maxChairOcc = 0;
             let maxBedOcc = 0;
 
-            for (let t = startMins; t < endMins; t += 5) {
+            let checkStartMins = 9999;
+            let checkEndMins = 0;
+
+            const simInfos = membersToSimulate.map(m => {
+                const mOrigTime = (m.startTimeString || ' ').split(' ')[1] ? (m.startTimeString || ' ').split(' ')[1].substring(0, 5) : (m.startTime || '12:00').substring(0, 5);
+                const mTime = applyingToGroup && detectedChanges.gioDen ? detectedChanges.gioDen : (m.rowId === editingRowId ? editFormData.time : mOrigTime);
+                const mService = applyingToGroup && detectedChanges.dichVu ? detectedChanges.dichVu : (m.rowId === editingRowId ? editFormData.service : m.serviceName);
+                
+                const mStartMins = getMins(mTime);
+                const mDuration = getDuration(mService);
+                const mCat = getServiceCategory(mService);
+                const mPax = parseInt(m.pax, 10) || 1;
+                
+                let mPhase1End = mStartMins + mDuration;
+                if (mCat === 'COMBO') {
+                    const getSmartSplit = window.getComboSplit || ((dur) => {
+                        if (dur === 130) return { phase1: 70, phase2: 60 };
+                        if (dur === 120) return { phase1: 70, phase2: 50 };
+                        if (dur === 110) return { phase1: 70, phase2: 40 };
+                        if (dur === 100) return { phase1: 60, phase2: 40 };
+                        return { phase1: Math.floor(dur / 2), phase2: dur - Math.floor(dur / 2) };
+                    });
+                    const split = getSmartSplit(mDuration);
+                    mPhase1End = mStartMins + split.phase1;
+                }
+                
+                if (mStartMins < checkStartMins) checkStartMins = mStartMins;
+                if (mStartMins + mDuration > checkEndMins) checkEndMins = mStartMins + mDuration;
+                
+                return { mStartMins, mDuration, mCat, mPax, mPhase1End };
+            });
+
+            for (let t = checkStartMins; t < checkEndMins; t += 5) {
                 let currentLoad = 0;
                 let currentChairLoad = 0;
                 let currentBedLoad = 0;
@@ -288,19 +354,21 @@
                     }
                 });
 
-                // Cộng thêm Booking đang edit
-                const totalLoadAtT = currentLoad + currentPax;
-                if (totalLoadAtT > maxConcurrency) maxConcurrency = totalLoadAtT;
+                simInfos.forEach(info => {
+                    if (t >= info.mStartMins && t < info.mStartMins + info.mDuration) {
+                        currentLoad += info.mPax;
+                        if (info.mCat === 'COMBO') {
+                            if (t < info.mPhase1End) currentChairLoad += info.mPax;
+                            else currentBedLoad += info.mPax;
+                        } else if (info.mCat === 'FOOT') {
+                            currentChairLoad += info.mPax;
+                        } else {
+                            currentBedLoad += info.mPax;
+                        }
+                    }
+                });
 
-                if (isComboEdit) {
-                    if (t < editPhase1End) currentChairLoad += currentPax;
-                    else currentBedLoad += currentPax;
-                } else if (editServiceCategory === 'FOOT') {
-                    currentChairLoad += currentPax;
-                } else {
-                    currentBedLoad += currentPax;
-                }
-
+                if (currentLoad > maxConcurrency) maxConcurrency = currentLoad;
                 if (currentChairLoad > maxChairOcc) maxChairOcc = currentChairLoad;
                 if (currentBedLoad > maxBedOcc) maxBedOcc = currentBedLoad;
             }
@@ -322,17 +390,16 @@
                 return;
             }
 
-            // 3. Specific Staff Check & Gender Check
             const reqStaff = editFormData.staff;
             
-            if (reqStaff && reqStaff !== '隨機') {
+            if (reqStaff && reqStaff !== '隨機' && !applyingToGroup) {
                 const checkStaffBusy = (staffId) => {
                     const cleanTargetStaff = (window.normalizeStaffId ? window.normalizeStaffId(staffId) : staffId.trim()).toUpperCase();
                     return todays.some(b => {
                         const bTimeStr = (b.startTimeString || ' ').split(' ')[1] || '00:00';
                         const bStart = getMins(bTimeStr);
                         const bEnd = bStart + getDuration(b.serviceName);
-                        const isTimeConflict = (startMins < bEnd && endMins > bStart);
+                        const isTimeConflict = (checkStartMins < bEnd && checkEndMins > bStart);
                         
                         const staffCols = [b.serviceStaff, b.staffId, b.staffId2, b.staffId3, b.technician];
                         return isTimeConflict && staffCols.some(s => s && (window.normalizeStaffId ? window.normalizeStaffId(s) : s.trim()).toUpperCase() === cleanTargetStaff);
@@ -347,7 +414,7 @@
                     let shiftEnd = getMins(staffInfo.end);
                     if (shiftEnd < shiftStart) shiftEnd += 1440;
                     
-                    return (startMins >= shiftStart && startMins < shiftEnd);
+                    return (checkStartMins >= shiftStart && checkStartMins < shiftEnd);
                 };
 
                 const isGenderReq = ['男', '女', '男師', '女師', 'MALE', 'FEMALE'].includes(reqStaff);
@@ -391,14 +458,11 @@
                 }
             }
 
-            // 4. Specific Resource Check (Coordinate Check)
             const currentRes = currentBookingObj ? (currentBookingObj.phase1_res_idx || currentBookingObj.allocated_resource) : null;
-            if (currentRes) {
+            if (currentRes && !applyingToGroup) {
                 const oldService = currentBookingObj.serviceName || '';
                 const oldCat = getServiceCategory(oldService);
-                
-                // Nâng cấp: Bỏ qua kiểm tra trùng tọa độ nếu chuyển đổi sang Combo hoặc từ Combo về Single
-                // (Vì backend sẽ tự động tháo tọa độ cũ để VirtualMatrix xếp lại vị trí mới hoàn hảo)
+                const editServiceCategory = getServiceCategory(editFormData.service);
                 const isSameCategory = (oldCat === editServiceCategory) && (editServiceCategory !== 'COMBO');
 
                 if (isSameCategory) {
@@ -406,7 +470,7 @@
                         const bTimeStr = (b.startTimeString || ' ').split(' ')[1] || '00:00';
                         const bStart = getMins(bTimeStr);
                         const bEnd = bStart + getDuration(b.serviceName);
-                        const isTimeConflict = (startMins < bEnd && endMins > bStart);
+                        const isTimeConflict = (checkStartMins < bEnd && checkEndMins > bStart);
                         
                         const bResStr = b.phase1_res_idx || b.allocated_resource || '';
                         const bResArray = [...bResStr.toString().matchAll(/((?:BED|CHAIR)[-_ ]?\d+)/gi)].map(m => m[1].toUpperCase());
@@ -435,21 +499,27 @@
                 return;
             }
 
-            // Đóng gói dữ liệu để gửi lên server
-            const payload = {
-                ngayDen: editFormData.date.replace(/-/g, '/'), // Chuyển lại về YYYY/MM/DD
-                gioDen: editFormData.time,
-                hoTen: editFormData.nameSuffix ? `${editFormData.name} ${editFormData.nameSuffix}`.trim() : editFormData.name,
-                dichVu: editFormData.service,
-                isYouTui: editFormData.isYouTui,
-                isGuaSha: editFormData.isGuaSha,
-                sdt: editFormData.phone,
-                trangThai: editFormData.status,
-                nhanVien: editFormData.staff
-            };
+            if (isGroupUpdate) {
+                const currentBookingObj = safeBookings.find(b => b.rowId === editingRowId);
+                const groupMembers = safeBookings.filter(b => b.groupKey === currentBookingObj.groupKey);
+                const rowIds = groupMembers.map(m => m.rowId);
+                onInlineUpdate(rowIds, changedFields, false);
+            } else {
+                const payload = {
+                    ngayDen: editFormData.date.replace(/-/g, '/'),
+                    gioDen: editFormData.time,
+                    hoTen: editFormData.nameSuffix ? `${editFormData.name} ${editFormData.nameSuffix}`.trim() : editFormData.name,
+                    dichVu: editFormData.service,
+                    isYouTui: editFormData.isYouTui,
+                    isGuaSha: editFormData.isGuaSha,
+                    sdt: editFormData.phone,
+                    trangThai: editFormData.status,
+                    nhanVien: editFormData.staff
+                };
+                onInlineUpdate(editingRowId, payload, false);
+            }
 
-            onInlineUpdate(editingRowId, payload);
-            setEditingRowId(null); // Tắt chế độ chỉnh sửa ngay lập tức (Optimistic UI)
+            setEditingRowId(null);
         };
 
         return (

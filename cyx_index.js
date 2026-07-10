@@ -1129,6 +1129,26 @@ app.post('/api/inline-update-booking', async (req, res) => {
     }
 });
 
+// --- API: INLINE UPDATE GROUP ---
+app.post('/api/inline-update-group', async (req, res) => {
+    const releaseLock = await SheetService.bookingLock.acquire();
+    try {
+        const { rowIds, updatedData } = req.body;
+        if (!rowIds || !Array.isArray(rowIds) || !updatedData) {
+            return res.status(400).json({ success: false, error: '缺少 rowIds (陣列) 或 updatedData' });
+        }
+        for (const rowId of rowIds) {
+            await SheetService.updateInlineBooking(rowId, updatedData);
+        }
+        res.json({ success: true, message: '整組更新成功' });
+    } catch (e) {
+        console.error('[INLINE UPDATE GROUP ERROR]', e);
+        res.status(500).json({ success: false, error: e.message });
+    } finally {
+        releaseLock();
+    }
+});
+
 // --- API: UPDATE STATUS ---
 app.post('/api/update-status', async (req, res) => {
     try {
