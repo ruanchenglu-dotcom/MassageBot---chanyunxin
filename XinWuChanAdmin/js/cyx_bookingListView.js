@@ -18,6 +18,7 @@
         const [scanMessage, setScanMessage] = useState('');
         const [isGroupUpdate, setIsGroupUpdate] = useState(false);
         const [changedFields, setChangedFields] = useState({});
+        const [scanSimulations, setScanSimulations] = useState(null);
         const [checkinPhoneFilter, setCheckinPhoneFilter] = useState('');
 
         const handleCheckinClick = () => {
@@ -341,11 +342,14 @@
                 if (!simCheck.pass) {
                     setScanStatus('FAILED');
                     setScanMessage(simCheck.reason || "❌ 檢查不通過，請調整時間或分配");
+                    setScanSimulations(null);
                     return;
                 }
+                setScanSimulations(simCheck.suggestedLanes || null);
             } else {
                 setScanStatus('FAILED');
                 setScanMessage("❌ 無法呼叫核心驗證系統 (validateGlobalCapacity)");
+                setScanSimulations(null);
                 return;
             }
 
@@ -365,9 +369,25 @@
                 const currentBookingObj = processedBookings.find(b => b.rowId === editingRowId);
                 const groupMembers = processedBookings.filter(b => b.groupKey === currentBookingObj.groupKey);
                 const rowIds = groupMembers.map(m => m.rowId);
-                onInlineUpdate(rowIds, changedFields, false);
+                
+                let memberUpdates = [];
+                if (scanSimulations) {
+                    memberUpdates = groupMembers.map((m, idx) => {
+                        const sim = scanSimulations[idx] || {};
+                        return {
+                            rowId: m.rowId,
+                            flow: sim.flow,
+                            phase1_duration: sim.phase1_duration,
+                            phase2_duration: sim.phase2_duration,
+                            phase1_res_idx: sim.BED || sim.CHAIR || '',
+                            phase2_res_idx: (sim.BED && sim.CHAIR) ? (sim.flow === 'BF' ? sim.CHAIR : sim.BED) : ''
+                        };
+                    });
+                }
+                
+                onInlineUpdate(rowIds, { ...changedFields, ignoreOverlap: true, memberUpdates }, false);
             } else {
-                const payload = {
+                let payload = {
                     ngayDen: editFormData.date.replace(/-/g, '/'),
                     gioDen: editFormData.time,
                     hoTen: editFormData.nameSuffix ? `${editFormData.name} ${editFormData.nameSuffix}`.trim() : editFormData.name,
@@ -376,8 +396,22 @@
                     isGuaSha: editFormData.isGuaSha,
                     sdt: editFormData.phone,
                     trangThai: editFormData.status,
-                    nhanVien: editFormData.staff
+                    nhanVien: editFormData.staff,
+                    ignoreOverlap: true
                 };
+
+                if (scanSimulations && scanSimulations[0]) {
+                    const sim = scanSimulations[0];
+                    payload.memberUpdates = [{
+                        rowId: editingRowId,
+                        flow: sim.flow,
+                        phase1_duration: sim.phase1_duration,
+                        phase2_duration: sim.phase2_duration,
+                        phase1_res_idx: sim.BED || sim.CHAIR || '',
+                        phase2_res_idx: (sim.BED && sim.CHAIR) ? (sim.flow === 'BF' ? sim.CHAIR : sim.BED) : ''
+                    }];
+                }
+
                 onInlineUpdate(editingRowId, payload, false);
             }
 

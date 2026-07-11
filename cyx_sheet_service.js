@@ -1226,6 +1226,13 @@ async function updateInlineBooking(rowId, updatedData) {
     try {
         if (!rowId) throw new Error("RowID is required");
 
+        if (updatedData.memberUpdates && Array.isArray(updatedData.memberUpdates)) {
+            const specific = updatedData.memberUpdates.find(m => String(m.rowId) === String(rowId));
+            if (specific) {
+                updatedData = { ...updatedData, ...specific };
+            }
+        }
+
         const getRes = await sheets.spreadsheets.values.get({
             spreadsheetId: SHEET_ID,
             range: `${BOOKING_SHEET_NAME}!A${rowId}:AX${rowId}`
@@ -1330,7 +1337,7 @@ async function updateInlineBooking(rowId, updatedData) {
             
             if (sCode && STATE.SERVICES[sCode]) {
                 const svcDef = STATE.SERVICES[sCode];
-                let newFlow = 'BODYSINGLE';
+                let newFlow = updatedData.flow || 'BODYSINGLE';
                 let newResType = 'BED';
                 let duration = updatedData.duration || svcDef.duration || 60;
                 let phase1_dur = duration;
@@ -1338,7 +1345,9 @@ async function updateInlineBooking(rowId, updatedData) {
                 
                 if (svcDef.category === 'COMBO') {
                     let oldFlow = bookingData ? bookingData.flow : null;
-                    if (oldFlow === 'FB' || oldFlow === 'BF') {
+                    if (updatedData.flow !== undefined) {
+                        newFlow = updatedData.flow;
+                    } else if (oldFlow === 'FB' || oldFlow === 'BF') {
                         newFlow = oldFlow;
                     } else {
                         newFlow = 'FB';
@@ -1352,7 +1361,7 @@ async function updateInlineBooking(rowId, updatedData) {
                         phase2_dur = duration - phase1_dur;
                     }
                 } else if (svcDef.category === 'FOOT') {
-                    newFlow = 'FOOTSINGLE';
+                    newFlow = updatedData.flow || 'FOOTSINGLE';
                     newResType = 'CHAIR';
                 }
                 
@@ -1371,7 +1380,13 @@ async function updateInlineBooking(rowId, updatedData) {
                     else if (bookingData.flow === 'FB' || bookingData.flow === 'BF') oldCategory = 'COMBO';
                 }
 
-                if (oldCategory !== svcDef.category || bookingData.serviceCode !== sCode) {
+                if (updatedData.phase1_res_idx !== undefined) {
+                    let bestPhase1 = updatedData.phase1_res_idx;
+                    let bestPhase2 = updatedData.phase2_res_idx || "";
+                    
+                    row[32] = bestPhase1 ? normalizeResourceId(bestPhase1, guessIsBed(svcDef.category, newFlow, 1)) : "";
+                    row[33] = bestPhase2 ? normalizeResourceId(bestPhase2, guessIsBed(svcDef.category, newFlow, 2)) : "";
+                } else if (oldCategory !== svcDef.category || bookingData.serviceCode !== sCode) {
                     let bestPhase1 = bookingData ? (bookingData.phase1_res_idx || bookingData.allocated_resource || "") : "";
                     let bestPhase2 = bookingData ? (bookingData.phase2_res_idx || "") : "";
                     let isComboUpgrade = (svcDef.category === 'COMBO');
@@ -1408,7 +1423,7 @@ async function updateInlineBooking(rowId, updatedData) {
                         let foundP2 = false;
                         for (let i = 1; i <= maxCount; i++) {
                             let testRes = `${targetResType}-${i}`;
-                            const conflict = _checkOverlapConflict(rowId, opDate, opTime, duration, bestPhase1, testRes, phase1_dur, phase2_dur, newFlow);
+                            const conflict = updatedData.ignoreOverlap ? null : _checkOverlapConflict(rowId, opDate, opTime, duration, bestPhase1, testRes, phase1_dur, phase2_dur, newFlow);
                             if (!conflict) {
                                 bestPhase2 = testRes;
                                 foundP2 = true;
@@ -1416,7 +1431,7 @@ async function updateInlineBooking(rowId, updatedData) {
                             }
                         }
 
-                        if (!foundP2) {
+                        if (!foundP2 && !updatedData.ignoreOverlap) {
                             throw new Error("⚠️ 更改失敗：該時段已無空床位/座位可供套餐使用。");
                         }
                     } else if (bookingData && typeof ResourceCore !== 'undefined' && ResourceCore.checkRequestAvailability) {
@@ -1466,14 +1481,16 @@ async function updateInlineBooking(rowId, updatedData) {
                                 }
                                 
                                 console.log(`[STRICT AUTO-ALLOCATE] Inline Update found new resources for Row ${rowId}: ${bestPhase1}, ${bestPhase2}, Flow: ${row[25]}`);
-                            } else {
+                            } else if (!updatedData.ignoreOverlap) {
                                 // STRICT VALIDATION: Chặn lưu dữ liệu và ném ra lỗi nếu thuật toán thất bại (hết giường)
                                 console.warn(`[STRICT AUTO-ALLOCATE FAILED] ${checkResult.reason}`);
                                 throw new Error(checkResult.reason || "⚠️ 更改失敗：該時段已無連續空床位/座位。");
                             }
                         } catch (err) {
-                            console.error("[AUTO-ALLOCATE ERROR]", err);
-                            throw err; // Tiếp tục ném ra để API bắt được và báo về Frontend
+                            if (!updatedData.ignoreOverlap) {
+                                console.error("[AUTO-ALLOCATE ERROR]", err);
+                                throw err;
+                            }
                         }
                     }
 
