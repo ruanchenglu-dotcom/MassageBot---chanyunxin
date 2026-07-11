@@ -1417,12 +1417,14 @@ async function updateInlineBooking(rowId, updatedData) {
                         
                         // Tìm vị trí Phase 2
                         let targetResType = newFlow === 'FB' ? 'BED' : 'CHAIR';
+                        let targetLocation = updatedData.location !== undefined ? updatedData.location : (bookingData ? (bookingData.location || '本館') : '本館');
+                        let locPrefix = targetLocation === '對面館' ? '2' : '1';
                         const config = getConfig();
                         let maxCount = targetResType === 'BED' ? (config.SCALE.MAX_BEDS || 12) : (config.SCALE.MAX_CHAIRS || 12);
                         
                         let foundP2 = false;
                         for (let i = 1; i <= maxCount; i++) {
-                            let testRes = `${targetResType}-${i}`;
+                            let testRes = `${targetResType}-${locPrefix}-${i}`;
                             // 即使群組更新 (ignoreOverlap=true) 尋找新床位也必須檢查衝突！
                             // 傳入 null 作為 phase1Res 避免受到原先座位的衝突干擾
                             const conflict = _checkOverlapConflict(rowId, opDate, opTime, duration, null, testRes, phase1_dur, phase2_dur, newFlow);
