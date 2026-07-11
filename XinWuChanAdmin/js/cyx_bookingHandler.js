@@ -322,6 +322,7 @@
 
 
         function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBookingsRaw, staffList, queryDateStr, isSimulation = false, locationStr = '本館') {
+            window.validateGlobalCapacity = validateGlobalCapacity;
             const CONF = getSystemConfig(locationStr);
 
             const triggerSmartFailure = (reasonMsg, specificSuggestionMins = null) => {

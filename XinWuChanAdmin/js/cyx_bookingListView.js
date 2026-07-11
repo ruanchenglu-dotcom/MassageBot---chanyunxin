@@ -278,213 +278,66 @@
 
             const membersToSimulate = applyingToGroup ? groupMembers : [currentBookingObj];
 
-            const todays = safeBookings.filter(b => {
-                if (membersToSimulate.some(m => m.rowId === b.rowId)) return false;
-                const bStatus = b.status || '';
-                const isCancelled = bStatus === STATUS.CANCELLED || bStatus.includes('取消') || bStatus.includes('Cancel');
-                const isNoShow = bStatus === STATUS.NOSHOW || bStatus.includes('爽約') || bStatus.toUpperCase().includes('NOSHOW');
-                const isDone = bStatus === STATUS.COMPLETED || bStatus.includes('完成') || bStatus.includes('✅');
-                return !isCancelled && !isNoShow && !isDone;
-            });
-
-            const totalStaffCapacity = (staffList || []).length;
-            let maxConcurrency = 0;
-            let maxChairOcc = 0;
-            let maxBedOcc = 0;
-
-            let checkStartMins = 9999;
-            let checkEndMins = 0;
-
-            const simInfos = membersToSimulate.map(m => {
+                     let checkStartMins = 9999;
+            const guestList = membersToSimulate.map((m, idx) => {
                 const mOrigTime = (m.startTimeString || ' ').split(' ')[1] ? (m.startTimeString || ' ').split(' ')[1].substring(0, 5) : (m.startTime || '12:00').substring(0, 5);
                 const mTime = applyingToGroup && detectedChanges.gioDen ? detectedChanges.gioDen : (m.rowId === editingRowId ? editFormData.time : mOrigTime);
                 const mService = applyingToGroup && detectedChanges.dichVu ? detectedChanges.dichVu : (m.rowId === editingRowId ? editFormData.service : m.serviceName);
+                const mStaff = applyingToGroup && detectedChanges.nhanVien ? detectedChanges.nhanVien : (m.rowId === editingRowId ? editFormData.staff : (m.staffId || '隨機'));
                 
                 const mStartMins = getMins(mTime);
-                const mDuration = getDuration(mService);
-                const mCat = getServiceCategory(mService);
-                const mPax = parseInt(m.pax, 10) || 1;
-                
-                let mPhase1End = mStartMins + mDuration;
-                if (mCat === 'COMBO') {
-                    const getSmartSplit = window.getComboSplit || ((dur) => {
-                        if (dur === 130) return { phase1: 70, phase2: 60 };
-                        if (dur === 120) return { phase1: 70, phase2: 50 };
-                        if (dur === 110) return { phase1: 70, phase2: 40 };
-                        if (dur === 100) return { phase1: 60, phase2: 40 };
-                        return { phase1: Math.floor(dur / 2), phase2: dur - Math.floor(dur / 2) };
-                    });
-                    const split = getSmartSplit(mDuration);
-                    mPhase1End = mStartMins + split.phase1;
-                }
-                
                 if (mStartMins < checkStartMins) checkStartMins = mStartMins;
-                if (mStartMins + mDuration > checkEndMins) checkEndMins = mStartMins + mDuration;
                 
-                return { mStartMins, mDuration, mCat, mPax, mPhase1End };
+                const duration = getDuration(mService);
+                const cat = getServiceCategory(mService);
+                let flowCode = 'SINGLE';
+                if (cat === 'COMBO') {
+                    flowCode = m.flow || 'FB';
+                } else if (cat === 'FOOT' || mService.includes('腳')) {
+                    flowCode = 'FOOTSINGLE';
+                } else {
+                    flowCode = 'BODYSINGLE';
+                }
+                const bSplit = window.getComboSplit ? window.getComboSplit(duration) : { phase1: Math.floor(duration/2) };
+                
+                return {
+                    idx,
+                    service: mService,
+                    serviceCode: m.serviceCode || '',
+                    duration,
+                    flowCode,
+                    phase1_duration: m.phase1_duration || bSplit.phase1,
+                    phase2_duration: duration - (m.phase1_duration || bSplit.phase1),
+                    pax: parseInt(m.pax, 10) || 1,
+                    staff: mStaff
+                };
             });
 
-            for (let t = checkStartMins; t < checkEndMins; t += 5) {
-                let currentLoad = 0;
-                let currentChairLoad = 0;
-                let currentBedLoad = 0;
-
-                todays.forEach(b => {
-                    const bTimeStr = (b.startTimeString || ' ').split(' ')[1] || '00:00';
-                    const bStart = getMins(bTimeStr);
-                    const bDur = getDuration(b.serviceName);
-                    const bEnd = bStart + bDur;
-                    const bPax = parseInt(b.pax, 10) || 1;
-                    const bCat = getServiceCategory(b.serviceName);
-                    
-                    if (t >= bStart && t < bEnd) {
-                        currentLoad += bPax;
-
-                        if (bCat === 'COMBO') {
-                            const bSplit = window.getComboSplit ? window.getComboSplit(bDur) : { phase1: Math.floor(bDur/2) };
-                            const bPhase1Dur = b.phase1_duration ? parseInt(b.phase1_duration) : bSplit.phase1;
-                            const bMid = bStart + bPhase1Dur;
-                            if (t < bMid) currentChairLoad += bPax;
-                            else currentBedLoad += bPax;
-                        } else if (bCat === 'FOOT' || b.type === 'CHAIR') {
-                            currentChairLoad += bPax;
-                        } else {
-                            currentBedLoad += bPax;
-                        }
-                    }
-                });
-
-                simInfos.forEach(info => {
-                    if (t >= info.mStartMins && t < info.mStartMins + info.mDuration) {
-                        currentLoad += info.mPax;
-                        if (info.mCat === 'COMBO') {
-                            if (t < info.mPhase1End) currentChairLoad += info.mPax;
-                            else currentBedLoad += info.mPax;
-                        } else if (info.mCat === 'FOOT') {
-                            currentChairLoad += info.mPax;
-                        } else {
-                            currentBedLoad += info.mPax;
-                        }
-                    }
-                });
-
-                if (currentLoad > maxConcurrency) maxConcurrency = currentLoad;
-                if (currentChairLoad > maxChairOcc) maxChairOcc = currentChairLoad;
-                if (currentBedLoad > maxBedOcc) maxBedOcc = currentBedLoad;
-            }
-
-            if (maxConcurrency > totalStaffCapacity) {
-                setScanStatus('FAILED');
-                setScanMessage(`❌ 技師不足`);
-                return;
-            }
-
-            if (maxChairOcc > maxChairs) {
-                setScanStatus('FAILED');
-                setScanMessage("❌ 足底區客滿");
-                return;
-            }
-            if (maxBedOcc > maxBeds) {
-                setScanStatus('FAILED');
-                setScanMessage("❌ 指壓區客滿");
-                return;
-            }
-
-            const reqStaff = editFormData.staff;
-            
-            if (reqStaff && reqStaff !== '隨機' && !applyingToGroup) {
-                const checkStaffBusy = (staffId) => {
-                    const cleanTargetStaff = (window.normalizeStaffId ? window.normalizeStaffId(staffId) : staffId.trim()).toUpperCase();
-                    return todays.some(b => {
-                        const bTimeStr = (b.startTimeString || ' ').split(' ')[1] || '00:00';
-                        const bStart = getMins(bTimeStr);
-                        const bEnd = bStart + getDuration(b.serviceName);
-                        const isTimeConflict = (checkStartMins < bEnd && checkEndMins > bStart);
-                        
-                        const staffCols = [b.serviceStaff, b.staffId, b.staffId2, b.staffId3, b.technician];
-                        return isTimeConflict && staffCols.some(s => s && (window.normalizeStaffId ? window.normalizeStaffId(s) : s.trim()).toUpperCase() === cleanTargetStaff);
-                    });
-                };
-
-                const isStaffAvailable = (staffInfo) => {
-                    if (!staffInfo || staffInfo.off) return false;
-                    if (!staffInfo.start || !staffInfo.end) return false;
-                    
-                    const shiftStart = getMins(staffInfo.start);
-                    let shiftEnd = getMins(staffInfo.end);
-                    if (shiftEnd < shiftStart) shiftEnd += 1440;
-                    
-                    return (checkStartMins >= shiftStart && checkStartMins < shiftEnd);
-                };
-
-                const isGenderReq = ['男', '女', '男師', '女師', 'MALE', 'FEMALE'].includes(reqStaff);
+            if (typeof window.validateGlobalCapacity === 'function') {
+                const maxDuration = Math.max(...guestList.map(g => g.duration));
+                const locationStr = window.SYSTEM_CONFIG?.LOCATION_NAME || '本館';
+                const queryDateStr = editFormData.date.replace(/\//g, '-');
                 
-                if (isGenderReq) {
-                    const reqGender = (reqStaff === '男' || reqStaff === '男師' || reqStaff === 'MALE') ? 'M' : 'F';
-                    const genderStaff = (staffList || []).filter(s => {
-                        const sGender = s.gender || s.group || '';
-                        return sGender === reqGender || sGender === (reqGender === 'M' ? '男' : '女');
-                    });
-                    
-                    const hasAvailable = genderStaff.some(s => isStaffAvailable(s) && !checkStaffBusy(s.id));
-                    
-                    if (!hasAvailable) {
-                        setScanStatus('FAILED');
-                        setScanMessage(reqGender === 'M' ? `❌ 該時段無可用的男技師` : `❌ 該時段無可用的女技師`);
-                        return;
-                    }
-                } else {
-                    const cleanReqStaff = (window.normalizeStaffId ? window.normalizeStaffId(reqStaff) : reqStaff.trim()).toUpperCase();
-                    const targetStaff = (staffList || []).find(s => (window.normalizeStaffId ? window.normalizeStaffId(s.id) : s.id.trim()).toUpperCase() === cleanReqStaff);
-                    
-                    if (targetStaff) {
-                        if (targetStaff.off) {
-                            setScanStatus('FAILED');
-                            setScanMessage(`❌ 該技師今日休假`);
-                            return;
-                        }
-                        if (!isStaffAvailable(targetStaff)) {
-                            setScanStatus('FAILED');
-                            setScanMessage(`❌ 該技師不在班表時間內`);
-                            return;
-                        }
-                    }
-                    
-                    if (checkStaffBusy(reqStaff)) {
-                        setScanStatus('FAILED');
-                        setScanMessage(`❌ 該技師時段忙碌`);
-                        return;
-                    }
+                const simCheck = window.validateGlobalCapacity(
+                    checkStartMins, 
+                    maxDuration, 
+                    guestList, 
+                    todays, 
+                    staffList, 
+                    queryDateStr, 
+                    true, 
+                    locationStr
+                );
+
+                if (!simCheck.pass) {
+                    setScanStatus('FAILED');
+                    setScanMessage(simCheck.reason || "❌ 檢查不通過，請調整時間或分配");
+                    return;
                 }
-            }
-
-            const currentRes = currentBookingObj ? (currentBookingObj.phase1_res_idx || currentBookingObj.allocated_resource) : null;
-            if (currentRes && !applyingToGroup) {
-                const oldService = currentBookingObj.serviceName || '';
-                const oldCat = getServiceCategory(oldService);
-                const editServiceCategory = getServiceCategory(editFormData.service);
-                const isSameCategory = (oldCat === editServiceCategory) && (editServiceCategory !== 'COMBO');
-
-                if (isSameCategory) {
-                    const isResConflict = todays.some(b => {
-                        const bTimeStr = (b.startTimeString || ' ').split(' ')[1] || '00:00';
-                        const bStart = getMins(bTimeStr);
-                        const bEnd = bStart + getDuration(b.serviceName);
-                        const isTimeConflict = (checkStartMins < bEnd && checkEndMins > bStart);
-                        
-                        const bResStr = b.phase1_res_idx || b.allocated_resource || '';
-                        const bResArray = [...bResStr.toString().matchAll(/((?:BED|CHAIR)[-_ ]?\d+)/gi)].map(m => m[1].toUpperCase());
-                        const currentResClean = currentRes.toString().toUpperCase().trim();
-                        
-                        return isTimeConflict && (bResArray.includes(currentResClean) || bResStr.toString().toUpperCase() === currentResClean);
-                    });
-
-                    if (isResConflict) {
-                        setScanStatus('FAILED');
-                        setScanMessage(`❌ 原座位時段衝突`);
-                        return;
-                    }
-                }
+            } else {
+                setScanStatus('FAILED');
+                setScanMessage("❌ 無法呼叫核心驗證系統 (validateGlobalCapacity)");
+                return;
             }
 
             setScanStatus('OK');
