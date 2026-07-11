@@ -278,7 +278,16 @@
 
             const membersToSimulate = applyingToGroup ? groupMembers : [currentBookingObj];
 
-                     let checkStartMins = 9999;
+            const todays = safeBookings.filter(b => {
+                if (membersToSimulate.some(m => m.rowId === b.rowId)) return false;
+                const bStatus = b.status || '';
+                const isCancelled = bStatus === STATUS.CANCELLED || bStatus.includes('取消') || bStatus.includes('Cancel');
+                const isNoShow = bStatus === STATUS.NOSHOW || bStatus.includes('爽約') || bStatus.toUpperCase().includes('NOSHOW');
+                const isDone = bStatus === STATUS.COMPLETED || bStatus.includes('完成') || bStatus.includes('✅');
+                return !isCancelled && !isNoShow && !isDone;
+            });
+
+            let checkStartMins = 9999;
             const guestList = membersToSimulate.map((m, idx) => {
                 const mOrigTime = (m.startTimeString || ' ').split(' ')[1] ? (m.startTimeString || ' ').split(' ')[1].substring(0, 5) : (m.startTime || '12:00').substring(0, 5);
                 const mTime = applyingToGroup && detectedChanges.gioDen ? detectedChanges.gioDen : (m.rowId === editingRowId ? editFormData.time : mOrigTime);
