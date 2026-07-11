@@ -222,7 +222,7 @@
                 return 'BODY';
             };
 
-            const currentBookingObj = safeBookings.find(b => b.rowId === editingRowId);
+            const currentBookingObj = processedBookings.find(b => b.rowId === editingRowId);
             if (!currentBookingObj) return;
 
             let detectedChanges = {};
@@ -252,7 +252,7 @@
             let groupMembers = [];
             
             if (Object.keys(detectedChanges).length > 0 && currentBookingObj.groupKey) {
-                groupMembers = safeBookings.filter(b => b.groupKey === currentBookingObj.groupKey);
+                groupMembers = processedBookings.filter(b => b.groupKey === currentBookingObj.groupKey);
                 if (groupMembers.length > 1) {
                     const result = await Swal.fire({
                         title: '⚠️ 發現同組客人',
@@ -500,8 +500,8 @@
             }
 
             if (isGroupUpdate) {
-                const currentBookingObj = safeBookings.find(b => b.rowId === editingRowId);
-                const groupMembers = safeBookings.filter(b => b.groupKey === currentBookingObj.groupKey);
+                const currentBookingObj = processedBookings.find(b => b.rowId === editingRowId);
+                const groupMembers = processedBookings.filter(b => b.groupKey === currentBookingObj.groupKey);
                 const rowIds = groupMembers.map(m => m.rowId);
                 onInlineUpdate(rowIds, changedFields, false);
             } else {
