@@ -1423,7 +1423,9 @@ async function updateInlineBooking(rowId, updatedData) {
                         let foundP2 = false;
                         for (let i = 1; i <= maxCount; i++) {
                             let testRes = `${targetResType}-${i}`;
-                            const conflict = updatedData.ignoreOverlap ? null : _checkOverlapConflict(rowId, opDate, opTime, duration, bestPhase1, testRes, phase1_dur, phase2_dur, newFlow);
+                            // 即使群組更新 (ignoreOverlap=true) 尋找新床位也必須檢查衝突！
+                            // 傳入 null 作為 phase1Res 避免受到原先座位的衝突干擾
+                            const conflict = _checkOverlapConflict(rowId, opDate, opTime, duration, null, testRes, phase1_dur, phase2_dur, newFlow);
                             if (!conflict) {
                                 bestPhase2 = testRes;
                                 foundP2 = true;
@@ -1584,6 +1586,21 @@ async function updateInlineBooking(rowId, updatedData) {
             requestBody: { values: [[...row]] }
         });
         
+        // [V138 FIX] Cập nhật bộ nhớ ngay lập tức để vòng lặp nhóm khách (Group Update) tiếp theo biết giường đã bị chiếm
+        let memBooking = STATE.cachedBookings.find(b => b.rowId == rowId);
+        if (memBooking) {
+            memBooking.phase1_res_idx = row[32] || "";
+            memBooking.phase2_res_idx = row[33] || "";
+            memBooking.duration = (parseInt(row[28]) || 0) + (parseInt(row[30]) || 0);
+            memBooking.phase1_duration = row[28];
+            memBooking.phase2_duration = row[30];
+            memBooking.flow = row[25] || memBooking.flow;
+            memBooking.serviceCode = sCode || memBooking.serviceCode;
+            memBooking.dichVu = svcName || memBooking.dichVu;
+            memBooking.startTimeString = row[0] + " " + row[1];
+            memBooking.allocated_resource = memBooking.phase1_res_idx + (memBooking.phase2_res_idx ? "+" + memBooking.phase2_res_idx : "");
+        }
+
         console.log(`[INLINE UPDATE FULL ROW] Success for Row: ${rowId}`);
 
         triggerSyncDebounced();
