@@ -1238,20 +1238,18 @@ const App = () => {
                     const split = getSmartSplit(item.booking, item.booking.duration, item.isMaxMode, seq);
 
                     if (isPhase1) {
+                        const baseDur = parseInt(item.booking.duration || 60, 10);
+                        let p2Dur = item.booking.phase2_duration !== undefined && item.booking.phase2_duration !== null ? parseInt(item.booking.phase2_duration, 10) : split.phase2;
+                        
                         const finishTimeMins = activeEndTimes[key];
                         let p2Start = finishTimeMins + (window.SYSTEM_CONFIG?.BUFFERS?.TRANSITION_MINUTES || 5);
-                        let p2End = p2Start + split.phase2;
 
                         if (item.booking.transition_time) {
                             const transMins = safeTimeToMins(item.booking.transition_time);
                             if (transMins !== -1) p2Start = Math.max(transMins, finishTimeMins);
                         }
-                        if (item.booking.finish_time) {
-                            const finishMins = safeTimeToMins(item.booking.finish_time);
-                            if (finishMins !== -1) p2End = Math.max(finishMins, p2Start);
-                        } else {
-                            p2End = p2Start + split.phase2;
-                        }
+                        
+                        let p2End = p2Start + p2Dur;
 
                         let finalTargetId = item.booking.phase2_res_idx ? item.booking.phase2_res_idx.toUpperCase() : null;
 
@@ -1263,18 +1261,24 @@ const App = () => {
                         }
                     } else {
                         const p2StartMins = safeTimeToMins(getTaipeiTimeStr(item.startTime));
+                        let p1Dur = item.booking.phase1_duration !== undefined && item.booking.phase1_duration !== null ? parseInt(item.booking.phase1_duration, 10) : split.phase1;
                         let p1End = p2StartMins - (window.SYSTEM_CONFIG?.BUFFERS?.TRANSITION_MINUTES || 5);
-                        let p1Start = p1End - split.phase1;
 
                         if (item.booking.transition_time) {
                             const transMins = safeTimeToMins(item.booking.transition_time);
-                            if (transMins !== -1) p1End = Math.min(p1End, transMins);
+                            if (transMins !== -1) {
+                                // In reverse mode, p2Start is known, so p1End is before transition_time (or p2StartMins)
+                                p1End = Math.min(p1End, transMins); 
+                            }
                         }
+                        
+                        let p1Start = p1End - p1Dur;
                         if (item.booking.startTimeString) {
                             const origStart = safeTimeToMins(item.booking.startTimeString);
-                            if (origStart !== -1) p1Start = Math.min(origStart, p1End);
-                        } else {
-                            p1Start = p1End - split.phase1;
+                            if (origStart !== -1) {
+                                p1Start = origStart;
+                                p1End = p1Start + p1Dur;
+                            }
                         }
 
                         let reconstructedId = item.booking.phase1_res_idx ? item.booking.phase1_res_idx.toUpperCase() : null;
@@ -1373,24 +1377,22 @@ const App = () => {
                     const seq = bookingItem.flow || 'FB';
 
                     if (pref1 || pref2) {
-                        const split = getSmartSplit(bookingItem, bookingItem.duration, true, seq);
-                        let p1End = originalStart + split.phase1;
+                        const baseDuration = parseInt(bookingItem.duration || 60, 10);
+                        const split = getSmartSplit(bookingItem, baseDuration, true, seq);
+                        let p1Dur = bookingItem.phase1_duration !== undefined && bookingItem.phase1_duration !== null ? parseInt(bookingItem.phase1_duration, 10) : split.phase1;
+                        let p2Dur = bookingItem.phase2_duration !== undefined && bookingItem.phase2_duration !== null ? parseInt(bookingItem.phase2_duration, 10) : split.phase2;
+                        
+                        let p1End = originalStart + p1Dur;
                         let p2Start = p1End + (window.SYSTEM_CONFIG?.BUFFERS?.TRANSITION_MINUTES || 5);
-                        let p2End = p2Start + split.phase2;
 
                         if (bookingItem.transition_time) {
                             const transMins = safeTimeToMins(bookingItem.transition_time);
                             if (transMins !== -1 && transMins > originalStart) {
-                                p1End = Math.min(p1End, transMins);
                                 p2Start = transMins;
                             }
                         }
-                        if (bookingItem.finish_time) {
-                            const finishMins = safeTimeToMins(bookingItem.finish_time);
-                            if (finishMins !== -1) {
-                                p2End = Math.max(p2Start, finishMins);
-                            }
-                        }
+                        
+                        let p2End = p2Start + p2Dur;
 
                         if (pref1) {
                             let isClash1 = false;

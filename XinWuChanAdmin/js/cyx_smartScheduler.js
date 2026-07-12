@@ -363,7 +363,26 @@ window.SmartScheduler = (function() {
             } else {
                 let domains = [];
                 let allowedTimeShifts = [0];
-                let allowedTransShifts = [-10, -5, 0, 5, 10];
+                let baseTransShifts = [-10, -5, 0, 5, 10];
+                let allowedTransShifts = baseTransShifts;
+                
+                if (isCombo) {
+                    const duration = parseInt(b.duration || 60, 10);
+                    const splitBase = window.getSmartSplit ? window.getSmartSplit(b, duration, true, b.flow || 'FB') : { phase1: Math.floor(duration / 2), phase2: Math.ceil(duration / 2) };
+                    const svcDef = window.CoreKernel && window.CoreKernel.SERVICES ? window.CoreKernel.SERVICES[b.serviceCode] : null;
+                    if (svcDef) {
+                        const minP1 = (b.flow === 'FB' ? svcDef.minFoot : svcDef.minBody) || 0;
+                        const maxP1 = (b.flow === 'FB' ? svcDef.maxFoot : svcDef.maxBody) || duration;
+                        const minP2 = (b.flow === 'FB' ? svcDef.minBody : svcDef.minFoot) || 0;
+                        const maxP2 = (b.flow === 'FB' ? svcDef.maxBody : svcDef.maxFoot) || duration;
+                        
+                        allowedTransShifts = baseTransShifts.filter(shift => {
+                            const newP1 = splitBase.phase1 + shift;
+                            const newP2 = splitBase.phase2 - shift;
+                            return newP1 >= minP1 && newP1 <= maxP1 && newP2 >= minP2 && newP2 <= maxP2;
+                        });
+                    }
+                }
 
                 if (isCombo) {
                     const bedCandidates = getCandidateResources(b.flow === 'FB' ? b.phase2_res_idx : b.phase1_res_idx); 
@@ -544,8 +563,8 @@ window.SmartScheduler = (function() {
                         }
                         
                         p.transition_time = minsToTimeString(currentTransMins + newAssignt.transitionShift, bOrigin.startTimeString);
-                        p.phase1_duration = split.phase1;
-                        p.phase2_duration = split.phase2;
+                        p.phase1_duration = split.phase1 + newAssignt.transitionShift;
+                        p.phase2_duration = split.phase2 - newAssignt.transitionShift;
                     }
                 }
                 
