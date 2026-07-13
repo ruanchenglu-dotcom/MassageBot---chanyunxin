@@ -1617,7 +1617,7 @@ async function updateInlineBooking(rowId, updatedData) {
             memBooking.phase2_duration = row[30];
             memBooking.flow = row[25] || memBooking.flow;
             memBooking.serviceCode = sCode || memBooking.serviceCode;
-            memBooking.dichVu = svcName || memBooking.dichVu;
+            memBooking.dichVu = row[4] || memBooking.dichVu;
             memBooking.startTimeString = row[0] + " " + row[1];
             memBooking.allocated_resource = memBooking.phase1_res_idx + (memBooking.phase2_res_idx ? "+" + memBooking.phase2_res_idx : "");
         }

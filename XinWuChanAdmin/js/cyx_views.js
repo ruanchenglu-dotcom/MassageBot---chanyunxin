@@ -649,25 +649,42 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                 return;
             }
             if (currentChairLoad > getMaxChairs() && isNewChairHigher) {
-                if (isComboEdit && newDuration > oldDur && overridePhase1 === null && !isBodyFirstLocal) {
-                    const extraTime = newDuration - oldDur;
-                    setScanServiceStatus('FAILED');
-                    setScanServiceMessage("❌ 足底區客滿");
+                if (isComboEdit && !isBodyFirstLocal) {
+                    const defaultP1 = window.getComboSplit ? window.getComboSplit(newDuration).phase1 : Math.floor(newDuration / 2);
+                    let currentTest = overridePhase1 !== null ? overridePhase1 : defaultP1;
                     
-                    Swal.fire({
-                        title: '足底區客滿',
-                        html: `目前足底區已滿，無法按預設比例延長時間。<br/><br/>請問是否保持腳部 <b>${oldP1Dur} 分鐘</b>，並將增加的時間 (+${extraTime}分) 全部加到身體？<br/>(即：腳部 ${oldP1Dur}分, 身體 ${newDuration - oldP1Dur}分)`,
-                        icon: 'question',
-                        showCancelButton: true,
-                        confirmButtonText: '同意 (加在身體)',
-                        cancelButtonText: '取消'
-                    }).then((res) => {
-                        if (res.isConfirmed) {
-                            setPhase1(oldP1Dur);
-                            performServiceCheck(checkIsGroup, oldP1Dur);
-                        }
-                    });
-                    return;
+                    // Auto-stretch: Ưu tiên dùng lại oldP1Dur nếu đang hạ gói
+                    if (newDuration < oldDur && overridePhase1 === null && oldP1Dur < defaultP1 && oldP1Dur >= 30) {
+                        setPhase1(oldP1Dur);
+                        return performServiceCheck(checkIsGroup, oldP1Dur);
+                    }
+                    
+                    let nextTryP1 = currentTest - 5;
+                    if (nextTryP1 >= 30 && nextTryP1 >= defaultP1 - 40) {
+                        setPhase1(nextTryP1);
+                        return performServiceCheck(checkIsGroup, nextTryP1);
+                    }
+
+                    if (newDuration > oldDur) {
+                        const extraTime = newDuration - oldDur;
+                        setScanServiceStatus('FAILED');
+                        setScanServiceMessage("❌ 足底區客滿");
+                        
+                        Swal.fire({
+                            title: '足底區客滿',
+                            html: `目前足底區已滿，系統嘗試自動 co giãn không thành công。<br/><br/>請問是否保持腳部 <b>${oldP1Dur} 分鐘</b>，並將增加的時間 (+${extraTime}分) 全部加到身體？<br/>(即：腳部 ${oldP1Dur}分, 身體 ${newDuration - oldP1Dur}分)`,
+                            icon: 'question',
+                            showCancelButton: true,
+                            confirmButtonText: '同意 (加在身體)',
+                            cancelButtonText: '取消'
+                        }).then((res) => {
+                            if (res.isConfirmed) {
+                                setPhase1(oldP1Dur);
+                                performServiceCheck(checkIsGroup, oldP1Dur);
+                            }
+                        });
+                        return;
+                    }
                 }
                 
                 setScanServiceStatus('FAILED');
@@ -675,6 +692,22 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                 return;
             }
             if (currentBedLoad > getMaxBeds() && isNewBedHigher) {
+                if (isComboEdit && !isBodyFirstLocal) {
+                    const defaultP1 = window.getComboSplit ? window.getComboSplit(newDuration).phase1 : Math.floor(newDuration / 2);
+                    let currentTest = overridePhase1 !== null ? overridePhase1 : defaultP1;
+                    
+                    // Auto-stretch: Ưu tiên dùng lại oldP1Dur nếu đang hạ gói
+                    if (newDuration < oldDur && overridePhase1 === null && oldP1Dur > defaultP1 && oldP1Dur <= newDuration - 30) {
+                        setPhase1(oldP1Dur);
+                        return performServiceCheck(checkIsGroup, oldP1Dur);
+                    }
+                    
+                    let nextTryP1 = currentTest + 5;
+                    if (nextTryP1 <= newDuration - 30 && nextTryP1 <= defaultP1 + 40) {
+                        setPhase1(nextTryP1);
+                        return performServiceCheck(checkIsGroup, nextTryP1);
+                    }
+                }
                 setScanServiceStatus('FAILED');
                 setScanServiceMessage("❌ 床區客滿");
                 return;
