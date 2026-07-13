@@ -817,7 +817,7 @@ async function updateBookingStatus(rowId, newStatus) {
     } catch (e) { console.error('Update Status Error:', e); return false; }
 }
 
-function _checkOverlapConflict(rowId, dateStr, timeStr, duration, phase1Res, phase2Res, p1Dur, p2Dur, flow) {
+function _checkOverlapConflict(rowId, dateStr, timeStr, duration, phase1Res, phase2Res, p1Dur, p2Dur, flow, newTransitionTime = null) {
     if (!phase1Res && !phase2Res) return null;
     
     const startMins = ResourceCore.getMinsFromTimeStr(timeStr);
@@ -830,7 +830,20 @@ function _checkOverlapConflict(rowId, dateStr, timeStr, duration, phase1Res, pha
     let blocks = [];
     if (flow === 'BF' || flow === 'FB') {
         if (phase1Res) blocks.push({ start: startMins, end: startMins + p1, res: phase1Res });
-        if (phase2Res) blocks.push({ start: startMins + p1 + ResourceCore.CONFIG.TRANSITION_BUFFER, end: startMins + durMins, res: phase2Res });
+        
+        let p2Start = startMins + p1 + ResourceCore.CONFIG.TRANSITION_BUFFER;
+        if (newTransitionTime) {
+            const ttMins = ResourceCore.getMinsFromTimeStr(newTransitionTime);
+            if (ttMins !== -1 && ttMins > startMins) p2Start = ttMins;
+        } else if (rowId) {
+            const existingSelf = STATE.cachedBookings.find(x => x.rowId == rowId);
+            if (existingSelf && existingSelf.transition_time) {
+                const ttMins = ResourceCore.getMinsFromTimeStr(existingSelf.transition_time);
+                if (ttMins !== -1 && ttMins > startMins) p2Start = ttMins;
+            }
+        }
+        
+        if (phase2Res) blocks.push({ start: p2Start, end: p2Start + p2, res: phase2Res });
     } else {
         const res = phase1Res || phase2Res;
         if (res) blocks.push({ start: startMins, end: startMins + durMins, res: res });
@@ -938,7 +951,7 @@ async function updateBookingDetails(body) {
             if (!p2Dur) p2Dur = totalDuration - p1Dur;
         }
 
-        const conflict = _checkOverlapConflict(rowId, checkDate, checkTime, totalDuration, phase1Res, phase2Res, p1Dur, p2Dur, flow);
+        const conflict = _checkOverlapConflict(rowId, checkDate, checkTime, totalDuration, phase1Res, phase2Res, p1Dur, p2Dur, flow, body.transition_time);
         if (conflict) {
             throw new Error(`RESOURCE_CONFLICT|${conflict.resource}|${conflict.conflictName}`);
         }
@@ -1164,7 +1177,7 @@ async function updateInlineBooking(rowId, updatedData) {
                 let p2Dur = updatedData.phase2_duration !== undefined ? updatedData.phase2_duration : bookingData.phase2_duration;
                 let flow = bookingData.flow;
                 
-                const conflict = _checkOverlapConflict(rowId, checkDate, checkTime, totalDuration, phase1Res, phase2Res, p1Dur, p2Dur, flow);
+                const conflict = _checkOverlapConflict(rowId, checkDate, checkTime, totalDuration, phase1Res, phase2Res, p1Dur, p2Dur, flow, updatedData.transition_time);
                 if (conflict) {
                     throw new Error(`RESOURCE_CONFLICT|${conflict.resource}|${conflict.conflictName}`);
                 }

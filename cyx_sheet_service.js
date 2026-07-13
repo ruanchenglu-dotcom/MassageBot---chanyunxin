@@ -918,7 +918,7 @@ async function updateBookingStatus(rowId, newStatus) {
     } catch (e) { console.error('Update Status Error:', e); return false; }
 }
 
-function _checkOverlapConflict(rowId, dateStr, timeStr, duration, phase1Res, phase2Res, p1Dur, p2Dur, flow, locationStr = '本館', ignoreRowIds = []) {
+function _checkOverlapConflict(rowId, dateStr, timeStr, duration, phase1Res, phase2Res, p1Dur, p2Dur, flow, locationStr = '本館', ignoreRowIds = [], newTransitionTime = null) {
     if (!phase1Res && !phase2Res) return null;
     
     const startMins = ResourceCore.getMinsFromTimeStr(timeStr);
@@ -928,8 +928,8 @@ function _checkOverlapConflict(rowId, dateStr, timeStr, duration, phase1Res, pha
     const p1 = safeParseInt(p1Dur, Math.floor(durMins / 2));
     const p2 = safeParseInt(p2Dur, durMins - p1);
     
-    let transitionTimeStr = null;
-    if (rowId) {
+    let transitionTimeStr = newTransitionTime;
+    if (!transitionTimeStr && rowId) {
         const existingSelf = STATE.cachedBookings.find(x => x.rowId == rowId);
         if (existingSelf && existingSelf.transition_time) {
             transitionTimeStr = existingSelf.transition_time;
@@ -1076,7 +1076,7 @@ async function updateBookingDetails(body) {
             if (!p2Dur) p2Dur = totalDuration - p1Dur;
         }
 
-        const conflict = _checkOverlapConflict(rowId, checkDate, checkTime, totalDuration, phase1Res, phase2Res, p1Dur, p2Dur, flow);
+        const conflict = _checkOverlapConflict(rowId, checkDate, checkTime, totalDuration, phase1Res, phase2Res, p1Dur, p2Dur, flow, '本館', [], body.transition_time);
         if (conflict) {
             throw new Error(`RESOURCE_CONFLICT|${conflict.resource}|${conflict.conflictName}`);
         }
@@ -1308,7 +1308,7 @@ async function updateInlineBooking(rowId, updatedData) {
                 let p2Dur = updatedData.phase2_duration !== undefined ? updatedData.phase2_duration : bookingData.phase2_duration;
                 let flow = bookingData.flow;
                 
-                const conflict = _checkOverlapConflict(rowId, checkDate, checkTime, totalDuration, phase1Res, phase2Res, p1Dur, p2Dur, flow);
+                const conflict = _checkOverlapConflict(rowId, checkDate, checkTime, totalDuration, phase1Res, phase2Res, p1Dur, p2Dur, flow, '本館', [], updatedData.transition_time);
                 if (conflict) {
                     throw new Error(`RESOURCE_CONFLICT|${conflict.resource}|${conflict.conflictName}`);
                 }

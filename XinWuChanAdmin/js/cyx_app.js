@@ -2077,6 +2077,7 @@ const App = () => {
             phase2Resource: s2.toUpperCase(),
             resource_type: resourceTypeForSheet,
             resourceType: resourceTypeForSheet,
+            transition_time: switchTimeStr,
             is_locked: "TRUE",
             isManualLocked: true,
             flow_code_locked: lockStates.flow_code_locked,
