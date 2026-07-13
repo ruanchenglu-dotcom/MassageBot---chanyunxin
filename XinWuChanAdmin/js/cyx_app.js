@@ -3903,6 +3903,14 @@ const App = () => {
                         let updateData = { rowId: b.rowId, is_locked: "TRUE", isManualLocked: true, forceSync: true };
 
                         if (payload.meta && payload.meta.isCombo) {
+                            if (payload.meta.phase === 1 && (b.phase1_locked === "TRUE" || b.phase1_locked === true)) {
+                                Swal.fire('系統提示', '⚠️ 此階段 1 已鎖定，無法移動！', 'warning');
+                                return;
+                            }
+                            if (payload.meta.phase === 2 && (b.phase2_locked === "TRUE" || b.phase2_locked === true)) {
+                                Swal.fire('系統提示', '⚠️ 此階段 2 已鎖定，無法移動！', 'warning');
+                                return;
+                            }
                             const isTargetBed = targetId.includes('床') || targetId.includes('BED');
                             const bFlow = b.flow || 'FB';
                             const bPhase1IsChair = bFlow === 'FB';

@@ -2153,13 +2153,22 @@ const TimelineView = ({ timelineData, onEditPhase, liveStatusData, staffList, st
                                                 }
                                             }
 
+                                            const isComboPhase1 = slot.meta && slot.meta.isCombo && slot.meta.phase === 1;
                                             const isComboPhase2 = slot.meta && slot.meta.isCombo && slot.meta.phase === 2;
+                                            const isPhase1LockedLocal = isComboPhase1 && (booking.phase1_locked === "TRUE" || booking.phase1_locked === true);
+                                            const isPhase2LockedLocal = isComboPhase2 && (booking.phase2_locked === "TRUE" || booking.phase2_locked === true);
+                                            const isCurrentPhaseLocked = isPhase1LockedLocal || isPhase2LockedLocal;
+                                            
                                             const showControlBtn = !isComboPhase2;
 
                                             return (
                                                 <div key={idx}
-                                                    draggable={true}
+                                                    draggable={!isCurrentPhaseLocked}
                                                     onDragStart={(e) => {
+                                                        if (isCurrentPhaseLocked) {
+                                                            e.preventDefault();
+                                                            return;
+                                                        }
                                                         e.dataTransfer.setData('text/plain', JSON.stringify({ bookingId: booking.rowId, sourceRowId: row.id, meta: slot.meta }));
                                                     }}
                                                     className={`absolute top-1 bottom-1 rounded px-2 py-1 flex flex-col justify-between text-xs overflow-hidden shadow-sm z-10 cursor-pointer transition-all timeline-block group ${bgClass} ${specialBorderClass}`}
