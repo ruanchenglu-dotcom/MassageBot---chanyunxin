@@ -352,6 +352,16 @@ window.SmartScheduler = (function() {
                 locked = true;
                 locked1 = true;
                 locked2 = true;
+            } else {
+                if (isCombo) {
+                    locked1 = (b.phase1_locked === "TRUE" || b.phase1_locked === true);
+                    locked2 = (b.phase2_locked === "TRUE" || b.phase2_locked === true);
+                    locked = locked1 && locked2;
+                } else {
+                    locked = (b.is_locked === "TRUE" || b.is_locked === true || b.isManualLocked === true);
+                    locked1 = locked;
+                    locked2 = locked;
+                }
             }
 
             let assignmentOriginal = originalState[bRowIdStr];
