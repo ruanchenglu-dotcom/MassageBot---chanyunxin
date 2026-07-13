@@ -1655,6 +1655,14 @@ async function batchUpdateMultipleBookings(updatesArray) {
             if (body.status !== undefined) b.status = body.status;
             if (body.transition_time !== undefined) b.transition_time = body.transition_time;
             if (body.allocated_resource !== undefined) b.allocated_resource = body.allocated_resource;
+
+            // [V1.x NÂNG CẤP] Cập nhật bộ đệm giả lập cho khách lẻ (Single Booking) để check trùng lặp chính xác
+            const isComboLocal = b ? (b.category === 'COMBO' || (b.serviceName && b.serviceName.includes('套餐'))) : false;
+            if (!isComboLocal && body.phase1_res_idx === undefined && (body.location !== undefined || body.current_resource_id !== undefined)) {
+                const newRes = body.location !== undefined ? body.location : body.current_resource_id;
+                b.phase1_res_idx = newRes;
+                b.allocated_resource = newRes;
+            }
         });
 
         STATE.cachedBookings = simulatedBookings;
@@ -1845,7 +1853,7 @@ async function batchUpdateMultipleBookings(updatesArray) {
 
     } catch (e) {
         console.error('[BATCH UPDATE MULTIPLE ERROR]', e);
-        return false;
+        throw e;
     }
 }
 

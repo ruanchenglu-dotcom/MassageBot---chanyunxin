@@ -3871,8 +3871,8 @@ const App = () => {
                             if (batchPayloads.length > 0) {
                                 Swal.fire({ title: '系統正在互換排程...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
                                 universalSend('/api/batch-process-bookings', { payloads: batchPayloads }).then((res) => {
-                                    if (res && res.data && res.data.success === false && res.data.error) {
-                                        throw new Error(res.data.error);
+                                    if (res && res.success === false) {
+                                        throw new Error(res.error || "Unknown Error");
                                     }
                                     Swal.fire('系統提示', '互換成功！', 'success');
                                     fetchData(true);
@@ -4004,8 +4004,8 @@ const App = () => {
                             if (payloads && payloads.length > 0) {
                                 Swal.fire({ title: '系統正在重新安排排程...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
                                 universalSend('/api/batch-process-bookings', { payloads: payloads }).then((res) => {
-                                    if (res && res.data && res.data.success === false && res.data.error) {
-                                        throw new Error(res.data.error);
+                                    if (res && res.success === false) {
+                                        throw new Error(res.error || "Unknown Error");
                                     }
                                     Swal.close();
                                     fetchData(true);
