@@ -285,21 +285,21 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
             let initP2Res = 'auto';
 
             if (booking.phase1_res_idx) {
-                initP1Res = booking.phase1_res_idx.toLowerCase();
+                initP1Res = booking.phase1_res_idx.toUpperCase();
             } else if (booking.phase1_resource) {
-                initP1Res = booking.phase1_resource.toLowerCase();
+                initP1Res = booking.phase1_resource.toUpperCase();
             } else if (booking.allocated_resource && booking.allocated_resource.includes('+')) {
-                initP1Res = booking.allocated_resource.split('+')[0].trim().toLowerCase();
+                initP1Res = booking.allocated_resource.split('+')[0].trim().toUpperCase();
             } else if (booking.allocated_resource) {
-                 initP1Res = booking.allocated_resource.toLowerCase();
+                 initP1Res = booking.allocated_resource.toUpperCase();
             }
 
             if (booking.phase2_res_idx) {
-                initP2Res = booking.phase2_res_idx.toLowerCase();
+                initP2Res = booking.phase2_res_idx.toUpperCase();
             } else if (booking.phase2_resource) {
-                initP2Res = booking.phase2_resource.toLowerCase();
+                initP2Res = booking.phase2_resource.toUpperCase();
             } else if (booking.allocated_resource && booking.allocated_resource.includes('+')) {
-                initP2Res = booking.allocated_resource.split('+')[1].trim().toLowerCase();
+                initP2Res = booking.allocated_resource.split('+')[1].trim().toUpperCase();
             }
 
             setSelectedPhase1Res(initP1Res);
@@ -307,17 +307,17 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
 
             let initSingleRes = 'auto';
             if (booking.current_resource_id) {
-                initSingleRes = booking.current_resource_id.toLowerCase();
+                initSingleRes = booking.current_resource_id.toUpperCase();
             } else if (booking.phase1_resource) {
-                initSingleRes = booking.phase1_resource.toLowerCase();
+                initSingleRes = booking.phase1_resource.toUpperCase();
             } else if (booking.allocated_resource && booking.allocated_resource.includes('+')) {
-                initSingleRes = booking.allocated_resource.split('+')[0].trim().toLowerCase();
+                initSingleRes = booking.allocated_resource.split('+')[0].trim().toUpperCase();
             } else if (booking.allocated_resource) {
-                initSingleRes = booking.allocated_resource.toLowerCase();
+                initSingleRes = booking.allocated_resource.toUpperCase();
             } else if (booking.location) {
-                initSingleRes = booking.location.toLowerCase();
+                initSingleRes = booking.location.toUpperCase();
             } else if (contextResourceId) {
-                initSingleRes = contextResourceId.toLowerCase();
+                initSingleRes = contextResourceId.toUpperCase();
             }
             setSelectedSingleRes(initSingleRes);
         }
