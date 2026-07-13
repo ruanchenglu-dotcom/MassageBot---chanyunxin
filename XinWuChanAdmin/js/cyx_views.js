@@ -2245,10 +2245,10 @@ const CommissionView = ({ bookings, staffList }) => {
 
     const getJieCount = (serviceName, duration) => {
         const name = (serviceName || "").toUpperCase();
-        if (name.includes('190') || name.includes('帝王')) return 6;
+        if (name.includes('A6') || name.includes('190') || name.includes('帝王')) return 6;
         if (name.includes('180')) return 6;
-        if (name.includes('130') || name.includes('豪華')) return 4;
-        if (name.includes('120')) return 4;
+        if (name.includes('A4') || name.includes('130') || name.includes('豪華')) return 4;
+        if (name.includes('F4') || name.includes('120')) return 4;
         if (name.includes('100') || name.includes('招牌')) return 3;
         if (name.includes('90')) return 3;
         if (name.includes('70') || name.includes('精選')) return 2;

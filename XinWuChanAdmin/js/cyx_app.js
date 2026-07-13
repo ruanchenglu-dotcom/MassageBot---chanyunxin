@@ -100,7 +100,8 @@ const getServiceBlocks = (serviceName) => {
 
     const name = String(serviceName).toUpperCase();
 
-    if (name.includes('A4') || name.includes('B4') || name.includes('130') || name.includes('120')) return 4;
+    if (name.includes('A6') || name.includes('190') || name.includes('180') || name.includes('帝王')) return 6;
+    if (name.includes('A4') || name.includes('B4') || name.includes('F4') || name.includes('130') || name.includes('120')) return 4;
     if (name.includes('A3') || name.includes('B3') || name.includes('F3') || name.includes('110') || name.includes('招牌')) return 3;
     if (name.includes('A2') || name.includes('B2') || name.includes('F2') || name.includes('70') || name.includes('精選')) return 2;
     if (name.includes('B1') || name.includes('F1') || name.includes('C1') || name.includes('C2') || name.includes('40') || name.includes('35') || name.includes('刮痧') || name.includes('拔罐') || name.includes('修指甲') || name.includes('修腳皮')) return 1;

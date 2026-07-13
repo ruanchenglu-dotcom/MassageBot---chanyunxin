@@ -139,9 +139,11 @@ const SERVICES_DATA = {
 
     'A3': { name: '套餐 (100分)', duration: 100, price: 999, type: 'BED', category: 'COMBO', blocks: 3, commission: 250, elasticStep: 1, elasticLimit: 30, minFoot: 30, maxFoot: 60, minBody: 40, maxBody: 70 },
     'A4': { name: '套餐 (130分)', duration: 130, price: 1500, type: 'BED', category: 'COMBO', blocks: 4, commission: 250, elasticStep: 1, elasticLimit: 40, minFoot: 30, maxFoot: 90, minBody: 40, maxBody: 100 },
+    'A6': { name: '套餐 (190分)', duration: 190, price: 2200, type: 'BED', category: 'COMBO', blocks: 6, commission: 250, elasticStep: 1, elasticLimit: 50, minFoot: 40, maxFoot: 110, minBody: 80, maxBody: 150 },
 
     'A2': { name: '套餐 (70分)', duration: 70, price: 900, type: 'BED', category: 'COMBO', blocks: 2, commission: 250, elasticStep: 1, elasticLimit: 20, minFoot: 30, maxFoot: 40, minBody: 30, maxBody: 40 },
 
+    'F4': { name: '腳底按摩 (120分)', duration: 120, price: 1500, type: 'CHAIR', category: 'FOOT', blocks: 4, commission: 250 },
     'F3': { name: '腳底按摩 (90分)', duration: 90, price: 1200, type: 'CHAIR', category: 'FOOT', blocks: 3, commission: 250 },
     'F2': { name: '腳底按摩 (70分)', duration: 70, price: 900, type: 'CHAIR', category: 'FOOT', blocks: 2, commission: 250 },
     'F1': { name: '腳底按摩 (40分)', duration: 40, price: 500, type: 'CHAIR', category: 'FOOT', blocks: 1, commission: 250 },

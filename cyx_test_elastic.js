@@ -24,7 +24,9 @@ vm.runInContext(`
     const CONF = { MAX_BEDS: 1, MAX_CHAIRS: 1, CLEANUP_BUFFER: 0, TRANSITION_BUFFER: 0 };
     function getSystemConfig() { return CONF; }
     const SERVICES = {
-        'A3': { name: '套餐 (100分)', duration: 100, price: 999, type: 'BED', category: 'COMBO', blocks: 3, commission: 250, elasticStep: 1, elasticLimit: 30, minFoot: 30, maxFoot: 60, minBody: 40, maxBody: 70 }
+        'A3': { name: '套餐 (100分)', duration: 100, price: 999, type: 'BED', category: 'COMBO', blocks: 3, commission: 250, elasticStep: 1, elasticLimit: 30, minFoot: 30, maxFoot: 60, minBody: 40, maxBody: 70 },
+        'A6': { name: '套餐 (190分)', duration: 190, price: 2200, type: 'BED', category: 'COMBO', blocks: 6, commission: 250, elasticStep: 1, elasticLimit: 50, minFoot: 40, maxFoot: 110, minBody: 80, maxBody: 150 },
+        'F4': { name: '腳底按摩 (120分)', duration: 120, price: 1500, type: 'CHAIR', category: 'FOOT', blocks: 4, commission: 250 }
     };
     function getMinsFromTimeStr(timeStr) {
         if (!timeStr || typeof timeStr !== 'string') return 0;

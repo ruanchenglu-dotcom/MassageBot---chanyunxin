@@ -401,9 +401,9 @@ async function syncMenuData() {
         });
 
         if (ResourceCore.setDynamicServices) {
-            ResourceCore.setDynamicServices(newServices);
+            ResourceCore.setDynamicServices({ ...SERVICES_DATA, ...newServices });
         }
-        STATE.SERVICES = newServices;
+        STATE.SERVICES = { ...SERVICES_DATA, ...newServices };
     } catch (e) { console.error('[MENU ERROR]', e); }
 }
 
