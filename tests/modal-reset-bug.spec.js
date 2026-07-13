@@ -4,7 +4,7 @@ test.describe('Kiểm tra lỗi Modal nhảy vị trí ghế/giường (Case-sen
 
   test('Dropdown trong Modal phải giữ nguyên vị trí cũ (không bị auto reset) khi mở lên', async ({ page }) => {
     // Truy cập hệ thống (giả sử server đang chạy local)
-    await page.goto('http://localhost:3000'); // Thay đổi port nếu cần
+    await page.goto('http://localhost:10000'); // Thay đổi port nếu cần
 
     // Đợi UI tải xong
     await page.waitForTimeout(2000);

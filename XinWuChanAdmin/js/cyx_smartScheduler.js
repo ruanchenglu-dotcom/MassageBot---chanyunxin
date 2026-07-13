@@ -416,8 +416,10 @@ window.SmartScheduler = (function() {
                         if (d1.flow === assignmentOriginal.flow) score1 += 10000; 
                         if (d1.phase1_res === assignmentOriginal.phase1_res) score1 += 10000;
                         else if (bSourceId && d1.phase1_res === bSourceId) score1 += 4;
+                        else if (targetIdUpper && d1.phase1_res === targetIdUpper) score1 += 4;
                         if (d1.phase2_res === assignmentOriginal.phase2_res) score1 += 10000;
                         else if (bSourceId && d1.phase2_res === bSourceId) score1 += 4;
+                        else if (targetIdUpper && d1.phase2_res === targetIdUpper) score1 += 4;
                         score1 -= Math.abs(d1.timeShift);
                         score1 -= Math.abs(d1.transitionShift);
                         let t1 = getAssignedTimes(b, d1);
@@ -427,8 +429,10 @@ window.SmartScheduler = (function() {
                         if (d2.flow === assignmentOriginal.flow) score2 += 10000;
                         if (d2.phase1_res === assignmentOriginal.phase1_res) score2 += 10000;
                         else if (bSourceId && d2.phase1_res === bSourceId) score2 += 4;
+                        else if (targetIdUpper && d2.phase1_res === targetIdUpper) score2 += 4;
                         if (d2.phase2_res === assignmentOriginal.phase2_res) score2 += 10000;
                         else if (bSourceId && d2.phase2_res === bSourceId) score2 += 4;
+                        else if (targetIdUpper && d2.phase2_res === targetIdUpper) score2 += 4;
                         score2 -= Math.abs(d2.timeShift);
                         score2 -= Math.abs(d2.transitionShift);
                         let t2 = getAssignedTimes(b, d2);
@@ -448,6 +452,7 @@ window.SmartScheduler = (function() {
                         let s1 = 0;
                         if (d1.res === assignmentOriginal.res) s1 += 10000;
                         else if (bSourceId && d1.res === bSourceId) s1 += 8;
+                        else if (targetIdUpper && d1.res === targetIdUpper) s1 += 8;
                         s1 -= Math.abs(d1.timeShift);
                         let t1 = getAssignedTimes(b, d1);
                         s1 += calculateGapScore(t1, allExistingTimes);
@@ -455,6 +460,7 @@ window.SmartScheduler = (function() {
                         let s2 = 0;
                         if (d2.res === assignmentOriginal.res) s2 += 10000;
                         else if (bSourceId && d2.res === bSourceId) s2 += 8;
+                        else if (targetIdUpper && d2.res === targetIdUpper) s2 += 8;
                         s2 -= Math.abs(d2.timeShift);
                         let t2 = getAssignedTimes(b, d2);
                         s2 += calculateGapScore(t2, allExistingTimes);
