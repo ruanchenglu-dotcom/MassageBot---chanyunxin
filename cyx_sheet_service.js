@@ -928,14 +928,28 @@ function _checkOverlapConflict(rowId, dateStr, timeStr, duration, phase1Res, pha
     const p1 = safeParseInt(p1Dur, Math.floor(durMins / 2));
     const p2 = safeParseInt(p2Dur, durMins - p1);
     
+    let transitionTimeStr = null;
+    if (rowId) {
+        const existingSelf = STATE.cachedBookings.find(x => x.rowId == rowId);
+        if (existingSelf && existingSelf.transition_time) {
+            transitionTimeStr = existingSelf.transition_time;
+        }
+    }
+
     let blocks = [];
     if (flow === 'BF' || flow === 'FB') {
-        const p1Cleanup = Math.min(ResourceCore.CONFIG.CLEANUP_BUFFER, ResourceCore.CONFIG.TRANSITION_BUFFER);
-        if (phase1Res) blocks.push({ start: startMins, end: startMins + p1 + p1Cleanup, res: phase1Res });
-        if (phase2Res) blocks.push({ start: startMins + p1 + ResourceCore.CONFIG.TRANSITION_BUFFER, end: startMins + durMins + ResourceCore.CONFIG.CLEANUP_BUFFER, res: phase2Res });
+        if (phase1Res) blocks.push({ start: startMins, end: startMins + p1, res: phase1Res });
+        
+        let p2Start = startMins + p1 + ResourceCore.CONFIG.TRANSITION_BUFFER;
+        if (transitionTimeStr) {
+            const ttMins = ResourceCore.getMinsFromTimeStr(transitionTimeStr);
+            if (ttMins !== -1 && ttMins > startMins) p2Start = ttMins;
+        }
+        
+        if (phase2Res) blocks.push({ start: p2Start, end: p2Start + p2, res: phase2Res });
     } else {
         const res = phase1Res || phase2Res;
-        if (res) blocks.push({ start: startMins, end: startMins + durMins + ResourceCore.CONFIG.CLEANUP_BUFFER, res: res });
+        if (res) blocks.push({ start: startMins, end: startMins + durMins, res: res });
     }
     
     const bookingsOnDate = STATE.cachedBookings.filter(b => {
@@ -983,12 +997,17 @@ function _checkOverlapConflict(rowId, dateStr, timeStr, duration, phase1Res, pha
                     if (!res2) res2 = matches[1];
                 }
             }
-            const p1Cleanup = Math.min(ResourceCore.CONFIG.CLEANUP_BUFFER, ResourceCore.CONFIG.TRANSITION_BUFFER);
-            if (res1) bBlocks.push({ start: bStartMins, end: bStartMins + bP1 + p1Cleanup, res: res1 });
-            if (res2) bBlocks.push({ start: bStartMins + bP1 + ResourceCore.CONFIG.TRANSITION_BUFFER, end: bStartMins + bDurMins + ResourceCore.CONFIG.CLEANUP_BUFFER, res: res2 });
+            if (res1) bBlocks.push({ start: bStartMins, end: bStartMins + bP1, res: res1 });
+            
+            let p2Start = bStartMins + bP1 + ResourceCore.CONFIG.TRANSITION_BUFFER;
+            if (b.transition_time) {
+                const ttMins = ResourceCore.getMinsFromTimeStr(b.transition_time);
+                if (ttMins !== -1 && ttMins > bStartMins) p2Start = ttMins;
+            }
+            if (res2) bBlocks.push({ start: p2Start, end: p2Start + bP2, res: res2 });
         } else {
             const bRes = b.phase1_res_idx || b.phase2_res_idx || b.allocated_resource;
-            if (bRes) bBlocks.push({ start: bStartMins, end: bStartMins + bDurMins + ResourceCore.CONFIG.CLEANUP_BUFFER, res: bRes });
+            if (bRes) bBlocks.push({ start: bStartMins, end: bStartMins + bDurMins, res: bRes });
         }
         
         for (const blk of blocks) {
