@@ -1958,7 +1958,7 @@ console.log('DEBUG_SPLITS:', { duration, eStep, eLimit, svc, testFlow, splitsToT
                 }
                 return window.SERVICES_LIST[0];
             }
-            return "Body Massage";
+            return "身體按摩";
         }, []);
 
         const getRoundedCurrentTime = () => {

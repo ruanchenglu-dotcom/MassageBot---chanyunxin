@@ -1663,7 +1663,10 @@ async function batchUpdateMultipleBookings(updatesArray) {
                 simulatedBookings.push(b);
             }
             if (body.date) { b.opDate = normalizeDateStrict(body.date); b.startTimeString = b.startTimeString || b.startTime; }
-            if (body.startTime) { b.startTimeString = String(body.startTime); if (b.startTimeString.length > 5) b.startTimeString = b.startTimeString.substring(0, 5); }
+            if (body.startTime || body.startTimeString) { 
+                b.startTimeString = String(body.startTime || body.startTimeString); 
+                if (b.startTimeString.length > 5 && !b.startTimeString.includes(' ')) b.startTimeString = b.startTimeString.substring(0, 5); 
+            }
             if (body.phase1_res_idx !== undefined) b.phase1_res_idx = body.phase1_res_idx;
             if (body.phase2_res_idx !== undefined) b.phase2_res_idx = body.phase2_res_idx;
             if (body.duration !== undefined) b.duration = body.duration;
@@ -1696,8 +1699,10 @@ async function batchUpdateMultipleBookings(updatesArray) {
                 dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!A${rowId}`, values: [[formattedDate]] });
                 dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!S${rowId}`, values: [[formattedDate]] });
             }
-            if (body.startTime) {
-                let timeVal = String(body.startTime); if (timeVal.length > 5) timeVal = timeVal.substring(0, 5);
+            if (body.startTime || body.startTimeString) {
+                let timeVal = String(body.startTime || body.startTimeString);
+                if (timeVal.includes(' ')) timeVal = timeVal.split(' ')[1];
+                if (timeVal.length > 5) timeVal = timeVal.substring(0, 5);
                 dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!B${rowId}`, values: [[timeVal]] });
             }
             if (body.customerName !== undefined) dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!C${rowId}`, values: [[body.customerName]] });
@@ -1787,9 +1792,9 @@ async function batchUpdateMultipleBookings(updatesArray) {
             }
 
             // --- V1.6 NÂNG CẤP: Tính toán Z, AC, AE ---
-            let newStartVal = body.startTime || body.gioDen || (bookingData ? (bookingData.startTimeString || bookingData.startTime) : null);
+            let newStartVal = body.startTime || body.startTimeString || body.gioDen || (bookingData ? (bookingData.startTimeString || bookingData.startTime) : null);
             if (newStartVal) {
-                let timeVal = newStartVal; if (timeVal.includes(' ')) timeVal = timeVal.split(' ')[1];
+                let timeVal = String(newStartVal); if (timeVal.includes(' ')) timeVal = timeVal.split(' ')[1];
                 if (timeVal.length > 5) timeVal = timeVal.substring(0, 5);
                 dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!AB${rowId}`, values: [[timeVal]] });
                 

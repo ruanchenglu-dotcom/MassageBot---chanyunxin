@@ -1358,13 +1358,12 @@ const App = () => {
             });
 
             listCombosGroups.forEach(group => {
-                const firstBooking = group[0];
-                const originalStart = safeTimeToMins(firstBooking.startTimeString);
-
                 group.forEach((bookingItem) => {
                     if (bookingItem.isDoneStatus) return;
                     if (bookingItem.forceResourceType) return;
                     if (activeRowIds.has(String(bookingItem.rowId))) return;
+
+                    const itemOriginalStart = safeTimeToMins(bookingItem.startTimeString);
 
                     let pref1 = bookingItem.phase1_res_idx ? bookingItem.phase1_res_idx.toUpperCase() : null;
                     let pref2 = bookingItem.phase2_res_idx ? bookingItem.phase2_res_idx.toUpperCase() : null;
@@ -1382,12 +1381,12 @@ const App = () => {
                         let p1Dur = bookingItem.phase1_duration !== undefined && bookingItem.phase1_duration !== null ? parseInt(bookingItem.phase1_duration, 10) : split.phase1;
                         let p2Dur = bookingItem.phase2_duration !== undefined && bookingItem.phase2_duration !== null ? parseInt(bookingItem.phase2_duration, 10) : split.phase2;
                         
-                        let p1End = originalStart + p1Dur;
+                        let p1End = itemOriginalStart + p1Dur;
                         let p2Start = p1End + (window.SYSTEM_CONFIG?.BUFFERS?.TRANSITION_MINUTES || 5);
 
                         if (bookingItem.transition_time) {
                             const transMins = safeTimeToMins(bookingItem.transition_time);
-                            if (transMins !== -1 && transMins > originalStart) {
+                            if (transMins !== -1 && transMins > itemOriginalStart) {
                                 p2Start = transMins;
                             }
                         }
@@ -1398,12 +1397,12 @@ const App = () => {
                             let isClash1 = false;
                             if (timelineGrid[pref1]) {
                                 for (const slot of timelineGrid[pref1]) {
-                                    if (String(slot.booking.rowId) !== String(bookingItem.rowId) && window.MatrixHelper?.isOverlap(originalStart, p1End, slot.start, slot.end)) {
+                                    if (String(slot.booking.rowId) !== String(bookingItem.rowId) && window.MatrixHelper?.isOverlap(itemOriginalStart, p1End, slot.start, slot.end)) {
                                         isClash1 = true; break;
                                     }
                                 }
                             }
-                            addToGrid(pref1, originalStart, p1End, bookingItem, { isCombo: true, phase: 1, sequence: seq, targetId: pref2, isPending: true, priority: 3, isRunning: bookingItem.isRunningStatus, isOverlapped: isClash1 });
+                            addToGrid(pref1, itemOriginalStart, p1End, bookingItem, { isCombo: true, phase: 1, sequence: seq, targetId: pref2, isPending: true, priority: 3, isRunning: bookingItem.isRunningStatus, isOverlapped: isClash1 });
                         }
                         if (pref2) {
                             let isClash2 = false;
