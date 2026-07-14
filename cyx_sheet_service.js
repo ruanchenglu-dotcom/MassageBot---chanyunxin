@@ -1376,8 +1376,15 @@ async function updateInlineBooking(rowId, updatedData) {
                         phase1_dur = updatedData.phase1_duration;
                         phase2_dur = updatedData.phase2_duration !== undefined ? updatedData.phase2_duration : duration - phase1_dur;
                     } else {
-                        phase1_dur = Math.floor(duration / 2);
-                        phase2_dur = duration - phase1_dur;
+                        let oldP1 = bookingData ? parseInt(bookingData.phase1_duration, 10) : NaN;
+                        let oldP2 = bookingData ? parseInt(bookingData.phase2_duration, 10) : NaN;
+                        if (!isNaN(oldP1) && !isNaN(oldP2) && (oldP1 + oldP2 === duration)) {
+                            phase1_dur = oldP1;
+                            phase2_dur = oldP2;
+                        } else {
+                            phase1_dur = Math.floor(duration / 2);
+                            phase2_dur = duration - phase1_dur;
+                        }
                     }
                 } else if (svcDef.category === 'FOOT') {
                     newFlow = updatedData.flow || 'FOOTSINGLE';

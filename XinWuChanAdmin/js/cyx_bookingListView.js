@@ -310,11 +310,24 @@
                 }
                 const bSplit = window.getComboSplit ? window.getComboSplit(duration) : { phase1: Math.floor(duration/2) };
                 
+                let sCode = m.serviceCode;
+                if ((applyingToGroup && detectedChanges.dichVu) || (m.rowId === editingRowId && editFormData.service !== m.serviceName)) {
+                     if (window.SERVICES_DATA) {
+                         for (const code in window.SERVICES_DATA) {
+                             if (mService === window.SERVICES_DATA[code].name) {
+                                 sCode = code;
+                                 break;
+                             }
+                         }
+                     }
+                }
+                
                 return {
                     idx,
                     service: mService,
-                    serviceCode: m.serviceCode || '',
+                    serviceCode: sCode || '',
                     duration,
+                    overrideDuration: duration,
                     flowCode,
                     phase1_duration: m.phase1_duration || bSplit.phase1,
                     phase2_duration: duration - (m.phase1_duration || bSplit.phase1),
