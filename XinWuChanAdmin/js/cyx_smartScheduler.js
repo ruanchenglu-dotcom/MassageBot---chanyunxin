@@ -149,15 +149,21 @@ window.SmartScheduler = (function() {
         const transitionMins = window.SYSTEM_CONFIG?.BUFFERS?.TRANSITION_MINUTES || 5;
         const transitionShift = assignment.transitionShift || 0;
         
-        let p1End = bStart + split.phase1;
+        let p1Dur = b.phase1_duration !== undefined && b.phase1_duration !== null ? parseInt(b.phase1_duration, 10) : split.phase1;
+        let p2Dur = b.phase2_duration !== undefined && b.phase2_duration !== null ? parseInt(b.phase2_duration, 10) : split.phase2;
+        
+        let p1End = bStart + p1Dur;
         let p2Start = p1End + transitionMins + transitionShift;
-        let p2End = p2Start + split.phase2;
+        let p2End = p2Start + p2Dur;
         
         if (b.transition_time) {
             const transMins = getSafeTime(b.transition_time);
             if (transMins !== -1 && transMins > 0) {
+                if (transMins + timeShift < p1End) {
+                    p1End = transMins + timeShift;
+                }
                 p2Start = transMins + timeShift + transitionShift;
-                p2End = p2Start + split.phase2;
+                p2End = p2Start + p2Dur;
             }
         }
 
@@ -170,10 +176,14 @@ window.SmartScheduler = (function() {
 
     const hasConflict = (times1, times2) => {
         const tol = window.SYSTEM_CONFIG?.TOLERANCE || 1;
+        const cleanupMins = typeof window !== 'undefined' && window.getCleanupBuffer ? window.getCleanupBuffer() : (window.SYSTEM_CONFIG?.BUFFERS?.CLEANUP_MINUTES || 5);
+        const overlapThreshold = cleanupMins + tol;
+        
         for (let t1 of times1) {
             for (let t2 of times2) {
                 if (isSameRes(t1.res, t2.res)) {
-                    if (t1.start < t2.end - tol && t2.start < t1.end - tol) {
+                    const overlap = Math.min(t1.end, t2.end) - Math.max(t1.start, t2.start);
+                    if (overlap > overlapThreshold) {
                         return true;
                     }
                 }
