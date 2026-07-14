@@ -488,12 +488,25 @@ window.SmartScheduler = (function() {
 
         let state = { iterations: 0, startTime: Date.now() };
 
-        // [NÂNG CẤP] Chỉ kiểm tra khối vừa kéo thả xem có đè lên các khối cố định khác không
+        // [NÂNG CẤP] Chỉ kiểm tra khối vừa kéo thả xem có đè lên các khối cố định khác không (Bỏ qua đè cleanup buffer)
         if (movedTimes) {
             for (let ft of fixedTimes) {
-                if (ft !== movedTimes && hasConflict(movedTimes, ft)) {
-                    // Cấn đè trực tiếp lên khách đang phục vụ
-                    return null;
+                if (ft !== movedTimes) {
+                    const cleanupMins = typeof window !== 'undefined' && window.getCleanupBuffer ? window.getCleanupBuffer() : (window.SYSTEM_CONFIG?.BUFFERS?.CLEANUP_MINUTES || 5);
+                    const tol = window.SYSTEM_CONFIG?.TOLERANCE || 1;
+                    const overlapThreshold = cleanupMins + tol;
+                    let isHardConflict = false;
+                    for (let t1 of movedTimes) {
+                        for (let t2 of ft) {
+                            if (isSameRes(t1.res, t2.res)) {
+                                const overlap = Math.min(t1.end, t2.end) - Math.max(t1.start, t2.start);
+                                if (overlap > overlapThreshold) {
+                                    isHardConflict = true;
+                                }
+                            }
+                        }
+                    }
+                    if (isHardConflict) return null;
                 }
             }
         }
