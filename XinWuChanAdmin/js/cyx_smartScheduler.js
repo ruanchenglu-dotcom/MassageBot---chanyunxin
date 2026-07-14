@@ -121,7 +121,7 @@ window.SmartScheduler = (function() {
             return (b.phase1_locked === "TRUE" || b.phase1_locked === true) && 
                    (b.phase2_locked === "TRUE" || b.phase2_locked === true);
         } else {
-            return b.is_locked === "TRUE" || b.isManualLocked;
+            return b.phase1_locked === "TRUE" || b.phase1_locked === true || b.isManualLocked === true;
         }
     };
 
@@ -358,7 +358,7 @@ window.SmartScheduler = (function() {
                     locked2 = (b.phase2_locked === "TRUE" || b.phase2_locked === true);
                     locked = locked1 && locked2;
                 } else {
-                    locked = (b.is_locked === "TRUE" || b.is_locked === true || b.isManualLocked === true);
+                    locked = (b.phase1_locked === "TRUE" || b.phase1_locked === true || b.isManualLocked === true);
                     locked1 = locked;
                     locked2 = locked;
                 }
