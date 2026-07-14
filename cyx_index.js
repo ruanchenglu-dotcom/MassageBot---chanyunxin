@@ -1215,10 +1215,7 @@ app.post('/api/batch-process-bookings', async (req, res) => {
             }
         }
         
-        const isSuccess = await SheetService.batchUpdateMultipleBookings(req.body.payloads);
-        if (isSuccess === false) {
-            return res.status(400).json({ success: false, error: '系統檢測到衝突，已還原操作' });
-        }
+        await SheetService.batchUpdateMultipleBookings(req.body.payloads);
         res.json({ success: true });
     } catch (e) { 
         console.error('[BATCH PROCESS ERROR]', e); 
