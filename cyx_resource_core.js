@@ -236,7 +236,7 @@ function calculateRealDurations(booking, defaultDuration, isCombo) {
     const parsedP2 = parseDuration(booking.phase2_duration) ?? parseDuration(booking.originalData?.phase2_duration);
     if (parsedP2 !== null) p2 = parsedP2;
 
-    const realDuration = isCombo ? (p1 + p2 + CONF.TRANSITION_BUFFER) : defaultDuration;
+    const realDuration = isCombo ? (p1 + p2) : defaultDuration;
     return { p1, p2, realDuration };
 }
 
@@ -1500,19 +1500,18 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
             const duration = ng.overrideDuration || svc.duration || 60; let blocks = []; let elasticOptions = [];
             if (isThisGuestCombo) {
                 const p1Standard = Math.floor(duration / 2); const p2Standard = duration - p1Standard;
-                const isCrossSwapGroup = comboGuests.length >= 2 && numBF > 0 && numBF < comboGuests.length;
-                const phase1Cleanup = isCrossSwapGroup ? Math.min(CONF.CLEANUP_BUFFER, CONF.TRANSITION_BUFFER) : CONF.CLEANUP_BUFFER;
+                const phase1Cleanup = 0;
 
                 const splits = generateElasticSplits(duration, svc.elasticStep || 5, svc.elasticLimit || 15, null, svc.minFoot, svc.maxFoot, svc.minBody, svc.maxBody, flow);
 
                 if (flow === 'FB') {
-                    const t1End = requestStartMins + p1Standard; const t2Start = t1End + CONF.TRANSITION_BUFFER;
+                    const t1End = requestStartMins + p1Standard; const t2Start = t1End;
                     blocks.push({ start: requestStartMins, end: t1End + phase1Cleanup, type: 'CHAIR' });
                     blocks.push({ start: t2Start, end: t2Start + p2Standard + CONF.CLEANUP_BUFFER, type: 'BED' });
                     scenarioDetails.push({ guestIndex: ng.idx, service: svc.name, price: svc.price, phase1_duration: p1Standard, phase2_duration: p2Standard, flow: 'FB', timeStr: timeStr, allocated: [] });
                     
                     splits.forEach(split => {
-                        const sT1End = requestStartMins + split.p1; const sT2Start = sT1End + CONF.TRANSITION_BUFFER;
+                        const sT1End = requestStartMins + split.p1; const sT2Start = sT1End;
                         elasticOptions.push({
                             p1: split.p1, p2: split.p2,
                             blocks: [
@@ -1522,13 +1521,13 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
                         });
                     });
                 } else {
-                    const t1End = requestStartMins + p2Standard; const t2Start = t1End + CONF.TRANSITION_BUFFER;
+                    const t1End = requestStartMins + p2Standard; const t2Start = t1End;
                     blocks.push({ start: requestStartMins, end: t1End + phase1Cleanup, type: 'BED' });
                     blocks.push({ start: t2Start, end: t2Start + p1Standard + CONF.CLEANUP_BUFFER, type: 'CHAIR' });
                     scenarioDetails.push({ guestIndex: ng.idx, service: svc.name, price: svc.price, phase1_duration: p1Standard, phase2_duration: p2Standard, flow: 'BF', timeStr: timeStr, allocated: [] });
 
                     splits.forEach(split => {
-                        const sT1End = requestStartMins + split.p1; const sT2Start = sT1End + CONF.TRANSITION_BUFFER;
+                        const sT1End = requestStartMins + split.p1; const sT2Start = sT1End;
                         elasticOptions.push({
                             p1: split.p1, p2: split.p2,
                             blocks: [

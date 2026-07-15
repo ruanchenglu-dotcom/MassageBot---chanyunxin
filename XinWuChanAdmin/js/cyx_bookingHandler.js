@@ -224,7 +224,7 @@
             const parsedP2 = parseDuration(booking.phase2_duration) ?? parseDuration(booking.originalData?.phase2_duration);
             if (parsedP2 !== null) p2 = parsedP2;
 
-            const realDuration = isCombo ? (p1 + p2 + CONF.TRANSITION_BUFFER) : defaultDuration;
+            const realDuration = isCombo ? (p1 + p2) : defaultDuration;
             return { p1, p2, realDuration };
         }
 
@@ -286,7 +286,7 @@
                 else if (noteContent.includes('BF') || noteContent.includes('BODY FIRST') || noteContent.includes('先做身體')) isBodyFirst = true;
             }
 
-            const splitTime = bStart + p1 + (CONF.TRANSITION_BUFFER / 2); // Approximate switch
+            const splitTime = bStart + p1;
             if (timeMins < splitTime) return isBodyFirst ? 'BED' : 'CHAIR';
             else return isBodyFirst ? 'CHAIR' : 'BED';
         }
@@ -345,7 +345,7 @@
                 let maxReqDur = guestList.reduce((max, g) => Math.max(max, parseInt(g.duration || 60, 10)), 0);
                 const normQDate = queryDateStr ? (typeof normalizeDateStrict === 'function' ? normalizeDateStrict(queryDateStr) : queryDateStr.replace(/\//g, '-')) : '';
                 const cleanBuffer = CONF.CLEANUP_BUFFER || 5;
-                const transBuffer = CONF.TRANSITION_BUFFER || 5;
+                const transBuffer = 0;
                 
                 currentBookingsRaw.forEach(b => {
                     if (b.status === 'CANCELLED' || b.status === 'NO_SHOW') return;
@@ -582,8 +582,8 @@
                     
                     if (!isBodyFirst) { type1 = 'CHAIR'; type2 = 'BED'; }
 
-                    pushToMap(res1, bStart, bStart + p1 + CONF.CLEANUP_BUFFER, type1);
-                    pushToMap(res2, bStart + p1 + CONF.TRANSITION_BUFFER, bStart + realDuration + CONF.CLEANUP_BUFFER, type2);
+                    pushToMap(res1, bStart, bStart + p1, type1);
+                    pushToMap(res2, bStart + p1, bStart + realDuration + CONF.CLEANUP_BUFFER, type2);
                 } else {
                     let inferredType = 'BED';
                     if (svcInfo) {
@@ -755,13 +755,12 @@
                     
                     for (const testFlow of flowsToTry) {
                         const splitsToTry = generateElasticSplits(duration, eStep, eLimit, null, svc.minFoot, svc.maxFoot, svc.minBody, svc.maxBody, testFlow, true);
-console.log('DEBUG_SPLITS:', { duration, eStep, eLimit, svc, testFlow, splitsToTry });
                         
                         for (const split of splitsToTry) {
                             const p1 = split.p1;
                             const p2 = split.p2;
                             const tStart = requestStart;
-                            const tSwitch = tStart + p1 + CONF.TRANSITION_BUFFER;
+                            const tSwitch = tStart + p1;
                             
                             let bedIdx = -1, chairIdx = -1;
                             
@@ -774,7 +773,7 @@ console.log('DEBUG_SPLITS:', { duration, eStep, eLimit, svc, testFlow, splitsToT
                                 }
                                 if (bedIdx !== -1 && chairIdx !== -1) {
                                     if (split.shiftMins === 0) {
-                                        simulationMap.BED[bedIdx].push({ start: tStart, end: tStart + p1 + CONF.CLEANUP_BUFFER });
+                                        simulationMap.BED[bedIdx].push({ start: tStart, end: tStart + p1 });
                                         simulationMap.CHAIR[chairIdx].push({ start: tSwitch, end: tSwitch + p2 + CONF.CLEANUP_BUFFER });
                                         suggestedLanes[guestIdKey] = { BED: bedIdx + 1, CHAIR: chairIdx + 1, flow: testFlow, phase1_duration: p1, phase2_duration: p2 };
                                         foundValidSplit = true;
@@ -793,7 +792,7 @@ console.log('DEBUG_SPLITS:', { duration, eStep, eLimit, svc, testFlow, splitsToT
                                 }
                                 if (chairIdx !== -1 && bedIdx !== -1) {
                                     if (split.shiftMins === 0) {
-                                        simulationMap.CHAIR[chairIdx].push({ start: tStart, end: tStart + p1 + CONF.CLEANUP_BUFFER });
+                                        simulationMap.CHAIR[chairIdx].push({ start: tStart, end: tStart + p1 });
                                         simulationMap.BED[bedIdx].push({ start: tSwitch, end: tSwitch + p2 + CONF.CLEANUP_BUFFER });
                                         suggestedLanes[guestIdKey] = { CHAIR: chairIdx + 1, BED: bedIdx + 1, flow: testFlow, phase1_duration: p1, phase2_duration: p2 };
                                         foundValidSplit = true;
@@ -825,17 +824,13 @@ console.log('DEBUG_SPLITS:', { duration, eStep, eLimit, svc, testFlow, splitsToT
                                     const p1 = split.p1;
                                     const p2 = split.p2;
                                     const tStart = requestStart;
-                                    const tSwitch = tStart + p1 + CONF.TRANSITION_BUFFER;
+                                    const tSwitch = tStart + p1;
                                     
                                     let loc1Idx = -1, loc2Idx = -1;
                                     
-                                    const comboGuestsCount = guestList.filter(g => isComboService(SERVICES[g.serviceCode] || { duration: 60 }, g.serviceCode, g.flowCode)).length;
-                                    const isCrossSwapGroup = comboGuestsCount >= 2;
-                                    const phase1Cleanup = isCrossSwapGroup ? Math.min(CONF.CLEANUP_BUFFER, CONF.TRANSITION_BUFFER) : CONF.CLEANUP_BUFFER;
-
                                     if (testFlow === 'BF') {
                                         for (let b = 0; b < CONF.MAX_BEDS; b++) { if (checkLaneContinuity(simulationMap.BED[b], tStart, tStart + p1)) { loc1Idx = b; break; } }
-                                        for (let c = 0; c < oppConfMaxChairs; c++) { if (checkLaneContinuity(oppMap.CHAIR[c], tSwitch, tSwitch + p2)) { loc2Idx = c; break; } }
+                                        for (let c = 0; c < oppConfMaxChairs; c++) { if (checkLaneContinuity(oppMap.CHAIR[c], tSwitch, tSwitch + p2 + CONF.CLEANUP_BUFFER)) { loc2Idx = c; break; } }
                                         if (loc1Idx !== -1 && loc2Idx !== -1) {
                                             crossLocationMsg = `\n💡 跨館建議：【${locationStr}】目前僅有全身床位，【${oppositeLoc}】有足部座位。是否同意先在【${locationStr}】進行身體按摩，再移步至【${oppositeLoc}】完成足部按摩？`;
                                             foundCross = true;
@@ -843,7 +838,7 @@ console.log('DEBUG_SPLITS:', { duration, eStep, eLimit, svc, testFlow, splitsToT
                                         }
                                     } else {
                                         for (let c = 0; c < CONF.MAX_CHAIRS; c++) { if (checkLaneContinuity(simulationMap.CHAIR[c], tStart, tStart + p1)) { loc1Idx = c; break; } }
-                                        for (let b = 0; b < oppConfMaxBeds; b++) { if (checkLaneContinuity(oppMap.BED[b], tSwitch, tSwitch + p2)) { loc2Idx = b; break; } }
+                                        for (let b = 0; b < oppConfMaxBeds; b++) { if (checkLaneContinuity(oppMap.BED[b], tSwitch, tSwitch + p2 + CONF.CLEANUP_BUFFER)) { loc2Idx = b; break; } }
                                         if (loc1Idx !== -1 && loc2Idx !== -1) {
                                             crossLocationMsg = `\n💡 跨館建議：【${locationStr}】目前僅有足部座位，【${oppositeLoc}】有全身床位。是否同意先在【${locationStr}】進行足部按摩，再移步至【${oppositeLoc}】完成身體按摩？`;
                                             foundCross = true;
@@ -928,7 +923,7 @@ console.log('DEBUG_SPLITS:', { duration, eStep, eLimit, svc, testFlow, splitsToT
                 }
                 
                 // [V118.9 FIX] 恢復「從上到下緊湊排列」(Top-Down Packing) 邏輯，取消空位優先分配以避免視覺空隙。
-                // 不再根據 occupied.length 進行排序，而是保留原始順序 (CHAIR-1, CHAIR-2...) 進行分配。
+                // Không thay đổi thứ tự hàng (CHAIR-1, CHAIR-2...) để luôn cố định ghế/giường.
                 let sortedLanes = [...resourceGroup];
 
                 for (let lane of sortedLanes) {
@@ -1212,7 +1207,6 @@ console.log('DEBUG_SPLITS:', { duration, eStep, eLimit, svc, testFlow, splitsToT
                 const ownerName = b.originalData?.customerName || b.originalData?.hoTen || b.rowId || "Guest";
 
                 // [V135 FIX] LUÔN ưu tiên lấy toạ độ thực tế một cách toàn diện như Guardrail
-                // Điều này ngăn chặn Bóng Ma Toạ Độ do Matrix gán nhầm ghế/giường đã có khách.
                 const rIdStr = (b.phase1_res_idx || "") + " " + (b.phase2_res_idx || "") + " " + (b.allocated_resource || "") + " " + (b.location || "") + " " + (b.current_resource_id || "") + " " + (b.rowId || "");
                 const matches = [...rIdStr.matchAll(/((?:BED|CHAIR)-[12]-\d+)/gi)].map(m => m[1].toUpperCase());
                 let uniqueMatches = [...new Set(matches)];
@@ -1253,7 +1247,7 @@ console.log('DEBUG_SPLITS:', { duration, eStep, eLimit, svc, testFlow, splitsToT
 
                 if (isCombo) {
                     const p1End = bStart + p1;
-                    const p2Start = p1End + CONF.TRANSITION_BUFFER;
+                    const p2Start = p1End; // Combo switch buffer = 0
                     const p2End = p2Start + p2;
 
                     let isBodyFirst = false;
@@ -1309,11 +1303,11 @@ console.log('DEBUG_SPLITS:', { duration, eStep, eLimit, svc, testFlow, splitsToT
                     if (!p1Index) p1Index = anchorIndex;
 
                     if (isBodyFirst) {
-                        processedB.blocks.push({ start: bStart, end: p1End + CONF.CLEANUP_BUFFER, type: 'BED', forcedIndex: p1Index });
+                        processedB.blocks.push({ start: bStart, end: p1End, type: 'BED', forcedIndex: p1Index });
                         processedB.blocks.push({ start: p2Start, end: p2End + CONF.CLEANUP_BUFFER, type: 'CHAIR', forcedIndex: p2Index });
                         processedB.flow = 'BF';
                     } else {
-                        processedB.blocks.push({ start: bStart, end: p1End + CONF.CLEANUP_BUFFER, type: 'CHAIR', forcedIndex: p1Index });
+                        processedB.blocks.push({ start: bStart, end: p1End, type: 'CHAIR', forcedIndex: p1Index });
                         processedB.blocks.push({ start: p2Start, end: p2End + CONF.CLEANUP_BUFFER, type: 'BED', forcedIndex: p2Index });
                         processedB.flow = 'FB';
                     }
@@ -1382,7 +1376,6 @@ console.log('DEBUG_SPLITS:', { duration, eStep, eLimit, svc, testFlow, splitsToT
                     let allocatedSlots = [];
                     for (const block of exB.blocks) {
                         const realEnd = block.end;
-                        // --- V118.4 FIX: Ép buộc đặt chỗ (isForced = true) cho các Booking đã có sẵn ---
                         const slotId = matrix.tryAllocate(block.type, block.start, realEnd, exB.id, block.forcedIndex, true);
                         if (!slotId) { placedSuccessfully = false; break; }
                         allocatedSlots.push(slotId);
@@ -1409,14 +1402,14 @@ console.log('DEBUG_SPLITS:', { duration, eStep, eLimit, svc, testFlow, splitsToT
                         const p2Standard = duration - p1Standard;
                         if (flow === 'FB') {
                             const t1End = requestStartMins + p1Standard;
-                            const t2Start = t1End + CONF.TRANSITION_BUFFER;
-                            blocks.push({ start: requestStartMins, end: t1End + CONF.CLEANUP_BUFFER, type: 'CHAIR' });
+                            const t2Start = t1End; // Buffer = 0
+                            blocks.push({ start: requestStartMins, end: t1End, type: 'CHAIR' });
                             blocks.push({ start: t2Start, end: t2Start + p2Standard + CONF.CLEANUP_BUFFER, type: 'BED' });
                             scenarioDetails.push({ guestIndex: ng.idx, service: svc.name, price: svc.price, phase1_duration: p1Standard, phase2_duration: p2Standard, flow: 'FB', timeStr: timeStr, allocated: [] });
                         } else {
                             const t1End = requestStartMins + p2Standard;
-                            const t2Start = t1End + CONF.TRANSITION_BUFFER;
-                            blocks.push({ start: requestStartMins, end: t1End + CONF.CLEANUP_BUFFER, type: 'BED' });
+                            const t2Start = t1End; // Buffer = 0
+                            blocks.push({ start: requestStartMins, end: t1End, type: 'BED' });
                             blocks.push({ start: t2Start, end: t2Start + p1Standard + CONF.CLEANUP_BUFFER, type: 'CHAIR' });
                             scenarioDetails.push({ guestIndex: ng.idx, service: svc.name, price: svc.price, phase1_duration: p1Standard, phase2_duration: p2Standard, flow: 'BF', timeStr: timeStr, allocated: [] });
                         }
@@ -1434,7 +1427,6 @@ console.log('DEBUG_SPLITS:', { duration, eStep, eLimit, svc, testFlow, splitsToT
                 let conflictFound = false;
                 for (const item of newGuestBlocksMap) {
                     let guestAllocations = [];
-                    // [V118.10 FIX] 關閉 suggestedLanes 強制綁定，讓 Top-Down Packing 能夠在交叉安排 (BF/FB) 時自然填補空隙。
                     const useSuggestedLanes = false;
                     let preferredIdx = null;
 
@@ -1446,11 +1438,6 @@ console.log('DEBUG_SPLITS:', { duration, eStep, eLimit, svc, testFlow, splitsToT
                     for (const block of item.blocks) {
                         let specificPrefIdx = preferredIdx;
                         let isPrefForced = false;
-
-                        if (useSuggestedLanes) {
-                            specificPrefIdx = guardrailCheck.suggestedLanes[item.guest.idx][block.type] || preferredIdx;
-                            if (specificPrefIdx !== null) isPrefForced = true;
-                        }
 
                         const slotId = matrix.tryAllocate(block.type, block.start, block.end, `NEW_GUEST_${item.guest.idx}`, specificPrefIdx, isPrefForced);
                         if (!slotId) { conflictFound = true; break; }
@@ -1464,7 +1451,6 @@ console.log('DEBUG_SPLITS:', { duration, eStep, eLimit, svc, testFlow, splitsToT
                 if (conflictFound) {
                     let matrixSqueeze = new VirtualMatrix();
                     let updatesProposed = [];
-                    // [V119 FIX] User feedback: "không được dỡ các khách cũ" and "chỉ khoá cứng toạ độ của các khách đang phục vụ"
                     const hardBookings = existingBookingsProcessed;
                     hardBookings.forEach(hb => {
                         const isRunning = isStatusRunning(hb.originalData?.status);
@@ -1485,10 +1471,8 @@ console.log('DEBUG_SPLITS:', { duration, eStep, eLimit, svc, testFlow, splitsToT
                         let splitsToTry = [];
                         if (item.isCombo) {
                             const svcDef = SERVICES[item.guest.serviceCode];
-                            const eStep = svcDef ? (svcDef.elasticStep || 1) : 1;
-                            
+                            const eStep = svcDef ? (svcDef.elasticStep || 5) : 5;
                             const flowsToTest = [item.flow];
-
                             for (const testFlow of flowsToTest) {
                                 const splits = generateElasticSplits(item.duration, eStep, 0, null, svcDef ? svcDef.minFoot : null, svcDef ? svcDef.maxFoot : null, svcDef ? svcDef.minBody : null, svcDef ? svcDef.maxBody : null, testFlow, true);
                                 for (const sp of splits) {
@@ -1505,14 +1489,14 @@ console.log('DEBUG_SPLITS:', { duration, eStep, eLimit, svc, testFlow, splitsToT
                                 if (split.flow === 'FB') {
                                     const tStart = requestStartMins + (split.shiftMins || 0);
                                     const t1End = tStart + split.p1;
-                                    const t2Start = t1End + CONF.TRANSITION_BUFFER;
-                                    testBlocks.push({ start: tStart, end: t1End + CONF.CLEANUP_BUFFER, type: 'CHAIR' });
+                                    const t2Start = t1End; // Buffer = 0
+                                    testBlocks.push({ start: tStart, end: t1End, type: 'CHAIR' });
                                     testBlocks.push({ start: t2Start, end: t2Start + split.p2 + CONF.CLEANUP_BUFFER, type: 'BED' });
                                 } else {
                                     const tStart = requestStartMins + (split.shiftMins || 0);
                                     const t1End = tStart + split.p1;
-                                    const t2Start = t1End + CONF.TRANSITION_BUFFER;
-                                    testBlocks.push({ start: tStart, end: t1End + CONF.CLEANUP_BUFFER, type: 'BED' });
+                                    const t2Start = t1End; // Buffer = 0
+                                    testBlocks.push({ start: tStart, end: t1End, type: 'BED' });
                                     testBlocks.push({ start: t2Start, end: t2Start + split.p2 + CONF.CLEANUP_BUFFER, type: 'CHAIR' });
                                 }
                             } else {
@@ -1526,13 +1510,7 @@ console.log('DEBUG_SPLITS:', { duration, eStep, eLimit, svc, testFlow, splitsToT
                             
                             let currentAllocations = [];
                             for (const block of testBlocks) {
-                                let specificPrefIdx = preferredIdxSqueeze;
-                                let isPrefForced = false;
-                                if (useSuggestedLanes) {
-                                    specificPrefIdx = guardrailCheck.suggestedLanes[item.guest.idx][block.type] || preferredIdxSqueeze;
-                                    if (specificPrefIdx !== null) isPrefForced = true;
-                                }
-                                const slotId = clonedMatrix.tryAllocate(block.type, block.start, block.end, `NEW_GUEST_${item.guest.idx}`, specificPrefIdx, isPrefForced);
+                                const slotId = clonedMatrix.tryAllocate(block.type, block.start, block.end, `NEW_GUEST_${item.guest.idx}`, preferredIdxSqueeze, false);
                                 if (!slotId) { fit = false; break; }
                                 currentAllocations.push(slotId);
                             }
