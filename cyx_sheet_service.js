@@ -862,7 +862,7 @@ async function ghiVaoSheet(data, proposedUpdates = []) {
             let locVal = data.location;
             if (guestDetail && guestDetail.location) locVal = guestDetail.location;
             row[39] = locVal || "本館";
-            row[40] = "";
+            row[40] = colK_Created;
             row[41] = data.timeToArrive || "";
 
             valuesToWrite.push(row);

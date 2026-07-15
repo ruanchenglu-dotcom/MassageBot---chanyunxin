@@ -1093,12 +1093,12 @@ app.post('/api/admin-booking', async (req, res) => {
     const isSaved = await SheetService.ghiVaoSheet({
         ngayDen: cyx_data.ngayDen, gioDen: cyx_data.gioDen, dichVu: cyx_data.dichVu, nhanVien: cyx_data.nhanVien,
         userId: 'ADMIN_WEB', sdt: cyx_data.sdt || '現場客', hoTen: cyx_data.hoTen || '現場客',
-        trangThai: '已預約', pax: cyx_data.pax || 1, isOil: cyx_data.isOil || false,
+        trangThai: cyx_data.status || '已預約', pax: cyx_data.pax || 1, isOil: cyx_data.isOil || false,
         duration: serviceDuration,
         guestDetails: cyx_data.guestDetails,
         phase1_duration: cyx_data.phase1_duration, phase2_duration: cyx_data.phase2_duration,
         isManualLocked: cyx_data.isManualLocked, flow: cyx_data.flow, serviceCode: cyx_data.serviceCode,
-        adminNote: cyx_data.adminNote, location: cyx_data.location
+        adminNote: cyx_data.adminNote, location: cyx_data.location, timeToArrive: cyx_data.timeToArrive
     });
 
     if (isSaved) {
