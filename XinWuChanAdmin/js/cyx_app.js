@@ -4036,9 +4036,11 @@ const App = () => {
 
                         const activeBookings = bookings.filter(x => {
                             if (x.isDoneStatus) return false;
+                            if (x.status === 'STANDBY' || x.status === '候補' || x.category === 'STANDBY' || x.category === '候補') return false;
                             const bDateStr = x.startTimeString ? x.startTimeString.split(' ')[0].replace(/\//g, '-') : '';
                             return bDateStr === viewDate.replace(/\//g, '-');
                         });
+                        console.log('activeBookings:', activeBookings.map(b => b.status + '-' + b.category));
                         
                         const safeTimeToMinsLocal = (tStr) => {
                             if (!tStr) return 0;
