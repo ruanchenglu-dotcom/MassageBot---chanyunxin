@@ -128,7 +128,8 @@ const STATUS_KEYWORDS = {
     NOSHOW: ['爽約', 'Noshow', 'No Show'],
     WAITING: ['Waiting', 'chờ', 'waiting'],
     DONE: ['Done', 'hoàn thành', 'Completed', '✅'],
-    PAID: ['結帳', '已結帳']
+    PAID: ['結帳', '已結帳'],
+    STANDBY: ['候補', 'Standby', 'standby']
 };
 
 // --- GOOGLE AUTHENTICATION ---
@@ -971,7 +972,7 @@ function _checkOverlapConflict(rowId, dateStr, timeStr, duration, phase1Res, pha
     for (const b of bookingsOnDate) {
         if (!b.status) continue;
         const statusLower = b.status.toLowerCase();
-        const inactiveKeywords = ['cancel', 'hủy', 'huỷ', 'finish', 'done', 'xong', 'check-out', 'checkout', '取消', '完成', '空'];
+        const inactiveKeywords = ['cancel', 'hủy', 'huỷ', 'finish', 'done', 'xong', 'check-out', 'checkout', '取消', '完成', '空', '候補', 'standby'];
         let isActive = true;
         for (const kw of inactiveKeywords) { if (statusLower.includes(kw)) { isActive = false; break; } }
         if (!isActive) continue;

@@ -61,7 +61,8 @@ let SERVICES = { 'A3': getServiceInfo() };
             WAITING: '等待中',
             SERVING: '服務中',
             COMPLETED: '已完成',
-            CANCELLED: '已取消'
+            CANCELLED: '已取消',
+            STANDBY: '候補'
         };
     };
 

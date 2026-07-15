@@ -27,7 +27,8 @@ const APP_STATUS = window.BOOKING_STATUS || {
     SERVING: '服務中',
     COMPLETED: '已完成',
     PAID: '已結帳',
-    CANCELLED: '已取消'
+    CANCELLED: '已取消',
+    STANDBY: '候補'
 };
 
 // --- PURE FUNCTION: SỬ DỤNG HÀM CHUNG TỪ STAFF SORTER ---

@@ -61,7 +61,8 @@ const getBookingStatus = () => window.BOOKING_STATUS || {
     COMPLETED: '已完成',
     PAID: '已結帳',
     CANCELLED: '已取消',
-    NOSHOW: '爽約'
+    NOSHOW: '爽約',
+    STANDBY: '候補'
 };
 
 /**

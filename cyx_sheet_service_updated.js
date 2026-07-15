@@ -64,7 +64,8 @@ const STATUS_KEYWORDS = {
     NOSHOW: ['爽約', 'Noshow', 'No Show'],
     WAITING: ['Waiting', 'chờ', 'waiting'],
     DONE: ['Done', 'hoàn thành', 'Completed', '✅'],
-    PAID: ['結帳', '已結帳']
+    PAID: ['結帳', '已結帳'],
+    STANDBY: ['候補', 'Standby', 'standby']
 };
 
 // --- GOOGLE AUTHENTICATION ---

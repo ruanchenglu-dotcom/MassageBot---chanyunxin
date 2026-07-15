@@ -128,7 +128,8 @@ const BOOKING_STATUS = {
     COMPLETED: '已完成',   // Đã hoàn thành xong dịch vụ
     PAID: '已結帳',        // Đã thanh toán (khách trả tiền trước hoặc sau)
     CANCELLED: '已取消',   // Đã hủy lịch
-    NOSHOW: '爽約'         // Khách không đến
+    NOSHOW: '爽約',        // Khách không đến
+    STANDBY: '候補'        // Khách chờ
 };
 
 const DYNAMIC_PRICES_MAP = null;

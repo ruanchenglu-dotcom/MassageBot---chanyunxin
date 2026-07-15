@@ -162,7 +162,7 @@ function isOverlap(startA, endA, startB, endB) {
 function isActiveBookingStatus(statusRaw) {
     if (!statusRaw) return true; // CẦN ĐƯỢC COI LÀ ACTIVE nếu status trống
     const s = statusRaw.toString().toLowerCase().trim();
-    const inactiveKeywords = ['cancel', 'hủy', 'huỷ', 'finish', 'done', 'xong', 'check-out', 'checkout', '取消', '完成', '空'];
+    const inactiveKeywords = ['cancel', 'hủy', 'huỷ', 'finish', 'done', 'xong', 'check-out', 'checkout', '取消', '完成', '空', '候補', 'standby'];
     for (const kw of inactiveKeywords) { if (s.includes(kw)) return false; }
     return true;
 }

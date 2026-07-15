@@ -1923,6 +1923,7 @@
         const [suggestions, setSuggestions] = useState([]);
         const [isSubmitting, setIsSubmitting] = useState(false);
         const [isChecking, setIsChecking] = useState(false);
+        const [isStandbyMode, setIsStandbyMode] = useState(false);
         const [serverData, setServerData] = useState(null);
 
         // SURNAME PICKER STATE
@@ -2372,7 +2373,7 @@
             setIsChecking(false);
         };
 
-        const handleFinalSave = async (e) => {
+        const handleFinalSave = async (e, isStandby = false) => {
             if (e) e.preventDefault(); if (isSubmitting) return;
 
             const finalCustName = (form.custName.trim() + (form.custTitle || '')).trim();
@@ -2475,6 +2476,7 @@
                             allocated_resource: guests[0].allocated_resource,
                             phase1_resource: guests[0].phase1_resource,
                             phase2_resource: guests[0].phase2_resource,
+                            status: isStandby ? (window.BOOKING_STATUS ? window.BOOKING_STATUS.STANDBY : '候補') : undefined,
                             proposedUpdates: [],
                             rowId: null
                         };
@@ -2484,16 +2486,19 @@
                     finalPayloads.push(buildPayload(detailedGuests2, loc2, p2TimeStr, noteStr2));
 
                 } else {
-                    const finalCheck = callCoreAvailabilityCheck(form.date, form.time, guestDetails, checkBookings, serverData?.staff || safeStaffList, selectedLocation);
+                    let finalCheck = null;
+                    if (!isStandby) {
+                        finalCheck = callCoreAvailabilityCheck(form.date, form.time, guestDetails, checkBookings, serverData?.staff || safeStaffList, selectedLocation);
 
-                    if (!finalCheck.valid) {
-                        Swal.fire('系統提示', "⚠️ 數據已變更，無法預約：" + finalCheck.reason, 'error');
-                        setIsSubmitting(false);
-                        return;
+                        if (!finalCheck.valid) {
+                            Swal.fire('系統提示', "⚠️ 數據已變更，無法預約：" + finalCheck.reason, 'error');
+                            setIsSubmitting(false);
+                            return;
+                        }
                     }
 
                     const detailedGuests = guestDetails.map((g, i) => {
-                        const detail = finalCheck.details ? finalCheck.details.find(d => d.guestIndex === i) : null;
+                        const detail = finalCheck && finalCheck.details ? finalCheck.details.find(d => d.guestIndex === i) : null;
                         let finalFlow = detail ? detail.flow : 'SINGLE';
 
                         if (finalFlow === 'SINGLE') {
@@ -2586,8 +2591,9 @@
                         allocated_resource: detailedGuests[0].allocated_resource,
                         phase1_resource: detailedGuests[0].phase1_resource,
                         phase2_resource: detailedGuests[0].phase2_resource,
+                        status: isStandby ? (window.BOOKING_STATUS ? window.BOOKING_STATUS.STANDBY : '候補') : undefined,
 
-                        proposedUpdates: finalCheck.proposedUpdates || [],
+                        proposedUpdates: finalCheck ? (finalCheck.proposedUpdates || []) : [],
                         rowId: editingBooking ? editingBooking.rowId : null
                     };
 
@@ -2696,13 +2702,22 @@
                                 {step === 'CHECK' && (
                                     <>
                                         {!checkResult ? (
-                                            <button
-                                                onClick={performCheck}
-                                                disabled={isChecking}
-                                                className={`px-3 sm:px-5 py-1.5 sm:py-2 rounded-xl font-bold text-sm sm:text-lg shadow-lg border-2 transition-all flex items-center gap-2 ${isChecking ? 'bg-orange-800 border-orange-700 text-orange-300 cursor-not-allowed' : 'bg-yellow-400 text-yellow-900 border-yellow-200 hover:bg-yellow-300 shadow-[0_0_15px_rgba(250,204,21,0.4)]'}`}
-                                            >
-                                                {isChecking ? "⏳..." : "🔍 查詢空位"}
-                                            </button>
+                                            <>
+                                                <button
+                                                    onClick={(e) => { e.preventDefault(); setIsStandbyMode(true); setStep('INFO'); }}
+                                                    disabled={isChecking || isSubmitting}
+                                                    className={`px-3 sm:px-5 py-1.5 sm:py-2 rounded-xl font-bold text-sm sm:text-lg shadow-lg border-2 transition-all flex items-center gap-2 ${isSubmitting ? 'bg-gray-400 border-gray-400 text-gray-200 cursor-not-allowed' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-100 shadow-[0_0_10px_rgba(0,0,0,0.1)]'}`}
+                                                >
+                                                    📝 候補
+                                                </button>
+                                                <button
+                                                    onClick={performCheck}
+                                                    disabled={isChecking}
+                                                    className={`px-3 sm:px-5 py-1.5 sm:py-2 rounded-xl font-bold text-sm sm:text-lg shadow-lg border-2 transition-all flex items-center gap-2 ${isChecking ? 'bg-orange-800 border-orange-700 text-orange-300 cursor-not-allowed' : 'bg-yellow-400 text-yellow-900 border-yellow-200 hover:bg-yellow-300 shadow-[0_0_15px_rgba(250,204,21,0.4)]'}`}
+                                                >
+                                                    {isChecking ? "⏳..." : "🔍 查詢空位"}
+                                                </button>
+                                            </>
                                         ) : (
                                             <div className="flex items-center gap-2 animate-fadeIn bg-white/10 p-1 sm:p-1.5 rounded-xl border border-white/20">
                                                 {/* Removed the green checkResult message banner per request */}
@@ -2739,7 +2754,7 @@
                                         <button onClick={(e) => { e.preventDefault(); if (!isSubmitting) setStep('CHECK'); }} className="px-3 sm:px-4 py-1.5 bg-gray-200 text-gray-700 rounded-lg font-bold shadow-md hover:bg-gray-300 border border-gray-400 whitespace-nowrap flex items-center gap-1" disabled={isSubmitting}>
                                             <span>⬅️</span> <span>返回</span>
                                         </button>
-                                        <button onClick={handleFinalSave} className="px-3 sm:px-4 py-1.5 bg-indigo-500 text-white rounded-lg font-bold shadow-lg hover:bg-indigo-600 border border-indigo-400 whitespace-nowrap flex items-center gap-1" disabled={isSubmitting}>
+                                        <button onClick={(e) => handleFinalSave(e, isStandbyMode)} className="px-3 sm:px-4 py-1.5 bg-indigo-500 text-white rounded-lg font-bold shadow-lg hover:bg-indigo-600 border border-indigo-400 whitespace-nowrap flex items-center gap-1" disabled={isSubmitting}>
                                             {isSubmitting ? "⏳ 處理中..." : (editingBooking ? "💾 保存修改" : "✅ 確認")}
                                         </button>
                                     </div>
