@@ -132,7 +132,7 @@ window.SmartScheduler = (function() {
         const duration = parseInt(b.duration || 60, 10);
         const isCombo = isComboBooking(b);
         
-        const cleanupMins = typeof window !== 'undefined' && window.getCleanupBuffer ? window.getCleanupBuffer() : (window.SYSTEM_CONFIG?.BUFFERS?.CLEANUP_MINUTES || 5);
+        const cleanupMins = 0; // Yêu cầu người dùng: bỏ qua thời gian dọn dẹp khi sắp xếp thông minh
 
         if (!isCombo) {
             return [{
@@ -146,7 +146,7 @@ window.SmartScheduler = (function() {
         // Combo
         const flow = assignment.flow || b.flow || 'FB';
         const split = window.getSmartSplit ? window.getSmartSplit(b, duration, true, flow) : { phase1: Math.floor(duration / 2), phase2: Math.ceil(duration / 2) };
-        const transitionMins = window.SYSTEM_CONFIG?.BUFFERS?.TRANSITION_MINUTES || 5;
+        const transitionMins = 0; // Yêu cầu người dùng: bỏ qua thời gian đệm khi sắp xếp thông minh
         const transitionShift = assignment.transitionShift || 0;
         
         let p1Dur = b.phase1_duration !== undefined && b.phase1_duration !== null ? parseInt(b.phase1_duration, 10) : split.phase1;
@@ -176,7 +176,7 @@ window.SmartScheduler = (function() {
 
     const hasConflict = (times1, times2) => {
         const tol = window.SYSTEM_CONFIG?.TOLERANCE || 1;
-        const cleanupMins = typeof window !== 'undefined' && window.getCleanupBuffer ? window.getCleanupBuffer() : (window.SYSTEM_CONFIG?.BUFFERS?.CLEANUP_MINUTES || 5);
+        const cleanupMins = 0; // Yêu cầu người dùng: bỏ qua thời gian dọn dẹp khi sắp xếp thông minh
         const overlapThreshold = cleanupMins + tol;
         
         for (let t1 of times1) {
@@ -566,6 +566,12 @@ window.SmartScheduler = (function() {
                     p.flow = newAssignt.flow;
                     p.phase1_res_idx = newAssignt.phase1_res.toUpperCase();
                     p.phase2_res_idx = newAssignt.phase2_res.toUpperCase();
+                    
+                    const bOriginForDur = activeBookings.find(x => String(x.rowId) === bRowIdStr);
+                    if (bOriginForDur) {
+                        p.phase1_duration = bOriginForDur.phase1_duration;
+                        p.phase2_duration = bOriginForDur.phase2_duration;
+                    }
                 }
             } else {
                 if (newAssignt.res !== orig.res || newAssignt.timeShift !== 0) {
