@@ -117,11 +117,12 @@ window.SmartScheduler = (function() {
 
     const isTargetPhaseLocked = (b, isCombo) => {
         if (b.isRunningStatus || b.status === 'DOING' || b.isDoneStatus) return true;
+        if (b.isManualLocked === true) return true;
         if (isCombo) {
             return (b.phase1_locked === "TRUE" || b.phase1_locked === true) && 
                    (b.phase2_locked === "TRUE" || b.phase2_locked === true);
         } else {
-            return b.phase1_locked === "TRUE" || b.phase1_locked === true || b.isManualLocked === true;
+            return b.phase1_locked === "TRUE" || b.phase1_locked === true;
         }
     };
 
@@ -556,6 +557,11 @@ window.SmartScheduler = (function() {
         let movedPayload = { rowId: movedBookingId, forceSync: true, is_locked: "TRUE", isManualLocked: true };
         const movedB = activeBookings.find(x => String(x.rowId) === movedIdStr);
         if (movedB) {
+            if (movedB.startTimeString) movedPayload.startTimeString = movedB.startTimeString;
+            if (movedB.transition_time) movedPayload.transition_time = movedB.transition_time;
+            if (movedB.phase1_duration !== undefined) movedPayload.phase1_duration = movedB.phase1_duration;
+            if (movedB.phase2_duration !== undefined) movedPayload.phase2_duration = movedB.phase2_duration;
+            
             if (isComboBooking(movedB)) {
                 let assignment = {};
                 assignment.phase1_res = String(movedB.phase1_res_idx).toUpperCase();

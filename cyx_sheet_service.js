@@ -939,7 +939,7 @@ function _checkOverlapConflict(rowId, dateStr, timeStr, duration, phase1Res, pha
     // Fix: Shrink p1 if transition_time forces Phase 2 to start earlier
     if (transitionTimeStr) {
         const ttMins = ResourceCore.getMinsFromTimeStr(transitionTimeStr);
-        if (ttMins !== -1 && ttMins > startMins && ttMins < startMins + p1) {
+        if (ttMins !== -1 && ttMins > startMins) {
             p1 = ttMins - startMins;
         }
     }
@@ -985,7 +985,7 @@ function _checkOverlapConflict(rowId, dateStr, timeStr, duration, phase1Res, pha
         
         if (b.transition_time) {
             const bTtMins = ResourceCore.getMinsFromTimeStr(b.transition_time);
-            if (bTtMins !== -1 && bTtMins > bStartMins && bTtMins < bStartMins + bP1) {
+            if (bTtMins !== -1 && bTtMins > bStartMins) {
                 bP1 = bTtMins - bStartMins;
             }
         }
@@ -1042,6 +1042,15 @@ function _checkOverlapConflict(rowId, dateStr, timeStr, duration, phase1Res, pha
                         // Align overlap logic exactly with frontend checkLaneContinuity:
                         // b.start < safeEnd && safeStart < b.end
                         if ((bBlk.start < safeEndA) && (safeStartA < bBlk.end)) {
+                            console.log('OVERLAP DETECTED', {
+                                rowId: rowId,
+                                blk: blk,
+                                bRowId: b.rowId,
+                                bName: b.hoTen || b.customerName,
+                                bBlk: bBlk,
+                                safeEndA: safeEndA,
+                                safeStartA: safeStartA
+                            });
                             return { conflictId: b.rowId, conflictName: b.hoTen || b.customerName, resource: blk.res };
                         }
                     }
