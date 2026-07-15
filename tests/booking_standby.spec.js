@@ -24,15 +24,20 @@ test('Add a standby booking', async ({ page }) => {
   await expect(standbyBtn).toBeVisible();
   await standbyBtn.click();
 
-  // Step 2: Form step INFO -> Fill details
+  // Step 2: Form step STANDBY_INFO -> Fill details
   const nameInput = page.getByPlaceholder(/輸入姓名/);
   await nameInput.fill('Standby Test User');
 
   const phoneInput = page.getByPlaceholder(/09xx/);
   await phoneInput.fill('0987654321');
 
+  // Fill Arrival Time
+  const arrivalSelect = page.locator('select:has(option[value="15分鐘"])');
+  await expect(arrivalSelect).toBeVisible();
+  await arrivalSelect.selectOption('15分鐘');
+
   // Final Save
-  const confirmBtn = page.getByRole('button', { name: /✅ 確認/ });
+  const confirmBtn = page.getByRole('button', { name: /✅ 確認候補|✅ 確認/ });
   await confirmBtn.click();
 
   // Verify modal closes

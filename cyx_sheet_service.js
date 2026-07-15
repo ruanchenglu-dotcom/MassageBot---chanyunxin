@@ -541,6 +541,7 @@ async function syncData() {
                     phase2_resource: row[33],
                     resource_type: row[34],
                     location: row[39] || '本館',
+                    timeToArrive: row[41] || '',
                     allocated_resource: null
                 });
             }
@@ -861,6 +862,8 @@ async function ghiVaoSheet(data, proposedUpdates = []) {
             let locVal = data.location;
             if (guestDetail && guestDetail.location) locVal = guestDetail.location;
             row[39] = locVal || "本館";
+            row[40] = "";
+            row[41] = data.timeToArrive || "";
 
             valuesToWrite.push(row);
         }
@@ -880,7 +883,8 @@ async function ghiVaoSheet(data, proposedUpdates = []) {
                     duration: (parseInt(r[28]) || 0) + (parseInt(r[30]) || 0),
                     phase1_res_idx: r[32] || data.phase1_res_idx || data.phase1_resource,
                     phase2_res_idx: r[33] || data.phase2_res_idx || data.phase2_resource,
-                    location: r[39]
+                    location: r[39],
+                    timeToArrive: r[41]
                 });
             });
 
@@ -1201,6 +1205,7 @@ async function updateBookingDetails(body) {
     if (body.phase2_locked !== undefined) updateCell('AM', body.phase2_locked ? "TRUE" : "FALSE");
     
     if (body.location !== undefined) updateCell('AN', body.location);
+    if (body.timeToArrive !== undefined) updateCell('AP', body.timeToArrive);
     
     // --- V1.6 NÂNG CẤP: Tự động tính toán lại Z, AB (transition), AD (finish) ---
     let newStartVal = finalStartTime || (bookingData ? (bookingData.startTimeString || bookingData.startTime) : null);
@@ -1256,6 +1261,7 @@ async function updateBookingDetails(body) {
         if (body.phase1_locked !== undefined) bookingData.phase1_locked = body.phase1_locked;
         if (body.phase2_locked !== undefined) bookingData.phase2_locked = body.phase2_locked;
         if (body.location !== undefined) bookingData.location = body.location;
+        if (body.timeToArrive !== undefined) bookingData.timeToArrive = body.timeToArrive;
         
         if (body.phase1_duration !== undefined || body.phase2_duration !== undefined) {
             bookingData.duration = parseInt(bookingData.phase1_duration || 0) + parseInt(bookingData.phase2_duration || 0);
@@ -1575,6 +1581,11 @@ async function updateInlineBooking(rowId, updatedData) {
         
         if (updatedData.location !== undefined) {
             row[39] = updatedData.location;
+        }
+
+        row[40] = row[40] || "";
+        if (updatedData.timeToArrive !== undefined) {
+            row[41] = updatedData.timeToArrive;
         }
         
         // --- V1.6 NÂNG CẤP: Tính toán các cột Z, AB (transition), AD (finish) ---

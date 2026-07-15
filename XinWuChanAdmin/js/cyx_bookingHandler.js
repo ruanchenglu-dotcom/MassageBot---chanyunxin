@@ -1977,7 +1977,7 @@
         // --- TITLE STATE ---
         const [form, setForm] = useState({
             date: getInitialPhysicalDate(),
-            time: getRoundedCurrentTime(), pax: 1, custName: '', custTitle: '', custPhone: '09', adminNote: ''
+            time: getRoundedCurrentTime(), pax: 1, custName: '', custTitle: '', custPhone: '09', adminNote: '', timeToArrive: ''
         });
 
         const [selectedLocation, setSelectedLocation] = useState('本館');
@@ -2466,6 +2466,7 @@
                             staffId9: guests[8]?.staff || null,
                             ghiChu: note,
                             adminNote: form.adminNote,
+                            timeToArrive: form.timeToArrive,
                             guestDetails: guests,
                             flow: guests[0].flowCode,
                             flowCode: guests[0].flowCode,
@@ -2581,6 +2582,7 @@
                         staffId9: detailedGuests[8]?.staff || null,
                         ghiChu: noteStr,
                         adminNote: form.adminNote,
+                        timeToArrive: form.timeToArrive,
                         guestDetails: detailedGuests,
                         flow: detailedGuests[0].flowCode,
                         flowCode: detailedGuests[0].flowCode,
@@ -2704,7 +2706,7 @@
                                         {!checkResult ? (
                                             <>
                                                 <button
-                                                    onClick={(e) => { e.preventDefault(); setIsStandbyMode(true); setStep('INFO'); }}
+                                                    onClick={(e) => { e.preventDefault(); setIsStandbyMode(true); setStep('STANDBY_INFO'); }}
                                                     disabled={isChecking || isSubmitting}
                                                     className={`px-3 sm:px-5 py-1.5 sm:py-2 rounded-xl font-bold text-sm sm:text-lg shadow-lg border-2 transition-all flex items-center gap-2 ${isSubmitting ? 'bg-gray-400 border-gray-400 text-gray-200 cursor-not-allowed' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-100 shadow-[0_0_10px_rgba(0,0,0,0.1)]'}`}
                                                 >
@@ -2749,7 +2751,7 @@
                                         )}
                                     </>
                                 )}
-                                {step === 'INFO' && (
+                                {(step === 'INFO' || step === 'STANDBY_INFO') && (
                                     <div className="flex items-center gap-2 animate-fadeIn bg-white/10 p-1 sm:p-1.5 rounded-xl border border-white/20">
                                         <button onClick={(e) => { e.preventDefault(); if (!isSubmitting) setStep('CHECK'); }} className="px-3 sm:px-4 py-1.5 bg-gray-200 text-gray-700 rounded-lg font-bold shadow-md hover:bg-gray-300 border border-gray-400 whitespace-nowrap flex items-center gap-1" disabled={isSubmitting}>
                                             <span>⬅️</span> <span>返回</span>
@@ -2764,7 +2766,7 @@
                         </div>
 
                         <div className="p-6 space-y-6 overflow-y-auto flex-1 custom-scrollbar">
-                            {step === 'CHECK' && (
+                            {(step === 'CHECK' || step === 'STANDBY_INFO') && (
                                 <>
                                     <div className="grid grid-cols-2 gap-4">
                                         <div>
@@ -2945,7 +2947,7 @@
                                 </>
                             )}
 
-                            {step === 'INFO' && (
+                            {(step === 'INFO' || step === 'STANDBY_INFO') && (
                                 <div className="space-y-6 animate-slideIn flex flex-col h-full">
                                     <div>
                                         <label className="text-lg font-bold text-gray-500 mb-2 block">顧客姓名</label>
@@ -2981,17 +2983,40 @@
 
 
 
-                                    <div className="mb-4">
-                                        <label className="text-lg font-bold text-gray-500 mb-2 block">電話號碼</label>
-                                        <input
-                                            className="w-full border-2 border-slate-300 p-4 rounded-xl font-bold text-xl outline-none focus:border-indigo-500 bg-slate-50"
-                                            value={form.custPhone}
-                                            onChange={e => setForm({ ...form, custPhone: e.target.value })}
-                                            placeholder="09xx..."
-                                            disabled={isSubmitting}
-                                            type="tel"
-                                        />
-                                    </div>
+                                    {step === 'INFO' && (
+                                        <div className="mb-4">
+                                            <label className="text-lg font-bold text-gray-500 mb-2 block">電話號碼</label>
+                                            <input
+                                                className="w-full border-2 border-slate-300 p-4 rounded-xl font-bold text-xl outline-none focus:border-indigo-500 bg-slate-50"
+                                                value={form.custPhone}
+                                                onChange={e => setForm({ ...form, custPhone: e.target.value })}
+                                                placeholder="09xx..."
+                                                disabled={isSubmitting}
+                                                type="tel"
+                                            />
+                                        </div>
+                                    )}
+                                    {step === 'STANDBY_INFO' && (
+                                        <div className="mb-4">
+                                            <label className="text-lg font-bold text-orange-500 mb-2 block">預計多久到達 (候補專用)</label>
+                                            <select
+                                                className="w-full border-2 border-orange-300 p-4 rounded-xl font-bold text-xl outline-none focus:border-orange-500 bg-orange-50 text-orange-800"
+                                                value={form.timeToArrive}
+                                                onChange={e => setForm({ ...form, timeToArrive: e.target.value })}
+                                                disabled={isSubmitting}
+                                            >
+                                                <option value="">請選擇到達時間...</option>
+                                                <option value="5分鐘">5 分鐘</option>
+                                                <option value="10分鐘">10 分鐘</option>
+                                                <option value="15分鐘">15 分鐘</option>
+                                                <option value="20分鐘">20 分鐘</option>
+                                                <option value="30分鐘">30 分鐘</option>
+                                                <option value="45分鐘">45 分鐘</option>
+                                                <option value="1小時">1 小時</option>
+                                                <option value="1小時以上">1 小時以上</option>
+                                            </select>
+                                        </div>
+                                    )}
 
                                     <div>
                                         <label className="text-lg font-bold text-gray-500 mb-2 block">特別要求 / 備註</label>
@@ -3025,7 +3050,8 @@
                                         </div>
                                     </div>
 
-                                    <div className="bg-green-50 p-4 rounded-xl border-2 border-green-300 text-green-900 font-bold mt-auto mb-4">
+                                    {step === 'INFO' && (
+                                        <div className="bg-green-50 p-4 rounded-xl border-2 border-green-300 text-green-900 font-bold mt-auto mb-4">
                                         <div className="flex justify-between border-b-2 border-green-200 pb-3 mb-3 text-xl">
                                             <span>{form.date}</span>
                                             <span>{form.time}</span>
@@ -3057,6 +3083,7 @@
                                             ))}
                                         </div>
                                     </div>
+                                    )}
 
                                 </div>
                             )}
