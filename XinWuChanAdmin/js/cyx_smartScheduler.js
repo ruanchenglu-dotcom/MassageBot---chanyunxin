@@ -415,10 +415,11 @@ window.SmartScheduler = (function() {
                     const bedCandidates = getCandidateResources(b.flow === 'FB' ? b.phase2_res_idx : b.phase1_res_idx); 
                     const chairCandidates = getCandidateResources(b.flow === 'FB' ? b.phase1_res_idx : b.phase2_res_idx); 
                     
-                    let p1Cand = b.flow === 'FB' ? chairCandidates : bedCandidates;
-                    let p2Cand = b.flow === 'FB' ? bedCandidates : chairCandidates;
-
-                    let allowedFlows = (b.flow_code_locked === "TRUE" || b.flow_code_locked === true) ? [b.flow || 'FB'] : ['FB', 'BF'];
+                    let allowedFlows = [b.flow || 'FB'];
+                    const groupSize = (b.is_group_booking && b.group_id) ? activeBookings.filter(x => x.group_id === b.group_id).length : 1;
+                    if (isCombo && (!b.phase1_res_idx || !b.phase2_res_idx || [4, 6, 8, 10, 12].includes(groupSize))) {
+                        allowedFlows = ['FB', 'BF'];
+                    }
                     
                     for (let f of allowedFlows) {
                         let c1 = f === 'FB' ? chairCandidates : bedCandidates;
@@ -441,13 +442,29 @@ window.SmartScheduler = (function() {
                     
                     domains.sort((d1, d2) => {
                         let score1 = 0;
-                        if (d1.flow === assignmentOriginal.flow) score1 += 10000; 
+                        if (d1.flow === assignmentOriginal.flow) score1 += 10000;
                         if (d1.phase1_res === assignmentOriginal.phase1_res) score1 += 10000;
                         else if (bSourceId && d1.phase1_res === bSourceId) score1 += 4;
                         else if (targetIdUpper && d1.phase1_res === targetIdUpper) score1 += 4;
                         if (d1.phase2_res === assignmentOriginal.phase2_res) score1 += 10000;
                         else if (bSourceId && d1.phase2_res === bSourceId) score1 += 4;
                         else if (targetIdUpper && d1.phase2_res === targetIdUpper) score1 += 4;
+                        
+                        if (b.is_group_booking && b.group_id) {
+                            const gSize = activeBookings.filter(x => x.group_id === b.group_id).length;
+                            if ([4, 6, 8, 10, 12].includes(gSize)) {
+                                for (let otherRowId in assignments) {
+                                    const otherB = activeBookings.find(x => String(x.rowId) === String(otherRowId));
+                                    if (otherB && otherB.group_id === b.group_id && isComboBooking(otherB)) {
+                                        const otherAssign = assignments[otherRowId];
+                                        if (d1.flow !== otherAssign.flow && String(d1.phase1_res) === String(otherAssign.phase2_res) && String(d1.phase2_res) === String(otherAssign.phase1_res)) {
+                                            score1 += 15000;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        
                         score1 -= Math.abs(d1.timeShift);
                         score1 -= Math.abs(d1.transitionShift);
                         let t1 = getAssignedTimes(b, d1);
@@ -609,7 +626,7 @@ window.SmartScheduler = (function() {
                         let currentTransMins = p1EndMins;
                         if (bOrigin.transition_time) {
                             const oldTransMins = getSafeTime(bOrigin.transition_time);
-                            if (oldTransMins !== -1 && oldTransMins > 0) {
+                            if (oldTransMins !== -1) {
                                 currentTransMins = oldTransMins + (newAssignt.timeShift || 0);
                             }
                         } else {
