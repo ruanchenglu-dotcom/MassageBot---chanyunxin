@@ -139,7 +139,8 @@ window.SmartScheduler = (function() {
                 res: assignment.res,
                 start: bStart,
                 end: bStart + duration + cleanupMins,
-                phase: 0
+                phase: 0,
+                isOriginal: assignment.isOriginal
             }];
         }
 
@@ -169,8 +170,8 @@ window.SmartScheduler = (function() {
 
         const p1Cleanup = Math.min(cleanupMins, transitionMins);
         return [
-            { res: assignment.phase1_res, start: bStart, end: p1End + p1Cleanup, phase: 1 },
-            { res: assignment.phase2_res, start: p2Start, end: p2End + cleanupMins, phase: 2 }
+            { res: assignment.phase1_res, start: bStart, end: p1End + p1Cleanup, phase: 1, isOriginal: assignment.isOriginal },
+            { res: assignment.phase2_res, start: p2Start, end: p2End + cleanupMins, phase: 2, isOriginal: assignment.isOriginal }
         ];
     };
 
@@ -181,6 +182,10 @@ window.SmartScheduler = (function() {
         
         for (let t1 of times1) {
             for (let t2 of times2) {
+                // Bỏ qua nếu cả hai đều là vị trí gốc (tránh xáo trộn do lỗi cũ)
+                if (t1.isOriginal && t2.isOriginal) {
+                    continue;
+                }
                 if (isSameRes(t1.res, t2.res)) {
                     const overlap = Math.min(t1.end, t2.end) - Math.max(t1.start, t2.start);
                     if (overlap > overlapThreshold) {
@@ -308,12 +313,14 @@ window.SmartScheduler = (function() {
                     phase1_res: normalizeRes(b.phase1_res_idx),
                     phase2_res: normalizeRes(b.phase2_res_idx),
                     timeShift: 0,
-                    transitionShift: 0
+                    transitionShift: 0,
+                    isOriginal: true
                 };
             } else {
                 assignmentOriginal = {
                     res: normalizeRes(b.current_resource_id || b.phase1_res_idx || b.location || b.storedLocation),
-                    timeShift: 0
+                    timeShift: 0,
+                    isOriginal: true
                 };
             }
             originalState[bRowIdStr] = assignmentOriginal;
@@ -424,7 +431,8 @@ window.SmartScheduler = (function() {
                             for (let r2 of c2) {
                                 for (let ts of allowedTimeShifts) {
                                     for (let trs of allowedTransShifts) {
-                                        domains.push({ flow: f, phase1_res: r1, phase2_res: r2, timeShift: ts, transitionShift: trs });
+                                        let isOrig = (f === assignmentOriginal.flow && String(r1).toUpperCase() === String(assignmentOriginal.phase1_res).toUpperCase() && String(r2).toUpperCase() === String(assignmentOriginal.phase2_res).toUpperCase() && ts === 0 && trs === 0);
+                                        domains.push({ flow: f, phase1_res: r1, phase2_res: r2, timeShift: ts, transitionShift: trs, isOriginal: isOrig });
                                     }
                                 }
                             }
@@ -465,7 +473,8 @@ window.SmartScheduler = (function() {
                     const cands = getCandidateResources(assignmentOriginal.res);
                     for (let r of cands) {
                         for (let ts of allowedTimeShifts) {
-                            domains.push({ res: r, timeShift: ts });
+                            let isOrig = (String(r).toUpperCase() === String(assignmentOriginal.res).toUpperCase() && ts === 0);
+                            domains.push({ res: r, timeShift: ts, isOriginal: isOrig });
                         }
                     }
                     domains.sort((d1, d2) => {
