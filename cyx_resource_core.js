@@ -1547,10 +1547,12 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
         }
 
         let conflictFound = false;
+        const comboGroups = newGuestBlocksMap.filter(i => i.isCombo);
+        const crossSwapMode = comboGroups.length >= 4 && comboGroups.length % 2 === 0;
+        let pairMap = {};
+
         for (const item of newGuestBlocksMap) {
             let guestAllocations = [];
-            
-            // [V118.10 FIX] 關閉 suggestedLanes 強制綁定，讓 Top-Down Packing 能夠在交叉安排 (BF/FB) 時自然填補空隙。
             const useSuggestedLanes = false;
             let preferredIdx = null;
 
@@ -1559,24 +1561,64 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
                 if (maxBF === 2 && (numBF === 0 || numBF === 2)) preferredIdx = item.guest.idx + 1;
             }
 
-            for (const block of item.blocks) {
-                let specificPrefIdx = preferredIdx;
-                let isPrefForced = false;
+            if (crossSwapMode && item.isCombo) {
+                const isBF = item.flow === 'BF';
+                const pairIndex = item.guest.idx % newGuestHalfSize;
 
-                if (useSuggestedLanes) {
-                    specificPrefIdx = guardrailCheck.suggestedLanes[item.guest.idx][block.type] || preferredIdx;
-                    if (specificPrefIdx !== null) isPrefForced = true; // Bắt buộc ưu tiên toạ độ đã được xác minh là an toàn
+                if (isBF) {
+                    for (const block of item.blocks) {
+                        const slotId = matrix.tryAllocate(block.type, block.start, block.end, `NEW_GUEST_${item.guest.idx}`, preferredIdx, false);
+                        if (!slotId) { conflictFound = true; break; }
+                        guestAllocations.push(slotId);
+                    }
+                    if (!conflictFound) {
+                        pairMap[pairIndex] = {
+                            bedRes: guestAllocations[0],
+                            chairRes: guestAllocations[1]
+                        };
+                    }
+                } else {
+                    const partnerRes = pairMap[pairIndex];
+                    if (partnerRes) {
+                        for (let i = 0; i < item.blocks.length; i++) {
+                            const block = item.blocks[i];
+                            const targetRes = (i === 0) ? partnerRes.chairRes : partnerRes.bedRes;
+                            const resList = matrix.lanes[block.type];
+                            const forcedIndex = resList.findIndex(r => r.id === targetRes) + 1;
+                            
+                            const checkOverlap = matrix.checkLaneFree(resList[forcedIndex - 1], block.start, block.end);
+                            const slotId = matrix.tryAllocate(block.type, block.start, block.end, `NEW_GUEST_${item.guest.idx}`, forcedIndex, checkOverlap.free);
+                            if (!slotId) { conflictFound = true; break; }
+                            guestAllocations.push(slotId);
+                        }
+                    } else {
+                        for (const block of item.blocks) {
+                            const slotId = matrix.tryAllocate(block.type, block.start, block.end, `NEW_GUEST_${item.guest.idx}`, preferredIdx, false);
+                            if (!slotId) { conflictFound = true; break; }
+                            guestAllocations.push(slotId);
+                        }
+                    }
                 }
+            } else {
+                for (const block of item.blocks) {
+                    let specificPrefIdx = preferredIdx;
+                    let isPrefForced = false;
 
-                const slotId = matrix.tryAllocate(block.type, block.start, block.end, `NEW_GUEST_${item.guest.idx}`, specificPrefIdx, isPrefForced);
-                if (!slotId) { conflictFound = true; break; }
-                guestAllocations.push(slotId);
+                    if (useSuggestedLanes) {
+                        specificPrefIdx = guardrailCheck.suggestedLanes[item.guest.idx][block.type] || preferredIdx;
+                        if (specificPrefIdx !== null) isPrefForced = true;
+                    }
+
+                    const slotId = matrix.tryAllocate(block.type, block.start, block.end, `NEW_GUEST_${item.guest.idx}`, specificPrefIdx, isPrefForced);
+                    if (!slotId) { conflictFound = true; break; }
+                    guestAllocations.push(slotId);
+                }
             }
+
             if (conflictFound) break;
             const detail = scenarioDetails.find(d => d.guestIndex === item.guest.idx);
             if (detail) {
                 detail.allocated = guestAllocations;
-                // [V117.0/V118.0] Phân tách tọa độ để Sheet hiểu chính xác
                 detail.phase1_res_idx = guestAllocations[0] || null;
                 detail.phase2_res_idx = guestAllocations[1] || null;
             }
