@@ -258,8 +258,14 @@ const getSmartSplit = (booking, totalDuration, isMaxMode, sequence) => {
             booking.phase2_duration !== undefined && booking.phase2_duration !== null) {
             
             if (parseInt(booking.phase1_duration) + parseInt(booking.phase2_duration) === totalDuration) {
-                const p1 = parseInt(booking.phase1_duration);
-                const p2 = parseInt(booking.phase2_duration);
+                let p1 = parseInt(booking.phase1_duration);
+                let p2 = parseInt(booking.phase2_duration);
+                // Nếu flow thay đổi, cần đảo ngược p1 và p2
+                if (booking.flow && sequence && booking.flow !== sequence) {
+                    const temp = p1;
+                    p1 = p2;
+                    p2 = temp;
+                }
                 if (p1 > 0 && p2 > 0) {
                     return { phase1: p1, phase2: p2 };
                 }

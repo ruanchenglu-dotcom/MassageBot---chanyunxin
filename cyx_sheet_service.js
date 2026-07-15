@@ -844,8 +844,8 @@ async function ghiVaoSheet(data, proposedUpdates = []) {
             if (!r2) r2 = data.phase2_res_idx || data.phase2Resource || data.phase2_resource;
             if (!rType) rType = data.resource_type || data.resourceType;
 
-            let isBedP1 = guessIsBed(guestDetail.category, guestDetail.flow, 1);
-            let isBedP2 = guessIsBed(guestDetail.category, guestDetail.flow, 2);
+            let isBedP1 = guessIsBed(guestDetail ? guestDetail.category : data.category, guestDetail ? guestDetail.flow : data.flow, 1);
+            let isBedP2 = guessIsBed(guestDetail ? guestDetail.category : data.category, guestDetail ? guestDetail.flow : data.flow, 2);
             row[32] = r1 ? normalizeResourceId(r1, isBedP1) : "";
             row[33] = r2 ? normalizeResourceId(r2, isBedP2) : "";
             row[34] = rType ? String(rType).toUpperCase() : "";
@@ -925,7 +925,7 @@ function _checkOverlapConflict(rowId, dateStr, timeStr, duration, phase1Res, pha
     if (startMins === -1) return null;
     
     const durMins = safeParseInt(duration, 60);
-    const p1 = safeParseInt(p1Dur, Math.floor(durMins / 2));
+    let p1 = safeParseInt(p1Dur, Math.floor(durMins / 2));
     const p2 = safeParseInt(p2Dur, durMins - p1);
     
     let transitionTimeStr = newTransitionTime;
@@ -933,6 +933,14 @@ function _checkOverlapConflict(rowId, dateStr, timeStr, duration, phase1Res, pha
         const existingSelf = STATE.cachedBookings.find(x => x.rowId == rowId);
         if (existingSelf && existingSelf.transition_time) {
             transitionTimeStr = existingSelf.transition_time;
+        }
+    }
+    
+    // Fix: Shrink p1 if transition_time forces Phase 2 to start earlier
+    if (transitionTimeStr) {
+        const ttMins = ResourceCore.getMinsFromTimeStr(transitionTimeStr);
+        if (ttMins !== -1 && ttMins > startMins && ttMins < startMins + p1) {
+            p1 = ttMins - startMins;
         }
     }
 
@@ -974,6 +982,14 @@ function _checkOverlapConflict(rowId, dateStr, timeStr, duration, phase1Res, pha
         const bDurMins = safeParseInt(b.duration, 60);
         let bP1 = safeParseInt(b.phase1_duration, Math.floor(bDurMins / 2));
         let bP2 = safeParseInt(b.phase2_duration, bDurMins - bP1);
+        
+        if (b.transition_time) {
+            const bTtMins = ResourceCore.getMinsFromTimeStr(b.transition_time);
+            if (bTtMins !== -1 && bTtMins > bStartMins && bTtMins < bStartMins + bP1) {
+                bP1 = bTtMins - bStartMins;
+            }
+        }
+        
         let bFlow = b.flow || (b.originalData ? b.originalData.flow : null);
         
         let bBlocks = [];
