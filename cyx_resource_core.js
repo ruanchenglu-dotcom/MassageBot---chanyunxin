@@ -952,9 +952,13 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
                     let timeStr = getTimeStrFromMins(suggestedTime);
                     let actionText = suggestedTime > requestStart ? '稍晚' : '提早';
                     let shiftVal = Math.abs(suggestedTime - requestStart);
-                    return triggerSmartFailure(`⚠️ 在 ${getTimeStrFromMins(requestStart)} 沒有完美符合的連續空位。建議您${actionText} ${shiftVal} 分鐘，改為 ${timeStr} 預約以滿足套餐標準。${crossLocationMsg}`, suggestedTime);
+                    let err = triggerSmartFailure(`⚠️ 在 ${getTimeStrFromMins(requestStart)} 沒有完美符合的連續空位。建議您${actionText} ${shiftVal} 分鐘，改為 ${timeStr} 預約以滿足套餐標準。${crossLocationMsg}`, suggestedTime);
+                    err.requiresSmartRepacking = true;
+                    return err;
                 } else {
-                    return triggerSmartFailure(`⚠️ 在 ${getTimeStrFromMins(requestStart)} 沒有足夠的連續空位給套餐。${crossLocationMsg}`);
+                    let err = triggerSmartFailure(`⚠️ 在 ${getTimeStrFromMins(requestStart)} 沒有足夠的連續空位給套餐。${crossLocationMsg}`);
+                    err.requiresSmartRepacking = true;
+                    return err;
                 }
             }
 
@@ -974,7 +978,9 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
                 simulationMap[rType][foundIdx].push({ start: requestStart, end: requestStart + duration + CONF.CLEANUP_BUFFER });
                 suggestedLanes[guestIdKey] = { [rType]: foundIdx + 1 };
             } else {
-                    return triggerSmartFailure(`⚠️ 已經沒有連續 ${duration} 分鐘的空${rType === 'BED' ? '床位' : '座位'}。`);
+                let err = triggerSmartFailure(`⚠️ 已經沒有連續 ${duration} 分鐘的空${rType === 'BED' ? '床位' : '座位'}。`);
+                err.requiresSmartRepacking = true;
+                return err;
             }
         }
     }
@@ -1251,7 +1257,14 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
 
     // 1. GUARDRAIL CHECK (Đồng bộ Backend & Frontend V118)
     const guardrailCheck = validateGlobalCapacity(requestStartMins, maxGuestDuration, guestList, filteredBookings, staffList, normalizedQueryDate, false, CONF._tempLocation);
-    if (!guardrailCheck.pass) return { feasible: false, reason: guardrailCheck.reason, debug: guardrailCheck.debug };
+    let guardrailFallbackError = null;
+    if (!guardrailCheck.pass) {
+        if (guardrailCheck.requiresSmartRepacking) {
+            guardrailFallbackError = { feasible: false, reason: guardrailCheck.reason, debug: guardrailCheck.debug };
+        } else {
+            return { feasible: false, reason: guardrailCheck.reason, debug: guardrailCheck.debug };
+        }
+    }
     const resourceMap = guardrailCheck.resourceMap || { 'BED': [], 'CHAIR': [] };
 
     // 2. TIỀN XỬ LÝ BOOKING CŨ
@@ -1927,6 +1940,9 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
             debug: guardrailCheck.debug
         };
     } else {
+        if (guardrailFallbackError) {
+            return guardrailFallbackError;
+        }
         if (globalBestOutOfBoundSqueeze) {
             let suggestedTime = requestStartMins + globalBestOutOfBoundSqueeze.shiftMins;
             let timeStr = getTimeStrFromMins(suggestedTime);
@@ -1938,7 +1954,7 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
         }
         const debugReason = failureLog.slice(-2).join(' | ');
         const failMessage = debugReason ? `❌ 系統滿載：${debugReason}` : "❌ 已額滿（系統滿載）";
-        return { feasible: false, reason: failMessage, debug: guardrailCheck.debug };
+        return { feasible: false, reason: failMessage, debug: guardrailCheck ? guardrailCheck.debug : {} };
     }
 }
 
