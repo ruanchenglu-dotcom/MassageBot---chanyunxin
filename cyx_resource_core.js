@@ -535,11 +535,15 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
                 currentStaffBusy += staffsInBooking.length;
                 
                 const isLockedRaw = b.originalData?.isManualLocked || b.isManualLocked;
-                const isLocked = (isLockedRaw === true || isLockedRaw === 'TRUE');
+                const isLocked = (isLockedRaw === true || isLockedRaw === 'TRUE' || isLockedRaw === 1);
                 let isRunning = false;
                 if (b.originalData && b.originalData.status) {
                     const stLower = b.originalData.status.toLowerCase();
                     isRunning = stLower.includes('running') || stLower.includes('服務中') || stLower.includes('đang phục vụ');
+                }
+                if (b.status) {
+                    const stLower = b.status.toLowerCase();
+                    if (stLower.includes('running') || stLower.includes('服務中') || stLower.includes('đang phục vụ')) isRunning = true;
                 }
                 if (isCombo && !isLocked && !isRunning) {
                     elasticStaffCount += staffsInBooking.length;
@@ -714,11 +718,15 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
 
         // [NEW V118.9] Logic Nhận diện Đặt chỗ linh hoạt (Fluid Booking) & Repacking
         const isLockedRaw = b.originalData?.isManualLocked || b.isManualLocked;
-        const isLocked = (isLockedRaw === true || isLockedRaw === 'TRUE');
+        const isLocked = (isLockedRaw === true || isLockedRaw === 'TRUE' || isLockedRaw === 1);
         let isRunning = false;
         if (b.originalData && b.originalData.status) {
             const stLower = b.originalData.status.toLowerCase();
-            isRunning = stLower.includes('running') || stLower.includes('服務中') || stLower.includes('đang phục vụ') || stLower.includes('check-in') || stLower.includes('已報到');
+            isRunning = stLower.includes('running') || stLower.includes('服務中') || stLower.includes('đang phục vụ');
+        }
+        if (b.status) {
+            const stLower = b.status.toLowerCase();
+            if (stLower.includes('running') || stLower.includes('服務中') || stLower.includes('đang phục vụ')) isRunning = true;
         }
         
         // Nếu booking không bị khóa và chưa bắt đầu, hệ thống được phép "giả lập dời ghế"
@@ -1490,6 +1498,7 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
         let scenarioUpdates = [];
         let scenarioFailed = false;
         let scenarioBestOutOfBoundSqueeze = null;
+        let softsToSqueezeCandidates = [];
 
         // --- V118.4 FIX -> NÂNG CẤP THÔNG MINH (Smart Repacking 3-Pass) ---
         // Pass 1: Các lịch Cũ BẮT BUỘC KHÓA (isStrictlyForced = true)

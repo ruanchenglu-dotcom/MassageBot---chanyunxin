@@ -487,11 +487,15 @@
 
                 // [NEW V118.9] Logic Nhận diện Đặt chỗ linh hoạt (Fluid Booking) & Repacking
                 const isLockedRaw = b.originalData?.isManualLocked || b.isManualLocked;
-                const isLocked = (isLockedRaw === true || isLockedRaw === 'TRUE');
+                const isLocked = (isLockedRaw === true || isLockedRaw === 'TRUE' || isLockedRaw === 1);
                 let isRunning = false;
                 if (b.originalData && b.originalData.status) {
                     const stLower = b.originalData.status.toLowerCase();
-                    isRunning = stLower.includes('running') || stLower.includes('服務中') || stLower.includes('đang phục vụ') || stLower.includes('check-in') || stLower.includes('已報到');
+                    isRunning = stLower.includes('running') || stLower.includes('服務中') || stLower.includes('đang phục vụ');
+                }
+                if (b.status) {
+                    const stLower = b.status.toLowerCase();
+                    if (stLower.includes('running') || stLower.includes('服務中') || stLower.includes('đang phục vụ')) isRunning = true;
                 }
                 
                 // Nếu booking không bị khóa và chưa bắt đầu, hệ thống được phép "giả lập dời ghế"
@@ -1317,9 +1321,9 @@
                 // Dùng hàm Helper tính chính xác toàn bộ p1, p2 và tổng thời lượng thực.
                 const { p1, p2, realDuration } = calculateRealDurations(b, duration, isCombo);
 
-                let isElastic = isCombo && (b.isManualLocked !== true) && (!isRunning);
+                let isElastic = isCombo && (b.isManualLocked !== true && b.isManualLocked !== 'TRUE' && b.isManualLocked !== 1) && (!isRunning);
                 const isLockedRaw = b.originalData?.isManualLocked || b.isManualLocked;
-                const isLocked = (isLockedRaw === true || isLockedRaw === 'TRUE');
+                const isLocked = (isLockedRaw === true || isLockedRaw === 'TRUE' || isLockedRaw === 1);
                 let processedB = {
                     id: ownerName,
                     originalData: b,
@@ -1704,13 +1708,13 @@
                         }
                         scenarioFailed = true; continue;
                     }
-                    const softBookings = []; // [V119 FIX] Disabled squeezing of existing bookings per user request
+                    const softBookings = softsToSqueezeCandidates; // [V119 REVERT] User requested elastic changes for existing bookings again
                     for (const sb of softBookings) {
                         const splits = generateElasticSplits(sb.duration, sb.elasticStep, sb.elasticLimit, null, sb.minFoot, sb.maxFoot, sb.minBody, sb.maxBody, sb.flow);
                         let fit = false;
                         for (const split of splits) {
                             const sP1End = sb.startMins + split.p1;
-                            const sP2Start = sP1End + CONF.TRANSITION_BUFFER;
+                            const sP2Start = sP1End; // Combo switch buffer = 0
                             const sP2End = sP2Start + split.p2;
                             const testBlocks = [
                                 { type: sb.blocks[0].type, start: sb.startMins, end: sP1End + CONF.CLEANUP_BUFFER, forcedIndex: sb.blocks[0].forcedIndex },
@@ -1719,7 +1723,7 @@
                             if (isBlockSetAllocatable(testBlocks, matrixSqueeze)) {
                                 testBlocks.forEach(tb => matrixSqueeze.tryAllocate(tb.type, tb.start, tb.end, sb.id, tb.forcedIndex));
                                 fit = true;
-                                if (split.deviation !== 0) updatesProposed.push({ rowId: sb.originalData.rowId, customerName: sb.originalData.customerName, newPhase1: split.p1, newPhase2: split.p2, reason: 'Matrix Squeeze' });
+                                if (split.deviation !== 0) updatesProposed.push({ rowId: sb.originalData.rowId, customerName: sb.originalData.customerName, newPhase1: split.p1, newPhase2: split.p2, reason: '💡 系統自動調整了組合項目的時間比例以創造更多可用空間。' });
                                 break;
                             }
                         }
@@ -1948,17 +1952,20 @@
             const diffMs = bDateObj.getTime() - reqTimeMs;
             return Math.abs(diffMs) <= EIGHT_HOURS_MS;
         }).map(b => {
-            let isPastOrRunning = false;
+            let isRunningStatus = false;
+            if (b.status && (b.status.includes('進行') || b.status.includes('SERVING') || b.status.includes('服務中') || b.status.includes('đang phục vụ'))) {
+                isRunningStatus = true;
+            } else if (b.originalData && b.originalData.status) {
+                const stLower = b.originalData.status.toLowerCase();
+                if (stLower.includes('running') || stLower.includes('服務中') || stLower.includes('đang phục vụ')) {
+                    isRunningStatus = true;
+                }
+            }
+
+            // Tính toán Fake StartTime
             let bDateObjRaw;
             try { bDateObjRaw = new Date(b.startTimeString.replace(/\//g, '-')); } catch (e) {}
             
-            if (bDateObjRaw && !isNaN(bDateObjRaw.getTime())) {
-                if (bDateObjRaw.getTime() <= now.getTime()) isPastOrRunning = true;
-            } else {
-                try { if (new Date(b.startTimeString) <= now) isPastOrRunning = true; } catch (e) { }
-            }
-            
-            // Tính toán Fake StartTime
             let mappedStartTime = b.startTimeString;
             if (bDateObjRaw && !isNaN(bDateObjRaw.getTime())) {
                 const diffMins = Math.round((bDateObjRaw.getTime() - reqTimeMs) / 60000);
@@ -1973,11 +1980,11 @@
             let serverLockSignal = b.isManualLocked;
             if (serverLockSignal === undefined && b.originalData) serverLockSignal = b.originalData.isManualLocked;
             const isExplicitlyLocked = (serverLockSignal === true || String(serverLockSignal).toUpperCase() === 'TRUE' || serverLockSignal === 1);
-            const finalLockState = isExplicitlyLocked || isPastOrRunning;
+            const finalLockState = isExplicitlyLocked || isRunningStatus;
 
             // Gán giá trị trạng thái SSOT mới
             let normalizedStatus = b.status || STATUS.WAITING;
-            if (isPastOrRunning) normalizedStatus = STATUS.SERVING;
+            if (isRunningStatus) normalizedStatus = STATUS.SERVING;
 
             // ==============================================================
             // TRỌNG TÂM: GOM TOÀN BỘ THỢ (CỘT L, M, N...) THÀNH MẢNG
