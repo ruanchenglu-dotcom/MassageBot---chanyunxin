@@ -3523,6 +3523,17 @@ const App = () => {
                                 data.phase2_duration = newTotal - payload.newPhase1;
                             }
                         }
+                        
+                        const isNewCombo = payload.newService.includes('套餐') || payload.newService.includes('招牌') || payload.newService.toUpperCase().includes('COMBO') || (window.SERVICES_DATA && window.SERVICES_DATA[payload.newService] && window.SERVICES_DATA[payload.newService].category === 'COMBO');
+                        if (!isNewCombo) {
+                            data.phase2_duration = "";
+                            data.phase2_res_idx = "";
+                            data.flow = "";
+                            data.transition_time = "";
+                            if (bookingObj.current_resource_id && !bookingObj.phase1_res_idx) {
+                                data.phase1_res_idx = bookingObj.current_resource_id;
+                            }
+                        }
                         return data;
                     };
 
@@ -4032,13 +4043,16 @@ const App = () => {
                             updateData.flow = isBed(newP1) ? 'BF' : 'FB';
                         } else {
                             const isBed = (id) => id && (String(id).toUpperCase().includes('床') || String(id).toUpperCase().includes('BED'));
-                            const bResId = b.current_resource_id || b.location;
+                            const bResId = b.phase1_res_idx || b.current_resource_id || b.location || payload.sourceRowId;
                             if (isBed(bResId) !== isBed(targetId)) {
                                 Swal.fire('系統提示', '⚠️ 無法換位：不可將單項服務換位至不同類型的座位（床與椅不可互換）。', 'warning');
                                 return;
                             }
+                            updateData.phase1_res_idx = targetId;
                             updateData.current_resource_id = targetId;
                             updateData.location = targetId;
+                            updateData.phase2_res_idx = "";
+                            updateData.flow = "";
                         }
 
                         const activeBookings = bookings.filter(x => {
