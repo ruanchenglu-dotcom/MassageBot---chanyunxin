@@ -117,7 +117,6 @@ window.SmartScheduler = (function() {
 
     const isTargetPhaseLocked = (b, isCombo) => {
         if (b.isRunningStatus || b.status === 'DOING' || b.isDoneStatus) return true;
-        if (b.isManualLocked === true) return true;
         if (isCombo) {
             return (b.phase1_locked === "TRUE" || b.phase1_locked === true) && 
                    (b.phase2_locked === "TRUE" || b.phase2_locked === true);
@@ -376,7 +375,7 @@ window.SmartScheduler = (function() {
                     locked2 = (b.phase2_locked === "TRUE" || b.phase2_locked === true);
                     locked = locked1 && locked2;
                 } else {
-                    locked = (b.phase1_locked === "TRUE" || b.phase1_locked === true || b.isManualLocked === true);
+                    locked = (b.phase1_locked === "TRUE" || b.phase1_locked === true);
                     locked1 = locked;
                     locked2 = locked;
                 }
@@ -591,6 +590,7 @@ window.SmartScheduler = (function() {
             } else {
                 movedPayload.current_resource_id = targetIdUpper.toUpperCase();
                 movedPayload.location = targetIdUpper.toUpperCase();
+                movedPayload.phase1_res_idx = targetIdUpper.toUpperCase();
             }
             payloads.push(movedPayload);
         }
@@ -621,6 +621,7 @@ window.SmartScheduler = (function() {
                     isChanged = true;
                     p.current_resource_id = newAssignt.res.toUpperCase();
                     p.location = newAssignt.res.toUpperCase();
+                    p.phase1_res_idx = newAssignt.res.toUpperCase();
                 }
             }
 
@@ -629,12 +630,12 @@ window.SmartScheduler = (function() {
                 p.isManualLocked = true;
                 
                 const bOrigin = activeBookings.find(x => String(x.rowId) === bRowIdStr);
-                if (bOrigin && (newAssignt.timeShift !== 0 || newAssignt.transitionShift !== 0)) {
+                if (bOrigin && (newAssignt.timeShift !== 0 || (newAssignt.transitionShift !== undefined && newAssignt.transitionShift !== 0))) {
                     if (newAssignt.timeShift !== 0) {
                         const originStartMins = getSafeTime(bOrigin.startTimeString);
                         p.startTimeString = minsToTimeString(originStartMins + newAssignt.timeShift, bOrigin.startTimeString);
                     }
-                    if (newAssignt.transitionShift !== 0) {
+                    if (newAssignt.transitionShift !== undefined && newAssignt.transitionShift !== 0) {
                         const duration = parseInt(bOrigin.duration || 60, 10);
                         const flow = newAssignt.flow || bOrigin.flow || 'FB';
                         const split = window.getSmartSplit ? window.getSmartSplit(bOrigin, duration, true, flow) : { phase1: Math.floor(duration / 2), phase2: Math.ceil(duration / 2) };

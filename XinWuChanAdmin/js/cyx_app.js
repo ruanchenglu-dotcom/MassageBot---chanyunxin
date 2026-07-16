@@ -4000,6 +4000,9 @@ const App = () => {
                     if (b) {
                         const targetId = payload.targetRowId.toUpperCase();
                         let updateData = { rowId: b.rowId, is_locked: "TRUE", isManualLocked: true, forceSync: true };
+                        if (!payload.meta || !payload.meta.isCombo) {
+                            updateData.phase1_locked = "TRUE";
+                        }
 
                         if (payload.meta && payload.meta.isCombo) {
                             if (payload.meta.phase === 1 && (b.phase1_locked === "TRUE" || b.phase1_locked === true)) {
