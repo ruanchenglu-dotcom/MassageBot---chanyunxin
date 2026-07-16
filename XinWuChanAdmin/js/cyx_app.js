@@ -4031,6 +4031,12 @@ const App = () => {
                             updateData.phase2_res_idx = newP2 ? String(newP2).toUpperCase() : "";
                             updateData.flow = isBed(newP1) ? 'BF' : 'FB';
                         } else {
+                            const isBed = (id) => id && (String(id).toUpperCase().includes('床') || String(id).toUpperCase().includes('BED'));
+                            const bResId = b.current_resource_id || b.location;
+                            if (isBed(bResId) !== isBed(targetId)) {
+                                Swal.fire('系統提示', '⚠️ 無法換位：不可將單項服務換位至不同類型的座位（床與椅不可互換）。', 'warning');
+                                return;
+                            }
                             updateData.current_resource_id = targetId;
                             updateData.location = targetId;
                         }
