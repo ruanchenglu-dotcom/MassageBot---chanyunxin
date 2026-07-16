@@ -648,6 +648,11 @@
             let maleBusyCount = 0;
             let staffBusyPeriods = {}; // { '9': [{start, end}] }
 
+            let distinctStaffs = new Set();
+            let distinctFemaleStaffs = new Set();
+            let distinctMaleStaffs = new Set();
+            let overlapEvents = [];
+
             relevantBookings.forEach(b => {
                 const bS = getMinsFromTimeStr(b.startTime);
                 const svcInfo = SERVICES[b.serviceCode] || { name: b.serviceName };
@@ -667,15 +672,67 @@
                 }
 
                 if (isOverlap(requestStart, requestStart + maxDuration, bS, bE)) {
-                    staffBusyCount += staffsInBooking.length;
+                    let st = Math.max(requestStart, bS);
+                    let en = Math.min(requestStart + maxDuration, bE);
+                    
+                    if (en > st) {
+                        let allDelta = 0;
+                        let femaleDelta = 0;
+                        let maleDelta = 0;
 
-                    for (const staffName of staffsInBooking) {
-                        const sInfo = staffList[staffName] || Object.values(staffList).find(s => normId(s.name) === normId(staffName) || normId(s.id) === normId(staffName)) || {};
-                        if (sInfo.gender === 'F' || sInfo.gender === '女' || sInfo.group === '女') femaleBusyCount++;
-                        else if (sInfo.gender === 'M' || sInfo.gender === '男' || sInfo.group === '男') maleBusyCount++;
+                        for (const staffName of staffsInBooking) {
+                            if (!staffName) continue;
+                            const sId = normId(staffName);
+                            
+                            const isRandom = (sId === '隨機' || sId === 'ANY' || sId === 'UNDEFINED' || sId === 'NULL' || sId === 'FALSE' || sId === '');
+                            const isFemaleReq = (sId === '女' || sId === '女師' || sId === 'FEMALE');
+                            const isMaleReq = (sId === '男' || sId === '男師' || sId === 'MALE');
+                            
+                            allDelta++;
+                            
+                            if (isFemaleReq) {
+                                femaleDelta++;
+                            } else if (isMaleReq) {
+                                maleDelta++;
+                            } else if (!isRandom) {
+                                distinctStaffs.add(sId);
+                                const sInfo = staffList[staffName] || Object.values(staffList).find(s => normId(s.name) === sId || normId(s.id) === sId) || {};
+                                if (sInfo.gender === 'F' || sInfo.gender === '女' || sInfo.group === '女') {
+                                    femaleDelta++;
+                                    distinctFemaleStaffs.add(sId);
+                                } else if (sInfo.gender === 'M' || sInfo.gender === '男' || sInfo.group === '男') {
+                                    maleDelta++;
+                                    distinctMaleStaffs.add(sId);
+                                }
+                            }
+                        }
+                        
+                        if (allDelta > 0) {
+                            overlapEvents.push({ time: st, type: 1, all: allDelta, f: femaleDelta, m: maleDelta });
+                            overlapEvents.push({ time: en, type: -1, all: allDelta, f: femaleDelta, m: maleDelta });
+                        }
                     }
                 }
             });
+
+            overlapEvents.sort((a, b) => a.time - b.time || a.type - b.type);
+            
+            let currAll = 0, currF = 0, currM = 0;
+            let maxAll = 0, maxF = 0, maxM = 0;
+            
+            for (const ev of overlapEvents) {
+                currAll += ev.type * ev.all;
+                currF += ev.type * ev.f;
+                currM += ev.type * ev.m;
+                
+                if (currAll > maxAll) maxAll = currAll;
+                if (currF > maxF) maxF = currF;
+                if (currM > maxM) maxM = currM;
+            }
+
+            staffBusyCount = Math.max(distinctStaffs.size, maxAll);
+            femaleBusyCount = Math.max(distinctFemaleStaffs.size, maxF);
+            maleBusyCount = Math.max(distinctMaleStaffs.size, maxM);
 
             let femaleReqCount = 0;
             let maleReqCount = 0;
