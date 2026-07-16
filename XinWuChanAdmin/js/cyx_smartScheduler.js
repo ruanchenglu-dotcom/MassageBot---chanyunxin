@@ -397,8 +397,17 @@ window.SmartScheduler = (function() {
                 if (isCombo) {
                     const duration = parseInt(b.duration || 60, 10);
                     const splitBase = window.getSmartSplit ? window.getSmartSplit(b, duration, true, b.flow || 'FB') : { phase1: Math.floor(duration / 2), phase2: Math.ceil(duration / 2) };
-                    const svcDef = window.CoreKernel && window.CoreKernel.SERVICES ? window.CoreKernel.SERVICES[b.serviceCode] : null;
-                    if (svcDef) {
+                    
+                    let sCode = b.serviceCode;
+                    if (!sCode || sCode.trim() === '') {
+                        sCode = b.serviceName ? b.serviceName.replace(/\s*\([^)]*油推[^)]*\)/g, '').substring(0, 3).trim() : 'UNKNOWN';
+                        if (sCode && (sCode.startsWith('A') || sCode.startsWith('B') || sCode.startsWith('C') || sCode.startsWith('D'))) {
+                            sCode = sCode.substring(0, 2);
+                        }
+                    }
+                    const svcDef = window.CoreKernel && window.CoreKernel.SERVICES ? window.CoreKernel.SERVICES[sCode] : null;
+                    
+                    if (svcDef && typeof svcDef.minFoot !== 'undefined') {
                         const minP1 = (b.flow === 'FB' ? svcDef.minFoot : svcDef.minBody) || 0;
                         const maxP1 = (b.flow === 'FB' ? svcDef.maxFoot : svcDef.maxBody) || duration;
                         const minP2 = (b.flow === 'FB' ? svcDef.minBody : svcDef.minFoot) || 0;
@@ -409,6 +418,8 @@ window.SmartScheduler = (function() {
                             const newP2 = splitBase.phase2 - shift;
                             return newP1 >= minP1 && newP1 <= maxP1 && newP2 >= minP2 && newP2 <= maxP2;
                         });
+                    } else {
+                        allowedTransShifts = [0];
                     }
                 }
 
@@ -466,8 +477,8 @@ window.SmartScheduler = (function() {
                             }
                         }
                         
-                        score1 -= Math.abs(d1.timeShift);
-                        score1 -= Math.abs(d1.transitionShift);
+                        score1 -= Math.abs(d1.timeShift) * 100;
+                        score1 -= Math.abs(d1.transitionShift) * 100;
                         let t1 = getAssignedTimes(b, d1);
                         score1 += calculateGapScore(t1, allExistingTimes);
                         
@@ -479,8 +490,8 @@ window.SmartScheduler = (function() {
                         if (d2.phase2_res === assignmentOriginal.phase2_res) score2 += 10000;
                         else if (bSourceId && d2.phase2_res === bSourceId) score2 += 4;
                         else if (targetIdUpper && d2.phase2_res === targetIdUpper) score2 += 4;
-                        score2 -= Math.abs(d2.timeShift);
-                        score2 -= Math.abs(d2.transitionShift);
+                        score2 -= Math.abs(d2.timeShift) * 100;
+                        score2 -= Math.abs(d2.transitionShift) * 100;
                         let t2 = getAssignedTimes(b, d2);
                         score2 += calculateGapScore(t2, allExistingTimes);
                         
@@ -500,7 +511,7 @@ window.SmartScheduler = (function() {
                         if (d1.res === assignmentOriginal.res) s1 += 10000;
                         else if (bSourceId && d1.res === bSourceId) s1 += 8;
                         else if (targetIdUpper && d1.res === targetIdUpper) s1 += 8;
-                        s1 -= Math.abs(d1.timeShift);
+                        s1 -= Math.abs(d1.timeShift) * 100;
                         let t1 = getAssignedTimes(b, d1);
                         s1 += calculateGapScore(t1, allExistingTimes);
 
@@ -508,7 +519,7 @@ window.SmartScheduler = (function() {
                         if (d2.res === assignmentOriginal.res) s2 += 10000;
                         else if (bSourceId && d2.res === bSourceId) s2 += 8;
                         else if (targetIdUpper && d2.res === targetIdUpper) s2 += 8;
-                        s2 -= Math.abs(d2.timeShift);
+                        s2 -= Math.abs(d2.timeShift) * 100;
                         let t2 = getAssignedTimes(b, d2);
                         s2 += calculateGapScore(t2, allExistingTimes);
 
