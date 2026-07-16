@@ -963,7 +963,7 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
             const smartFlow = inferFlowFromService(svc, explicitFlow);
             let rType = (smartFlow === 'FOOTSINGLE') ? 'CHAIR' : 'BED';
             let foundIdx = -1;
-
+            console.log("DEBUG SIMULATION MAP CHAIRS: ", JSON.stringify(simulationMap.CHAIR));
             for (let k = 0; k < (rType === 'BED' ? CONF.MAX_BEDS : CONF.MAX_CHAIRS); k++) {
                 if (checkLaneContinuity(simulationMap[rType][k], requestStart, requestStart + duration)) {
                     foundIdx = k; break;
@@ -1341,6 +1341,8 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
         let processedB = {
             id: b.rowId, originalData: b, staffName: b.staffName, serviceName: b.serviceName, category: svcInfo.category,
             isElastic: isCombo && (!isLocked) && (!isRunning),
+            isLocked: isLocked,
+            isRunning: isRunning,
             elasticStep: svcInfo.elasticStep || 5, elasticLimit: svcInfo.elasticLimit || 15,
             minFoot: svcInfo.minFoot, maxFoot: svcInfo.maxFoot, minBody: svcInfo.minBody, maxBody: svcInfo.maxBody,
             startMins: bStart, duration: duration, blocks: [], anchorIndex: anchorIndex
@@ -1476,27 +1478,29 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
         let scenarioFailed = false;
         let scenarioBestOutOfBoundSqueeze = null;
 
-        let softsToSqueezeCandidates = [];
+        // --- V118.4 FIX -> NÂNG CẤP THÔNG MINH (Smart Repacking 3-Pass) ---
+        // Pass 1: Các lịch Cũ BẮT BUỘC KHÓA (isStrictlyForced = true)
         for (const exB of existingBookingsProcessed) {
             const exBLoc = exB.originalData?.location || exB.location || '本館';
             if (exBLoc !== CONF._tempLocation) continue;
+            
+            const isStrictlyForced = exB.isRunning || exB.isLocked;
+            if (!isStrictlyForced) continue;
 
-            console.log(`[MATRIX] Processing existing booking ${exB.id} for Matrix`);
-
+            console.log(`[MATRIX] Processing existing booking ${exB.id} for Matrix (PASS 1 - FORCED)`);
             let placedSuccessfully = true; let allocatedSlots = [];
             for (const block of exB.blocks) {
                 const realEnd = block.end;
-                // --- V118.4 FIX: Ép buộc đặt chỗ (isForced = true) cho các Booking đã có sẵn ---
-                console.log(`[MATRIX] Trying to allocate ${block.type} ${block.start}->${realEnd} for ${exB.id} with forcedIndex ${block.forcedIndex}`);
                 const slotId = matrix.tryAllocate(block.type, block.start, realEnd, exB.id, block.forcedIndex, true);
                 if (!slotId) { placedSuccessfully = false; break; }
                 allocatedSlots.push(slotId);
             }
-            if (exB.isElastic) {
-                if (placedSuccessfully) exB.allocatedSlots = allocatedSlots;
+            if (exB.isElastic && placedSuccessfully) {
+                exB.allocatedSlots = allocatedSlots;
                 softsToSqueezeCandidates.push(exB);
             }
         }
+        // (End of Pass 1)
 
         let newGuestBlocksMap = [];
         for (const ng of newGuests) {
@@ -1637,6 +1641,50 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
                 detail.allocated = guestAllocations;
                 detail.phase1_res_idx = guestAllocations[0] || null;
                 detail.phase2_res_idx = guestAllocations[1] || null;
+            }
+        }
+
+        // --- Pass 3: Các lịch Cũ KHÔNG BẮT BUỘC (isStrictlyForced = false) ---
+        // Đặt sau Khách Mới để ép khách cũ dồn sang ghế khác nếu khách mới đã lấy mất ghế ưu tiên của họ.
+        if (!conflictFound) {
+            for (const exB of existingBookingsProcessed) {
+                const exBLoc = exB.originalData?.location || exB.location || '本館';
+                if (exBLoc !== CONF._tempLocation) continue;
+                
+                const isStrictlyForced = exB.isRunning || exB.isLocked;
+                if (isStrictlyForced) continue;
+
+                console.log(`[MATRIX] Processing existing booking ${exB.id} for Matrix (PASS 3 - UNFORCED REPACKING)`);
+                let placedSuccessfully = true; let allocatedSlots = [];
+                let coordChanged = false;
+                for (const block of exB.blocks) {
+                    const realEnd = block.end;
+                    const slotId = matrix.tryAllocate(block.type, block.start, realEnd, exB.id, block.forcedIndex, false);
+                    if (!slotId) { placedSuccessfully = false; break; }
+                    
+                    const bPrefix = (exBLoc === '對面館') ? '2' : '1';
+                    const originalRes = block.type + '-' + bPrefix + '-' + (block.forcedIndex || 'X');
+                    if (block.forcedIndex && slotId !== originalRes) coordChanged = true;
+                    allocatedSlots.push(slotId);
+                }
+
+                if (!placedSuccessfully) {
+                    conflictFound = true; break; // Không còn chỗ nào cho khách cũ này! Nghĩa là Khách Mới đã chiếm hết chỗ.
+                }
+
+                if (coordChanged) {
+                    scenarioUpdates.push({
+                        rowId: exB.id,
+                        customerName: exB.originalData ? exB.originalData.customerName : 'Unknown',
+                        newPhase1Res: allocatedSlots[0],
+                        newPhase2Res: allocatedSlots[1] || null,
+                        reason: '💡 智能空間優化'
+                    });
+                }
+                if (exB.isElastic && placedSuccessfully) {
+                    exB.allocatedSlots = allocatedSlots;
+                    softsToSqueezeCandidates.push(exB);
+                }
             }
         }
 

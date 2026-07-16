@@ -1307,6 +1307,8 @@
                 const { p1, p2, realDuration } = calculateRealDurations(b, duration, isCombo);
 
                 let isElastic = isCombo && (b.isManualLocked !== true) && (!isRunning);
+                const isLockedRaw = b.originalData?.isManualLocked || b.isManualLocked;
+                const isLocked = (isLockedRaw === true || isLockedRaw === 'TRUE');
                 let processedB = {
                     id: ownerName,
                     originalData: b,
@@ -1315,6 +1317,8 @@
                     serviceName: b.serviceName,
                     category: svcInfo.category,
                     isElastic: isElastic,
+                    isLocked: isLocked,
+                    isRunning: isRunning,
                     elasticStep: svcInfo.elasticStep || 5, elasticLimit: svcInfo.elasticLimit || 15,
                     startMins: bStart, duration: realDuration, blocks: [], anchorIndex: anchorIndex
                 };
@@ -1444,8 +1448,16 @@
                 let scenarioFailed = false;
                 let scenarioBestOutOfBoundSqueeze = null;
 
+                // --- V118.4 FIX -> NÂNG CẤP THÔNG MINH (Smart Repacking 3-Pass) ---
+                // Pass 1: Các lịch Cũ BẮT BUỘC KHÓA (isStrictlyForced = true)
                 let softsToSqueezeCandidates = [];
                 for (const exB of existingBookingsProcessed) {
+                    const exBLoc = exB.originalData?.location || exB.location || '本館';
+                    if (exBLoc !== locationStr) continue;
+
+                    const isStrictlyForced = exB.isRunning || exB.isLocked;
+                    if (!isStrictlyForced) continue;
+
                     let placedSuccessfully = true;
                     let allocatedSlots = [];
                     for (const block of exB.blocks) {
@@ -1454,8 +1466,8 @@
                         if (!slotId) { placedSuccessfully = false; break; }
                         allocatedSlots.push(slotId);
                     }
-                    if (exB.isElastic) {
-                        if (placedSuccessfully) exB.allocatedSlots = allocatedSlots;
+                    if (exB.isElastic && placedSuccessfully) {
+                        exB.allocatedSlots = allocatedSlots;
                         softsToSqueezeCandidates.push(exB);
                     }
                 }
@@ -1517,9 +1529,51 @@
                         if (!slotId) { conflictFound = true; break; }
                         guestAllocations.push(slotId);
                     }
-                    if (conflictFound) break;
+                if (conflictFound) break;
                     const detail = scenarioDetails.find(d => d.guestIndex === item.guest.idx);
                     if (detail) detail.allocated = guestAllocations;
+                }
+
+                // --- Pass 3: Các lịch Cũ KHÔNG BẮT BUỘC (isStrictlyForced = false) ---
+                if (!conflictFound) {
+                    for (const exB of existingBookingsProcessed) {
+                        const exBLoc = exB.originalData?.location || exB.location || '本館';
+                        if (exBLoc !== locationStr) continue;
+                        
+                        const isStrictlyForced = exB.isRunning || exB.isLocked;
+                        if (isStrictlyForced) continue;
+
+                        let placedSuccessfully = true; let allocatedSlots = [];
+                        let coordChanged = false;
+                        for (const block of exB.blocks) {
+                            const realEnd = block.end;
+                            const slotId = matrix.tryAllocate(block.type, block.start, realEnd, exB.id, block.forcedIndex, false);
+                            if (!slotId) { placedSuccessfully = false; break; }
+                            
+                            const bPrefix = (exBLoc === '對面館') ? '2' : '1';
+                            const originalRes = block.type + '-' + bPrefix + '-' + (block.forcedIndex || 'X');
+                            if (block.forcedIndex && slotId !== originalRes) coordChanged = true;
+                            allocatedSlots.push(slotId);
+                        }
+
+                        if (!placedSuccessfully) {
+                            conflictFound = true; break;
+                        }
+
+                        if (coordChanged) {
+                            scenarioUpdates.push({
+                                rowId: exB.id,
+                                customerName: exB.originalData ? exB.originalData.customerName : 'Unknown',
+                                newPhase1Res: allocatedSlots[0],
+                                newPhase2Res: allocatedSlots[1] || null,
+                                reason: '💡 智能空間優化'
+                            });
+                        }
+                        if (exB.isElastic && placedSuccessfully) {
+                            exB.allocatedSlots = allocatedSlots;
+                            softsToSqueezeCandidates.push(exB);
+                        }
+                    }
                 }
 
                 if (conflictFound) {
