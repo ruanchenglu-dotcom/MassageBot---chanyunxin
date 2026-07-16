@@ -712,6 +712,23 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
             uniqueMatches = [...new Set(backupMatches)].map(num => `${inferredType}-${bPrefix}-${num}`);
         }
 
+        // [NEW V118.9] Logic Nhận diện Đặt chỗ linh hoạt (Fluid Booking) & Repacking
+        const isLockedRaw = b.originalData?.isManualLocked || b.isManualLocked;
+        const isLocked = (isLockedRaw === true || isLockedRaw === 'TRUE');
+        let isRunning = false;
+        if (b.originalData && b.originalData.status) {
+            const stLower = b.originalData.status.toLowerCase();
+            isRunning = stLower.includes('running') || stLower.includes('服務中') || stLower.includes('đang phục vụ') || stLower.includes('check-in') || stLower.includes('已報到');
+        }
+        
+        // Nếu booking không bị khóa và chưa bắt đầu, hệ thống được phép "giả lập dời ghế"
+        const isFluid = !isLocked && !isRunning;
+
+        // Kích hoạt Repacking: Bỏ qua ghế đã chỉ định, ép hệ thống tự tìm ghế trống tối ưu nhất
+        if (isFluid) {
+            uniqueMatches = []; 
+        }
+
         const pushToMapFallback = (type, startT, endT) => {
             let found = false;
             let limit = (type === 'BED') ? CONF.MAX_BEDS : CONF.MAX_CHAIRS;

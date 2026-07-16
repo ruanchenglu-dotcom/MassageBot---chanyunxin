@@ -485,6 +485,23 @@
                 const matches = [...rIdStr.matchAll(/((?:BED|CHAIR)-[12]-\d+)/gi)].map(m => m[1].toUpperCase());
                 let uniqueMatches = [...new Set(matches)];
 
+                // [NEW V118.9] Logic Nhận diện Đặt chỗ linh hoạt (Fluid Booking) & Repacking
+                const isLockedRaw = b.originalData?.isManualLocked || b.isManualLocked;
+                const isLocked = (isLockedRaw === true || isLockedRaw === 'TRUE');
+                let isRunning = false;
+                if (b.originalData && b.originalData.status) {
+                    const stLower = b.originalData.status.toLowerCase();
+                    isRunning = stLower.includes('running') || stLower.includes('服務中') || stLower.includes('đang phục vụ') || stLower.includes('check-in') || stLower.includes('已報到');
+                }
+                
+                // Nếu booking không bị khóa và chưa bắt đầu, hệ thống được phép "giả lập dời ghế"
+                const isFluid = !isLocked && !isRunning;
+
+                // Kích hoạt Repacking: Bỏ qua ghế đã chỉ định, ép hệ thống tự tìm ghế trống tối ưu nhất
+                if (isFluid) {
+                    uniqueMatches = []; 
+                }
+
                 // [V118.8 FIX] Hỗ trợ trích xuất số ghế/giường nếu chuỗi chỉ có số đơn thuần (phòng ngừa Bóng Ma Toạ Độ)
                 if (uniqueMatches.length === 0) {
                     const backupMatches = [...rIdStr.matchAll(/(\d+)/gi)].map(m => m[1]);
