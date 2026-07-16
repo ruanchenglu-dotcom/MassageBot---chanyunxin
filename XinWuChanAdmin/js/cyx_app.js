@@ -2095,9 +2095,8 @@ const App = () => {
         };
 
         if (newStartTimeStringForSheet) {
-            payload.startTimeString = newStartTimeStringForSheet;
-            payload.gioDen = startTimeStr;
-            payload.startTime = startTimeStr;
+            payload.phaseStartTimeString = newStartTimeStringForSheet;
+            payload.phaseStartTime = startTimeStr;
             payload.date = newStartTimeStringForSheet.split(' ')[0];
         }
 
@@ -2120,8 +2119,7 @@ const App = () => {
                     r.booking.phase1_res_idx = s1.toUpperCase();
                     r.booking.phase2_res_idx = s2.toUpperCase();
                     if (newStartTimeStringForSheet) {
-                        r.booking.startTimeString = newStartTimeStringForSheet;
-                        r.booking.startTime = startTimeStr;
+                        r.booking.start_time_str = startTimeStr;
                     }
                     updated = true;
                 }
@@ -2216,9 +2214,8 @@ const App = () => {
         }
 
         if (newStartTimeStringForSheet) {
-            payload.startTimeString = newStartTimeStringForSheet;
-            payload.gioDen = startTimeStr;
-            payload.startTime = startTimeStr;
+            payload.phaseStartTimeString = newStartTimeStringForSheet;
+            payload.phaseStartTime = startTimeStr;
             payload.date = newStartTimeStringForSheet.split(' ')[0];
         }
 
@@ -2240,8 +2237,7 @@ const App = () => {
                         r.booking.location = s1.toUpperCase();
                     }
                     if (newStartTimeStringForSheet) {
-                        r.booking.startTimeString = newStartTimeStringForSheet;
-                        r.booking.startTime = startTimeStr;
+                        r.booking.start_time_str = startTimeStr;
                     }
                     updated = true;
                 }
