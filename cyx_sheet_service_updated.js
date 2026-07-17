@@ -425,7 +425,8 @@ async function syncData() {
 
                 // serviceCode logic is now handled above.
 
-                const rawTime = row[1] || "12:00";
+                const rawABTime = (row[27] && row[27].trim() !== "") ? row[27].trim() : null;
+                const rawTime = rawABTime || row[1] || "12:00";
                 const hr = parseInt(rawTime.split(':')[0], 10);
                 let computedOpDate = cleanDate; // Base is calendar date
                 // [V134.1 NÂNG CẤP] Derive internal Operation Date
@@ -437,8 +438,10 @@ async function syncData() {
 
                 tempBookings.push({
                     rowId: i + 1,
-                    startTimeString: `${cleanDate} ${row[1]}`,
-                    startTime: row[1],
+                    startTimeString: `${cleanDate} ${rawTime}`,
+                    startTime: rawTime,
+                    booking_time: row[1] || "",
+                    start_time_str: rawABTime || "",
                     duration: duration,
                     type: type, category: category,
                     price: price,

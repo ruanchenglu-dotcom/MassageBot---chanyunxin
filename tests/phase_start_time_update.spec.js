@@ -62,7 +62,13 @@ test.describe('Phase Start Time Update E2E Test', () => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({ bookings: mockBookings })
+        body: JSON.stringify({ 
+          bookings: mockBookings,
+          staffList: [{ id: '1', name: '隨機', active: true }],
+          statusData: {},
+          services: { "套餐 (100分)": { duration: 100, type: "COMBO" } },
+          lastUpdate: new Date().toISOString()
+        })
       });
     });
 
