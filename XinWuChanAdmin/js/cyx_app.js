@@ -3351,6 +3351,179 @@ const App = () => {
         } catch (e) { Swal.fire('系統提示', "⚠️ 結帳發生錯誤，請截圖給開發者：" + e.message, 'error'); }
     };
 
+    const handleSaveGroupTime = async (allBookings, payload, type = 'COMBO') => {
+        setSyncLock(true);
+        setTimeout(() => setSyncLock(false), 5000);
+
+        let tryStart = 720;
+        let newStartTimeStringForSheet = null;
+        let newStartTimeIso = null;
+
+        if (payload.startTimeStr) {
+            let datePart = viewDate.replace(/-/g, '/');
+            const parts = payload.startTimeStr.split(':');
+            const h = parseInt(parts[0], 10);
+            const m = parseInt(parts[1], 10);
+            let dObj = new Date(datePart);
+            if (!isNaN(dObj.getTime())) {
+                if (h < (window.SYSTEM_CONFIG?.OPERATION_TIME?.OPEN_HOUR || 6)) dObj.setDate(dObj.getDate() + 1);
+                const y = dObj.getFullYear();
+                const mo = String(dObj.getMonth() + 1).padStart(2, '0');
+                const d = String(dObj.getDate()).padStart(2, '0');
+                datePart = `${y}/${mo}/${d}`;
+            }
+            newStartTimeStringForSheet = `${datePart} ${payload.startTimeStr}`;
+            let dObjFinal = new Date(datePart);
+            if (!isNaN(dObjFinal.getTime())) {
+                dObjFinal.setHours(h, m, 0, 0);
+                newStartTimeIso = dObjFinal.toISOString();
+            }
+            tryStart = safeTimeToMins(payload.startTimeStr);
+        } else {
+            tryStart = safeTimeToMins(allBookings[0].startTimeString.split(' ')[1] || "12:00");
+        }
+        
+        const mockActiveEndTimes = {};
+        Object.keys(resourceState).forEach(k => {
+            if (resourceState[k].isRunning && resourceState[k].booking) {
+                try {
+                    const startMins = safeTimeToMins(getTaipeiTimeStr(resourceState[k].startTime));
+                    mockActiveEndTimes[k] = startMins + (resourceState[k].booking.duration || 60);
+                } catch (e) { }
+            }
+        });
+
+        let tempTimelineData = JSON.parse(JSON.stringify(timelineData));
+        const payloadsToApply = [];
+        const newStatesToApply = [];
+
+        for (let b of allBookings) {
+            const rowId = String(b.rowId);
+            const totalDuration = parseInt(b.duration || 100);
+            const currentFlow = payload.flow || b.flow || (type === 'COMBO' ? 'FB' : 'FOOT');
+            const isForcedSingle = b.isForcedSingle === true || currentFlow === 'FOOTSINGLE' || currentFlow === 'BODYSINGLE';
+            const isLongSingle = isForcedSingle && totalDuration > 70;
+            
+            let p1Type, p2Type, newPhase1Duration, newPhase2Duration, resourceTypeForSheet;
+
+            if (type === 'COMBO') {
+                newPhase1Duration = parseInt(payload.phase1, 10) || parseInt(b.phase1_duration, 10) || 50;
+                newPhase2Duration = totalDuration - newPhase1Duration;
+                p1Type = currentFlow === 'BF' ? 'bed' : 'chair';
+                p2Type = currentFlow === 'BF' ? 'chair' : 'bed';
+                resourceTypeForSheet = 'COMBO';
+            } else {
+                newPhase1Duration = totalDuration;
+                newPhase2Duration = 0;
+                p1Type = currentFlow.includes('FOOT') ? 'chair' : 'bed';
+                resourceTypeForSheet = 'SINGLE';
+            }
+
+            let s1Found = MatrixHelper.findBestSlot(p1Type, tryStart, tryStart + newPhase1Duration, tempTimelineData, mockActiveEndTimes, b.phase1_res_idx || null, rowId, isLongSingle);
+            
+            if (!s1Found) {
+                Swal.fire('系統提示', '⚠️ 更改失敗：該時段已無足夠的空床位/座位供整個群組使用。', 'warning');
+                return;
+            }
+
+            if (!tempTimelineData[s1Found]) tempTimelineData[s1Found] = [];
+            tempTimelineData[s1Found].push({ start: tryStart, end: tryStart + newPhase1Duration, booking: b });
+
+            let s2Found = null;
+            if (type === 'COMBO' && currentFlow.match(/FB|BF/)) {
+                const p2Start = tryStart + newPhase1Duration + 5;
+                s2Found = MatrixHelper.findBestSlot(p2Type, p2Start, p2Start + newPhase2Duration, tempTimelineData, mockActiveEndTimes, b.phase2_res_idx || null, rowId);
+                if (!s2Found) {
+                    Swal.fire('系統提示', '⚠️ 更改失敗：該時段已無足夠的空床位/座位供整個群組使用 (第二階段)。', 'warning');
+                    return;
+                }
+                if (!tempTimelineData[s2Found]) tempTimelineData[s2Found] = [];
+                tempTimelineData[s2Found].push({ start: p2Start, end: p2Start + newPhase2Duration, booking: b });
+            } else if (type === 'COMBO') {
+                s2Found = `${p2Type}-1`;
+            }
+
+            const pLoad = {
+                rowId,
+                forceSync: true,
+                phaseStartTimeString: newStartTimeStringForSheet,
+                phaseStartTime: payload.startTimeStr,
+                date: newStartTimeStringForSheet ? newStartTimeStringForSheet.split(' ')[0] : b.date,
+            };
+
+            if (type === 'COMBO') {
+                pLoad.flow = currentFlow;
+                pLoad.flow_code = currentFlow;
+                pLoad.phase1_duration = newPhase1Duration;
+                pLoad.phase2_duration = newPhase2Duration;
+                pLoad.phase1_res_idx = s1Found.toUpperCase();
+                pLoad.phase2_res_idx = s2Found.toUpperCase();
+                pLoad.phase1Resource = s1Found.toUpperCase();
+                pLoad.phase2Resource = s2Found.toUpperCase();
+                pLoad.resource_type = resourceTypeForSheet;
+                pLoad.resourceType = resourceTypeForSheet;
+                pLoad.transition_time = payload.switchTimeStr;
+                pLoad.is_locked = "TRUE";
+                pLoad.isManualLocked = true;
+                if (payload.flow_code_locked !== undefined) {
+                    pLoad.flow_code_locked = payload.flow_code_locked;
+                    pLoad.phase1_locked = payload.phase1_locked;
+                    pLoad.phase2_locked = payload.phase2_locked;
+                }
+            } else {
+                pLoad.phase1_res_idx = s1Found.toUpperCase();
+                pLoad.phase1Resource = s1Found.toUpperCase();
+                pLoad.current_resource_id = s1Found.toUpperCase();
+            }
+
+            payloadsToApply.push(pLoad);
+            newStatesToApply.push({ rowId, newStartTimeIso, newPhase1Duration, newPhase2Duration, s1: s1Found, s2: s2Found, currentFlow, startTimeStr: payload.startTimeStr });
+        }
+
+        Swal.fire({ title: '儲存群組中，請稍候...', allowOutsideClick: false, didOpen: () => { Swal.showLoading(); } });
+
+        try {
+            const res = await universalSend('/api/batch-process-bookings', { payloads: payloadsToApply });
+            if (!res.success) throw new Error(res.error);
+
+            const newState = { ...resourceState };
+            let updated = false;
+            Object.keys(newState).forEach(key => {
+                const r = newState[key];
+                if (r.booking) {
+                    const match = newStatesToApply.find(x => x.rowId === String(r.booking.rowId));
+                    if (match) {
+                        if (match.newStartTimeIso) r.startTime = match.newStartTimeIso;
+                        if (type === 'COMBO') {
+                            r.booking.flow = match.currentFlow;
+                            r.booking.phase1_duration = match.newPhase1Duration;
+                            r.booking.phase2_duration = match.newPhase2Duration;
+                            r.booking.phase1_res_idx = match.s1.toUpperCase();
+                            r.booking.phase2_res_idx = match.s2 ? match.s2.toUpperCase() : null;
+                        } else {
+                            r.booking.phase1_res_idx = match.s1.toUpperCase();
+                            r.booking.current_resource_id = match.s1.toUpperCase();
+                        }
+                        if (match.startTimeStr) r.booking.start_time_str = match.startTimeStr;
+                        updated = true;
+                    }
+                }
+            });
+            if (updated) updateResource(newState);
+            
+            payloadsToApply.forEach(p => {
+                if (localOverridesRef.current[p.rowId]) delete localOverridesRef.current[p.rowId];
+            });
+            
+            setControlCenterData(null);
+            Swal.close();
+            fetchData(true);
+        } catch (e) {
+            Swal.fire('系統提示', "⚠️ 群組儲存失敗！請檢查網路連線。", 'warning');
+            fetchData('CLEAR_OVERRIDES');
+        }
+    };
+
     const handleControlAction = (actionType, payload) => {
         const targetBooking = payload.currentBooking || (controlCenterData ? controlCenterData.booking : null);
         const targetResourceId = payload.resourceId || (controlCenterData ? controlCenterData.resourceId : null);
@@ -3690,33 +3863,68 @@ const App = () => {
 
             case 'UPDATE_PHASE':
                 if (targetBooking && payload.phase1 !== undefined) {
-                    handleSaveComboTime(
-                        payload.phase1,
-                        targetBooking,
-                        payload.startTimeStr,
-                        payload.switchTimeStr,
-                        payload.phase1_res_idx,
-                        payload.phase2_res_idx,
-                        payload.flow,
-                        {
-                            flow_code_locked: payload.flow_code_locked,
-                            phase1_locked: payload.phase1_locked,
-                            phase2_locked: payload.phase2_locked
-                        }
-                    );
+                    const relatedItems = findRelatedForCheckout(targetBooking, null);
+                    if (relatedItems.length > 0) {
+                        Swal.fire({
+                            title: '確認',
+                            text: '此為團體客，請問要將時間變更套用至整個群組，還是僅此客人？',
+                            icon: 'question',
+                            showDenyButton: true,
+                            showCancelButton: true,
+                            confirmButtonText: '套用至整個群組',
+                            denyButtonText: '僅此客人',
+                            cancelButtonText: '取消'
+                        }).then((res) => {
+                            if (res.isConfirmed) {
+                                const allBookings = [targetBooking, ...relatedItems.map(r => r.booking)];
+                                handleSaveGroupTime(allBookings, payload, 'COMBO');
+                            } else if (res.isDenied) {
+                                handleSaveComboTime(
+                                    payload.phase1, targetBooking, payload.startTimeStr, payload.switchTimeStr,
+                                    payload.phase1_res_idx, payload.phase2_res_idx, payload.flow,
+                                    { flow_code_locked: payload.flow_code_locked, phase1_locked: payload.phase1_locked, phase2_locked: payload.phase2_locked }
+                                );
+                            }
+                        });
+                    } else {
+                        handleSaveComboTime(
+                            payload.phase1, targetBooking, payload.startTimeStr, payload.switchTimeStr,
+                            payload.phase1_res_idx, payload.phase2_res_idx, payload.flow,
+                            { flow_code_locked: payload.flow_code_locked, phase1_locked: payload.phase1_locked, phase2_locked: payload.phase2_locked }
+                        );
+                    }
+                } else {
+                    setControlCenterData(null);
                 }
-                setControlCenterData(null);
                 break;
 
             case 'UPDATE_SINGLE_TIME_LOC':
                 if (targetBooking && payload.startTimeStr) {
-                    handleSaveSingleTimeLoc(
-                        targetBooking,
-                        payload.startTimeStr,
-                        payload.newResId
-                    );
+                    const relatedItems = findRelatedForCheckout(targetBooking, null);
+                    if (relatedItems.length > 0) {
+                        Swal.fire({
+                            title: '確認',
+                            text: '此為團體客，請問要將時間變更套用至整個群組，還是僅此客人？',
+                            icon: 'question',
+                            showDenyButton: true,
+                            showCancelButton: true,
+                            confirmButtonText: '套用至整個群組',
+                            denyButtonText: '僅此客人',
+                            cancelButtonText: '取消'
+                        }).then((res) => {
+                            if (res.isConfirmed) {
+                                const allBookings = [targetBooking, ...relatedItems.map(r => r.booking)];
+                                handleSaveGroupTime(allBookings, payload, 'SINGLE');
+                            } else if (res.isDenied) {
+                                handleSaveSingleTimeLoc(targetBooking, payload.startTimeStr, payload.newResId);
+                            }
+                        });
+                    } else {
+                        handleSaveSingleTimeLoc(targetBooking, payload.startTimeStr, payload.newResId);
+                    }
+                } else {
+                    setControlCenterData(null);
                 }
-                setControlCenterData(null);
                 break;
 
             case 'SWAP_ENTIRE_ROWS':
