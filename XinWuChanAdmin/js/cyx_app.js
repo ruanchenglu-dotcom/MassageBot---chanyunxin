@@ -3446,6 +3446,7 @@ const App = () => {
             const pLoad = {
                 rowId,
                 forceSync: true,
+                startTime: payload.startTimeStr,
                 phaseStartTimeString: newStartTimeStringForSheet,
                 phaseStartTime: payload.startTimeStr,
                 date: newStartTimeStringForSheet ? newStartTimeStringForSheet.split(' ')[0] : b.date,

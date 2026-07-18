@@ -1487,7 +1487,6 @@ async function batchUpdateMultipleBookings(updatesArray) {
             if (body.date) {
                 const formattedDate = normalizeDateStrict(body.date);
                 dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!A${rowId}`, values: [[formattedDate]] });
-                dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!S${rowId}`, values: [[formattedDate]] });
             }
             if (body.startTime) {
                 let timeVal = String(body.startTime); if (timeVal.length > 5) timeVal = timeVal.substring(0, 5);
