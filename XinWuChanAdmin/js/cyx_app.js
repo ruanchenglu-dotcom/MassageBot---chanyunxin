@@ -2097,6 +2097,8 @@ const App = () => {
         if (newStartTimeStringForSheet) {
             payload.phaseStartTimeString = newStartTimeStringForSheet;
             payload.phaseStartTime = startTimeStr;
+            payload.startTime = startTimeStr;
+            payload.updateCheckinOnly = true;
             payload.date = newStartTimeStringForSheet.split(' ')[0];
         }
 
@@ -2216,6 +2218,8 @@ const App = () => {
         if (newStartTimeStringForSheet) {
             payload.phaseStartTimeString = newStartTimeStringForSheet;
             payload.phaseStartTime = startTimeStr;
+            payload.startTime = startTimeStr;
+            payload.updateCheckinOnly = true;
             payload.date = newStartTimeStringForSheet.split(' ')[0];
         }
 
@@ -3447,6 +3451,7 @@ const App = () => {
                 rowId,
                 forceSync: true,
                 startTime: payload.startTimeStr,
+                updateCheckinOnly: true,
                 phaseStartTimeString: newStartTimeStringForSheet,
                 phaseStartTime: payload.startTimeStr,
                 date: newStartTimeStringForSheet ? newStartTimeStringForSheet.split(' ')[0] : b.date,

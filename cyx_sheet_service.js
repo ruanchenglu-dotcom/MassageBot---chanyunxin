@@ -1137,7 +1137,9 @@ async function updateBookingDetails(body) {
     let finalStartTime = body.startTime || body.gioDen;
     if (finalStartTime) {
         let timeVal = finalStartTime; if (timeVal.length > 5) timeVal = timeVal.substring(0, 5);
-        updateCell('B', timeVal);
+        if (!body.updateCheckinOnly) {
+            updateCell('B', timeVal);
+        }
     }
     if (body.customerName) updateCell('C', body.customerName);
     if (body.phone) updateCell('D', body.phone);
@@ -1744,13 +1746,14 @@ async function batchUpdateMultipleBookings(updatesArray) {
             if (body.date) {
                 const formattedDate = normalizeDateStrict(body.date);
                 dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!A${rowId}`, values: [[formattedDate]] });
-                dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!S${rowId}`, values: [[formattedDate]] });
             }
             if (body.startTime || body.startTimeString) {
                 let timeVal = String(body.startTime || body.startTimeString);
                 if (timeVal.includes(' ')) timeVal = timeVal.split(' ')[1];
                 if (timeVal.length > 5) timeVal = timeVal.substring(0, 5);
-                dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!B${rowId}`, values: [[timeVal]] });
+                if (!body.updateCheckinOnly) {
+                    dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!B${rowId}`, values: [[timeVal]] });
+                }
             }
             if (body.customerName !== undefined) dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!C${rowId}`, values: [[body.customerName]] });
             if (body.serviceName !== undefined) dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!D${rowId}`, values: [[body.serviceName]] });

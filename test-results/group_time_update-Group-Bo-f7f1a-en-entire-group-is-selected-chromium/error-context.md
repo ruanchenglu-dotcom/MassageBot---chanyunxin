@@ -12,21 +12,10 @@
 # Error details
 
 ```
-Error: expect(locator).toBeVisible() failed
-
-Locator: locator('.booking-block').filter({ hasText: '張小姐' }).first()
-Expected: visible
-Timeout: 10000ms
-Error: element(s) not found
-
+Error: page.goto: net::ERR_CONNECTION_REFUSED at http://localhost:5001/XinWuChanAdmin/
 Call log:
-  - Expect "toBeVisible" with timeout 10000ms
-  - waiting for locator('.booking-block').filter({ hasText: '張小姐' }).first()
+  - navigating to "http://localhost:5001/XinWuChanAdmin/", waiting until "load"
 
-```
-
-```yaml
-- text: Cannot GET /XinWuChanAdmin/
 ```
 
 # Test source
@@ -128,12 +117,12 @@ Call log:
   94  |       });
   95  |     });
   96  | 
-  97  |     await page.goto('http://localhost:5001/XinWuChanAdmin/');
+> 97  |     await page.goto('http://localhost:5001/XinWuChanAdmin/');
+      |                ^ Error: page.goto: net::ERR_CONNECTION_REFUSED at http://localhost:5001/XinWuChanAdmin/
   98  |     
   99  |     // Wait for the booking block
   100 |     const bookingBlock = page.locator('.booking-block', { hasText: '張小姐' }).first();
-> 101 |     await expect(bookingBlock).toBeVisible({ timeout: 10000 });
-      |                                ^ Error: expect(locator).toBeVisible() failed
+  101 |     await expect(bookingBlock).toBeVisible({ timeout: 10000 });
   102 | 
   103 |     await bookingBlock.click();
   104 |     
