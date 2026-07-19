@@ -471,14 +471,14 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
     };
 
     const performServiceCheck = (checkIsGroup = isGroupMode, overridePhase1 = null) => {
-        const getDuration = (serviceName) => {
-            if (!serviceName) return 60;
+        const getDuration = (serviceName, fallbackDuration = 60) => {
+            if (!serviceName) return fallbackDuration;
             const match = serviceName.match(/(190|180|170|160|150|140|130|120|110|100|90|80|75|70|65|60|55|50|45|40|35|30)/);
             if (match) return parseInt(match[0], 10);
-            return window.getSafeDuration ? window.getSafeDuration(serviceName, booking.duration) : 60;
+            return window.getSafeDuration ? window.getSafeDuration(serviceName, fallbackDuration) : fallbackDuration;
         };
 
-        const newDuration = getDuration(selectedService);
+        const newDuration = getDuration(selectedService, booking.duration || 60);
         const endMins = startMins + newDuration;
 
         const getServiceCategory = (serviceName) => {
@@ -553,7 +553,7 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
             todays.forEach(b => {
                 const bTimeStr = (b.startTimeString || ' ').split(' ')[1] || '00:00';
                 const bStart = timeStrToMins(bTimeStr);
-                const bDur = getDuration(b.serviceName);
+                const bDur = getDuration(b.serviceName, b.duration || 60);
                 const bEnd = bStart + bDur;
                 const bPax = parseInt(b.pax, 10) || 1;
                 const bCat = getServiceCategory(b.serviceName);
@@ -805,7 +805,7 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                     const isResConflict = todays.some(b => {
                         const bTimeStr = (b.startTimeString || ' ').split(' ')[1] || '00:00';
                         const bStart = timeStrToMins(bTimeStr);
-                        const bEnd = bStart + getDuration(b.serviceName);
+                        const bEnd = bStart + getDuration(b.serviceName, b.duration || 60);
                         const isTimeConflict = (startMins < bEnd && endMins > bStart);
                         
                         const bResStr = b.phase1_res_idx || b.allocated_resource || b.current_resource_id || '';
