@@ -3691,11 +3691,36 @@ const App = () => {
                             nhanVien: bookingObj.requestedStaff || bookingObj.staffId || bookingObj.serviceStaff
                         };
                         if (payload.newPhase1 !== undefined && payload.newPhase1 !== null) {
-                            data.phase1_duration = payload.newPhase1;
-                            const match = payload.newService.match(/(190|180|170|160|150|140|130|120|110|100|90|80|75|70|65|60|55|50|45|40|35|30)/);
-                            if (match) {
-                                const newTotal = parseInt(match[0], 10);
-                                data.phase2_duration = newTotal - payload.newPhase1;
+                            let validP1 = payload.newPhase1;
+                            let newTotal = 0;
+                            
+                            const svcDef = window.SERVICES_DATA ? window.SERVICES_DATA[payload.newService] : null;
+                            if (svcDef) {
+                                newTotal = svcDef.duration;
+                                if (svcDef.category === 'COMBO') {
+                                    const isBF = bookingObj.flow === 'BF';
+                                    const min1 = isBF ? svcDef.minBody : svcDef.minFoot;
+                                    const max1 = isBF ? svcDef.maxBody : svcDef.maxFoot;
+                                    const min2 = isBF ? svcDef.minFoot : svcDef.minBody;
+                                    const max2 = isBF ? svcDef.maxFoot : svcDef.maxBody;
+                                    
+                                    if (max1 != null && validP1 > max1) validP1 = max1;
+                                    if (min1 != null && validP1 < min1) validP1 = min1;
+                                    
+                                    const p2 = newTotal - validP1;
+                                    if (min2 != null && p2 < min2) validP1 = newTotal - min2;
+                                    if (max2 != null && p2 > max2) validP1 = newTotal - max2;
+                                } else {
+                                    validP1 = newTotal;
+                                }
+                            } else {
+                                const match = payload.newService.match(/(190|180|170|160|150|140|130|120|110|100|90|80|75|70|65|60|55|50|45|40|35|30)/);
+                                if (match) newTotal = parseInt(match[0], 10);
+                            }
+
+                            data.phase1_duration = validP1;
+                            if (newTotal > 0) {
+                                data.phase2_duration = newTotal - validP1;
                             }
                         }
                         

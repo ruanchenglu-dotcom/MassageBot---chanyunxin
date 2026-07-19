@@ -337,6 +337,53 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
         }
     }, [isOpen, booking?.rowId]);
 
+    // [NÂNG CẤP COMBO]: Tự động điều chỉnh Phase 1 và Phase 2 khi đổi dịch vụ
+    useEffect(() => {
+        if (!isOpen || !window.SERVICES_DATA) return;
+        const svcDef = window.SERVICES_DATA[selectedService];
+        if (!svcDef) return;
+
+        const isNewCombo = svcDef.category === 'COMBO';
+        const newTotalDur = svcDef.duration;
+
+        if (isNewCombo) {
+            let currentP1 = phase1;
+            let currentP2 = newTotalDur - currentP1;
+            let isValid = true;
+            
+            const min1 = isBodyFirstLocal ? svcDef.minBody : svcDef.minFoot;
+            const max1 = isBodyFirstLocal ? svcDef.maxBody : svcDef.maxFoot;
+            const min2 = isBodyFirstLocal ? svcDef.minFoot : svcDef.minBody;
+            const max2 = isBodyFirstLocal ? svcDef.maxFoot : svcDef.maxBody;
+
+            if (min1 != null && currentP1 < min1) isValid = false;
+            if (max1 != null && currentP1 > max1) isValid = false;
+            if (min2 != null && currentP2 < min2) isValid = false;
+            if (max2 != null && currentP2 > max2) isValid = false;
+
+            if (!isValid) {
+                // Thử fallback về default split của hệ thống
+                let defaultP1 = window.getComboSplit ? window.getComboSplit(newTotalDur).phase1 : Math.floor(newTotalDur / 2);
+                
+                // Kẹp cứng theo giới hạn
+                if (max1 != null && defaultP1 > max1) defaultP1 = max1;
+                if (min1 != null && defaultP1 < min1) defaultP1 = min1;
+                
+                const defaultP2 = newTotalDur - defaultP1;
+                if (min2 != null && defaultP2 < min2) defaultP1 = newTotalDur - min2;
+                if (max2 != null && defaultP2 > max2) defaultP1 = newTotalDur - max2;
+                
+                setPhase1(defaultP1);
+            } else if (currentP1 > newTotalDur) {
+                setPhase1(newTotalDur);
+            }
+        } else {
+            // Không phải combo, phase 1 chiếm toàn bộ
+            setPhase1(newTotalDur);
+        }
+    }, [selectedService, isBodyFirstLocal, isOpen]);
+
+
     useEffect(() => {
         if (liveData && liveData.isRunning && !liveData.isPaused && liveData.startTime) {
             const timer = setInterval(() => {
