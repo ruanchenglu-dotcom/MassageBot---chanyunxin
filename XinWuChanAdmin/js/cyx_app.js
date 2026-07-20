@@ -1999,10 +1999,7 @@ const App = () => {
         }
 
         const currentFlow = overrideFlow || targetBooking.flow || 'FB';
-        const p1Type = currentFlow === 'BF' ? 'bed' : 'chair';
-        const p2Type = currentFlow === 'BF' ? 'chair' : 'bed';
-        const resourceTypeForSheet = 'COMBO';
-
+        
         let tryStart = 720;
         if (effectiveStartTimeStr) {
             tryStart = safeTimeToMins(effectiveStartTimeStr);
@@ -2023,26 +2020,69 @@ const App = () => {
         const isForcedSingle = targetBooking.isForcedSingle === true || currentFlow === 'FOOTSINGLE' || currentFlow === 'BODYSINGLE';
         const isLongSingle = isForcedSingle && parseInt(targetBooking.duration || 100) > 70;
 
-        let s1 = customP1Res && customP1Res !== 'auto' ? customP1Res.toUpperCase() : null;
-        if (!s1) {
-            s1 = MatrixHelper.findBestSlot(p1Type, tryStart, tryStart + newPhase1Duration, timelineData, mockActiveEndTimes, null, rowId, isLongSingle);
-            if (!s1) {
-                Swal.fire('系統提示', '⚠️ 更改失敗：該時段已無空床位/座位。', 'warning');
-                return;
-            }
-        }
+        let finalFlow = currentFlow;
+        let finalP1Dur = newPhase1Duration;
+        let finalP2Dur = newPhase2Duration;
 
-        const p2Start = tryStart + newPhase1Duration + 5;
-        let s2 = customP2Res && customP2Res !== 'auto' ? customP2Res.toUpperCase() : null;
-        if (!s2 && currentFlow.match(/FB|BF/)) {
-            s2 = MatrixHelper.findBestSlot(p2Type, p2Start, p2Start + newPhase2Duration, timelineData, mockActiveEndTimes, null, rowId);
-            if (!s2) {
-                Swal.fire('系統提示', '⚠️ 更改失敗：該時段已無空床位/座位可供套餐使用。', 'warning');
+        const tryFindSlots = (testFlow, p1Dur, p2Dur) => {
+            const testP1Type = testFlow === 'BF' ? 'bed' : 'chair';
+            const testP2Type = testFlow === 'BF' ? 'chair' : 'bed';
+            const testP2Start = tryStart + p1Dur + 5;
+            
+            let testS1 = customP1Res && customP1Res !== 'auto' ? customP1Res.toUpperCase() : null;
+            if (!testS1) {
+                testS1 = MatrixHelper.findBestSlot(testP1Type, tryStart, tryStart + p1Dur, timelineData, mockActiveEndTimes, null, rowId, isLongSingle);
+            }
+            
+            let testS2 = customP2Res && customP2Res !== 'auto' ? customP2Res.toUpperCase() : null;
+            if (!testS2 && testFlow.match(/FB|BF/)) {
+                testS2 = MatrixHelper.findBestSlot(testP2Type, testP2Start, testP2Start + p2Dur, timelineData, mockActiveEndTimes, null, rowId);
+            } else if (!testS2) {
+                testS2 = `${testP2Type}-1`;
+            }
+            
+            return { s1: testS1, s2: testS2 };
+        };
+
+        let slots = tryFindSlots(finalFlow, finalP1Dur, finalP2Dur);
+
+        if ((!slots.s1 || !slots.s2) && finalFlow.match(/FB|BF/)) {
+            const altFlow = finalFlow === 'BF' ? 'FB' : 'BF';
+            const altSplit = getSmartSplit(targetBooking, parseInt(targetBooking.duration || 100), true, altFlow);
+            const altSlots = tryFindSlots(altFlow, altSplit.phase1, altSplit.phase2);
+            
+            if (altSlots.s1 && altSlots.s2) {
+                finalFlow = altFlow;
+                finalP1Dur = altSplit.phase1;
+                finalP2Dur = altSplit.phase2;
+                slots = altSlots;
+                
+                Swal.fire({
+                    title: '💡 系統智能排班',
+                    text: `由於原順序座位不足，已自動為您切換為「${altFlow === 'BF' ? '先身後足 (BF)' : '先足後身 (FB)'}」。`,
+                    icon: 'info',
+                    timer: 4000,
+                    showConfirmButton: false
+                });
+            } else {
+                if (!slots.s1) {
+                    Swal.fire('系統提示', '⚠️ 更改失敗：該時段已無空床位/座位。', 'warning');
+                } else {
+                    Swal.fire('系統提示', '⚠️ 更改失敗：該時段已無空床位/座位可供套餐使用。', 'warning');
+                }
                 return;
             }
-        } else if (!s2) {
-            s2 = `${p2Type}-1`;
+        } else if (!slots.s1 || !slots.s2) {
+            if (!slots.s1) {
+                Swal.fire('系統提示', '⚠️ 更改失敗：該時段已無空床位/座位。', 'warning');
+            } else {
+                Swal.fire('系統提示', '⚠️ 更改失敗：該時段已無空床位/座位可供套餐使用。', 'warning');
+            }
+            return;
         }
+        
+        let s1 = slots.s1;
+        let s2 = slots.s2;
 
         const currentShop = (targetBooking.location === '對面館' || (targetBooking.current_resource_id && targetBooking.current_resource_id.includes('-2-')) || (targetBooking.phase1_res_idx && targetBooking.phase1_res_idx.includes('-2-'))) ? 2 : 1;
         const isS1CrossAuto = (!customP1Res || customP1Res === 'auto') && s1 && ((currentShop === 1 && s1.includes('-2-')) || (currentShop === 2 && s1.includes('-1-')));
@@ -2075,10 +2115,10 @@ const App = () => {
 
         const payload = {
             rowId,
-            flow: currentFlow,
-            flow_code: currentFlow,
-            phase1_duration: newPhase1Duration,
-            phase2_duration: newPhase2Duration,
+            flow: finalFlow,
+            flow_code: finalFlow,
+            phase1_duration: finalP1Dur,
+            phase2_duration: finalP2Dur,
             phase1_res_idx: s1.toUpperCase(),
             phase2_res_idx: s2.toUpperCase(),
             phase1Resource: s1.toUpperCase(),
