@@ -3766,6 +3766,9 @@ const App = () => {
                             if (newTotal > 0) {
                                 data.phase2_duration = newTotal - validP1;
                             }
+                            if (payload.newFlow) {
+                                data.flow = payload.newFlow;
+                            }
                         }
                         
                         const isNewCombo = payload.newService.includes('套餐') || payload.newService.includes('招牌') || payload.newService.toUpperCase().includes('COMBO') || (window.SERVICES_DATA && window.SERVICES_DATA[payload.newService] && window.SERVICES_DATA[payload.newService].category === 'COMBO');

@@ -1434,7 +1434,8 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                                                 newService: selectedService, 
                                                 updateGroup: isGroupMode, 
                                                 groupMemberIds: isGroupMode ? groupMembersToUpdate.map(b => b.rowId) : null,
-                                                newPhase1: phase1
+                                                newPhase1: phase1,
+                                                newFlow: localFlow
                                             })} className="absolute right-8 top-1.5 bottom-1.5 bg-green-500 text-white text-xs font-bold px-3 rounded hover:bg-green-600">
                                                 💾 保存
                                             </button>

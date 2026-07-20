@@ -1469,44 +1469,62 @@ async function updateInlineBooking(rowId, updatedData) {
                     } else if (isComboUpgrade && bestPhase1 && oldCategory !== 'COMBO') {
                         // [NÂNG CẤP COMBO]: Đã có vị trí, chỉ tìm vị trí đối nghịch cho Phase 2
                         bestPhase2 = "";
-                        let isP1Chair = bestPhase1.toUpperCase().includes('CHAIR') || bestPhase1.includes('足');
+                        let isP1Chair = bestPhase1.toUpperCase().includes('CHAIR') || bestPhase1.includes('足') || bestPhase1.includes('腳');
                         let isP1Bed = bestPhase1.toUpperCase().includes('BED') || bestPhase1.includes('床');
                         
-                        if (isP1Chair) {
-                            newFlow = 'FB';
+                        if (updatedData.flow) {
+                            newFlow = updatedData.flow;
                             row[25] = newFlow;
-                        } else if (isP1Bed) {
-                            newFlow = 'BF';
-                            row[25] = newFlow;
-                            // Hoán đổi thời lượng vì Flow đổi
-                            const temp = row[28]; row[28] = row[30]; row[30] = temp;
-                            phase1_dur = row[28]; phase2_dur = row[30];
+                        } else {
+                            if (isP1Chair) {
+                                newFlow = 'FB';
+                                row[25] = newFlow;
+                            } else if (isP1Bed) {
+                                newFlow = 'BF';
+                                row[25] = newFlow;
+                                // Hoán đổi thời lượng vì Flow đổi
+                                const temp = row[28]; row[28] = row[30]; row[30] = temp;
+                                phase1_dur = row[28]; phase2_dur = row[30];
+                            }
+                        }
+
+                        // Adjust phases if flow doesn't match the old seat type
+                        if (newFlow === 'FB' && isP1Bed) {
+                            bestPhase2 = bestPhase1;
+                            bestPhase1 = ""; // Need a Chair for Phase 1
+                        } else if (newFlow === 'BF' && isP1Chair) {
+                            bestPhase2 = bestPhase1;
+                            bestPhase1 = ""; // Need a Bed for Phase 1
                         }
 
                         const opDate = updatedData.ngayDen !== undefined ? formattedDate : (bookingData.opDate || bookingData.startTimeString);
                         const opTime = updatedData.gioDen !== undefined ? timeVal : (bookingData.startTimeString || bookingData.startTime);
                         
-                        // Tìm vị trí Phase 2
-                        let targetResType = newFlow === 'FB' ? 'BED' : 'CHAIR';
+                        let isFindingP1 = !bestPhase1;
+                        let targetResType = isFindingP1 ? (newFlow === 'BF' ? 'BED' : 'CHAIR') : (newFlow === 'FB' ? 'BED' : 'CHAIR');
+                        
                         let targetLocation = updatedData.location !== undefined ? updatedData.location : (bookingData ? (bookingData.location || '本館') : '本館');
                         let locPrefix = targetLocation === '對面館' ? '2' : '1';
                         const config = getConfig();
                         let maxCount = targetResType === 'BED' ? (config.SCALE.MAX_BEDS || 12) : (config.SCALE.MAX_CHAIRS || 12);
                         
-                        let foundP2 = false;
+                        let foundMissing = false;
                         for (let i = 1; i <= maxCount; i++) {
                             let testRes = `${targetResType}-${locPrefix}-${i}`;
-                            // 即使群組更新 (ignoreOverlap=true) 尋找新床位也必須檢查衝突！
-                            // 傳入 null 作為 phase1Res 避免受到原先座位的衝突干擾
-                            const conflict = _checkOverlapConflict(rowId, opDate, opTime, duration, null, testRes, phase1_dur, phase2_dur, newFlow);
+                            let testP1 = isFindingP1 ? testRes : null;
+                            let testP2 = isFindingP1 ? null : testRes;
+                            
+                            // Check conflict for the missing phase (passing null for the old seat which is already held)
+                            const conflict = _checkOverlapConflict(rowId, opDate, opTime, duration, testP1, testP2, phase1_dur, phase2_dur, newFlow);
                             if (!conflict) {
-                                bestPhase2 = testRes;
-                                foundP2 = true;
+                                if (isFindingP1) bestPhase1 = testRes;
+                                else bestPhase2 = testRes;
+                                foundMissing = true;
                                 break;
                             }
                         }
 
-                        if (!foundP2 && !updatedData.ignoreOverlap) {
+                        if (!foundMissing && !updatedData.ignoreOverlap) {
                             throw new Error("⚠️ 更改失敗：該時段已無空床位/座位可供套餐使用。");
                         }
                     } else if (bookingData && typeof ResourceCore !== 'undefined' && ResourceCore.checkRequestAvailability) {
