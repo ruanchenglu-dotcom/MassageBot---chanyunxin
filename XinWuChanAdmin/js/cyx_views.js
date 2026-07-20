@@ -521,7 +521,10 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
         }
     };
 
-    const performServiceCheck = (checkIsGroup = isGroupMode, overridePhase1 = null) => {
+    const performServiceCheck = (checkIsGroup = isGroupMode, overridePhase1 = null, testFlow = null) => {
+        const currentTestingFlow = testFlow !== null ? testFlow : localFlow;
+        const isBodyFirstLocal = currentTestingFlow === 'BF';
+        
         const getDuration = (serviceName, fallbackDuration = 60) => {
             if (!serviceName) return fallbackDuration;
             const match = serviceName.match(/(190|180|170|160|150|140|130|120|110|100|90|80|75|70|65|60|55|50|45|40|35|30)/);
@@ -695,11 +698,28 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
             const isNewBedHigher = (willBeOnBed && !wasOnBed);
 
             if (totalLoadAtT > totalStaffCapacity && isNewLoadHigher && !isAlreadyAssignedToCurrent) {
+                if (testFlow !== null) return false;
                 setScanServiceStatus('FAILED');
                 setScanServiceMessage(`❌ 技師不足`);
-                return;
+                return false;
             }
             if (currentChairLoad > getMaxChairs() && isNewChairHigher) {
+                if (isComboEdit) {
+                    if (testFlow === null) {
+                        const altFlow = currentTestingFlow === 'BF' ? 'FB' : 'BF';
+                        if (performServiceCheck(checkIsGroup, overridePhase1, altFlow) === true) {
+                            setLocalFlow(altFlow);
+                            Swal.fire({
+                                title: '系統智能排班',
+                                text: `目前時段足底區客滿，系統已自動為您切換為「${altFlow === 'BF' ? '先身後足 (BF)' : '先足後身 (FB)'}」以符合座位安排。`,
+                                icon: 'info',
+                                confirmButtonText: '確定'
+                            });
+                            return true;
+                        }
+                    }
+                }
+                
                 if (isComboEdit && !isBodyFirstLocal) {
                     const defaultP1 = window.getComboSplit ? window.getComboSplit(newDuration).phase1 : Math.floor(newDuration / 2);
                     let currentTest = overridePhase1 !== null ? overridePhase1 : defaultP1;
@@ -707,17 +727,19 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                     // Auto-stretch: Ưu tiên dùng lại oldP1Dur nếu đang hạ gói
                     if (newDuration < oldDur && overridePhase1 === null && oldP1Dur < defaultP1 && oldP1Dur >= 30) {
                         setPhase1(oldP1Dur);
-                        return performServiceCheck(checkIsGroup, oldP1Dur);
+                        return performServiceCheck(checkIsGroup, oldP1Dur, testFlow);
                     }
                     
                     let nextTryP1 = currentTest - 5;
                     if (nextTryP1 >= 30 && nextTryP1 >= defaultP1 - 40) {
                         setPhase1(nextTryP1);
-                        return performServiceCheck(checkIsGroup, nextTryP1);
+                        return performServiceCheck(checkIsGroup, nextTryP1, testFlow);
                     }
 
                     if (newDuration > oldDur) {
                         const extraTime = newDuration - oldDur;
+                        if (testFlow !== null) return false;
+                        
                         setScanServiceStatus('FAILED');
                         setScanServiceMessage("❌ 足底區客滿");
                         
@@ -731,18 +753,35 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                         }).then((res) => {
                             if (res.isConfirmed) {
                                 setPhase1(oldP1Dur);
-                                performServiceCheck(checkIsGroup, oldP1Dur);
+                                performServiceCheck(checkIsGroup, oldP1Dur, testFlow);
                             }
                         });
-                        return;
+                        return false;
                     }
                 }
                 
+                if (testFlow !== null) return false;
                 setScanServiceStatus('FAILED');
                 setScanServiceMessage("❌ 足底區客滿");
-                return;
+                return false;
             }
             if (currentBedLoad > getMaxBeds() && isNewBedHigher) {
+                if (isComboEdit) {
+                    if (testFlow === null) {
+                        const altFlow = currentTestingFlow === 'BF' ? 'FB' : 'BF';
+                        if (performServiceCheck(checkIsGroup, overridePhase1, altFlow) === true) {
+                            setLocalFlow(altFlow);
+                            Swal.fire({
+                                title: '系統智能排班',
+                                text: `目前時段床區客滿，系統已自動為您切換為「${altFlow === 'BF' ? '先身後足 (BF)' : '先足後身 (FB)'}」以符合床位安排。`,
+                                icon: 'info',
+                                confirmButtonText: '確定'
+                            });
+                            return true;
+                        }
+                    }
+                }
+                
                 if (isComboEdit && !isBodyFirstLocal) {
                     const defaultP1 = window.getComboSplit ? window.getComboSplit(newDuration).phase1 : Math.floor(newDuration / 2);
                     let currentTest = overridePhase1 !== null ? overridePhase1 : defaultP1;
@@ -750,18 +789,20 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                     // Auto-stretch: Ưu tiên dùng lại oldP1Dur nếu đang hạ gói
                     if (newDuration < oldDur && overridePhase1 === null && oldP1Dur > defaultP1 && oldP1Dur <= newDuration - 30) {
                         setPhase1(oldP1Dur);
-                        return performServiceCheck(checkIsGroup, oldP1Dur);
+                        return performServiceCheck(checkIsGroup, oldP1Dur, testFlow);
                     }
                     
                     let nextTryP1 = currentTest + 5;
                     if (nextTryP1 <= newDuration - 30 && nextTryP1 <= defaultP1 + 40) {
                         setPhase1(nextTryP1);
-                        return performServiceCheck(checkIsGroup, nextTryP1);
+                        return performServiceCheck(checkIsGroup, nextTryP1, testFlow);
                     }
                 }
+                
+                if (testFlow !== null) return false;
                 setScanServiceStatus('FAILED');
                 setScanServiceMessage("❌ 床區客滿");
-                return;
+                return false;
             }
         }
 
@@ -803,9 +844,10 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                 const hasAvailable = genderStaff.some(s => isStaffAvailable(s) && !checkStaffBusy(s.id));
                 
                 if (!hasAvailable) {
+                    if (testFlow !== null) return false;
                     setScanServiceStatus('FAILED');
                     setScanServiceMessage(reqGender === 'M' ? `❌ 該時段無可用的男技師` : `❌ 該時段無可用的女技師`);
-                    return;
+                    return false;
                 }
             } else {
                 const cleanReqStaff = (window.normalizeStaffId ? window.normalizeStaffId(reqStaff) : reqStaff.trim()).toUpperCase();
@@ -813,21 +855,24 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                 
                 if (targetStaff) {
                     if (targetStaff.off && !isAlreadyAssignedToCurrent) {
+                        if (testFlow !== null) return false;
                         setScanServiceStatus('FAILED');
                         setScanServiceMessage(`❌ 該技師今日休假`);
-                        return;
+                        return false;
                     }
                     if (!isStaffAvailable(targetStaff) && !isAlreadyAssignedToCurrent) {
+                        if (testFlow !== null) return false;
                         setScanServiceStatus('FAILED');
                         setScanServiceMessage(`❌ 該技師不在班表時間內`);
-                        return;
+                        return false;
                     }
                 }
                 
                 if (checkStaffBusy(reqStaff)) {
+                    if (testFlow !== null) return false;
                     setScanServiceStatus('FAILED');
                     setScanServiceMessage(`❌ 該技師時段忙碌`);
-                    return;
+                    return false;
                 }
             }
         }
@@ -842,15 +887,17 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                 if (editServiceCategory === 'COMBO') {
                     // Check phase 1
                     if (booking.phase1_res_idx && checkOverlap(booking.phase1_res_idx, startMins, editPhase1End, booking.rowId)) {
+                        if (testFlow !== null) return false;
                         setScanServiceStatus('FAILED');
                         setScanServiceMessage(`❌ 原座位時段衝突`);
-                        return;
+                        return false;
                     }
                     // Check phase 2
                     if (booking.phase2_res_idx && checkOverlap(booking.phase2_res_idx, switchMins + 5, endMins, booking.rowId)) {
+                        if (testFlow !== null) return false;
                         setScanServiceStatus('FAILED');
                         setScanServiceMessage(`❌ 原座位時段衝突`);
-                        return;
+                        return false;
                     }
                 } else {
                     const isResConflict = todays.some(b => {
@@ -867,16 +914,20 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                     });
 
                     if (isResConflict) {
+                        if (testFlow !== null) return false;
                         setScanServiceStatus('FAILED');
                         setScanServiceMessage(`❌ 原座位時段衝突`);
-                        return;
+                        return false;
                     }
                 }
             }
         }
 
-        setScanServiceStatus('OK');
-        setScanServiceMessage('✅ 檢查通過，可儲存');
+        if (testFlow === null) {
+            setScanServiceStatus('OK');
+            setScanServiceMessage('✅ 檢查通過，可儲存');
+        }
+        return true;
     };
 
     const { availableP2Resources, p2ResourcesData } = useMemo(() => {
