@@ -3694,7 +3694,11 @@ const App = () => {
                             let validP1 = payload.newPhase1;
                             let newTotal = 0;
                             
-                            const svcDef = window.SERVICES_DATA ? window.SERVICES_DATA[payload.newService] : null;
+                            let svcDef = window.SERVICES_DATA ? window.SERVICES_DATA[payload.newService] : null;
+                            if (window.SERVICES_DATA && !svcDef) {
+                                const code = Object.keys(window.SERVICES_DATA).find(k => window.SERVICES_DATA[k].name === payload.newService);
+                                if (code) svcDef = window.SERVICES_DATA[code];
+                            }
                             if (svcDef) {
                                 newTotal = svcDef.duration;
                                 if (svcDef.category === 'COMBO') {

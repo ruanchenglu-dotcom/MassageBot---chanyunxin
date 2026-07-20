@@ -1,18 +1,12 @@
 const fs = require('fs');
 
-// Đọc dữ liệu từ file cyx_app.js để test
-const frontendCode = fs.readFileSync('XinWuChanAdmin/js/cyx_app.js', 'utf8');
-
-// Trích xuất hàm getUpdatedData (chúng ta sẽ mô phỏng logic UPDATE_SERVICE)
-// Trong cyx_app.js, getUpdatedData được khởi tạo bên trong case 'UPDATE_SERVICE'
-// Vì khó trích xuất trực tiếp, chúng ta sẽ mô phỏng lại đoạn code xử lý phase1_duration
-
 const testUpdateServiceLogic = () => {
-    // 1. Setup mock data
+    // 1. Setup mock data exactly like the real cyx_data.js
     const window = {
         SERVICES_DATA: {
-            "腳底按摩 (90分)": { duration: 90, category: 'FOOT' },
-            "套餐 (100分)": { 
+            "F3": { name: '腳底按摩 (90分)', duration: 90, category: 'FOOT' },
+            "A3": { 
+                name: '套餐 (100分)',
                 duration: 100, 
                 category: 'COMBO',
                 minFoot: 40, maxFoot: 60,
@@ -30,17 +24,22 @@ const testUpdateServiceLogic = () => {
 
     const payload = {
         newService: "套餐 (100分)",
-        newPhase1: 90 // Trạng thái cũ là 90, đổi sang combo 100, phase1=90 là bất hợp lệ vì maxFoot=60
+        newPhase1: 120 // Trạng thái cũ là 120, đổi sang combo 100, phase1=120 là bất hợp lệ vì maxFoot=60
     };
 
     let data = {};
 
-    // 2. Logic cần test (Được trích xuất từ cyx_app.js)
+    // 2. Logic mới được trích xuất từ cyx_app.js
     if (payload.newPhase1 !== undefined && payload.newPhase1 !== null) {
         let validP1 = payload.newPhase1;
         let newTotal = 0;
         
-        const svcDef = window.SERVICES_DATA ? window.SERVICES_DATA[payload.newService] : null;
+        let svcDef = window.SERVICES_DATA ? window.SERVICES_DATA[payload.newService] : null;
+        if (window.SERVICES_DATA && !svcDef) {
+            const code = Object.keys(window.SERVICES_DATA).find(k => window.SERVICES_DATA[k].name === payload.newService);
+            if (code) svcDef = window.SERVICES_DATA[code];
+        }
+
         if (svcDef) {
             newTotal = svcDef.duration;
             if (svcDef.category === 'COMBO') {
@@ -68,17 +67,17 @@ const testUpdateServiceLogic = () => {
     }
 
     // 3. Kiểm tra kết quả
-    console.log("=== KẾT QUẢ TEST LOGIC UPDATE_SERVICE ===");
-    console.log("Đầu vào: Chuyển sang Combo 100 phút, giữ Phase 1 cũ = 90 phút");
+    console.log("=== KẾT QUẢ TEST LOGIC UPDATE_SERVICE MỚI ===");
+    console.log("Đầu vào: Chuyển sang Combo 100 phút, giữ Phase 1 cũ = 120 phút");
     console.log("Kết quả mong đợi: Phase 1 bị giới hạn xuống 60 phút, Phase 2 = 40 phút");
     console.log("Kết quả thực tế: Phase 1 =", data.phase1_duration, ", Phase 2 =", data.phase2_duration);
     
     if (data.phase1_duration === 60 && data.phase2_duration === 40) {
-        console.log("✅ TEST PASSED: Logic giới hạn thời gian (Clamping) hoạt động chính xác!");
-        return true;
+        console.log("✅ TEST PASSED: Logic tra cứu name => code và giới hạn thời gian (Clamping) hoạt động chính xác!");
+        process.exit(0);
     } else {
         console.log("❌ TEST FAILED!");
-        return false;
+        process.exit(1);
     }
 };
 

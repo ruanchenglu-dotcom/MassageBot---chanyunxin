@@ -1,8 +1,10 @@
 const { test, expect } = require('@playwright/test');
 
+test.use({ baseURL: 'http://localhost:5001' });
+
 test('Test Phase 1 / Phase 2 adjustment when switching to a combo service', async ({ page }) => {
-    // Intercept API call to provide a mock booking
-    await page.route('/api/info', async (route) => {
+    // 1. Mock API call to provide a mock booking data
+    await page.route('**/api/info*', async (route) => {
         const json = {
             bookings: [
                 {
@@ -20,7 +22,8 @@ test('Test Phase 1 / Phase 2 adjustment when switching to a combo service', asyn
                     resourceId: "CHAIR-1-1",
                     current_resource_id: "CHAIR-1-1",
                     location: "CHAIR-1-1",
-                    staffId: "隨機"
+                    staffId: "隨機",
+                    flow: "FB"
                 }
             ],
             timeline: [],
@@ -31,45 +34,45 @@ test('Test Phase 1 / Phase 2 adjustment when switching to a combo service', asyn
         await route.fulfill({ json });
     });
 
-    page.on('console', msg => console.log('PAGE LOG:', msg.text()));
-    page.on('pageerror', err => console.log('PAGE ERROR:', err.message));
-
-    // Also mock /api/bookings and /api/resource-status if they exist
+    // Mock the save route so it doesn't fail
+    await page.route('/api/save*', async (route) => route.fulfill({ json: { success: true } }));
     await page.route('/api/bookings*', async (route) => route.fulfill({ json: { bookings: [] } }));
-    await page.route('/api/resource-status', async (route) => route.fulfill({ json: {} }));
+    await page.route('/api/resource-status*', async (route) => route.fulfill({ json: {} }));
+    await page.route('/api/booking/get-staff*', async (route) => route.fulfill({ json: { staff: [] } }));
 
-    await page.goto('/XinWuChanAdmin/index.html');
+    page.on('console', msg => console.log('PAGE LOG:', msg.text()));
+
+    // 2. Go to Admin App
+    await page.goto('/admin2/index.html');
     
-    // The admin page might take a moment to load and render bookings
-    await page.waitForTimeout(2000);
-    
-    // Click on the booking to open the modal
+    // 3. Wait for app to render the mock booking
     const bookingEl = await page.getByText('TestUserPhaseBug').first();
+    await bookingEl.waitFor({ state: 'visible', timeout: 10000 });
+    
+    // 4. Click the booking to open the modal
     await bookingEl.click({ force: true });
     
-    // Wait for modal to appear by looking for '服務項目' (Service Item)
-    await page.waitForSelector('text=服務項目');
+    // 5. Wait for modal to open by waiting for "服務項目"
+    await page.waitForSelector('text=服務項目', { timeout: 10000 });
     
-    // Get all input[type="number"]
-    // Phase 1 is the first one
+    // 6. Wait for Phase 1 input to be populated
+    // Phase 1 is the first input[type="number"]
     const phase1Input = page.locator('input[type="number"]').first();
     await expect(phase1Input).toHaveValue('90');
 
-    // Change service to "套餐 (100分)"
-    // We can locate the select element that currently has the value of the old service
+    // 7. Change service to "套餐 (100分)"
     const serviceSelect = page.locator('select').filter({ hasText: '腳底按摩 (90分)' }).first();
     await serviceSelect.selectOption('套餐 (100分)');
     
-    // Wait a bit for React to update
+    // 8. Give React a moment to apply the useEffect clamping logic
     await page.waitForTimeout(1000);
     
-    // Now verify that Phase 1 input has been clamped
-    // Default split for 100 is 60 phase1 and 40 phase2
+    // 9. Verify Phase 1 input has been clamped to maxFoot = 60
     await expect(phase1Input).toHaveValue('60');
     
-    // Verify Phase 2 input
+    // 10. Verify Phase 2 input has been adjusted to 40 (100 - 60 = 40)
     const phase2Input = page.locator('input[type="number"]').nth(1);
     await expect(phase2Input).toHaveValue('40');
     
-    console.log("TEST PASSED: Phase 1 and Phase 2 durations updated correctly after service switch!");
+    console.log("✅ E2E TEST PASSED: Phase 1 and Phase 2 durations updated correctly after service switch!");
 });

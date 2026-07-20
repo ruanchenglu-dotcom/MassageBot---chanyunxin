@@ -340,7 +340,11 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
     // [NÂNG CẤP COMBO]: Tự động điều chỉnh Phase 1 và Phase 2 khi đổi dịch vụ
     useEffect(() => {
         if (!isOpen || !window.SERVICES_DATA) return;
-        const svcDef = window.SERVICES_DATA[selectedService];
+        let svcDef = window.SERVICES_DATA[selectedService];
+        if (!svcDef) {
+            const code = Object.keys(window.SERVICES_DATA).find(k => window.SERVICES_DATA[k].name === selectedService);
+            if (code) svcDef = window.SERVICES_DATA[code];
+        }
         if (!svcDef) return;
 
         const isNewCombo = svcDef.category === 'COMBO';
