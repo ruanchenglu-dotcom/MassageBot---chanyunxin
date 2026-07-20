@@ -1398,6 +1398,14 @@ async function updateInlineBooking(rowId, updatedData) {
                 let duration = updatedData.duration || svcDef.duration || 60;
                 let phase1_dur = duration;
                 let phase2_dur = "";
+
+                let newPrice = svcDef.price || 0;
+                let isYouTuiFinal = updatedData.isYouTui !== undefined ? updatedData.isYouTui : (row[5] === "Yes");
+                if (isYouTuiFinal) {
+                    if (sCode === 'B1') newPrice += 100;
+                    else newPrice += 200;
+                }
+                row[18] = newPrice;
                 
                 if (svcDef.category === 'COMBO') {
                     let oldFlow = bookingData ? bookingData.flow : null;
@@ -1564,7 +1572,7 @@ async function updateInlineBooking(rowId, updatedData) {
                     row[32] = bestPhase1 ? normalizeResourceId(bestPhase1, guessIsBed(bookingData?.category, bookingData?.flow, 1)) : "";
                     row[33] = bestPhase2 ? normalizeResourceId(bestPhase2, guessIsBed(bookingData?.category, bookingData?.flow, 2)) : "";
                 }
-                row[35] = newResType;
+                row[34] = newResType;
             }
         } else {
             if (updatedData.duration !== undefined) {
@@ -1669,6 +1677,12 @@ async function updateInlineBooking(rowId, updatedData) {
             memBooking.dichVu = row[4] || memBooking.dichVu;
             memBooking.startTimeString = row[0] + " " + row[1];
             memBooking.allocated_resource = memBooking.phase1_res_idx + (memBooking.phase2_res_idx ? "+" + memBooking.phase2_res_idx : "");
+            
+            if (sCode && STATE.SERVICES[sCode]) {
+                memBooking.category = STATE.SERVICES[sCode].category;
+            }
+            if (row[34] !== undefined) memBooking.resource_type = row[34];
+            if (row[18] !== undefined) memBooking.price = row[18];
         }
 
         console.log(`[INLINE UPDATE FULL ROW] Success for Row: ${rowId}`);

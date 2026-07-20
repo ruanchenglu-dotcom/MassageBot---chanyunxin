@@ -1234,6 +1234,14 @@ async function updateInlineBooking(rowId, updatedData) {
                 let duration = updatedData.duration || svcDef.duration || 60;
                 let phase1_dur = duration;
                 let phase2_dur = "";
+
+                let newPrice = svcDef.price || 0;
+                let isYouTuiFinal = updatedData.isYouTui !== undefined ? updatedData.isYouTui : (row[5] === "Yes");
+                if (isYouTuiFinal) {
+                    if (sCode === 'B1') newPrice += 100;
+                    else newPrice += 200;
+                }
+                row[18] = newPrice;
                 
                 if (svcDef.category === 'COMBO') {
                     newFlow = 'FB';
@@ -1368,7 +1376,7 @@ async function updateInlineBooking(rowId, updatedData) {
                     row[32] = bestPhase1 ? String(bestPhase1).toUpperCase() : "";
                     row[33] = bestPhase2 ? String(bestPhase2).toUpperCase() : "";
                 }
-                row[35] = newResType;
+                row[34] = newResType;
             }
         } else {
             if (updatedData.duration !== undefined) {
@@ -1449,6 +1457,26 @@ async function updateInlineBooking(rowId, updatedData) {
             valueInputOption: 'USER_ENTERED',
             requestBody: { values: [[...row]] }
         });
+        
+        let memBooking = STATE.cachedBookings.find(b => b.rowId == rowId);
+        if (memBooking) {
+            memBooking.phase1_res_idx = row[32] || "";
+            memBooking.phase2_res_idx = row[33] || "";
+            memBooking.duration = (parseInt(row[28]) || 0) + (parseInt(row[30]) || 0);
+            memBooking.phase1_duration = row[28];
+            memBooking.phase2_duration = row[30];
+            memBooking.flow = row[25] || memBooking.flow;
+            memBooking.serviceCode = sCode || memBooking.serviceCode;
+            memBooking.dichVu = row[4] || memBooking.dichVu;
+            memBooking.startTimeString = row[0] + " " + row[1];
+            memBooking.allocated_resource = memBooking.phase1_res_idx + (memBooking.phase2_res_idx ? "+" + memBooking.phase2_res_idx : "");
+            
+            if (sCode && STATE.SERVICES[sCode]) {
+                memBooking.category = STATE.SERVICES[sCode].category;
+            }
+            if (row[34] !== undefined) memBooking.resource_type = row[34];
+            if (row[18] !== undefined) memBooking.price = row[18];
+        }
         
         console.log(`[INLINE UPDATE FULL ROW] Success for Row: ${rowId}`);
 
