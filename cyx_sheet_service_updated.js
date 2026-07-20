@@ -1325,7 +1325,7 @@ async function updateInlineBooking(rowId, updatedData) {
                         
                         const relevantBookings = STATE.cachedBookings.filter(b => 
                             normalizeDateStrict(b.opDate || b.startTimeString) === normalizeDateStrict(opDate) && b.rowId != rowId
-                        );
+                        ).map(b => ({ ...b, isManualLocked: true }));
 
                         // Lấy thời lượng thực tế của giao dịch thay vì để mặc định
                         let phase1_dur = updatedData.phase1_duration !== undefined ? updatedData.phase1_duration : bookingData.phase1_duration;
