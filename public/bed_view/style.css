@@ -1,0 +1,35 @@
+/* Portrait mode warning */
+@media screen and (orientation: portrait) {
+    #portrait-warning {
+        display: flex !important;
+    }
+    #root {
+        display: none !important;
+    }
+}
+
+/* Custom Scrollbar for dark mode */
+::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+::-webkit-scrollbar-track {
+    background: #0f172a; 
+}
+::-webkit-scrollbar-thumb {
+    background: #475569; 
+    border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+    background: #64748b; 
+}
+
+/* Blinking animation for timer */
+@keyframes blink {
+    0% { opacity: 1; }
+    50% { opacity: 0.3; }
+    100% { opacity: 1; }
+}
+.animate-blink {
+    animation: blink 1s infinite;
+}
