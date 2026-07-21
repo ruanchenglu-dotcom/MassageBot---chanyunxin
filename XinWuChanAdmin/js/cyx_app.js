@@ -2105,6 +2105,8 @@ const App = () => {
             }
         }
 
+        const resourceTypeForSheet = 'COMBO';
+
         Swal.fire({
             title: '儲存中，請稍候...',
             allowOutsideClick: false,
