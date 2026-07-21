@@ -121,12 +121,41 @@ const BedPanel = ({ bedId, bookings, shop }) => {
         return d.getTime();
     };
 
+    const formatTime = (timestamp) => {
+        const d = new Date(timestamp);
+        return `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`;
+    };
+
+    const getBookingTimeForBed = (b, internalBedId) => {
+        const t = parseTime(b.booking_time || b.start_time_str || b.time);
+        const isP1 = b.phase1_res_idx === internalBedId || b.phase1_resource === internalBedId;
+        const isP2 = b.phase2_res_idx === internalBedId || b.phase2_resource === internalBedId;
+        
+        if (isP2 && !isP1) {
+            const p1Duration = b.phase1_duration || 0;
+            const transition = parseInt(b.transition_time) || 0;
+            return t + ((p1Duration + transition) * 60000);
+        }
+        return t;
+    };
+
+    const getBookingDurationForBed = (b, internalBedId) => {
+        const isP1 = b.phase1_res_idx === internalBedId || b.phase1_resource === internalBedId;
+        const isP2 = b.phase2_res_idx === internalBedId || b.phase2_resource === internalBedId;
+        
+        if (isP1 && isP2) return b.duration || 60; 
+        if (isP1 && b.phase1_duration) return b.phase1_duration;
+        if (isP2 && b.phase2_duration) return b.phase2_duration;
+        
+        return b.duration || 60;
+    };
+
     const isRunning = (status) => ['Running', '服務中', 'Serving', '🟡'].some(k => status?.includes(k));
     const isDone = (status) => ['Done', 'hoàn thành', 'Completed', '✅', '結帳', '已結帳', '完成'].some(k => status?.includes(k));
     
     bedBookings.sort((a, b) => {
-        const tA = parseTime(a.booking_time || a.start_time_str || a.time);
-        const tB = parseTime(b.booking_time || b.start_time_str || b.time);
+        const tA = getBookingTimeForBed(a, internalBedId);
+        const tB = getBookingTimeForBed(b, internalBedId);
         return tA - tB;
     });
 
@@ -138,14 +167,20 @@ const BedPanel = ({ bedId, bookings, shop }) => {
     // 1. Check if any booking is currently RUNNING
     currentBooking = bedBookings.find(b => !isDone(b.status) && isRunning(b.status));
 
-    // 2. If none running, find the earliest NOT DONE booking that hasn't expired completely
+    // 2. If none running, find the one that is happening NOW or SOON
     if (!currentBooking) {
         currentBooking = bedBookings.find(b => {
             if (isDone(b.status)) return false;
-            const t = parseTime(b.booking_time || b.start_time_str || b.time);
-            const durationMs = (b.duration || 60) * 60000;
-            // It's valid if its end time + 60 mins grace period is still in the future
-            return (t + durationMs + 60 * 60000) > nowTime;
+            const startT = getBookingTimeForBed(b, internalBedId);
+            const durationMs = getBookingDurationForBed(b, internalBedId) * 60000;
+            const endT = startT + durationMs;
+            
+            // Must not be expired (real-time!)
+            const notExpired = endT > nowTime;
+            // Must be starting soon or already started
+            const startingSoon = startT <= nowTime + (60 * 60000);
+            
+            return notExpired && startingSoon;
         });
     }
 
@@ -154,9 +189,17 @@ const BedPanel = ({ bedId, bookings, shop }) => {
         nextBooking = bedBookings.find(b => {
             if (isDone(b.status)) return false;
             if (b.rowId === currentBooking.rowId) return false;
-            const t = parseTime(b.booking_time || b.start_time_str || b.time);
-            const currT = parseTime(currentBooking.booking_time || currentBooking.start_time_str || currentBooking.time);
+            const t = getBookingTimeForBed(b, internalBedId);
+            const currT = getBookingTimeForBed(currentBooking, internalBedId);
             return t >= currT;
+        });
+    } else {
+        nextBooking = bedBookings.find(b => {
+            if (isDone(b.status)) return false;
+            const startT = getBookingTimeForBed(b, internalBedId);
+            const durationMs = getBookingDurationForBed(b, internalBedId) * 60000;
+            const endT = startT + durationMs;
+            return endT > nowTime;
         });
     }
 
@@ -279,7 +322,7 @@ const BedPanel = ({ bedId, bookings, shop }) => {
                 <div className="flex-1 flex flex-col justify-center items-center text-center bg-slate-800/30 rounded border border-slate-700/50 p-1 sm:p-2 min-h-0 overflow-hidden">
                     {nextBooking ? (
                         <div className="flex flex-col gap-0.5 w-full text-[10px] sm:text-xs">
-                            <div className="text-white font-black text-xs sm:text-sm">{nextBooking.time || nextBooking.booking_time || nextBooking.start_time_str}</div>
+                            <div className="text-white font-black text-xs sm:text-sm">{formatTime(getBookingTimeForBed(nextBooking, internalBedId))}</div>
                             <div className="text-cyan-400 font-bold truncate">{nextBooking.name || nextBooking.customerName || nextBooking.originalName}</div>
                             <div className="text-amber-400 truncate">師傅: {nextBooking.staff || nextBooking.staffName || nextBooking.serviceStaff}</div>
                             <div className="text-slate-400 truncate scale-90 origin-top">{nextBooking.service || nextBooking.serviceName}</div>
