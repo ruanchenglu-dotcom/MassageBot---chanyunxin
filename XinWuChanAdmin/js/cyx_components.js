@@ -841,7 +841,7 @@ const AvailabilityCheckModal = ({ onClose, onSave, staffList, bookings, initialD
             if (startMins < bEnd && endMins > bStart) {
                 if (b.serviceName.includes('足') || b.type === 'CHAIR') chairOccupied += (b.pax || 1);
                 else bedOccupied += (b.pax || 1);
-                if (b.category === 'COMBO') { bedOccupied += (b.pax || 1); chairOccupied += (b.pax || 1); }
+                if ((b.category === 'COMBO' || (b.serviceCode && typeof b.serviceCode === 'string' && b.serviceCode.toUpperCase().startsWith('A')))) { bedOccupied += (b.pax || 1); chairOccupied += (b.pax || 1); }
             }
         });
 

@@ -1040,7 +1040,7 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
 
     const isRunning = liveData && liveData.isRunning;
     const isPaused = liveData && liveData.isPaused;
-    const isCombo = booking.category === 'COMBO' || (booking.serviceName && booking.serviceName.includes('Combo')) || (booking.serviceName && booking.serviceName.includes('套餐'));
+    const isCombo = (booking.category === 'COMBO' || (booking.serviceCode && typeof booking.serviceCode === 'string' && booking.serviceCode.toUpperCase().startsWith('A'))) || (booking.serviceName && booking.serviceName.includes('Combo')) || (booking.serviceName && booking.serviceName.includes('套餐'));
     const isGroupBooking = (parseInt(booking.pax) || 1) > 1;
     const isSyncPending = booking && booking.isManualLocked;
 
@@ -2633,7 +2633,7 @@ const ResourceCard = ({ id, type, index, data, busyStaffIds, onAction, onSelect,
                 setPercent(Math.min(100, Math.max(0, (actualElapsed / totalMs) * 100)));
 
                 const isComboName = data.booking.serviceName && (data.booking.serviceName.includes('套餐') || data.booking.serviceName.includes('Combo'));
-                const isCombo = data.booking.category === 'COMBO' || isComboName;
+                const isCombo = (data.booking.category === 'COMBO' || (data.booking.serviceCode && typeof data.booking.serviceCode === 'string' && data.booking.serviceCode.toUpperCase().startsWith('A'))) || isComboName;
 
                 if (isCombo) {
                     const sequence = (data.comboMeta && data.comboMeta.sequence) || 'FB';
@@ -2707,7 +2707,7 @@ const ResourceCard = ({ id, type, index, data, busyStaffIds, onAction, onSelect,
 
     const hasAdminNote = isOccupied && data.booking.adminNote && data.booking.adminNote.trim() !== '';
 
-    const isCombo = isOccupied && (data.booking.category === 'COMBO' || (data.booking.serviceName && data.booking.serviceName.includes('套餐')));
+    const isCombo = isOccupied && ((data.booking.category === 'COMBO' || (data.booking.serviceCode && typeof data.booking.serviceCode === 'string' && data.booking.serviceCode.toUpperCase().startsWith('A'))) || (data.booking.serviceName && data.booking.serviceName.includes('套餐')));
     const flexMinutes = isCombo && data.comboMeta && data.comboMeta.flex ? data.comboMeta.flex : 0;
     const formatTimeStr = (iso) => { if (!iso) return '--:--'; const d = new Date(iso); return `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`; }
 

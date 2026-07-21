@@ -107,7 +107,7 @@ window.SmartScheduler = (function() {
     };
 
     const isComboBooking = (b) => {
-        return b.category === 'COMBO' || (b.serviceName && b.serviceName.includes('套餐')) || b.flow === 'FB' || b.flow === 'BF';
+        return (b.category === 'COMBO' || (b.serviceCode && typeof b.serviceCode === 'string' && b.serviceCode.toUpperCase().startsWith('A'))) || (b.serviceName && b.serviceName.includes('套餐')) || b.flow === 'FB' || b.flow === 'BF';
     };
 
     const isSameRes = (id1, id2) => {

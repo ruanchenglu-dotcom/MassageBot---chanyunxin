@@ -733,7 +733,7 @@ app.get('/api/staff-schedule', async (req, res) => {
             if (startMins === -1) return;
             
             const duration = parseInt(b.duration) || 60;
-            const isCombo = b.category === 'COMBO' || (b.serviceName && b.serviceName.includes('套餐'));
+            const isCombo = (b.category === 'COMBO' || (b.serviceCode && typeof b.serviceCode === 'string' && b.serviceCode.toUpperCase().startsWith('A'))) || (b.serviceName && b.serviceName.includes('套餐'));
             
             // Chia giai đoạn
             let p1 = Math.floor(duration / 2);

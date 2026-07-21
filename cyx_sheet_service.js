@@ -1001,7 +1001,7 @@ function _checkOverlapConflict(rowId, dateStr, timeStr, duration, phase1Res, pha
         let bFlow = b.flow || (b.originalData ? b.originalData.flow : null);
         
         let bBlocks = [];
-        const isCombo = bFlow === 'BF' || bFlow === 'FB' || (b.allocated_resource && String(b.allocated_resource).includes('+'));
+        const isCombo = bFlow === 'BF' || bFlow === 'FB' || (b.allocated_resource && String(b.allocated_resource).includes('+')) || b.category === 'COMBO' || (b.serviceName && b.serviceName.includes('套餐')) || (b.serviceCode && typeof b.serviceCode === 'string' && b.serviceCode.toUpperCase().startsWith('A'));
         
         if (isCombo) {
             let res1 = b.phase1_res_idx;
@@ -1087,7 +1087,7 @@ async function updateBookingDetails(body) {
     if (phase2Res !== undefined && phase2Res !== null) phase2Res = normalizeResourceId(phase2Res, isBedP2);
     
     // Chỉ fallback cho các dịch vụ ĐƠN LẺ (Single), KHÔNG được fallback cho dịch vụ COMBO
-    const isCombo = bookingData ? (bookingData.category === 'COMBO' || (bookingData.serviceName && bookingData.serviceName.includes('套餐'))) : false;
+    const isCombo = bookingData ? ((bookingData.category === 'COMBO' || (bookingData.serviceCode && typeof bookingData.serviceCode === 'string' && bookingData.serviceCode.toUpperCase().startsWith('A'))) || (bookingData.serviceName && bookingData.serviceName.includes('套餐'))) : false;
     if (!isCombo && phase1Res === undefined && (body.location !== undefined || body.current_resource_id !== undefined)) {
         phase1Res = body.location !== undefined ? body.location : body.current_resource_id;
     }
@@ -1760,7 +1760,7 @@ async function batchUpdateMultipleBookings(updatesArray) {
             if (body.allocated_resource !== undefined) b.allocated_resource = body.allocated_resource;
 
             // [V1.x NÂNG CẤP] Cập nhật bộ đệm giả lập cho khách lẻ (Single Booking) để check trùng lặp chính xác
-            const isComboLocal = b ? (b.category === 'COMBO' || (b.serviceName && b.serviceName.includes('套餐'))) : false;
+            const isComboLocal = b ? ((b.category === 'COMBO' || (b.serviceCode && typeof b.serviceCode === 'string' && b.serviceCode.toUpperCase().startsWith('A'))) || (b.serviceName && b.serviceName.includes('套餐'))) : false;
             if (!isComboLocal && body.phase1_res_idx === undefined && (body.location !== undefined || body.current_resource_id !== undefined)) {
                 const newRes = body.location !== undefined ? body.location : body.current_resource_id;
                 b.phase1_res_idx = newRes;
@@ -1819,7 +1819,7 @@ async function batchUpdateMultipleBookings(updatesArray) {
             
             // Chỉ fallback cho các dịch vụ ĐƠN LẺ (Single), KHÔNG được fallback cho dịch vụ COMBO
             let bookingData = STATE.cachedBookings.find(b => b.rowId == rowId);
-            const isCombo = bookingData ? (bookingData.category === 'COMBO' || (bookingData.serviceName && bookingData.serviceName.includes('套餐'))) : false;
+            const isCombo = bookingData ? ((bookingData.category === 'COMBO' || (bookingData.serviceCode && typeof bookingData.serviceCode === 'string' && bookingData.serviceCode.toUpperCase().startsWith('A'))) || (bookingData.serviceName && bookingData.serviceName.includes('套餐'))) : false;
             
             let isBedP1 = guessIsBed(body.category || bookingData?.category, flowVal || bookingData?.flow, 1);
             let isBedP2 = guessIsBed(body.category || bookingData?.category, flowVal || bookingData?.flow, 2);

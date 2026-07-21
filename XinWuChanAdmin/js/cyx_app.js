@@ -555,7 +555,7 @@ const App = () => {
         const rowId = String(booking.rowId);
         const newDuration = parseInt(standardDuration, 10);
         const oldDuration = parseInt(booking.duration || 0, 10);
-        const isCombo = booking.category === 'COMBO' || (booking.serviceName && booking.serviceName.includes('套餐'));
+        const isCombo = (booking.category === 'COMBO' || (booking.serviceCode && typeof booking.serviceCode === 'string' && booking.serviceCode.toUpperCase().startsWith('A'))) || (booking.serviceName && booking.serviceName.includes('套餐'));
 
         const applyDurationUpdate = async (finalP1, finalP2) => {
             setSyncLock(true);
@@ -901,7 +901,7 @@ const App = () => {
 
                 let finalDur = override && override.duration ? override.duration : safeDur;
                 const paxNum = parseInt(targetB.pax, 10) || 1;
-                const isComboSvc = targetB.category === 'COMBO' || (targetB.serviceName && targetB.serviceName.includes('套餐'));
+                const isComboSvc = (targetB.category === 'COMBO' || (targetB.serviceCode && typeof targetB.serviceCode === 'string' && targetB.serviceCode.toUpperCase().startsWith('A'))) || (targetB.serviceName && targetB.serviceName.includes('套餐'));
 
                 let isAutoFixed = false;
                 // [V116.5 Logic] Auto-Fix thời lượng sai lệch cho mọi loại hình (Single, Combo, Group)
@@ -1181,7 +1181,7 @@ const App = () => {
                     let durationUsed = b.duration;
                     let isPhase1 = false;
                     const isStrict = b.isForcedSingle === true;
-                    const isComboSvc = b.category === 'COMBO' || (b.serviceName && b.serviceName.includes('套餐'));
+                    const isComboSvc = (b.category === 'COMBO' || (b.serviceCode && typeof b.serviceCode === 'string' && b.serviceCode.toUpperCase().startsWith('A'))) || (b.serviceName && b.serviceName.includes('套餐'));
 
                     if (isComboSvc && !isStrict && !tempState[key].comboMeta) {
                         const seq = b.flow || 'FB';
@@ -1325,7 +1325,7 @@ const App = () => {
                 const comboSubGroup = [];
                 group.forEach(b => {
                     const isForceSingle = b.forceResourceType !== null;
-                    const isCombo = !isForceSingle && (b.category === 'COMBO' || (b.serviceName && b.serviceName.includes('套餐')));
+                    const isCombo = !isForceSingle && ((b.category === 'COMBO' || (b.serviceCode && typeof b.serviceCode === 'string' && b.serviceCode.toUpperCase().startsWith('A'))) || (b.serviceName && b.serviceName.includes('套餐')));
                     
                     if (isCombo) {
                         comboSubGroup.push(b);
@@ -1508,7 +1508,7 @@ const App = () => {
                     const pos = activeGridPositions[rId];
                     if (!pos) return;
 
-                    const isCombo = b.category === 'COMBO' || (b.serviceName && b.serviceName.includes('套餐'));
+                    const isCombo = (b.category === 'COMBO' || (b.serviceCode && typeof b.serviceCode === 'string' && b.serviceCode.toUpperCase().startsWith('A'))) || (b.serviceName && b.serviceName.includes('套餐'));
 
                     if (isCombo && pos.p1 && pos.p2) {
                         const sheetP1 = (b.phase1_res_idx || '').toUpperCase();
@@ -2720,7 +2720,7 @@ const App = () => {
 
         const isStrict = current.booking.isForcedSingle === true;
 
-        const isComboService = !isStrict && ((current.booking.serviceName && current.booking.serviceName.includes('套餐')) || current.booking.category === 'COMBO' || comboSequence);
+        const isComboService = !isStrict && ((current.booking.serviceName && current.booking.serviceName.includes('套餐')) || (current.booking.category === 'COMBO' || (current.booking.serviceCode && typeof current.booking.serviceCode === 'string' && current.booking.serviceCode.toUpperCase().startsWith('A'))) || comboSequence);
         let comboMeta = current.comboMeta || null;
         let actualSeq = comboSequence || current.booking.flow || 'FB';
 
@@ -3053,7 +3053,7 @@ const App = () => {
             localOverridesRef.current[rowIdStr].storedLocation = resourceId;
 
             const grpIdx = getGroupMemberIndex(resourceId, current.booking.rowId);
-            const isComboService = (current.booking.serviceName && current.booking.serviceName.includes('套餐')) || current.booking.category === 'COMBO';
+            const isComboService = (current.booking.serviceName && current.booking.serviceName.includes('套餐')) || (current.booking.category === 'COMBO' || (current.booking.serviceCode && typeof current.booking.serviceCode === 'string' && current.booking.serviceCode.toUpperCase().startsWith('A')));
 
             let newComboMeta = current.comboMeta;
             let actualSeq = current.booking.flow || 'FB';
@@ -3157,7 +3157,7 @@ const App = () => {
         const current = resourceState[id]; if (!current) return;
         if (action === 'start') {
             const isStrict = current.booking.isForcedSingle === true;
-            const isCombo = !isStrict && (current.booking.category === 'COMBO' || (current.booking.serviceName && current.booking.serviceName.includes('套餐')));
+            const isCombo = !isStrict && ((current.booking.category === 'COMBO' || (current.booking.serviceCode && typeof current.booking.serviceCode === 'string' && current.booking.serviceCode.toUpperCase().startsWith('A'))) || (current.booking.serviceName && current.booking.serviceName.includes('套餐')));
 
             if (isCombo && !current.isRunning) { setComboStartData({ id, booking: current.booking }); return; }
             executeStart(id, null);
@@ -4053,7 +4053,7 @@ const App = () => {
                             const actualBStart = window.safeTimeToMins ? window.safeTimeToMins(simB.startTimeString) : safeTimeLoc(simB.startTimeString);
                             const totalDuration = parseInt(simB.duration || 60, 10);
                             const currentFlow = simB.flow ? String(simB.flow).toUpperCase() : '';
-                            const isSimCombo = currentFlow === 'FB' || currentFlow === 'BF' || (simB.category === 'COMBO' || (simB.serviceName && simB.serviceName.includes('- ?')));
+                            const isSimCombo = currentFlow === 'FB' || currentFlow === 'BF' || ((simB.category === 'COMBO' || (simB.serviceCode && typeof simB.serviceCode === 'string' && simB.serviceCode.toUpperCase().startsWith('A'))) || (simB.serviceName && simB.serviceName.includes('- ?')));
                             
                             if (isSimCombo) {
                                 let newPhase1Duration = Math.floor(totalDuration / 2);
@@ -4142,7 +4142,7 @@ const App = () => {
                         if (bDateStr !== bDateStrCurrent) return false;
                         
                         let isSrc = false;
-                        if (x.category === 'COMBO' || (x.serviceName && x.serviceName.includes('套餐'))) {
+                        if ((x.category === 'COMBO' || (x.serviceCode && typeof x.serviceCode === 'string' && x.serviceCode.toUpperCase().startsWith('A'))) || (x.serviceName && x.serviceName.includes('套餐'))) {
                             if (normalizeResLocal(x.phase1_res_idx) === srcIdUpper || normalizeResLocal(x.phase2_res_idx) === srcIdUpper) {
                                 isSrc = true;
                             }
@@ -4160,7 +4160,7 @@ const App = () => {
                         if (bDateStr !== bDateStrCurrent) return false;
                         
                         let isTgt = false;
-                        if (x.category === 'COMBO' || (x.serviceName && x.serviceName.includes('套餐'))) {
+                        if ((x.category === 'COMBO' || (x.serviceCode && typeof x.serviceCode === 'string' && x.serviceCode.toUpperCase().startsWith('A'))) || (x.serviceName && x.serviceName.includes('套餐'))) {
                             if (normalizeResLocal(x.phase1_res_idx) === tgtIdUpper || normalizeResLocal(x.phase2_res_idx) === tgtIdUpper) {
                                 isTgt = true;
                             }
@@ -4196,7 +4196,7 @@ const App = () => {
                             
                             srcBookings.forEach(b => {
                                 let p = { rowId: b.rowId, forceSync: true };
-                                if (b.category === 'COMBO' || (b.serviceName && b.serviceName.includes('套餐'))) {
+                                if ((b.category === 'COMBO' || (b.serviceCode && typeof b.serviceCode === 'string' && b.serviceCode.toUpperCase().startsWith('A'))) || (b.serviceName && b.serviceName.includes('套餐'))) {
                                     let newP1 = b.phase1_res_idx;
                                     let newP2 = b.phase2_res_idx;
                                     let p1Changed = false;
@@ -4224,7 +4224,7 @@ const App = () => {
                             
                             tgtBookings.forEach(b => {
                                 let p = { rowId: b.rowId, forceSync: true };
-                                if (b.category === 'COMBO' || (b.serviceName && b.serviceName.includes('套餐'))) {
+                                if ((b.category === 'COMBO' || (b.serviceCode && typeof b.serviceCode === 'string' && b.serviceCode.toUpperCase().startsWith('A'))) || (b.serviceName && b.serviceName.includes('套餐'))) {
                                     let newP1 = b.phase1_res_idx;
                                     let newP2 = b.phase2_res_idx;
                                     let p1Changed = false;
