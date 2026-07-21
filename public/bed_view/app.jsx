@@ -152,6 +152,27 @@ const BedPanel = ({ bedId, bookings, shop }) => {
 
     const isRunning = (status) => ['Running', '服務中', 'Serving', '🟡'].some(k => status?.includes(k));
     const isDone = (status) => ['Done', 'hoàn thành', 'Completed', '✅', '結帳', '已結帳', '完成'].some(k => status?.includes(k));
+
+    const isRunningForThisBed = (b, internalBedId) => {
+        if (!isRunning(b.status)) return false;
+        
+        const isP1 = b.phase1_res_idx === internalBedId || b.phase1_resource === internalBedId;
+        const isP2 = b.phase2_res_idx === internalBedId || b.phase2_resource === internalBedId;
+        
+        if (isP1 && isP2) return true;
+        
+        if (isP1 || isP2) {
+            const p1Start = parseTime(b.booking_time || b.start_time_str || b.time);
+            const p1Duration = b.phase1_duration || 0;
+            const p1End = p1Start + (p1Duration * 60000);
+            
+            const now = currentTime.getTime();
+            if (isP1 && now < p1End) return true;
+            if (isP2 && now >= p1End) return true;
+            return false;
+        }
+        return true;
+    };
     
     bedBookings.sort((a, b) => {
         const tA = getBookingTimeForBed(a, internalBedId);
@@ -164,10 +185,10 @@ const BedPanel = ({ bedId, bookings, shop }) => {
 
     const nowTime = currentTime.getTime();
 
-    // 1. Check if any booking is currently RUNNING
-    currentBooking = bedBookings.find(b => !isDone(b.status) && isRunning(b.status));
+    // 1. First, check if there's any booking RUNNING specifically on THIS bed based on time-slice
+    currentBooking = bedBookings.find(b => !isDone(b.status) && isRunningForThisBed(b, internalBedId));
 
-    // 2. If none running, find the one that is happening NOW or SOON
+    // 2. If none running for this bed, find the one that is happening NOW or SOON (30 mins lookahead)
     if (!currentBooking) {
         currentBooking = bedBookings.find(b => {
             if (isDone(b.status)) return false;
@@ -175,10 +196,8 @@ const BedPanel = ({ bedId, bookings, shop }) => {
             const durationMs = getBookingDurationForBed(b, internalBedId) * 60000;
             const endT = startT + durationMs;
             
-            // Must not be expired (real-time!)
             const notExpired = endT > nowTime;
-            // Must be starting soon or already started
-            const startingSoon = startT <= nowTime + (60 * 60000);
+            const startingSoon = startT <= nowTime + (30 * 60000);
             
             return notExpired && startingSoon;
         });
@@ -219,13 +238,12 @@ const BedPanel = ({ bedId, bookings, shop }) => {
 
     const serviceStr = currentBooking?.service || currentBooking?.serviceName || '';
     const isCombo = serviceStr.toLowerCase().includes('combo') || serviceStr.toLowerCase().includes('thái') || serviceStr.toLowerCase().includes('泰');
-    const running = currentBooking ? isRunning(currentBooking.status) : false;
+    const running = currentBooking ? isRunningForThisBed(currentBooking, internalBedId) : false;
     
     let displayTime = "00:00";
     if (currentBooking && running) {
-        let bTimeStr = currentBooking.time || currentBooking.booking_time || currentBooking.start_time_str;
-        if (bTimeStr) {
-            const start = parseTime(bTimeStr);
+        const start = getBookingTimeForBed(currentBooking, internalBedId);
+        if (start > 0) {
             const diff = Math.max(0, nowTime - start);
             const mins = Math.floor(diff / 60000);
             const secs = Math.floor((diff % 60000) / 1000);
@@ -272,7 +290,15 @@ const BedPanel = ({ bedId, bookings, shop }) => {
                     <div className="w-16 sm:w-24 flex flex-col gap-1 sm:gap-2 shrink-0">
                         {currentBooking && !running && (
                             <button 
-                                onClick={() => updateStatus('🟡服務中', true)}
+                                onClick={() => {
+                                    const isP1 = currentBooking.phase1_res_idx === internalBedId || currentBooking.phase1_resource === internalBedId;
+                                    const isP2 = currentBooking.phase2_res_idx === internalBedId || currentBooking.phase2_resource === internalBedId;
+                                    let syncTime = true;
+                                    if (isP2 && !isP1) {
+                                        syncTime = false; // Never overwrite start time for Phase 2!
+                                    }
+                                    updateStatus('🟡服務中', syncTime);
+                                }}
                                 className="flex-1 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded text-xs sm:text-sm transition-all shadow-md active:scale-95 flex flex-col items-center justify-center"
                             >
                                 <i className="fas fa-play mb-0.5"></i> 開始
