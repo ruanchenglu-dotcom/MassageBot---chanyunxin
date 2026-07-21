@@ -111,31 +111,53 @@ const BedPanel = ({ bedId, bookings, shop }) => {
         const [h, m] = timeStr.split(':').map(Number);
         const d = new Date();
         d.setHours(h, m, 0, 0);
+        
+        // Handle cross-day (00:00 - 05:00 belong to the next day if current physical time is > 05:00)
+        if (h < 5) {
+            if (new Date().getHours() >= 5) {
+                d.setDate(d.getDate() + 1);
+            }
+        }
         return d.getTime();
     };
 
     const isRunning = (status) => ['Running', '服務中', 'Serving', '🟡'].some(k => status?.includes(k));
     const isDone = (status) => ['Done', 'hoàn thành', 'Completed', '✅', '結帳', '已結帳', '完成'].some(k => status?.includes(k));
     
-    bedBookings.sort((a, b) => parseTime(a.time || b.booking_time || b.start_time_str) - parseTime(b.time || a.booking_time || a.start_time_str));
+    bedBookings.sort((a, b) => {
+        const tA = parseTime(a.booking_time || a.start_time_str || a.time);
+        const tB = parseTime(b.booking_time || b.start_time_str || b.time);
+        return tA - tB;
+    });
 
     let currentBooking = null;
     let nextBooking = null;
 
     const nowTime = currentTime.getTime();
 
-    for (let b of bedBookings) {
-        if (isDone(b.status)) continue;
-        
-        let bTimeStr = b.time || b.booking_time || b.start_time_str;
-        
-        if (isRunning(b.status)) {
-            currentBooking = b;
-        } else if (!currentBooking && parseTime(b.endTime || bTimeStr) > nowTime - (30*60000)) {
-            currentBooking = b;
-        } else if (currentBooking && !nextBooking) {
-            nextBooking = b;
-        }
+    // 1. Check if any booking is currently RUNNING
+    currentBooking = bedBookings.find(b => !isDone(b.status) && isRunning(b.status));
+
+    // 2. If none running, find the earliest NOT DONE booking that hasn't expired completely
+    if (!currentBooking) {
+        currentBooking = bedBookings.find(b => {
+            if (isDone(b.status)) return false;
+            const t = parseTime(b.booking_time || b.start_time_str || b.time);
+            const durationMs = (b.duration || 60) * 60000;
+            // It's valid if its end time + 60 mins grace period is still in the future
+            return (t + durationMs + 60 * 60000) > nowTime;
+        });
+    }
+
+    // 3. Find the next booking
+    if (currentBooking) {
+        nextBooking = bedBookings.find(b => {
+            if (isDone(b.status)) return false;
+            if (b.rowId === currentBooking.rowId) return false;
+            const t = parseTime(b.booking_time || b.start_time_str || b.time);
+            const currT = parseTime(currentBooking.booking_time || currentBooking.start_time_str || currentBooking.time);
+            return t >= currT;
+        });
     }
 
     const updateStatus = async (status, setStartTime = false) => {
