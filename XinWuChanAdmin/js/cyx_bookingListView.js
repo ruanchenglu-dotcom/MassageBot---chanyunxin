@@ -390,13 +390,6 @@
                 const groupMembers = processedBookings.filter(b => b.groupKey === currentBookingObj.groupKey);
                 const rowIds = groupMembers.map(m => m.rowId);
                 
-                const loc = editFormData.location || window.SYSTEM_CONFIG?.LOCATION_NAME || '本館';
-                const formatRes = (type, val) => {
-                    if (!val) return '';
-                    const bStr = loc === '對面館' ? '2' : '1';
-                    return `${type}-${bStr}-${val}`;
-                };
-
                 let memberUpdates = [];
                 if (scanSimulations) {
                     memberUpdates = groupMembers.map((m, idx) => {
@@ -406,8 +399,8 @@
                             flow: sim.flow,
                             phase1_duration: sim.phase1_duration,
                             phase2_duration: sim.phase2_duration,
-                            phase1_res_idx: sim.BED ? formatRes('BED', sim.BED) : (sim.CHAIR ? formatRes('CHAIR', sim.CHAIR) : ''),
-                            phase2_res_idx: (sim.BED && sim.CHAIR) ? (sim.flow === 'BF' ? formatRes('CHAIR', sim.CHAIR) : formatRes('BED', sim.BED)) : ''
+                            phase1_res_idx: sim.BED || sim.CHAIR || '',
+                            phase2_res_idx: (sim.BED && sim.CHAIR) ? (sim.flow === 'BF' ? sim.CHAIR : sim.BED) : ''
                         };
                     });
                 }
@@ -430,13 +423,6 @@
                     ignoreOverlap: true
                 };
 
-                const loc = editFormData.location || window.SYSTEM_CONFIG?.LOCATION_NAME || '本館';
-                const formatRes = (type, val) => {
-                    if (!val) return '';
-                    const bStr = loc === '對面館' ? '2' : '1';
-                    return `${type}-${bStr}-${val}`;
-                };
-
                 if (scanSimulations && scanSimulations[0]) {
                     const sim = scanSimulations[0];
                     payload.memberUpdates = [{
@@ -444,8 +430,8 @@
                         flow: sim.flow,
                         phase1_duration: sim.phase1_duration,
                         phase2_duration: sim.phase2_duration,
-                        phase1_res_idx: sim.BED ? formatRes('BED', sim.BED) : (sim.CHAIR ? formatRes('CHAIR', sim.CHAIR) : ''),
-                        phase2_res_idx: (sim.BED && sim.CHAIR) ? (sim.flow === 'BF' ? formatRes('CHAIR', sim.CHAIR) : formatRes('BED', sim.BED)) : ''
+                        phase1_res_idx: sim.BED || sim.CHAIR || '',
+                        phase2_res_idx: (sim.BED && sim.CHAIR) ? (sim.flow === 'BF' ? sim.CHAIR : sim.BED) : ''
                     }];
                 }
 

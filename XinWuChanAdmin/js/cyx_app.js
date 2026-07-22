@@ -1351,9 +1351,7 @@ const App = () => {
                 if (targetId === '本館' || targetId === '對面館') {
                     targetId = b.phase1_res_idx ? b.phase1_res_idx.toUpperCase() : null;
                 }
-                if (targetId && b.location === '對面館' && !targetId.startsWith('opp-')) {
-                    targetId = 'opp-' + targetId;
-                }
+                // (Removed opp- prefix logic for 對面館 as resources natively use -2-)
 
                 if (!targetId) {
                     // Do not auto-assign. Let it remain unassigned.
@@ -1377,10 +1375,7 @@ const App = () => {
                     let pref1 = bookingItem.phase1_res_idx ? bookingItem.phase1_res_idx.toUpperCase() : null;
                     let pref2 = bookingItem.phase2_res_idx ? bookingItem.phase2_res_idx.toUpperCase() : null;
                     
-                    if (bookingItem.location === '對面館') {
-                        if (pref1 && !pref1.startsWith('opp-')) pref1 = 'opp-' + pref1;
-                        if (pref2 && !pref2.startsWith('opp-')) pref2 = 'opp-' + pref2;
-                    }
+                    // (Removed opp- prefix logic for 對面館 as resources natively use -2-)
 
                     const seq = bookingItem.flow || 'FB';
 
