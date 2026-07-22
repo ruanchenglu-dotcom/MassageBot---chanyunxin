@@ -1339,8 +1339,29 @@
                 };
 
                 if (isCombo) {
-                    const p1End = bStart + p1;
-                    const p2Start = p1End; // Combo switch buffer = 0
+                    let p1End = bStart + p1;
+                    let p2Start = p1End; // Combo switch buffer = 0
+
+                    if (b.transition_time) {
+                        // Resolve missing getSafeTime dependency by doing time parsing inline if needed
+                        let ttMins = -1;
+                        if (typeof ResourceCore !== 'undefined' && ResourceCore.getMinsFromTimeStr) {
+                            ttMins = ResourceCore.getMinsFromTimeStr(b.transition_time);
+                        } else {
+                            const match = b.transition_time.match(/(\d{1,2}):(\d{2})/);
+                            if (match) {
+                                ttMins = parseInt(match[1]) * 60 + parseInt(match[2]);
+                                if (ttMins < 360) ttMins += 1440; // past midnight logic
+                            }
+                        }
+
+                        if (ttMins !== -1 && ttMins >= bStart) {
+                            p1End = ttMins;
+                            p2Start = ttMins;
+                            processedB.p1_current = ttMins - bStart;
+                        }
+                    }
+
                     const p2End = p2Start + p2;
 
                     let isBodyFirst = false;

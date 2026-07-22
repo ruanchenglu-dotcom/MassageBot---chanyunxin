@@ -914,13 +914,45 @@ async function ghiVaoSheet(data, proposedUpdates = []) {
     }
 }
 
-async function updateBookingStatus(rowId, newStatus) {
+async function updateBookingStatus(rowId, newStatus, newStartTime = null, isTransition = false) {
     try {
         if (!rowId) throw new Error("RowID required");
-        await sheets.spreadsheets.values.update({
-            spreadsheetId: SHEET_ID, range: `${BOOKING_SHEET_NAME}!J${rowId}`,
-            valueInputOption: 'USER_ENTERED', requestBody: { values: [[newStatus]] }
+        
+        const targetBooking = STATE.cachedBookings.find(b => String(b.rowId) === String(rowId));
+        let rowIdsToUpdate = [rowId];
+        let valuesToUpdate = [];
+        
+        if (targetBooking && targetBooking.originalName) {
+            const baseName = targetBooking.originalName.replace(/\(\d+\/\d+\)/g, '').trim();
+            const sameGroupBookings = STATE.cachedBookings.filter(b => {
+                if (!b.originalName || !b.phone) return false;
+                const bBaseName = b.originalName.replace(/\(\d+\/\d+\)/g, '').trim();
+                return bBaseName === baseName && b.phone === targetBooking.phone && b.opDate === targetBooking.opDate && b.booking_time === targetBooking.booking_time;
+            });
+            if (sameGroupBookings.length > 0) {
+                rowIdsToUpdate = sameGroupBookings.map(b => b.rowId);
+            }
+        }
+        
+        rowIdsToUpdate.forEach(id => {
+            valuesToUpdate.push({ range: `${BOOKING_SHEET_NAME}!J${id}`, values: [[newStatus]] });
+            if (newStartTime) {
+                if (isTransition) {
+                    valuesToUpdate.push({ range: `${BOOKING_SHEET_NAME}!AD${id}`, values: [[newStartTime]] });
+                } else {
+                    valuesToUpdate.push({ range: `${BOOKING_SHEET_NAME}!AB${id}`, values: [[newStartTime]] });
+                }
+            }
         });
+
+        await sheets.spreadsheets.values.batchUpdate({
+            spreadsheetId: SHEET_ID,
+            requestBody: {
+                valueInputOption: 'USER_ENTERED',
+                data: valuesToUpdate
+            }
+        });
+        
         triggerSyncDebounced();
         return true;
     } catch (e) { console.error('Update Status Error:', e); return false; }

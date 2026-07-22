@@ -1152,17 +1152,21 @@ app.post('/api/inline-update-group', async (req, res) => {
 // --- API: UPDATE STATUS ---
 app.post('/api/update-status', async (req, res) => {
     try {
-        const { rowId, status, syncStartTime } = req.body;
+        const { rowId, status, syncStartTime, syncTransitionTime } = req.body;
         let timeToUpdate = null;
+        let isTransition = false;
 
-        if (syncStartTime === true) {
+        if (syncStartTime === true || syncTransitionTime === true) {
             const now = SheetService.getTaipeiNow();
             const hours = now.getHours().toString().padStart(2, '0');
             const minutes = now.getMinutes().toString().padStart(2, '0');
             timeToUpdate = `${hours}:${minutes}`;
+            if (syncTransitionTime === true) {
+                isTransition = true;
+            }
         }
 
-        await SheetService.updateBookingStatus(rowId, status, timeToUpdate);
+        await SheetService.updateBookingStatus(rowId, status, timeToUpdate, isTransition);
         res.json({ success: true });
 
     } catch (e) {

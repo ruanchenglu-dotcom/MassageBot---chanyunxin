@@ -222,13 +222,14 @@ const BedPanel = ({ bedId, bookings, shop }) => {
         });
     }
 
-    const updateStatus = async (status, setStartTime = false) => {
+    const updateStatus = async (status, setStartTime = false, setTransitionTime = false) => {
         if (!currentBooking) return;
         try {
             await axios.post('/api/update-status', {
                 rowId: currentBooking.rowId,
                 status: status,
-                syncStartTime: setStartTime
+                syncStartTime: setStartTime,
+                syncTransitionTime: setTransitionTime
             });
         } catch (e) {
             console.error('Update status failed', e);
@@ -294,10 +295,12 @@ const BedPanel = ({ bedId, bookings, shop }) => {
                                     const isP1 = currentBooking.phase1_res_idx === internalBedId || currentBooking.phase1_resource === internalBedId;
                                     const isP2 = currentBooking.phase2_res_idx === internalBedId || currentBooking.phase2_resource === internalBedId;
                                     let syncTime = true;
+                                    let syncTransitionTime = false;
                                     if (isP2 && !isP1) {
                                         syncTime = false; // Never overwrite start time for Phase 2!
+                                        syncTransitionTime = true;
                                     }
-                                    updateStatus('🟡服務中', syncTime);
+                                    updateStatus('🟡服務中', syncTime, syncTransitionTime);
                                 }}
                                 className="flex-1 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded text-xs sm:text-sm transition-all shadow-md active:scale-95 flex flex-col items-center justify-center"
                             >
