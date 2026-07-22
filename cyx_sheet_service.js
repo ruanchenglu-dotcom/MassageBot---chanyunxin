@@ -926,7 +926,7 @@ async function updateBookingStatus(rowId, newStatus) {
     } catch (e) { console.error('Update Status Error:', e); return false; }
 }
 
-function _checkOverlapConflict(rowId, dateStr, timeStr, duration, phase1Res, phase2Res, p1Dur, p2Dur, flow, locationStr = '本館', ignoreRowIds = [], newTransitionTime = null) {
+function _checkOverlapConflict(rowId, dateStr, timeStr, duration, phase1Res, phase2Res, p1Dur, p2Dur, flow, locationStr = '本館', ignoreRowIds = [], newTransitionTime = null, ignoreBuffers = false) {
     if (!phase1Res && !phase2Res) return null;
     
     const startMins = ResourceCore.getMinsFromTimeStr(timeStr);
@@ -955,8 +955,8 @@ function _checkOverlapConflict(rowId, dateStr, timeStr, duration, phase1Res, pha
     let blocks = [];
     if (flow === 'BF' || flow === 'FB') {
         if (phase1Res) blocks.push({ start: startMins, end: startMins + p1, res: phase1Res });
-        
-        let p2Start = startMins + p1 + ResourceCore.CONFIG.TRANSITION_BUFFER;
+        const transitionBuffer = ignoreBuffers ? 0 : ResourceCore.CONFIG.TRANSITION_BUFFER;
+        let p2Start = startMins + p1 + transitionBuffer;
         if (transitionTimeStr) {
             const ttMins = ResourceCore.getMinsFromTimeStr(transitionTimeStr);
             if (ttMins !== -1 && ttMins > startMins) p2Start = ttMins;
@@ -1023,7 +1023,8 @@ function _checkOverlapConflict(rowId, dateStr, timeStr, duration, phase1Res, pha
             }
             if (res1) bBlocks.push({ start: bStartMins, end: bStartMins + bP1, res: res1 });
             
-            let p2Start = bStartMins + bP1 + ResourceCore.CONFIG.TRANSITION_BUFFER;
+            const localTransitionBuffer = ignoreBuffers ? 0 : ResourceCore.CONFIG.TRANSITION_BUFFER;
+            let p2Start = bStartMins + bP1 + localTransitionBuffer;
             if (b.transition_time) {
                 const ttMins = ResourceCore.getMinsFromTimeStr(b.transition_time);
                 if (ttMins !== -1 && ttMins > bStartMins) p2Start = ttMins;
@@ -1042,10 +1043,11 @@ function _checkOverlapConflict(rowId, dateStr, timeStr, duration, phase1Res, pha
                     const blkResClean = blk.res.toString().toUpperCase().trim();
                     
                     if (bBlkResArray.includes(blkResClean) || bBlk.res.toString().toUpperCase() === blkResClean) {
-                        const safeEndA = blk.end - ResourceCore.CONFIG.TOLERANCE;
-                        const safeEndB = bBlk.end - ResourceCore.CONFIG.TOLERANCE;
-                        const safeStartA = blk.start + ResourceCore.CONFIG.TOLERANCE;
-                        const safeStartB = bBlk.start + ResourceCore.CONFIG.TOLERANCE;
+                        const tolerance = ignoreBuffers ? 0 : ResourceCore.CONFIG.TOLERANCE;
+                        const safeEndA = blk.end - tolerance;
+                        const safeEndB = bBlk.end - tolerance;
+                        const safeStartA = blk.start + tolerance;
+                        const safeStartB = bBlk.start + tolerance;
 
                         // Align overlap logic exactly with frontend checkLaneContinuity:
                         // b.start < safeEnd && safeStart < b.end
@@ -1109,7 +1111,7 @@ async function updateBookingDetails(body) {
             if (!p2Dur) p2Dur = totalDuration - p1Dur;
         }
 
-        const conflict = _checkOverlapConflict(rowId, checkDate, checkTime, totalDuration, phase1Res, phase2Res, p1Dur, p2Dur, flow, '本館', [], body.transition_time);
+        const conflict = _checkOverlapConflict(rowId, checkDate, checkTime, totalDuration, phase1Res, phase2Res, p1Dur, p2Dur, flow, '本館', [], body.transition_time, body.ignoreBuffers);
         if (conflict) {
             throw new Error(`RESOURCE_CONFLICT|${conflict.resource}|${conflict.conflictName}`);
         }

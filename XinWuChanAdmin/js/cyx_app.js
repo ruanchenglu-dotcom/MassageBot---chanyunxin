@@ -2367,7 +2367,8 @@ const App = () => {
             return;
         }
         
-        const p2Start = tryStart + split.phase1 + 5;
+        // Fix: Ignore transition time (set to 0 instead of 5) for toggle sequence to avoid overlap conflicts
+        const p2Start = tryStart + split.phase1 + 0;
         let s2 = null;
         if (targetFlow === 'FB' || targetFlow === 'BF') {
             s2 = MatrixHelper.findBestSlot(p2Type, p2Start, p2Start + split.phase2, timelineData, mockActiveEndTimes, null, rowId);
