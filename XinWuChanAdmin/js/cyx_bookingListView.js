@@ -459,7 +459,7 @@
 
                 <div className="overflow-auto relative w-full" style={{ maxHeight: '75vh' }}>
                     <table className="w-full text-left border-collapse min-w-max">
-                        <thead className="bg-slate-100 text-slate-700 font-bold text-base sticky top-0 z-30 shadow-sm">
+                        <thead className="bg-slate-100 text-slate-700 font-bold text-lg sticky top-0 z-30 shadow-sm">
                             <tr>
                                 <th className="p-4 border-b border-slate-200 whitespace-nowrap text-center">群組</th>
                                 <th className="p-4 border-b border-slate-200 whitespace-nowrap">預約日期</th>
@@ -478,7 +478,7 @@
                             </tr>
                         </thead>
 
-                        <tbody className="divide-y divide-gray-200 text-base">
+                        <tbody className="divide-y divide-gray-200 text-lg">
                             {displayBookings.map((b, index) => {
                                 const isEditingThisRow = editingRowId === b.rowId;
 
@@ -516,7 +516,7 @@
                                             {!renderedGroups.has(b.groupKey) && (
                                                 <td className="p-4 whitespace-nowrap text-center align-middle border-r border-slate-200" rowSpan={groupCounts[b.groupKey]}>
                                                     <div className="flex flex-col items-center justify-center gap-2">
-                                                        <span className="bg-blue-100 text-blue-800 text-sm font-bold px-3 py-1.5 rounded-full border border-blue-200 shadow-sm">
+                                                        <span className="bg-blue-100 text-blue-800 text-base font-bold px-3 py-1.5 rounded-full border border-blue-200 shadow-sm">
                                                             #{b.groupIndex}
                                                         </span>
                                                         {b.checkinTime ? (
@@ -606,31 +606,31 @@
 
                                 return (
                                     <tr key={`edit-${b.rowId}`} className="bg-yellow-50 shadow-inner border-y-2 border-orange-300">
-                                        {!renderedGroups.has(b.groupKey + '_edit') && (
+                                        {!renderedGroups.has(b.groupKey) && (
                                             <td className="p-2 text-center align-middle border-r border-slate-200" rowSpan={groupCounts[b.groupKey]}>
-                                                <span className="bg-blue-100 text-blue-800 text-sm font-bold px-3 py-1.5 rounded-full border border-blue-200 shadow-sm">
+                                                <span className="bg-blue-100 text-blue-800 text-base font-bold px-3 py-1.5 rounded-full border border-blue-200 shadow-sm">
                                                     #{b.groupIndex}
                                                 </span>
                                             </td>
                                         )}
-                                        {renderedGroups.add(b.groupKey + '_edit') && ''}
-                                        <td className="p-2"><input type="date" className="w-full border border-gray-300 p-2 rounded focus:ring-2 focus:ring-orange-400 outline-none" value={editFormData.date} onChange={e => handleInputChange('date', e.target.value)} /></td>
-                                        <td className="p-2"><window.TimePicker24H className="w-full border border-gray-300 p-1 rounded font-mono outline-none" value={editFormData.time} onChange={val => handleInputChange('time', val)} /></td>
+                                        {renderedGroups.add(b.groupKey) && ''}
+                                        <td className="p-2"><input type="date" className="w-full border border-gray-300 p-2 rounded focus:ring-2 focus:ring-orange-400 outline-none text-lg" value={editFormData.date} onChange={e => handleInputChange('date', e.target.value)} /></td>
+                                        <td className="p-2"><window.TimePicker24H className="w-full border border-gray-300 p-1 rounded font-mono outline-none text-lg" value={editFormData.time} onChange={val => handleInputChange('time', val)} /></td>
                                         <td className="p-2">
                                             <div className="flex items-center gap-1">
-                                                <input type="text" className="w-full border border-gray-300 p-2 rounded font-bold focus:ring-2 focus:ring-orange-400 outline-none" value={editFormData.name} onChange={e => handleInputChange('name', e.target.value)} />
-                                                {editFormData.nameSuffix && <span className="text-gray-500 font-mono text-sm whitespace-nowrap">{editFormData.nameSuffix}</span>}
+                                                <input type="text" className="w-full border border-gray-300 p-2 rounded font-bold focus:ring-2 focus:ring-orange-400 outline-none text-lg" value={editFormData.name} onChange={e => handleInputChange('name', e.target.value)} />
+                                                {editFormData.nameSuffix && <span className="text-gray-500 font-mono text-base whitespace-nowrap">{editFormData.nameSuffix}</span>}
                                             </div>
                                         </td>
-                                        <td className="p-2"><input type="text" className="w-full border border-gray-300 p-2 rounded font-mono focus:ring-2 focus:ring-orange-400 outline-none min-w-[120px]" placeholder="09xx..." value={editFormData.phone} onChange={e => handleInputChange('phone', e.target.value)} /></td>
-                                        <td className="p-2"><select className="w-full border border-gray-300 p-2 rounded focus:ring-2 focus:ring-orange-400 outline-none max-w-[200px]" value={editFormData.service} onChange={e => handleInputChange('service', e.target.value)}>{servicesList.map(s => <option key={s} value={s}>{s}</option>)}</select></td>
-                                        <td className="p-2 text-center"><input type="checkbox" className="w-5 h-5 accent-orange-500 cursor-pointer" checked={editFormData.isYouTui} onChange={e => handleInputChange('isYouTui', e.target.checked)} /></td>
-                                        <td className="p-2 text-center"><input type="checkbox" className="w-5 h-5 accent-red-500 cursor-pointer" checked={editFormData.isGuaSha} onChange={e => handleInputChange('isGuaSha', e.target.checked)} /></td>
-                                        <td className="p-2 text-center"><input type="checkbox" className="w-5 h-5 accent-orange-500 cursor-pointer" checked={editFormData.isHuaGuan} onChange={e => handleInputChange('isHuaGuan', e.target.checked)} /></td>
-                                        <td className="p-2 text-center"><input type="checkbox" className="w-5 h-5 accent-red-600 cursor-pointer" checked={editFormData.isBaGuan} onChange={e => handleInputChange('isBaGuan', e.target.checked)} /></td>
-                                        <td className="p-2"><select className="w-full border border-gray-300 p-2 rounded font-bold focus:ring-2 focus:ring-orange-400 outline-none" value={editFormData.status} onChange={e => handleInputChange('status', e.target.value)}>{statusOptions.map(s => <option key={s} value={s}>{s}</option>)}</select></td>
+                                        <td className="p-2"><input type="text" className="w-full border border-gray-300 p-2 rounded font-mono focus:ring-2 focus:ring-orange-400 outline-none min-w-[120px] text-lg" placeholder="09xx..." value={editFormData.phone} onChange={e => handleInputChange('phone', e.target.value)} /></td>
+                                        <td className="p-2"><select className="w-full border border-gray-300 p-2 rounded focus:ring-2 focus:ring-orange-400 outline-none max-w-[200px] text-lg" value={editFormData.service} onChange={e => handleInputChange('service', e.target.value)}>{servicesList.map(s => <option key={s} value={s}>{s}</option>)}</select></td>
+                                        <td className="p-2 text-center"><input type="checkbox" className="w-6 h-6 accent-orange-500 cursor-pointer" checked={editFormData.isYouTui} onChange={e => handleInputChange('isYouTui', e.target.checked)} /></td>
+                                        <td className="p-2 text-center"><input type="checkbox" className="w-6 h-6 accent-red-500 cursor-pointer" checked={editFormData.isGuaSha} onChange={e => handleInputChange('isGuaSha', e.target.checked)} /></td>
+                                        <td className="p-2 text-center"><input type="checkbox" className="w-6 h-6 accent-orange-500 cursor-pointer" checked={editFormData.isHuaGuan} onChange={e => handleInputChange('isHuaGuan', e.target.checked)} /></td>
+                                        <td className="p-2 text-center"><input type="checkbox" className="w-6 h-6 accent-red-600 cursor-pointer" checked={editFormData.isBaGuan} onChange={e => handleInputChange('isBaGuan', e.target.checked)} /></td>
+                                        <td className="p-2"><select className="w-full border border-gray-300 p-2 rounded font-bold focus:ring-2 focus:ring-orange-400 outline-none text-lg" value={editFormData.status} onChange={e => handleInputChange('status', e.target.value)}>{statusOptions.map(s => <option key={s} value={s}>{s}</option>)}</select></td>
                                         <td className="p-2">
-                                            <select className="w-full min-w-[80px] border border-gray-300 p-2 rounded font-bold text-indigo-700 focus:ring-2 focus:ring-orange-400 outline-none" value={editFormData.staff} onChange={e => handleInputChange('staff', e.target.value)}>
+                                            <select className="w-full min-w-[80px] border border-gray-300 p-2 rounded font-bold text-indigo-700 focus:ring-2 focus:ring-orange-400 outline-none text-lg" value={editFormData.staff} onChange={e => handleInputChange('staff', e.target.value)}>
                                                 <option value="隨機">隨機</option>
                                                 <option value="男師">男師</option>
                                                 <option value="女師">女師</option>
@@ -643,7 +643,7 @@
                                             </select>
                                         </td>
                                         <td className="p-2">
-                                            <select className="w-full border border-gray-300 p-2 rounded font-bold text-gray-700 focus:ring-2 focus:ring-orange-400 outline-none" value={editFormData.location} onChange={e => handleInputChange('location', e.target.value)}>
+                                            <select className="w-full border border-gray-300 p-2 rounded font-bold text-gray-700 focus:ring-2 focus:ring-orange-400 outline-none text-lg" value={editFormData.location} onChange={e => handleInputChange('location', e.target.value)}>
                                                 <option value="本館">本館</option>
                                                 <option value="對面館">對面館</option>
                                             </select>
@@ -652,15 +652,15 @@
                                         <td className="p-2 text-center sticky right-0 bg-yellow-50 z-20 border-l border-orange-200">
                                             <div className="flex flex-col gap-1">
                                                 {scanStatus !== 'OK' ? (
-                                                    <button onClick={performStrictCheck} className="bg-blue-600 text-white hover:bg-blue-700 px-3 py-1.5 rounded font-bold text-sm shadow-sm transition-colors animate-pulse">
+                                                    <button onClick={performStrictCheck} className="bg-blue-600 text-white hover:bg-blue-700 px-3 py-1.5 rounded font-bold text-base shadow-sm transition-colors animate-pulse">
                                                         🔍 查詢空位
                                                     </button>
                                                 ) : (
-                                                    <button onClick={saveChanges} className="bg-green-500 text-white hover:bg-green-600 px-3 py-1.5 rounded font-bold text-sm shadow-sm transition-colors">
+                                                    <button onClick={saveChanges} className="bg-green-500 text-white hover:bg-green-600 px-3 py-1.5 rounded font-bold text-base shadow-sm transition-colors">
                                                         💾 儲存
                                                     </button>
                                                 )}
-                                                <button onClick={cancelEditing} className="bg-gray-400 text-white hover:bg-gray-500 px-3 py-1 rounded font-bold text-xs shadow-sm transition-colors">
+                                                <button onClick={cancelEditing} className="bg-gray-400 text-white hover:bg-gray-500 px-3 py-1 rounded font-bold text-base shadow-sm transition-colors">
                                                     取消
                                                 </button>
                                                 {scanMessage && (
