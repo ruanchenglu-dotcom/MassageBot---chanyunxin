@@ -1,62 +1,87 @@
-global.getSystemConfig = () => ({
-    SCALE: { MAX_CHAIRS: 1, MAX_BEDS: 1 }, 
-    OPERATION_TIME: { OPEN_HOUR: 10 },
-    BUFFERS: { CLEANUP_MINUTES: 5, TRANSITION_MINUTES: 5 },
-    LOGIC_RULES: { TOLERANCE: 5, CAPACITY_CHECK_STEP: 10 }
-});
-
-const core = require('./cyx_resource_core.js');
-
-let guestList = [
-    { serviceCode: 'Combo', serviceName: 'Combo 100p', overrideDuration: 100, staff: '', flowCode: 'FB' }
-];
-
-let currentBookingsRaw = [
-    {
-        id: "b1",
-        startTimeString: "2026/06/07 16:20",
-        duration: 60,
-        serviceCode: "Foot",
-        serviceName: "Foot",
-        status: "Confirmed",
-        location: "本館" // Ends at 17:20
+const ResourceCore = {
+    getMinsFromTimeStr: (timeStr) => {
+        if (!timeStr) return -1;
+        const [h, m] = timeStr.split(':');
+        return parseInt(h) * 60 + parseInt(m);
     },
-    {
-        id: "b2",
-        startTimeString: "2026/06/07 18:00",
-        duration: 60,
-        serviceCode: "Body",
-        serviceName: "Body", 
-        status: "Confirmed",
-        location: "本館" // Bed occupied 18:00-19:00
-    },
-    {
-        id: "b3",
-        startTimeString: "2026/06/07 18:00",
-        duration: 60,
-        serviceCode: "Foot",
-        serviceName: "Foot", 
-        status: "Confirmed",
-        location: "本館" // Chair occupied 18:00-19:00
-    }
-];
-
-let staffList = {
-    "S1": { name: "S1", id: "S1", gender: "F", start: "10:00", end: "22:00" },
-    "S2": { name: "S2", id: "S2", gender: "F", start: "10:00", end: "22:00" },
-    "S3": { name: "S3", id: "S3", gender: "F", start: "10:00", end: "22:00" }
+    CONFIG: { TRANSITION_BUFFER: 5, TOLERANCE: 5 }
+};
+function safeParseInt(val, fallback) {
+    const v = parseInt(val, 10);
+    return isNaN(v) ? fallback : v;
+}
+const b = {
+    rowId: 100,
+    startTime: '11:55',
+    duration: 156,
+    phase1_duration: 50,
+    phase2_duration: 100,
+    transition_time: '',
+    flow: 'FB',
+    category: '',
+    serviceName: '',
+    serviceCode: '',
+    phase1_res_idx: 'CHAIR-1-6',
+    phase2_res_idx: 'BED-1-2',
+    allocated_resource: 'CHAIR-1-6+BED-1-2'
 };
 
-core.getSystemConfig = global.getSystemConfig;
+const blocks = [
+    { start: 660, end: 700, res: 'CHAIR-1-3' }, // Phase 1 (11:00 - 11:40)
+    { start: 705, end: 765, res: 'BED-1-2' }    // Phase 2 (11:45 - 12:45)
+];
 
-if (typeof core.initializeCore === 'function') core.initializeCore();
+let bStartMins = ResourceCore.getMinsFromTimeStr(b.startTime);
+let bDurMins = safeParseInt(b.duration, 60);
+let bP1 = safeParseInt(b.phase1_duration, Math.floor(bDurMins / 2));
+let bP2 = safeParseInt(b.phase2_duration, bDurMins - bP1);
 
-core.setDynamicServices({
-    'Combo': { name: 'Combo 100p', type: 'MIXED', category: 'COMBO', duration: 100, minFoot: 30, maxFoot: 70, minBody: 30, maxBody: 70, elasticStep: 1, elasticLimit: 20 },
-    'Foot': { name: 'Foot', type: 'CHAIR', category: 'FOOT' },
-    'Body': { name: 'Body', type: 'BED', category: 'BODY' }
-});
+if (b.transition_time) {
+    const bTtMins = ResourceCore.getMinsFromTimeStr(b.transition_time);
+    if (bTtMins !== -1 && bTtMins > bStartMins) {
+        bP1 = bTtMins - bStartMins;
+    }
+}
 
-let res = core.checkRequestAvailability("2026/06/07", "17:20", guestList, currentBookingsRaw, staffList, '本館');
-console.log("At 17:20:\n", JSON.stringify(res, null, 2));
+let bFlow = b.flow;
+let bBlocks = [];
+const isCombo = true;
 
+if (isCombo) {
+    let res1 = b.phase1_res_idx;
+    let res2 = b.phase2_res_idx;
+    if (res1) bBlocks.push({ start: bStartMins, end: bStartMins + bP1, res: res1 });
+    let p2Start = bStartMins + bP1 + ResourceCore.CONFIG.TRANSITION_BUFFER;
+    if (b.transition_time) {
+        const ttMins = ResourceCore.getMinsFromTimeStr(b.transition_time);
+        if (ttMins !== -1 && ttMins > bStartMins) p2Start = ttMins;
+    }
+    if (res2) bBlocks.push({ start: p2Start, end: p2Start + bP2, res: res2 });
+} else {
+    const bRes = b.phase1_res_idx || b.phase2_res_idx || b.allocated_resource;
+    if (bRes) bBlocks.push({ start: bStartMins, end: bStartMins + bDurMins, res: bRes });
+}
+
+console.log('isCombo:', isCombo);
+console.log('bBlocks:', bBlocks);
+
+let conflict = false;
+for (const blk of blocks) {
+    if (!blk.res) continue;
+    for (const bBlk of bBlocks) {
+        if (bBlk.res) {
+            const bBlkResArray = [...bBlk.res.toString().toUpperCase().matchAll(/((?:BED|CHAIR)-[12]-\d+)/gi)].map(m => m[1]);
+            const blkResClean = blk.res.toString().toUpperCase().trim();
+            if (bBlkResArray.includes(blkResClean) || bBlk.res.toString().toUpperCase() === blkResClean) {
+                const safeEndA = blk.end - ResourceCore.CONFIG.TOLERANCE;
+                const safeEndB = bBlk.end - ResourceCore.CONFIG.TOLERANCE;
+                if (safeEndA <= blk.start || safeEndB <= bBlk.start) continue;
+                if (Math.max(blk.start, bBlk.start) < Math.min(safeEndA, safeEndB)) {
+                    conflict = true;
+                    console.log('CONFLICT on', blkResClean, 'blk.start', blk.start, 'blk.end', blk.end, 'bBlk.start', bBlk.start, 'bBlk.end', bBlk.end);
+                }
+            }
+        }
+    }
+}
+console.log('Conflict:', conflict);

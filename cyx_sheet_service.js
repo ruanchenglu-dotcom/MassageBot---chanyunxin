@@ -1011,11 +1011,11 @@ function _checkOverlapConflict(rowId, dateStr, timeStr, duration, phase1Res, pha
                 const bResStr = b.allocated_resource || "";
                 const matches = [...bResStr.toString().matchAll(/((?:BED|CHAIR)-[12]-\d+)/gi)].map(m => m[1].toUpperCase());
                 if (bFlow === 'BF') {
-                    if (!res1) res1 = matches.find(r => r.includes('BED')) || matches[0];
-                    if (!res2) res2 = matches.find(r => r.includes('CHAIR')) || matches[1];
+                    if (!res1) res1 = matches.find(r => r.includes('BED'));
+                    if (!res2) res2 = matches.find(r => r.includes('CHAIR'));
                 } else if (bFlow === 'FB') {
-                    if (!res1) res1 = matches.find(r => r.includes('CHAIR')) || matches[0];
-                    if (!res2) res2 = matches.find(r => r.includes('BED')) || matches[1];
+                    if (!res1) res1 = matches.find(r => r.includes('CHAIR'));
+                    if (!res2) res2 = matches.find(r => r.includes('BED'));
                 } else {
                     if (!res1) res1 = matches[0];
                     if (!res2) res2 = matches[1];
