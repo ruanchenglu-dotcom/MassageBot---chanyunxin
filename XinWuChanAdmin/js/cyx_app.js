@@ -2816,29 +2816,33 @@ const App = () => {
             }
 
             if (!foundStaff) {
-                const genderMsg = designatedStaff.includes('男') ? " (男)" : designatedStaff.includes('女') ? " (女)" : "";
-                if (!silentMode) Swal.fire('系統提示', `⚠️ 系統提示: 找不到符合條件的技師${genderMsg}（可能因未來已有預約或條件不符）！\n\n系統無法自動分派，請手動指派技師。`, 'warning');
-                setSyncLock(false); return;
+                // Allow starting with the fallback string instead of blocking
+                finalServiceStaff = designatedStaff;
+            } else {
+                finalServiceStaff = normalizeStaffId(foundStaff.id);
             }
-            finalServiceStaff = normalizeStaffId(foundStaff.id);
         }
 
         let newStatusData = statusData;
-        if (window.StaffSorter?.processStartWork) {
-            newStatusData = await window.StaffSorter.processStartWork([finalServiceStaff], statusData, Date.now());
-        } else {
-            const currentStaffTime = statusData[finalServiceStaff]?.stafftime || Date.now();
-            newStatusData = {
-                ...statusData,
-                [finalServiceStaff]: {
-                    ...statusData[finalServiceStaff],
-                    status: 'BUSY',
-                    stafftime: Date.now(),
-                    previousStafftime: currentStaffTime
-                }
-            };
+        const isRealStaff = staffList.some(s => String(s.id) === String(finalServiceStaff));
+        
+        if (isRealStaff) {
+            if (window.StaffSorter?.processStartWork) {
+                newStatusData = await window.StaffSorter.processStartWork([finalServiceStaff], statusData, Date.now());
+            } else {
+                const currentStaffTime = statusData[finalServiceStaff]?.stafftime || Date.now();
+                newStatusData = {
+                    ...statusData,
+                    [finalServiceStaff]: {
+                        ...statusData[finalServiceStaff],
+                        status: 'BUSY',
+                        stafftime: Date.now(),
+                        previousStafftime: currentStaffTime
+                    }
+                };
+            }
+            updateStaffStatus(newStatusData);
         }
-        updateStaffStatus(newStatusData);
         const grpIdx = getGroupMemberIndex(currentId, current.booking.rowId);
         const newBooking = { ...current.booking, category: isComboService ? 'COMBO' : 'SINGLE', flow: actualSeq };
 
@@ -2992,11 +2996,18 @@ const App = () => {
 
         const staffListToStart = [];
         validItems.forEach(item => {
-            const fStaff = normalizeStaffId(assignments[item.resourceId]);
+            let fStaff = normalizeStaffId(assignments[item.resourceId]);
+            if (!fStaff) {
+                fStaff = item.booking.serviceStaff || item.booking.staffId || item.booking.ServiceStaff || '隨機';
+                assignments[item.resourceId] = fStaff; // store back so it can be used below
+            }
             if (fStaff) {
+                const isRealStaff = staffList.some(s => String(s.id) === String(fStaff));
                 let current = nextResourceState[item.resourceId];
                 if (!current || !current.isRunning) {
-                    staffListToStart.push(fStaff);
+                    if (isRealStaff) {
+                        staffListToStart.push(fStaff);
+                    }
                 }
             }
         });
@@ -3022,10 +3033,9 @@ const App = () => {
             const { resourceId } = item;
             let finalServiceStaff = normalizeStaffId(assignments[resourceId]);
 
+            // Now finalServiceStaff is guaranteed to be set in the loop above
             if (!finalServiceStaff) {
-                failedToStartCount++;
-                unassignedItems.push(item);
-                return;
+                finalServiceStaff = '隨機';
             }
 
             let current = nextResourceState[resourceId];
