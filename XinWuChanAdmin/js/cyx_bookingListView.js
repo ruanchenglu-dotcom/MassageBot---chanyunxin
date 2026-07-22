@@ -167,6 +167,9 @@
                 service: booking.serviceName || '',
                 isYouTui: booking.isYouTui || (booking.serviceName || '').includes('油'),
                 isGuaSha: booking.isGuaSha === true || booking.isGuaSha === 'Yes',
+                isHuaGuan: booking.isHuaGuan === true || booking.isHuaGuan === 'Yes',
+                isBaGuan: booking.isBaGuan === true || booking.isBaGuan === 'Yes',
+                location: booking.location || '本館',
                 phone: realPhone,
                 status: booking.status || STATUS.WAITING,
                 staff: booking.staffId || '隨機'
@@ -237,6 +240,9 @@
             if (editFormData.service !== currentBookingObj.serviceName) detectedChanges.dichVu = editFormData.service;
             if (editFormData.isYouTui !== (currentBookingObj.isYouTui === true || currentBookingObj.isYouTui === 'Yes' || (currentBookingObj.serviceName || '').includes('油'))) detectedChanges.isYouTui = editFormData.isYouTui;
             if (editFormData.isGuaSha !== (currentBookingObj.isGuaSha === true || currentBookingObj.isGuaSha === 'Yes')) detectedChanges.isGuaSha = editFormData.isGuaSha;
+            if (editFormData.isHuaGuan !== (currentBookingObj.isHuaGuan === true || currentBookingObj.isHuaGuan === 'Yes')) detectedChanges.isHuaGuan = editFormData.isHuaGuan;
+            if (editFormData.isBaGuan !== (currentBookingObj.isBaGuan === true || currentBookingObj.isBaGuan === 'Yes')) detectedChanges.isBaGuan = editFormData.isBaGuan;
+            if (editFormData.location !== (currentBookingObj.location || '本館')) detectedChanges.location = editFormData.location;
             if (editFormData.status !== currentBookingObj.status) detectedChanges.trangThai = editFormData.status;
             
             const origPhone = currentBookingObj.phone || currentBookingObj.sdt || currentBookingObj.custPhone || '';
@@ -408,6 +414,9 @@
                     dichVu: editFormData.service,
                     isYouTui: editFormData.isYouTui,
                     isGuaSha: editFormData.isGuaSha,
+                    isHuaGuan: editFormData.isHuaGuan,
+                    isBaGuan: editFormData.isBaGuan,
+                    location: editFormData.location,
                     sdt: editFormData.phone,
                     trangThai: editFormData.status,
                     nhanVien: editFormData.staff,
@@ -456,12 +465,15 @@
                                 <th className="p-4 border-b border-slate-200 whitespace-nowrap">預約日期</th>
                                 <th className="p-4 border-b border-slate-200 whitespace-nowrap">時間</th>
                                 <th className="p-4 border-b border-slate-200 whitespace-nowrap">姓名</th>
+                                <th className="p-4 border-b border-slate-200 whitespace-nowrap">電話</th>
                                 <th className="p-4 border-b border-slate-200 whitespace-nowrap">項目</th>
                                 <th className="p-4 border-b border-slate-200 text-center whitespace-nowrap">油推</th>
                                 <th className="p-4 border-b border-slate-200 text-center whitespace-nowrap">刮痧</th>
-                                <th className="p-4 border-b border-slate-200 whitespace-nowrap">電話</th>
+                                <th className="p-4 border-b border-slate-200 text-center whitespace-nowrap">滑罐</th>
+                                <th className="p-4 border-b border-slate-200 text-center whitespace-nowrap">拔罐</th>
                                 <th className="p-4 border-b border-slate-200 whitespace-nowrap">狀態</th>
                                 <th className="p-4 border-b border-slate-200 whitespace-nowrap">指定師傅</th>
+                                <th className="p-4 border-b border-slate-200 whitespace-nowrap">地點</th>
                                 <th className="p-4 border-b border-slate-200 text-center whitespace-nowrap sticky right-0 bg-slate-100 z-40">操作</th>
                             </tr>
                         </thead>
@@ -524,12 +536,15 @@
                                             <td className="p-4 whitespace-nowrap font-mono text-gray-600">{(b.startTimeString || ' ').split(' ')[0]}</td>
                                             <td className="p-4 whitespace-nowrap font-mono text-lg font-bold text-indigo-700">{(b.startTimeString || ' ').split(' ')[1]}</td>
                                             <td className="p-4 whitespace-nowrap font-bold text-gray-800 text-lg">{name}</td>
+                                            <td className="p-4 whitespace-nowrap font-mono text-gray-600">{realPhone}</td>
                                             <td className="p-4 whitespace-nowrap text-gray-700 font-medium">{b.serviceName}</td>
                                             <td className="p-4 whitespace-nowrap text-center">{isYouTui ? <span className="text-purple-600 font-bold text-lg">💧</span> : ''}</td>
                                             <td className="p-4 whitespace-nowrap text-center">{b.isGuaSha ? <span className="text-red-500 font-bold text-lg">✅</span> : ''}</td>
-                                            <td className="p-4 whitespace-nowrap font-mono text-gray-600">{realPhone}</td>
+                                            <td className="p-4 whitespace-nowrap text-center">{b.isHuaGuan ? <span className="text-orange-500 font-bold text-lg">🪔</span> : ''}</td>
+                                            <td className="p-4 whitespace-nowrap text-center">{b.isBaGuan ? <span className="text-red-600 font-bold text-lg">🪔</span> : ''}</td>
                                             <td className="p-4 whitespace-nowrap"><span className={`px-3 py-1 rounded-full text-sm font-bold shadow-sm ${statusClass}`}>{bStatus}</span></td>
                                             <td className="p-4 whitespace-nowrap"><span className="bg-indigo-50 text-indigo-700 px-3 py-1 rounded text-sm font-bold border border-indigo-100">{b.staffId}</span></td>
+                                            <td className="p-4 whitespace-nowrap"><span className="text-gray-700 font-bold">{b.location || '本館'}</span></td>
 
                                             <td className="p-4 whitespace-nowrap text-center sticky right-0 z-20 space-x-2" style={{ backgroundColor: 'inherit' }}>
                                                 <button onClick={() => startEditing(b)} className="text-blue-500 hover:text-white hover:bg-blue-500 border border-blue-200 hover:border-blue-500 px-3 py-1.5 rounded transition-all shadow-sm" title="編輯 (Edit)">
@@ -607,10 +622,12 @@
                                                 {editFormData.nameSuffix && <span className="text-gray-500 font-mono text-sm whitespace-nowrap">{editFormData.nameSuffix}</span>}
                                             </div>
                                         </td>
+                                        <td className="p-2"><input type="text" className="w-full border border-gray-300 p-2 rounded font-mono focus:ring-2 focus:ring-orange-400 outline-none min-w-[120px]" placeholder="09xx..." value={editFormData.phone} onChange={e => handleInputChange('phone', e.target.value)} /></td>
                                         <td className="p-2"><select className="w-full border border-gray-300 p-2 rounded focus:ring-2 focus:ring-orange-400 outline-none max-w-[200px]" value={editFormData.service} onChange={e => handleInputChange('service', e.target.value)}>{servicesList.map(s => <option key={s} value={s}>{s}</option>)}</select></td>
                                         <td className="p-2 text-center"><input type="checkbox" className="w-5 h-5 accent-orange-500 cursor-pointer" checked={editFormData.isYouTui} onChange={e => handleInputChange('isYouTui', e.target.checked)} /></td>
                                         <td className="p-2 text-center"><input type="checkbox" className="w-5 h-5 accent-red-500 cursor-pointer" checked={editFormData.isGuaSha} onChange={e => handleInputChange('isGuaSha', e.target.checked)} /></td>
-                                        <td className="p-2"><input type="text" className="w-full border border-gray-300 p-2 rounded font-mono focus:ring-2 focus:ring-orange-400 outline-none min-w-[120px]" placeholder="09xx..." value={editFormData.phone} onChange={e => handleInputChange('phone', e.target.value)} /></td>
+                                        <td className="p-2 text-center"><input type="checkbox" className="w-5 h-5 accent-orange-500 cursor-pointer" checked={editFormData.isHuaGuan} onChange={e => handleInputChange('isHuaGuan', e.target.checked)} /></td>
+                                        <td className="p-2 text-center"><input type="checkbox" className="w-5 h-5 accent-red-600 cursor-pointer" checked={editFormData.isBaGuan} onChange={e => handleInputChange('isBaGuan', e.target.checked)} /></td>
                                         <td className="p-2"><select className="w-full border border-gray-300 p-2 rounded font-bold focus:ring-2 focus:ring-orange-400 outline-none" value={editFormData.status} onChange={e => handleInputChange('status', e.target.value)}>{statusOptions.map(s => <option key={s} value={s}>{s}</option>)}</select></td>
                                         <td className="p-2">
                                             <select className="w-full min-w-[80px] border border-gray-300 p-2 rounded font-bold text-indigo-700 focus:ring-2 focus:ring-orange-400 outline-none" value={editFormData.staff} onChange={e => handleInputChange('staff', e.target.value)}>
@@ -623,6 +640,12 @@
                                                 {editFormData.staff && !['隨機', '男師', '女師', '男', '女'].includes(editFormData.staff) && !availableStaffOptions.find(s => String(s.id) === String(editFormData.staff)) && (
                                                     <option value={editFormData.staff}>{editFormData.staff} (不符合)</option>
                                                 )}
+                                            </select>
+                                        </td>
+                                        <td className="p-2">
+                                            <select className="w-full border border-gray-300 p-2 rounded font-bold text-gray-700 focus:ring-2 focus:ring-orange-400 outline-none" value={editFormData.location} onChange={e => handleInputChange('location', e.target.value)}>
+                                                <option value="本館">本館</option>
+                                                <option value="對面館">對面館</option>
                                             </select>
                                         </td>
 
@@ -653,7 +676,7 @@
 
                             {displayBookings.length === 0 && (
                                 <tr>
-                                    <td colSpan="11" className="p-12 text-center text-gray-400">
+                                    <td colSpan="13" className="p-12 text-center text-gray-400">
                                         <div className="flex flex-col items-center justify-center">
                                             <i className="fas fa-calendar-times text-5xl mb-4 text-gray-300"></i>
                                             <span className="text-xl font-bold">📭 暫無預約資料</span>
