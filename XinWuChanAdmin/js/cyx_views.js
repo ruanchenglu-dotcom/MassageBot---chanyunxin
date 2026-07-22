@@ -745,7 +745,7 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                         
                         Swal.fire({
                             title: '足底區客滿',
-                            html: `目前足底區已滿，系統嘗試自動 co giãn không thành công。<br/><br/>請問是否保持腳部 <b>${oldP1Dur} 分鐘</b>，並將增加的時間 (+${extraTime}分) 全部加到身體？<br/>(即：腳部 ${oldP1Dur}分, 身體 ${newDuration - oldP1Dur}分)`,
+                            html: `目前足底區已滿，系統嘗試自動調整時間失敗。<br/><br/>請問是否保持腳部 <b>${oldP1Dur} 分鐘</b>，並將增加的時間 (+${extraTime}分) 全部加到身體？<br/>(即：腳部 ${oldP1Dur}分, 身體 ${newDuration - oldP1Dur}分)`,
                             icon: 'question',
                             showCancelButton: true,
                             confirmButtonText: '同意 (加在身體)',
