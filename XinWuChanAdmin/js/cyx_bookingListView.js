@@ -345,7 +345,7 @@
 
             if (typeof window.validateGlobalCapacity === 'function') {
                 const maxDuration = Math.max(...guestList.map(g => g.duration));
-                const locationStr = window.SYSTEM_CONFIG?.LOCATION_NAME || '本館';
+                const locationStr = editFormData.location || window.SYSTEM_CONFIG?.LOCATION_NAME || '本館';
                 const queryDateStr = editFormData.date.replace(/\//g, '-');
                 
                 const simCheck = window.validateGlobalCapacity(
