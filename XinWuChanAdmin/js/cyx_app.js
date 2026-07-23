@@ -2970,10 +2970,15 @@ const App = () => {
             const split = getSmartSplit(current.booking, totalDur, true, comboMeta.sequence);
             payload.flow = comboMeta.sequence;
             payload.flow_code = comboMeta.sequence;
-            payload.phase1_duration = split.phase1;
-            payload.phase2_duration = split.phase2;
+            payload.phase1_duration = current.booking.phase1_duration !== undefined ? current.booking.phase1_duration : split.phase1;
+            payload.phase2_duration = current.booking.phase2_duration !== undefined ? current.booking.phase2_duration : split.phase2;
             payload.phase1_res_idx = currentId.toUpperCase();
             if (comboMeta.targetId) payload.phase2_res_idx = comboMeta.targetId.toUpperCase();
+            
+            // [V1.x NÂNG CẤP] Bảo tồn transition_time từ Sheet để tránh Backend tự cộng thêm buffer
+            if (current.booking.transition_time) {
+                payload.transition_time = current.booking.transition_time;
+            }
         }
 
         universalSend('/api/update-booking-details', payload);
@@ -3194,11 +3199,16 @@ const App = () => {
                 comboPayloadAdditions = {
                     flow: newComboMeta.sequence,
                     flow_code: newComboMeta.sequence,
-                    phase1_duration: split.phase1,
-                    phase2_duration: split.phase2,
+                    phase1_duration: current.booking.phase1_duration !== undefined ? current.booking.phase1_duration : split.phase1,
+                    phase2_duration: current.booking.phase2_duration !== undefined ? current.booking.phase2_duration : split.phase2,
                     phase1_res_idx: resourceId.toUpperCase(),
                     ...(newComboMeta.targetId && { phase2_res_idx: newComboMeta.targetId.toUpperCase() })
                 };
+
+                // [V1.x NÂNG CẤP] Bảo tồn transition_time từ Sheet để tránh Backend tự cộng thêm buffer gây nhảy Timeline
+                if (current.booking.transition_time) {
+                    comboPayloadAdditions.transition_time = current.booking.transition_time;
+                }
             }
 
             batchPayloads.push({
