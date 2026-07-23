@@ -1201,6 +1201,14 @@ const App = () => {
 
             Object.keys(nextResourceState).forEach(key => {
                 if (nextResourceState[key].isRunning) {
+                    const b = nextResourceState[key].booking;
+                    if (b && b.startTimeString) {
+                        const bDate = b.startTimeString.split(' ')[0];
+                        const bTime = (b.startTime || b.startTimeString.split(' ')[1] || '00:00').substring(0, 5);
+                        if (!window.isWithinOperationalDay(bDate, bTime, viewDate)) {
+                            return; // Do not draw running block if it belongs to a different operational day
+                        }
+                    }
                     tempState[key] = nextResourceState[key];
                     const startMins = safeTimeToMins(getTaipeiTimeStr(nextResourceState[key].startTime));
 
@@ -1278,7 +1286,7 @@ const App = () => {
                         let p2Dur = item.booking.phase2_duration !== undefined && item.booking.phase2_duration !== null ? parseInt(item.booking.phase2_duration, 10) : split.phase2;
                         
                         const finishTimeMins = activeEndTimes[key];
-                        let p2Start = finishTimeMins + (window.SYSTEM_CONFIG?.BUFFERS?.TRANSITION_MINUTES || 5);
+                        let p2Start = finishTimeMins;
 
                         if (item.booking.transition_time) {
                             const transMins = safeTimeToMins(item.booking.transition_time);
@@ -1413,11 +1421,11 @@ const App = () => {
                         let p2Dur = bookingItem.phase2_duration !== undefined && bookingItem.phase2_duration !== null ? parseInt(bookingItem.phase2_duration, 10) : split.phase2;
                         
                         let p1End = itemOriginalStart + p1Dur;
-                        let p2Start = p1End + (window.SYSTEM_CONFIG?.BUFFERS?.TRANSITION_MINUTES || 5);
+                        let p2Start = p1End;
 
                         if (bookingItem.transition_time) {
                             const transMins = safeTimeToMins(bookingItem.transition_time);
-                            if (transMins !== -1 && transMins > itemOriginalStart) {
+                            if (transMins !== -1) {
                                 p2Start = transMins;
                             }
                         }
@@ -2905,6 +2913,40 @@ const App = () => {
             isPreview: false,
             comboMeta
         };
+
+        if (isComboService && comboMeta && comboMeta.targetId) {
+            let targetCurrent = newState[comboMeta.targetId];
+            if (!targetCurrent) {
+                targetCurrent = {
+                    booking: current.booking,
+                    isRunning: false,
+                    isPaused: false,
+                    startTime: null,
+                    isPreview: true,
+                    isMaxMode: true,
+                    comboMeta: null
+                };
+            }
+            if (targetCurrent.isRunning) {
+                // Vị trí phase 2 đang bận
+                Swal.fire('系統提示', `⚠️ Phase 2 位置 ${comboMeta.targetId} 正在使用中！請先清理。`, 'warning');
+            } else {
+                let p2StartTimeStr = getScheduledStartTimeISO(current.booking);
+                if (current.booking.transition_time) {
+                    const baseDate = p2StartTimeStr.split('T')[0];
+                    p2StartTimeStr = `${baseDate}T${current.booking.transition_time.length === 5 ? current.booking.transition_time + ':00' : current.booking.transition_time}`;
+                }
+                newState[comboMeta.targetId] = {
+                    ...targetCurrent,
+                    booking: newBooking,
+                    startTime: p2StartTimeStr,
+                    isRunning: true,
+                    isPreview: false,
+                    comboMeta: { ...comboMeta, phase: 2, targetId: currentId }
+                };
+            }
+        }
+
         updateResource(newState);
 
         let primaryKey = "服務師傅1"; let fallbackKey = "ServiceStaff1";
@@ -2939,13 +2981,15 @@ const App = () => {
         axios.post('/api/update-status', { rowId: current.booking.rowId, status: APP_STATUS.SERVING });
     };
 
-    const executeBatchStart = async (mainResId, relatedItems) => {
+    const executeBatchStart = async (mainResId, relatedItems, mainBookingObj) => {
         const nextResourceState = { ...resourceStateRef.current };
         const nextStatusData = { ...statusData };
         const apiPayloads = [];
 
+        const mainBooking = (mainResId && nextResourceState[mainResId] ? nextResourceState[mainResId].booking : null) || mainBookingObj;
+        
         const allItemsToStart = [
-            { resourceId: mainResId, booking: mainResId && nextResourceState[mainResId] ? nextResourceState[mainResId].booking : null },
+            { resourceId: mainResId, booking: mainBooking },
             ...relatedItems
         ];
 
@@ -3172,8 +3216,7 @@ const App = () => {
         });
 
         if (failedToStartCount > 0) {
-            const failedNames = unassignedItems.map(item => item.booking.customerName.split('(')[0].trim()).join(', ');
-            Swal.fire('系統提示', `⚠️ 系統提示: 檢測到 ${failedToStartCount} 位客人無法自動分配。\n\n▶ 原因分析: 目前無符合條件的待命技師，或資源(床/椅)已被佔用。\n▶ 影響名單: ${failedNames}\n\n請以手動方式為這幾位客人安排任務。`, 'warning');
+            Swal.fire('系統提示', `⚠️ 有 ${failedToStartCount} 位同行者無法開始服務（座位已被佔用）。`, 'warning');
         }
 
         setResourceState(nextResourceState);
@@ -4399,7 +4442,7 @@ const App = () => {
 
                         if (payload.meta && payload.meta.isCombo) {
                             const split = window.getSmartSplit ? window.getSmartSplit(b, parseInt(b.duration || 60, 10), true, b.flow || 'FB') : { phase1: Math.floor(parseInt(b.duration || 60, 10) / 2), phase2: Math.ceil(parseInt(b.duration || 60, 10) / 2) };
-                            const transitionMins = window.SYSTEM_CONFIG?.BUFFERS?.TRANSITION_MINUTES || 5;
+                            const transitionMins = 0;
                             
                             if (payload.meta.phase === 1) {
                                 actualBStart = bStart;
@@ -4530,12 +4573,12 @@ const App = () => {
 
     const handleProcessStartChoice = (mode) => {
         if (!startChoiceData) return;
-        const { resourceId, relatedDetails } = startChoiceData;
+        const { resourceId, relatedDetails, booking } = startChoiceData;
 
         if (mode === 'GROUP') {
-            executeBatchStart(resourceId, relatedDetails);
+            executeBatchStart(resourceId, relatedDetails, booking);
         } else {
-            executeStart(resourceId, null, false, startChoiceData.booking);
+            executeStart(resourceId, null, false, booking);
         }
 
         setStartChoiceData(null);
@@ -4773,14 +4816,14 @@ const App = () => {
                         <div className="bg-gradient-to-r from-emerald-600 to-green-600 p-4 text-white">
                             <h3 className="text-xl font-bold flex items-center">
                                 <i className="fas fa-play-circle mr-2"></i>
-                                啟動確認 (Start)
+                                啟動確認
                             </h3>
-                            <p className="text-emerald-100 text-sm mt-1 opacity-90">發現同組客人 (Group Detected)</p>
+                            <p className="text-emerald-100 text-sm mt-1 opacity-90">發現同組客人</p>
                         </div>
                         <div className="p-6">
                             <div className="bg-emerald-50 p-4 rounded-lg border border-emerald-100 mb-5">
                                 <div className="flex justify-between items-center mb-2">
-                                    <span className="font-bold text-emerald-800 text-sm">主客 (Main):</span>
+                                    <span className="font-bold text-emerald-800 text-sm">主客:</span>
                                     <span className="font-bold text-slate-800">{startChoiceData.booking.customerName}</span>
                                 </div>
                                 <div className="border-t border-emerald-200 my-2"></div>
@@ -4802,8 +4845,8 @@ const App = () => {
                                 >
                                     <div className="bg-white/20 w-8 h-8 rounded-full flex items-center justify-center group-hover:scale-110 transition-transform"><i className="fas fa-rocket"></i></div>
                                     <div className="text-left">
-                                        <div className="text-sm leading-tight">全體開始 (Start All)</div>
-                                        <div className="text-[10px] opacity-80 font-normal">立即啟動 {startChoiceData.relatedDetails.length + 1} 人 (Batch Execute)</div>
+                                        <div className="text-sm leading-tight">全體開始</div>
+                                        <div className="text-[10px] opacity-80 font-normal">立即啟動 {startChoiceData.relatedDetails.length + 1} 人</div>
                                     </div>
                                 </button>
                                 <button
@@ -4812,7 +4855,7 @@ const App = () => {
                                 >
                                     <div className="bg-slate-100 w-8 h-8 rounded-full flex items-center justify-center text-slate-500 group-hover:text-emerald-600 group-hover:bg-emerald-100 transition-colors"><i className="fas fa-user"></i></div>
                                     <div className="text-left">
-                                        <div className="text-sm leading-tight">僅開始此位 (Individual Only)</div>
+                                        <div className="text-sm leading-tight">僅開始此位</div>
                                         <div className="text-[10px] opacity-80 font-normal">其他人繼續等待</div>
                                     </div>
                                 </button>
