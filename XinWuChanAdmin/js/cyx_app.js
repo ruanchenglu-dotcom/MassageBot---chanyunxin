@@ -1212,7 +1212,6 @@ const App = () => {
                     tempState[key] = nextResourceState[key];
                     const startMins = safeTimeToMins(getTaipeiTimeStr(nextResourceState[key].startTime));
 
-                    const b = nextResourceState[key].booking;
                     let durationUsed = b.duration;
                     let isPhase1 = false;
                     const isStrict = b.isForcedSingle === true;
