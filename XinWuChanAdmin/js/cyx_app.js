@@ -261,6 +261,8 @@ const getSmartSplit = (booking, totalDuration, isMaxMode, sequence) => {
             if (parseInt(booking.phase1_duration) + parseInt(booking.phase2_duration) === totalDuration) {
                 let p1 = parseInt(booking.phase1_duration);
                 let p2 = parseInt(booking.phase2_duration);
+                if (isNaN(p1) || p1 <= 0) p1 = Math.floor(totalDuration / 2);
+                if (isNaN(p2) || p2 <= 0) p2 = totalDuration - p1;
                 // Nếu flow thay đổi, cần đảo ngược p1 và p2
                 if (booking.flow && sequence && booking.flow !== sequence) {
                     const temp = p1;
@@ -1285,11 +1287,14 @@ const App = () => {
                         let p2Dur = item.booking.phase2_duration !== undefined && item.booking.phase2_duration !== null ? parseInt(item.booking.phase2_duration, 10) : split.phase2;
                         
                         const finishTimeMins = activeEndTimes[key];
-                        let p2Start = finishTimeMins;
+                        let minP2Start = startMins + (split.phase1 || Math.floor(baseDur / 2));
+                        let p2Start = Math.max(finishTimeMins, minP2Start);
 
                         if (item.booking.transition_time) {
                             const transMins = safeTimeToMins(item.booking.transition_time);
-                            if (transMins !== -1) p2Start = Math.max(transMins, finishTimeMins);
+                            if (transMins !== -1) {
+                                p2Start = Math.max(transMins, p2Start);
+                            }
                         }
                         
                         let p2End = p2Start + p2Dur;

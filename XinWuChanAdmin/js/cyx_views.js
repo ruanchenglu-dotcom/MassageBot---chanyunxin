@@ -2229,8 +2229,19 @@ const TimelineView = ({ timelineData, onEditPhase, liveStatusData, staffList, st
                                                 const switchStr = window.formatMinutesToTime(slot.start + p1Dur);
                                                 timeLabel = switchStr;
                                             } else {
-                                                const transitionMins = window.SYSTEM_CONFIG?.BUFFERS?.TRANSITION_MINUTES || 5;
-                                                timeLabel = window.formatMinutesToTime(slot.end + transitionMins);
+                                                if (slot.meta && slot.meta.isCombo && slot.meta.phase === 2 && booking.transition_time) {
+                                                    const transMins = window.safeTimeToMins(booking.transition_time);
+                                                    if (transMins !== -1) {
+                                                        const p2Dur = booking.phase2_duration !== undefined && booking.phase2_duration !== null ? parseInt(booking.phase2_duration, 10) : (duration - (booking.phase1_duration || Math.round(duration/2)));
+                                                        timeLabel = window.formatMinutesToTime(transMins + p2Dur);
+                                                    } else {
+                                                        const transitionMins = window.SYSTEM_CONFIG?.BUFFERS?.TRANSITION_MINUTES || 5;
+                                                        timeLabel = window.formatMinutesToTime(slot.end + transitionMins);
+                                                    }
+                                                } else {
+                                                    const transitionMins = window.SYSTEM_CONFIG?.BUFFERS?.TRANSITION_MINUTES || 5;
+                                                    timeLabel = window.formatMinutesToTime(slot.end + transitionMins);
+                                                }
                                             }
 
                                             let specialBorderClass = "border border-black/5";
