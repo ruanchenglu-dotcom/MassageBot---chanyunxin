@@ -1085,31 +1085,13 @@ const App = () => {
                         
                         // [V136 NÂNG CẤP] Dò tìm sự thay đổi vị trí vật lý để sửa key
                         let expectedKey = key;
-                        let rawExpected = null;
-                        
                         if (res.comboMeta && res.comboMeta.phase === 2) {
-                            if (freshData.phase2_res_idx) rawExpected = freshData.phase2_res_idx.toUpperCase();
+                            if (freshData.phase2_res_idx) expectedKey = freshData.phase2_res_idx.toUpperCase();
                         } else {
-                            if (freshData.phase1_res_idx) rawExpected = freshData.phase1_res_idx.toUpperCase();
-                            else if (freshData.storedLocation) rawExpected = freshData.storedLocation.toUpperCase();
-                            else if (freshData.current_resource_id) rawExpected = freshData.current_resource_id.toUpperCase();
-                            else if (freshData.location) rawExpected = freshData.location.toUpperCase();
-                        }
-
-                        if (rawExpected) {
-                            // Xử lý chuỗi ghép (ví dụ: CHAIR-1, CHAIR-2) cho khách đi nhóm
-                            if (rawExpected.includes(',')) {
-                                const parts = rawExpected.split(',').map(s => s.trim());
-                                // Nếu key hiện tại nằm trong danh sách các vị trí, thì giữ nguyên key đó
-                                if (parts.includes(key)) {
-                                    expectedKey = key;
-                                } else {
-                                    // Nếu không (ví dụ bị kẹt), lấy phần tử đầu tiên
-                                    expectedKey = parts[0];
-                                }
-                            } else {
-                                expectedKey = rawExpected;
-                            }
+                            if (freshData.phase1_res_idx) expectedKey = freshData.phase1_res_idx.toUpperCase();
+                            else if (freshData.storedLocation) expectedKey = freshData.storedLocation.toUpperCase();
+                            else if (freshData.current_resource_id) expectedKey = freshData.current_resource_id.toUpperCase();
+                            else if (freshData.location) expectedKey = freshData.location.toUpperCase();
                         }
 
                         if (expectedKey && expectedKey !== key) {
@@ -1193,20 +1175,9 @@ const App = () => {
             Object.keys(nextResourceState).forEach(key => {
                 if (nextResourceState[key].isRunning) {
                     tempState[key] = nextResourceState[key];
-                    const b = nextResourceState[key].booking;
-
-                    // --- V1.7 FIX: Lọc hiển thị theo viewDate ---
-                    // Nếu booking không thuộc ngày đang xem thì bỏ qua không vẽ lên timeline hay tính toán block
-                    if (b && b.startTimeString) {
-                        const bDate = b.startTimeString.split(' ')[0];
-                        const bTime = b.startTimeString.split(' ')[1];
-                        if (!window.isWithinOperationalDay(bDate, bTime, viewDate)) {
-                            return; // Vẫn lưu trong tempState để giữ memory, nhưng không vẽ
-                        }
-                    }
-
                     const startMins = safeTimeToMins(getTaipeiTimeStr(nextResourceState[key].startTime));
 
+                    const b = nextResourceState[key].booking;
                     let durationUsed = b.duration;
                     let isPhase1 = false;
                     const isStrict = b.isForcedSingle === true;
@@ -3085,12 +3056,7 @@ const App = () => {
             const rowIdStr = String(item.booking.rowId);
             if (!localOverridesRef.current[rowIdStr]) localOverridesRef.current[rowIdStr] = {};
             localOverridesRef.current[rowIdStr].forceRunning = true;
-            
-            if (localOverridesRef.current[rowIdStr].storedLocation && !localOverridesRef.current[rowIdStr].storedLocation.includes(resourceId)) {
-                localOverridesRef.current[rowIdStr].storedLocation += ", " + resourceId;
-            } else {
-                localOverridesRef.current[rowIdStr].storedLocation = resourceId;
-            }
+            localOverridesRef.current[rowIdStr].storedLocation = resourceId;
 
             const grpIdx = getGroupMemberIndex(resourceId, current.booking.rowId);
             const isComboService = (current.booking.serviceName && current.booking.serviceName.includes('套餐')) || (current.booking.category === 'COMBO' || (current.booking.serviceCode && typeof current.booking.serviceCode === 'string' && current.booking.serviceCode.toUpperCase().startsWith('A')));
@@ -3132,19 +3098,8 @@ const App = () => {
                 localOverridesRef.current[rowIdStr].flow = newComboMeta.sequence;
                 localOverridesRef.current[rowIdStr].phase1_duration = split.phase1;
                 localOverridesRef.current[rowIdStr].phase2_duration = split.phase2;
-                if (localOverridesRef.current[rowIdStr].phase1_res_idx && !localOverridesRef.current[rowIdStr].phase1_res_idx.includes(resourceId.toUpperCase())) {
-                    localOverridesRef.current[rowIdStr].phase1_res_idx += ", " + resourceId.toUpperCase();
-                } else {
-                    localOverridesRef.current[rowIdStr].phase1_res_idx = resourceId.toUpperCase();
-                }
-
-                if (newComboMeta.targetId) {
-                    if (localOverridesRef.current[rowIdStr].phase2_res_idx && !localOverridesRef.current[rowIdStr].phase2_res_idx.includes(newComboMeta.targetId.toUpperCase())) {
-                        localOverridesRef.current[rowIdStr].phase2_res_idx += ", " + newComboMeta.targetId.toUpperCase();
-                    } else {
-                        localOverridesRef.current[rowIdStr].phase2_res_idx = newComboMeta.targetId.toUpperCase();
-                    }
-                }
+                localOverridesRef.current[rowIdStr].phase1_res_idx = resourceId.toUpperCase();
+                if (newComboMeta.targetId) localOverridesRef.current[rowIdStr].phase2_res_idx = newComboMeta.targetId.toUpperCase();
             }
 
             nextResourceState[resourceId] = {
