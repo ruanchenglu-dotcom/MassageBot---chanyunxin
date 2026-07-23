@@ -1982,8 +1982,29 @@ async function batchUpdateMultipleBookings(updatesArray) {
             // ===============================================
         });
 
-        const validDataToUpdate = dataToUpdate.filter(d => !String(d.range).includes('OPT_'));
+        const validDataToUpdateRaw = dataToUpdate.filter(d => !String(d.range).includes('OPT_'));
         
+        // --- V1.7 NÂNG CẤP: Gộp các giá trị update bị trùng (Fix lỗi nhóm khách Pax > 1) ---
+        const rangeMap = {};
+        validDataToUpdateRaw.forEach(update => {
+            const range = update.range;
+            const val = update.values[0][0];
+            if (!rangeMap[range]) {
+                rangeMap[range] = val;
+            } else {
+                // Nếu là cập nhật vị trí ghế/giường (Cột AG, AH) hoặc Resource Type (AI), thì nối chuỗi thay vì ghi đè
+                if (range.includes('!AG') || range.includes('!AH') || range.includes('!AI')) {
+                    if (val && !String(rangeMap[range]).includes(String(val))) {
+                        rangeMap[range] = rangeMap[range] + ", " + val;
+                    }
+                } else {
+                    rangeMap[range] = val; // Các cột khác (như Status, Staff) thì giữ nguyên logic ghi đè (thằng cuối thắng)
+                }
+            }
+        });
+        const validDataToUpdate = Object.keys(rangeMap).map(r => ({ range: r, values: [[rangeMap[r]]] }));
+        // ----------------------------------------------------------------------------------
+
         if (validDataToUpdate.length > 0) {
             await sheets.spreadsheets.values.batchUpdate({
                 spreadsheetId: SHEET_ID,
