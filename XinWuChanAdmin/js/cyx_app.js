@@ -963,6 +963,26 @@ const App = () => {
                     computedStoredLocation = targetB.allocated_resource.split('+')[0].trim().toUpperCase();
                 }
 
+                // [FIX JUMPING CHAIRS]: Normalize location strings
+                const normalizeLocStr = (locStr) => {
+                    if (!locStr) return locStr;
+                    let str = String(locStr).toUpperCase().trim();
+                    str = str.replace(/腳|足/g, 'CHAIR').replace(/床/g, 'BED');
+                    const isOpp = targetB.location === '對面館';
+                    if (/^(CHAIR|BED)\d+-\d+$/.test(str)) {
+                        str = str.replace(/^(CHAIR|BED)(\d+)-(\d+)$/, '$1-$2-$3');
+                    } else if (/^(CHAIR|BED)-(\d+)$/.test(str)) {
+                        str = str.replace(/^(CHAIR|BED)-(\d+)$/, `$1-${isOpp ? '2' : '1'}-$2`);
+                    } else if (/^(CHAIR|BED)(\d+)$/.test(str)) {
+                        str = str.replace(/^(CHAIR|BED)(\d+)$/, `$1-${isOpp ? '2' : '1'}-$2`);
+                    }
+                    return str;
+                };
+
+                safePhase1ResIdx = normalizeLocStr(safePhase1ResIdx);
+                safePhase2ResIdx = normalizeLocStr(safePhase2ResIdx);
+                computedStoredLocation = normalizeLocStr(computedStoredLocation);
+
                 return {
                     ...targetB,
                     id: String(targetB.rowId), // ADDED FOR STAFF SORTER
@@ -1041,6 +1061,13 @@ const App = () => {
 
             const activeRowIds = new Set();
             const activeSignatures = new Set();
+
+            // [FIX JUMPING CHAIRS]: Remove preview blocks from state so they don't block actual allocations
+            Object.keys(nextResourceState).forEach(key => {
+                if (nextResourceState[key] && nextResourceState[key].isPreview) {
+                    delete nextResourceState[key];
+                }
+            });
 
             Object.keys(nextResourceState).forEach(key => {
                 const res = nextResourceState[key];
