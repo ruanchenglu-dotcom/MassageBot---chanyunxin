@@ -1398,10 +1398,18 @@ async function updateInlineBooking(rowId, updatedData) {
             }
         }
 
+        const checkIsRunning = (s) => (s === '服務中' || s === 'In Progress' || s === '🟡服務中' || (s && s.includes('服務中')));
+        let isBookingRunning = false;
+        if (bookingData && (bookingData.isRunning || checkIsRunning(bookingData.status))) {
+            isBookingRunning = true;
+        } else if (row[9] && checkIsRunning(row[9])) {
+            isBookingRunning = true;
+        }
+
         if (formattedDate) {
             row[0] = formattedDate;
         }
-        if (timeVal) {
+        if (timeVal && !isBookingRunning) {
             row[1] = timeVal;
         }
         if (updatedData.hoTen !== undefined) {
@@ -1668,11 +1676,17 @@ async function updateInlineBooking(rowId, updatedData) {
         // --- V1.6 NÂNG CẤP: Tính toán các cột Z, AB (transition), AD (finish) ---
         let colB_Time = row[1];
         if (colB_Time) {
-            let timeVal = colB_Time; if (timeVal.includes(' ')) timeVal = timeVal.split(' ')[1];
-            if (timeVal.length > 5) timeVal = timeVal.substring(0, 5);
-            row[27] = timeVal; // Z: start_time_str
+            let parsedColB = colB_Time; if (parsedColB.includes(' ')) parsedColB = parsedColB.split(' ')[1];
+            if (parsedColB.length > 5) parsedColB = parsedColB.substring(0, 5);
             
-            const startMins = typeof ResourceCore !== 'undefined' ? ResourceCore.getMinsFromTimeStr(timeVal) : -1;
+            let timeValAB = parsedColB;
+            if (!isBookingRunning) {
+                row[27] = parsedColB; // AB: start_time_str
+            } else {
+                timeValAB = bookingData ? (bookingData.startTime_sheet || bookingData.checkinTime || parsedColB) : (row[27] || parsedColB);
+            }
+            
+            const startMins = typeof ResourceCore !== 'undefined' ? ResourceCore.getMinsFromTimeStr(timeValAB) : -1;
             if (startMins !== -1) {
                 let p1Dur = parseInt(row[28]) || 0;
                 let p2Dur = parseInt(row[30]) || 0;
