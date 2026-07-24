@@ -1114,7 +1114,15 @@ const App = () => {
                         res.booking = { ...res.booking, ...freshData };
                         // [V136.1 FIX] Đồng bộ thực tế startTime của ca đang chạy khi có thay đổi trên Google Sheets
                         if (res.isRunning && freshData.startTimeString) {
-                            res.startTime = getScheduledStartTimeISO(freshData);
+                            if (res.comboMeta && res.comboMeta.phase === 2) {
+                                if (freshData.transition_time) {
+                                    let p2BaseISO = getScheduledStartTimeISO(freshData);
+                                    const baseDate = p2BaseISO.split('T')[0];
+                                    res.startTime = `${baseDate}T${freshData.transition_time.length === 5 ? freshData.transition_time + ':00' : freshData.transition_time}`;
+                                }
+                            } else {
+                                res.startTime = getScheduledStartTimeISO(freshData);
+                            }
                         }
                         activeSignatures.add(getBookingSignature(freshData));
                         

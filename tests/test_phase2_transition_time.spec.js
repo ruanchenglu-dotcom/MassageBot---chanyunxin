@@ -25,23 +25,27 @@ test('Verify Phase 2 rendering strictly follows transition_time and finish_time'
             bookings: [mockBooking],
             staffList: [{ id: "A", name: "A", status: "Available" }],
             staffStatus: {},
+            schedule: {},
+            services: [],
             resourceState: {
                 "BED-1-1": {
                     booking: mockBooking,
                     isRunning: true,
-                    startTime: "2026/07/24 12:00"
+                    startTime: "2026/07/24 12:00",
+                    comboMeta: { phase: 2 }
                 },
                 "CHAIR-1-1": {
                     booking: mockBooking,
                     isRunning: true,
-                    startTime: "2026/07/24 12:00"
+                    startTime: "2026/07/24 12:00",
+                    comboMeta: { phase: 1 }
                 }
             }
         };
         await route.fulfill({
             status: 200,
             contentType: 'application/json',
-            body: JSON.stringify({ success: true, data: mockData })
+            body: JSON.stringify(mockData)
         });
     });
 
@@ -61,7 +65,7 @@ test('Verify Phase 2 rendering strictly follows transition_time and finish_time'
         window.Date.now = () => new MockDate().getTime();
     });
 
-    await page.goto('/');
+    await page.goto('/admin2/index.html');
 
     // Wait for the timeline block to be rendered
     await page.waitForSelector('.timeline-block');
