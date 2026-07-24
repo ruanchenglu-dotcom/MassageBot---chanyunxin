@@ -56,7 +56,7 @@ test('Verify Phase 2 running block uses transition_time instead of startTime', a
     await page.goto('/');
 
     // Wait for the timeline block to be rendered on BED-1-1
-    const block = page.locator('.booking-block').filter({ hasText: '劉小姐(1/2)' }).last();
+    const block = page.locator('.timeline-block').filter({ hasText: '劉小姐(1/2)' }).last();
     await expect(block).toBeVisible({ timeout: 10000 });
 
     // Check the style.left of the block to see where it was drawn.
@@ -72,7 +72,7 @@ test('Verify Phase 2 running block uses transition_time instead of startTime', a
     
     // Also check Phase 1 reconstruction
     // The Phase 1 reconstructed block should be on CHAIR-1-1 and start at 12:00
-    const p1Block = page.locator('.booking-block').filter({ hasText: '劉小姐(1/2)' }).first();
+    const p1Block = page.locator('.timeline-block').filter({ hasText: '劉小姐(1/2)' }).first();
     const p1Style = await p1Block.getAttribute('style');
     // Phase 1 start at 12:00 -> 132px
     expect(p1Style).toContain('left: 132px');

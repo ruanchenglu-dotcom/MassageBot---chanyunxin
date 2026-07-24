@@ -1300,11 +1300,17 @@ const App = () => {
                         if (item.booking.transition_time) {
                             const transMins = safeTimeToMins(item.booking.transition_time);
                             if (transMins !== -1) {
-                                p2Start = Math.max(transMins, p2Start);
+                                p2Start = transMins;
                             }
                         }
                         
                         let p2End = p2Start + p2Dur;
+                        if (item.booking.finish_time) {
+                            const finishMins = safeTimeToMins(item.booking.finish_time);
+                            if (finishMins !== -1) {
+                                p2End = finishMins;
+                            }
+                        }
 
                         let finalTargetId = item.booking.phase2_res_idx ? item.booking.phase2_res_idx.toUpperCase() : null;
 
@@ -1449,6 +1455,12 @@ const App = () => {
                         }
                         
                         let p2End = p2Start + p2Dur;
+                        if (bookingItem.finish_time) {
+                             const finishMins = safeTimeToMins(bookingItem.finish_time);
+                             if (finishMins !== -1) {
+                                 p2End = finishMins;
+                             }
+                        }
 
                         if (pref1) {
                             let isClash1 = false;

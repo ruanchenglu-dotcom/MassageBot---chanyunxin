@@ -8,7 +8,7 @@ chạy taskkill /F /IM node.exe tắt node
 
 run node cyx_index.js
 
-với vai trò là một lập trình viên đẳng cấp hãy kiểm tra và phân tích lỗi tất cả các file, hãy check toàn bộ file frontend và cả backend.giải thích bằng tiếng việt.lên kế hoạch nâng cấp chi tiết mà không ảnh hưởng đến các tính năng khác. giao diện ngôn ngữ UX/UI tiếng trung phồn thể,không chứa ngôn ngữ khác.. và ghi rõ các file cần nâng cấp, Trước khi viết bất kỳ dòng code nào, hãy lập một kế hoạch (Implementation Plan) và liệt kê những tính năng cũ nào có thể bị ảnh hưởng bởi thay đổi này. Đợi tôi duyệt kế hoạch rồi mới code..
+với vai trò là một lập trình viên đẳng cấp hãy kiểm tra và phân tích lỗi tất cả các file, hãy check toàn bộ file frontend và cả backend.giải thích bằng tiếng việt.lên kế hoạch nâng cấp chi tiết mà không ảnh hưởng đến các tính năng khác. giao diện ngôn ngữ UX/UI tiếng trung phồn thể,không chứa ngôn ngữ khác.. và ghi rõ các file cần nâng cấp, Trước khi viết bất kỳ dòng code nào, hãy lập một kế hoạch (Implementation Plan bằng tiếng việt) và liệt kê những tính năng cũ nào có thể bị ảnh hưởng bởi thay đổi này. Đợi tôi duyệt kế hoạch rồi mới code..
 
 Bước 1:[Approve / Chấp thuận].với vai trò là một lập trình viên đẳng cấp hãy tiến hành nâng cấp các file mà không ảnh hưởng đến các tính năng khác. giao diện ngôn ngữ app UX/UI tiếng trung phồn thể không chứa ngôn ngữ khác. Bước 2:test tự động (End-to-End Test) ,Hãy cài đặt và viết cho tôi kịch bản test của tính năng chúng ta vừa nâng cấp. sau đó tiến hành tự động chạy kiểm thử.Sau khi setup xong, hãy chạy thử cho tôi xem.Bước 3:sau khi thành công chạy lệnh "./len "time"" update code mới lên render ngay lập tức.   
 
@@ -25,4 +25,4 @@ bù sau
 lão dian
 thanh toán
 
-
+có lỗi sau khi bắt đầu thì vẫn vẽ đúng nhưng sau tầm 10s thì phase 2 chạy về trước vẽ sai.với vai trò là một lập trình viên đẳng cấp hãy kiểm tra và phân tích lỗi tất cả các file, hãy check toàn bộ file frontend và cả backend.giải thích bằng tiếng việt.lên kế hoạch nâng cấp chi tiết mà không ảnh hưởng đến các tính năng khác. giao diện ngôn ngữ UX/UI tiếng trung phồn thể,không chứa ngôn ngữ khác.. và ghi rõ các file cần nâng cấp, Trước khi viết bất kỳ dòng code nào, hãy lập một kế hoạch (Implementation Plan) và liệt kê những tính năng cũ nào có thể bị ảnh hưởng bởi thay đổi này. Đợi tôi duyệt kế hoạch rồi mới code..
