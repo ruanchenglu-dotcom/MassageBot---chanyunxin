@@ -2081,6 +2081,7 @@ const App = () => {
                 isRunning = true;
             }
             if (resourceState[k].isRunning && resourceState[k].booking) {
+                if (String(resourceState[k].booking.rowId) === rowId) return;
                 const b = resourceState[k];
                 try {
                     const startMins = safeTimeToMins(getTaipeiTimeStr(b.startTime));
@@ -2428,6 +2429,7 @@ const App = () => {
         const mockActiveEndTimes = {};
         Object.keys(resourceState).forEach(k => {
             if (resourceState[k].isRunning && resourceState[k].booking) {
+                if (String(resourceState[k].booking.rowId) === rowId) return;
                 const b = resourceState[k];
                 try {
                     const startObj = new Date(b.startTime);
@@ -3566,8 +3568,10 @@ const App = () => {
         }
         
         const mockActiveEndTimes = {};
+        const groupRowIds = allBookings.map(b => String(b.rowId));
         Object.keys(resourceState).forEach(k => {
             if (resourceState[k].isRunning && resourceState[k].booking) {
+                if (groupRowIds.includes(String(resourceState[k].booking.rowId))) return;
                 try {
                     const startMins = safeTimeToMins(getTaipeiTimeStr(resourceState[k].startTime));
                     mockActiveEndTimes[k] = startMins + (resourceState[k].booking.duration || 60);
