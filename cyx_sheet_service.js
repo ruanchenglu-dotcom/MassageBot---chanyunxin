@@ -529,6 +529,7 @@ async function syncData() {
                     phone: row[3], date: cleanDate, opDate: computedOpDate, status: status,
                     isRunning: isRunning, lineId: row[23],
                     checkinTime: row[26],
+                    startTime_sheet: row[27],
                     phase1_duration: safeParseInt(row[28], null),
                     transition_time: row[29],
                     phase2_duration: safeParseInt(row[30], null),
@@ -881,6 +882,7 @@ async function ghiVaoSheet(data, proposedUpdates = []) {
                     customerName: r[2],
                     status: r[9],
                     flow: r[25],
+                    startTime_sheet: r[27],
                     phase1_duration: r[28],
                     phase2_duration: r[30],
                     duration: (parseInt(r[28]) || 0) + (parseInt(r[30]) || 0),
@@ -1168,11 +1170,15 @@ async function updateBookingDetails(body) {
         // Bỏ gán ngày vào cột S để bảo vệ dữ liệu "轉帳"
     }
     
+    let isBookingRunning = bookingData && (bookingData.isRunning || checkIsRunning(bookingData.status));
+
     let finalStartTime = body.startTime || body.gioDen;
     if (finalStartTime) {
         let timeVal = finalStartTime; if (timeVal.length > 5) timeVal = timeVal.substring(0, 5);
         if (!body.updateCheckinOnly) {
-            updateCell('B', timeVal);
+            if (!isBookingRunning) {
+                updateCell('B', timeVal);
+            }
         }
     }
     if (body.customerName) updateCell('C', body.customerName);
@@ -1251,9 +1257,15 @@ async function updateBookingDetails(body) {
     if (newStartVal) {
         let timeVal = newStartVal; if (timeVal.includes(' ')) timeVal = timeVal.split(' ')[1];
         if (timeVal.length > 5) timeVal = timeVal.substring(0, 5);
-        updateCell('AB', timeVal); // start_time_str
         
-        const startMins = typeof ResourceCore !== 'undefined' ? ResourceCore.getMinsFromTimeStr(timeVal) : -1;
+        let timeValAB = timeVal;
+        if (!isBookingRunning) {
+            updateCell('AB', timeVal); // start_time_str
+        } else {
+            timeValAB = bookingData ? (bookingData.startTime_sheet || bookingData.checkinTime || timeVal) : timeVal;
+        }
+        
+        const startMins = typeof ResourceCore !== 'undefined' ? ResourceCore.getMinsFromTimeStr(timeValAB) : -1;
         if (startMins !== -1) {
             let p1Dur = body.phase1_duration !== undefined ? parseInt(body.phase1_duration) : (bookingData ? parseInt(bookingData.phase1_duration) : 0);
             let p2Dur = body.phase2_duration !== undefined ? parseInt(body.phase2_duration) : (bookingData ? parseInt(bookingData.phase2_duration) : 0);
