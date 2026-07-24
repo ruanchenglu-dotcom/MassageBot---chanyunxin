@@ -43,7 +43,7 @@ const safeTimeToMins = (timeStr) => {
         const openHour = window.SYSTEM_CONFIG?.OPERATION_TIME?.OPEN_HOUR || 5;
         // Xử lý cả trường hợp chuỗi có chứa ngày "YYYY/MM/DD 17:20" hoặc chỉ là "17:20"
         const timePart = timeStr.includes(' ') ? timeStr.split(' ')[1] : timeStr;
-        const [hStr, mStr] = timePart.split(':');
+        const [hStr, mStr] = timePart.replace(/[\.：]/g, ':').split(':');
         const h = parseInt(hStr, 10);
         const m = parseInt(mStr, 10);
 
@@ -1315,7 +1315,14 @@ const App = () => {
                             });
                         }
                     } else {
-                        const p2StartMins = startMins;
+                        let p2StartMins = startMins;
+                        if (item.booking.transition_time) {
+                            const tMins = safeTimeToMins(item.booking.transition_time);
+                            if (tMins !== -1 && tMins !== 0) {
+                                p2StartMins = tMins;
+                            }
+                        }
+                        
                         let p1Dur = item.booking.phase1_duration !== undefined && item.booking.phase1_duration !== null ? parseInt(item.booking.phase1_duration, 10) : split.phase1;
                         let p1End = p2StartMins - (window.SYSTEM_CONFIG?.BUFFERS?.TRANSITION_MINUTES || 5);
 
@@ -4449,9 +4456,9 @@ const App = () => {
                         
                         const safeTimeToMinsLocal = (tStr) => {
                             if (!tStr) return 0;
-                            const p = tStr.split(' ')[1];
+                            const p = tStr.includes(' ') ? tStr.split(' ')[1] : tStr;
                             if (!p) return 0;
-                            const [h, m] = p.split(':').map(Number);
+                            const [h, m] = p.replace(/[\.：]/g, ':').split(':').map(Number);
                             return h * 60 + (m || 0);
                         };
 

@@ -713,7 +713,7 @@ app.get('/api/staff-schedule', async (req, res) => {
             if (!str) return -1;
             try {
                 if (str.includes(' ')) str = str.split(' ')[1];
-                const parts = str.split(':');
+                const parts = str.replace(/[\.：]/g, ':').split(':');
                 let h = parseInt(parts[0], 10);
                 let m = parseInt(parts[1], 10);
                 if (h < openHour) h += 24;
@@ -788,7 +788,13 @@ app.get('/api/staff-schedule', async (req, res) => {
             if (isCombo) {
                 // Ca Combo: Gồm hai phase riêng biệt
                 const p1EndMins = startMins + p1;
-                const p2StartMins = p1EndMins + transitionBuffer;
+                let p2StartMins = p1EndMins + transitionBuffer;
+                if (b.transition_time) {
+                    const transMins = timeStrToMins(b.transition_time);
+                    if (transMins !== -1) {
+                        p2StartMins = transMins;
+                    }
+                }
                 const p2EndMins = p2StartMins + p2;
                 
                 // Add Phase 1 slot
