@@ -2075,7 +2075,11 @@ const App = () => {
         }
 
         const mockActiveEndTimes = {};
+        let isRunning = ['Running', '服務中', 'Serving', '🟡'].some(k => (targetBooking.status || '').includes(k));
         Object.keys(resourceState).forEach(k => {
+            if (resourceState[k].isRunning && resourceState[k].booking && String(resourceState[k].booking.rowId) === rowId) {
+                isRunning = true;
+            }
             if (resourceState[k].isRunning && resourceState[k].booking) {
                 const b = resourceState[k];
                 try {
@@ -2099,12 +2103,20 @@ const App = () => {
             
             let testS1 = customP1Res && customP1Res !== 'auto' ? customP1Res.toUpperCase() : null;
             if (!testS1) {
-                testS1 = MatrixHelper.findBestSlot(testP1Type, tryStart, tryStart + p1Dur, timelineData, mockActiveEndTimes, null, rowId, isLongSingle);
+                if (isRunning && targetBooking.phase1_res_idx && finalFlow === (targetBooking.flow || 'FB')) {
+                    testS1 = targetBooking.phase1_res_idx;
+                } else {
+                    testS1 = MatrixHelper.findBestSlot(testP1Type, tryStart, tryStart + p1Dur, timelineData, mockActiveEndTimes, null, rowId, isLongSingle);
+                }
             }
             
             let testS2 = customP2Res && customP2Res !== 'auto' ? customP2Res.toUpperCase() : null;
             if (!testS2 && testFlow.match(/FB|BF/)) {
-                testS2 = MatrixHelper.findBestSlot(testP2Type, testP2Start, testP2Start + p2Dur, timelineData, mockActiveEndTimes, null, rowId);
+                if (isRunning && targetBooking.phase2_res_idx && finalFlow === (targetBooking.flow || 'FB')) {
+                    testS2 = targetBooking.phase2_res_idx;
+                } else {
+                    testS2 = MatrixHelper.findBestSlot(testP2Type, testP2Start, testP2Start + p2Dur, timelineData, mockActiveEndTimes, null, rowId);
+                }
             } else if (!testS2) {
                 testS2 = `${testP2Type}-1`;
             }
