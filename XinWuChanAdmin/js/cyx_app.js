@@ -936,23 +936,29 @@ const App = () => {
 
                 // [V116.4 Nội Suy Thông Minh] Giải cứu vị trí Ghế/Giường bị kẹt từ allocated_resource
                 let safePhase1ResIdx = targetB.phase1_res_idx;
-                if (!safePhase1ResIdx) {
-                    if (targetB.phase1_resource) {
-                        safePhase1ResIdx = targetB.phase1_resource;
-                    } else if (targetB.allocated_resource && targetB.allocated_resource.includes('+')) {
-                        safePhase1ResIdx = targetB.allocated_resource.split('+')[0].trim();
-                    } else if (targetB.allocated_resource) {
-                        safePhase1ResIdx = targetB.allocated_resource;
-                    }
+                let safePhase2ResIdx = targetB.phase2_res_idx;
+
+                if (!safePhase1ResIdx && targetB.phase1_resource) safePhase1ResIdx = targetB.phase1_resource;
+                if (!safePhase2ResIdx && targetB.phase2_resource) safePhase2ResIdx = targetB.phase2_resource;
+
+                if ((!safePhase1ResIdx || !safePhase2ResIdx) && targetB.allocated_resource && targetB.allocated_resource.includes('+')) {
+                    const parts = targetB.allocated_resource.split('+').map(p => p.trim());
+                    const impliedFlow = targetB._impliedFlow || targetB.flow || '';
+                    const noteContent = (targetB.note || targetB.ghiChu || targetB.originalData?.ghiChu || '').toString().toUpperCase();
+                    let isBF = (impliedFlow === 'BF' || noteContent.includes('BF') || noteContent.includes('BODY FIRST') || noteContent.includes('先做身體'));
+                    
+                    let bedRes = parts.find(p => p.toUpperCase().includes('BED') || p.includes('床'));
+                    let chairRes = parts.find(p => p.toUpperCase().includes('CHAIR') || p.includes('FOOT') || p.includes('足') || p.includes('腳'));
+                    
+                    if (!bedRes) bedRes = parts[isBF ? 0 : 1];
+                    if (!chairRes) chairRes = parts[isBF ? 1 : 0];
+
+                    if (!safePhase1ResIdx) safePhase1ResIdx = isBF ? bedRes : chairRes;
+                    if (!safePhase2ResIdx) safePhase2ResIdx = isBF ? chairRes : bedRes;
                 }
 
-                let safePhase2ResIdx = targetB.phase2_res_idx;
-                if (!safePhase2ResIdx) {
-                    if (targetB.phase2_resource) {
-                        safePhase2ResIdx = targetB.phase2_resource;
-                    } else if (targetB.allocated_resource && targetB.allocated_resource.includes('+')) {
-                        safePhase2ResIdx = targetB.allocated_resource.split('+')[1].trim();
-                    }
+                if (!safePhase1ResIdx && targetB.allocated_resource && !targetB.allocated_resource.includes('+')) {
+                    safePhase1ResIdx = targetB.allocated_resource;
                 }
 
                 let computedStoredLocation = targetB.current_resource_id;
@@ -1281,6 +1287,7 @@ const App = () => {
                     }
 
                     const split = getSmartSplit(item.booking, item.booking.duration, item.isMaxMode, seq);
+                    const startMins = safeTimeToMins(getTaipeiTimeStr(item.startTime));
 
                     if (isPhase1) {
                         const baseDur = parseInt(item.booking.duration || 60, 10);
@@ -1308,7 +1315,7 @@ const App = () => {
                             });
                         }
                     } else {
-                        const p2StartMins = safeTimeToMins(getTaipeiTimeStr(item.startTime));
+                        const p2StartMins = startMins;
                         let p1Dur = item.booking.phase1_duration !== undefined && item.booking.phase1_duration !== null ? parseInt(item.booking.phase1_duration, 10) : split.phase1;
                         let p1End = p2StartMins - (window.SYSTEM_CONFIG?.BUFFERS?.TRANSITION_MINUTES || 5);
 
