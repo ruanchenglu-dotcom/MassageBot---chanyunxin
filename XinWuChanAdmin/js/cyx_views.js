@@ -326,12 +326,13 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
     useEffect(() => {
         if (isOpen && booking) {
             let initTime = "12:00";
-            if (liveData && liveData.startTime) {
-                const d = new Date(liveData.startTime);
-                initTime = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
-            } else if (booking && booking.startTimeString) {
+            if (booking && booking.startTimeString) {
                 const parts = booking.startTimeString.split(' ');
                 if (parts.length > 1) initTime = parts[1].substring(0, 5);
+                else initTime = booking.startTimeString;
+            } else if (liveData && liveData.startTime) {
+                const d = new Date(liveData.startTime);
+                initTime = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
             }
             setStartTimeStr(initTime);
         }

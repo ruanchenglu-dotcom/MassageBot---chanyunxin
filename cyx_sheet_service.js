@@ -1259,11 +1259,7 @@ async function updateBookingDetails(body) {
         if (timeVal.length > 5) timeVal = timeVal.substring(0, 5);
         
         let timeValAB = timeVal;
-        if (!isBookingRunning) {
-            updateCell('AB', timeVal); // start_time_str
-        } else {
-            timeValAB = bookingData ? (bookingData.startTime_sheet || bookingData.checkinTime || timeVal) : timeVal;
-        }
+        updateCell('AB', timeVal); // start_time_str
         
         const startMins = typeof ResourceCore !== 'undefined' ? ResourceCore.getMinsFromTimeStr(timeValAB) : -1;
         if (startMins !== -1) {
