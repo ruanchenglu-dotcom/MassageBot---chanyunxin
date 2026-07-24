@@ -1311,7 +1311,7 @@ const App = () => {
                         if (finalTargetId) {
                             addToGrid(finalTargetId, p2Start, p2End, item.booking, {
                                 isCombo: true, phase: 2, sequence: seq, originId: key, isPrediction: false, priority: 2,
-                                isRunning: false
+                                isRunning: item.isRunning || item.booking.isRunningStatus || false
                             });
                         }
                     } else {
@@ -1341,7 +1341,7 @@ const App = () => {
                         if (reconstructedId) {
                             addToGrid(reconstructedId, p1Start, p1End, item.booking, {
                                 isCombo: true, phase: 1, sequence: seq, targetId: key, isPrediction: false, priority: 2, isPastReconstruct: true,
-                                isRunning: false
+                                isRunning: item.isRunning || item.booking.isRunningStatus || false
                             });
                         }
                     }
