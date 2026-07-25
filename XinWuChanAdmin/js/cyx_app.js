@@ -1045,24 +1045,26 @@ const App = () => {
                     !safeStatus.includes('候補') && !safeStatus.toUpperCase().includes('STANDBY');
             });
 
+            let currentCleanStaffList = staffList || [];
             if (apiStaff && apiStaff.length > 0) {
                 // Làm sạch ID cho staff list
-                const cleanStaffList = apiStaff.map(s => ({
+                currentCleanStaffList = apiStaff.map(s => ({
                     ...s,
                     id: normalizeStaffId(s.id)
                 }));
-                setStaffList(cleanStaffList);
+                setStaffList(currentCleanStaffList);
             } else if (!staffList || staffList.length === 0) {
                 setStaffList([]);
             }
 
+            let currentCleanStatusData = statusData || {};
             if (serverStaff && Object.keys(serverStaff).length > 0) {
                 // Làm sạch key cho status data
-                const cleanStatusData = {};
+                currentCleanStatusData = {};
                 Object.keys(serverStaff).forEach(k => {
-                    cleanStatusData[normalizeStaffId(k)] = serverStaff[k];
+                    currentCleanStatusData[normalizeStaffId(k)] = serverStaff[k];
                 });
-                setStatusData(cleanStatusData);
+                setStatusData(currentCleanStatusData);
             } else if (!statusData || Object.keys(statusData).length === 0) {
                 setStatusData({});
             }
@@ -1077,6 +1079,8 @@ const App = () => {
                 }
             });
 
+            if (!window._autoCheckoutInfo) window._autoCheckoutInfo = [];
+
             Object.keys(nextResourceState).forEach(key => {
                 const res = nextResourceState[key];
                 if (res.isRunning && res.booking) {
@@ -1084,6 +1088,24 @@ const App = () => {
                     if (bookingMap.has(rowId)) {
                         const freshBooking = bookingMap.get(rowId);
                         if (freshBooking.isDoneStatus) {
+                            // [NÂNG CẤP]: Tự động giải phóng thợ khi đơn hàng hoàn thành (Auto-Checkout từ thiết bị khác)
+                            const s1 = window.normalizeStaffId ? window.normalizeStaffId(freshBooking.serviceStaff) : freshBooking.serviceStaff;
+                            const s2 = window.normalizeStaffId ? window.normalizeStaffId(freshBooking.staffId2) : freshBooking.staffId2;
+                            const dur = window.getSafeDuration ? window.getSafeDuration(freshBooking.serviceName, freshBooking.duration) : 60;
+                            
+                            if (s1 && s1 !== '隨機' && s1 !== '') {
+                                const st = currentCleanStatusData[s1];
+                                if (!st || (st.status !== 'READY' && st.status !== 'AWAY')) {
+                                    window._autoCheckoutInfo.push({ staffId: s1, duration: dur, blocks: freshBooking.staff1_blocks || 1 });
+                                }
+                            }
+                            if (s2 && s2 !== '隨機' && s2 !== '') {
+                                const st = currentCleanStatusData[s2];
+                                if (!st || (st.status !== 'READY' && st.status !== 'AWAY')) {
+                                    window._autoCheckoutInfo.push({ staffId: s2, duration: dur, blocks: freshBooking.staff2_blocks || 1 });
+                                }
+                            }
+                            
                             delete nextResourceState[key];
                             return;
                         }
@@ -1626,6 +1648,28 @@ const App = () => {
                 }
             } catch (err) {
                 console.error("Auto sync error:", err);
+            }
+
+            // [NÂNG CẤP]: Xử lý Auto-Checkout nếu có thợ cần giải phóng
+            if (window._autoCheckoutInfo && window._autoCheckoutInfo.length > 0) {
+                if (window.StaffSorter && window.StaffSorter.processCheckout) {
+                    const baseTime = Date.now();
+                    const isGroup = window._autoCheckoutInfo.length >= 2;
+                    // Lấy state mới nhất
+                    let currentStaffState = currentCleanStatusData;
+                    
+                    window.StaffSorter.processCheckout(window._autoCheckoutInfo, currentStaffState, currentCleanStaffList, baseTime, isGroup)
+                        .then(finalStatusData => {
+                            if (finalStatusData) {
+                                Object.assign(currentStaffState, finalStatusData);
+                                setStatusData({ ...currentStaffState });
+                                // Đồng bộ lên server
+                                universalSend('/api/sync-staff-status', currentStaffState);
+                            }
+                        })
+                        .catch(err => console.error("Auto-checkout error:", err));
+                }
+                window._autoCheckoutInfo = []; // Reset mảng sau khi xử lý
             }
 
         } catch (e) {
