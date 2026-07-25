@@ -27,43 +27,47 @@ test.describe('Worked Today Offline Staff Render', () => {
         await page.goto('http://localhost:5001/admin2');
         await page.waitForTimeout(2000);
 
-        // Find the container with grayscale filter
-        const grayContainer = page.locator('div.opacity-60.grayscale');
+        // Find the container for workedTodayStaff (the first flex-row-reverse div)
+        const awayContainer = page.locator('div.flex-row-reverse').first();
         
-        await expect(grayContainer).toBeVisible();
+        await expect(awayContainer).toBeVisible();
         
         // Wait for cards to render
         await page.waitForTimeout(500);
 
-        // Get inner text of the gray container
-        const grayCardTexts = await grayContainer.innerText();
-        console.log('Grayscale Container Content:', grayCardTexts);
+        // Get inner text of the container
+        const awayCardTexts = await awayContainer.innerText();
+        console.log('Away Container Content:', awayCardTexts);
         
-        // Worker A should be here because off is false and status is AWAY
-        expect(grayCardTexts).toContain('Worker A');
+        // Worker A and D should be here
+        expect(awayCardTexts).toContain('Worker A');
+        expect(awayCardTexts).toContain('Worker D');
         
-        // Worker B should NOT be here because off is true
-        expect(grayCardTexts).not.toContain('Worker B');
-        
-        // Worker C should NOT be here because status is READY
-        expect(grayCardTexts).not.toContain('Worker C');
+        // Worker B (off=true) and Worker C (status=READY) should NOT be here
+        expect(awayCardTexts).not.toContain('Worker B');
+        expect(awayCardTexts).not.toContain('Worker C');
 
-        // Worker D should be here because off is false and status is AWAY
-        expect(grayCardTexts).toContain('Worker D');
+        // Check female border for Worker A (inline style computed as rgb)
+        const workerACard = awayContainer.locator('.card-3d', { hasText: 'Worker A' }).first();
+        await expect(workerACard).toHaveAttribute('style', /244, 114, 182/);
 
-        // Check female border for Worker A
-        const workerACard = grayContainer.locator('.card-3d', { hasText: 'Worker A' }).first();
-        await expect(workerACard).toHaveClass(/border-pink-400/);
-
-        // Check male border for Worker D
-        const workerDCard = grayContainer.locator('.card-3d', { hasText: 'Worker D' }).first();
-        await expect(workerDCard).toHaveClass(/border-blue-400/);
+        // Check male border for Worker D (inline style computed as rgb)
+        const workerDCard = awayContainer.locator('.card-3d', { hasText: 'Worker D' }).first();
+        await expect(workerDCard).toHaveAttribute('style', /96, 165, 250/);
 
         // Check shift start time display
-        const workerATime = grayContainer.locator('div', { hasText: '10:00' }).first();
+        const workerATime = awayContainer.locator('div', { hasText: '10:00' }).first();
         await expect(workerATime).toBeVisible();
 
-        const workerDTime = grayContainer.locator('div', { hasText: '14:30' }).first();
+        const workerDTime = awayContainer.locator('div', { hasText: '14:30' }).first();
         await expect(workerDTime).toBeVisible();
+
+        // Check order (Worker A is 10:00, Worker D is 14:30)
+        // Array is sorted ascending: [Worker A, Worker D]
+        // DOM order should be Worker A then Worker D
+        const cards = awayContainer.locator('.card-3d');
+        await expect(cards).toHaveCount(2);
+        await expect(cards.nth(0)).toContainText('Worker A');
+        await expect(cards.nth(1)).toContainText('Worker D');
     });
 });

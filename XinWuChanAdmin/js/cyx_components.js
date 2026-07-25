@@ -137,8 +137,13 @@ const StaffCard3D = ({ s, statusData, resourceState, queueIndex, isForcedBusy, o
     const shiftStart = s['上班'] || s.start || s.shiftStart || '';
 
     // 3. Chế độ offlineMode cho thợ sắp đến
+    let customStyle = {};
     if (isOfflineMode) {
-        customClass += isFemale ? ' !border-[2px] !border-pink-400' : ' !border-[2px] !border-blue-400';
+        customClass += isFemale ? ' !border-[2px]' : ' !border-[2px]';
+        customStyle = {
+            borderColor: isFemale ? '#f472b6' : '#60a5fa',
+            borderBottomColor: isFemale ? '#db2777' : '#2563eb'
+        };
     }
 
     // 4. Trạng thái BUSY: Giữ tuyệt đối cardStyle 'st-busy' gốc, không thay đổi customClass (Đã xóa logic override bóng cam)
@@ -157,7 +162,7 @@ const StaffCard3D = ({ s, statusData, resourceState, queueIndex, isForcedBusy, o
                 </div>
             )}
 
-            <div className={`card-3d ${cardStyle} ${customClass} flex flex-col items-center justify-center relative p-0 overflow-hidden transition-all duration-300`}>
+            <div className={`card-3d ${cardStyle} ${customClass} flex flex-col items-center justify-center relative p-0 overflow-hidden transition-all duration-300`} style={customStyle}>
                 {queueIndex !== undefined && (displayStatus === 'READY' || displayStatus === 'BUSY') && (
                     <div className={`queue-badge ${displayStatus === 'BUSY' ? '!bg-slate-700 !text-white' : 'animate-bounce-slow'}`}>
                         {queueIndex + 1}

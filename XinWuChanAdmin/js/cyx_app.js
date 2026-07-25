@@ -4760,12 +4760,20 @@ const App = () => {
     const readyQueue = staffGroups.readyQueueIds || [];
 
     const workedTodayStaff = useMemo(() => {
-        return awayStaff.filter(s => {
+        const filtered = awayStaff.filter(s => {
             const stat = statusData[s.id] || {};
             const isStatusAway = stat.status === 'AWAY' || !stat.status;
             const isNotOff = s.off !== true && String(s.off).toUpperCase() !== 'TRUE';
             return isStatusAway && isNotOff;
         });
+        
+        filtered.sort((a, b) => {
+            const timeA = a['上班'] || a.start || a.shiftStart || '00:00';
+            const timeB = b['上班'] || b.start || b.shiftStart || '00:00';
+            return timeA.localeCompare(timeB);
+        });
+
+        return filtered;
     }, [awayStaff, statusData]);
 
     const waitingList = todaysBookings.filter(b => !b.status.includes('完成') && !b.status.includes('✅') && !b.status.includes(APP_STATUS.COMPLETED) && (b.status === '已預約' || b.status === APP_STATUS.WAITING));
@@ -4816,7 +4824,7 @@ const App = () => {
             <div className="bg-white border-b shadow-sm p-2 overflow-x-auto whitespace-nowrap staff-scroll">
                 <div className="flex w-full justify-end items-center min-w-max">
                     <div className="flex items-center flex-1 justify-end pl-2">
-                        <div className="flex gap-1 px-2 border-r border-red-100 flex-row-reverse opacity-60 grayscale filter">
+                        <div className="flex gap-1 px-2 border-r border-red-100 flex-row-reverse">
                             {workedTodayStaff.map(s => window.StaffCard3D && <window.StaffCard3D key={s.id} s={s} statusData={statusData} resourceState={resourceState} isOfflineMode={true} />)}
                         </div>
                         <div className="flex gap-1 px-2 border-r border-red-100 flex-row-reverse">
