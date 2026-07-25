@@ -4817,7 +4817,7 @@ const App = () => {
                 <div className="flex w-full justify-end items-center min-w-max">
                     <div className="flex items-center flex-1 justify-end pl-2">
                         <div className="flex gap-1 px-2 border-r border-red-100 flex-row-reverse opacity-60 grayscale filter">
-                            {workedTodayStaff.map(s => window.StaffCard3D && <window.StaffCard3D key={s.id} s={s} statusData={statusData} resourceState={resourceState} />)}
+                            {workedTodayStaff.map(s => window.StaffCard3D && <window.StaffCard3D key={s.id} s={s} statusData={statusData} resourceState={resourceState} isOfflineMode={true} />)}
                         </div>
                         <div className="flex gap-1 px-2 border-r border-red-100 flex-row-reverse">
                             {busyStaff.map(s => window.StaffCard3D && <window.StaffCard3D key={s.id} s={s} statusData={statusData} resourceState={resourceState} isForcedBusy={true} />)}

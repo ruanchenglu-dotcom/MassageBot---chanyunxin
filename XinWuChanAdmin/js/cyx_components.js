@@ -107,7 +107,7 @@ window.ErrorBoundary = ErrorBoundary;
  * 2. STAFF CARD 3D (技師卡片) - CẬP NHẬT GIAO DIỆN & LOGIC CỘT I
  * ============================================================================
  */
-const StaffCard3D = ({ s, statusData, resourceState, queueIndex, isForcedBusy, onMoveStaff }) => {
+const StaffCard3D = ({ s, statusData, resourceState, queueIndex, isForcedBusy, onMoveStaff, isOfflineMode }) => {
     if (!s) return null;
 
     const genderStr = String(s.gender || '').toUpperCase();
@@ -134,7 +134,14 @@ const StaffCard3D = ({ s, statusData, resourceState, queueIndex, isForcedBusy, o
         customClass = "!bg-yellow-400 !text-black !border-yellow-500 z-10 shadow-md";
     }
 
-    // 3. Trạng thái BUSY: Giữ tuyệt đối cardStyle 'st-busy' gốc, không thay đổi customClass (Đã xóa logic override bóng cam)
+    const shiftStart = s['上班'] || s.start || s.shiftStart || '';
+
+    // 3. Chế độ offlineMode cho thợ sắp đến
+    if (isOfflineMode) {
+        customClass += isFemale ? ' !border-[2px] !border-pink-400' : ' !border-[2px] !border-blue-400';
+    }
+
+    // 4. Trạng thái BUSY: Giữ tuyệt đối cardStyle 'st-busy' gốc, không thay đổi customClass (Đã xóa logic override bóng cam)
 
     return (
         <div className="relative group flex items-center justify-center">
@@ -166,6 +173,11 @@ const StaffCard3D = ({ s, statusData, resourceState, queueIndex, isForcedBusy, o
                 <div className={`font-black text-2xl text-center leading-none w-full select-none flex-1 flex items-center justify-center break-words px-0.5 relative z-0 ${displayStatus === 'READY' && hasUpcoming ? 'text-black' : 'text-slate-800'}`}>
                     {s.name}
                 </div>
+                {isOfflineMode && shiftStart && (
+                    <div className="absolute bottom-0 w-full text-center text-[10px] font-bold text-gray-700 bg-white/80 rounded-b pb-[1px] leading-none">
+                        {shiftStart}
+                    </div>
+                )}
             </div>
 
             {queueIndex !== undefined && displayStatus === 'READY' && onMoveStaff && (
