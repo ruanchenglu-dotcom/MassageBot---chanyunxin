@@ -124,7 +124,7 @@ const StaffCard3D = ({ s, statusData, resourceState, queueIndex, isForcedBusy, o
     let customClass = "";
 
     // 1. Gán style cơ bản theo trạng thái
-    if (displayStatus === 'BUSY') { cardStyle = 'st-busy'; }
+    if (displayStatus === 'BUSY' || displayStatus === 'BUSY_SHORT') { cardStyle = 'st-busy'; }
     else if (displayStatus === 'AWAY' || displayStatus === 'OFF') { cardStyle = 'st-away'; }
     else if (displayStatus === 'EAT') { cardStyle = 'st-eat'; }
     else if (displayStatus === 'OUT_SHORT') { cardStyle = 'bg-green-500 text-white !border-green-600'; }
@@ -163,8 +163,8 @@ const StaffCard3D = ({ s, statusData, resourceState, queueIndex, isForcedBusy, o
             )}
 
             <div className={`card-3d ${cardStyle} ${customClass} flex flex-col items-center justify-center relative p-0 overflow-hidden transition-all duration-300`} style={customStyle}>
-                {queueIndex !== undefined && (displayStatus === 'READY' || displayStatus === 'BUSY') && (
-                    <div className={`queue-badge ${displayStatus === 'BUSY' ? '!bg-slate-700 !text-white' : 'animate-bounce-slow'}`}>
+                {queueIndex !== undefined && (displayStatus === 'READY' || displayStatus === 'BUSY' || displayStatus === 'BUSY_SHORT') && (
+                    <div className={`queue-badge ${displayStatus.includes('BUSY') ? '!bg-slate-700 !text-white' : 'animate-bounce-slow'}`}>
                         {queueIndex + 1}
                     </div>
                 )}

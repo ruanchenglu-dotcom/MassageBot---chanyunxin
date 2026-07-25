@@ -96,7 +96,7 @@
 
                 if (staffstatus === 'BUSY') {
                     busyList.push(s);
-                } else if (staffstatus === 'READY' || staffstatus === 'EAT' || staffstatus === 'OUT_SHORT') {
+                } else if (staffstatus === 'READY' || staffstatus === 'EAT' || staffstatus === 'OUT_SHORT' || staffstatus === 'BUSY_SHORT') {
                     readyList.push(s);
                 } else {
                     awayList.push(s);
@@ -413,7 +413,7 @@
          * Logic: Delay 100ms (0.1s) để UI mượt mà -> Gán bằng thời gian nhận khách (baseNow + offsetMins).
          * @returns Bảng statusData mới.
          */
-        processStartWork: async (staffListToStart, currentStatusData, baseNow = Date.now()) => {
+        processStartWork: async (staffListToStart, currentStatusData, baseNow = Date.now(), durations = []) => {
             // Giảm tốc độ thực hiện 0.1s theo yêu cầu
             await new Promise(resolve => setTimeout(resolve, 100));
 
@@ -421,13 +421,16 @@
 
             staffListToStart.forEach((staffId, index) => {
                 const currentStaffTime = currentStatusData[staffId]?.stafftime || baseNow;
+                const dur = durations[index] || 60;
+                const isShortService = dur <= 40;
                 
                 // Mốc thời gian mới (Giờ bắt đầu làm việc + khoảnh khắc offset 10ms để không bị trùng lặp UI)
-                const newStaffTime = baseNow + (index * 10);
+                // Nếu là 1 block (isShortService), giữ nguyên vị trí cũ.
+                const newStaffTime = isShortService ? currentStaffTime : (baseNow + (index * 10));
 
                 newStatusData[staffId] = {
                     ...currentStatusData[staffId],
-                    status: 'BUSY',
+                    status: isShortService ? 'BUSY_SHORT' : 'BUSY',
                     stafftime: newStaffTime,
                     previousStafftime: currentStaffTime // Cất Lịch Sử chờ cũ vào túi dự phòng
                 };

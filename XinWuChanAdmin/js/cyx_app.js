@@ -2914,16 +2914,18 @@ const App = () => {
         const isRealStaff = staffList.some(s => String(s.id) === String(finalServiceStaff));
         
         if (isRealStaff) {
+            const dur = current.booking.duration || 60;
             if (window.StaffSorter?.processStartWork) {
-                newStatusData = await window.StaffSorter.processStartWork([finalServiceStaff], statusData, Date.now());
+                newStatusData = await window.StaffSorter.processStartWork([finalServiceStaff], statusData, Date.now(), [dur]);
             } else {
                 const currentStaffTime = statusData[finalServiceStaff]?.stafftime || Date.now();
+                const isShort = dur <= 40;
                 newStatusData = {
                     ...statusData,
                     [finalServiceStaff]: {
                         ...statusData[finalServiceStaff],
-                        status: 'BUSY',
-                        stafftime: Date.now(),
+                        status: isShort ? 'BUSY_SHORT' : 'BUSY',
+                        stafftime: isShort ? currentStaffTime : Date.now(),
                         previousStafftime: currentStaffTime
                     }
                 };
@@ -3123,6 +3125,7 @@ const App = () => {
         const baseNow = Date.now();
 
         const staffListToStart = [];
+        const durationsToStart = [];
         validItems.forEach(item => {
             let fStaff = normalizeStaffId(assignments[item.resourceId]);
             if (!fStaff) {
@@ -3135,21 +3138,24 @@ const App = () => {
                 if (!current || !current.isRunning) {
                     if (isRealStaff) {
                         staffListToStart.push(fStaff);
+                        durationsToStart.push(item.booking.duration || 60);
                     }
                 }
             }
         });
 
         if (window.StaffSorter?.processStartWork && staffListToStart.length > 0) {
-            const updatedStatusData = await window.StaffSorter.processStartWork(staffListToStart, nextStatusData, baseNow);
+            const updatedStatusData = await window.StaffSorter.processStartWork(staffListToStart, nextStatusData, baseNow, durationsToStart);
             Object.assign(nextStatusData, updatedStatusData); 
         } else {
             staffListToStart.forEach((sId, index) => {
                 const currentStaffTime = nextStatusData[sId]?.stafftime || baseNow;
+                const dur = durationsToStart[index] || 60;
+                const isShort = dur <= 40;
                 nextStatusData[sId] = {
                     ...nextStatusData[sId],
-                    status: 'BUSY',
-                    stafftime: baseNow + (index * 10),
+                    status: isShort ? 'BUSY_SHORT' : 'BUSY',
+                    stafftime: isShort ? currentStaffTime : (baseNow + (index * 10)),
                     previousStafftime: currentStaffTime
                 };
             });
@@ -4041,10 +4047,12 @@ const App = () => {
                         }
 
                         if (staff2 !== '隨機') {
+                            const dur2 = checkoutInfo[0]?.duration || 60;
                             if (window.StaffSorter && window.StaffSorter.processStartWork) {
-                                newStatusData = await window.StaffSorter.processStartWork([staff2], newStatusData, baseTime);
+                                newStatusData = await window.StaffSorter.processStartWork([staff2], newStatusData, baseTime, [dur2]);
                             } else {
-                                newStatusData[staff2] = { ...newStatusData[staff2], status: 'BUSY', stafftime: baseTime };
+                                const isShort = dur2 <= 40;
+                                newStatusData[staff2] = { ...newStatusData[staff2], status: isShort ? 'BUSY_SHORT' : 'BUSY', stafftime: isShort ? (newStatusData[staff2]?.stafftime || baseTime) : baseTime };
                             }
                         }
 
