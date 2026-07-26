@@ -3836,14 +3836,14 @@ const App = () => {
                                     const ridStr = String(b.rowId);
                                     if (localOverridesRef.current[ridStr]) delete localOverridesRef.current[ridStr];
                                 });
-                                const promises = allBookings.map(b => axios.post('/api/update-status', { rowId: b.rowId, status: APP_STATUS.COMPLETED }));
+                                const promises = allBookings.map(b => axios.post('/api/update-status', { rowId: b.rowId, status: APP_STATUS.COMPLETED, applyGroup: false }));
                                 Promise.all(promises)
                                     .then(() => fetchData(false))
                                     .catch(() => Swal.fire('系統提示', '完成標記失敗，請檢查網路。', 'warning'));
                             } else if (res.isDenied) {
                                 const ridStr = String(targetBooking.rowId);
                                 if (localOverridesRef.current[ridStr]) delete localOverridesRef.current[ridStr];
-                                axios.post('/api/update-status', { rowId: targetBooking.rowId, status: APP_STATUS.COMPLETED })
+                                axios.post('/api/update-status', { rowId: targetBooking.rowId, status: APP_STATUS.COMPLETED, applyGroup: false })
                                     .then(() => fetchData(false))
                                     .catch(() => Swal.fire('系統提示', '完成標記失敗，請檢查網路。', 'warning'));
                             }
@@ -3852,7 +3852,7 @@ const App = () => {
                         Swal.fire({ title: '確認', text: '確定標記為已完成嗎？', icon: 'info', showCancelButton: true, confirmButtonText: '確定', cancelButtonText: '取消' }).then((res) => { if (res.isConfirmed) { 
                             const ridStr = String(targetBooking.rowId);
                             if (localOverridesRef.current[ridStr]) delete localOverridesRef.current[ridStr];
-                            axios.post('/api/update-status', { rowId: targetBooking.rowId, status: APP_STATUS.COMPLETED })
+                            axios.post('/api/update-status', { rowId: targetBooking.rowId, status: APP_STATUS.COMPLETED, applyGroup: false })
                                 .then(() => fetchData(false))
                                 .catch(() => Swal.fire('系統提示', '完成標記失敗，請檢查網路。', 'warning'));
                         } });

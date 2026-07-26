@@ -916,7 +916,7 @@ async function ghiVaoSheet(data, proposedUpdates = []) {
     }
 }
 
-async function updateBookingStatus(rowId, newStatus, newStartTime = null, isTransition = false) {
+async function updateBookingStatus(rowId, newStatus, newStartTime = null, isTransition = false, applyGroup = true) {
     try {
         if (!rowId) throw new Error("RowID required");
         
@@ -924,7 +924,7 @@ async function updateBookingStatus(rowId, newStatus, newStartTime = null, isTran
         let rowIdsToUpdate = [rowId];
         let valuesToUpdate = [];
         
-        if (targetBooking && targetBooking.originalName) {
+        if (applyGroup && targetBooking && targetBooking.originalName) {
             const baseName = targetBooking.originalName.replace(/\(\d+\/\d+\)/g, '').trim();
             const sameGroupBookings = STATE.cachedBookings.filter(b => {
                 if (!b.originalName || !b.phone) return false;

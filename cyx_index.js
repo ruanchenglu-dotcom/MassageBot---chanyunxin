@@ -1158,9 +1158,10 @@ app.post('/api/inline-update-group', async (req, res) => {
 // --- API: UPDATE STATUS ---
 app.post('/api/update-status', async (req, res) => {
     try {
-        const { rowId, status, syncStartTime, syncTransitionTime } = req.body;
+        const { rowId, status, syncStartTime, syncTransitionTime, applyGroup } = req.body;
         let timeToUpdate = null;
         let isTransition = false;
+        const shouldApplyGroup = applyGroup !== undefined ? applyGroup : true;
 
         if (syncStartTime === true || syncTransitionTime === true) {
             const now = SheetService.getTaipeiNow();
@@ -1172,7 +1173,7 @@ app.post('/api/update-status', async (req, res) => {
             }
         }
 
-        await SheetService.updateBookingStatus(rowId, status, timeToUpdate, isTransition);
+        await SheetService.updateBookingStatus(rowId, status, timeToUpdate, isTransition, shouldApplyGroup);
         res.json({ success: true });
 
     } catch (e) {
