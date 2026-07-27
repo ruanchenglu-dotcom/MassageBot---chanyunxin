@@ -9,8 +9,8 @@ test('Dynamic Pax Limit in Booking Modal', async ({ page }) => {
     // 2. Wait for page to load
     await page.waitForTimeout(2000);
     
-    // 3. Click Add Booking button
-    await page.click('button:has-text("新增預約")');
+    // 3. Click Add Booking button (using icon class since text might be hidden on small viewports)
+    await page.click('button:has(i.fa-plus)');
     
     // 4. Wait for modal to appear
     await page.waitForSelector('select', { timeout: 10000 });
