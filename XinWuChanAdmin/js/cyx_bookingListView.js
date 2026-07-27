@@ -538,10 +538,10 @@
                                             <td className="p-4 whitespace-nowrap font-bold text-gray-800 text-lg">{name}</td>
                                             <td className="p-4 whitespace-nowrap font-mono text-gray-600">{realPhone}</td>
                                             <td className="p-4 whitespace-nowrap text-gray-700 font-medium">{b.serviceName}</td>
-                                            <td className="p-4 whitespace-nowrap text-center">{isYouTui ? <span className="text-purple-600 font-bold text-lg">💧</span> : ''}</td>
-                                            <td className="p-4 whitespace-nowrap text-center">{b.isGuaSha ? <span className="text-red-500 font-bold text-lg">✅</span> : ''}</td>
-                                            <td className="p-4 whitespace-nowrap text-center">{b.isHuaGuan ? <span className="text-orange-500 font-bold text-lg">🪔</span> : ''}</td>
-                                            <td className="p-4 whitespace-nowrap text-center">{b.isBaGuan ? <span className="text-red-600 font-bold text-lg">🪔</span> : ''}</td>
+                                            <td className="p-4 whitespace-nowrap text-center">{isYouTui ? <span className="text-orange-600 font-bold text-lg">💧</span> : ''}</td>
+                                            <td className="p-4 whitespace-nowrap text-center">{b.isGuaSha ? <span className="text-red-600 font-bold text-lg">🩸</span> : ''}</td>
+                                            <td className="p-4 whitespace-nowrap text-center">{b.isHuaGuan ? <span className="text-purple-600 font-bold text-lg">🏺</span> : ''}</td>
+                                            <td className="p-4 whitespace-nowrap text-center">{b.isBaGuan ? <span className="text-blue-600 font-bold text-lg">🎯</span> : ''}</td>
                                             <td className="p-4 whitespace-nowrap"><span className={`px-3 py-1 rounded-full text-sm font-bold shadow-sm ${statusClass}`}>{bStatus}</span></td>
                                             <td className="p-4 whitespace-nowrap"><span className="bg-indigo-50 text-indigo-700 px-3 py-1 rounded text-sm font-bold border border-indigo-100">{b.staffId}</span></td>
                                             <td className="p-4 whitespace-nowrap"><span className="text-gray-700 font-bold">{b.location || '本館'}</span></td>
