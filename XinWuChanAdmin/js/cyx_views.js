@@ -1718,6 +1718,8 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
     );
 };
 
+window.BookingControlModal = BookingControlModal;
+
 // ============================================================================
 // 1. TIMELINE VIEW
 // ============================================================================

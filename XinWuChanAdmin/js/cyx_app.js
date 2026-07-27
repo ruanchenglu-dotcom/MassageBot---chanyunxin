@@ -3094,7 +3094,7 @@ const App = () => {
         }
 
         universalSend('/api/update-booking-details', payload);
-        axios.post('/api/update-status', { rowId: current.booking.rowId, status: APP_STATUS.SERVING });
+        axios.post('/api/update-status', { rowId: current.booking.rowId, status: APP_STATUS.SERVING, applyGroup: false });
     };
 
     const executeBatchStart = async (mainResId, relatedItems, mainBookingObj) => {
