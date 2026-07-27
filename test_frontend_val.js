@@ -1431,7 +1431,16 @@ console.log('DEBUG_SPLITS:', { duration, eStep, eLimit, svc, testFlow, splitsToT
                         hb.blocks.forEach(blk => matrixSqueeze.tryAllocate(blk.type, blk.start, blk.end, hb.id, blk.forcedIndex, isRunning));
                     });
                     let squeezeScenarioPossible = false;
+                    let squeezeAttempts = 0;
+                    const squeezeStartTime = Date.now();
+                    const MAX_TIME_MS = 3000;
                     const placeNewGuestsElastically = (guestIndex, currentMatrix, currentDetails, currentUpdates) => {
+                        squeezeAttempts++;
+                        if (squeezeAttempts % 100 === 0) {
+                            if (Date.now() - squeezeStartTime > MAX_TIME_MS) {
+                                return false; // Prevent hanging
+                            }
+                        }
                         if (guestIndex >= newGuestBlocksMap.length) return true;
                         
                         const item = newGuestBlocksMap[guestIndex];
@@ -1645,8 +1654,9 @@ console.log('DEBUG_SPLITS:', { duration, eStep, eLimit, svc, testFlow, splitsToT
                     let msg = `⚠️ 系統計算出您的套餐分配為 (${globalBestOutOfBoundSqueeze.flow === 'BF' ? '身' : '腳'}:${globalBestOutOfBoundSqueeze.p1} ; ${globalBestOutOfBoundSqueeze.flow === 'BF' ? '腳' : '身'}:${globalBestOutOfBoundSqueeze.p2})，已超出標準限制。建議您${actionText} ${shiftVal} 分鐘，改為 ${timeStr} 預約以滿足標準。`;
                     return triggerSmartFailure(msg, suggestedTime);
                 }
-                const debugReason = failureLog.slice(-2).join(' | ');
-                const failMessage = debugReason ? `❌ 系統滿載：${debugReason}` : "❌ 已額滿（系統滿載）";
+                const uniqueLog = [...new Set(failureLog)];
+                const debugReason = uniqueLog.length > 0 ? uniqueLog.slice(-1).join('') : "❌ 老師不夠";
+                const failMessage = debugReason;
                 return { feasible: false, reason: failMessage, debug: guardrailCheck.debug };
             }
         }

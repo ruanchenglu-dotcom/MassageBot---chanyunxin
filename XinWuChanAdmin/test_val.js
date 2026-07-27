@@ -1883,7 +1883,16 @@ console.log('DEBUG_SPLITS:', { duration, eStep, eLimit, svc, testFlow, splitsToT
                         hb.blocks.forEach(blk => matrixSqueeze.tryAllocate(blk.type, blk.start, blk.end, hb.id, blk.forcedIndex, isRunning));
                     });
                     let squeezeScenarioPossible = false;
+                    let squeezeAttempts = 0;
+                    const squeezeStartTime = Date.now();
+                    const MAX_TIME_MS = 3000;
                     const placeNewGuestsElastically = (guestIndex, currentMatrix, currentDetails, currentUpdates) => {
+                        squeezeAttempts++;
+                        if (squeezeAttempts % 100 === 0) {
+                            if (Date.now() - squeezeStartTime > MAX_TIME_MS) {
+                                return false; // Prevent hanging
+                            }
+                        }
                         if (guestIndex >= newGuestBlocksMap.length) return true;
                         
                         const item = newGuestBlocksMap[guestIndex];
