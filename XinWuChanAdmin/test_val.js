@@ -2055,7 +2055,18 @@ console.log('DEBUG_SPLITS:', { duration, eStep, eLimit, svc, testFlow, splitsToT
                     const assignedStaff = findAvailableStaff(item.guest.staffName, item.blocks[0].start, item.blocks[item.blocks.length - 1].end, staffList, flatTimeline, dateStr);
                     if (!assignedStaff) {
                         staffAssignmentSuccess = false;
-                        failureLog.push(`❌ 無法為客需 [${item.guest.staffName}] 找到合適技師`);
+                        let staffReq = item.guest.staffName;
+                        let errorMsg = '老師不夠';
+                        if (staffReq) {
+                            if (['MALE', '男', '男師'].includes(staffReq)) {
+                                errorMsg = '男老師不夠';
+                            } else if (['FEMALE', '女', '女師'].includes(staffReq)) {
+                                errorMsg = '女老師不夠';
+                            } else if (!['RANDOM', '隨機', 'Any', 'undefined', '不指定'].includes(staffReq)) {
+                                errorMsg = `[${staffReq}]老師沒有上班`; 
+                            }
+                        }
+                        failureLog.push(`❌ ${errorMsg}`);
                         break;
                     }
                     const detail = scenarioDetails.find(d => d.guestIndex === item.guest.idx);
