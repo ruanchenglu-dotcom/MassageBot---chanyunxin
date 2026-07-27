@@ -4041,7 +4041,7 @@ const App = () => {
                             for (const id of payload.groupMemberIds) {
                                 const rowIdStr = String(id);
                                 const liveContext = getLiveResourceByBooking(rowIdStr);
-                                if (liveContext && liveContext.resourceId && resourceState[liveContext.resourceId]) {
+                                if (liveContext && liveContext.resourceId && resourceState[liveContext.resourceId] && String(resourceState[liveContext.resourceId].booking?.rowId) === rowIdStr) {
                                     await handleStaffChange(liveContext.resourceId, payload.newStaff, payload.returnToLast);
                                 } else {
                                     universalSend('/api/update-booking-details', {
@@ -4057,7 +4057,7 @@ const App = () => {
                             fetchData(false);
                         })();
                     } else {
-                        if (targetResourceId && resourceState[targetResourceId]) {
+                        if (targetResourceId && resourceState[targetResourceId] && String(resourceState[targetResourceId].booking?.rowId) === String(targetBooking.rowId)) {
                             handleStaffChange(targetResourceId, payload.newStaff, payload.returnToLast);
                         } else {
                             const rowId = String(targetBooking.rowId);
