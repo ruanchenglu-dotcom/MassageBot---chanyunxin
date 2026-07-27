@@ -3371,38 +3371,148 @@ const App = () => {
         else if (action === 'pause') { updateResource({ ...resourceState, [id]: { ...current, isPaused: !current.isPaused } }); }
         else if (action === 'cancel') { Swal.fire({ title: '確認', text: '確定將顧客從位置移除？', icon: 'warning', showCancelButton: true, confirmButtonText: '確定', cancelButtonText: '取消' }).then((res) => { if (res.isConfirmed) { const n = { ...resourceState }; delete n[id]; updateResource(n); } }); }
         else if (action === 'cancel_midway') {
-            Swal.fire({ title: '確認', text: '確定要棄單嗎？\n此操作會標記為「取消」並釋放此位置。', icon: 'warning', showCancelButton: true, confirmButtonText: '確定', cancelButtonText: '取消' }).then(async (res) => { if (res.isConfirmed) { 
-                const ridStr = String(current.booking.rowId);
-                if (localOverridesRef.current[ridStr]) {
-                    delete localOverridesRef.current[ridStr];
-                 }
+            const currentBooking = current.booking;
+            const relatedItems = findRelatedForCheckout(currentBooking, id);
+            
+            if (relatedItems.length > 0) {
+                Swal.fire({
+                    title: '確認',
+                    text: '此為團體客，請問要將整組預約標記取消還是僅此客人？\n此操作會釋放位置。',
+                    icon: 'question',
+                    showDenyButton: true,
+                    showCancelButton: true,
+                    confirmButtonText: '取消全體',
+                    denyButtonText: '僅此客人',
+                    cancelButtonText: '放棄'
+                }).then(async (res) => {
+                    if (res.isConfirmed) {
+                        const allBookings = [currentBooking, ...relatedItems.map(r => r.booking)];
+                        const promises = [];
+                        const n = { ...resourceState };
+                        let newStaffStatus = { ...statusData };
+                        
+                        allBookings.forEach(b => {
+                            const ridStr = String(b.rowId);
+                            if (localOverridesRef.current[ridStr]) delete localOverridesRef.current[ridStr];
+                            promises.push(axios.post('/api/update-status', { rowId: b.rowId, status: APP_STATUS.CANCELLED, applyGroup: false }));
+                            
+                            const resItem = relatedItems.find(r => r.booking.rowId === b.rowId);
+                            if (resItem && resItem.resourceId && !resItem.resourceId.startsWith('unassigned_')) {
+                                delete n[resItem.resourceId];
+                            }
+                            if (b.rowId === currentBooking.rowId) delete n[id];
 
-                await axios.post('/api/update-status', { rowId: current.booking.rowId, status: APP_STATUS.CANCELLED });
-                const n = { ...resourceState };
-                const staffId = current.booking.serviceStaff || current.booking.staffId;
-                if (staffId !== '隨機' && statusData[staffId]) {
-                    const newStatus = { ...statusData, [staffId]: { status: 'READY', checkInTime: Date.now(), stafftime: Date.now() } };
-                    updateStaffStatus(newStatus);
-                }
-                delete n[id]; updateResource(n); fetchData();
-            } });
+                            const staffId = b.serviceStaff || b.staffId;
+                            if (staffId && staffId !== '隨機' && newStaffStatus[staffId]) {
+                                newStaffStatus[staffId] = { status: 'READY', checkInTime: Date.now(), stafftime: Date.now() };
+                            }
+                        });
+                        updateStaffStatus(newStaffStatus);
+                        await Promise.all(promises);
+                        updateResource(n); fetchData();
+                    } else if (res.isDenied) {
+                        const ridStr = String(currentBooking.rowId);
+                        if (localOverridesRef.current[ridStr]) delete localOverridesRef.current[ridStr];
+                        await axios.post('/api/update-status', { rowId: currentBooking.rowId, status: APP_STATUS.CANCELLED, applyGroup: false });
+                        
+                        const n = { ...resourceState };
+                        const staffId = currentBooking.serviceStaff || currentBooking.staffId;
+                        if (staffId && staffId !== '隨機' && statusData[staffId]) {
+                            const newStatus = { ...statusData, [staffId]: { status: 'READY', checkInTime: Date.now(), stafftime: Date.now() } };
+                            updateStaffStatus(newStatus);
+                        }
+                        delete n[id]; updateResource(n); fetchData();
+                    }
+                });
+            } else {
+                Swal.fire({ title: '確認', text: '確定要棄單嗎？\n此操作會標記為「取消」並釋放此位置。', icon: 'warning', showCancelButton: true, confirmButtonText: '確定', cancelButtonText: '取消' }).then(async (res) => { if (res.isConfirmed) { 
+                    const ridStr = String(currentBooking.rowId);
+                    if (localOverridesRef.current[ridStr]) {
+                        delete localOverridesRef.current[ridStr];
+                     }
+    
+                    await axios.post('/api/update-status', { rowId: currentBooking.rowId, status: APP_STATUS.CANCELLED, applyGroup: false });
+                    const n = { ...resourceState };
+                    const staffId = currentBooking.serviceStaff || currentBooking.staffId;
+                    if (staffId !== '隨機' && statusData[staffId]) {
+                        const newStatus = { ...statusData, [staffId]: { status: 'READY', checkInTime: Date.now(), stafftime: Date.now() } };
+                        updateStaffStatus(newStatus);
+                    }
+                    delete n[id]; updateResource(n); fetchData();
+                } });
+            }
         }
         else if (action === 'noshow_midway') {
-            Swal.fire({ title: '確認', text: '確定要設為爽約嗎？\n此操作會標記為「爽約」並釋放此位置。', icon: 'warning', showCancelButton: true, confirmButtonText: '確定', cancelButtonText: '取消' }).then(async (res) => { if (res.isConfirmed) { 
-                const ridStr = String(current.booking.rowId);
-                if (localOverridesRef.current[ridStr]) {
-                    delete localOverridesRef.current[ridStr];
-                 }
+            const currentBooking = current.booking;
+            const relatedItems = findRelatedForCheckout(currentBooking, id);
+            
+            if (relatedItems.length > 0) {
+                Swal.fire({
+                    title: '確認',
+                    text: '此為團體客，請問要將整組預約標記為爽約還是僅此客人？\n此操作會釋放位置。',
+                    icon: 'question',
+                    showDenyButton: true,
+                    showCancelButton: true,
+                    confirmButtonText: '爽約全體',
+                    denyButtonText: '僅此客人',
+                    cancelButtonText: '放棄'
+                }).then(async (res) => {
+                    if (res.isConfirmed) {
+                        const allBookings = [currentBooking, ...relatedItems.map(r => r.booking)];
+                        const promises = [];
+                        const n = { ...resourceState };
+                        let newStaffStatus = { ...statusData };
+                        
+                        allBookings.forEach(b => {
+                            const ridStr = String(b.rowId);
+                            if (localOverridesRef.current[ridStr]) delete localOverridesRef.current[ridStr];
+                            promises.push(axios.post('/api/update-status', { rowId: b.rowId, status: APP_STATUS.NOSHOW, applyGroup: false }));
+                            
+                            const resItem = relatedItems.find(r => r.booking.rowId === b.rowId);
+                            if (resItem && resItem.resourceId && !resItem.resourceId.startsWith('unassigned_')) {
+                                delete n[resItem.resourceId];
+                            }
+                            if (b.rowId === currentBooking.rowId) delete n[id];
 
-                await axios.post('/api/update-status', { rowId: current.booking.rowId, status: APP_STATUS.NOSHOW });
-                const n = { ...resourceState };
-                const staffId = current.booking.serviceStaff || current.booking.staffId;
-                if (staffId !== '隨機' && statusData[staffId]) {
-                    const newStatus = { ...statusData, [staffId]: { status: 'READY', checkInTime: Date.now(), stafftime: Date.now() } };
-                    updateStaffStatus(newStatus);
-                }
-                delete n[id]; updateResource(n); fetchData();
-            } });
+                            const staffId = b.serviceStaff || b.staffId;
+                            if (staffId && staffId !== '隨機' && newStaffStatus[staffId]) {
+                                newStaffStatus[staffId] = { status: 'READY', checkInTime: Date.now(), stafftime: Date.now() };
+                            }
+                        });
+                        updateStaffStatus(newStaffStatus);
+                        await Promise.all(promises);
+                        updateResource(n); fetchData();
+                    } else if (res.isDenied) {
+                        const ridStr = String(currentBooking.rowId);
+                        if (localOverridesRef.current[ridStr]) delete localOverridesRef.current[ridStr];
+                        await axios.post('/api/update-status', { rowId: currentBooking.rowId, status: APP_STATUS.NOSHOW, applyGroup: false });
+                        
+                        const n = { ...resourceState };
+                        const staffId = currentBooking.serviceStaff || currentBooking.staffId;
+                        if (staffId && staffId !== '隨機' && statusData[staffId]) {
+                            const newStatus = { ...statusData, [staffId]: { status: 'READY', checkInTime: Date.now(), stafftime: Date.now() } };
+                            updateStaffStatus(newStatus);
+                        }
+                        delete n[id]; updateResource(n); fetchData();
+                    }
+                });
+            } else {
+                Swal.fire({ title: '確認', text: '確定要設為爽約嗎？\n此操作會標記為「爽約」並釋放此位置。', icon: 'warning', showCancelButton: true, confirmButtonText: '確定', cancelButtonText: '取消' }).then(async (res) => { if (res.isConfirmed) { 
+                    const ridStr = String(currentBooking.rowId);
+                    if (localOverridesRef.current[ridStr]) {
+                        delete localOverridesRef.current[ridStr];
+                     }
+    
+                    await axios.post('/api/update-status', { rowId: currentBooking.rowId, status: APP_STATUS.NOSHOW, applyGroup: false });
+                    const n = { ...resourceState };
+                    const staffId = currentBooking.serviceStaff || currentBooking.staffId;
+                    if (staffId !== '隨機' && statusData[staffId]) {
+                        const newStatus = { ...statusData, [staffId]: { status: 'READY', checkInTime: Date.now(), stafftime: Date.now() } };
+                        updateStaffStatus(newStatus);
+                    }
+                    delete n[id]; updateResource(n); fetchData();
+                } });
+            }
         }
         else if (action === 'finish') {
             setBillingData({
@@ -3896,13 +4006,43 @@ const App = () => {
                 if (targetResourceId && resourceState[targetResourceId] && !resourceState[targetResourceId].isPreview) {
                     handleResourceAction(targetResourceId, 'cancel_midway');
                 } else if (targetBooking) {
-                    Swal.fire({ title: '確認', text: '確定要取消此預約嗎？\n(若為團體客，將取消整組預約)', icon: 'warning', showCancelButton: true, confirmButtonText: '確定', cancelButtonText: '取消' }).then((res) => { if (res.isConfirmed) { 
-                        const ridStr = String(targetBooking.rowId);
-                        if (localOverridesRef.current[ridStr]) delete localOverridesRef.current[ridStr];
-                        axios.post('/api/update-status', { rowId: targetBooking.rowId, status: APP_STATUS.CANCELLED })
-                            .then(() => fetchData(false))
-                            .catch(() => Swal.fire('系統提示', '取消失敗，請檢查網路。', 'warning'));
-                    } });
+                    const relatedItems = findRelatedForCheckout(targetBooking, null);
+                    if (relatedItems.length > 0) {
+                        Swal.fire({
+                            title: '確認',
+                            text: '此為團體客，請問要取消整組預約還是僅此客人？',
+                            icon: 'question',
+                            showDenyButton: true,
+                            showCancelButton: true,
+                            confirmButtonText: '取消全體',
+                            denyButtonText: '僅此客人',
+                            cancelButtonText: '放棄'
+                        }).then((res) => {
+                            if (res.isConfirmed) {
+                                const allBookings = [targetBooking, ...relatedItems.map(r => r.booking)];
+                                allBookings.forEach(b => {
+                                    const ridStr = String(b.rowId);
+                                    if (localOverridesRef.current[ridStr]) delete localOverridesRef.current[ridStr];
+                                });
+                                const promises = allBookings.map(b => axios.post('/api/update-status', { rowId: b.rowId, status: APP_STATUS.CANCELLED, applyGroup: false }));
+                                Promise.all(promises).then(() => fetchData(false)).catch(() => Swal.fire('系統提示', '取消失敗，請檢查網路。', 'warning'));
+                            } else if (res.isDenied) {
+                                const ridStr = String(targetBooking.rowId);
+                                if (localOverridesRef.current[ridStr]) delete localOverridesRef.current[ridStr];
+                                axios.post('/api/update-status', { rowId: targetBooking.rowId, status: APP_STATUS.CANCELLED, applyGroup: false })
+                                    .then(() => fetchData(false))
+                                    .catch(() => Swal.fire('系統提示', '取消失敗，請檢查網路。', 'warning'));
+                            }
+                        });
+                    } else {
+                        Swal.fire({ title: '確認', text: '確定要取消此預約嗎？', icon: 'warning', showCancelButton: true, confirmButtonText: '確定', cancelButtonText: '取消' }).then((res) => { if (res.isConfirmed) { 
+                            const ridStr = String(targetBooking.rowId);
+                            if (localOverridesRef.current[ridStr]) delete localOverridesRef.current[ridStr];
+                            axios.post('/api/update-status', { rowId: targetBooking.rowId, status: APP_STATUS.CANCELLED, applyGroup: false })
+                                .then(() => fetchData(false))
+                                .catch(() => Swal.fire('系統提示', '取消失敗，請檢查網路。', 'warning'));
+                        } });
+                    }
                 }
                 setControlCenterData(null);
                 break;
@@ -3911,13 +4051,43 @@ const App = () => {
                 if (targetResourceId && resourceState[targetResourceId] && !resourceState[targetResourceId].isPreview) {
                     handleResourceAction(targetResourceId, 'noshow_midway');
                 } else if (targetBooking) {
-                    Swal.fire({ title: '確認', text: '確定要設為爽約嗎？\n(若為團體客，將設整組預約為爽約)', icon: 'warning', showCancelButton: true, confirmButtonText: '確定', cancelButtonText: '取消' }).then((res) => { if (res.isConfirmed) { 
-                        const ridStr = String(targetBooking.rowId);
-                        if (localOverridesRef.current[ridStr]) delete localOverridesRef.current[ridStr];
-                        axios.post('/api/update-status', { rowId: targetBooking.rowId, status: APP_STATUS.NOSHOW })
-                            .then(() => fetchData(false))
-                            .catch(() => Swal.fire('系統提示', '爽約設定失敗，請檢查網路。', 'warning'));
-                    } });
+                    const relatedItems = findRelatedForCheckout(targetBooking, null);
+                    if (relatedItems.length > 0) {
+                        Swal.fire({
+                            title: '確認',
+                            text: '此為團體客，請問要將整組預約設為爽約還是僅此客人？',
+                            icon: 'question',
+                            showDenyButton: true,
+                            showCancelButton: true,
+                            confirmButtonText: '爽約全體',
+                            denyButtonText: '僅此客人',
+                            cancelButtonText: '放棄'
+                        }).then((res) => {
+                            if (res.isConfirmed) {
+                                const allBookings = [targetBooking, ...relatedItems.map(r => r.booking)];
+                                allBookings.forEach(b => {
+                                    const ridStr = String(b.rowId);
+                                    if (localOverridesRef.current[ridStr]) delete localOverridesRef.current[ridStr];
+                                });
+                                const promises = allBookings.map(b => axios.post('/api/update-status', { rowId: b.rowId, status: APP_STATUS.NOSHOW, applyGroup: false }));
+                                Promise.all(promises).then(() => fetchData(false)).catch(() => Swal.fire('系統提示', '爽約設定失敗，請檢查網路。', 'warning'));
+                            } else if (res.isDenied) {
+                                const ridStr = String(targetBooking.rowId);
+                                if (localOverridesRef.current[ridStr]) delete localOverridesRef.current[ridStr];
+                                axios.post('/api/update-status', { rowId: targetBooking.rowId, status: APP_STATUS.NOSHOW, applyGroup: false })
+                                    .then(() => fetchData(false))
+                                    .catch(() => Swal.fire('系統提示', '爽約設定失敗，請檢查網路。', 'warning'));
+                            }
+                        });
+                    } else {
+                        Swal.fire({ title: '確認', text: '確定要設為爽約嗎？', icon: 'warning', showCancelButton: true, confirmButtonText: '確定', cancelButtonText: '取消' }).then((res) => { if (res.isConfirmed) { 
+                            const ridStr = String(targetBooking.rowId);
+                            if (localOverridesRef.current[ridStr]) delete localOverridesRef.current[ridStr];
+                            axios.post('/api/update-status', { rowId: targetBooking.rowId, status: APP_STATUS.NOSHOW, applyGroup: false })
+                                .then(() => fetchData(false))
+                                .catch(() => Swal.fire('系統提示', '爽約設定失敗，請檢查網路。', 'warning'));
+                        } });
+                    }
                 }
                 setControlCenterData(null);
                 break;
