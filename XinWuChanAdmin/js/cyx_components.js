@@ -792,7 +792,10 @@ const AvailabilityCheckModal = ({ onClose, onSave, staffList, bookings, initialD
     const config = window.SYSTEM_CONFIG || { SCALE: {} };
     const maxChairs = (config.SCALE && config.SCALE.MAX_CHAIRS) || config.MAX_CHAIRS || 6;
     const maxBeds = (config.SCALE && config.SCALE.MAX_BEDS) || config.MAX_BEDS || 6;
-    const paxOptionsArr = Array.from({ length: maxChairs + maxBeds }, (_, i) => i + 1);
+    const oppChairs = (config.SCALE && config.SCALE.OPP_CHAIRS) || 4;
+    const oppBeds = (config.SCALE && config.SCALE.OPP_BEDS) || 6;
+    const totalResources = (config.SCALE && config.SCALE.TOTAL_RESOURCES) || (maxChairs + maxBeds + oppChairs + oppBeds);
+    const paxOptionsArr = Array.from({ length: totalResources }, (_, i) => i + 1);
     const [form, setForm] = useState({
         time: getRoundedCurrentTime(),
         service: (window.SERVICES_LIST && window.SERVICES_LIST.length > 2) ? window.SERVICES_LIST[2] : "Foot Massage",

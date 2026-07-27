@@ -2828,7 +2828,16 @@
         let dynamicMaxPax = 18;
         if (typeof CoreKernel !== 'undefined' && CoreKernel.getSystemConfig) {
             const config = CoreKernel.getSystemConfig();
-            dynamicMaxPax = config.MAX_TOTAL_GUESTS || ((config.MAX_CHAIRS || 6) + (config.MAX_BEDS || 6));
+            const configScale = config.SCALE || {};
+            const mainMax = (configScale.MAX_CHAIRS || 6) + (configScale.MAX_BEDS || 6);
+            const oppMax = (configScale.OPP_CHAIRS || 4) + (configScale.OPP_BEDS || 6);
+            if (selectedLocation === '本館') {
+                dynamicMaxPax = mainMax;
+            } else if (selectedLocation === '對面館') {
+                dynamicMaxPax = oppMax;
+            } else {
+                dynamicMaxPax = Math.max(mainMax, oppMax);
+            }
         }
         const paxOptions = Array.from({ length: dynamicMaxPax }, (_, i) => i + 1);
 
