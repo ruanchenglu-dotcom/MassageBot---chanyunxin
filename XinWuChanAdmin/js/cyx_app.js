@@ -5065,9 +5065,9 @@ const App = () => {
                         {window.SYSTEM_CONFIG?.SHOP_INFO?.BRANCH ? ` (${window.SYSTEM_CONFIG.SHOP_INFO.BRANCH}店)` : ''}
                     </span>
                     <div className="flex items-center gap-2 bg-white/10 rounded px-2 py-1 border border-white/20">
-                        <button onClick={() => { const d = new Date(viewDate); d.setDate(d.getDate() - 1); setViewDate(d.toISOString().split('T')[0]) }} className="text-white hover:text-amber-400 font-bold px-2">❯</button>
+                        <button onClick={() => { const d = new Date(viewDate); d.setDate(d.getDate() - 1); const getLocalDateStr = (dateObj) => `${dateObj.getFullYear()}-${String(dateObj.getMonth() + 1).padStart(2, '0')}-${String(dateObj.getDate()).padStart(2, '0')}`; setViewDate(getLocalDateStr(d)) }} className="text-white hover:text-amber-400 font-bold px-2">❯</button>
                         <input type="date" value={viewDate} onChange={(e) => setViewDate(e.target.value)} className="bg-transparent text-white font-bold outline-none cursor-pointer text-center" style={{ colorScheme: 'dark' }} />
-                        <button onClick={() => { const d = new Date(viewDate); d.setDate(d.getDate() + 1); setViewDate(d.toISOString().split('T')[0]) }} className="text-white hover:text-amber-400 font-bold px-2">❯</button>
+                        <button onClick={() => { const d = new Date(viewDate); d.setDate(d.getDate() + 1); const getLocalDateStr = (dateObj) => `${dateObj.getFullYear()}-${String(dateObj.getMonth() + 1).padStart(2, '0')}-${String(dateObj.getDate()).padStart(2, '0')}`; setViewDate(getLocalDateStr(d)) }} className="text-white hover:text-amber-400 font-bold px-2">❯</button>
                     </div>
                 </div>
 

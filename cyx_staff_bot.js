@@ -290,7 +290,7 @@ function showCalendar(replyToken, title, actionPrefix) {
     for (let i = 0; i < 30; i++) {
         const d = new Date(today);
         d.setDate(today.getDate() + i);
-        const dateStr = d.toISOString().split('T')[0]; // YYYY-MM-DD
+        const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; // YYYY-MM-DD
         const dayLabel = `${d.getDate()}/${d.getMonth() + 1}`;
         const weekday = ['CN', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7'][d.getDay()];
 

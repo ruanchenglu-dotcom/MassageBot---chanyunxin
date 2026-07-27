@@ -208,7 +208,8 @@ window.StaffCard3D = StaffCard3D;
  */
 const AbsenceCheckModal = ({ data, staffList, bookings, statusData, localShifts, onClose, onConfirm, viewDate }) => {
     const { staffId, staffName, type } = data; // 'LATE', 'EARLY', 'OUT'
-    const baseDateStr = viewDate || new Date().toISOString().split('T')[0];
+    const getLocalDateStr = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    const baseDateStr = viewDate || getLocalDateStr();
     const [time1, setTime1] = React.useState('');
     const [time2, setTime2] = React.useState('');
     const [date1, setDate1] = React.useState(baseDateStr);
@@ -248,7 +249,8 @@ const AbsenceCheckModal = ({ data, staffList, bookings, statusData, localShifts,
     const handleCheck = () => {
         let absStart, absEnd;
         const now = new Date();
-        const nowD = now.toISOString().split('T')[0];
+        const getLocalDateStr = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+        const nowD = getLocalDateStr(now);
         const nowT = now.toLocaleTimeString('en-US', {hour12: false, hour: '2-digit', minute: '2-digit'});
         
         if (type === 'LATE') {
