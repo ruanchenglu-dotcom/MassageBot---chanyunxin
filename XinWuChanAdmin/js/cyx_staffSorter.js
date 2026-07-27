@@ -21,6 +21,18 @@
             return str;
         },
 
+        getRequestedStaffForGroupIndex: (booking, grpIdx) => {
+            if (!booking) return '隨機';
+            let targetStaff = '隨機';
+            if (grpIdx === 0) targetStaff = booking.serviceStaff || booking.staffId || booking.ServiceStaff || booking.requestedStaff || '隨機';
+            else if (grpIdx === 1) targetStaff = booking.staffId2 || booking.serviceStaff || booking.staffId || booking.requestedStaff || '隨機';
+            else if (grpIdx === 2) targetStaff = booking.staffId3 || booking.serviceStaff || booking.staffId || booking.requestedStaff || '隨機';
+            else if (grpIdx === 3) targetStaff = booking.staffId4 || booking.serviceStaff || booking.staffId || booking.requestedStaff || '隨機';
+            else if (grpIdx === 4) targetStaff = booking.staffId5 || booking.serviceStaff || booking.staffId || booking.requestedStaff || '隨機';
+            else if (grpIdx === 5) targetStaff = booking.staffId6 || booking.serviceStaff || booking.staffId || booking.requestedStaff || '隨機';
+            return targetStaff;
+        },
+
         // Hàm isActuallyBusy đã được loại bỏ do thay đổi quy tắc xác định trạng thái hoàn toàn dựa trên staffstatus.
 
         getStaffIdFromPaymentItem: (item) => {
@@ -285,7 +297,7 @@
 
                 // Thợ này tự quét toàn bộ danh sách Khách
                 unassignedItems.forEach((item, idx) => {
-                    const req = item.booking?.serviceStaff || item.booking?.staffId || item.booking?.requestedStaff || '隨機';
+                    const req = StaffSorter.getRequestedStaffForGroupIndex(item.booking, item.grpIdx || 0);
                     const duration = parseInt(item.booking?.duration || 60);
                     const bookingStartTime = parseInt(item.booking?.startTimeMins) || currentMins;
 

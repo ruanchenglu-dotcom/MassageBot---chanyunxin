@@ -2843,7 +2843,8 @@ const App = () => {
             return;
         }
 
-        let designatedStaff = current.booking.serviceStaff || current.booking.staffId || current.booking.ServiceStaff || current.booking.technician || current.booking.requestedStaff;
+        const grpIdx = getGroupMemberIndex(id, current.booking.rowId);
+        let designatedStaff = window.StaffSorter ? window.StaffSorter.getRequestedStaffForGroupIndex(current.booking, grpIdx) : (current.booking.serviceStaff || current.booking.staffId || current.booking.ServiceStaff || current.booking.technician || current.booking.requestedStaff);
         if (!designatedStaff || designatedStaff === 'undefined' || designatedStaff === 'null') designatedStaff = '隨機';
 
         designatedStaff = normalizeStaffId(designatedStaff);
@@ -3142,7 +3143,12 @@ const App = () => {
             }
         });
 
-        const validItems = allItemsToStart.filter(item => item.resourceId && item.booking);
+        const validItems = allItemsToStart.filter(item => item.resourceId && item.booking).map(item => {
+            return {
+                ...item,
+                grpIdx: getGroupMemberIndex(item.resourceId, item.booking.rowId)
+            };
+        });
 
         const currentlyBusyIds = Object.values(nextResourceState)
             .filter(r => r.isRunning && !r.isPaused && r.isPreview !== true)
@@ -3184,7 +3190,7 @@ const App = () => {
         validItems.forEach(item => {
             let fStaff = normalizeStaffId(assignments[item.resourceId]);
             if (!fStaff) {
-                fStaff = item.booking.serviceStaff || item.booking.staffId || item.booking.ServiceStaff || '隨機';
+                fStaff = window.StaffSorter ? window.StaffSorter.getRequestedStaffForGroupIndex(item.booking, item.grpIdx || 0) : (item.booking.serviceStaff || item.booking.staffId || item.booking.ServiceStaff || '隨機');
                 assignments[item.resourceId] = fStaff; // store back so it can be used below
             }
             if (fStaff) {
