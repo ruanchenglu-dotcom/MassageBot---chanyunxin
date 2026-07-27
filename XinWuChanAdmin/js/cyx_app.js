@@ -1856,8 +1856,11 @@ const App = () => {
         if (!current) return;
         setSyncLock(true); setTimeout(() => setSyncLock(false), 5000);
 
-        const newStatusData = { ...statusData, [newStaffId]: { ...statusData[newStaffId], status: 'BUSY', stafftime: Date.now() } };
-        updateStaffStatus(newStatusData);
+        const isRunning = current.isRunning || (current.booking && current.booking.isRunningStatus);
+        if (isRunning) {
+            const newStatusData = { ...statusData, [newStaffId]: { ...statusData[newStaffId], status: 'BUSY', stafftime: Date.now() } };
+            updateStaffStatus(newStatusData);
+        }
 
         const staffProps = [
             { key: 'serviceStaff', dbKey: '服務師傅1', fbKey: 'ServiceStaff1' },
@@ -1988,49 +1991,57 @@ const App = () => {
 
         setResourceState(newState);
 
+        const isRunning = current.isRunning || (current.booking && current.booking.isRunningStatus);
         const newStatusData = { ...statusData };
 
         if (oldServiceStaff !== '隨機' && oldServiceStaff !== newStaffId) {
             const oldStaffState = statusData[oldServiceStaff];
-            let restoredTime = Date.now();
+            if (isRunning && oldStaffState && oldStaffState.status === 'BUSY') {
+                let restoredTime = Date.now();
 
-            if (returnToLast) {
-                let maxReadyTime = 0;
-                if (staffList) {
-                    staffList.forEach(s => {
-                        const stat = statusData[s.id] || { status: 'AWAY' };
-                        if (stat.status === 'READY' || stat.status === 'EAT' || stat.status === 'OUT_SHORT') {
-                            const st = stat.stafftime || 0;
-                            if (st > maxReadyTime) maxReadyTime = st;
-                        }
-                    });
+                if (returnToLast) {
+                    let maxReadyTime = 0;
+                    if (staffList) {
+                        staffList.forEach(s => {
+                            const stat = statusData[s.id] || { status: 'AWAY' };
+                            if (stat.status === 'READY' || stat.status === 'EAT' || stat.status === 'OUT_SHORT') {
+                                const st = stat.stafftime || 0;
+                                if (st > maxReadyTime) maxReadyTime = st;
+                            }
+                        });
+                    }
+                    restoredTime = maxReadyTime > 0 ? maxReadyTime + 100 : Date.now();
+                } else {
+                    if (oldStaffState?.previousStafftime) {
+                        restoredTime = oldStaffState.previousStafftime;
+                    } else if (current.startTime) {
+                        restoredTime = new Date(current.startTime).getTime();
+                    }
                 }
-                restoredTime = maxReadyTime > 0 ? maxReadyTime + 100 : Date.now();
-            } else {
-                if (oldStaffState?.previousStafftime) {
-                    restoredTime = oldStaffState.previousStafftime;
-                } else if (current.startTime) {
-                    restoredTime = new Date(current.startTime).getTime();
-                }
+
+                newStatusData[oldServiceStaff] = {
+                    ...oldStaffState,
+                    status: 'READY',
+                    stafftime: restoredTime
+                };
             }
-
-            newStatusData[oldServiceStaff] = {
-                ...oldStaffState,
-                status: 'READY',
-                stafftime: restoredTime
-            };
         }
 
         if (newStaffId !== '隨機') {
             const currentStaffTime = statusData[newStaffId]?.stafftime || Date.now();
-            newStatusData[newStaffId] = {
-                ...statusData[newStaffId],
-                status: 'BUSY',
-                stafftime: Date.now(),
-                previousStafftime: currentStaffTime
-            };
+            if (isRunning) {
+                newStatusData[newStaffId] = {
+                    ...statusData[newStaffId],
+                    status: 'BUSY',
+                    stafftime: Date.now(),
+                    previousStafftime: currentStaffTime
+                };
+            }
         }
-        updateStaffStatus(newStatusData);
+        
+        if (isRunning) {
+            updateStaffStatus(newStatusData);
+        }
 
         let primaryKey = "服務師傅1"; let fallbackKey = "ServiceStaff1";
         if (grpIdx === 1) { primaryKey = "服務師傅2"; fallbackKey = "ServiceStaff2"; }
