@@ -974,9 +974,11 @@
         class VirtualMatrix {
             constructor(locationStr = '本館') {
                 const CONF = getSystemConfig(locationStr);
+                const isOpp = locationStr === '對面館' || CONF._tempLocation === '對面館';
+                const buildingStr = isOpp ? '2' : '1';
                 this.lanes = {
-                    'CHAIR': Array.from({ length: CONF.MAX_CHAIRS }, (_, i) => ({ id: `CHAIR-${i + 1}`, occupied: [] })),
-                    'BED': Array.from({ length: CONF.MAX_BEDS }, (_, i) => ({ id: `BED-${i + 1}`, occupied: [] }))
+                    'CHAIR': Array.from({ length: CONF.MAX_CHAIRS }, (_, i) => ({ id: `CHAIR-${buildingStr}-${i + 1}`, occupied: [] })),
+                    'BED': Array.from({ length: CONF.MAX_BEDS }, (_, i) => ({ id: `BED-${buildingStr}-${i + 1}`, occupied: [] }))
                 };
                 this.blockLog = [];
             }
@@ -1613,7 +1615,7 @@
                 }
 
                 if (conflictFound) {
-                    let matrixSqueeze = new VirtualMatrix();
+                    let matrixSqueeze = new VirtualMatrix(locationStr);
                     let updatesProposed = [];
                     const hardBookings = existingBookingsProcessed;
                     hardBookings.forEach(hb => {
@@ -1668,7 +1670,7 @@
                             }
 
                             let fit = true;
-                            let clonedMatrix = new VirtualMatrix();
+                            let clonedMatrix = new VirtualMatrix(locationStr);
                             clonedMatrix.lanes = JSON.parse(JSON.stringify(currentMatrix.lanes));
                             clonedMatrix.blockLog = [...currentMatrix.blockLog];
                             
