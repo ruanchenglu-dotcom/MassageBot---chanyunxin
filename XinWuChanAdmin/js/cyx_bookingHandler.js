@@ -1027,13 +1027,13 @@
         }
 
         // --- HELPER LOGIC: STAFF MATCHING & ELASTIC (MULTI-STAFF ARRAY UPDATE) ---
-        function findAvailableStaff(staffReq, start, end, staffListRef, busyList, queryDateStr = null) {
+        function findAvailableStaff(staffReq, start, end, staffListRef, busyList, queryDateStr = null, outReason = {}) {
             const CONF = getSystemConfig();
             const checkOneStaff = (name) => {
                 const staffInfo = staffListRef[name];
-                if (!staffInfo) return false;
+                if (!staffInfo) { outReason.reason = 'NOT_FOUND'; return false; }
                 const shiftInfo = resolveStaffShift(staffInfo, queryDateStr);
-                if (shiftInfo.off) return false;
+                if (shiftInfo.off) { outReason.reason = 'OFF'; return false; }
                 const shiftStart = getMinsFromTimeStr(shiftInfo.start);
                 let shiftEnd = getMinsFromTimeStr(shiftInfo.end);
                 if (shiftStart === -1 || shiftEnd === -1) return false;
@@ -1064,15 +1064,19 @@
                     }
                 }
 
-                if (!inMain && !inTail) return false;
+                if (!inMain && !inTail) { outReason.reason = 'OUT_OF_SHIFT'; return false; }
 
                 // MULTI-STAFF FIX: Kiểm tra xem name có nằm trong mảng thợ của bất kỳ booking nào đang bận không
                 for (const b of busyList) {
                     const staffArray = b.assignedStaffs || [b.staffName];
-                    if (staffArray.includes(name) && isOverlap(start, end, b.start, b.end)) return false;
+                    if (staffArray.includes(name) && isOverlap(start, end, b.start, b.end)) {
+                        outReason.reason = 'BUSY';
+                        outReason.time = `${Math.floor(start/60)%24}:${(start%60).toString().padStart(2, '0')}`;
+                        return false;
+                    }
                 }
-                if ((staffReq === 'MALE' || staffReq === '男' || staffReq === '男師') && staffInfo.gender !== 'M') return false;
-                if ((staffReq === 'FEMALE' || staffReq === '女' || staffReq === '女師') && staffInfo.gender !== 'F') return false;
+                if ((staffReq === 'MALE' || staffReq === '男' || staffReq === '男師') && staffInfo.gender !== 'M') { outReason.reason = 'GENDER_MISMATCH'; return false; }
+                if ((staffReq === 'FEMALE' || staffReq === '女' || staffReq === '女師') && staffInfo.gender !== 'F') { outReason.reason = 'GENDER_MISMATCH'; return false; }
                 return true;
             };
             if (staffReq && !['RANDOM', 'MALE', 'FEMALE', '隨機', 'Any', 'undefined', '男', '女', '男師', '女師'].includes(staffReq)) {
@@ -1811,7 +1815,8 @@
                 });
 
                 for (const item of sortedGuestsForAllocation) {
-                    const assignedStaff = findAvailableStaff(item.guest.staffName, item.blocks[0].start, item.blocks[item.blocks.length - 1].end, staffList, flatTimeline, dateStr);
+                    let outReason = {};
+                    const assignedStaff = findAvailableStaff(item.guest.staffName, item.blocks[0].start, item.blocks[item.blocks.length - 1].end, staffList, flatTimeline, dateStr, outReason);
                     if (!assignedStaff) {
                         staffAssignmentSuccess = false;
                         let staffReq = item.guest.staffName;
@@ -1822,7 +1827,13 @@
                             } else if (['FEMALE', '女', '女師'].includes(staffReq)) {
                                 errorMsg = '女老師不夠';
                             } else if (!['RANDOM', '隨機', 'Any', 'undefined', '不指定'].includes(staffReq)) {
-                                errorMsg = `[${staffReq}]老師沒有上班`; 
+                                if (outReason.reason === 'OFF') {
+                                    errorMsg = `[${staffReq}]老師沒有上班`;
+                                } else if (outReason.reason === 'BUSY') {
+                                    errorMsg = `${staffReq}老師 ${outReason.time}已經有客人`; 
+                                } else {
+                                    errorMsg = `[${staffReq}]老師沒有上班`; 
+                                }
                             }
                         }
                         failureLog.push(`❌ ${errorMsg}`);

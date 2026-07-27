@@ -7,11 +7,16 @@ console.log('================================================');
 console.log('🧪 RUNNING E2E TEST: Staff Assignment Error Messages');
 console.log('================================================\n');
 
-function runTestLogic(staffName) {
+function runTestLogic(staffName, reason = null, time = null) {
     let item = { guest: { staffName: staffName } };
     let failureLog = [];
     
-    // THE EXACT LOGIC FROM cyx_bookingHandler.js
+    let outReason = {};
+    if (reason) {
+        outReason.reason = reason;
+        if (time) outReason.time = time;
+    }
+
     let staffReq = item.guest.staffName;
     let errorMsg = '老師不夠';
     if (staffReq) {
@@ -20,7 +25,13 @@ function runTestLogic(staffName) {
         } else if (['FEMALE', '女', '女師'].includes(staffReq)) {
             errorMsg = '女老師不夠';
         } else if (!['RANDOM', '隨機', 'Any', 'undefined', '不指定'].includes(staffReq)) {
-            errorMsg = `[${staffReq}]老師沒有上班`; 
+            if (outReason.reason === 'OFF') {
+                errorMsg = `[${staffReq}]老師沒有上班`;
+            } else if (outReason.reason === 'BUSY') {
+                errorMsg = `${staffReq}老師 ${outReason.time}已經有客人`; 
+            } else {
+                errorMsg = `[${staffReq}]老師沒有上班`; 
+            }
         }
     }
     failureLog.push(`❌ ${errorMsg}`);
@@ -41,13 +52,14 @@ const testCases = [
     { input: 'FEMALE', expected: '❌ 女老師不夠' },
     { input: '女', expected: '❌ 女老師不夠' },
     { input: '女師', expected: '❌ 女老師不夠' },
-    { input: '吳', expected: '❌ [吳]老師沒有上班' },
-    { input: '陳', expected: '❌ [陳]老師沒有上班' }
+    { input: '吳', expected: '❌ [吳]老師沒有上班', reason: 'OFF' },
+    { input: '陳', expected: '❌ 陳老師 21:00已經有客人', reason: 'BUSY', time: '21:00' },
+    { input: '王', expected: '❌ [王]老師沒有上班', reason: 'OUT_OF_SHIFT' }
 ];
 
 let passed = 0;
 testCases.forEach((tc, index) => {
-    const result = runTestLogic(tc.input);
+    const result = runTestLogic(tc.input, tc.reason, tc.time);
     if (result === tc.expected) {
         console.log(`✅ Test ${index + 1} passed: input='${tc.input}' -> output='${result}'`);
         passed++;

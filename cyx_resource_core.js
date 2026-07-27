@@ -1057,11 +1057,12 @@ class VirtualMatrix {
 // PHẦN 6: LOGIC TÌM NHÂN VIÊN & CO GIÃN
 // ============================================================================
 
-function findAvailableStaff(staffReq, start, end, staffListRef, busyList, queryDateStr = null) {
+function findAvailableStaff(staffReq, start, end, staffListRef, busyList, queryDateStr = null, outReason = {}) {
     const checkOneStaff = (name) => {
         const staffInfo = staffListRef[name];
+        if (!staffInfo) { outReason.reason = 'NOT_FOUND'; return false; }
         const status = parseStaffStatus(staffInfo, queryDateStr);
-        if (!status.isAvailable) return false;
+        if (!status.isAvailable) { outReason.reason = 'OFF'; return false; }
 
         const shiftStart = status.startMins; const shiftEnd = status.endMins;
         // [CORE V118.0] Thuật toán Phân đoạn Ca Đêm
@@ -1085,12 +1086,18 @@ function findAvailableStaff(staffReq, start, end, staffListRef, busyList, queryD
             }
         }
 
-        if (!inMain && !inTail) return false;
+        if (!inMain && !inTail) { outReason.reason = 'OUT_OF_SHIFT'; return false; }
 
-        for (const b of busyList) { if (b.staffName === name && isOverlap(start, end, b.start, b.end)) return false; }
+        for (const b of busyList) { 
+            if (b.staffName === name && isOverlap(start, end, b.start, b.end)) {
+                outReason.reason = 'BUSY';
+                outReason.time = `${Math.floor(start/60)%24}:${(start%60).toString().padStart(2, '0')}`;
+                return false; 
+            }
+        }
 
-        if (staffReq === 'MALE' && staffInfo.gender !== 'M') return false;
-        if ((staffReq === 'FEMALE' || staffReq === '女') && staffInfo.gender !== 'F') return false;
+        if (staffReq === 'MALE' && staffInfo.gender !== 'M') { outReason.reason = 'GENDER_MISMATCH'; return false; }
+        if ((staffReq === 'FEMALE' || staffReq === '女') && staffInfo.gender !== 'F') { outReason.reason = 'GENDER_MISMATCH'; return false; }
         return true;
     };
 
@@ -1746,8 +1753,17 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
                                 })));
                                 gBlocks.sort((a, b) => a.start - b.start);
                                 if (gBlocks.length > 0) {
-                                    let assigned = findAvailableStaff(newGuestBlocksMap[i].guest.staffName, gBlocks[0].start, gBlocks[gBlocks.length - 1].end, staffList, tempTimeline, dateStr);
-                                    if (!assigned) { staffOk = false; break; }
+                                    let outReason = {};
+                                    let assigned = findAvailableStaff(newGuestBlocksMap[i].guest.staffName, gBlocks[0].start, gBlocks[gBlocks.length - 1].end, staffList, tempTimeline, dateStr, outReason);
+                                    if (!assigned) { 
+                                        staffOk = false;
+                                        if (newGuestBlocksMap[i].guest.staffName && !['RANDOM', 'MALE', 'FEMALE', '隨機', 'Any', 'undefined'].includes(newGuestBlocksMap[i].guest.staffName)) {
+                                            if (outReason.reason === 'OFF') failureLog.push(`[${newGuestBlocksMap[i].guest.staffName}]老師沒有上班`);
+                                            else if (outReason.reason === 'BUSY') failureLog.push(`${newGuestBlocksMap[i].guest.staffName}老師 ${outReason.time}已經有客人`);
+                                            else failureLog.push(`[${newGuestBlocksMap[i].guest.staffName}]老師沒有上班`);
+                                        }
+                                        break; 
+                                    }
                                     gBlocks.forEach(b => tempTimeline.push({ start: b.start, end: b.end, staffName: assigned }));
                                 }
                             }
@@ -1924,8 +1940,17 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
 
         let staffAssignmentSuccess = true;
         for (const item of newGuestBlocksMap) {
-            const assignedStaff = findAvailableStaff(item.guest.staffName, item.blocks[0].start, item.blocks[item.blocks.length - 1].end, staffList, flatTimeline, dateStr);
-            if (!assignedStaff) { staffAssignmentSuccess = false; break; }
+            let outReason = {};
+            const assignedStaff = findAvailableStaff(item.guest.staffName, item.blocks[0].start, item.blocks[item.blocks.length - 1].end, staffList, flatTimeline, dateStr, outReason);
+            if (!assignedStaff) { 
+                staffAssignmentSuccess = false;
+                if (item.guest.staffName && !['RANDOM', 'MALE', 'FEMALE', '隨機', 'Any', 'undefined'].includes(item.guest.staffName)) {
+                    if (outReason.reason === 'OFF') failureLog.push(`[${item.guest.staffName}]老師沒有上班`);
+                    else if (outReason.reason === 'BUSY') failureLog.push(`${item.guest.staffName}老師 ${outReason.time}已經有客人`);
+                    else failureLog.push(`[${item.guest.staffName}]老師沒有上班`);
+                }
+                break; 
+            }
             const detail = scenarioDetails.find(d => d.guestIndex === item.guest.idx);
             if (detail) detail.staff = assignedStaff;
             item.blocks.forEach(b => flatTimeline.push({ start: b.start, end: b.end, staffName: assignedStaff }));
