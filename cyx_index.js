@@ -31,6 +31,55 @@ let cachedConfig = null;
 let lastConfigLoadTime = 0;
 const CONFIG_CACHE_TTL = 10000; // 10 giây cache
 
+// --- HELPER NOTIFY SPECIFIC STAFFS ---
+async function notifySpecificStaffs(bookingData) {
+    try {
+        if (!bookingData) return;
+        const staffsToNotify = new Set();
+        
+        const isSpecific = (s) => {
+            if (!s) return false;
+            const str = String(s).trim().toUpperCase();
+            return !['', '隨機', '男', '女', '男師', '女師', 'RANDOM', 'MALE', 'FEMALE', 'UNDEFINED', 'NULL', 'ALL_STAFF'].includes(str);
+        };
+
+        if (isSpecific(bookingData.nhanVien)) {
+            staffsToNotify.add(bookingData.nhanVien);
+        }
+
+        if (bookingData.guestDetails && Array.isArray(bookingData.guestDetails)) {
+            bookingData.guestDetails.forEach(g => {
+                if (isSpecific(g.staff)) {
+                    staffsToNotify.add(g.staff);
+                }
+            });
+        }
+
+        if (staffsToNotify.size === 0) return;
+
+        const staffList = SheetService.getStaffList();
+        
+        for (const staffName of staffsToNotify) {
+            const staffObj = staffList.find(s => String(s.id).trim() === String(staffName).trim() || String(s.name).trim() === String(staffName).trim());
+            if (staffObj && staffObj.lineId) {
+                const msg = `📅 新的指定預約提醒\n\n` +
+                            `您好，您有一筆新的指定預約！\n` +
+                            `👤 客戶：${bookingData.hoTen || '未知'}\n` +
+                            `⏰ 時間：${bookingData.ngayDen} ${bookingData.gioDen}\n` +
+                            `💆 服務：${bookingData.dichVu || '按摩'}\n` +
+                            `👥 人數：${bookingData.pax || 1}人\n\n` +
+                            `請準時準備，謝謝！`;
+                
+                await StaffBot.client.pushMessage(staffObj.lineId, { type: 'text', text: msg });
+                console.log(`[STAFF_BOT] Sent notification to specific staff: ${staffName}`);
+            }
+        }
+    } catch (e) {
+        console.error("[STAFF_BOT] Error notifying specific staff:", e);
+    }
+}
+
+
 function getConfig() {
     const now = Date.now();
     if (!cachedConfig || (now - lastConfigLoadTime > CONFIG_CACHE_TTL)) {
@@ -1108,6 +1157,7 @@ app.post('/api/admin-booking', async (req, res) => {
     });
 
     if (isSaved) {
+        notifySpecificStaffs(cyx_data).catch(e => console.error(e));
         res.json({ success: true });
     } else {
         res.status(500).json({ success: false, error: '系統錯誤：無法寫入資料庫' });
@@ -1756,6 +1806,17 @@ async function handleEvent(event) {
             if (ID_BA_CHU) {
                 client.pushMessage(ID_BA_CHU, { type: 'text', text: `💰 新預約：${s.fullName} - $${totalPrice}` }).catch(e => console.error(e));
             }
+            
+            // Thông báo cho thợ được chỉ định
+            notifySpecificStaffs({
+                nhanVien: staffDisplay,
+                guestDetails: guestDetails,
+                hoTen: s.fullName,
+                ngayDen: finalDate,
+                gioDen: s.time,
+                dichVu: SERVICES[s.service].name,
+                pax: s.pax
+            }).catch(e => console.error(e));
         } else {
             // Nhánh thất bại: Báo lỗi để khách không đến nhầm
             await client.replyMessage(event.replyToken, { type: 'text', text: `⚠️ 系統繁忙，預約寫入失敗。請稍後再試，或直接致電櫃台為您安排！` });
