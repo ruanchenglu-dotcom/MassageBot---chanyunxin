@@ -12,75 +12,10 @@
 # Error details
 
 ```
-Error: expect(locator).toBeVisible() failed
-
-Locator: getByText('新增預約').first()
-Expected: visible
-Timeout: 15000ms
-Error: element(s) not found
-
+Error: page.goto: net::ERR_CONNECTION_REFUSED at http://localhost:5001/admin2/index.html
 Call log:
-  - Expect "toBeVisible" with timeout 15000ms
-  - waiting for getByText('新增預約').first()
+  - navigating to "http://localhost:5001/admin2/index.html", waiting until "load"
 
-```
-
-```yaml
-- banner:
-  - text: V109.8 心悟禪養身館 (中和店)
-  - button "❯"
-  - textbox: 2026-07-27
-  - button "❯"
-  - button " 本館"
-  - button " 對面館"
-  - button " 列表"
-  - button " 立即刷新"
-  - button " 預約"
-  - button " 技師報到"
-- main:
-  - text: 00:29 現在 區域 8:00
-  - button ""
-  - text: 9:00
-  - button ""
-  - text: 10:00
-  - button ""
-  - text: 11:00
-  - button ""
-  - text: 12:00
-  - button ""
-  - text: 13:00
-  - button ""
-  - text: 14:00
-  - button ""
-  - text: 15:00
-  - button ""
-  - text: 16:00
-  - button ""
-  - text: 17:00
-  - button ""
-  - text: 18:00
-  - button ""
-  - text: 19:00
-  - button ""
-  - text: 20:00
-  - button ""
-  - text: 21:00
-  - button ""
-  - text: 22:00
-  - button ""
-  - text: 23:00
-  - button ""
-  - text: 0:00
-  - button ""
-  - text: 1:00
-  - button ""
-  - text: 2:00
-  - button ""
-  - text: 3:00
-  - button ""
-  - text: 4:00
-  - button ""
-  - text: 腳1-1 腳1-2 腳1-3 腳1-4 腳1-5 腳1-6 床1-1 床1-2 床1-3 床1-4 床1-5 床1-6
 ```
 
 # Test source
@@ -105,12 +40,12 @@ Call log:
   17 |     });
   18 | 
   19 |     // 1. Go to admin page
-  20 |     await page.goto('/admin2/index.html');
+> 20 |     await page.goto('/admin2/index.html');
+     |                ^ Error: page.goto: net::ERR_CONNECTION_REFUSED at http://localhost:5001/admin2/index.html
   21 |     
   22 |     // 2. Wait for Add Booking button
   23 |     const addBtn = page.getByText('新增預約').first();
-> 24 |     await expect(addBtn).toBeVisible({ timeout: 15000 });
-     |                          ^ Error: expect(locator).toBeVisible() failed
+  24 |     await expect(addBtn).toBeVisible({ timeout: 15000 });
   25 |     
   26 |     // 3. Click Add Booking button
   27 |     await addBtn.click();

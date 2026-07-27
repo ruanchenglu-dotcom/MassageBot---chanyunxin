@@ -2826,9 +2826,8 @@
         const [cH, cM] = (form.time || "12:00").split(':');
 
         let dynamicMaxPax = 18;
-        if (typeof CoreKernel !== 'undefined' && CoreKernel.getSystemConfig) {
-            const config = CoreKernel.getSystemConfig();
-            const configScale = config.SCALE || {};
+        if (window.SYSTEM_CONFIG && window.SYSTEM_CONFIG.SCALE) {
+            const configScale = window.SYSTEM_CONFIG.SCALE;
             const mainMax = (configScale.MAX_CHAIRS || 6) + (configScale.MAX_BEDS || 6);
             const oppMax = (configScale.OPP_CHAIRS || 4) + (configScale.OPP_BEDS || 6);
             if (selectedLocation === '本館') {
