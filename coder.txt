@@ -26,3 +26,6 @@ lão dian
 thanh toán
 
 có lỗi sau khi bắt đầu thì vẫn vẽ đúng nhưng sau tầm 10s thì phase 2 chạy về trước vẽ sai.với vai trò là một lập trình viên đẳng cấp hãy kiểm tra và phân tích lỗi tất cả các file, hãy check toàn bộ file frontend và cả backend.giải thích bằng tiếng việt.lên kế hoạch nâng cấp chi tiết mà không ảnh hưởng đến các tính năng khác. giao diện ngôn ngữ UX/UI tiếng trung phồn thể,không chứa ngôn ngữ khác.. và ghi rõ các file cần nâng cấp, Trước khi viết bất kỳ dòng code nào, hãy lập một kế hoạch (Implementation Plan) và liệt kê những tính năng cũ nào có thể bị ảnh hưởng bởi thay đổi này. Đợi tôi duyệt kế hoạch rồi mới code..
+
+kiểm tra thợ không đủ: không đủ thợ
+thợ chỉ định không đi làm: X老師沒有上班

@@ -157,14 +157,14 @@ const checkGuaShaService = (booking) => {
 // 0. BOOKING CONTROL MODAL (SUPER MODAL)
 // ============================================================================
 const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveData, contextResourceId, staffList, statusData, timelineData, resourceState, bookings }) => {
+    // Các cờ tính năng mở rộng (MOVED ABOVE EARLY RETURN)
+    const [localIsYouTui, setLocalIsYouTui] = useState(booking ? (booking.isYouTui || (booking.serviceName && booking.serviceName.includes('油'))) : false);
+    const [localIsGuaSha, setLocalIsGuaSha] = useState(booking ? (checkGuaShaService(booking) || booking.isGuaSha === true) : false);
+    const [localIsHuaGuan, setLocalIsHuaGuan] = useState(booking ? (booking.isHuaGuan === true) : false);
+    const [localIsBaGuan, setLocalIsBaGuan] = useState(booking ? (booking.isBaGuan === true) : false);
+
     if (!isOpen || !booking) return null;
     const STATUS = getBookingStatus();
-
-    // Các cờ tính năng mở rộng
-    const isYouTui = booking.isYouTui || (booking.serviceName && booking.serviceName.includes('油'));
-    const isGuaSha = checkGuaShaService(booking) || booking.isGuaSha === true;
-    const isHuaGuan = booking.isHuaGuan === true;
-    const isBaGuan = booking.isBaGuan === true;
 
     const effectiveDuration = (booking.isTimeAnomaly && booking.standardDuration) ? booking.standardDuration : (booking.duration || 60);
     const totalDuration = effectiveDuration;
@@ -248,6 +248,11 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
 
     useEffect(() => {
         if (isOpen && booking) {
+            setLocalIsYouTui(booking.isYouTui || (booking.serviceName && booking.serviceName.includes('油')));
+            setLocalIsGuaSha(checkGuaShaService(booking) || booking.isGuaSha === true);
+            setLocalIsHuaGuan(booking.isHuaGuan === true);
+            setLocalIsBaGuan(booking.isBaGuan === true);
+
             const currentP1 = meta && meta.phase1_duration !== undefined
                 ? meta.phase1_duration
                 : (booking.phase1_duration !== undefined ? booking.phase1_duration : totalDuration / 2);
@@ -1098,6 +1103,23 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
         return conflictingBooking;
     };
 
+    const handleToggleAddon = (addonType, currentValue) => {
+        const newValue = !currentValue;
+        if (addonType === 'isOil') {
+            setLocalIsYouTui(newValue);
+            triggerAction('UPDATE_ADDONS', { isOil: newValue, isYouTui: newValue });
+        } else if (addonType === 'isGuaSha') {
+            setLocalIsGuaSha(newValue);
+            triggerAction('UPDATE_ADDONS', { isGuaSha: newValue });
+        } else if (addonType === 'isHuaGuan') {
+            setLocalIsHuaGuan(newValue);
+            triggerAction('UPDATE_ADDONS', { isHuaGuan: newValue });
+        } else if (addonType === 'isBaGuan') {
+            setLocalIsBaGuan(newValue);
+            triggerAction('UPDATE_ADDONS', { isBaGuan: newValue });
+        }
+    };
+
     return (
         <div className="fixed inset-0 z-[3000] flex items-center justify-center bg-black/70 backdrop-blur-sm animate-in fade-in duration-200 p-4">
             {showGroupUpdatePrompt && (
@@ -1159,6 +1181,34 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                                 {isRunning && !isPaused && !isSyncPending && <span className="bg-green-500 text-xs font-bold px-2 py-0.5 rounded animate-pulse">{STATUS.SERVING}</span>}
                                 {isPaused && <span className="bg-yellow-500 text-xs font-bold px-2 py-0.5 rounded">暫停中</span>}
                                 {!isRunning && !isSyncPending && <span className="bg-gray-500 text-xs font-bold px-2 py-0.5 rounded">{STATUS.WAITING}</span>}
+                                
+                                {/* TOGGLEABLE ADD-ONS */}
+                                <div className="flex items-center gap-1.5 ml-1 border-l border-white/20 pl-2">
+                                    <button 
+                                        onClick={() => handleToggleAddon('isOil', localIsYouTui)} 
+                                        className={`px-2 py-0.5 rounded text-[10px] font-bold border transition-colors flex items-center gap-1 shadow-sm ${localIsYouTui ? 'bg-orange-100 text-orange-800 border-orange-300 shadow-orange-500/20' : 'bg-white/10 text-white/60 border-white/20 hover:bg-white/20'}`}
+                                    >
+                                        💧 油推
+                                    </button>
+                                    <button 
+                                        onClick={() => handleToggleAddon('isGuaSha', localIsGuaSha)} 
+                                        className={`px-2 py-0.5 rounded text-[10px] font-bold border transition-colors flex items-center gap-1 shadow-sm ${localIsGuaSha ? 'bg-red-100 text-red-800 border-red-300 shadow-red-500/20' : 'bg-white/10 text-white/60 border-white/20 hover:bg-white/20'}`}
+                                    >
+                                        🩸 刮痧
+                                    </button>
+                                    <button 
+                                        onClick={() => handleToggleAddon('isHuaGuan', localIsHuaGuan)} 
+                                        className={`px-2 py-0.5 rounded text-[10px] font-bold border transition-colors flex items-center gap-1 shadow-sm ${localIsHuaGuan ? 'bg-purple-100 text-purple-800 border-purple-300 shadow-purple-500/20' : 'bg-white/10 text-white/60 border-white/20 hover:bg-white/20'}`}
+                                    >
+                                        🏺 滑罐
+                                    </button>
+                                    <button 
+                                        onClick={() => handleToggleAddon('isBaGuan', localIsBaGuan)} 
+                                        className={`px-2 py-0.5 rounded text-[10px] font-bold border transition-colors flex items-center gap-1 shadow-sm ${localIsBaGuan ? 'bg-blue-100 text-blue-800 border-blue-300 shadow-blue-500/20' : 'bg-white/10 text-white/60 border-white/20 hover:bg-white/20'}`}
+                                    >
+                                        🎯 拔罐
+                                    </button>
+                                </div>
                             </div>
                             <h2 className="text-2xl font-black mt-1 truncate" title={booking.customerName}>
                                 {booking.customerName}
@@ -1187,26 +1237,6 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                                 {requestedStaff !== '隨機' && (
                                     <span className="text-xs bg-pink-100 text-pink-800 px-2 py-1 rounded shadow-sm flex items-center font-bold border border-pink-300 whitespace-nowrap">
                                         <i className="fas fa-thumbtack mr-1"></i>指定: {requestedStaff}
-                                    </span>
-                                )}
-                                {isYouTui && (
-                                    <span className="text-xs bg-orange-100 text-orange-800 px-2 py-1 rounded shadow-sm flex items-center font-bold border border-orange-300 whitespace-nowrap">
-                                        💧 油推
-                                    </span>
-                                )}
-                                {isGuaSha && (
-                                    <span className="text-xs bg-red-100 text-red-800 px-2 py-1 rounded shadow-sm flex items-center font-bold border border-red-300 whitespace-nowrap">
-                                        🩸 刮痧
-                                    </span>
-                                )}
-                                {isHuaGuan && (
-                                    <span className="text-xs bg-purple-100 text-purple-800 px-2 py-1 rounded shadow-sm flex items-center font-bold border border-purple-300 whitespace-nowrap">
-                                        🏺 滑罐
-                                    </span>
-                                )}
-                                {isBaGuan && (
-                                    <span className="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded shadow-sm flex items-center font-bold border border-blue-300 whitespace-nowrap">
-                                        🎯 拔罐
                                     </span>
                                 )}
                             </div>

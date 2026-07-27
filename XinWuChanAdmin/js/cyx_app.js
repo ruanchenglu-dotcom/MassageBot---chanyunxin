@@ -1041,7 +1041,10 @@ const App = () => {
 
             const relevantBookings = cleanBookings.filter(b => {
                 const safeStatus = String(b.status || '');
-                return window.isWithinOperationalDay(b.startTimeString.split(' ')[0], b.startTimeString.split(' ')[1], viewDate) &&
+                const datePart = b.startTimeString.split(' ')[0];
+                const timePart = b.startTimeString.split(' ')[1];
+                const isWithin = window.isWithinOperationalDay(datePart, timePart, viewDate);
+                return isWithin &&
                     !safeStatus.toLowerCase().includes('cancel') && !safeStatus.includes('取消') && !safeStatus.includes('爽約') && !safeStatus.toUpperCase().includes('NOSHOW') && !safeStatus.includes(APP_STATUS.CANCELLED) && !safeStatus.includes(APP_STATUS.NOSHOW) &&
                     !safeStatus.includes('候補') && !safeStatus.toUpperCase().includes('STANDBY');
             });
@@ -4341,6 +4344,15 @@ const App = () => {
                     });
                     
                     fetchData(false);
+                }
+                break;
+            case 'UPDATE_ADDONS':
+                if (targetBooking) {
+                    universalSend('/api/update-booking-details', {
+                        rowId: targetBooking.rowId,
+                        ...payload,
+                        forceSync: true
+                    });
                 }
                 break;
 
