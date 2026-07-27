@@ -299,8 +299,9 @@ const getBookingSignature = (booking) => {
     const time = (booking.startTimeString || "").split(' ')[1] || "00:00";
     const name = (booking.customerName || "").trim().toLowerCase().replace(/\s+/g, '');
     const phone = getNormalizedPhone(booking).slice(-4);
-    const service = (booking.serviceName || "").substring(0, 3);
-    return `${time}_${name}_${phone}`;
+    // [V139 FIX] Include rowId to guarantee uniqueness for group members with identical names/phones
+    const rowId = booking.rowId || "";
+    return `${time}_${name}_${phone}_${rowId}`;
 };
 
 // --- APP COMPONENT ---
@@ -4034,28 +4035,51 @@ const App = () => {
                     // Cẩn thận NORMALIZE ở đây
                     payload.newStaff = normalizeStaffId(payload.newStaff);
 
-                    if (targetResourceId && resourceState[targetResourceId]) {
-                        handleStaffChange(targetResourceId, payload.newStaff, payload.returnToLast);
+                    if (payload.updateGroup && Array.isArray(payload.groupMemberIds) && payload.groupMemberIds.length > 0) {
+                        (async () => {
+                            setSyncLock(true); setTimeout(() => setSyncLock(false), 3000);
+                            for (const id of payload.groupMemberIds) {
+                                const rowIdStr = String(id);
+                                const liveContext = getLiveResourceByBooking(rowIdStr);
+                                if (liveContext && liveContext.resourceId && resourceState[liveContext.resourceId]) {
+                                    await handleStaffChange(liveContext.resourceId, payload.newStaff, payload.returnToLast);
+                                } else {
+                                    universalSend('/api/update-booking-details', {
+                                        rowId: rowIdStr,
+                                        服務師傅1: payload.newStaff,
+                                        ServiceStaff1: payload.newStaff,
+                                        technician: payload.newStaff,
+                                        staff1: payload.newStaff,
+                                        forceSync: true
+                                    });
+                                }
+                            }
+                            fetchData(false);
+                        })();
                     } else {
-                        const rowId = String(targetBooking.rowId);
-                        setSyncLock(true); setTimeout(() => setSyncLock(false), 3000);
-
-                        if (controlCenterData && String(controlCenterData.booking.rowId) === rowId) {
-                            setControlCenterData(prev => ({
-                                ...prev,
-                                booking: { ...prev.booking, serviceStaff: payload.newStaff }
-                            }));
+                        if (targetResourceId && resourceState[targetResourceId]) {
+                            handleStaffChange(targetResourceId, payload.newStaff, payload.returnToLast);
+                        } else {
+                            const rowId = String(targetBooking.rowId);
+                            setSyncLock(true); setTimeout(() => setSyncLock(false), 3000);
+    
+                            if (controlCenterData && String(controlCenterData.booking.rowId) === rowId) {
+                                setControlCenterData(prev => ({
+                                    ...prev,
+                                    booking: { ...prev.booking, serviceStaff: payload.newStaff }
+                                }));
+                            }
+    
+                            universalSend('/api/update-booking-details', {
+                                rowId: rowId,
+                                服務師傅1: payload.newStaff,
+                                ServiceStaff1: payload.newStaff,
+                                technician: payload.newStaff,
+                                staff1: payload.newStaff,
+                                forceSync: true
+                            });
+                            fetchData(false);
                         }
-
-                        universalSend('/api/update-booking-details', {
-                            rowId: rowId,
-                            服務師傅1: payload.newStaff,
-                            ServiceStaff1: payload.newStaff,
-                            technician: payload.newStaff,
-                            staff1: payload.newStaff,
-                            forceSync: true
-                        });
-                        fetchData(false);
                     }
                 }
                 break;
