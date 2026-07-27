@@ -107,7 +107,7 @@ window.ErrorBoundary = ErrorBoundary;
  * 2. STAFF CARD 3D (技師卡片) - CẬP NHẬT GIAO DIỆN & LOGIC CỘT I
  * ============================================================================
  */
-const StaffCard3D = ({ s, statusData, resourceState, queueIndex, isForcedBusy, onMoveStaff, isOfflineMode }) => {
+const StaffCard3D = ({ s, statusData, resourceState, queueIndex, isForcedBusy, onDropStaff, onInfoClick, isOfflineMode }) => {
     if (!s) return null;
 
     const genderStr = String(s.gender || '').toUpperCase();
@@ -146,22 +146,38 @@ const StaffCard3D = ({ s, statusData, resourceState, queueIndex, isForcedBusy, o
         };
     }
 
-    // 4. Trạng thái BUSY: Giữ tuyệt đối cardStyle 'st-busy' gốc, không thay đổi customClass (Đã xóa logic override bóng cam)
+    const handleDragStart = (e) => {
+        if (displayStatus !== 'READY') {
+            e.preventDefault();
+            return;
+        }
+        e.dataTransfer.setData('text/plain', s.id);
+        e.dataTransfer.effectAllowed = 'move';
+    };
+
+    const handleDragOver = (e) => {
+        if (displayStatus !== 'READY') return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+    };
+
+    const handleDrop = (e) => {
+        e.preventDefault();
+        if (displayStatus !== 'READY') return;
+        const draggedId = e.dataTransfer.getData('text/plain');
+        if (draggedId && draggedId !== s.id && onDropStaff) {
+            onDropStaff(draggedId, s.id);
+        }
+    };
 
     return (
-        <div className="relative group flex items-center justify-center">
-            {queueIndex !== undefined && displayStatus === 'READY' && onMoveStaff && (
-                <div className="absolute -top-3 left-1/2 -translate-x-1/2 z-20 flex transition-opacity opacity-0 group-hover:opacity-100">
-                    <button 
-                        onClick={(e) => { e.stopPropagation(); onMoveStaff(s.id, 'LEFT'); }} 
-                        title="向左移" 
-                        className="text-red-500 hover:text-white hover:bg-red-500 bg-white border border-red-200 rounded-sm w-5 h-4 flex items-center justify-center cursor-pointer shadow-sm active:scale-95 transition-colors"
-                    >
-                        <i className="fas fa-caret-left text-[12px]"></i>
-                    </button>
-                </div>
-            )}
-
+        <div 
+            className="relative group flex items-center justify-center"
+            draggable={displayStatus === 'READY'}
+            onDragStart={handleDragStart}
+            onDragOver={handleDragOver}
+            onDrop={handleDrop}
+        >
             <div className={`card-3d ${cardStyle} ${customClass} flex flex-col items-center justify-center relative p-0 overflow-hidden transition-all duration-300`} style={customStyle}>
                 {queueIndex !== undefined && (displayStatus === 'READY' || displayStatus === 'BUSY' || displayStatus === 'BUSY_SHORT') && (
                     <div className={`queue-badge ${displayStatus.includes('BUSY') ? '!bg-slate-700 !text-white' : 'animate-bounce-slow'}`}>
@@ -183,19 +199,17 @@ const StaffCard3D = ({ s, statusData, resourceState, queueIndex, isForcedBusy, o
                         {shiftStart}
                     </div>
                 )}
-            </div>
-
-            {queueIndex !== undefined && displayStatus === 'READY' && onMoveStaff && (
-                <div className="absolute -bottom-3 left-1/2 -translate-x-1/2 z-20 flex transition-opacity opacity-0 group-hover:opacity-100">
-                    <button 
-                        onClick={(e) => { e.stopPropagation(); onMoveStaff(s.id, 'RIGHT'); }} 
-                        title="向右移" 
-                        className="text-red-500 hover:text-white hover:bg-red-500 bg-white border border-red-200 rounded-sm w-5 h-4 flex items-center justify-center cursor-pointer shadow-sm active:scale-95 transition-colors"
-                    >
-                        <i className="fas fa-caret-right text-[12px]"></i>
-                    </button>
+                
+                {/* Info Button Layer */}
+                <div 
+                    className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-200 z-30 cursor-pointer bg-black/30 backdrop-blur-[1px]"
+                    onClick={(e) => { e.stopPropagation(); if(onInfoClick) onInfoClick(s); }}
+                >
+                    <div className="w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center text-white shadow-lg hover:scale-110 hover:bg-blue-600 transition-transform">
+                        <i className="fas fa-info text-[16px]"></i>
+                    </div>
                 </div>
-            )}
+            </div>
         </div>
     )
 };
@@ -1394,5 +1408,78 @@ window.ComboTimeEditModal = ComboTimeEditModal;
 window.AvailabilityCheckModal = AvailabilityCheckModal;
 window.BillingModal = BillingModal;
 window.SplitStaffModal = SplitStaffModal;
+
+const StaffInfoModal = ({ staff, onClose }) => {
+    if (!staff) return null;
+
+    const genderStr = String(staff.gender || '').toUpperCase();
+    const isFemale = ['F', '女', 'FEMALE', 'NU'].includes(genderStr);
+    const shiftStart = staff['上班'] || staff.start || staff.shiftStart || '未設定';
+    const upcomingBookings = staff.upcomingDesignatedBookings || [];
+
+    return (
+        <div className="fixed inset-0 bg-black/60 z-[9999] flex items-center justify-center p-4 animate__animated animate__fadeIn animate__faster" onClick={onClose}>
+            <div className="bg-white rounded-xl shadow-2xl w-full max-w-md overflow-hidden" onClick={e => e.stopPropagation()}>
+                <div className="bg-gradient-to-r from-blue-600 to-blue-800 p-4 text-white flex justify-between items-center relative overflow-hidden">
+                    <div className="absolute top-0 right-0 opacity-10">
+                        <i className={`fas fa-${isFemale ? 'female' : 'male'} text-6xl -mr-4 -mt-4`}></i>
+                    </div>
+                    <div>
+                        <h2 className="text-xl font-black">{staff.name}</h2>
+                        <p className="text-sm font-bold opacity-90 mt-1">
+                            <i className={`fas fa-${isFemale ? 'venus text-pink-300' : 'mars text-blue-300'} mr-2`}></i>
+                            {isFemale ? '女' : '男'} | 上班時間: {shiftStart}
+                        </p>
+                    </div>
+                    <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-full bg-white/20 hover:bg-white/40 transition-colors z-10">
+                        <i className="fas fa-times"></i>
+                    </button>
+                </div>
+                
+                <div className="p-5">
+                    <h3 className="text-gray-800 font-bold mb-3 border-b pb-2 flex items-center">
+                        <i className="fas fa-clipboard-list text-blue-500 mr-2"></i> 今日指定預約
+                        <span className="ml-auto bg-blue-100 text-blue-700 text-xs px-2 py-1 rounded-full">{upcomingBookings.length}</span>
+                    </h3>
+                    
+                    <div className="space-y-3 max-h-[60vh] overflow-y-auto pr-1 custom-scrollbar">
+                        {upcomingBookings.length === 0 ? (
+                            <div className="text-center text-gray-500 py-6 font-bold bg-gray-50 rounded-lg border border-dashed border-gray-200">
+                                <i className="fas fa-coffee text-2xl mb-2 text-gray-300 block"></i>
+                                今日無指定預約
+                            </div>
+                        ) : (
+                            upcomingBookings.map((b, i) => {
+                                const timeStr = b.start_time || b.time || 'N/A';
+                                const pax = b.pax || 1;
+                                const customer = b.customer || b.name || '客戶';
+                                const status = b.status || '等待中';
+                                
+                                return (
+                                    <div key={i} className="bg-blue-50 border border-blue-100 rounded-lg p-3 flex items-start gap-3 hover:bg-blue-100 transition-colors">
+                                        <div className="bg-white border-2 border-blue-200 text-blue-600 font-black px-2 py-1 rounded text-sm min-w-[60px] text-center shadow-sm">
+                                            {timeStr}
+                                        </div>
+                                        <div className="flex-1">
+                                            <div className="font-bold text-gray-800 text-sm">{customer} <span className="text-xs text-gray-500 font-normal ml-1">({pax}人)</span></div>
+                                            <div className="flex items-center gap-2 mt-1">
+                                                <span className="bg-yellow-400 text-black text-[10px] font-bold px-1.5 py-0.5 rounded-sm">指定</span>
+                                                <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-sm ${status === '等待中' ? 'bg-orange-100 text-orange-700' : 'bg-green-100 text-green-700'}`}>
+                                                    {status}
+                                                </span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                );
+                            })
+                        )}
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+};
+window.StaffInfoModal = StaffInfoModal;
+
 window.ComboStartModal = ComboStartModal;
 window.ComboTimeEditModal = ComboTimeEditModal;

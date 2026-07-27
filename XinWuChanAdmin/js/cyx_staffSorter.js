@@ -347,38 +347,48 @@
         enrichStaffListWithDesignated: (staffList, todaysBookings, currentMins) => {
             return staffList.map(staff => {
                 let hasUpcoming = false;
+                let upcomingDesignatedBookings = [];
+                
                 if (todaysBookings && Array.isArray(todaysBookings)) {
-                    hasUpcoming = todaysBookings.some(b => {
-                        // 1. Lọc bỏ các booking đã hủy, đã hoàn thành, hoặc ĐÃ BẮT ĐẦU phục vụ (進行中)
+                    todaysBookings.forEach(b => {
                         const status = b.status || '';
                         if (status === '已取消' || status === '已完成' || status === '進行中') {
-                            return false;
+                            return; // Skip these statuses
                         }
 
-                        // 2. Tính toán khoảng cách thời gian từ hiện tại đến lúc bắt đầu
-                        const bStartTime = parseInt(b.startTimeMins || b.timeInMins || b.start_time || 0);
-                        const timeDiff = bStartTime - currentMins;
-
-                        // Điều kiện kích hoạt: Khách đến trong vòng 120p tới, hoặc đã trễ không quá 20p
-                        if (timeDiff > 120 || timeDiff < -20) {
-                            return false;
-                        }
-
-                        // 3. CHỈ quét cột "指定師傅" (Cột I) - Loại bỏ hoàn toàn mảng khách đoàn
+                        // Check if staff is designated
                         const assignedStaffs = [
                             b.technician, b.staffId, b.requestedStaff
                         ];
 
-                        // Kiểm tra xem mã nhân viên có nằm trong danh sách đích danh hay không (áp dụng chuẩn hóa ID)
-                        return assignedStaffs.some(req => {
+                        const isDesignated = assignedStaffs.some(req => {
                             if (!req) return false;
                             const reqStr = String(req).trim();
                             return reqStr !== '隨機' && reqStr !== '男' && reqStr !== '女' && reqStr !== '男師' && reqStr !== '女師' && reqStr !== 'MALE' && reqStr !== 'FEMALE' &&
                                 StaffSorter.normalizeStaffId(reqStr) === StaffSorter.normalizeStaffId(staff.id);
                         });
+
+                        if (isDesignated) {
+                            upcomingDesignatedBookings.push(b);
+                            
+                            // Original logic for yellow alert
+                            const bStartTime = parseInt(b.startTimeMins || b.timeInMins || b.start_time || 0);
+                            const timeDiff = bStartTime - currentMins;
+                            if (timeDiff <= 120 && timeDiff >= -20) {
+                                hasUpcoming = true;
+                            }
+                        }
                     });
                 }
-                return { ...staff, hasUpcomingDesignated: hasUpcoming };
+                
+                // Sort bookings by time
+                upcomingDesignatedBookings.sort((a, b) => {
+                    const timeA = parseInt(a.startTimeMins || a.timeInMins || a.start_time || 0);
+                    const timeB = parseInt(b.startTimeMins || b.timeInMins || b.start_time || 0);
+                    return timeA - timeB;
+                });
+
+                return { ...staff, hasUpcomingDesignated: hasUpcoming, upcomingDesignatedBookings };
             });
         },
 

@@ -317,6 +317,7 @@ const App = () => {
 
     // Modal States
     const [showCheckIn, setShowCheckIn] = useState(false);
+    const [selectedStaffInfo, setSelectedStaffInfo] = useState(null);
     const [salaryData, setSalaryData] = useState({});
     const [showAvailability, setShowAvailability] = useState(false);
     const [selectedSlot, setSelectedSlot] = useState(null);
@@ -1921,7 +1922,9 @@ const App = () => {
         }
     };
 
-    const handleManualMoveStaff = async (staffId, direction) => {
+    const handleDropStaff = async (draggedId, droppedId) => {
+        if (draggedId === droppedId) return;
+
         const readyStaffIds = [...staffList]
             .filter(s => {
                 const stat = statusData[s.id] || { status: 'AWAY' };
@@ -1934,32 +1937,28 @@ const App = () => {
             })
             .map(s => s.id);
 
-        const currentIndex = readyStaffIds.indexOf(staffId);
-        if (currentIndex === -1) return;
+        const dragIndex = readyStaffIds.indexOf(draggedId);
+        const dropIndex = readyStaffIds.indexOf(droppedId);
 
-        let targetIndex = -1;
-        if (direction === 'LEFT') {
-            targetIndex = currentIndex + 1;
-        } else if (direction === 'RIGHT') {
-            targetIndex = currentIndex - 1;
-        }
+        if (dragIndex === -1 || dropIndex === -1) return;
 
-        if (targetIndex >= 0 && targetIndex < readyStaffIds.length) {
-            const targetStaffId = readyStaffIds[targetIndex];
-            
-            const currentStaffTime = statusData[staffId].stafftime;
-            const targetStaffTime = statusData[targetStaffId].stafftime;
+        // 1. Lấy ra danh sách các timestamp (stafftime) hiện có, sắp xếp tăng dần
+        const allTimes = readyStaffIds.map(id => statusData[id].stafftime).sort((a, b) => a - b);
 
-            const newStatusData = {
-                ...statusData,
-                [staffId]: { ...statusData[staffId], stafftime: targetStaffTime },
-                [targetStaffId]: { ...statusData[targetStaffId], stafftime: currentStaffTime }
-            };
+        // 2. Di chuyển ID thợ trong mảng
+        const newReadyStaffIds = [...readyStaffIds];
+        const [movedItem] = newReadyStaffIds.splice(dragIndex, 1);
+        newReadyStaffIds.splice(dropIndex, 0, movedItem);
 
-            setStatusData(newStatusData);
-            setSyncLock(true); setTimeout(() => setSyncLock(false), 2000);
-            await axios.post('/api/sync-staff-status', newStatusData);
-        }
+        // 3. Cập nhật lại statusData với thời gian mới được phân bổ
+        const newStatusData = { ...statusData };
+        newReadyStaffIds.forEach((id, index) => {
+            newStatusData[id] = { ...statusData[id], stafftime: allTimes[index] };
+        });
+
+        setStatusData(newStatusData);
+        setSyncLock(true); setTimeout(() => setSyncLock(false), 2000);
+        await axios.post('/api/sync-staff-status', newStatusData);
     };
 
     const handleStaffChange = async (resId, rawNewStaffId, returnToLast = false) => {
@@ -5099,13 +5098,13 @@ const App = () => {
             <div className="bg-white border-b shadow-sm p-2 overflow-x-auto whitespace-nowrap staff-scroll" style={{ display: 'flex', flexDirection: 'row-reverse' }}>
                 <div className="flex items-center justify-end min-w-max pr-2">
                     <div className="flex gap-1 px-2 border-r border-red-100 flex-row-reverse">
-                        {workedTodayStaff.map(s => window.StaffCard3D && <window.StaffCard3D key={s.id} s={s} statusData={statusData} resourceState={resourceState} isOfflineMode={true} />)}
+                        {workedTodayStaff.map(s => window.StaffCard3D && <window.StaffCard3D key={s.id} s={s} statusData={statusData} resourceState={resourceState} isOfflineMode={true} onInfoClick={setSelectedStaffInfo} />)}
                     </div>
                     <div className="flex gap-1 px-2 border-r border-red-100 flex-row-reverse">
-                        {busyStaff.map(s => window.StaffCard3D && <window.StaffCard3D key={s.id} s={s} statusData={statusData} resourceState={resourceState} isForcedBusy={true} />)}
+                        {busyStaff.map(s => window.StaffCard3D && <window.StaffCard3D key={s.id} s={s} statusData={statusData} resourceState={resourceState} isForcedBusy={true} onInfoClick={setSelectedStaffInfo} />)}
                     </div>
                     <div className="flex flex-row-reverse gap-1 pl-2">
-                        {visualReadyStaff.map((s, idx) => { const qIdx = readyQueue.indexOf(s.id); return window.StaffCard3D && <window.StaffCard3D key={s.id} s={s} statusData={statusData} resourceState={resourceState} queueIndex={qIdx !== -1 ? qIdx : undefined} onMoveStaff={handleManualMoveStaff} />; })}
+                        {visualReadyStaff.map((s, idx) => { const qIdx = readyQueue.indexOf(s.id); return window.StaffCard3D && <window.StaffCard3D key={s.id} s={s} statusData={statusData} resourceState={resourceState} queueIndex={qIdx !== -1 ? qIdx : undefined} onDropStaff={handleDropStaff} onInfoClick={setSelectedStaffInfo} />; })}
                     </div>
                 </div>
             </div>
@@ -5237,6 +5236,13 @@ const App = () => {
                     timelineData={timelineData}
                     resourceState={resourceState}
                     bookings={todaysBookings}
+                />
+            )}
+
+            {window.StaffInfoModal && selectedStaffInfo && (
+                <window.StaffInfoModal
+                    staff={selectedStaffInfo}
+                    onClose={() => setSelectedStaffInfo(null)}
                 />
             )}
         </div>
