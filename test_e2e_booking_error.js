@@ -29,6 +29,8 @@ function runTestLogic(staffName, reason = null, time = null) {
                 errorMsg = `[${staffReq}]老師沒有上班`;
             } else if (outReason.reason === 'BUSY') {
                 errorMsg = `${staffReq}老師 ${outReason.time}已經有客人`; 
+            } else if (outReason.reason === 'OUT_OF_SHIFT') {
+                errorMsg = `[${staffReq}]老師已經下班了`;
             } else {
                 errorMsg = `[${staffReq}]老師沒有上班`; 
             }
@@ -54,7 +56,8 @@ const testCases = [
     { input: '女師', expected: '❌ 女老師不夠' },
     { input: '吳', expected: '❌ [吳]老師沒有上班', reason: 'OFF' },
     { input: '陳', expected: '❌ 陳老師 21:00已經有客人', reason: 'BUSY', time: '21:00' },
-    { input: '王', expected: '❌ [王]老師沒有上班', reason: 'OUT_OF_SHIFT' }
+    { input: '王', expected: '❌ [王]老師已經下班了', reason: 'OUT_OF_SHIFT' },
+    { input: '賀', expected: '❌ [賀]老師已經下班了', reason: 'OUT_OF_SHIFT' }
 ];
 
 let passed = 0;

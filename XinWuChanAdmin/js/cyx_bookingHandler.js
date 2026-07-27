@@ -1831,6 +1831,8 @@
                                     errorMsg = `[${staffReq}]老師沒有上班`;
                                 } else if (outReason.reason === 'BUSY') {
                                     errorMsg = `${staffReq}老師 ${outReason.time}已經有客人`; 
+                                } else if (outReason.reason === 'OUT_OF_SHIFT') {
+                                    errorMsg = `[${staffReq}]老師已經下班了`;
                                 } else {
                                     errorMsg = `[${staffReq}]老師沒有上班`; 
                                 }

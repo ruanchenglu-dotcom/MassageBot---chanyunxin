@@ -1760,6 +1760,7 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
                                         if (newGuestBlocksMap[i].guest.staffName && !['RANDOM', 'MALE', 'FEMALE', '隨機', 'Any', 'undefined'].includes(newGuestBlocksMap[i].guest.staffName)) {
                                             if (outReason.reason === 'OFF') failureLog.push(`[${newGuestBlocksMap[i].guest.staffName}]老師沒有上班`);
                                             else if (outReason.reason === 'BUSY') failureLog.push(`${newGuestBlocksMap[i].guest.staffName}老師 ${outReason.time}已經有客人`);
+                                            else if (outReason.reason === 'OUT_OF_SHIFT') failureLog.push(`[${newGuestBlocksMap[i].guest.staffName}]老師已經下班了`);
                                             else failureLog.push(`[${newGuestBlocksMap[i].guest.staffName}]老師沒有上班`);
                                         }
                                         break; 
@@ -1947,6 +1948,7 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
                 if (item.guest.staffName && !['RANDOM', 'MALE', 'FEMALE', '隨機', 'Any', 'undefined'].includes(item.guest.staffName)) {
                     if (outReason.reason === 'OFF') failureLog.push(`[${item.guest.staffName}]老師沒有上班`);
                     else if (outReason.reason === 'BUSY') failureLog.push(`${item.guest.staffName}老師 ${outReason.time}已經有客人`);
+                    else if (outReason.reason === 'OUT_OF_SHIFT') failureLog.push(`[${item.guest.staffName}]老師已經下班了`);
                     else failureLog.push(`[${item.guest.staffName}]老師沒有上班`);
                 }
                 break; 
