@@ -2843,8 +2843,8 @@ const App = () => {
             return;
         }
 
-        const grpIdx = getGroupMemberIndex(id, current.booking.rowId);
-        let designatedStaff = window.StaffSorter ? window.StaffSorter.getRequestedStaffForGroupIndex(current.booking, grpIdx) : (current.booking.serviceStaff || current.booking.staffId || current.booking.ServiceStaff || current.booking.technician || current.booking.requestedStaff);
+        const initialGrpIdx = getGroupMemberIndex(id, current.booking.rowId);
+        let designatedStaff = window.StaffSorter ? window.StaffSorter.getRequestedStaffForGroupIndex(current.booking, initialGrpIdx) : (current.booking.serviceStaff || current.booking.staffId || current.booking.ServiceStaff || current.booking.technician || current.booking.requestedStaff);
         if (!designatedStaff || designatedStaff === 'undefined' || designatedStaff === 'null') designatedStaff = '隨機';
 
         designatedStaff = normalizeStaffId(designatedStaff);
