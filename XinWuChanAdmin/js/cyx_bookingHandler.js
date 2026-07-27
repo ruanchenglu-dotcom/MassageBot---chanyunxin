@@ -1481,10 +1481,11 @@
 
             const globalSqueezeStartTime = Date.now();
             let globalSqueezeAttempts = 0;
+            let globalSqueezeAbort = false;
             const GLOBAL_MAX_TIME_MS = 2500;
 
             for (let numBF of trySequence) {
-                if (Date.now() - globalSqueezeStartTime > GLOBAL_MAX_TIME_MS) {
+                if (globalSqueezeAbort || Date.now() - globalSqueezeStartTime > GLOBAL_MAX_TIME_MS) {
                     failureLog.push("❌ 老師不夠");
                     break;
                 }
@@ -1632,9 +1633,11 @@
                     });
                     let squeezeScenarioPossible = false;
                     const placeNewGuestsElastically = (guestIndex, currentMatrix, currentDetails, currentUpdates) => {
+                        if (globalSqueezeAbort) return false;
                         globalSqueezeAttempts++;
                         if (globalSqueezeAttempts % 100 === 0) {
                             if (Date.now() - globalSqueezeStartTime > GLOBAL_MAX_TIME_MS) {
+                                globalSqueezeAbort = true;
                                 return false; // Prevent hanging
                             }
                         }
@@ -1724,6 +1727,8 @@
                                     updatesProposed.push(...nextUpdates);
                                     return true;
                                 }
+                                
+                                if (globalSqueezeAbort) return false;
                                 
                                 if (detail) {
                                     detail.allocated = oldAllocated;
