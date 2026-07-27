@@ -1414,7 +1414,9 @@ const StaffInfoModal = ({ staff, onClose }) => {
 
     const genderStr = String(staff.gender || '').toUpperCase();
     const isFemale = ['F', '女', 'FEMALE', 'NU'].includes(genderStr);
-    const shiftStart = staff['上班'] || staff.start || staff.shiftStart || '未設定';
+    const shiftStart = staff['上班'] || staff.start || staff.shiftStart || '';
+    const shiftEnd = staff['下班'] || staff.end || staff.shiftEnd || '';
+    const shiftText = shiftStart && shiftEnd ? `${shiftStart}-${shiftEnd}` : (shiftStart || '未設定');
     const upcomingBookings = staff.upcomingDesignatedBookings || [];
 
     return (
@@ -1428,7 +1430,7 @@ const StaffInfoModal = ({ staff, onClose }) => {
                         <h2 className="text-xl font-black">{staff.name}</h2>
                         <p className="text-sm font-bold opacity-90 mt-1">
                             <i className={`fas fa-${isFemale ? 'venus text-pink-300' : 'mars text-blue-300'} mr-2`}></i>
-                            {isFemale ? '女' : '男'} | 上班時間: {shiftStart}
+                            {isFemale ? '女' : '男'} | {shiftText}
                         </p>
                     </div>
                     <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-full bg-white/20 hover:bg-white/40 transition-colors z-10">
@@ -1450,9 +1452,9 @@ const StaffInfoModal = ({ staff, onClose }) => {
                             </div>
                         ) : (
                             upcomingBookings.map((b, i) => {
-                                const timeStr = b.start_time || b.time || 'N/A';
+                                const timeStr = (b.startTimeString ? b.startTimeString.split(' ')[1] : null) || b.start_time || b.time || 'N/A';
                                 const pax = b.pax || 1;
-                                const customer = b.customer || b.name || '客戶';
+                                const customer = b.customerName || b.originalName || b.hoTen || b.customer || b.name || '客戶';
                                 const status = b.status || '等待中';
                                 
                                 return (

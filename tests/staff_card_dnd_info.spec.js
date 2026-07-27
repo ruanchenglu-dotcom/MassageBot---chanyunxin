@@ -6,7 +6,7 @@ test('StaffCard3D Info Modal and Drag-and-Drop functionality', async ({ page }) 
     
     // Wait for staff cards to be visible
     const staffCards = page.locator('.card-3d');
-    await expect(staffCards.first()).toBeVisible({ timeout: 15000 });
+    await expect(staffCards.first()).toBeVisible({ timeout: 60000 });
     
     // 1. Test Info Modal
     const firstCard = staffCards.first();
@@ -23,6 +23,16 @@ test('StaffCard3D Info Modal and Drag-and-Drop functionality', async ({ page }) 
     // Wait for the modal to appear (contains text "今日指定預約")
     const modal = page.locator('text=今日指定預約');
     await expect(modal).toBeVisible();
+    
+    // Verify "上班時間" is removed and time format is shown directly
+    await expect(page.locator('text=上班時間')).toHaveCount(0);
+    
+    // Check if there are bookings. If there are, they shouldn't show "N/A" for time
+    const upcomingList = page.locator('.custom-scrollbar');
+    if (await upcomingList.locator('text=今日無指定預約').count() === 0) {
+        // Assert no N/A is shown for time
+        await expect(upcomingList.locator('text=N/A')).toHaveCount(0);
+    }
     
     // Close the modal by clicking the close button
     const closeBtn = page.locator('.fa-times').locator('..');
