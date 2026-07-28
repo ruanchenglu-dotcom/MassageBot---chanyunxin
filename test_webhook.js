@@ -49,14 +49,23 @@ async function run() {
     console.log("=== BẮT ĐẦU KIỂM THỬ E2E (WEBHOOK LINE) ===");
     
     console.log("\\n1. Gửi Action:Booking");
+    console.log("\n1. Gửi Action:Booking");
     let res = await sendWebhook('Action:Booking');
     console.log('Result:', res.status, res.data);
 
     // Chờ 2 giây để server cập nhật state
     await new Promise(r => setTimeout(r, 2000));
 
-    console.log("\\n2. Chọn dịch vụ: Cat:COMBO");
-    res = await sendWebhook('Cat:COMBO');
+    console.log("\n2. Chọn dịch vụ: Cat:FOOT");
+    res = await sendWebhook('Cat:FOOT');
+    console.log('Result:', res.status, res.data);
+
+    await new Promise(r => setTimeout(r, 2000));
+
+    console.log("\n2b. Chọn chi tiết dịch vụ: Svc:A02 (Giả sử A02 là Foot Massage)");
+    // Need to send Svc:A02 (or some code that maps to a FOOT service)
+    // Just simulating the flow where next is Date
+    res = await sendWebhook('Svc:F01'); 
     console.log('Result:', res.status, res.data);
 
     await new Promise(r => setTimeout(r, 2000));

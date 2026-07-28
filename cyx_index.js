@@ -1334,6 +1334,19 @@ app.get('/api/today-salary', async (req, res) => {
 // =============================================================================
 
 function askGuaSha(userId, guestIndex, event, client) {
+    const s = userState[userId];
+    const SERVICES = SheetService.getServices();
+    const svcDef = s.service ? SERVICES[s.service] : null;
+
+    if (svcDef && svcDef.category === 'FOOT') {
+        s.guestPrefs = s.guestPrefs || [];
+        s.guestPrefs[guestIndex] = s.guestPrefs[guestIndex] || {};
+        s.guestPrefs[guestIndex].isGuaSha = false;
+        
+        s.step = 'HAS_PREF';
+        return askHasPref(userId, guestIndex, event, client);
+    }
+
     const buttons = [
         { "type": "text", "text": `💆 第 ${guestIndex + 1} 位貴賓是否需要加購刮痧/拔罐？`, "weight": "bold", "size": "md", "align": "center", "color": "#1DB446" },
         { "type": "separator", "margin": "md" },
