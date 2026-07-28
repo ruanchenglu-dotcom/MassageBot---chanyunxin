@@ -503,12 +503,15 @@ async function syncData() {
             const headerRow = rows[0];
             let dateColumns = [];
             let nationalityColIndex = -1;
+            let lineIdColIndex = -1;
 
-            // Quét tìm cột 國籍
+            // Quét tìm cột 國籍 và LINE STAFF ID
             for (let j = 0; j < headerRow.length; j++) {
                 if (headerRow[j] && headerRow[j].toString().trim() === '國籍') {
                     nationalityColIndex = j;
-                    break;
+                }
+                if (headerRow[j] && headerRow[j].toString().trim() === 'LINE STAFF ID') {
+                    lineIdColIndex = j;
                 }
             }
 
@@ -537,7 +540,7 @@ async function syncData() {
                 const isGuaSha = row[6] ? row[6].toString().trim().toUpperCase() !== '' : false;
                 const isHuaGuan = row[7] ? row[7].toString().trim().toUpperCase() !== '' : false;
                 const isBaGuan = row[8] ? row[8].toString().trim().toUpperCase() !== '' : false;
-                const lineId = row[9] ? row[9].trim() : null;
+                const lineId = (lineIdColIndex !== -1 && row[lineIdColIndex]) ? row[lineIdColIndex].toString().trim() : null;
                 const nationality = nationalityColIndex !== -1 && row[nationalityColIndex] ? row[nationalityColIndex].toString().trim() : '台灣';
 
                 const staffObj = {

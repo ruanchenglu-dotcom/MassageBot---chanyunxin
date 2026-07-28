@@ -63,7 +63,7 @@ async function handleEvent(event, context) {
     if (!staffInfo) {
         return client.replyMessage(event.replyToken, {
             type: 'text',
-            text: `⛔ Tài khoản chưa được liên kết.\n\nVui lòng copy và gửi ID này cho quản lý để thêm vào hệ thống:\n\n${userId}`
+            text: `⛔ 您的帳號尚未綁定。\n\n請複製並將此 ID 傳送給管理員以新增至系統：\n\n${userId}`
         });
     }
 
@@ -74,7 +74,7 @@ async function handleEvent(event, context) {
     const session = USER_SESSIONS[userId];
 
     // --- LOGIC 2: ĐIỀU HƯỚNG MENU CHÍNH ---
-    if (input.toLowerCase() === 'menu' || input === 'Help' || input === 'reset') {
+    if (input.toLowerCase() === 'menu' || input === 'Help' || input === 'reset' || input === '選單') {
         USER_SESSIONS[userId] = { step: STEPS.IDLE, data: {} }; // Reset trạng thái
         return showMainMenu(event.replyToken, myName);
     }
@@ -82,34 +82,34 @@ async function handleEvent(event, context) {
     // --- LOGIC 3: XỬ LÝ THEO TRẠNG THÁI & INPUT ---
 
     // A. MENU COMMANDS (Khi đang rảnh hoặc người dùng bấm menu)
-    if (input === 'CMD:RequestOff') {
+    if (input === 'CMD:RequestOff' || input === '我要請假') {
         USER_SESSIONS[userId].step = STEPS.SELECT_DATE_OFF;
-        return showCalendar(event.replyToken, "📅 Chọn ngày muốn nghỉ:", "PICK_DATE_OFF");
+        return showCalendar(event.replyToken, "📅 請選擇請假日期：", "PICK_DATE_OFF");
     }
 
-    if (input === 'CMD:LateOptions') {
+    if (input === 'CMD:LateOptions' || input === '我會遲到') {
         USER_SESSIONS[userId].step = STEPS.SELECT_DATE_LATE;
-        return showCalendar(event.replyToken, "📅 Bạn đi trễ ngày nào?", "PICK_DATE_LATE");
+        return showCalendar(event.replyToken, "📅 請問您哪天會遲到？", "PICK_DATE_LATE");
     }
 
-    if (input === 'CMD:MealBreak') {
+    if (input === 'CMD:MealBreak' || input === '我要吃飯') {
         USER_SESSIONS[userId].step = STEPS.SELECT_START_TIME_MEAL;
         return client.replyMessage(event.replyToken, {
-            type: 'template', altText: 'Chọn giờ ăn',
+            type: 'template', altText: '選擇開始時間',
             template: {
-                type: 'buttons', text: '🍱 Bạn bắt đầu ăn lúc mấy giờ?',
-                actions: [{ type: 'datetimepicker', label: '🕒 Chọn giờ bắt đầu', data: 'PICK_TIME_MEAL_START', mode: 'time' }]
+                type: 'buttons', text: '🍱 請問您幾點開始吃飯？',
+                actions: [{ type: 'datetimepicker', label: '🕒 選擇開始時間', data: 'PICK_TIME_MEAL_START', mode: 'time' }]
             }
         });
     }
 
-    if (input === 'CMD:GoOut') {
+    if (input === 'CMD:GoOut' || input === '我暫時外出') {
         USER_SESSIONS[userId].step = STEPS.SELECT_START_TIME_OUT;
         return client.replyMessage(event.replyToken, {
-            type: 'template', altText: 'Chọn giờ ra ngoài',
+            type: 'template', altText: '選擇外出時間',
             template: {
-                type: 'buttons', text: '🚪 Bạn ra ngoài lúc mấy giờ?',
-                actions: [{ type: 'datetimepicker', label: '🕒 Chọn giờ đi', data: 'PICK_TIME_OUT_START', mode: 'time' }]
+                type: 'buttons', text: '🚪 請問您幾點外出？',
+                actions: [{ type: 'datetimepicker', label: '🕒 選擇外出時間', data: 'PICK_TIME_OUT_START', mode: 'time' }]
             }
         });
     }
@@ -134,7 +134,7 @@ async function handleEvent(event, context) {
         if (clientMain) clientMain.pushMessage(ID_BA_CHU, { type: 'text', text: `📩 [ĐƠN XIN NGHỈ]\nNV: ${myName}\nNgày: ${dateOff}` });
 
         USER_SESSIONS[userId] = { step: STEPS.IDLE, data: {} }; // Reset
-        return client.replyMessage(event.replyToken, { type: 'text', text: `✅ Đã đăng ký nghỉ ngày ${dateOff}.` });
+        return client.replyMessage(event.replyToken, { type: 'text', text: `✅ 已成功登記請假日期：${dateOff}。` });
     }
 
     // C. XỬ LÝ FLOW: ĐI TRỄ (Late)
@@ -166,7 +166,7 @@ async function handleEvent(event, context) {
         if (clientMain) clientMain.pushMessage(ID_BA_CHU, { type: 'text', text: `🏃 [BÁO MUỘN]\nNV: ${myName}\nNgày: ${dateLate}\nGiờ đến: ${timeLate}` });
 
         USER_SESSIONS[userId] = { step: STEPS.IDLE, data: {} };
-        return client.replyMessage(event.replyToken, { type: 'text', text: `👌 Đã báo sẽ đến lúc ${timeLate} ngày ${dateLate}.` });
+        return client.replyMessage(event.replyToken, { type: 'text', text: `👌 已通知您將於 ${dateLate} 的 ${timeLate} 抵達。` });
     }
 
     // D. XỬ LÝ FLOW: ĂN CƠM (Meal Break) - Cột H, I
@@ -181,12 +181,12 @@ async function handleEvent(event, context) {
         const end60 = formatTime(h, m + 60);
 
         return client.replyMessage(event.replyToken, {
-            type: 'template', altText: 'Chọn thời gian ăn',
+            type: 'template', altText: '選擇時間',
             template: {
-                type: 'buttons', text: `Bắt đầu ăn: ${startTime}. Ăn trong bao lâu?`,
+                type: 'buttons', text: `開始吃飯時間：${startTime}。請問您要吃多久？`,
                 actions: [
-                    { type: 'postback', label: `30 phút (${end30})`, data: `CONFIRM_MEAL:${end30}` },
-                    { type: 'postback', label: `60 phút (${end60})`, data: `CONFIRM_MEAL:${end60}` }
+                    { type: 'postback', label: `30分鐘 (${end30})`, data: `CONFIRM_MEAL:${end30}` },
+                    { type: 'postback', label: `60分鐘 (${end60})`, data: `CONFIRM_MEAL:${end60}` }
                 ]
             }
         });
@@ -197,12 +197,11 @@ async function handleEvent(event, context) {
         const startTime = USER_SESSIONS[userId].data.startTime;
         const todayStr = normalizeDateStrict(getTaipeiNow());
 
-        // Gọi hàm updateDailyStatus (Cần có trong context)
         if (updateDailyStatus) {
             await updateDailyStatus(myName, todayStr, 'MEAL', startTime, endTime); // Type 'MEAL' -> Col H, I
-            return client.replyMessage(event.replyToken, { type: 'text', text: `🍱 Đã ghi nhận ăn cơm:\n${startTime} - ${endTime}` });
+            return client.replyMessage(event.replyToken, { type: 'text', text: `🍱 已記錄吃飯時間：\n${startTime} - ${endTime}` });
         } else {
-            return client.replyMessage(event.replyToken, { type: 'text', text: `⚠️ Lỗi: Chưa cấu hình hàm updateDailyStatus.` });
+            return client.replyMessage(event.replyToken, { type: 'text', text: `⚠️ 錯誤：未配置 updateDailyStatus 函數。` });
         }
     }
 
@@ -213,10 +212,10 @@ async function handleEvent(event, context) {
         USER_SESSIONS[userId].step = STEPS.SELECT_END_TIME_OUT;
 
         return client.replyMessage(event.replyToken, {
-            type: 'template', altText: 'Chọn giờ về',
+            type: 'template', altText: '選擇回來時間',
             template: {
-                type: 'buttons', text: `Ra ngoài từ: ${startTime}. Khi nào bạn quay lại?`,
-                actions: [{ type: 'datetimepicker', label: '🕒 Chọn giờ về', data: 'PICK_TIME_OUT_END', mode: 'time' }]
+                type: 'buttons', text: `從 ${startTime} 開始外出。請問您何時回來？`,
+                actions: [{ type: 'datetimepicker', label: '🕒 選擇回來時間', data: 'PICK_TIME_OUT_END', mode: 'time' }]
             }
         });
     }
@@ -226,9 +225,8 @@ async function handleEvent(event, context) {
         const startTime = USER_SESSIONS[userId].data.startTime;
         const todayStr = normalizeDateStrict(getTaipeiNow());
 
-        // Validate cơ bản
         if (endTime <= startTime) {
-            return client.replyMessage(event.replyToken, { type: 'text', text: `⚠️ Giờ về phải lớn hơn giờ đi (${startTime}). Vui lòng chọn lại.` });
+            return client.replyMessage(event.replyToken, { type: 'text', text: `⚠️ 回來時間必須大於外出時間 (${startTime})。請重新選擇。` });
         }
 
         if (updateDailyStatus) {
@@ -238,7 +236,7 @@ async function handleEvent(event, context) {
             if (clientMain) clientMain.pushMessage(ID_BA_CHU, { type: 'text', text: `🚪 [RA NGOÀI]\nNV: ${myName}\n${startTime} - ${endTime}` });
 
             USER_SESSIONS[userId] = { step: STEPS.IDLE, data: {} };
-            return client.replyMessage(event.replyToken, { type: 'text', text: `✅ Đã ghi nhận ra ngoài:\n${startTime} - ${endTime}` });
+            return client.replyMessage(event.replyToken, { type: 'text', text: `✅ 已記錄暫時外出：\n${startTime} - ${endTime}` });
         }
     }
 
@@ -250,27 +248,27 @@ async function handleEvent(event, context) {
 
 function showMainMenu(replyToken, name) {
     return client.replyMessage(replyToken, {
-        type: 'flex', altText: 'Menu Nhân Viên',
+        type: 'flex', altText: '員工選單',
         contents: {
             "type": "bubble",
             "body": {
                 "type": "box", "layout": "vertical", "backgroundColor": "#F9FAFB",
                 "contents": [
-                    { "type": "text", "text": `Xin chào, ${name} 👋`, "weight": "bold", "size": "lg", "color": "#1DB446", "align": "center" },
-                    { "type": "text", "text": "Chọn thao tác bên dưới:", "size": "xs", "color": "#aaaaaa", "align": "center", "margin": "sm" },
+                    { "type": "text", "text": `你好, ${name} 👋`, "weight": "bold", "size": "lg", "color": "#1DB446", "align": "center" },
+                    { "type": "text", "text": "請選擇以下操作：", "size": "xs", "color": "#aaaaaa", "align": "center", "margin": "sm" },
                     { "type": "separator", "margin": "md" },
                     {
                         "type": "box", "layout": "vertical", "margin": "lg", "spacing": "md", "contents": [
                             {
                                 "type": "box", "layout": "horizontal", "spacing": "sm", "contents": [
-                                    { "type": "button", "style": "primary", "color": "#E63946", "height": "sm", "action": { "type": "postback", "label": "⛔ Xin Nghỉ", "data": "CMD:RequestOff" } },
-                                    { "type": "button", "style": "primary", "color": "#F48FB1", "height": "sm", "action": { "type": "postback", "label": "🏃 Đi Trễ", "data": "CMD:LateOptions" } }
+                                    { "type": "button", "style": "primary", "color": "#E63946", "height": "sm", "action": { "type": "postback", "label": "⛔ 我要請假", "data": "CMD:RequestOff", "displayText": "我要請假" } },
+                                    { "type": "button", "style": "primary", "color": "#F48FB1", "height": "sm", "action": { "type": "postback", "label": "🏃 我會遲到", "data": "CMD:LateOptions", "displayText": "我會遲到" } }
                                 ]
                             },
                             {
                                 "type": "box", "layout": "horizontal", "spacing": "sm", "contents": [
-                                    { "type": "button", "style": "secondary", "height": "sm", "action": { "type": "postback", "label": "🍱 Ăn Cơm", "data": "CMD:MealBreak" } },
-                                    { "type": "button", "style": "secondary", "height": "sm", "action": { "type": "postback", "label": "🚪 Ra Ngoài", "data": "CMD:GoOut" } }
+                                    { "type": "button", "style": "secondary", "height": "sm", "action": { "type": "postback", "label": "🍱 我要吃飯", "data": "CMD:MealBreak", "displayText": "我要吃飯" } },
+                                    { "type": "button", "style": "secondary", "height": "sm", "action": { "type": "postback", "label": "🚪 暫時外出", "data": "CMD:GoOut", "displayText": "我暫時外出" } }
                                 ]
                             }
                         ]
@@ -299,7 +297,7 @@ function showCalendar(replyToken, title, actionPrefix) {
             "style": "secondary",
             "height": "sm",
             "margin": "xs",
-            "action": { "type": "postback", "label": `${dayLabel} (${weekday})`, "data": `${actionPrefix}:${dateStr}` }
+            "action": { "type": "postback", "label": `${dayLabel} (${weekday})`, "data": `${actionPrefix}:${dateStr}`, "displayText": `${dayLabel} (${weekday})` }
         });
     }
 
@@ -324,7 +322,7 @@ function showCalendar(replyToken, title, actionPrefix) {
     }
 
     return client.replyMessage(replyToken, {
-        type: 'flex', altText: 'Chọn ngày',
+        type: 'flex', altText: '選擇日期',
         contents: { type: 'carousel', contents: bubbles }
     });
 }
@@ -340,7 +338,7 @@ function showTimeSlots(replyToken, dateStr, actionPrefix) {
 
     const buttons = times.map(t => ({
         "type": "button", "style": "secondary", "height": "sm", "margin": "xs", "flex": 1,
-        "action": { "type": "postback", "label": t, "data": `${actionPrefix}:${t}` }
+        "action": { "type": "postback", "label": t, "data": `${actionPrefix}:${t}`, "displayText": t }
     }));
 
     // Chia nhỏ để hiển thị đẹp (4 nút/hàng)
@@ -353,10 +351,10 @@ function showTimeSlots(replyToken, dateStr, actionPrefix) {
     }
 
     return client.replyMessage(replyToken, {
-        type: 'flex', altText: 'Chọn giờ',
+        type: 'flex', altText: '選擇時間',
         contents: {
             "type": "bubble",
-            "header": { "type": "box", "layout": "vertical", "contents": [{ "type": "text", "text": `Giờ đến ngày ${dateStr}`, "weight": "bold" }] },
+            "header": { "type": "box", "layout": "vertical", "contents": [{ "type": "text", "text": `${dateStr} 的抵達時間`, "weight": "bold" }] },
             "body": { "type": "box", "layout": "vertical", "contents": rows }
         }
     });
