@@ -385,7 +385,7 @@ const BedPanel = ({ bedId, bookings, shop }) => {
                                         syncTime = false; // Never overwrite start time for Phase 2!
                                         syncTransitionTime = true;
                                     }
-                                    updateStatus('🟡服務中', syncTime, syncTransitionTime);
+                                    updateStatus('服務中', syncTime, syncTransitionTime);
                                 }}
                                 className="flex-1 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded text-xs sm:text-sm transition-all shadow-md active:scale-95 flex flex-col items-center justify-center"
                             >
@@ -414,7 +414,7 @@ const BedPanel = ({ bedId, bookings, shop }) => {
                                 <button 
                                     onClick={() => {
                                         if(confirm('您確定要結束此服務嗎？')) {
-                                            updateStatus('✅完成');
+                                            updateStatus('已完成');
                                         }
                                     }}
                                     className="flex-1 bg-rose-600 hover:bg-rose-500 text-white font-bold rounded text-[10px] sm:text-xs transition-all shadow-md active:scale-95 flex flex-col items-center justify-center leading-tight"
