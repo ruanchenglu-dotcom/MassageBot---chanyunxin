@@ -170,6 +170,7 @@
                 isHuaGuan: booking.isHuaGuan === true || booking.isHuaGuan === 'Yes',
                 isBaGuan: booking.isBaGuan === true || booking.isBaGuan === 'Yes',
                 location: booking.location || '本館',
+                preassignedStaff: booking.preassignedStaff || '',
                 phone: realPhone,
                 status: booking.status || STATUS.WAITING,
                 staff: booking.staffId || '隨機'
@@ -243,6 +244,7 @@
             if (editFormData.isHuaGuan !== (currentBookingObj.isHuaGuan === true || currentBookingObj.isHuaGuan === 'Yes')) detectedChanges.isHuaGuan = editFormData.isHuaGuan;
             if (editFormData.isBaGuan !== (currentBookingObj.isBaGuan === true || currentBookingObj.isBaGuan === 'Yes')) detectedChanges.isBaGuan = editFormData.isBaGuan;
             if (editFormData.location !== (currentBookingObj.location || '本館')) detectedChanges.location = editFormData.location;
+            if (editFormData.preassignedStaff !== (currentBookingObj.preassignedStaff || '')) detectedChanges.preassignedStaff = editFormData.preassignedStaff;
             if (editFormData.status !== currentBookingObj.status) detectedChanges.trangThai = editFormData.status;
             
             const origPhone = currentBookingObj.phone || currentBookingObj.sdt || currentBookingObj.custPhone || '';
@@ -417,6 +419,7 @@
                     isHuaGuan: editFormData.isHuaGuan,
                     isBaGuan: editFormData.isBaGuan,
                     location: editFormData.location,
+                    preassignedStaff: editFormData.preassignedStaff,
                     sdt: editFormData.phone,
                     trangThai: editFormData.status,
                     nhanVien: editFormData.staff,
@@ -462,8 +465,8 @@
                         <thead className="bg-slate-100 text-slate-700 font-bold text-lg sticky top-0 z-30 shadow-sm">
                             <tr>
                                 <th className="p-4 border-b border-slate-200 whitespace-nowrap text-center">群組</th>
-                                <th className="p-4 border-b border-slate-200 whitespace-nowrap">預約日期</th>
-                                <th className="p-4 border-b border-slate-200 whitespace-nowrap">時間</th>
+                                <th className="px-1 py-4 border-b border-slate-200 whitespace-nowrap">預約日期</th>
+                                <th className="px-1 py-4 border-b border-slate-200 whitespace-nowrap">時間</th>
                                 <th className="p-4 border-b border-slate-200 whitespace-nowrap">姓名</th>
                                 <th className="p-4 border-b border-slate-200 whitespace-nowrap">電話</th>
                                 <th className="p-4 border-b border-slate-200 whitespace-nowrap">項目</th>
@@ -474,6 +477,7 @@
                                 <th className="p-4 border-b border-slate-200 whitespace-nowrap">狀態</th>
                                 <th className="p-4 border-b border-slate-200 whitespace-nowrap">指定師傅</th>
                                 <th className="p-4 border-b border-slate-200 whitespace-nowrap">地點</th>
+                                <th className="p-4 border-b border-slate-200 whitespace-nowrap">預排</th>
                                 <th className="p-4 border-b border-slate-200 text-center whitespace-nowrap sticky right-0 bg-slate-100 z-40">操作</th>
                             </tr>
                         </thead>
@@ -533,8 +537,8 @@
                                             )}
                                             {renderedGroups.add(b.groupKey) && ''}
 
-                                            <td className="p-4 whitespace-nowrap font-mono text-gray-600">{(b.startTimeString || ' ').split(' ')[0]}</td>
-                                            <td className="p-4 whitespace-nowrap font-mono text-lg font-bold text-indigo-700">{(b.startTimeString || ' ').split(' ')[1]}</td>
+                                            <td className="px-1 py-4 whitespace-nowrap font-mono text-gray-600">{(b.startTimeString || ' ').split(' ')[0]}</td>
+                                            <td className="px-1 py-4 whitespace-nowrap font-mono text-lg font-bold text-indigo-700">{(b.startTimeString || ' ').split(' ')[1]}</td>
                                             <td className="p-4 whitespace-nowrap font-bold text-gray-800 text-lg">{name}</td>
                                             <td className="p-4 whitespace-nowrap font-mono text-gray-600">{realPhone}</td>
                                             <td className="p-4 whitespace-nowrap text-gray-700 font-medium">{b.serviceName}</td>
@@ -545,6 +549,7 @@
                                             <td className="p-4 whitespace-nowrap"><span className={`px-3 py-1 rounded-full text-sm font-bold shadow-sm ${statusClass}`}>{bStatus}</span></td>
                                             <td className="p-4 whitespace-nowrap"><span className="bg-indigo-50 text-indigo-700 px-3 py-1 rounded text-sm font-bold border border-indigo-100">{b.staffId}</span></td>
                                             <td className="p-4 whitespace-nowrap"><span className="text-gray-700 font-bold">{b.location || '本館'}</span></td>
+                                            <td className="p-4 whitespace-nowrap"><span className="text-purple-600 font-bold">{b.preassignedStaff || '-'}</span></td>
 
                                             <td className="p-4 whitespace-nowrap text-center sticky right-0 z-20 space-x-2" style={{ backgroundColor: 'inherit' }}>
                                                 <button onClick={() => startEditing(b)} className="text-blue-500 hover:text-white hover:bg-blue-500 border border-blue-200 hover:border-blue-500 px-3 py-1.5 rounded transition-all shadow-sm" title="編輯 (Edit)">
@@ -614,8 +619,8 @@
                                             </td>
                                         )}
                                         {renderedGroups.add(b.groupKey) && ''}
-                                        <td className="p-2"><input type="date" className="w-full border border-gray-300 p-2 rounded focus:ring-2 focus:ring-orange-400 outline-none text-lg" value={editFormData.date} onChange={e => handleInputChange('date', e.target.value)} /></td>
-                                        <td className="p-2"><window.TimePicker24H className="w-full border border-gray-300 p-1 rounded font-mono outline-none text-lg" value={editFormData.time} onChange={val => handleInputChange('time', val)} /></td>
+                                        <td className="px-1 py-2"><input type="date" className="w-full border border-gray-300 p-2 rounded focus:ring-2 focus:ring-orange-400 outline-none text-lg" value={editFormData.date} onChange={e => handleInputChange('date', e.target.value)} /></td>
+                                        <td className="px-1 py-2"><window.TimePicker24H className="w-full border border-gray-300 p-1 rounded font-mono outline-none text-lg" value={editFormData.time} onChange={val => handleInputChange('time', val)} /></td>
                                         <td className="p-2">
                                             <div className="flex items-center gap-1">
                                                 <input type="text" className="w-full border border-gray-300 p-2 rounded font-bold focus:ring-2 focus:ring-orange-400 outline-none text-lg" value={editFormData.name} onChange={e => handleInputChange('name', e.target.value)} />
@@ -647,6 +652,9 @@
                                                 <option value="本館">本館</option>
                                                 <option value="對面館">對面館</option>
                                             </select>
+                                        </td>
+                                        <td className="p-2">
+                                            <input type="text" className="w-full border border-gray-300 p-2 rounded font-bold text-purple-700 focus:ring-2 focus:ring-orange-400 outline-none text-lg" placeholder="預排" value={editFormData.preassignedStaff} onChange={e => handleInputChange('preassignedStaff', e.target.value)} />
                                         </td>
 
                                         <td className="p-2 text-center sticky right-0 bg-yellow-50 z-20 border-l border-orange-200">
