@@ -261,7 +261,17 @@ const BedPanel = ({ bedId, bookings, shop }) => {
     };
 
     const serviceStr = currentBooking?.service || currentBooking?.serviceName || '';
-    const isCombo = serviceStr.toLowerCase().includes('combo') || serviceStr.toLowerCase().includes('thái') || serviceStr.toLowerCase().includes('泰');
+    const serviceCodeStr = currentBooking?.serviceCode || currentBooking?.service_code || '';
+    const isCombo = serviceCodeStr.toUpperCase().includes('A') || serviceStr.toLowerCase().includes('combo') || serviceStr.toLowerCase().includes('thái') || serviceStr.toLowerCase().includes('泰');
+
+    let isFlashingTransition = false;
+    if (currentBooking && running && isCombo && currentBooking.transition_time) {
+        const transitionTimestamp = parseTime(currentBooking.transition_time.toString().replace('.', ':'));
+        const diffToTransition = transitionTimestamp - nowTime;
+        if (diffToTransition <= 120000) {
+            isFlashingTransition = true;
+        }
+    }
     const running = currentBooking ? isRunningForThisBed(currentBooking, internalBedId) : false;
     const isPaused = currentBooking?.status === '暫停中';
     
@@ -318,16 +328,16 @@ const BedPanel = ({ bedId, bookings, shop }) => {
                         )}
                         
                         {currentBooking && running && isCombo ? (
-                            <div className="flex-1 flex flex-row items-center justify-between w-full mt-1 border-t border-slate-700/50 pt-1">
-                                <div className="flex flex-col items-center justify-center w-1/2 border-r border-slate-700/50 px-1">
-                                    <div className="text-[10px] sm:text-xs text-slate-400 mb-0.5">轉場時間</div>
-                                    <div className="text-xl sm:text-2xl font-black text-amber-400 tabular-nums tracking-tighter">
+                            <div className="flex-1 flex flex-row w-full mt-2">
+                                <div className={`flex flex-col items-center justify-center w-1/2 border-r border-slate-700/50 px-1 rounded-l ${isFlashingTransition ? 'bg-red-900/60 animate-pulse' : ''}`}>
+                                    <div className={`text-[12px] sm:text-sm font-bold mb-1 ${isFlashingTransition ? 'text-red-300' : 'text-slate-400'}`}>轉場時間</div>
+                                    <div className={`text-4xl sm:text-5xl font-black tabular-nums tracking-tighter ${isFlashingTransition ? 'text-white' : 'text-amber-400'}`}>
                                         {currentBooking.transition_time ? currentBooking.transition_time.toString().replace('.', ':') : '--:--'}
                                     </div>
                                 </div>
-                                <div className="flex flex-col items-center justify-center w-1/2 px-1">
-                                    <div className="text-[10px] sm:text-xs text-slate-400 mb-0.5">{isPaused ? '已暫停' : '剩下時間'}</div>
-                                    <div className={`text-xl sm:text-2xl font-black tabular-nums tracking-tighter ${isPaused ? 'text-yellow-400 animate-pulse' : 'text-white'}`}>
+                                <div className="flex flex-col items-center justify-center w-1/2 px-1 rounded-r">
+                                    <div className="text-[12px] sm:text-sm font-bold text-slate-400 mb-1">{isPaused ? '已暫停' : '剩下時間'}</div>
+                                    <div className={`text-4xl sm:text-5xl font-black tabular-nums tracking-tighter ${isPaused ? 'text-yellow-400 animate-pulse' : 'text-white'}`}>
                                         {isPaused ? displayTime : (() => {
                                             const start = parseTime(currentBooking.booking_time || currentBooking.start_time_str || currentBooking.time);
                                             const totalDur = parseInt(currentBooking.duration) || 60;
@@ -342,8 +352,8 @@ const BedPanel = ({ bedId, bookings, shop }) => {
                                 </div>
                             </div>
                         ) : (
-                            <div className={`flex-1 flex flex-col items-center justify-center`}>
-                                {isPaused && <div className="text-[10px] sm:text-xs text-yellow-400 font-bold mb-1 tracking-widest uppercase">已暫停時間</div>}
+                            <div className={`flex-1 flex flex-col items-center justify-center mt-2`}>
+                                {isPaused && <div className="text-[12px] sm:text-sm text-yellow-400 font-bold mb-1 tracking-widest uppercase">已暫停時間</div>}
                                 <div className={`text-4xl sm:text-5xl font-black tabular-nums tracking-tighter ${running ? (isPaused ? 'text-yellow-400 animate-pulse' : 'text-white') : 'text-slate-600'}`}>
                                     {displayTime}
                                 </div>
