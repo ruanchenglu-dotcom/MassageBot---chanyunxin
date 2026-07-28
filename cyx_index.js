@@ -1404,9 +1404,14 @@ async function handleEvent(event) {
         else text = event.postback.data;
     }
 
+    // --- 0. ALIASES FOR RICH MENU ---
+    // Mapping friendly Chinese text from Rich Menu to backend action codes
+    if (text === '我要預約' || text === '線上預約' || text === '立即預約') text = 'Action:Booking';
+    if (text === '我的預約' || text === '查詢預約') text = 'Action:MyBooking';
+
     // --- 1. HEALTH CHECK & MAINTENANCE ---
     const isMenuAction = text.includes('Menu') || text.includes('價目') || text === '服務價目';
-    const isBookingAction = text === 'Action:Booking' || text.startsWith('Cat:') || text.startsWith('Svc:') || text.startsWith('Date:') || text.startsWith('Pref:') || text.startsWith('Pax:') || text.startsWith('Time:') || isMenuAction;
+    const isBookingAction = text === 'Action:Booking' || text === 'Action:MyBooking' || text.startsWith('Cat:') || text.startsWith('Svc:') || text.startsWith('Date:') || text.startsWith('Pref:') || text.startsWith('Pax:') || text.startsWith('Time:') || isMenuAction;
 
     if (isBookingAction && (!SheetService.getIsSystemHealthy() || STAFF_LIST.length === 0)) {
         return client.replyMessage(event.replyToken, {
