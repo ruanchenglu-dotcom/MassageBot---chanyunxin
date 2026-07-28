@@ -87,6 +87,12 @@ async function run() {
     res = await sendWebhook('Late:10');
     console.log('Result:', res.status, res.data);
 
+    await new Promise(r => setTimeout(r, 2000));
+
+    console.log("\n7. Hủy lịch: Action:ConfirmCancel");
+    res = await sendWebhook('Action:ConfirmCancel');
+    console.log('Result:', res.status, res.data);
+
     console.log("\n=== KẾT THÚC KIỂM THỬ ===");
     process.exit(0);
 }

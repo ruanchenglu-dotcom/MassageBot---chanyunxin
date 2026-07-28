@@ -2376,6 +2376,50 @@ async function updateCheckinTimeBatch(rowIds, timeStr) {
     } catch (e) { console.error('Update Checkin Time Error:', e); return false; }
 }
 
+async function updateBookingNote(rowId, addedNote, applyGroup = true) {
+    try {
+        if (!rowId) throw new Error("RowID required");
+        
+        const targetBooking = STATE.cachedBookings.find(b => String(b.rowId) === String(rowId));
+        let rowIdsToUpdate = [rowId];
+        let valuesToUpdate = [];
+        
+        if (applyGroup && targetBooking && targetBooking.originalName) {
+            const baseName = targetBooking.originalName.replace(/\(\d+\/\d+\)/g, '').trim();
+            const sameGroupBookings = STATE.cachedBookings.filter(b => {
+                if (!b.originalName || !b.phone) return false;
+                const bBaseName = b.originalName.replace(/\(\d+\/\d+\)/g, '').trim();
+                return bBaseName === baseName && b.phone === targetBooking.phone && b.opDate === targetBooking.opDate && b.booking_time === targetBooking.booking_time;
+            });
+            if (sameGroupBookings.length > 0) {
+                rowIdsToUpdate = sameGroupBookings.map(b => b.rowId);
+            }
+        }
+        
+        for (const id of rowIdsToUpdate) {
+            const b = STATE.cachedBookings.find(x => String(x.rowId) === String(id));
+            let currentNote = (b && b.adminNote) ? String(b.adminNote) : "";
+            if (currentNote.includes(addedNote)) continue;
+            let newNote = currentNote ? `${currentNote}\n${addedNote}` : addedNote;
+            valuesToUpdate.push({ range: `${BOOKING_SHEET_NAME}!L${id}`, values: [[newNote]] });
+            if (b) b.adminNote = newNote; // Cập nhật cache tại chỗ
+        }
+
+        if (valuesToUpdate.length > 0) {
+            await sheets.spreadsheets.values.batchUpdate({
+                spreadsheetId: SHEET_ID,
+                requestBody: { valueInputOption: 'USER_ENTERED', data: valuesToUpdate }
+            });
+            triggerSyncDebounced();
+        }
+        return true;
+    } catch (e) {
+        console.error('[UPDATE NOTE ERROR]', e);
+        return false;
+    }
+}
+
+
 module.exports = {
     init,
     getServices: () => STATE.SERVICES,
@@ -2399,6 +2443,7 @@ module.exports = {
     updateCheckinTimeBatch,
     ghiVaoSheet,
     updateBookingStatus,
+    updateBookingNote,
     pauseBooking,
     resumeBooking,
     updateBookingDetails,
