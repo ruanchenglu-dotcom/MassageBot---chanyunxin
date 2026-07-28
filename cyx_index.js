@@ -1211,7 +1211,7 @@ app.post('/api/update-status', async (req, res) => {
         const { rowId, status, syncStartTime, syncTransitionTime, applyGroup } = req.body;
         let timeToUpdate = null;
         let isTransition = false;
-        const shouldApplyGroup = applyGroup !== undefined ? applyGroup : true;
+        const shouldApplyGroup = (applyGroup === false || applyGroup === 'false') ? false : (applyGroup !== undefined ? applyGroup : true);
 
         if (syncStartTime === true || syncTransitionTime === true) {
             const now = SheetService.getTaipeiNow();
