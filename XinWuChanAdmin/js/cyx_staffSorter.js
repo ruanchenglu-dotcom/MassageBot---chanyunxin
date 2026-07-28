@@ -344,8 +344,11 @@
             if (!bookings || !Array.isArray(bookings) || bookings.length === 0) return {};
             if (!readyQueueIds || !Array.isArray(readyQueueIds) || readyQueueIds.length === 0) return {};
 
-            // Filter bookings that have not yet occurred and sort them by start time
-            const pendingBookings = bookings.filter(b => {
+            // Deep clone bookings to keep track of simulated assignments for future availability checks
+            const simulatedBookings = JSON.parse(JSON.stringify(bookings));
+
+            // Filter pending bookings from the simulated ones, and sort them chronologically
+            const pendingBookings = simulatedBookings.filter(b => {
                 const status = String(b.status || '');
                 return status === '已預約' || status === '等待中' || status === (window.APP_STATUS && window.APP_STATUS.WAITING ? window.APP_STATUS.WAITING : '等待中');
             }).sort((a, b) => {
@@ -374,6 +377,7 @@
                 const req = booking.serviceStaff || booking.staffId || booking.requestedStaff || '隨機';
                 const isDesignated = req !== '隨機' && req !== '男' && req !== '女' && req !== '男師' && req !== '女師' && req !== 'MALE' && req !== 'FEMALE';
                 const duration = parseInt(booking.duration || 60);
+                const bookingStartTime = parseInt(booking.startTimeMins || booking.timeInMins || booking.start_time || currentMins);
 
                 let selectedStaff = null;
 
@@ -388,12 +392,21 @@
                         return timeA - timeB;
                     });
 
-                    // Find first available compatible staff
-                    selectedStaff = candidatePool.find(s => StaffSorter.checkCompatibility(s, booking, req));
+                    // Find first available compatible staff who DOES NOT have a future conflict
+                    selectedStaff = candidatePool.find(s => {
+                        // 1. Must be compatible by skill and gender
+                        if (!StaffSorter.checkCompatibility(s, booking, req)) return false;
+                        
+                        // 2. Must not conflict with future bookings in simulatedBookings (including our past simulated picks)
+                        return StaffSorter.checkFutureAvailability(s.id, duration, simulatedBookings, bookingStartTime, booking.rowId || booking.id, booking.phone);
+                    });
                 }
 
                 if (selectedStaff) {
-                    predicted[booking.rowId] = selectedStaff.name || selectedStaff.id;
+                    predicted[booking.rowId || booking.id] = selectedStaff.name || selectedStaff.id;
+                    
+                    // Modify the simulated booking so subsequent checks know this staff is busy
+                    booking.staffId = selectedStaff.id; 
                     
                     // Simulate staff serving this booking and moving to the end of the line
                     maxSimTime += (duration * 60000) + 1000;
