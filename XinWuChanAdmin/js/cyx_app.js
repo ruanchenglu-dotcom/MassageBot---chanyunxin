@@ -1793,18 +1793,54 @@ const App = () => {
                 const checkBookings = bookings.filter(b => String(b.rowId) !== String(rowId));
                 const finalCheck = window.cyxCallCoreAvailabilityCheck(updatedData.ngayDen || currentBooking.date, updatedData.gioDen || currentBooking.startTime, guestDetails, checkBookings, staffList);
                 
-                if (finalCheck && finalCheck.valid && finalCheck.hasElasticWarning && finalCheck.warningMsgs && finalCheck.warningMsgs.length > 0) {
-                    const confirmResult = await Swal.fire({
-                        title: '⚠️ 彈性安排提示',
-                        html: finalCheck.warningMsgs.join('<br>') + '<br><br>請問是否確認此彈性安排？',
-                        icon: 'warning',
-                        showCancelButton: true,
-                        confirmButtonText: '✅ 確認',
-                        cancelButtonText: '❌ 取消'
-                    });
-                    
-                    if (!confirmResult.isConfirmed) {
-                        return;
+                if (finalCheck && finalCheck.valid) {
+                    if (finalCheck.hasElasticWarning && finalCheck.warningMsgs && finalCheck.warningMsgs.length > 0) {
+                        const confirmResult = await Swal.fire({
+                            title: '⚠️ 彈性安排提示',
+                            html: finalCheck.warningMsgs.join('<br>') + '<br><br>請問是否確認此彈性安排？',
+                            icon: 'warning',
+                            showCancelButton: true,
+                            confirmButtonText: '✅ 確認',
+                            cancelButtonText: '❌ 取消'
+                        });
+                        
+                        if (!confirmResult.isConfirmed) {
+                            return;
+                        }
+                    }
+
+                    const checkDetail = finalCheck.details && finalCheck.details.length > 0 
+                        ? (finalCheck.coreDetails ? finalCheck.coreDetails[0] : finalCheck.details[0]) 
+                        : null;
+                        
+                    if (checkDetail) {
+                        const newP1 = checkDetail.phase1_res_idx || checkDetail.allocated_resource || "";
+                        const newP2 = checkDetail.phase2_res_idx || "";
+                        const newFlow = checkDetail.flowCode || checkDetail.flow || "";
+                        
+                        const oldP1 = currentBooking.phase1_res_idx || currentBooking.allocated_resource || "";
+                        const oldP2 = currentBooking.phase2_res_idx || "";
+                        
+                        if (newP1 !== oldP1 || newP2 !== oldP2) {
+                            const resConfirm = await Swal.fire({
+                                title: '系統提示',
+                                html: `系統發現原位無法滿足升級需求。<br>將自動調整此預約至新床位/座位，請問是否同意？`,
+                                icon: 'info',
+                                showCancelButton: true,
+                                confirmButtonText: '✅ 同意並儲存',
+                                cancelButtonText: '❌ 取消'
+                            });
+                            
+                            if (!resConfirm.isConfirmed) {
+                                return;
+                            }
+                        }
+
+                        if (newP1) updatedData.phase1_res_idx = newP1;
+                        if (newP2) updatedData.phase2_res_idx = newP2;
+                        if (newFlow) updatedData.flow = newFlow;
+                        if (checkDetail.phase1_duration !== undefined) updatedData.phase1_duration = checkDetail.phase1_duration;
+                        if (checkDetail.phase2_duration !== undefined) updatedData.phase2_duration = checkDetail.phase2_duration;
                     }
                 }
             }

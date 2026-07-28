@@ -1351,11 +1351,11 @@ async function updateInlineBooking(rowId, updatedData) {
             let checkDate = updatedData.ngayDen !== undefined ? formattedDate : (bookingData.opDate || bookingData.startTimeString);
             let checkTime = updatedData.gioDen !== undefined ? timeVal : (bookingData.startTimeString || bookingData.startTime);
             let totalDuration = updatedData.duration !== undefined ? updatedData.duration : bookingData.duration;
-            let phase1Res = bookingData.phase1_res_idx || bookingData.allocated_resource;
-            let phase2Res = bookingData.phase2_res_idx;
+            let phase1Res = updatedData.phase1_res_idx !== undefined ? updatedData.phase1_res_idx : (bookingData.phase1_res_idx || bookingData.allocated_resource);
+            let phase2Res = updatedData.phase2_res_idx !== undefined ? updatedData.phase2_res_idx : bookingData.phase2_res_idx;
             
-            // Nếu thay đổi dịch vụ, chỉ gỡ resource nếu Category thực sự thay đổi
-            if (updatedData.dichVu !== undefined) {
+            // Nếu thay đổi dịch vụ, chỉ gỡ resource nếu Category thực sự thay đổi và frontend không truyền resource mới lên
+            if (updatedData.dichVu !== undefined && updatedData.phase1_res_idx === undefined) {
                 let newCategory = null;
                 if (sCode && STATE.SERVICES[sCode]) {
                     newCategory = STATE.SERVICES[sCode].category;
@@ -1385,7 +1385,7 @@ async function updateInlineBooking(rowId, updatedData) {
             if (checkDate && checkTime && (phase1Res || phase2Res) && updatedData.ignoreOverlap !== true) {
                 let p1Dur = updatedData.phase1_duration !== undefined ? updatedData.phase1_duration : bookingData.phase1_duration;
                 let p2Dur = updatedData.phase2_duration !== undefined ? updatedData.phase2_duration : bookingData.phase2_duration;
-                let flow = bookingData.flow;
+                let flow = updatedData.flow !== undefined ? updatedData.flow : bookingData.flow;
                 
                 const conflict = _checkOverlapConflict(rowId, checkDate, checkTime, totalDuration, phase1Res, phase2Res, p1Dur, p2Dur, flow, '本館', [], updatedData.transition_time);
                 if (conflict) {
