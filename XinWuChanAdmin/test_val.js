@@ -828,8 +828,8 @@ if (typeof window !== 'undefined') {
             
             const normDate = queryDateStr ? (typeof normalizeDateStrict === 'function' ? normalizeDateStrict(queryDateStr) : queryDateStr.replace(/-/g, '/')) : null;
             
-            if (normDate && staffInfo.offDays && staffInfo.offDays.includes(normDate)) {
-                off = true;
+            if (normDate) {
+                off = (staffInfo.offDays && staffInfo.offDays.includes(normDate)) ? true : false;
             }
             
             if (normDate && staffInfo.customShifts && staffInfo.customShifts[normDate]) {
