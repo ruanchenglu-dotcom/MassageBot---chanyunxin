@@ -153,7 +153,7 @@ const BedPanel = ({ bedId, bookings, shop }) => {
         return b.duration || 60;
     };
 
-    const isRunning = (status) => ['Running', '服務中', 'Serving', '🟡'].some(k => status?.includes(k));
+    const isRunning = (status) => ['Running', '服務中', 'Serving', '🟡', '暫停中'].some(k => status?.includes(k));
     const isDone = (status) => ['Done', 'hoàn thành', 'Completed', '✅', '結帳', '已結帳', '完成'].some(k => status?.includes(k));
 
     const isRunningForThisBed = (b, internalBedId) => {
@@ -246,23 +246,48 @@ const BedPanel = ({ bedId, bookings, shop }) => {
         }
     };
 
+    const handlePause = async () => {
+        if (!currentBooking) return;
+        try {
+            await axios.post('/api/pause-booking', { rowId: currentBooking.rowId });
+        } catch (e) { console.error(e); alert('暫停失敗'); }
+    };
+
+    const handleResume = async () => {
+        if (!currentBooking) return;
+        try {
+            await axios.post('/api/resume-booking', { rowId: currentBooking.rowId });
+        } catch (e) { console.error(e); alert('繼續失敗'); }
+    };
+
     const serviceStr = currentBooking?.service || currentBooking?.serviceName || '';
     const isCombo = serviceStr.toLowerCase().includes('combo') || serviceStr.toLowerCase().includes('thái') || serviceStr.toLowerCase().includes('泰');
     const running = currentBooking ? isRunningForThisBed(currentBooking, internalBedId) : false;
+    const isPaused = currentBooking?.status === '暫停中';
     
     let displayTime = "00:00";
     if (currentBooking && running) {
-        const start = getBookingTimeForBed(currentBooking, internalBedId);
-        if (start > 0) {
-            const diff = Math.max(0, nowTime - start);
-            const mins = Math.floor(diff / 60000);
-            const secs = Math.floor((diff % 60000) / 1000);
-            displayTime = `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+        if (isPaused && currentBooking.pause_start_timestamp) {
+            const pauseStart = parseInt(currentBooking.pause_start_timestamp, 10);
+            if (!isNaN(pauseStart) && pauseStart > 0) {
+                const diff = Math.max(0, nowTime - pauseStart);
+                const mins = Math.floor(diff / 60000);
+                const secs = Math.floor((diff % 60000) / 1000);
+                displayTime = `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+            }
+        } else {
+            const start = getBookingTimeForBed(currentBooking, internalBedId);
+            if (start > 0) {
+                const diff = Math.max(0, nowTime - start);
+                const mins = Math.floor(diff / 60000);
+                const secs = Math.floor((diff % 60000) / 1000);
+                displayTime = `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+            }
         }
     }
 
     const isOccupied = currentBooking && running;
-    const headerBg = isOccupied ? 'bg-red-900/50 text-red-400 border-red-800' : 'bg-emerald-900/50 text-emerald-400 border-emerald-800';
+    const headerBg = isOccupied ? (isPaused ? 'bg-yellow-900/50 text-yellow-400 border-yellow-800' : 'bg-red-900/50 text-red-400 border-red-800') : 'bg-emerald-900/50 text-emerald-400 border-emerald-800';
 
     return (
         <div className="flex flex-col h-full w-full border-r border-slate-700 last:border-r-0 relative">
@@ -301,9 +326,9 @@ const BedPanel = ({ bedId, bookings, shop }) => {
                                     </div>
                                 </div>
                                 <div className="flex flex-col items-center justify-center w-1/2 px-1">
-                                    <div className="text-[10px] sm:text-xs text-slate-400 mb-0.5">剩下時間</div>
-                                    <div className="text-xl sm:text-2xl font-black text-white tabular-nums tracking-tighter">
-                                        {(() => {
+                                    <div className="text-[10px] sm:text-xs text-slate-400 mb-0.5">{isPaused ? '已暫停' : '剩下時間'}</div>
+                                    <div className={`text-xl sm:text-2xl font-black tabular-nums tracking-tighter ${isPaused ? 'text-yellow-400 animate-pulse' : 'text-white'}`}>
+                                        {isPaused ? displayTime : (() => {
                                             const start = parseTime(currentBooking.booking_time || currentBooking.start_time_str || currentBooking.time);
                                             const totalDur = parseInt(currentBooking.duration) || 60;
                                             const diff = Math.max(0, nowTime - start);
@@ -317,8 +342,11 @@ const BedPanel = ({ bedId, bookings, shop }) => {
                                 </div>
                             </div>
                         ) : (
-                            <div className={`flex-1 flex items-center justify-center text-4xl sm:text-5xl font-black tabular-nums tracking-tighter ${running ? 'text-white' : 'text-slate-600'}`}>
-                                {displayTime}
+                            <div className={`flex-1 flex flex-col items-center justify-center`}>
+                                {isPaused && <div className="text-[10px] sm:text-xs text-yellow-400 font-bold mb-1 tracking-widest uppercase">已暫停時間</div>}
+                                <div className={`text-4xl sm:text-5xl font-black tabular-nums tracking-tighter ${running ? (isPaused ? 'text-yellow-400 animate-pulse' : 'text-white') : 'text-slate-600'}`}>
+                                    {displayTime}
+                                </div>
                             </div>
                         )}
                     </div>
@@ -346,20 +374,37 @@ const BedPanel = ({ bedId, bookings, shop }) => {
                         
                         {currentBooking && running && (
                             <>
-                                {isCombo ? (
+                                {isPaused ? (
                                     <button 
-                                        onClick={() => updateStatus('⏳等待中')}
-                                        className="flex-1 bg-orange-600 hover:bg-orange-500 text-white font-bold rounded text-[10px] sm:text-xs transition-all active:scale-95 flex flex-col items-center justify-center leading-tight"
+                                        onClick={handleResume}
+                                        className="flex-1 bg-green-600 hover:bg-green-500 text-white font-bold rounded text-[10px] sm:text-xs transition-all active:scale-95 flex flex-col items-center justify-center leading-tight shadow-md"
                                     >
-                                        <i className="fas fa-exchange-alt mb-0.5"></i> 換面/換椅
+                                        繼續
                                     </button>
                                 ) : (
-                                    <button 
-                                        onClick={() => updateStatus('⏳等待中')}
-                                        className="flex-1 bg-slate-700 hover:bg-slate-600 text-white font-bold rounded text-[10px] sm:text-xs transition-all active:scale-95 flex flex-col items-center justify-center leading-tight"
-                                    >
-                                        <i className="fas fa-pause mb-0.5"></i> 暫停
-                                    </button>
+                                    isCombo ? (
+                                        <div className="flex flex-1 gap-1 flex-row">
+                                            <button 
+                                                onClick={() => updateStatus('⏳等待中')}
+                                                className="flex-1 bg-orange-600 hover:bg-orange-500 text-white font-bold rounded text-[9px] sm:text-[10px] transition-all active:scale-95 flex flex-col items-center justify-center leading-tight"
+                                            >
+                                                換面
+                                            </button>
+                                            <button 
+                                                onClick={handlePause}
+                                                className="flex-1 bg-slate-700 hover:bg-slate-600 text-white font-bold rounded text-[9px] sm:text-[10px] transition-all active:scale-95 flex flex-col items-center justify-center leading-tight"
+                                            >
+                                                暫停
+                                            </button>
+                                        </div>
+                                    ) : (
+                                        <button 
+                                            onClick={handlePause}
+                                            className="flex-1 bg-slate-700 hover:bg-slate-600 text-white font-bold rounded text-[10px] sm:text-xs transition-all active:scale-95 flex flex-col items-center justify-center leading-tight"
+                                        >
+                                            暫停
+                                        </button>
+                                    )
                                 )}
                                 
                                 <button 

@@ -1232,6 +1232,28 @@ app.post('/api/update-status', async (req, res) => {
     }
 });
 
+app.post('/api/pause-booking', async (req, res) => {
+    try {
+        const { rowId } = req.body;
+        const success = await SheetService.pauseBooking(rowId);
+        res.json({ success });
+    } catch (e) {
+        console.error('[PAUSE ERROR]', e);
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
+app.post('/api/resume-booking', async (req, res) => {
+    try {
+        const { rowId } = req.body;
+        const success = await SheetService.resumeBooking(rowId);
+        res.json({ success });
+    } catch (e) {
+        console.error('[RESUME ERROR]', e);
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
 app.post('/api/save-salary', async (req, res) => { await SheetService.syncDailySalary(req.body.date, req.body.staffcyx_data); res.json({ success: true }); });
 
 app.post('/api/update-checkin-time', async (req, res) => {

@@ -547,7 +547,8 @@ async function syncData() {
                     location: row[39] || '本館',
                     preassignedStaff: row[42] || '',
                     timeToArrive: row[41] || '',
-                    allocated_resource: null
+                    allocated_resource: null,
+                    pause_start_timestamp: row[43] || null
                 });
             }
         }
@@ -988,6 +989,77 @@ async function updateBookingStatus(rowId, newStatus, newStartTime = null, isTran
         triggerSyncDebounced();
         return true;
     } catch (e) { console.error('Update Status Error:', e); return false; }
+}
+
+async function pauseBooking(rowId) {
+    try {
+        if (!rowId) throw new Error("RowID required");
+        const pauseTime = Date.now().toString();
+        const valuesToUpdate = [
+            { range: `${BOOKING_SHEET_NAME}!J${rowId}`, values: [['暫停中']] },
+            { range: `${BOOKING_SHEET_NAME}!AR${rowId}`, values: [[pauseTime]] }
+        ];
+        
+        await sheets.spreadsheets.values.batchUpdate({
+            spreadsheetId: SHEET_ID,
+            requestBody: { valueInputOption: 'USER_ENTERED', data: valuesToUpdate }
+        });
+        triggerSyncDebounced();
+        return true;
+    } catch (e) { console.error('Pause Booking Error:', e); return false; }
+}
+
+async function resumeBooking(rowId) {
+    try {
+        if (!rowId) throw new Error("RowID required");
+        
+        const booking = STATE.cachedBookings.find(b => String(b.rowId) === String(rowId));
+        if (!booking || !booking.pause_start_timestamp) return false;
+        
+        const pauseStart = parseInt(booking.pause_start_timestamp, 10);
+        if (isNaN(pauseStart)) return false;
+        
+        const pausedMins = Math.max(1, Math.ceil((Date.now() - pauseStart) / 60000));
+        let valuesToUpdate = [
+            { range: `${BOOKING_SHEET_NAME}!J${rowId}`, values: [['服務中']] },
+            { range: `${BOOKING_SHEET_NAME}!AR${rowId}`, values: [['']] }
+        ];
+        
+        const isCombo = (booking.flow === 'FB' || booking.flow === 'BF' || (booking.type && booking.type.includes('COMBO')) || booking.category === 'COMBO');
+        
+        let newPhase1Dur = booking.phase1_duration || (booking.duration || 0);
+        let newPhase2Dur = booking.phase2_duration || 0;
+        
+        if (isCombo) {
+            newPhase2Dur += pausedMins;
+            valuesToUpdate.push({ range: `${BOOKING_SHEET_NAME}!AE${rowId}`, values: [[newPhase2Dur]] });
+        } else {
+            newPhase1Dur += pausedMins;
+            const newTotalDur = (booking.duration || 0) + pausedMins;
+            valuesToUpdate.push({ range: `${BOOKING_SHEET_NAME}!AC${rowId}`, values: [[newPhase1Dur]] });
+            valuesToUpdate.push({ range: `${BOOKING_SHEET_NAME}!H${rowId}`, values: [[newTotalDur]] });
+        }
+        
+        // Recalculate finish_time
+        const startMins = ResourceCore.getMinsFromTimeStr(booking.start_time_str);
+        if (startMins !== -1) {
+            const transitionBuffer = isCombo ? (ResourceCore.CONFIG ? ResourceCore.CONFIG.TRANSITION_BUFFER : 3) : 0;
+            const finishTimeStr = ResourceCore.getTimeStrFromMins(startMins + newPhase1Dur + newPhase2Dur + transitionBuffer);
+            valuesToUpdate.push({ range: `${BOOKING_SHEET_NAME}!AF${rowId}`, values: [[finishTimeStr]] });
+            
+            if (isCombo) {
+                const transitionTimeStr = ResourceCore.getTimeStrFromMins(startMins + newPhase1Dur + transitionBuffer);
+                valuesToUpdate.push({ range: `${BOOKING_SHEET_NAME}!AD${rowId}`, values: [[transitionTimeStr]] });
+            }
+        }
+        
+        await sheets.spreadsheets.values.batchUpdate({
+            spreadsheetId: SHEET_ID,
+            requestBody: { valueInputOption: 'USER_ENTERED', data: valuesToUpdate }
+        });
+        triggerSyncDebounced();
+        return true;
+    } catch (e) { console.error('Resume Booking Error:', e); return false; }
 }
 
 function _checkOverlapConflict(rowId, dateStr, timeStr, duration, phase1Res, phase2Res, p1Dur, p2Dur, flow, locationStr = '本館', ignoreRowIds = [], newTransitionTime = null, ignoreBuffers = false) {
@@ -2314,8 +2386,11 @@ module.exports = {
     syncDailySalary,
     getTodaySalary,
     updateCheckinTimeBatch,
-    ghiVaoSheet,
+    triggerSync,
     updateBookingStatus,
+    pauseBooking,
+    resumeBooking,
+    deleteBooking,
     updateBookingDetails,
     updateInlineBooking,
     batchUpdateMultipleBookings,
