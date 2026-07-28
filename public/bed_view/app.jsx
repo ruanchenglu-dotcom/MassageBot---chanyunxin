@@ -320,7 +320,7 @@ const BedPanel = ({ bedId, bookings, shop }) => {
                         {currentBooking ? (
                             <div className="flex flex-col text-[12px] sm:text-sm mb-1 min-h-0 shrink-0">
                                 <div className="truncate"><span className="text-slate-400">客戶: </span><span className="font-bold text-white text-sm sm:text-base">{currentBooking.name || currentBooking.customerName || currentBooking.originalName}</span></div>
-                                <div className="truncate"><span className="text-slate-400">師傅: </span><span className="font-bold text-amber-400 text-sm sm:text-base">{currentBooking.staff || currentBooking.staffName || currentBooking.serviceStaff}</span></div>
+                                <div className="truncate"><span className="text-slate-400">師傅: </span><span className="font-bold text-amber-400 text-sm sm:text-base">{currentBooking.serviceStaff || currentBooking.staff || currentBooking.staffName}</span></div>
                                 <div className="truncate text-cyan-300 font-bold text-sm sm:text-base">{serviceStr}</div>
                             </div>
                         ) : (
@@ -392,29 +392,12 @@ const BedPanel = ({ bedId, bookings, shop }) => {
                                         繼續
                                     </button>
                                 ) : (
-                                    isCombo ? (
-                                        <div className="flex flex-1 gap-1 flex-row">
-                                            <button 
-                                                onClick={() => updateStatus('⏳等待中')}
-                                                className="flex-1 bg-orange-600 hover:bg-orange-500 text-white font-bold rounded text-[9px] sm:text-[10px] transition-all active:scale-95 flex flex-col items-center justify-center leading-tight"
-                                            >
-                                                換面
-                                            </button>
-                                            <button 
-                                                onClick={handlePause}
-                                                className="flex-1 bg-slate-700 hover:bg-slate-600 text-white font-bold rounded text-[9px] sm:text-[10px] transition-all active:scale-95 flex flex-col items-center justify-center leading-tight"
-                                            >
-                                                暫停
-                                            </button>
-                                        </div>
-                                    ) : (
-                                        <button 
-                                            onClick={handlePause}
-                                            className="flex-1 bg-slate-700 hover:bg-slate-600 text-white font-bold rounded text-[10px] sm:text-xs transition-all active:scale-95 flex flex-col items-center justify-center leading-tight"
-                                        >
-                                            暫停
-                                        </button>
-                                    )
+                                    <button 
+                                        onClick={handlePause}
+                                        className="flex-1 bg-slate-700 hover:bg-slate-600 text-white font-bold rounded text-[10px] sm:text-xs transition-all active:scale-95 flex flex-col items-center justify-center leading-tight shadow-md"
+                                    >
+                                        暫停
+                                    </button>
                                 )}
                                 
                                 <button 
@@ -444,7 +427,7 @@ const BedPanel = ({ bedId, bookings, shop }) => {
                         <div className="flex flex-col gap-0.5 w-full text-[12px] sm:text-sm">
                             <div className="text-white font-black text-sm sm:text-base">{formatTime(getBookingTimeForBed(nextBooking, internalBedId))}</div>
                             <div className="text-cyan-400 font-bold text-sm sm:text-base truncate">{nextBooking.name || nextBooking.customerName || nextBooking.originalName}</div>
-                            <div className="text-amber-400 truncate text-sm">師傅: {nextBooking.staff || nextBooking.staffName || nextBooking.serviceStaff}</div>
+                            <div className="text-amber-400 truncate text-sm">師傅: {nextBooking.serviceStaff || nextBooking.staff || nextBooking.staffName}</div>
                             <div className="text-slate-400 truncate text-xs sm:text-sm">{nextBooking.service || nextBooking.serviceName}</div>
                         </div>
                     ) : (
