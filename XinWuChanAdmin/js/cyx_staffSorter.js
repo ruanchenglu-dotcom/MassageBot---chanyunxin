@@ -393,14 +393,41 @@
                         return timeA - timeB;
                     });
 
-                    // Find first available compatible staff who DOES NOT have a future conflict
+                    // 1. Tìm trong nhóm thợ đã check-in
                     selectedStaff = candidatePool.find(s => {
-                        // 1. Must be compatible by skill and gender
                         if (!StaffSorter.checkCompatibility(s, booking, req)) return false;
                         
-                        // 2. Must not conflict with future bookings in simulatedBookings (including our past simulated picks)
-                        return StaffSorter.checkFutureAvailability(s.id, duration, simulatedBookings, bookingStartTime, booking.rowId || booking.id, booking.phone);
+                        // [Fix] Tránh trùng thợ trong nhóm khách đoàn bằng cách không truyền `booking.phone` (truyền null)
+                        return StaffSorter.checkFutureAvailability(s.id, duration, simulatedBookings, bookingStartTime, booking.rowId || booking.id, null);
                     });
+
+                    // 2. [Fix] Nếu hết thợ đã check-in, tìm thợ sắp vào ca (Fallback)
+                    if (!selectedStaff) {
+                        const parseShiftMins = (shiftStr) => {
+                            if (!shiftStr) return Number.MAX_SAFE_INTEGER;
+                            const [h, m] = shiftStr.split(':').map(Number);
+                            if (isNaN(h)) return Number.MAX_SAFE_INTEGER;
+                            return (h * 60) + (m || 0);
+                        };
+
+                        const futureStaffPool = staffList.filter(s => !readyQueueIds.includes(s.id));
+                        
+                        futureStaffPool.sort((a, b) => {
+                            const shiftA = parseShiftMins(a['上班'] || a.start || a.shiftStart || '');
+                            const shiftB = parseShiftMins(b['上班'] || b.start || b.shiftStart || '');
+                            return shiftA - shiftB;
+                        });
+
+                        selectedStaff = futureStaffPool.find(s => {
+                            if (!StaffSorter.checkCompatibility(s, booking, req)) return false;
+
+                            const shiftMins = parseShiftMins(s['上班'] || s.start || s.shiftStart || '');
+                            // Bỏ qua thợ có giờ vào ca trễ hơn giờ của lịch hẹn này
+                            if (shiftMins > bookingStartTime) return false;
+
+                            return StaffSorter.checkFutureAvailability(s.id, duration, simulatedBookings, bookingStartTime, booking.rowId || booking.id, null);
+                        });
+                    }
                 }
 
                 if (selectedStaff) {
