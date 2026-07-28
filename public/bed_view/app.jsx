@@ -128,7 +128,7 @@ const BedPanel = ({ bedId, bookings, shop }) => {
 
     const getBookingTimeForBed = (b, internalBedId) => {
         const t = parseTime(b.booking_time || b.start_time_str || b.time);
-        const isP1 = b.phase1_res_idx === internalBedId || b.phase1_resource === internalBedId || (b.allocated_resource && b.allocated_resource.includes(internalBedId));
+        const isP1 = b.phase1_res_idx === internalBedId || b.phase1_resource === internalBedId;
         const isP2 = b.phase2_res_idx === internalBedId || b.phase2_resource === internalBedId;
         
         if (isP2 && !isP1) {
@@ -159,7 +159,7 @@ const BedPanel = ({ bedId, bookings, shop }) => {
     const isRunningForThisBed = (b, internalBedId) => {
         if (!isRunning(b.status)) return false;
         
-        const isP1 = b.phase1_res_idx === internalBedId || b.phase1_resource === internalBedId || (b.allocated_resource && b.allocated_resource.includes(internalBedId));
+        const isP1 = b.phase1_res_idx === internalBedId || b.phase1_resource === internalBedId;
         const isP2 = b.phase2_res_idx === internalBedId || b.phase2_resource === internalBedId;
         
         if (isP1 && (!b.phase2_res_idx || isP2)) return true;

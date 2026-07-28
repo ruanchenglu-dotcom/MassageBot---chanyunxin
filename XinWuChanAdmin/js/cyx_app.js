@@ -1285,7 +1285,13 @@ const App = () => {
                         if (tempState[key].comboMeta.phase !== undefined) {
                             isPhase1 = (tempState[key].comboMeta.phase === 1);
                         } else {
-                            isPhase1 = (seq === 'FB' && key.toUpperCase().includes('CHAIR')) || (seq === 'BF' && key.toUpperCase().includes('BED'));
+                            if (b.phase1_res_idx && b.phase1_res_idx.toUpperCase() === key.toUpperCase()) {
+                                isPhase1 = true;
+                            } else if (b.phase2_res_idx && b.phase2_res_idx.toUpperCase() === key.toUpperCase()) {
+                                isPhase1 = false;
+                            } else {
+                                isPhase1 = (seq === 'FB' && key.toUpperCase().includes('CHAIR')) || (seq === 'BF' && key.toUpperCase().includes('BED'));
+                            }
                             tempState[key].comboMeta.phase = isPhase1 ? 1 : 2;
                         }
 
@@ -1318,7 +1324,13 @@ const App = () => {
                     if (item.comboMeta.phase !== undefined) {
                         isPhase1 = (item.comboMeta.phase === 1);
                     } else {
-                        isPhase1 = (seq === 'FB' && isChair) || (seq === 'BF' && !isChair);
+                        if (item.booking.phase1_res_idx && item.booking.phase1_res_idx.toUpperCase() === key.toUpperCase()) {
+                            isPhase1 = true;
+                        } else if (item.booking.phase2_res_idx && item.booking.phase2_res_idx.toUpperCase() === key.toUpperCase()) {
+                            isPhase1 = false;
+                        } else {
+                            isPhase1 = (seq === 'FB' && isChair) || (seq === 'BF' && !isChair);
+                        }
                     }
 
                     const split = getSmartSplit(item.booking, item.booking.duration, item.isMaxMode, seq);
