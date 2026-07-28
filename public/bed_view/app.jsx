@@ -339,14 +339,25 @@ const BedPanel = ({ bedId, bookings, shop }) => {
                                     <div className="text-[12px] sm:text-sm font-bold text-slate-400 mb-1">{isPaused ? '已暫停' : '剩下時間'}</div>
                                     <div className={`text-4xl sm:text-5xl font-black tabular-nums tracking-tighter ${isPaused ? 'text-yellow-400 animate-pulse' : 'text-white'}`}>
                                         {isPaused ? displayTime : (() => {
-                                            const start = parseTime(currentBooking.booking_time || currentBooking.start_time_str || currentBooking.time);
-                                            const totalDur = parseInt(currentBooking.duration) || 60;
-                                            const diff = Math.max(0, nowTime - start);
-                                            const remainingMs = (totalDur * 60000) - diff;
-                                            if (remainingMs <= 0) return "00:00";
-                                            const mins = Math.floor(remainingMs / 60000);
-                                            const secs = Math.floor((remainingMs % 60000) / 1000);
-                                            return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+                                            const isP1 = currentBooking.phase1_res_idx === internalBedId || currentBooking.phase1_resource === internalBedId;
+                                            if (isCombo && isP1 && currentBooking.transition_time) {
+                                                const tTime = parseTime(currentBooking.transition_time.toString().replace('.', ':'));
+                                                const rem = tTime - nowTime;
+                                                if (rem <= 0) return "00:00";
+                                                const mins = Math.floor(rem / 60000);
+                                                const secs = Math.floor((rem % 60000) / 1000);
+                                                return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+                                            } else {
+                                                const start = parseTime(currentBooking.booking_time || currentBooking.start_time_str || currentBooking.time);
+                                                const totalDur = parseInt(currentBooking.original_duration || currentBooking.duration) || 60;
+                                                const pauseDur = parseInt(currentBooking.pause_duration) || 0;
+                                                const diff = Math.max(0, nowTime - start);
+                                                const remainingMs = ((totalDur + pauseDur) * 60000) - diff;
+                                                if (remainingMs <= 0) return "00:00";
+                                                const mins = Math.floor(remainingMs / 60000);
+                                                const secs = Math.floor((remainingMs % 60000) / 1000);
+                                                return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+                                            }
                                         })()}
                                     </div>
                                 </div>

@@ -346,14 +346,20 @@ async function syncMenuData() {
             if (!code || !name) return;
 
             let duration = 60;
-            const timeMatch = name.match(/(\d+)分/);
-            if (timeMatch) duration = parseInt(timeMatch[1]);
+            if (row[5]) {
+                const parsedDur = parseInt(row[5].toString().replace(/\D/g, ''));
+                if (!isNaN(parsedDur) && parsedDur > 0) duration = parsedDur;
+            } else {
+                const timeMatch = name.match(/(\d+)分/);
+                if (timeMatch) duration = parseInt(timeMatch[1]);
+            }
 
             const price = parseInt(priceStr.replace(/\D/g, '')) || 0;
 
             let elasticStep = 0; let elasticLimit = 0;
-            if (row[4]) { const ps = parseInt(row[4].toString().replace(/\D/g, '')); if (!isNaN(ps)) elasticStep = ps; }
-            if (row[5]) { const pl = parseInt(row[5].toString().replace(/\D/g, '')); if (!isNaN(pl)) elasticLimit = pl; }
+            // row[4] and row[5] are now used for other purposes (Oil push, Duration)
+            // if (row[4]) { const ps = parseInt(row[4].toString().replace(/\D/g, '')); if (!isNaN(ps)) elasticStep = ps; }
+            // if (row[5]) { const pl = parseInt(row[5].toString().replace(/\D/g, '')); if (!isNaN(pl)) elasticLimit = pl; }
 
             let minFoot = null, maxFoot = null, minBody = null, maxBody = null;
             if (row[8]) { const val = parseInt(row[8].toString().replace(/\D/g, '')); if (!isNaN(val)) minFoot = val; }
@@ -548,7 +554,9 @@ async function syncData() {
                     preassignedStaff: row[42] || '',
                     timeToArrive: row[41] || '',
                     allocated_resource: null,
-                    pause_start_timestamp: row[43] || null
+                    pause_start_timestamp: row[43] || null,
+                    pause_duration: safeParseInt(row[44], 0),
+                    original_duration: safeParseInt(row[45], null)
                 });
             }
         }
@@ -728,7 +736,7 @@ async function ghiVaoSheet(data, proposedUpdates = []) {
         }
 
         for (let i = 0; i < loopCount; i++) {
-            const row = new Array(40).fill("");
+            const row = new Array(46).fill("");
             let guestDetail = (data.guestDetails && data.guestDetails[i]) ? data.guestDetails[i] : null;
 
             const guestNum = i + 1; const total = loopCount;
@@ -873,6 +881,8 @@ async function ghiVaoSheet(data, proposedUpdates = []) {
             row[39] = locVal || "本館";
             row[40] = colK_Created;
             row[41] = data.timeToArrive || "";
+            row[44] = "0";
+            row[45] = currentDuration || 60;
 
             valuesToWrite.push(row);
         }
@@ -1027,7 +1037,7 @@ async function resumeBooking(rowId) {
         
         const isCombo = (booking.flow === 'FB' || booking.flow === 'BF' || (booking.type && booking.type.includes('COMBO')) || booking.category === 'COMBO');
         
-        let newPhase1Dur = booking.phase1_duration || (booking.duration || 0);
+        let newPhase1Dur = booking.phase1_duration || (booking.original_duration || booking.duration || 0);
         let newPhase2Dur = booking.phase2_duration || 0;
         
         if (isCombo) {
@@ -1035,10 +1045,11 @@ async function resumeBooking(rowId) {
             valuesToUpdate.push({ range: `${BOOKING_SHEET_NAME}!AE${rowId}`, values: [[newPhase2Dur]] });
         } else {
             newPhase1Dur += pausedMins;
-            const newTotalDur = (booking.duration || 0) + pausedMins;
             valuesToUpdate.push({ range: `${BOOKING_SHEET_NAME}!AC${rowId}`, values: [[newPhase1Dur]] });
-            valuesToUpdate.push({ range: `${BOOKING_SHEET_NAME}!H${rowId}`, values: [[newTotalDur]] });
         }
+        
+        let newTotalPause = (booking.pause_duration || 0) + pausedMins;
+        valuesToUpdate.push({ range: `${BOOKING_SHEET_NAME}!AS${rowId}`, values: [[newTotalPause]] });
         
         // Recalculate finish_time
         const startMins = ResourceCore.getMinsFromTimeStr(booking.start_time_str);

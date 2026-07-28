@@ -129,7 +129,7 @@ const BOOKING_STATUS = {
     PAID: '已結帳',        // Đã thanh toán (khách trả tiền trước hoặc sau)
     CANCELLED: '已取消',   // Đã hủy lịch
     NOSHOW: '爽約',        // Khách không đến
-    STANDBY: '候補'        // Khách chờ
+    STANDBY: '候補'        // Khách chờ bù sau
 };
 
 const DYNAMIC_PRICES_MAP = null;
