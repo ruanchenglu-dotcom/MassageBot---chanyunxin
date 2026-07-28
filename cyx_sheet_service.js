@@ -2386,6 +2386,7 @@ module.exports = {
     syncDailySalary,
     getTodaySalary,
     updateCheckinTimeBatch,
+    ghiVaoSheet,
     updateBookingStatus,
     pauseBooking,
     resumeBooking,
