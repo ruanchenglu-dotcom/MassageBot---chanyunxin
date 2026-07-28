@@ -205,9 +205,9 @@ const BedPanel = ({ bedId, bookings, shop }) => {
             const endT = startT + durationMs;
             
             const notExpired = endT > nowTime;
-            const startingSoon = startT <= nowTime + (30 * 60000);
+            const hasStarted = startT <= nowTime;
             
-            return notExpired && startingSoon;
+            return notExpired && hasStarted;
         });
     }
 
