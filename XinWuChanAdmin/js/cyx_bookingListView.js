@@ -7,7 +7,7 @@
 (function () {
     const { useState, useEffect } = React;
 
-    const BookingListView = ({ bookings, onCancelBooking, onInlineUpdate, staffList }) => {
+    const BookingListView = ({ bookings, onCancelBooking, onInlineUpdate, staffList, predictedAssignments = {} }) => {
         // Đảm bảo bookings luôn là mảng an toàn
         const safeBookings = Array.isArray(bookings) ? bookings : [];
 
@@ -549,7 +549,18 @@
                                             <td className="p-4 whitespace-nowrap"><span className={`px-3 py-1 rounded-full text-sm font-bold shadow-sm ${statusClass}`}>{bStatus}</span></td>
                                             <td className="p-4 whitespace-nowrap"><span className="bg-indigo-50 text-indigo-700 px-3 py-1 rounded text-sm font-bold border border-indigo-100">{b.staffId}</span></td>
                                             <td className="p-4 whitespace-nowrap"><span className="text-gray-700 font-bold">{b.location || '本館'}</span></td>
-                                            <td className="p-4 whitespace-nowrap"><span className="text-purple-600 font-bold">{b.preassignedStaff || '-'}</span></td>
+                                            <td className="p-4 whitespace-nowrap">
+                                                {b.preassignedStaff ? (
+                                                    <div className="flex flex-col">
+                                                        <span className="text-purple-600 font-bold">{b.preassignedStaff}</span>
+                                                        {predictedAssignments[b.rowId] && (
+                                                            <span className="text-xs text-gray-400">(系統預排: {predictedAssignments[b.rowId]})</span>
+                                                        )}
+                                                    </div>
+                                                ) : (
+                                                    <span className="text-purple-600 font-bold">{predictedAssignments[b.rowId] || '-'}</span>
+                                                )}
+                                            </td>
 
                                             <td className="p-4 whitespace-nowrap text-center sticky right-0 z-20 space-x-2" style={{ backgroundColor: 'inherit' }}>
                                                 <button onClick={() => startEditing(b)} className="text-blue-500 hover:text-white hover:bg-blue-500 border border-blue-200 hover:border-blue-500 px-3 py-1.5 rounded transition-all shadow-sm" title="編輯 (Edit)">

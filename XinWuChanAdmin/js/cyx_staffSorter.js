@@ -340,6 +340,71 @@
             return assignment;
         },
 
+        simulatePreassignments: (bookings, readyQueueIds, staffList, statusData, currentMins) => {
+            if (!bookings || !Array.isArray(bookings) || bookings.length === 0) return {};
+            if (!readyQueueIds || !Array.isArray(readyQueueIds) || readyQueueIds.length === 0) return {};
+
+            // Filter bookings that have not yet occurred and sort them by start time
+            const pendingBookings = bookings.filter(b => {
+                const status = String(b.status || '');
+                return status === '已預約' || status === '等待中' || status === (window.APP_STATUS && window.APP_STATUS.WAITING ? window.APP_STATUS.WAITING : '等待中');
+            }).sort((a, b) => {
+                const timeA = parseInt(a.startTimeMins || a.timeInMins || a.start_time || 0);
+                const timeB = parseInt(b.startTimeMins || b.timeInMins || b.start_time || 0);
+                return timeA - timeB;
+            });
+
+            if (pendingBookings.length === 0) return {};
+
+            // Clone statusData to simulate waiting time (stafftime)
+            const simStatus = JSON.parse(JSON.stringify(statusData || {}));
+            
+            // Build candidates list based on readyQueueIds
+            const candidatePool = staffList.filter(s => readyQueueIds.includes(s.id));
+            const predicted = {};
+
+            // Keep track of simulated time for shifting queue order
+            let maxSimTime = 0;
+            candidatePool.forEach(s => {
+                const t = simStatus[s.id]?.stafftime || 0;
+                if (t > maxSimTime) maxSimTime = t;
+            });
+
+            pendingBookings.forEach(booking => {
+                const req = booking.serviceStaff || booking.staffId || booking.requestedStaff || '隨機';
+                const isDesignated = req !== '隨機' && req !== '男' && req !== '女' && req !== '男師' && req !== '女師' && req !== 'MALE' && req !== 'FEMALE';
+                const duration = parseInt(booking.duration || 60);
+
+                let selectedStaff = null;
+
+                if (isDesignated) {
+                    const normReq = StaffSorter.normalizeStaffId(req);
+                    selectedStaff = candidatePool.find(s => StaffSorter.normalizeStaffId(s.id) === normReq);
+                } else {
+                    // Sort candidate pool by simulated stafftime (smallest first = waiting longest)
+                    candidatePool.sort((a, b) => {
+                        const timeA = simStatus[a.id]?.stafftime || Number.MAX_SAFE_INTEGER;
+                        const timeB = simStatus[b.id]?.stafftime || Number.MAX_SAFE_INTEGER;
+                        return timeA - timeB;
+                    });
+
+                    // Find first available compatible staff
+                    selectedStaff = candidatePool.find(s => StaffSorter.checkCompatibility(s, booking, req));
+                }
+
+                if (selectedStaff) {
+                    predicted[booking.rowId] = selectedStaff.name || selectedStaff.id;
+                    
+                    // Simulate staff serving this booking and moving to the end of the line
+                    maxSimTime += (duration * 60000) + 1000;
+                    if (!simStatus[selectedStaff.id]) simStatus[selectedStaff.id] = {};
+                    simStatus[selectedStaff.id].stafftime = maxSimTime;
+                }
+            });
+
+            return predicted;
+        },
+
         // =========================================================================
         // 7. CẬP NHẬT TRẠNG THÁI GIAO DIỆN (UI ENRICHMENT)
         // =========================================================================

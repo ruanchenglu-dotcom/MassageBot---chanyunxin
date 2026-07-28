@@ -5069,6 +5069,14 @@ const App = () => {
     const readyStaff = staffGroups.ready || [];
     const readyQueue = staffGroups.readyQueueIds || [];
 
+    const predictedAssignments = useMemo(() => {
+        if (window.StaffSorter && typeof window.StaffSorter.simulatePreassignments === 'function') {
+            const currentMins = safeTimeToMins(getTaipeiTimeStr(new Date().toISOString()));
+            return window.StaffSorter.simulatePreassignments(todaysBookings, readyQueue, enrichedStaffList, statusData, currentMins);
+        }
+        return {};
+    }, [todaysBookings, readyQueue, enrichedStaffList, statusData]);
+
     const workedTodayStaff = useMemo(() => {
         const filtered = awayStaff.filter(s => {
             const stat = statusData[s.id] || {};
@@ -5152,6 +5160,7 @@ const App = () => {
                         onCancelBooking={handleManualUpdateStatus}
                         onInlineUpdate={handleInlineUpdate}
                         staffList={staffList}
+                        predictedAssignments={predictedAssignments}
                     />
                 )}
 
