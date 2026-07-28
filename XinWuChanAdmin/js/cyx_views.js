@@ -890,23 +890,12 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
             const isSameCategory = (oldCat === editServiceCategory);
 
             if (isSameCategory) {
+                let isResConflict = false;
                 if (editServiceCategory === 'COMBO') {
-                    // Check phase 1
-                    if (booking.phase1_res_idx && checkOverlap(booking.phase1_res_idx, startMins, editPhase1End, booking.rowId)) {
-                        if (testFlow !== null) return false;
-                        setScanServiceStatus('FAILED');
-                        setScanServiceMessage(`❌ 原座位時段衝突`);
-                        return false;
-                    }
-                    // Check phase 2
-                    if (booking.phase2_res_idx && checkOverlap(booking.phase2_res_idx, switchMins + 5, endMins, booking.rowId)) {
-                        if (testFlow !== null) return false;
-                        setScanServiceStatus('FAILED');
-                        setScanServiceMessage(`❌ 原座位時段衝突`);
-                        return false;
-                    }
+                    if (booking.phase1_res_idx && checkOverlap(booking.phase1_res_idx, startMins, editPhase1End, booking.rowId)) isResConflict = true;
+                    if (booking.phase2_res_idx && checkOverlap(booking.phase2_res_idx, switchMins + 5, endMins, booking.rowId)) isResConflict = true;
                 } else {
-                    const isResConflict = todays.some(b => {
+                    isResConflict = todays.some(b => {
                         const bTimeStr = (b.startTimeString || ' ').split(' ')[1] || '00:00';
                         const bStart = timeStrToMins(bTimeStr);
                         const bEnd = bStart + getDuration(b.serviceName, b.duration || 60);
@@ -918,13 +907,49 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                         
                         return isTimeConflict && (bResArray.includes(currentResClean) || bResStr.toString().toUpperCase() === currentResClean);
                     });
+                }
 
-                    if (isResConflict) {
-                        if (testFlow !== null) return false;
-                        setScanServiceStatus('FAILED');
-                        setScanServiceMessage(`❌ 原座位時段衝突`);
-                        return false;
+                if (isResConflict) {
+                    if (testFlow !== null) return false;
+                    
+                    // [NÂNG CẤP]: Thay vì fail ngay, gọi CoreKernel để tìm chỗ mới
+                    if (window.cyxCallCoreAvailabilityCheck) {
+                        const guestDetails = [{
+                            service: selectedService,
+                            staff: selectedStaff || '隨機',
+                            overrideDuration: newDuration,
+                            flowCode: currentTestingFlow || booking.flowCode || 'FB'
+                        }];
+                        const dateStr = booking.date || booking.ngayDen || (timelineData && timelineData[0] ? timelineData[0].date : '');
+                        let timeStr = booking.startTimeString || booking.gioDen || startTimeStr;
+                        if (timeStr && timeStr.includes(' ')) timeStr = timeStr.split(' ')[1];
+                        
+                        const finalCheck = window.cyxCallCoreAvailabilityCheck(dateStr, timeStr, guestDetails, todays, staffList);
+                        
+                        if (finalCheck && finalCheck.valid) {
+                            const checkDetail = finalCheck.details && finalCheck.details.length > 0 
+                                ? (finalCheck.coreDetails ? finalCheck.coreDetails[0] : finalCheck.details[0]) 
+                                : null;
+                            if (checkDetail) {
+                                const newP1 = checkDetail.phase1_res_idx || checkDetail.allocated_resource || "";
+                                const newP2 = checkDetail.phase2_res_idx || "";
+                                const newFlow = checkDetail.flowCode || checkDetail.flow || "";
+                                
+                                // Cập nhật state UI
+                                if (newP1) setSelectedPhase1Res(newP1);
+                                if (newP2) setSelectedPhase2Res(newP2);
+                                if (newFlow) setLocalFlow(newFlow);
+                                
+                                setScanServiceStatus('OK');
+                                setScanServiceMessage(`✅ 已為您智能分配新座位 (${newP1})`);
+                                return true;
+                            }
+                        }
                     }
+                    
+                    setScanServiceStatus('FAILED');
+                    setScanServiceMessage(`❌ 該時段已客滿，無法升級`);
+                    return false;
                 }
             }
         }
