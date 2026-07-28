@@ -2200,22 +2200,47 @@ async function checkAndSendReminders() {
         // Mốc 4 tiếng (<= 240 && > 60)
         if (timeDiffMins <= 240 && timeDiffMins > 60 && !history['4h']) {
             try {
-                const flexMsg = createReminderFlex(b, '4h');
+                // Aggregate group data before sending flex
+                const groupBookings = bookings.filter(x => {
+                    const xStatus = String(x.status || '').toLowerCase();
+                    const isXInactive = inactiveKeywords.some(kw => xStatus.includes(kw));
+                    return !isXInactive && x.lineId === b.lineId && x.date === b.date && x.startTime === b.startTime;
+                });
+                const totalPax = groupBookings.length;
+                const totalPrice = groupBookings.reduce((sum, current) => sum + (parseInt(String(current.price || '0').replace(/[^0-9]/g, '')) || 0), 0);
+                const dichVuList = Array.from(new Set(groupBookings.map(x => x.serviceName || "精選服務")));
+                const nhanVienList = Array.from(new Set(groupBookings.map(x => x.staffName || x.requestedStaff || "隨機")));
+                
+                const aggregatedB = { ...b, pax: totalPax, price: totalPrice, serviceName: dichVuList.join(', '), staffName: nhanVienList.join(', '), requestedStaff: nhanVienList.join(', ') };
+                
+                const flexMsg = createReminderFlex(aggregatedB, '4h');
                 await client.pushMessage(b.lineId, flexMsg);
                 history['4h'] = true;
                 isChanged = true;
-                console.log(`[REMINDER] Sent 4h reminder to ${b.customerName} (${b.lineId})`);
+                console.log(`[REMINDER] Sent 4h reminder to ${b.customerName} (${b.lineId}), Pax: ${totalPax}`);
             } catch (e) { console.error(`[REMINDER] Error sending 4h to ${b.lineId}`, e); }
         }
         // Mốc 1 tiếng (<= 60 && > 0)
         else if (timeDiffMins <= 60 && timeDiffMins > 0 && !history['1h']) {
             try {
-                const flexMsg = createReminderFlex(b, '1h');
+                const groupBookings = bookings.filter(x => {
+                    const xStatus = String(x.status || '').toLowerCase();
+                    const isXInactive = inactiveKeywords.some(kw => xStatus.includes(kw));
+                    return !isXInactive && x.lineId === b.lineId && x.date === b.date && x.startTime === b.startTime;
+                });
+                const totalPax = groupBookings.length;
+                const totalPrice = groupBookings.reduce((sum, current) => sum + (parseInt(String(current.price || '0').replace(/[^0-9]/g, '')) || 0), 0);
+                const dichVuList = Array.from(new Set(groupBookings.map(x => x.serviceName || "精選服務")));
+                const nhanVienList = Array.from(new Set(groupBookings.map(x => x.staffName || x.requestedStaff || "隨機")));
+                
+                const aggregatedB = { ...b, pax: totalPax, price: totalPrice, serviceName: dichVuList.join(', '), staffName: nhanVienList.join(', '), requestedStaff: nhanVienList.join(', ') };
+
+                const flexMsg = createReminderFlex(aggregatedB, '1h');
                 await client.pushMessage(b.lineId, flexMsg);
                 history['1h'] = true;
                 history['4h'] = true; 
                 isChanged = true;
-                console.log(`[REMINDER] Sent 1h reminder to ${b.customerName} (${b.lineId})`);
+                console.log(`[REMINDER] Sent 1h reminder to ${b.customerName} (${b.lineId}), Pax: ${totalPax}`);
             } catch (e) { console.error(`[REMINDER] Error sending 1h to ${b.lineId}`, e); }
         }
     }

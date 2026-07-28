@@ -70,11 +70,17 @@ async function run() {
 
     await new Promise(r => setTimeout(r, 2000));
 
+    console.log("\n2c. Chọn số lượng khách: Pax:2");
+    res = await sendWebhook('Pax:2');
+    console.log('Result:', res.status, res.data);
+
+    await new Promise(r => setTimeout(r, 2000));
+
     // Lấy ngày hôm nay
     const today = new Date();
     today.setHours(today.getHours() + 8); // Asia/Taipei
     const dateStr = `${today.getFullYear()}/${(today.getMonth()+1).toString().padStart(2, '0')}/${today.getDate().toString().padStart(2, '0')}`;
-    console.log(`\\n3. Chọn ngày hôm nay: Date:${dateStr}`);
+    console.log(`\n3. Chọn ngày hôm nay: Date:${dateStr}`);
     res = await sendWebhook(`Date:${dateStr}`);
     console.log('Result:', res.status, res.data);
 

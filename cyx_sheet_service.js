@@ -2228,27 +2228,69 @@ async function layLichDatGanNhat(userId) {
     try {
         const res = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: `${BOOKING_SHEET_NAME}!A:AZ` });
         const rows = res.data.values; if (!rows || rows.length === 0) return null;
+        
+        let targetDate = null;
+        let targetTime = null;
+        let latestRowIndex = -1;
+        
+        // Find the latest active row to determine the target Date and Time
         for (let i = rows.length - 1; i >= 0; i--) {
             const row = rows[i];
             if (row[23] === userId) {
                 const status = row[9] || '';
-                if (!status.includes('取消') && !status.includes('Cancelled')) {
-                    // row[2] = Tên, row[3] = SĐT, row[4] = Dịch vụ, row[10] = Thợ, row[18] = Tổng tiền
-                    return { 
-                        rowId: i + 1, 
-                        thoiGian: `${row[0]} ${row[1]}`, 
-                        dichVu: row[4] || '未選擇', 
-                        nhanVien: row[10] || '隨機', 
-                        thongTinKhach: `${row[2] || '現場客'} (${row[3] || '無電話'})`, 
-                        phone: row[3] || '',
-                        pax: 1, // Defaulting to 1 as it represents this row
-                        price: row[18] || '',
-                        chiTiet: row 
-                    };
+                if (!status.includes('取消') && !status.includes('Cancelled') && !status.includes('已完成')) {
+                    targetDate = row[0];
+                    targetTime = row[1];
+                    latestRowIndex = i;
+                    break;
                 }
             }
         }
-        return null;
+        
+        if (!targetDate) return null;
+        
+        let aggregatedRows = [];
+        let rowIds = [];
+        let dichVuList = [];
+        let nhanVienList = [];
+        let totalPrice = 0;
+        let tenKhach = "";
+        let phone = "";
+        
+        for (let i = 0; i < rows.length; i++) {
+            const row = rows[i];
+            if (row[23] === userId && row[0] === targetDate && row[1] === targetTime) {
+                const status = row[9] || '';
+                if (!status.includes('取消') && !status.includes('Cancelled') && !status.includes('已完成')) {
+                    aggregatedRows.push(row);
+                    rowIds.push(i + 1);
+                    dichVuList.push(row[4] || '未選擇');
+                    nhanVienList.push(row[10] || '隨機');
+                    let price = parseInt(String(row[18] || '0').replace(/[^0-9]/g, '')) || 0;
+                    totalPrice += price;
+                    
+                    if (!tenKhach) {
+                        tenKhach = row[2] ? String(row[2]).replace(/\s*\(\d+\/\d+\)\s*/g, ' ').replace(/\s*\([\d\s+-]+\)\s*$/, '').trim() : '現場客';
+                        phone = row[3] || '';
+                    }
+                }
+            }
+        }
+        
+        if (aggregatedRows.length === 0) return null;
+        
+        return { 
+            rowId: rowIds[0], 
+            rowIds: rowIds, 
+            thoiGian: `${targetDate} ${targetTime}`, 
+            dichVu: Array.from(new Set(dichVuList)).join(', '), 
+            nhanVien: Array.from(new Set(nhanVienList)).join(', '), 
+            thongTinKhach: `${tenKhach} (${phone || '無電話'})`, 
+            phone: phone,
+            pax: aggregatedRows.length,
+            price: totalPrice,
+            chiTiet: aggregatedRows[0] 
+        };
     } catch (e) { console.error('Read Error:', e); return null; }
 }
 
