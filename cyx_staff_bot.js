@@ -79,6 +79,13 @@ async function handleEvent(event, context) {
         return showMainMenu(event.replyToken, myName);
     }
 
+    if (input === '我的資訊' || input === 'my id') {
+        return client.replyMessage(event.replyToken, {
+            type: 'text',
+            text: `ℹ️ 您的資訊：\n\n- 姓名：${myName}\n- 系統 ID：${userId}`
+        });
+    }
+
     // --- LOGIC 3: XỬ LÝ THEO TRẠNG THÁI & INPUT ---
 
     // A. MENU COMMANDS (Khi đang rảnh hoặc người dùng bấm menu)
