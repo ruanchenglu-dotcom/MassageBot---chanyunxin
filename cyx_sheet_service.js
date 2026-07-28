@@ -2226,11 +2226,11 @@ async function updateStaffConfig(staffId, isStrictTime) {
 
 async function layLichDatGanNhat(userId) {
     try {
-        const res = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: `${BOOKING_SHEET_NAME}!A:K` });
+        const res = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: `${BOOKING_SHEET_NAME}!A:AZ` });
         const rows = res.data.values; if (!rows || rows.length === 0) return null;
         for (let i = rows.length - 1; i >= 0; i--) {
             const row = rows[i];
-            if (row[11] === userId) {
+            if (row[23] === userId) {
                 const status = row[9] || '';
                 if (!status.includes('取消') && !status.includes('Cancelled')) {
                     return { rowId: i + 1, thoiGian: `${row[0]} ${row[1]}`, dichVu: row[3], nhanVien: row[10], thongTinKhach: `${row[2]} (${row[6]})`, chiTiet: row };

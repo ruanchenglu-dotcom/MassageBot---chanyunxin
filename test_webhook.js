@@ -69,7 +69,13 @@ async function run() {
     res = await sendWebhook(`Date:${dateStr}`);
     console.log('Result:', res.status, res.data);
 
-    console.log("\\n=== KẾT THÚC KIỂM THỬ ===");
+    await new Promise(r => setTimeout(r, 2000));
+
+    console.log("\n4. Gửi Action:MyBooking (Tra cứu lịch hẹn)");
+    res = await sendWebhook('Action:MyBooking');
+    console.log('Result:', res.status, res.data);
+
+    console.log("\n=== KẾT THÚC KIỂM THỬ ===");
     process.exit(0);
 }
 
