@@ -237,7 +237,8 @@ const BedPanel = ({ bedId, bookings, shop }) => {
                 rowId: currentBooking.rowId,
                 status: status,
                 syncStartTime: setStartTime,
-                syncTransitionTime: setTransitionTime
+                syncTransitionTime: setTransitionTime,
+                applyGroup: false
             });
         } catch (e) {
             console.error('Update status failed', e);

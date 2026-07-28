@@ -944,10 +944,35 @@ async function updateBookingStatus(rowId, newStatus, newStartTime = null, isTran
         rowIdsToUpdate.forEach(id => {
             valuesToUpdate.push({ range: `${BOOKING_SHEET_NAME}!J${id}`, values: [[newStatus]] });
             if (newStartTime) {
+                const booking = STATE.cachedBookings.find(b => String(b.rowId) === String(id));
                 if (isTransition) {
                     valuesToUpdate.push({ range: `${BOOKING_SHEET_NAME}!AD${id}`, values: [[newStartTime]] });
+                    if (booking && typeof ResourceCore !== 'undefined') {
+                        const ttMins = ResourceCore.getMinsFromTimeStr(newStartTime);
+                        if (ttMins !== -1) {
+                            const p2Dur = booking.phase2_duration || 0;
+                            const finishTimeStr = ResourceCore.getTimeStrFromMins(ttMins + p2Dur);
+                            valuesToUpdate.push({ range: `${BOOKING_SHEET_NAME}!AF${id}`, values: [[finishTimeStr]] });
+                        }
+                    }
                 } else {
                     valuesToUpdate.push({ range: `${BOOKING_SHEET_NAME}!AB${id}`, values: [[newStartTime]] });
+                    if (booking && typeof ResourceCore !== 'undefined') {
+                        const startMins = ResourceCore.getMinsFromTimeStr(newStartTime);
+                        if (startMins !== -1) {
+                            const p1Dur = booking.phase1_duration || (booking.duration || 0);
+                            const p2Dur = booking.phase2_duration || 0;
+                            const isCombo = (booking.flow === 'FB' || booking.flow === 'BF' || (booking.type && booking.type.includes('COMBO')) || booking.category === 'COMBO');
+                            const transitionBuffer = isCombo ? (ResourceCore.CONFIG ? ResourceCore.CONFIG.TRANSITION_BUFFER : 3) : 0;
+                            
+                            if (isCombo) {
+                                const transitionTimeStr = ResourceCore.getTimeStrFromMins(startMins + p1Dur + transitionBuffer);
+                                valuesToUpdate.push({ range: `${BOOKING_SHEET_NAME}!AD${id}`, values: [[transitionTimeStr]] });
+                            }
+                            const finishTimeStr = ResourceCore.getTimeStrFromMins(startMins + p1Dur + p2Dur + transitionBuffer);
+                            valuesToUpdate.push({ range: `${BOOKING_SHEET_NAME}!AF${id}`, values: [[finishTimeStr]] });
+                        }
+                    }
                 }
             }
         });
