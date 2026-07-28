@@ -1809,7 +1809,7 @@ async function handleEvent(event) {
 
             confirmMsg += `💵 總金額: $${totalPrice}\n\n`;
 
-            confirmMsg += `⚠️ 提醒您：\n我們為您保留10分鐘，如果您遲到且後面有其他客人預約滿檔需要位置，我們將會優先安排給現場客人，感謝您的諒解。\n\n` +
+            confirmMsg += `⚠️ 提醒您：\n我們為您保留5分鐘，如果您遲到且後面有其他客人預約滿檔需要位置，我們將會優先安排給現場客人，感謝您的諒解。\n請您準時到達，謝謝配合！\n\n` +
                 `若需【更改時間】或【取消預約】，請務必點擊下方「我的預約」按鈕進行操作，或直接致電櫃台告知，以免影響您的權益，謝謝配合！`;
 
             await client.replyMessage(event.replyToken, { type: 'text', text: confirmMsg });
@@ -1844,10 +1844,146 @@ async function handleEvent(event) {
         return;
     }
 
+function createMyBookingFlex(booking) {
+    return {
+        "type": "bubble",
+        "size": "mega",
+        "header": {
+            "type": "box",
+            "layout": "vertical",
+            "backgroundColor": "#1DB446",
+            "contents": [
+                {
+                    "type": "text",
+                    "text": "📅 您的預約",
+                    "weight": "bold",
+                    "color": "#ffffff",
+                    "size": "xl",
+                    "align": "center"
+                }
+            ]
+        },
+        "body": {
+            "type": "box",
+            "layout": "vertical",
+            "contents": [
+                {
+                    "type": "box",
+                    "layout": "vertical",
+                    "margin": "md",
+                    "spacing": "sm",
+                    "contents": [
+                        {
+                            "type": "box",
+                            "layout": "horizontal",
+                            "contents": [
+                                { "type": "text", "text": "👤 貴賓", "color": "#aaaaaa", "size": "sm", "flex": 2 },
+                                { "type": "text", "text": booking.thongTinKhach || "現場客", "color": "#333333", "size": "sm", "weight": "bold", "flex": 5, "wrap": true }
+                            ]
+                        },
+                        {
+                            "type": "box",
+                            "layout": "horizontal",
+                            "contents": [
+                                { "type": "text", "text": "⏰ 時間", "color": "#aaaaaa", "size": "sm", "flex": 2 },
+                                { "type": "text", "text": booking.thoiGian || "", "color": "#E63946", "size": "sm", "weight": "bold", "flex": 5, "wrap": true }
+                            ]
+                        },
+                        {
+                            "type": "box",
+                            "layout": "horizontal",
+                            "contents": [
+                                { "type": "text", "text": "💆 服務", "color": "#aaaaaa", "size": "sm", "flex": 2 },
+                                { "type": "text", "text": booking.dichVu || "精選服務", "color": "#333333", "size": "sm", "weight": "bold", "flex": 5, "wrap": true }
+                            ]
+                        },
+                        {
+                            "type": "box",
+                            "layout": "horizontal",
+                            "contents": [
+                                { "type": "text", "text": "👥 人數", "color": "#aaaaaa", "size": "sm", "flex": 2 },
+                                { "type": "text", "text": `${booking.pax || 1} 位`, "color": "#333333", "size": "sm", "weight": "bold", "flex": 5, "wrap": true }
+                            ]
+                        },
+                        {
+                            "type": "box",
+                            "layout": "horizontal",
+                            "contents": [
+                                { "type": "text", "text": "🛠️ 技師", "color": "#aaaaaa", "size": "sm", "flex": 2 },
+                                { "type": "text", "text": booking.nhanVien || "隨機", "color": "#333333", "size": "sm", "weight": "bold", "flex": 5, "wrap": true }
+                            ]
+                        },
+                        {
+                            "type": "box",
+                            "layout": "horizontal",
+                            "contents": [
+                                { "type": "text", "text": "💵 總金額", "color": "#aaaaaa", "size": "sm", "flex": 2 },
+                                { "type": "text", "text": booking.price ? `$${booking.price}` : '現場結帳', "color": "#1DB446", "size": "sm", "weight": "bold", "flex": 5, "wrap": true }
+                            ]
+                        }
+                    ]
+                },
+                {
+                    "type": "separator",
+                    "margin": "md"
+                },
+                {
+                    "type": "text",
+                    "text": `⚠️ 提醒您：\n我們為您保留5分鐘，如果您遲到且後面有其他客人預約滿檔需要位置，我們將會優先安排給現場客人，感謝您的諒解。\n請您準時到達，謝謝配合！`,
+                    "wrap": true,
+                    "size": "sm",
+                    "color": "#E63946",
+                    "margin": "md"
+                }
+            ]
+        },
+        "footer": {
+            "type": "box",
+            "layout": "vertical",
+            "spacing": "sm",
+            "contents": [
+                {
+                    "type": "button",
+                    "style": "primary",
+                    "color": "#ff9800",
+                    "action": { "type": "postback", "label": "🏃 我會晚到", "data": "Action:Late", "displayText": "🏃 我會晚到" }
+                },
+                {
+                    "type": "button",
+                    "style": "secondary",
+                    "color": "#ff3333",
+                    "action": { "type": "postback", "label": "❌ 取消預約", "data": "Action:ConfirmCancel", "displayText": "❌ 取消預約" }
+                }
+            ]
+        }
+    };
+}
+
     // --- 5. MY BOOKING & CANCELLATION ---
-    if (text === 'Action:MyBooking') { const booking = await SheetService.layLichDatGanNhat(userId); if (!booking) return client.replyMessage(event.replyToken, { type: 'text', text: '查無預約' }); return client.replyMessage(event.replyToken, { type: 'flex', altText: '我的預約', contents: { "type": "bubble", "body": { "type": "box", "layout": "vertical", "contents": [{ "type": "text", "text": "您的預約", "weight": "bold", "color": "#1DB446", "size": "lg" }, { "type": "separator", "margin": "md" }, { "type": "text", "text": booking.dichVu, "weight": "bold", "size": "md", "margin": "md" }, { "type": "text", "text": `🛠️ ${booking.nhanVien}`, "align": "center", "margin": "sm" }, { "type": "text", "text": `⏰ ${booking.thoiGian}`, "size": "xl", "weight": "bold", "color": "#555555", "margin": "sm" }] }, "footer": { "type": "box", "layout": "vertical", "spacing": "sm", "contents": [{ "type": "button", "style": "primary", "color": "#ff9800", "action": { "type": "postback", "label": "🏃 我會晚到", "data": "Action:Late", "displayText": "🏃 我會晚到" } }, { type: "button", style: "secondary", color: "#ff3333", "action": { type: "postback", "label": "❌ 取消預約", "data": "Action:ConfirmCancel", "displayText": "❌ 取消預約" } }] } } }); }
-    if (text === 'Action:Late') { return client.replyMessage(event.replyToken, { type: 'flex', altText: '選擇晚到時間', contents: { "type": "bubble", "body": { "type": "box", "layout": "vertical", "spacing": "sm", "contents": [{ "type": "box", "layout": "horizontal", "spacing": "sm", "contents": [{ "type": "button", "style": "secondary", "action": { "type": "postback", "label": "5分鐘", "data": "Late:5", "displayText": "5分鐘" } }, { type: "button", "style": "secondary", "action": { "type": "postback", "label": "10分鐘", "data": "Late:10", "displayText": "10分鐘" } }] }, { "type": "text", "text": "⚠️ 若會晚到超過 10 分鐘，請直接致電櫃檯處理您的預約。", "wrap": true, "size": "sm", "color": "#E63946", "margin": "md" }] } } }); }
-    if (text.startsWith('Late:')) { const minutes = text.split(':')[1]; const phut = `${minutes}分鐘`; const booking = await SheetService.layLichDatGanNhat(userId); if (booking) { await SheetService.updateBookingNote(booking.rowId, `⚠️ 晚到 ${phut}`); } client.pushMessage(ID_BA_CHU, { type: 'text', text: `⚠️ 晚到通知!\nID: ${userId}\n預計晚: ${phut}` }); return client.replyMessage(event.replyToken, { type: 'text', text: '好的，我們會為您保留。' }); }
+    if (text === 'Action:MyBooking') { 
+        const booking = await SheetService.layLichDatGanNhat(userId); 
+        if (!booking) return client.replyMessage(event.replyToken, { type: 'text', text: '查無預約' }); 
+        return client.replyMessage(event.replyToken, { type: 'flex', altText: '我的預約', contents: createMyBookingFlex(booking) }); 
+    }
+    
+    if (text === 'Action:Late') { 
+        const booking = await SheetService.layLichDatGanNhat(userId); 
+        if (!booking) return client.replyMessage(event.replyToken, { type: 'text', text: '查無預約' }); 
+        const flex = createMyBookingFlex(booking);
+        
+        // Cập nhật lại footer cho màn hình chọn giờ trễ
+        flex.footer = { 
+            "type": "box", "layout": "vertical", "spacing": "sm", 
+            "contents": [
+                { "type": "button", "style": "primary", "color": "#ff9800", "action": { "type": "postback", "label": "晚到 5 分鐘", "data": "Late:5", "displayText": "我會晚到 5 分鐘" } },
+                { "type": "text", "text": "⚠️ 若會晚到超過 5 分鐘，請直接致電櫃檯處理您的預約。", "wrap": true, "size": "sm", "color": "#E63946", "margin": "md" },
+                { "type": "button", "style": "secondary", "color": "#ff3333", "margin": "md", "action": { "type": "postback", "label": "❌ 取消預約", "data": "Action:ConfirmCancel", "displayText": "❌ 取消預約" } }
+            ] 
+        };
+        return client.replyMessage(event.replyToken, { type: 'flex', altText: '選擇晚到時間', contents: flex }); 
+    }
+    
+    if (text.startsWith('Late:')) { const minutes = text.split(':')[1]; const phut = `${minutes}分鐘`; const booking = await SheetService.layLichDatGanNhat(userId); if (booking) { await SheetService.updateBookingNote(booking.rowId, `⚠️ 晚到 ${phut}`); } client.pushMessage(ID_BA_CHU, { type: 'text', text: `⚠️ 晚到通知!\nID: ${userId}\n預計晚: ${phut}` }); return client.replyMessage(event.replyToken, { type: 'text', text: '好的，我們會為您保留，請您盡快到達！' }); }
     if (text === 'Action:ConfirmCancel') { const booking = await SheetService.layLichDatGanNhat(userId); if (booking) { await SheetService.updateBookingStatus(booking.rowId, '已取消'); return client.replyMessage(event.replyToken, { type: 'text', text: '✅ 已成功取消預約。' }); } return client.replyMessage(event.replyToken, { type: 'text', text: '找不到您的預約資料。' }); }
     if (text.includes('booking') || text.includes('預約')) { delete userState[userId]; await SheetService.syncData(); return client.replyMessage(event.replyToken, { type: 'flex', altText: '服務價目表', contents: createMenuFlexMessage() }); }
 
@@ -1941,7 +2077,7 @@ function createReminderFlex(booking, type) {
                                 "layout": "horizontal",
                                 "contents": [
                                     { "type": "text", "text": "👤 貴賓", "color": "#aaaaaa", "size": "sm", "flex": 2 },
-                                    { "type": "text", "text": displayName, "color": "#333333", "size": "sm", "weight": "bold", "flex": 5, "wrap": true }
+                                    { "type": "text", "text": `${displayName} (${booking.phone || '無電話'})`, "color": "#333333", "size": "sm", "weight": "bold", "flex": 5, "wrap": true }
                                 ]
                             },
                             {
@@ -1964,8 +2100,24 @@ function createReminderFlex(booking, type) {
                                 "type": "box",
                                 "layout": "horizontal",
                                 "contents": [
+                                    { "type": "text", "text": "👥 人數", "color": "#aaaaaa", "size": "sm", "flex": 2 },
+                                    { "type": "text", "text": `${booking.pax || 1} 位`, "color": "#333333", "size": "sm", "weight": "bold", "flex": 5, "wrap": true }
+                                ]
+                            },
+                            {
+                                "type": "box",
+                                "layout": "horizontal",
+                                "contents": [
                                     { "type": "text", "text": "🛠️ 技師", "color": "#aaaaaa", "size": "sm", "flex": 2 },
                                     { "type": "text", "text": booking.staffName || booking.requestedStaff || "隨機", "color": "#333333", "size": "sm", "weight": "bold", "flex": 5, "wrap": true }
+                                ]
+                            },
+                            {
+                                "type": "box",
+                                "layout": "horizontal",
+                                "contents": [
+                                    { "type": "text", "text": "💵 總金額", "color": "#aaaaaa", "size": "sm", "flex": 2 },
+                                    { "type": "text", "text": booking.price ? `$${booking.price}` : '現場結帳', "color": "#1DB446", "size": "sm", "weight": "bold", "flex": 5, "wrap": true }
                                 ]
                             }
                         ]
@@ -1976,10 +2128,10 @@ function createReminderFlex(booking, type) {
                     },
                     {
                         "type": "text",
-                        "text": bodyText,
+                        "text": `⚠️ 提醒您：\n我們為您保留5分鐘，如果您遲到且後面有其他客人預約滿檔需要位置，我們將會優先安排給現場客人，感謝您的諒解。\n請您準時到達，謝謝配合！`,
                         "wrap": true,
                         "size": "sm",
-                        "color": "#555555",
+                        "color": "#E63946",
                         "margin": "md"
                     }
                 ]

@@ -92,8 +92,8 @@ async function run() {
 
     await new Promise(r => setTimeout(r, 2000));
 
-    console.log("\n6. Chọn 10 phút: Late:10");
-    res = await sendWebhook('Late:10');
+    console.log("\n6. Chọn 5 phút: Late:5");
+    res = await sendWebhook('Late:5');
     console.log('Result:', res.status, res.data);
 
     await new Promise(r => setTimeout(r, 2000));

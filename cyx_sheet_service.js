@@ -2233,7 +2233,18 @@ async function layLichDatGanNhat(userId) {
             if (row[23] === userId) {
                 const status = row[9] || '';
                 if (!status.includes('取消') && !status.includes('Cancelled')) {
-                    return { rowId: i + 1, thoiGian: `${row[0]} ${row[1]}`, dichVu: row[3], nhanVien: row[10], thongTinKhach: `${row[2]} (${row[6]})`, chiTiet: row };
+                    // row[2] = Tên, row[3] = SĐT, row[4] = Dịch vụ, row[10] = Thợ, row[18] = Tổng tiền
+                    return { 
+                        rowId: i + 1, 
+                        thoiGian: `${row[0]} ${row[1]}`, 
+                        dichVu: row[4] || '未選擇', 
+                        nhanVien: row[10] || '隨機', 
+                        thongTinKhach: `${row[2] || '現場客'} (${row[3] || '無電話'})`, 
+                        phone: row[3] || '',
+                        pax: 1, // Defaulting to 1 as it represents this row
+                        price: row[18] || '',
+                        chiTiet: row 
+                    };
                 }
             }
         }
