@@ -1837,7 +1837,7 @@ async function handleEvent(event) {
 }
 
 // =============================================================================
-// PHẦN 6: AUTO REMINDER LOGIC (Nhắc nhở tự động 8h, 1h, 30m)
+// PHẦN 6: AUTO REMINDER LOGIC (Nhắc nhở tự động 4h, 1h)
 // =============================================================================
 const REMINDERS_FILE = 'cyx_reminders.json';
 let sentReminders = {};
@@ -1867,15 +1867,7 @@ loadReminders(); // Tải trạng thái nhắc nhở khi khởi động
 
 function createReminderFlex(booking, type) {
     let headerText = "溫馨提醒：您的預約即將到來！";
-    let bodyText = "";
-    
-    if (type === '8h') {
-        bodyText = "距離您的預約大約還有 8 小時，期待您的光臨！";
-    } else if (type === '1h') {
-        bodyText = "距離您的預約還有 1 小時，請提早出發，以免耽誤您的寶貴時間。";
-    } else if (type === '30m') {
-        bodyText = "距離您的預約僅剩 30 分鐘，我們已經為您準備好服務，不見不散！";
-    }
+    let bodyText = "距離您的預約時間即將到來，期待您的光臨！";
 
     let displayName = booking.customerName || "貴賓";
     // Xóa các hậu tố như (1/6) hoặc (Số điện thoại) để chỉ hiển thị tên khách
@@ -2030,43 +2022,31 @@ async function checkAndSendReminders() {
         const reminderKey = `Group|${safeLineId}|${safePhone}|${bookingDateStr}|${timeStr}`;
 
         if (!sentReminders[reminderKey]) {
-            sentReminders[reminderKey] = { '8h': false, '1h': false, '30m': false };
+            sentReminders[reminderKey] = { '4h': false, '1h': false };
         }
 
         const history = sentReminders[reminderKey];
 
-        // Mốc 8 tiếng (<= 480 && > 60)
-        if (timeDiffMins <= 480 && timeDiffMins > 60 && !history['8h']) {
+        // Mốc 4 tiếng (<= 240 && > 60)
+        if (timeDiffMins <= 240 && timeDiffMins > 60 && !history['4h']) {
             try {
-                const flexMsg = createReminderFlex(b, '8h');
+                const flexMsg = createReminderFlex(b, '4h');
                 await client.pushMessage(b.lineId, flexMsg);
-                history['8h'] = true;
+                history['4h'] = true;
                 isChanged = true;
-                console.log(`[REMINDER] Sent 8h reminder to ${b.customerName} (${b.lineId})`);
-            } catch (e) { console.error(`[REMINDER] Error sending 8h to ${b.lineId}`, e); }
+                console.log(`[REMINDER] Sent 4h reminder to ${b.customerName} (${b.lineId})`);
+            } catch (e) { console.error(`[REMINDER] Error sending 4h to ${b.lineId}`, e); }
         }
-        // Mốc 1 tiếng (<= 60 && > 30)
-        else if (timeDiffMins <= 60 && timeDiffMins > 30 && !history['1h']) {
+        // Mốc 1 tiếng (<= 60 && > 0)
+        else if (timeDiffMins <= 60 && timeDiffMins > 0 && !history['1h']) {
             try {
                 const flexMsg = createReminderFlex(b, '1h');
                 await client.pushMessage(b.lineId, flexMsg);
                 history['1h'] = true;
-                history['8h'] = true; 
+                history['4h'] = true; 
                 isChanged = true;
                 console.log(`[REMINDER] Sent 1h reminder to ${b.customerName} (${b.lineId})`);
             } catch (e) { console.error(`[REMINDER] Error sending 1h to ${b.lineId}`, e); }
-        }
-        // Mốc 30 phút (<= 30 && > 0)
-        else if (timeDiffMins <= 30 && timeDiffMins > 0 && !history['30m']) {
-            try {
-                const flexMsg = createReminderFlex(b, '30m');
-                await client.pushMessage(b.lineId, flexMsg);
-                history['30m'] = true;
-                history['1h'] = true; 
-                history['8h'] = true; 
-                isChanged = true;
-                console.log(`[REMINDER] Sent 30m reminder to ${b.customerName} (${b.lineId})`);
-            } catch (e) { console.error(`[REMINDER] Error sending 30m to ${b.lineId}`, e); }
         }
     }
 
