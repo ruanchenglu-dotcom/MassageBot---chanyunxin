@@ -75,6 +75,18 @@ async function run() {
     res = await sendWebhook('Action:MyBooking');
     console.log('Result:', res.status, res.data);
 
+    await new Promise(r => setTimeout(r, 2000));
+
+    console.log("\n5. Gửi Action:Late (Xin đến trễ)");
+    res = await sendWebhook('Action:Late');
+    console.log('Result:', res.status, res.data);
+
+    await new Promise(r => setTimeout(r, 2000));
+
+    console.log("\n6. Chọn 10 phút: Late:10");
+    res = await sendWebhook('Late:10');
+    console.log('Result:', res.status, res.data);
+
     console.log("\n=== KẾT THÚC KIỂM THỬ ===");
     process.exit(0);
 }
