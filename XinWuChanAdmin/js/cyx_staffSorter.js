@@ -383,7 +383,8 @@
 
                 if (isDesignated) {
                     const normReq = StaffSorter.normalizeStaffId(req);
-                    selectedStaff = candidatePool.find(s => StaffSorter.normalizeStaffId(s.id) === normReq);
+                    // [Fix] Tìm thợ trong toàn bộ staffList để đảm bảo thợ chưa check-in vẫn hiện dự báo
+                    selectedStaff = staffList.find(s => StaffSorter.normalizeStaffId(s.id) === normReq);
                 } else {
                     // Sort candidate pool by simulated stafftime (smallest first = waiting longest)
                     candidatePool.sort((a, b) => {
