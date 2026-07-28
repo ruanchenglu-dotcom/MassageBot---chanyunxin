@@ -128,10 +128,13 @@ const BedPanel = ({ bedId, bookings, shop }) => {
 
     const getBookingTimeForBed = (b, internalBedId) => {
         const t = parseTime(b.booking_time || b.start_time_str || b.time);
-        const isP1 = b.phase1_res_idx === internalBedId || b.phase1_resource === internalBedId;
+        const isP1 = b.phase1_res_idx === internalBedId || b.phase1_resource === internalBedId || (b.allocated_resource && b.allocated_resource.includes(internalBedId));
         const isP2 = b.phase2_res_idx === internalBedId || b.phase2_resource === internalBedId;
         
         if (isP2 && !isP1) {
+            if (b.transition_time) {
+                return parseTime(b.transition_time.toString().replace('.', ':'));
+            }
             const p1Duration = b.phase1_duration || 0;
             const transition = parseInt(b.transition_time) || 0;
             return t + ((p1Duration + transition) * 60000);
@@ -156,22 +159,27 @@ const BedPanel = ({ bedId, bookings, shop }) => {
     const isRunningForThisBed = (b, internalBedId) => {
         if (!isRunning(b.status)) return false;
         
-        const isP1 = b.phase1_res_idx === internalBedId || b.phase1_resource === internalBedId;
+        const isP1 = b.phase1_res_idx === internalBedId || b.phase1_resource === internalBedId || (b.allocated_resource && b.allocated_resource.includes(internalBedId));
         const isP2 = b.phase2_res_idx === internalBedId || b.phase2_resource === internalBedId;
         
-        if (isP1 && isP2) return true;
+        if (isP1 && (!b.phase2_res_idx || isP2)) return true;
         
         if (isP1 || isP2) {
             const p1Start = parseTime(b.booking_time || b.start_time_str || b.time);
-            const p1Duration = b.phase1_duration || 0;
-            const p1End = p1Start + (p1Duration * 60000);
+            let p1End;
+            if (b.transition_time) {
+                p1End = parseTime(b.transition_time.toString().replace('.', ':'));
+            } else {
+                const p1Duration = b.phase1_duration || b.duration || 0;
+                p1End = p1Start + (p1Duration * 60000);
+            }
             
             const now = currentTime.getTime();
             if (isP1 && now < p1End) return true;
             if (isP2 && now >= p1End) return true;
             return false;
         }
-        return true;
+        return false;
     };
     
     bedBookings.sort((a, b) => {
@@ -274,17 +282,44 @@ const BedPanel = ({ bedId, bookings, shop }) => {
                     {/* Left: Info & Timer */}
                     <div className="flex-1 flex flex-col justify-center bg-slate-800/80 rounded border border-slate-700 p-1.5 sm:p-2 min-w-0">
                         {currentBooking ? (
-                            <div className="flex flex-col text-[10px] sm:text-xs mb-1 min-h-0 shrink-0">
-                                <div className="truncate"><span className="text-slate-400">客戶: </span><span className="font-bold text-white">{currentBooking.name || currentBooking.customerName || currentBooking.originalName}</span></div>
-                                <div className="truncate"><span className="text-slate-400">師傅: </span><span className="font-bold text-amber-400">{currentBooking.staff || currentBooking.staffName || currentBooking.serviceStaff}</span></div>
-                                <div className="truncate text-cyan-300 font-semibold">{serviceStr}</div>
+                            <div className="flex flex-col text-[12px] sm:text-sm mb-1 min-h-0 shrink-0">
+                                <div className="truncate"><span className="text-slate-400">客戶: </span><span className="font-bold text-white text-sm sm:text-base">{currentBooking.name || currentBooking.customerName || currentBooking.originalName}</span></div>
+                                <div className="truncate"><span className="text-slate-400">師傅: </span><span className="font-bold text-amber-400 text-sm sm:text-base">{currentBooking.staff || currentBooking.staffName || currentBooking.serviceStaff}</span></div>
+                                <div className="truncate text-cyan-300 font-bold text-sm sm:text-base">{serviceStr}</div>
                             </div>
                         ) : (
-                            <div className="text-[10px] sm:text-xs text-slate-500 mb-1 flex items-center justify-center shrink-0">目前無客</div>
+                            <div className="text-[12px] sm:text-sm text-slate-500 mb-1 flex items-center justify-center shrink-0">目前無客</div>
                         )}
-                        <div className={`flex-1 flex items-center justify-center text-4xl sm:text-5xl font-black tabular-nums tracking-tighter ${running ? 'text-white' : 'text-slate-600'}`}>
-                            {displayTime}
-                        </div>
+                        
+                        {currentBooking && running && isCombo ? (
+                            <div className="flex-1 flex flex-row items-center justify-between w-full mt-1 border-t border-slate-700/50 pt-1">
+                                <div className="flex flex-col items-center justify-center w-1/2 border-r border-slate-700/50 px-1">
+                                    <div className="text-[10px] sm:text-xs text-slate-400 mb-0.5">轉場時間</div>
+                                    <div className="text-xl sm:text-2xl font-black text-amber-400 tabular-nums tracking-tighter">
+                                        {currentBooking.transition_time ? currentBooking.transition_time.toString().replace('.', ':') : '--:--'}
+                                    </div>
+                                </div>
+                                <div className="flex flex-col items-center justify-center w-1/2 px-1">
+                                    <div className="text-[10px] sm:text-xs text-slate-400 mb-0.5">剩下時間</div>
+                                    <div className="text-xl sm:text-2xl font-black text-white tabular-nums tracking-tighter">
+                                        {(() => {
+                                            const start = parseTime(currentBooking.booking_time || currentBooking.start_time_str || currentBooking.time);
+                                            const totalDur = parseInt(currentBooking.duration) || 60;
+                                            const diff = Math.max(0, nowTime - start);
+                                            const remainingMs = (totalDur * 60000) - diff;
+                                            if (remainingMs <= 0) return "00:00";
+                                            const mins = Math.floor(remainingMs / 60000);
+                                            const secs = Math.floor((remainingMs % 60000) / 1000);
+                                            return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+                                        })()}
+                                    </div>
+                                </div>
+                            </div>
+                        ) : (
+                            <div className={`flex-1 flex items-center justify-center text-4xl sm:text-5xl font-black tabular-nums tracking-tighter ${running ? 'text-white' : 'text-slate-600'}`}>
+                                {displayTime}
+                            </div>
+                        )}
                     </div>
 
                     {/* Right: Actions */}
@@ -350,11 +385,11 @@ const BedPanel = ({ bedId, bookings, shop }) => {
                 
                 <div className="flex-1 flex flex-col justify-center items-center text-center bg-slate-800/30 rounded border border-slate-700/50 p-1 sm:p-2 min-h-0 overflow-hidden">
                     {nextBooking ? (
-                        <div className="flex flex-col gap-0.5 w-full text-[10px] sm:text-xs">
-                            <div className="text-white font-black text-xs sm:text-sm">{formatTime(getBookingTimeForBed(nextBooking, internalBedId))}</div>
-                            <div className="text-cyan-400 font-bold truncate">{nextBooking.name || nextBooking.customerName || nextBooking.originalName}</div>
-                            <div className="text-amber-400 truncate">師傅: {nextBooking.staff || nextBooking.staffName || nextBooking.serviceStaff}</div>
-                            <div className="text-slate-400 truncate scale-90 origin-top">{nextBooking.service || nextBooking.serviceName}</div>
+                        <div className="flex flex-col gap-0.5 w-full text-[12px] sm:text-sm">
+                            <div className="text-white font-black text-sm sm:text-base">{formatTime(getBookingTimeForBed(nextBooking, internalBedId))}</div>
+                            <div className="text-cyan-400 font-bold text-sm sm:text-base truncate">{nextBooking.name || nextBooking.customerName || nextBooking.originalName}</div>
+                            <div className="text-amber-400 truncate text-sm">師傅: {nextBooking.staff || nextBooking.staffName || nextBooking.serviceStaff}</div>
+                            <div className="text-slate-400 truncate text-xs sm:text-sm">{nextBooking.service || nextBooking.serviceName}</div>
                         </div>
                     ) : (
                         <div className="text-slate-600 text-[10px] sm:text-xs flex flex-col items-center">
