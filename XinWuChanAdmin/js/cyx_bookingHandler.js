@@ -454,11 +454,7 @@
                 'CHAIR': Array.from({ length: CONF.MAX_CHAIRS }, () => [])
             };
 
-            const relevantBookings = currentBookingsRaw.filter(b => {
-                const bLoc = b.originalData?.location || b.location || '本館';
-                const isResourceStr = /(BED|CHAIR|床|足|腳)[-_ ]?\d+/i.test(bLoc);
-                if (bLoc !== locationStr && !isResourceStr) return false;
-
+            const globalStaffBookings = currentBookingsRaw.filter(b => {
                 const bStart = getMinsFromTimeStr(b.startTime);
                 if (bStart === -1) return false;
                 if (!isActiveBookingStatus(b.status)) return false;
@@ -471,6 +467,12 @@
 
                 const bEnd = bStart + realDuration + CONF.CLEANUP_BUFFER;
                 return bEnd > requestStart;
+            });
+
+            const relevantBookings = globalStaffBookings.filter(b => {
+                const bLoc = b.originalData?.location || b.location || '本館';
+                const isResourceStr = /(BED|CHAIR|床|足|腳)[-_ ]?\d+/i.test(bLoc);
+                return bLoc === locationStr || isResourceStr;
             });
 
             relevantBookings.forEach(b => {
@@ -657,7 +659,7 @@
             let distinctMaleStaffs = new Set();
             let overlapEvents = [];
 
-            relevantBookings.forEach(b => {
+            globalStaffBookings.forEach(b => {
                 const bS = getMinsFromTimeStr(b.startTime);
                 const svcInfo = SERVICES[b.serviceCode] || { name: b.serviceName };
                 const storedFlow = b.originalData?.flowCode || b.flow;

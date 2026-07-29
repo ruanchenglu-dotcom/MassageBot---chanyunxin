@@ -463,11 +463,8 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
         }
     };
 
-    // 1. Lọc Booking hợp lệ
-    const relevantBookings = currentBookingsRaw.filter(b => {
-        const bLoc = b.originalData?.location || b.location || '本館';
-        if (bLoc !== locationStr) return false;
-
+    // 1. Lọc Booking hợp lệ (Global Staff Bookings không bị giới hạn bởi Location)
+    const globalStaffBookings = currentBookingsRaw.filter(b => {
         const bStart = getMinsFromTimeStr(b.startTimeString || b.startTime);
         if (bStart === -1) return false;
         if (!isActiveBookingStatus(b.status)) return false;
@@ -477,6 +474,12 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
         const { realDuration } = calculateRealDurations(b, b.duration || 60, isCombo);
         const bEnd = bStart + realDuration + CONF.CLEANUP_BUFFER;
         return bEnd > requestStart;
+    });
+
+    // Lọc riêng booking cho Cơ sở vật chất (Bed/Chair)
+    const relevantBookings = globalStaffBookings.filter(b => {
+        const bLoc = b.originalData?.location || b.location || '本館';
+        return bLoc === locationStr;
     });
 
     // 2. Kiểm tra Nhân sự (Staff Capacity - V118.6 Đã đồng bộ Gender & Specific Staff Logic)
@@ -493,7 +496,7 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
     });
 
     let staffBusyPeriods = {};
-    relevantBookings.forEach(b => {
+    globalStaffBookings.forEach(b => {
         const bS = getMinsFromTimeStr(b.startTimeString || b.startTime);
         const bE = bS + (b.duration || 60) + CONF.CLEANUP_BUFFER;
 
@@ -522,7 +525,7 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
         let currentMaleBusy = 0;
         let elasticStaffCount = 0;
         
-        relevantBookings.forEach(b => {
+        globalStaffBookings.forEach(b => {
             const bS = getMinsFromTimeStr(b.startTimeString || b.startTime);
             const svcInfo = getServiceInfo(b.serviceCode, b.serviceName);
             const storedFlow = b.originalData?.flowCode || b.flow;
