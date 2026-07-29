@@ -1782,6 +1782,8 @@ async function handleEvent(event) {
             guestDetails[i].resource_type = resType;
         }
 
+        console.log("[DEBUG] Before ghiVaoSheet, cyx_data is:", checkResult.proposedUpdates);
+
         // --- BƯỚC QUAN TRỌNG: GHI VÀO DB TRƯỚC ---
         const isSaved = await SheetService.ghiVaoSheet(
             {

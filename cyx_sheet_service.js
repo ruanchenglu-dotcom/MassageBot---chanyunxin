@@ -367,10 +367,10 @@ async function syncMenuData() {
             if (row[10]) { const val = parseInt(row[10].toString().replace(/\D/g, '')); if (!isNaN(val)) minBody = val; }
             if (row[11]) { const val = parseInt(row[11].toString().replace(/\D/g, '')); if (!isNaN(val)) maxBody = val; }
 
-            let blocks = 1;
+            let blocks = typeof SERVICES_DATA !== 'undefined' && SERVICES_DATA[code] && SERVICES_DATA[code].blocks !== undefined ? SERVICES_DATA[code].blocks : 1;
             if (row[6]) { const blk = parseInt(row[6].toString().replace(/\D/g, '')); if (!isNaN(blk)) blocks = blk; }
 
-            let commission = 0;
+            let commission = typeof SERVICES_DATA !== 'undefined' && SERVICES_DATA[code] && SERVICES_DATA[code].commission !== undefined ? SERVICES_DATA[code].commission : 0;
             if (row[7]) { const comm = parseInt(row[7].toString().replace(/\D/g, '')); if (!isNaN(comm)) commission = comm; }
 
             let type = 'BED'; let category = 'BODY';
@@ -776,8 +776,8 @@ async function ghiVaoSheet(data, proposedUpdates = []) {
                 if (guestDetail.staffId) row[12] = guestDetail.staffId;
                 if (guestDetail.staffId2) row[13] = guestDetail.staffId2;
                 if (guestDetail.staffId3) row[14] = guestDetail.staffId3;
-                if (guestDetail.staff1_blocks !== undefined) row[15] = guestDetail.staff1_blocks;
-                if (guestDetail.staff2_blocks !== undefined) row[16] = guestDetail.staff2_blocks;
+                if (guestDetail.staff1_blocks !== undefined) row[15] = "'" + guestDetail.staff1_blocks;
+                if (guestDetail.staff2_blocks !== undefined) row[16] = "'" + guestDetail.staff2_blocks;
             }
             let sCode = data.serviceCode;
             if (guestDetail && guestDetail.serviceCode) sCode = guestDetail.serviceCode;
@@ -786,6 +786,14 @@ async function ghiVaoSheet(data, proposedUpdates = []) {
                 sCode = smartFindServiceCode(cleanSvcName);
             }
             row[24] = sCode || "";
+
+            // [FIX] Tự động điền số lượng blocks (tiết) vào cột P (row[15]) nếu chưa có
+            if (sCode && STATE.SERVICES[sCode]) {
+                const svcDef = STATE.SERVICES[sCode];
+                if (!row[15] && svcDef.blocks) {
+                    row[15] = "'" + svcDef.blocks;
+                }
+            }
 
             if (data.final_price !== undefined) {
                 row[18] = data.final_price;
@@ -888,6 +896,8 @@ async function ghiVaoSheet(data, proposedUpdates = []) {
         }
 
         if (valuesToWrite.length > 0) {
+            require('fs').writeFileSync('debug_values.json', JSON.stringify(valuesToWrite, null, 2));
+            console.log("[DEBUG] Before append, row 15 is:", valuesToWrite[0][15]);
             // [OPTIMISTIC CACHE UPDATE]
             valuesToWrite.forEach(r => {
                 STATE.cachedBookings.push({
@@ -905,7 +915,9 @@ async function ghiVaoSheet(data, proposedUpdates = []) {
                     phase2_res_idx: r[33] || data.phase2_res_idx || data.phase2_resource,
                     location: r[39],
                     preassignedStaff: r[42] || '',
-                    timeToArrive: r[41]
+                    timeToArrive: r[41],
+                    phone: r[3],
+                    staff1_blocks: r[15]
                 });
             });
 
