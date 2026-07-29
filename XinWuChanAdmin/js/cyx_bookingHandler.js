@@ -685,7 +685,6 @@
                         let maleDelta = 0;
 
                         for (const staffName of staffsInBooking) {
-                            if (!staffName) continue;
                             const sId = normId(staffName);
                             
                             const isRandom = (sId === '隨機' || sId === 'ANY' || sId === 'UNDEFINED' || sId === 'NULL' || sId === 'FALSE' || sId === '');

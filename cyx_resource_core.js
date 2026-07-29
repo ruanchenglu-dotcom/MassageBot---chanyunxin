@@ -593,19 +593,17 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
         const currentFemaleSupply = currentAvailableStaff.filter(s => s.gender === 'F' || s.gender === '女').length;
         const currentMaleSupply = currentAvailableStaff.filter(s => s.gender === 'M' || s.gender === '男').length;
         
-        // [V119 FIX] Trong Continuous Scan, KHÔNG block nếu booking đang chiếm dụng có thể Squeeze (co giãn)
-        // Đồng thời, Combo guest có transition buffer (5 phút) không cần staff, nên nếu tCheck vô tình rơi vào transition, currentStaffBusy có thể full.
-        // Ta sẽ cho qua (defer cho Matrix) nếu tCheck chỉ thiếu hụt đúng bằng số lượng Combo Guest.
-        const allowedDeficit = comboGuestCount > 0 ? comboGuestCount : 0;
+        // [V137 NÂNG CẤP]: Xoá bỏ logic elasticStaffCount và allowedDeficit ảo đối với Kỹ thuật viên.
+        // Nhân sự là con người, không thể "co giãn" phục vụ 2 khách cùng lúc.
 
-        if (newFemaleReq > 0 && (currentFemaleBusy - elasticStaffCount + newFemaleReq) > currentFemaleSupply + allowedDeficit) {
-            return triggerSmartFailure(`⚠️ 該時段女技師不足。女師總共: ${currentFemaleSupply}, 忙碌中(固定): ${Math.max(0, currentFemaleBusy - elasticStaffCount)}, 欲預約: ${newFemaleReq}`);
+        if (newFemaleReq > 0 && (currentFemaleBusy + newFemaleReq) > currentFemaleSupply) {
+            return triggerSmartFailure(`⚠️ 該時段女技師不足。女師總共: ${currentFemaleSupply}, 忙碌中: ${currentFemaleBusy}, 欲預約: ${newFemaleReq}`);
         }
-        if (newMaleReq > 0 && (currentMaleBusy - elasticStaffCount + newMaleReq) > currentMaleSupply + allowedDeficit) {
-            return triggerSmartFailure(`⚠️ 該時段男技師不足。男師總共: ${currentMaleSupply}, 忙碌中(固定): ${Math.max(0, currentMaleBusy - elasticStaffCount)}, 欲預約: ${newMaleReq}`);
+        if (newMaleReq > 0 && (currentMaleBusy + newMaleReq) > currentMaleSupply) {
+            return triggerSmartFailure(`⚠️ 該時段男技師不足。男師總共: ${currentMaleSupply}, 忙碌中: ${currentMaleBusy}, 欲預約: ${newMaleReq}`);
         }
-        if ((currentStaffBusy - elasticStaffCount + newGuestsActive) > currentSupplyCount + allowedDeficit) {
-            return triggerSmartFailure(`⚠️ 該時段技師總數不足。總共: ${currentSupplyCount}, 忙碌中(固定): ${Math.max(0, currentStaffBusy - elasticStaffCount)}, 新客: ${newGuestsActive}`);
+        if ((currentStaffBusy + newGuestsActive) > currentSupplyCount) {
+            return triggerSmartFailure(`⚠️ 該時段技師總數不足。總共: ${currentSupplyCount}, 忙碌中: ${currentStaffBusy}, 新客: ${newGuestsActive}`);
         }
     }
 
