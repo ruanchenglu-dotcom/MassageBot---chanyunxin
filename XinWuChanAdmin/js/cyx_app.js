@@ -3833,28 +3833,61 @@ const App = () => {
                 resourceTypeForSheet = 'SINGLE';
             }
 
-            let s1Found = MatrixHelper.findBestSlot(p1Type, tryStart, tryStart + newPhase1Duration, tempTimelineData, mockActiveEndTimes, b.phase1_res_idx || null, rowId, isLongSingle);
-            
+            let finalFlow = currentFlow;
+            let finalP1Dur = newPhase1Duration;
+            let finalP2Dur = newPhase2Duration;
+            let finalP1Type = p1Type;
+            let finalP2Type = p2Type;
+
+            let s1Found = MatrixHelper.findBestSlot(finalP1Type, tryStart, tryStart + finalP1Dur, tempTimelineData, mockActiveEndTimes, b.phase1_res_idx || null, rowId, isLongSingle);
+            let s2Found = null;
+
+            if (s1Found && type === 'COMBO' && finalFlow.match(/FB|BF/)) {
+                const p2Start = tryStart + finalP1Dur + 5;
+                s2Found = MatrixHelper.findBestSlot(finalP2Type, p2Start, p2Start + finalP2Dur, tempTimelineData, mockActiveEndTimes, b.phase2_res_idx || null, rowId);
+            }
+
+            if ((!s1Found || (type === 'COMBO' && finalFlow.match(/FB|BF/) && !s2Found)) && type === 'COMBO' && currentFlow.match(/FB|BF/)) {
+                const altFlow = currentFlow === 'BF' ? 'FB' : 'BF';
+                const altP1Type = altFlow === 'BF' ? 'bed' : 'chair';
+                const altP2Type = altFlow === 'BF' ? 'chair' : 'bed';
+                const altP1Dur = newPhase2Duration;
+                const altP2Dur = newPhase1Duration;
+
+                const altS1Found = MatrixHelper.findBestSlot(altP1Type, tryStart, tryStart + altP1Dur, tempTimelineData, mockActiveEndTimes, null, rowId, isLongSingle);
+                if (altS1Found) {
+                    const altP2Start = tryStart + altP1Dur + 5;
+                    const altS2Found = MatrixHelper.findBestSlot(altP2Type, altP2Start, altP2Start + altP2Dur, tempTimelineData, mockActiveEndTimes, null, rowId);
+                    if (altS2Found) {
+                        s1Found = altS1Found;
+                        s2Found = altS2Found;
+                        finalFlow = altFlow;
+                        finalP1Dur = altP1Dur;
+                        finalP2Dur = altP2Dur;
+                        finalP1Type = altP1Type;
+                        finalP2Type = altP2Type;
+                    }
+                }
+            }
+
             if (!s1Found) {
                 Swal.fire('系統提示', '⚠️ 更改失敗：該時段已無足夠的空床位/座位供整個群組使用。', 'warning');
                 return;
             }
 
             if (!tempTimelineData[s1Found]) tempTimelineData[s1Found] = [];
-            tempTimelineData[s1Found].push({ start: tryStart, end: tryStart + newPhase1Duration, booking: b });
+            tempTimelineData[s1Found].push({ start: tryStart, end: tryStart + finalP1Dur, booking: b });
 
-            let s2Found = null;
-            if (type === 'COMBO' && currentFlow.match(/FB|BF/)) {
-                const p2Start = tryStart + newPhase1Duration + 5;
-                s2Found = MatrixHelper.findBestSlot(p2Type, p2Start, p2Start + newPhase2Duration, tempTimelineData, mockActiveEndTimes, b.phase2_res_idx || null, rowId);
+            if (type === 'COMBO' && finalFlow.match(/FB|BF/)) {
                 if (!s2Found) {
                     Swal.fire('系統提示', '⚠️ 更改失敗：該時段已無足夠的空床位/座位供整個群組使用 (第二階段)。', 'warning');
                     return;
                 }
+                const p2Start = tryStart + finalP1Dur + 5;
                 if (!tempTimelineData[s2Found]) tempTimelineData[s2Found] = [];
-                tempTimelineData[s2Found].push({ start: p2Start, end: p2Start + newPhase2Duration, booking: b });
+                tempTimelineData[s2Found].push({ start: p2Start, end: p2Start + finalP2Dur, booking: b });
             } else if (type === 'COMBO') {
-                s2Found = `${p2Type}-1`;
+                s2Found = `${finalP2Type}-1`;
             }
 
             const pLoad = {
@@ -3868,10 +3901,10 @@ const App = () => {
             };
 
             if (type === 'COMBO') {
-                pLoad.flow = currentFlow;
-                pLoad.flow_code = currentFlow;
-                pLoad.phase1_duration = newPhase1Duration;
-                pLoad.phase2_duration = newPhase2Duration;
+                pLoad.flow = finalFlow;
+                pLoad.flow_code = finalFlow;
+                pLoad.phase1_duration = finalP1Dur;
+                pLoad.phase2_duration = finalP2Dur;
                 pLoad.phase1_res_idx = s1Found.toUpperCase();
                 pLoad.phase2_res_idx = s2Found.toUpperCase();
                 pLoad.phase1Resource = s1Found.toUpperCase();

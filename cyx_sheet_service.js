@@ -1689,6 +1689,44 @@ async function updateInlineBooking(rowId, updatedData) {
                             }
                         }
 
+                        // [NÂNG CẤP COMBO]: Thử đảo luồng nếu bị thiếu vị trí Phase 2
+                        if (!foundMissing) {
+                            let altFlow = newFlow === 'FB' ? 'BF' : 'FB';
+                            let altP1Dur = phase2_dur;
+                            let altP2Dur = phase1_dur;
+                            let altBestPhase1 = "";
+                            let altBestPhase2 = "";
+                            
+                            // Vì đảo luồng, nên vị trí cũ (bestPhase1 hiện tại) sẽ trở thành Phase 2
+                            if (altFlow === 'BF' && isP1Chair) {
+                                altBestPhase2 = bestPhase1;
+                            } else if (altFlow === 'FB' && isP1Bed) {
+                                altBestPhase2 = bestPhase1;
+                            }
+
+                            if (altBestPhase2) {
+                                let altTargetResType = altFlow === 'BF' ? 'BED' : 'CHAIR';
+                                let altMaxCount = altTargetResType === 'BED' ? (config.SCALE.MAX_BEDS || 12) : (config.SCALE.MAX_CHAIRS || 12);
+                                
+                                for (let i = 1; i <= altMaxCount; i++) {
+                                    let testRes = `${altTargetResType}-${locPrefix}-${i}`;
+                                    const conflict = _checkOverlapConflict(rowId, opDate, opTime, duration, testRes, altBestPhase2, altP1Dur, altP2Dur, altFlow);
+                                    if (!conflict) {
+                                        bestPhase1 = testRes;
+                                        bestPhase2 = altBestPhase2;
+                                        newFlow = altFlow;
+                                        row[25] = newFlow;
+                                        phase1_dur = altP1Dur;
+                                        phase2_dur = altP2Dur;
+                                        row[28] = phase1_dur;
+                                        row[30] = phase2_dur;
+                                        foundMissing = true;
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+
                         if (!foundMissing && !updatedData.ignoreOverlap) {
                             throw new Error("⚠️ 更改失敗：該時段已無空床位/座位可供套餐使用。");
                         }
