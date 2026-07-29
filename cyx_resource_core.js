@@ -477,9 +477,16 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
     });
 
     // Lọc riêng booking cho Cơ sở vật chất (Bed/Chair)
+    const resolveRealLocation = (loc) => {
+        if (!loc) return '本館';
+        if (loc === '本館' || loc === '對面館') return loc;
+        const match = String(loc).match(/(?:BED|CHAIR|床|足|腳)[-_ ]?([12])[-_ ]?\d+/i);
+        if (match) return match[1] === '2' ? '對面館' : '本館';
+        return '本館';
+    };
     const relevantBookings = globalStaffBookings.filter(b => {
         const bLoc = b.originalData?.location || b.location || '本館';
-        return bLoc === locationStr;
+        return resolveRealLocation(bLoc) === locationStr;
     });
 
     // 2. Kiểm tra Nhân sự (Staff Capacity - V118.6 Đã đồng bộ Gender & Specific Staff Logic)
@@ -713,7 +720,7 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
                     if (name.match(/BODY|指壓|油|BED|TOAN THAN|全身|油壓|SPA|BACK/)) inferredType = 'BED';
                 }
             }
-            const bPrefix = (b.location === '對面館') ? '2' : '1';
+            const bPrefix = (locationStr === '對面館') ? '2' : '1';
             uniqueMatches = [...new Set(backupMatches)].map(num => `${inferredType}-${bPrefix}-${num}`);
         }
 

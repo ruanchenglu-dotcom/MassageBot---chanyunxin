@@ -469,10 +469,16 @@
                 return bEnd > requestStart;
             });
 
+            const resolveRealLocation = (loc) => {
+                if (!loc) return '本館';
+                if (loc === '本館' || loc === '對面館') return loc;
+                const match = String(loc).match(/(?:BED|CHAIR|床|足|腳)[-_ ]?([12])[-_ ]?\d+/i);
+                if (match) return match[1] === '2' ? '對面館' : '本館';
+                return '本館';
+            };
             const relevantBookings = globalStaffBookings.filter(b => {
                 const bLoc = b.originalData?.location || b.location || '本館';
-                const isResourceStr = /(BED|CHAIR|床|足|腳)[-_ ]?\d+/i.test(bLoc);
-                return bLoc === locationStr || isResourceStr;
+                return resolveRealLocation(bLoc) === locationStr;
             });
 
             relevantBookings.forEach(b => {
@@ -519,13 +525,11 @@
                             if (name.match(/BODY|指壓|油|BED|TOAN THAN|全身|油壓|SPA|BACK/)) inferredType = 'BED';
                         }
                     }
-                    const bPrefix = (bLoc === '對面館') ? '2' : '1';
+                    const bPrefix = (locationStr === '對面館') ? '2' : '1';
                     uniqueMatches = [...new Set(backupMatches)].map(num => `${inferredType}-${bPrefix}-${num}`);
                 }
 
                 const pushToMapFallback = (type, startT, endT) => {
-                    const isResourceStr = /(BED|CHAIR|床|足|腳)[-_ ]?\d+/i.test(bLoc);
-                    if (bLoc !== locationStr && !isResourceStr) return false;
                     if (resourceMap[type]) {
                         for (let i = 0; i < resourceMap[type].length; i++) {
                             const overlaps = resourceMap[type][i].some(blk => isOverlap(startT, endT, blk.start, blk.end));
@@ -539,8 +543,6 @@
                 };
 
                 const pushToMap = (res, startT, endT, fallbackType) => {
-                    const isResourceStr = /(BED|CHAIR|床|足|腳)[-_ ]?\d+/i.test(bLoc);
-                    if (bLoc !== locationStr && !isResourceStr) return;
                     let success = false;
                     if (res) {
                         const laneMatch = res.match(/(BED|CHAIR|床|足|腳)[-_ ]?(?:\d+[-_ ])?(\d+)/i);
