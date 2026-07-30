@@ -260,7 +260,8 @@ const AbsenceCheckModal = ({ data, staffList, bookings, statusData, localShifts,
         return getExactMins(dStr, tStr, baseDateStr);
     };
 
-    const handleCheck = () => {
+    const handleCheck = (e) => {
+        if (e) e.stopPropagation();
         let absStart, absEnd;
         const now = new Date();
         const getLocalDateStr = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -395,8 +396,8 @@ const AbsenceCheckModal = ({ data, staffList, bookings, statusData, localShifts,
     };
 
     return (
-        <div className="fixed inset-0 bg-slate-900/80 z-[70] flex items-center justify-center p-4 backdrop-blur-sm">
-            <div className="bg-white rounded-xl shadow-2xl w-full max-w-md overflow-hidden">
+        <div className="fixed inset-0 bg-slate-900/80 z-[70] flex items-center justify-center p-4 backdrop-blur-sm" onClick={onClose}>
+            <div className="bg-white rounded-xl shadow-2xl w-full max-w-md overflow-hidden" onClick={e => e.stopPropagation()}>
                 <div className="bg-blue-600 p-4 flex justify-between items-center text-white">
                     <h3 className="font-bold text-2xl">
                         {type === 'LATE' ? '晚到登記' : type === 'EARLY' ? '早退登記' : '外出登記'} - {staffName}
@@ -642,9 +643,9 @@ const CheckInBoard = ({ staffList, statusData, onClose, onUpdateStatus, bookings
     return (
         <div className="fixed inset-0 bg-slate-900/80 z-[60] flex items-center justify-center p-4 backdrop-blur-sm">
             {absenceData && <AbsenceCheckModal data={absenceData} staffList={staffList} bookings={bookings} statusData={statusData} localShifts={localShifts} viewDate={viewDate} onClose={() => setAbsenceData(null)} onConfirm={(type, time1, time2) => {
+                const currentStatus = (statusData && statusData[absenceData.staffId]) ? statusData[absenceData.staffId] : {};
                 if (type === 'LATE') {
                     handleShiftChange(absenceData.staffId, 'start', time1);
-                    const currentStatus = (statusData && statusData[absenceData.staffId]) ? statusData[absenceData.staffId] : {};
                     onUpdateStatus({
                         ...statusData,
                         [absenceData.staffId]: { ...currentStatus, lateStart: time1 }
@@ -652,10 +653,17 @@ const CheckInBoard = ({ staffList, statusData, onClose, onUpdateStatus, bookings
                 } else if (type === 'OUT') {
                     handleShiftChange(absenceData.staffId, 'outStart', time1);
                     handleShiftChange(absenceData.staffId, 'outEnd', time2);
-                    const currentStatus = (statusData && statusData[absenceData.staffId]) ? statusData[absenceData.staffId] : {};
                     onUpdateStatus({
                         ...statusData,
                         [absenceData.staffId]: { ...currentStatus, outStart: time1, outEnd: time2, status: 'OUT_SHORT' }
+                    });
+                } else if (type === 'EARLY') {
+                    const now = new Date();
+                    const nowT = now.toLocaleTimeString('en-US', {hour12: false, hour: '2-digit', minute: '2-digit'});
+                    handleShiftChange(absenceData.staffId, 'end', nowT);
+                    onUpdateStatus({
+                        ...statusData,
+                        [absenceData.staffId]: { ...currentStatus, status: 'AWAY', earlyEnd: nowT }
                     });
                 }
                 setAbsenceData(null);
@@ -1554,7 +1562,7 @@ const StaffInfoModal = ({ staff, onClose, statusData, onUpdateStatus, staffList,
                 localShifts={{}} 
                 viewDate={viewDate}
                 onClose={() => setAbsenceData(null)} 
-                onConfirm={(time1, time2, type) => {
+                onConfirm={(type, time1, time2) => {
                     const currentStatus = (statusData && statusData[absenceData.staffId]) ? statusData[absenceData.staffId] : {};
                     if (type === 'LATE') {
                         onUpdateStatus({
@@ -1565,6 +1573,13 @@ const StaffInfoModal = ({ staff, onClose, statusData, onUpdateStatus, staffList,
                         onUpdateStatus({
                             ...statusData,
                             [absenceData.staffId]: { ...currentStatus, outStart: time1, outEnd: time2, status: 'OUT_SHORT' }
+                        });
+                    } else if (type === 'EARLY') {
+                        const now = new Date();
+                        const nowT = now.toLocaleTimeString('en-US', {hour12: false, hour: '2-digit', minute: '2-digit'});
+                        onUpdateStatus({
+                            ...statusData,
+                            [absenceData.staffId]: { ...currentStatus, status: 'AWAY', earlyEnd: nowT }
                         });
                     }
                     setAbsenceData(null);
