@@ -465,6 +465,7 @@ async function syncData() {
                     phone: row[3], date: cleanDate, opDate: computedOpDate, status: status,
                     isRunning: isRunning, lineId: row[23],
                     checkinTime: row[26],
+                    checkout_status: row[22] || "",
                     phase1_duration: safeParseInt(row[28], null),
                     transition_time: row[29],
                     phase2_duration: safeParseInt(row[30], null),

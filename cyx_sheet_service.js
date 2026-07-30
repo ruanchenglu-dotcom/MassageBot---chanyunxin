@@ -536,6 +536,7 @@ async function syncData() {
                     isRunning: isRunning, lineId: row[23],
                     checkinTime: row[26],
                     startTime_sheet: row[27],
+                    checkout_status: row[22] || "",
                     phase1_duration: safeParseInt(row[28], null),
                     transition_time: row[29],
                     phase2_duration: safeParseInt(row[30], null),

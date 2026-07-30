@@ -1145,6 +1145,12 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
         }
     };
 
+    const isPaid = booking.checkout_status === '已結帳' || booking.status === 'PAID' || booking.status === '已結帳';
+    const checkoutBtnClass = isPaid 
+        ? "col-span-1 bg-teal-700 hover:bg-teal-800 text-white rounded-xl font-bold flex flex-col items-center justify-center transform active:scale-95 transition-all shadow-lg border border-teal-700"
+        : "col-span-1 bg-teal-50 hover:bg-teal-100 text-teal-700 border border-teal-200 rounded-xl font-bold flex flex-col items-center justify-center transform active:scale-95 transition-all shadow-sm";
+    const checkoutText = isPaid ? "已結帳" : "結帳";
+
     return (
         <div className="fixed inset-0 z-[3000] flex items-center justify-center bg-black/70 backdrop-blur-sm animate-in fade-in duration-200 p-4">
             {showGroupUpdatePrompt && (
@@ -1760,7 +1766,7 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                                 {isPaused ? <><i className="fas fa-play text-xl mb-0.5"></i><span className="text-xs">繼續</span></> : <><i className="fas fa-pause text-xl mb-0.5"></i><span className="text-xs">暫停</span></>}
                             </button>
                         )}
-                        <button onClick={handleFinishRequest} className="col-span-1 bg-teal-50 hover:bg-teal-100 text-teal-700 border border-teal-200 rounded-xl font-bold flex flex-col items-center justify-center transform active:scale-95 transition-all shadow-sm"><i className="fas fa-file-invoice-dollar text-xl mb-0.5"></i><span className="text-xs">結帳</span></button>
+                        <button onClick={handleFinishRequest} className={checkoutBtnClass}><i className="fas fa-file-invoice-dollar text-xl mb-0.5"></i><span className="text-xs">{checkoutText}</span></button>
                         <button onClick={() => { onClose(); triggerAction('FINISH_QUICK'); }} className="col-span-1 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold shadow-lg shadow-blue-200 flex flex-col items-center justify-center transform active:scale-95 transition-all"><i className="fas fa-check-circle text-xl mb-0.5"></i><span className="text-xs">完成</span></button>
                         <button onClick={() => { onClose(); triggerAction('CANCEL'); }} className="col-span-1 bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 rounded-xl font-bold flex flex-col items-center justify-center transform active:scale-95 transition-all"><i className="fas fa-trash-alt text-xl mb-0.5"></i><span className="text-xs">取消</span></button>
                         <button onClick={() => { onClose(); triggerAction('NOSHOW'); }} className="col-span-1 bg-orange-50 hover:bg-orange-100 text-orange-600 border border-orange-200 rounded-xl font-bold flex flex-col items-center justify-center transform active:scale-95 transition-all"><i className="fas fa-user-slash text-xl mb-0.5"></i><span className="text-xs">爽約</span></button>
