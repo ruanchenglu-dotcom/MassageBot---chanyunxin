@@ -646,6 +646,7 @@ app.get('/api/info', async (req, res) => {
             isSystemHealthy: SheetService.getIsSystemHealthy(),
             matrixDebug: SheetService.getMatrixDebug(),
             blacklist: SheetService.getBlacklist(),
+            masterBlacklist: SheetService.getMasterBlacklist(),
             quickNotes: SheetService.getQuickNotes()
         });
     } catch (error) { res.status(500).json({ error: "Internal Server Error" }); }

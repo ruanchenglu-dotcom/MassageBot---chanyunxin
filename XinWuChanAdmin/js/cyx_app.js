@@ -776,7 +776,7 @@ const App = () => {
                 window.SYSTEM_CONFIG.SCALE.OPP_BEDS = res.data.resources.oppBeds || 6;
             }
 
-            const { bookings: apiBookings, staffList: apiStaff, resourceState: serverRes, staffStatus: serverStaff, quickNotes: apiQuickNotes, blacklist: apiBlacklist } = res.data;
+            const { bookings: apiBookings, staffList: apiStaff, resourceState: serverRes, staffStatus: serverStaff, quickNotes: apiQuickNotes, blacklist: apiBlacklist, masterBlacklist: apiMasterBlacklist } = res.data;
 
             if (apiQuickNotes) {
                 window.QUICK_NOTES = apiQuickNotes;
@@ -784,6 +784,8 @@ const App = () => {
 
             if (!window.SYSTEM_DATA) window.SYSTEM_DATA = {};
             if (apiBlacklist) window.SYSTEM_DATA.blacklist = apiBlacklist;
+            if (apiMasterBlacklist) window.SYSTEM_DATA.masterBlacklist = apiMasterBlacklist;
+            if (apiStaff) window.SYSTEM_DATA.staff = apiStaff;
 
             let nextResourceState = { ...(serverRes || {}) };
 

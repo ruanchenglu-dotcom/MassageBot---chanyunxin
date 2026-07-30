@@ -160,6 +160,7 @@ let STATE = {
     SERVICES: SERVICES_DATA || ResourceCore.SERVICES || {},
     QUICK_NOTES: [],
     BLACKLIST: [],
+    MASTER_BLACKLIST: [],
     lastSyncTime: new Date(0),
     isSystemHealthy: false,
     isSyncing: false,
@@ -417,21 +418,30 @@ async function syncMenuData() {
 async function syncBlacklist() {
     try {
         if (!BLACKLIST_SHEET_NAME) return;
-        const res = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: `${BLACKLIST_SHEET_NAME}!A2:B` });
+        const res = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: `${BLACKLIST_SHEET_NAME}!A2:D` });
         const rows = res.data.values;
         if (!rows || rows.length === 0) {
             STATE.BLACKLIST = [];
+            STATE.MASTER_BLACKLIST = [];
             return;
         }
         const bl = [];
+        const masterBl = [];
         rows.forEach(row => {
             const name = row[0] ? row[0].toString().trim() : '';
             const phone = row[1] ? row[1].toString().trim().replace(/\D/g, '') : '';
             if (phone) {
                 bl.push({ name, phone });
             }
+
+            const staffName = row[2] ? row[2].toString().trim() : '';
+            const custPhone = row[3] ? row[3].toString().trim().replace(/\D/g, '') : '';
+            if (staffName && custPhone) {
+                masterBl.push({ staffName, phone: custPhone });
+            }
         });
         STATE.BLACKLIST = bl;
+        STATE.MASTER_BLACKLIST = masterBl;
     } catch (e) { console.error('[BLACKLIST ERROR]', e); }
 }
 
@@ -2535,8 +2545,9 @@ module.exports = {
     getUnusedVouchers,
     markVoucherUsed,
     getMatrixDebug: () => STATE.LAST_CALCULATED_MATRIX,
-    getQuickNotes: () => STATE.QUICK_NOTES,
     getBlacklist: () => STATE.BLACKLIST,
+    getMasterBlacklist: () => STATE.MASTER_BLACKLIST,
+    getQuickNotes: () => STATE.QUICK_NOTES,
     getConsecutiveErrors: () => STATE.consecutiveSyncErrors,
 
     syncMenuData,

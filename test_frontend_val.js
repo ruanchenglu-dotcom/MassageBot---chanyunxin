@@ -2117,12 +2117,32 @@ console.log('DEBUG_SPLITS:', { duration, eStep, eLimit, svc, testFlow, splitsToT
             if (e) e.preventDefault();
             
             const blacklist = serverData?.blacklist || window.SYSTEM_DATA?.blacklist || [];
-            if (blacklist.length > 0 && form.custPhone) {
+            const masterBlacklist = serverData?.masterBlacklist || window.SYSTEM_DATA?.masterBlacklist || [];
+            
+            if (form.custPhone) {
                 const cleanPhone = form.custPhone.trim().replace(/\D/g, '');
-                if (cleanPhone && blacklist.some(b => b.phone === cleanPhone)) {
-                    Swal.fire('系統提示', '⚠️ 此電話號碼已列入黑名單，拒絕預約！', 'error');
-                    setIsChecking(false);
-                    return;
+                if (cleanPhone) {
+                    if (blacklist.length > 0 && blacklist.some(b => b.phone === cleanPhone)) {
+                        Swal.fire('系統提示', '⚠️ 此電話號碼已列入黑名單，拒絕預約！', 'error');
+                        setIsChecking(false);
+                        return;
+                    }
+                    
+                    if (masterBlacklist.length > 0 && typeof guestDetails !== 'undefined') {
+                        const safeStaffList = serverData?.staff || window.SYSTEM_DATA?.staff || [];
+                        for (const guest of guestDetails) {
+                            if (guest.staff && guest.staff !== '隨機' && guest.staff !== '不指定' && guest.staff !== '男' && guest.staff !== '女') {
+                                const staffObj = safeStaffList.find(s => s.id === guest.staff || s.name === guest.staff);
+                                const masterName = staffObj ? staffObj.name : guest.staff;
+                                const isBlocked = masterBlacklist.some(b => b.phone === cleanPhone && (b.staffName === guest.staff || b.staffName === masterName));
+                                if (isBlocked) {
+                                    Swal.fire('系統提示', `⚠️ ${masterName}老師不想接指定客人`, 'error');
+                                    setIsChecking(false);
+                                    return;
+                                }
+                            }
+                        }
+                    }
                 }
             }
 
