@@ -1785,6 +1785,8 @@ window.BookingControlModal = BookingControlModal;
 // 1. TIMELINE VIEW
 // ============================================================================
 const StaffStatsModal = ({ hour, staffList, timelineData, onClose }) => {
+    const [hoveredMinute, setHoveredMinute] = useState(null);
+
     const availableStaff = useMemo(() => {
         return (staffList || []).filter(s => {
             if (s.off) return false;
@@ -1806,100 +1808,200 @@ const StaffStatsModal = ({ hour, staffList, timelineData, onClose }) => {
         });
     }, [hour, staffList]);
 
-    const stats = useMemo(() => {
-        // Find all active bookings in this hour
-        const activeBookingsMap = new Map();
+    const perMinuteData = useMemo(() => {
         const startMins = hour * 60;
-        const endMins = (hour + 1) * 60;
-
+        const STATUS = getBookingStatus ? getBookingStatus() : { CANCELLED: 'CANCELLED', NOSHOW: 'NOSHOW' };
+        
+        // Extract all valid slots once
+        const validSlots = [];
         if (timelineData) {
             Object.values(timelineData).forEach(slots => {
                 slots.forEach(slot => {
                     const booking = slot.booking;
                     if (!booking) return;
-                    
-                    const STATUS = getBookingStatus ? getBookingStatus() : { CANCELLED: 'CANCELLED', NOSHOW: 'NOSHOW' };
                     const rawStatusStr = String(booking.status || '');
                     const isCancelled = rawStatusStr.includes('取消') || rawStatusStr.includes('爽約') || rawStatusStr.toUpperCase().includes('NOSHOW') || rawStatusStr.toUpperCase().includes('CANCEL') || booking.isDoneStatus === true || rawStatusStr === STATUS.CANCELLED || rawStatusStr === STATUS.NOSHOW;
                     if (isCancelled) return;
-
-                    // Check time overlap
-                    if (slot.start < endMins && slot.end > startMins) {
-                        // Use rowId to deduplicate bookings (e.g. combo services spanning multiple rows)
-                        activeBookingsMap.set(booking.rowId, booking);
-                    }
+                    validSlots.push(slot);
                 });
             });
         }
 
-        const activeBookingsInHour = Array.from(activeBookingsMap.values());
+        const data = [];
+        for (let m = 0; m < 60; m++) {
+            const t = startMins + m;
+            const activeSlots = validSlots.filter(slot => slot.start <= t && slot.end > t);
+            
+            // Deduplicate bookings by rowId
+            const uniqueBookings = new Map();
+            activeSlots.forEach(slot => {
+                uniqueBookings.set(slot.booking.rowId, slot.booking);
+            });
 
-        const bookedStaffCount = activeBookingsInHour.length;
-        const specificStaffBookings = activeBookingsInHour.filter(b => b.requestedStaff && b.requestedStaff !== '隨機' && b.requestedStaff !== '男' && b.requestedStaff !== '女' && b.requestedStaff.trim() !== '');
-        const femaleReqCount = activeBookingsInHour.filter(b => b.requestedStaff === '女').length;
-        const maleReqCount = activeBookingsInHour.filter(b => b.requestedStaff === '男').length;
-        
-        let specificNames = specificStaffBookings.map(b => b.requestedStaff).join(', ');
-        if (specificNames) {
-            specificNames = `(${specificNames})`;
+            const activeBookings = Array.from(uniqueBookings.values());
+            
+            const booked = activeBookings.length;
+            const femaleReq = activeBookings.filter(b => b.requestedStaff === '女').length;
+            const maleReq = activeBookings.filter(b => b.requestedStaff === '男').length;
+            
+            data.push({
+                minute: m,
+                totalAvailable: availableStaff.length,
+                booked,
+                femaleReq,
+                maleReq,
+                idle: Math.max(0, availableStaff.length - booked)
+            });
         }
-
-        return {
-            total: availableStaff.length,
-            booked: bookedStaffCount,
-            specific: specificStaffBookings.length,
-            specificNames: specificNames,
-            femaleReq: femaleReqCount,
-            maleReq: maleReqCount,
-            idle: Math.max(0, availableStaff.length - bookedStaffCount)
-        };
+        return data;
     }, [availableStaff, timelineData, hour]);
 
+    const maxStaff = Math.max(1, availableStaff.length, ...perMinuteData.map(d => d.booked));
+    const chartHeight = 200;
+    const chartWidth = 600;
+    const barWidth = chartWidth / 60;
+
     return (
-        <div className="fixed inset-0 z-[6000] bg-slate-900/60 flex items-center justify-center p-4" onClick={onClose}>
-            <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm overflow-hidden animate-in fade-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
-                <div className="bg-indigo-600 text-white p-4 flex justify-between items-center">
+        <div className="fixed inset-0 z-[6000] bg-slate-900/60 flex items-center justify-center p-4 animate-in fade-in duration-200" onClick={onClose}>
+            <div className="bg-white rounded-xl shadow-2xl w-full max-w-4xl overflow-hidden animate-in zoom-in-95 duration-200 flex flex-col" onClick={e => e.stopPropagation()}>
+                <div className="bg-indigo-600 text-white p-4 flex justify-between items-center shrink-0">
                     <h3 className="font-bold text-lg flex items-center gap-2">
-                        <i className="fas fa-chart-pie"></i> {hour}:00 技師可用統計
+                        <i className="fas fa-chart-bar"></i> {hour}:00 技師可用統計 (每分鐘)
                     </h3>
                     <button onClick={onClose} className="text-indigo-200 hover:text-white transition-colors">
                         <i className="fas fa-times text-xl"></i>
                     </button>
                 </div>
-                <div className="p-4 space-y-3">
-                    <div className="bg-slate-50 px-4 py-3 rounded-lg border border-slate-200 flex items-center justify-between">
-                        <span className="font-bold text-slate-700">總可用技師數</span>
-                        <span className="text-xl font-black text-indigo-600">{stats.total}</span>
+                
+                <div className="p-6 overflow-auto flex-1 flex flex-col">
+                    <div className="flex gap-4 mb-4 text-sm font-bold text-slate-600 justify-center flex-wrap shrink-0">
+                        <div className="flex items-center gap-1"><div className="w-4 h-4 bg-slate-200 rounded"></div> 總可用</div>
+                        <div className="flex items-center gap-1"><div className="w-4 h-4 bg-indigo-500 rounded"></div> 一般預約</div>
+                        <div className="flex items-center gap-1"><div className="w-4 h-4 bg-pink-500 rounded"></div> 指定女師</div>
+                        <div className="flex items-center gap-1"><div className="w-4 h-4 bg-blue-500 rounded"></div> 指定男師</div>
+                        <div className="flex items-center gap-1"><div className="w-4 h-4 bg-red-500 rounded"></div> 超載/警告</div>
                     </div>
 
-                    <div className="bg-slate-50 px-4 py-3 rounded-lg border border-slate-200 flex items-center justify-between">
-                        <span className="font-bold text-slate-700">總被預約技師數</span>
-                        <span className="text-xl font-black text-red-500">{stats.booked}</span>
-                    </div>
-
-                    <div className="bg-slate-50 px-4 py-3 rounded-lg border border-slate-200 flex flex-col justify-center">
-                        <div className="flex items-center justify-between">
-                            <span className="font-bold text-slate-700">總指定技師數</span>
-                            <span className="text-xl font-black text-amber-500">{stats.specific}</span>
+                    <div className="relative w-full h-[300px] border-b border-l border-slate-300 pb-6 pl-8 flex-1 min-w-[600px] mx-auto">
+                        {/* Y-axis labels */}
+                        <div className="absolute left-0 top-0 bottom-6 flex flex-col justify-between text-xs text-slate-500 font-medium">
+                            <span>{maxStaff}</span>
+                            <span>{Math.round(maxStaff / 2)}</span>
+                            <span>0</span>
                         </div>
-                        {stats.specificNames && (
-                            <div className="text-xs text-slate-500 mt-1 font-medium">{stats.specificNames}</div>
+
+                        <svg width="100%" height="100%" viewBox={`0 0 ${chartWidth} ${chartHeight}`} preserveAspectRatio="none" className="overflow-visible">
+                            {/* Grid lines */}
+                            <line x1="0" y1="0" x2={chartWidth} y2="0" stroke="#e2e8f0" strokeWidth="1" />
+                            <line x1="0" y1={chartHeight/2} x2={chartWidth} y2={chartHeight/2} stroke="#e2e8f0" strokeWidth="1" strokeDasharray="4 4" />
+                            
+                            {/* Bars */}
+                            {perMinuteData.map((d, i) => {
+                                const x = i * barWidth;
+                                
+                                // Base background (Total Available)
+                                const availHeight = (d.totalAvailable / maxStaff) * chartHeight;
+                                const availY = chartHeight - availHeight;
+                                
+                                // Total Booked stack
+                                const bookedHeight = (d.booked / maxStaff) * chartHeight;
+                                const bookedY = chartHeight - bookedHeight;
+                                
+                                // Stack segments (Male -> Female -> Regular)
+                                const maleHeight = (d.maleReq / maxStaff) * chartHeight;
+                                const femaleHeight = (d.femaleReq / maxStaff) * chartHeight;
+                                const regularHeight = ((d.booked - d.maleReq - d.femaleReq) / maxStaff) * chartHeight;
+                                
+                                const isOverloaded = d.booked > d.totalAvailable;
+
+                                // Calculate Y positions
+                                const maleY = chartHeight - maleHeight;
+                                const femaleY = maleY - femaleHeight;
+                                const regularY = femaleY - regularHeight;
+
+                                return (
+                                    <g key={i} className="group">
+                                        {/* Available Bar */}
+                                        <rect x={x + 1} y={availY} width={barWidth - 2} height={availHeight} fill="#e2e8f0" rx="2" />
+                                        
+                                        {/* Overloaded Background Warning */}
+                                        {isOverloaded && (
+                                            <rect x={x + 1} y={bookedY} width={barWidth - 2} height={bookedHeight} fill="#fee2e2" rx="2" />
+                                        )}
+
+                                        {/* Male Req Bar */}
+                                        {d.maleReq > 0 && (
+                                            <rect x={x + 1} y={maleY} width={barWidth - 2} height={maleHeight} fill="#3b82f6" />
+                                        )}
+                                        
+                                        {/* Female Req Bar */}
+                                        {d.femaleReq > 0 && (
+                                            <rect x={x + 1} y={femaleY} width={barWidth - 2} height={femaleHeight} fill="#ec4899" />
+                                        )}
+                                        
+                                        {/* Regular Booked Bar */}
+                                        {d.booked - d.maleReq - d.femaleReq > 0 && (
+                                            <rect x={x + 1} y={regularY} width={barWidth - 2} height={regularHeight} fill={isOverloaded ? '#ef4444' : '#6366f1'} 
+                                                rx={(d.maleReq === 0 && d.femaleReq === 0) ? "2" : "0"} 
+                                                style={{ borderTopLeftRadius: "2px", borderTopRightRadius: "2px" }}
+                                            />
+                                        )}
+                                        
+                                        {/* Interactive Hover Area */}
+                                        <rect x={x} y="0" width={barWidth} height={chartHeight} fill="transparent" 
+                                            className="cursor-crosshair hover:fill-indigo-500/10 transition-colors"
+                                            onMouseEnter={() => setHoveredMinute(d)}
+                                        />
+                                    </g>
+                                );
+                            })}
+                            
+                            {/* X-axis labels */}
+                            {[0, 10, 20, 30, 40, 50, 59].map(m => (
+                                <text key={m} x={m * barWidth + (m===59 ? -5 : 5)} y={chartHeight + 15} fontSize="12" fill="#64748b" textAnchor="middle">
+                                    {String(m).padStart(2, '0')}
+                                </text>
+                            ))}
+                        </svg>
+                    </div>
+
+                    {/* Hover Info Tooltip Area */}
+                    <div className="mt-6 h-24 bg-slate-50 border border-slate-200 rounded-xl p-4 flex items-center justify-center shrink-0 transition-all shadow-inner">
+                        {hoveredMinute ? (
+                            <div className="flex w-full justify-between items-center text-center animate-in fade-in zoom-in duration-200">
+                                <div className="flex flex-col items-center px-4 border-r border-slate-200 flex-1">
+                                    <span className="text-slate-500 text-xs font-bold uppercase tracking-wider mb-1">時間</span>
+                                    <span className="text-xl font-black text-indigo-700">{hour}:{String(hoveredMinute.minute).padStart(2, '0')}</span>
+                                </div>
+                                <div className="flex flex-col items-center px-4 border-r border-slate-200 flex-1">
+                                    <span className="text-slate-500 text-xs font-bold uppercase tracking-wider mb-1">可用技師</span>
+                                    <span className="text-xl font-black text-slate-700">{hoveredMinute.totalAvailable}</span>
+                                </div>
+                                <div className="flex flex-col items-center px-4 border-r border-slate-200 flex-1">
+                                    <span className="text-slate-500 text-xs font-bold uppercase tracking-wider mb-1">總預約</span>
+                                    <span className={`text-xl font-black ${hoveredMinute.booked > hoveredMinute.totalAvailable ? 'text-red-600 animate-pulse' : 'text-indigo-600'}`}>
+                                        {hoveredMinute.booked}
+                                    </span>
+                                </div>
+                                <div className="flex flex-col items-center px-4 border-r border-slate-200 flex-1">
+                                    <span className="text-slate-500 text-xs font-bold uppercase tracking-wider mb-1">指定女師</span>
+                                    <span className="text-xl font-black text-pink-500">{hoveredMinute.femaleReq}</span>
+                                </div>
+                                <div className="flex flex-col items-center px-4 border-r border-slate-200 flex-1">
+                                    <span className="text-slate-500 text-xs font-bold uppercase tracking-wider mb-1">指定男師</span>
+                                    <span className="text-xl font-black text-blue-500">{hoveredMinute.maleReq}</span>
+                                </div>
+                                <div className="flex flex-col items-center px-4 flex-1">
+                                    <span className="text-slate-500 text-xs font-bold uppercase tracking-wider mb-1">空閒</span>
+                                    <span className={`text-xl font-black ${hoveredMinute.idle === 0 ? 'text-orange-500' : 'text-emerald-500'}`}>{hoveredMinute.idle}</span>
+                                </div>
+                            </div>
+                        ) : (
+                            <div className="text-slate-400 font-medium flex flex-col items-center">
+                                <i className="fas fa-mouse-pointer text-xl mb-2 opacity-50"></i>
+                                請將滑鼠移至圖表上查看每分鐘詳情
+                            </div>
                         )}
-                    </div>
-
-                    <div className="bg-slate-50 px-4 py-3 rounded-lg border border-slate-200 flex items-center justify-between">
-                        <span className="font-bold text-slate-700">總女師預約數</span>
-                        <span className="text-xl font-black text-pink-500">{stats.femaleReq}</span>
-                    </div>
-
-                    <div className="bg-slate-50 px-4 py-3 rounded-lg border border-slate-200 flex items-center justify-between">
-                        <span className="font-bold text-slate-700">總男師預約數</span>
-                        <span className="text-xl font-black text-blue-500">{stats.maleReq}</span>
-                    </div>
-
-                    <div className="bg-slate-50 px-4 py-3 rounded-lg border border-slate-200 flex items-center justify-between">
-                        <span className="font-bold text-slate-700">總空閒技師數</span>
-                        <span className="text-xl font-black text-emerald-500">{stats.idle}</span>
                     </div>
                 </div>
             </div>
