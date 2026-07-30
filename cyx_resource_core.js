@@ -1075,11 +1075,21 @@ function findAvailableStaff(staffReq, start, end, staffListRef, busyList, queryD
         const shiftStart = status.startMins; const shiftEnd = status.endMins;
         // [CORE V118.0] Thuật toán Phân đoạn Ca Đêm
         let inMain = true;
-        if ((start + CONF.TOLERANCE) < shiftStart) inMain = false;
+        let failReason = 'OUT_OF_SHIFT';
+        if ((start + CONF.TOLERANCE) < shiftStart) {
+            inMain = false;
+            failReason = 'BEFORE_SHIFT';
+        }
         else if (status.isStrict) {
-            if ((end - CONF.TOLERANCE) > shiftEnd) inMain = false;
+            if ((end - CONF.TOLERANCE) > shiftEnd) {
+                inMain = false;
+                failReason = 'OUT_OF_SHIFT';
+            }
         } else {
-            if (start >= shiftEnd) inMain = false;
+            if (start >= shiftEnd) {
+                inMain = false;
+                failReason = 'OUT_OF_SHIFT';
+            }
         }
 
         let inTail = false;
@@ -1094,7 +1104,13 @@ function findAvailableStaff(staffReq, start, end, staffListRef, busyList, queryD
             }
         }
 
-        if (!inMain && !inTail) { outReason.reason = 'OUT_OF_SHIFT'; return false; }
+        if (!inMain && !inTail) { 
+            outReason.reason = failReason; 
+            if (failReason === 'BEFORE_SHIFT') {
+                outReason.time = `${String(Math.floor(start/60)%24).padStart(2, '0')}:${String(start%60).padStart(2, '0')}`;
+            }
+            return false; 
+        }
 
         for (const b of busyList) { 
             if (b.staffName === name && isOverlap(start, end, b.start, b.end)) {
@@ -1768,6 +1784,7 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
                                         if (newGuestBlocksMap[i].guest.staffName && !['RANDOM', 'MALE', 'FEMALE', '隨機', 'Any', 'undefined'].includes(newGuestBlocksMap[i].guest.staffName)) {
                                             if (outReason.reason === 'OFF') failureLog.push(`[${newGuestBlocksMap[i].guest.staffName}]老師沒有上班`);
                                             else if (outReason.reason === 'BUSY') failureLog.push(`${newGuestBlocksMap[i].guest.staffName}老師 ${outReason.time}已經有客人`);
+                                            else if (outReason.reason === 'BEFORE_SHIFT') failureLog.push(`[${newGuestBlocksMap[i].guest.staffName}]老師${outReason.time}還沒來上班`);
                                             else if (outReason.reason === 'OUT_OF_SHIFT') failureLog.push(`[${newGuestBlocksMap[i].guest.staffName}]老師已經下班了`);
                                             else failureLog.push(`[${newGuestBlocksMap[i].guest.staffName}]老師沒有上班`);
                                         }
@@ -1956,6 +1973,7 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
                 if (item.guest.staffName && !['RANDOM', 'MALE', 'FEMALE', '隨機', 'Any', 'undefined'].includes(item.guest.staffName)) {
                     if (outReason.reason === 'OFF') failureLog.push(`[${item.guest.staffName}]老師沒有上班`);
                     else if (outReason.reason === 'BUSY') failureLog.push(`${item.guest.staffName}老師 ${outReason.time}已經有客人`);
+                    else if (outReason.reason === 'BEFORE_SHIFT') failureLog.push(`[${item.guest.staffName}]老師${outReason.time}還沒來上班`);
                     else if (outReason.reason === 'OUT_OF_SHIFT') failureLog.push(`[${item.guest.staffName}]老師已經下班了`);
                     else failureLog.push(`[${item.guest.staffName}]老師沒有上班`);
                 }

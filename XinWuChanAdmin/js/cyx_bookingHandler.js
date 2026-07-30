@@ -1048,11 +1048,21 @@
 
                 const isStrict = staffInfo.isStrictTime === true;
                 let inMain = true;
-                if ((start + CONF.TOLERANCE) < shiftStart) inMain = false;
+                let failReason = 'OUT_OF_SHIFT';
+                if ((start + CONF.TOLERANCE) < shiftStart) {
+                    inMain = false;
+                    failReason = 'BEFORE_SHIFT';
+                }
                 else if (isStrict) {
-                    if ((end - CONF.TOLERANCE) > shiftEnd) inMain = false;
+                    if ((end - CONF.TOLERANCE) > shiftEnd) {
+                        inMain = false;
+                        failReason = 'OUT_OF_SHIFT';
+                    }
                 } else {
-                    if (start >= shiftEnd) inMain = false;
+                    if (start >= shiftEnd) {
+                        inMain = false;
+                        failReason = 'OUT_OF_SHIFT';
+                    }
                 }
 
                 let inTail = false;
@@ -1067,7 +1077,13 @@
                     }
                 }
 
-                if (!inMain && !inTail) { outReason.reason = 'OUT_OF_SHIFT'; return false; }
+                if (!inMain && !inTail) { 
+                    outReason.reason = failReason; 
+                    if (failReason === 'BEFORE_SHIFT') {
+                        outReason.time = `${String(Math.floor(start/60)%24).padStart(2, '0')}:${String(start%60).padStart(2, '0')}`;
+                    }
+                    return false; 
+                }
 
                 // MULTI-STAFF FIX: Kiểm tra xem name có nằm trong mảng thợ của bất kỳ booking nào đang bận không
                 for (const b of busyList) {
@@ -1834,6 +1850,8 @@
                                     errorMsg = `[${staffReq}]老師沒有上班`;
                                 } else if (outReason.reason === 'BUSY') {
                                     errorMsg = `${staffReq}老師 ${outReason.time}已經有客人`; 
+                                } else if (outReason.reason === 'BEFORE_SHIFT') {
+                                    errorMsg = `[${staffReq}]老師${outReason.time}還沒來上班`;
                                 } else if (outReason.reason === 'OUT_OF_SHIFT') {
                                     errorMsg = `[${staffReq}]老師已經下班了`;
                                 } else {
