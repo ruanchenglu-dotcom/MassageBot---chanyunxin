@@ -5333,6 +5333,11 @@ const App = () => {
                 <window.StaffInfoModal
                     staff={selectedStaffInfo}
                     onClose={() => setSelectedStaffInfo(null)}
+                    statusData={statusData}
+                    onUpdateStatus={updateStaffStatus}
+                    staffList={staffList}
+                    bookings={todaysBookings}
+                    viewDate={viewDate}
                 />
             )}
         </div>

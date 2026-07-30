@@ -1409,7 +1409,40 @@ window.AvailabilityCheckModal = AvailabilityCheckModal;
 window.BillingModal = BillingModal;
 window.SplitStaffModal = SplitStaffModal;
 
-const StaffInfoModal = ({ staff, onClose }) => {
+const StaffInfoModal = ({ staff, onClose, statusData, onUpdateStatus, staffList, bookings, viewDate }) => {
+    const [absenceData, setAbsenceData] = React.useState(null);
+
+    const toggleCheckIn = (id) => {
+        if (!statusData || !onUpdateStatus) return;
+        const current = statusData[id] || {};
+        const newStatus = current.status === 'READY' || current.status === 'EAT' ? 'AWAY' : 'READY';
+        let newCheckInTime = 0;
+        let newStaffTime = 0;
+        if (newStatus !== 'AWAY') {
+            if (typeof window._lastCheckInTime === 'undefined') window._lastCheckInTime = 0;
+            let now = Date.now();
+            if (now <= window._lastCheckInTime) now = window._lastCheckInTime + 1;
+            window._lastCheckInTime = now;
+            newCheckInTime = now;
+            if (window.StaffSorter?.processCheckIn) {
+                newStaffTime = window.StaffSorter.processCheckIn(id, statusData, staffList, newCheckInTime);
+            } else {
+                newStaffTime = newCheckInTime;
+            }
+        }
+        onUpdateStatus({
+            ...statusData,
+            [id]: { ...current, status: newStatus, checkInTime: newCheckInTime, stafftime: newStaffTime }
+        });
+    };
+
+    const toggleEat = (id) => {
+        if (!statusData || !onUpdateStatus) return;
+        const current = statusData[id] || {};
+        const newStatus = current.status === 'EAT' ? 'READY' : 'EAT';
+        onUpdateStatus({ ...statusData, [id]: { ...current, status: newStatus } });
+    };
+
     if (!staff) return null;
 
     const genderStr = String(staff.gender || '').toUpperCase();
@@ -1439,6 +1472,41 @@ const StaffInfoModal = ({ staff, onClose }) => {
                 </div>
                 
                 <div className="p-5">
+                    <h3 className="text-gray-800 font-bold mb-3 border-b pb-2 flex items-center">
+                        <i className="fas fa-bolt text-yellow-500 mr-2"></i> 快速操作
+                    </h3>
+                    <div className="flex flex-wrap gap-2 mb-5">
+                        {(() => {
+                            const current = (statusData && statusData[staff.id]) ? statusData[staff.id] : {};
+                            const isWorking = current.status === 'READY' || current.status === 'EAT' || current.status === 'OUT_SHORT' || current.status === 'BUSY_SHORT';
+                            return (
+                                <>
+                                    {isWorking ? (
+                                        <button onClick={() => toggleCheckIn(staff.id)} className="bg-red-500 hover:bg-red-600 text-white px-3 py-1.5 rounded font-bold shadow-sm flex items-center gap-1 text-sm">
+                                            <i className="fas fa-sign-out-alt"></i>下班
+                                        </button>
+                                    ) : (
+                                        <button onClick={() => toggleCheckIn(staff.id)} className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded font-bold shadow-sm flex items-center gap-1 text-sm">
+                                            <i className="fas fa-sign-in-alt"></i>打卡
+                                        </button>
+                                    )}
+                                    <button onClick={() => setAbsenceData({ staffId: staff.id, staffName: staff.name, type: 'LATE' })} className="bg-purple-100 text-purple-700 hover:bg-purple-200 px-3 py-1.5 rounded font-bold text-sm border border-purple-200">
+                                        晚到
+                                    </button>
+                                    <button onClick={() => setAbsenceData({ staffId: staff.id, staffName: staff.name, type: 'EARLY' })} className="bg-orange-100 text-orange-700 hover:bg-orange-200 px-3 py-1.5 rounded font-bold text-sm border border-orange-200">
+                                        早退
+                                    </button>
+                                    <button onClick={() => setAbsenceData({ staffId: staff.id, staffName: staff.name, type: 'OUT' })} className="bg-yellow-100 text-yellow-700 hover:bg-yellow-200 px-3 py-1.5 rounded font-bold text-sm border border-yellow-300">
+                                        外出
+                                    </button>
+                                    <button onClick={() => toggleEat(staff.id)} className={`${current.status === 'EAT' ? 'bg-orange-500 text-white border-transparent' : 'bg-gray-100 text-gray-700 border-gray-200'} hover:bg-orange-400 hover:text-white px-3 py-1.5 rounded font-bold text-sm border transition-colors flex items-center gap-1`}>
+                                        <i className="fas fa-utensils"></i>用餐
+                                    </button>
+                                </>
+                            );
+                        })()}
+                    </div>
+
                     <h3 className="text-gray-800 font-bold mb-3 border-b pb-2 flex items-center">
                         <i className="fas fa-clipboard-list text-blue-500 mr-2"></i> 今日指定預約
                         <span className="ml-auto bg-blue-100 text-blue-700 text-xs px-2 py-1 rounded-full">{upcomingBookings.length}</span>
@@ -1478,6 +1546,30 @@ const StaffInfoModal = ({ staff, onClose }) => {
                     </div>
                 </div>
             </div>
+            {absenceData && <AbsenceCheckModal 
+                data={absenceData} 
+                staffList={staffList} 
+                bookings={bookings} 
+                statusData={statusData}
+                localShifts={{}} 
+                viewDate={viewDate}
+                onClose={() => setAbsenceData(null)} 
+                onConfirm={(time1, time2, type) => {
+                    const currentStatus = (statusData && statusData[absenceData.staffId]) ? statusData[absenceData.staffId] : {};
+                    if (type === 'LATE') {
+                        onUpdateStatus({
+                            ...statusData,
+                            [absenceData.staffId]: { ...currentStatus, lateStart: time1 }
+                        });
+                    } else if (type === 'OUT') {
+                        onUpdateStatus({
+                            ...statusData,
+                            [absenceData.staffId]: { ...currentStatus, outStart: time1, outEnd: time2, status: 'OUT_SHORT' }
+                        });
+                    }
+                    setAbsenceData(null);
+                }} 
+            />}
         </div>
     );
 };
