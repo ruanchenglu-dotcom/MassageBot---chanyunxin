@@ -2115,6 +2115,17 @@ console.log('DEBUG_SPLITS:', { duration, eStep, eLimit, svc, testFlow, splitsToT
 
         const performCheck = async (e) => {
             if (e) e.preventDefault();
+            
+            const blacklist = serverData?.blacklist || window.SYSTEM_DATA?.blacklist || [];
+            if (blacklist.length > 0 && form.custPhone) {
+                const cleanPhone = form.custPhone.trim().replace(/\D/g, '');
+                if (cleanPhone && blacklist.some(b => b.phone === cleanPhone)) {
+                    Swal.fire('系統提示', '⚠️ 此電話號碼已列入黑名單，拒絕預約！', 'error');
+                    setIsChecking(false);
+                    return;
+                }
+            }
+
             setIsChecking(true); setCheckResult(null); setSuggestions([]);
             let freshData = await fetchLiveServerData(true);
             let serverBookingsList = freshData ? freshData.bookings : (serverData?.bookings || []);

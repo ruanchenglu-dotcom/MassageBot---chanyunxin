@@ -837,6 +837,15 @@ const AvailabilityCheckModal = ({ onClose, onSave, staffList, bookings, initialD
     }, [form.isYouTui]);
 
     const performCheck = () => {
+        const blacklist = window.SYSTEM_DATA?.blacklist || [];
+        if (blacklist.length > 0 && form.custPhone) {
+            const cleanPhone = form.custPhone.trim().replace(/\D/g, '');
+            if (cleanPhone && blacklist.some(b => b.phone === cleanPhone)) {
+                Swal.fire('系統提示', '⚠️ 此電話號碼已列入黑名單，拒絕預約！', 'error');
+                return;
+            }
+        }
+
         const safeStaffList = staffList || [];
         const safeBookings = bookings || [];
         const duration = window.getSafeDuration ? window.getSafeDuration(form.service, 60) : 60;
