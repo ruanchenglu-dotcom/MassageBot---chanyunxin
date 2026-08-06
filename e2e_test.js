@@ -1,68 +1,45 @@
-const puppeteer = require('puppeteer');
+const axios = require('axios');
 
-(async () => {
-    console.log('Khởi động Browser Agent (Puppeteer)...');
-    const browser = await puppeteer.launch({ 
-        headless: true, 
-        args: ['--no-sandbox'],
-        executablePath: "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe"
-    });
-    const page = await browser.newPage();
-    
+async function runTest() {
+    console.log('Bắt đầu chạy API End-to-End Test cho tính năng Gợi ý Dịch vụ...');
+    console.log('Gửi yêu cầu đặt lịch giả lập đến localhost:5001/api/admin-booking (50 khách để gây lỗi full chỗ)');
+
     try {
-        console.log('Mở trang web Admin tại http://localhost:5001/admin2/ ...');
-        await page.goto('http://localhost:5001/admin2/', { waitUntil: 'networkidle2', timeout: 30000 });
+        const response = await axios.post('http://localhost:5001/api/admin-booking', {
+            location: "本館",
+            date: "2026-10-10",
+            gioDen: "14:00",
+            serviceCode: "F60",
+            dichVu: "60分鐘腳底按摩",
+            pax: 12,
+            guestDetails: Array(12).fill(0).map((_, i) => ({
+                guestIndex: i + 1,
+                service: "60分鐘腳底按摩", 
+                serviceCode: "F60"
+            })),
+            checkBookings: []
+        });
         
-        console.log('Chờ tải các khối đặt chỗ (timeline-block)...');
-        try {
-            await page.waitForSelector('.timeline-block', { timeout: 10000 });
-        } catch (e) {
-            console.log('Không tìm thấy .timeline-block nào trong 10s. Có thể hôm nay không có đơn đặt chỗ nào.');
-        }
-        
-        console.log('Click vào booking đầu tiên để mở BookingControlModal...');
-        const blocks = await page.$$('.timeline-block');
-        if (blocks.length > 0) {
-            await blocks[0].click();
+        console.log('Phản hồi:', response.data);
+    } catch (error) {
+        if (error.response && error.response.status === 400) {
+            const data = error.response.data;
+            console.log('Nhận được lỗi 400 từ máy chủ (Hệ thống giả lập đầy chỗ).');
+            console.log('Chi tiết lỗi:', data.error);
             
-            console.log('Chờ Modal xuất hiện...');
-            // Chờ một chút để React render Modal
-            await new Promise(resolve => setTimeout(resolve, 1500));
-            
-            // Tìm nút kết toán
-            const checkoutBtn = await page.evaluate(() => {
-                const buttons = Array.from(document.querySelectorAll('button'));
-                const targetBtn = buttons.find(btn => btn.textContent.includes('結帳'));
-                if (targetBtn) {
-                    return {
-                        text: targetBtn.textContent,
-                        className: targetBtn.className
-                    };
-                }
-                return null;
-            });
-            
-            if (checkoutBtn) {
-                console.log('Đã tìm thấy nút thanh toán trong Modal!');
-                console.log(' - Text hiển thị:', checkoutBtn.text);
-                console.log(' - Classes CSS:', checkoutBtn.className);
-                
-                if (checkoutBtn.text.includes('已結帳') || checkoutBtn.className.includes('bg-teal-700')) {
-                    console.log('=> Trạng thái: KHÁCH ĐÃ THANH TOÁN (Nền đậm, chữ trắng)');
-                } else {
-                    console.log('=> Trạng thái: CHƯA THANH TOÁN (Nền nhạt, chữ xanh)');
-                }
-                console.log('✅ End-to-End Test (E2E) thành công: UI đã được ánh xạ đúng.');
+            // Validate HTML content
+            if (data.error && data.error.includes('💡 推薦同時段可預約的其他服務')) {
+                console.log('✅ TEST PASSED: Backend đã trả về HTML gợi ý dịch vụ thành công!');
+                process.exit(0);
             } else {
-                console.log('❌ Không tìm thấy nút thanh toán. Có thể Modal chưa mở hoặc cấu trúc UI đã thay đổi.');
+                console.error('❌ TEST FAILED: Không tìm thấy HTML gợi ý trong câu thông báo lỗi!');
+                process.exit(1);
             }
         } else {
-            console.log('Không có booking nào trên timeline hôm nay để click test.');
+            console.error('❌ TEST FAILED: Gặp lỗi mạng hoặc máy chủ không phản hồi đúng (', error.message, ')');
+            process.exit(1);
         }
-    } catch (error) {
-        console.error('Lỗi khi chạy E2E Test:', error);
-    } finally {
-        await browser.close();
-        console.log('Đã đóng Browser Agent.');
     }
-})();
+}
+
+runTest();

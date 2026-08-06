@@ -2760,7 +2760,31 @@
                         finalCheck = callCoreAvailabilityCheck(form.date, form.time, guestDetails, checkBookings, serverData?.staff || safeStaffList, selectedLocation);
 
                         if (!finalCheck.valid) {
-                            Swal.fire('系統提示', "⚠️ 數據已變更，無法預約：" + finalCheck.reason, 'error');
+                            let suggestionsHtml = '';
+                            let availableServices = [];
+                            const allServices = window.SERVICES_DATA || {};
+                            const currentServiceCode = guestDetails[0].serviceCode || getServiceCodeByName(guestDetails[0].service);
+                            
+                            for(let svcCode in allServices) {
+                                if(svcCode === currentServiceCode) continue;
+                                
+                                let mockGuestDetails = guestDetails.map(g => ({...g, service: allServices[svcCode].name, serviceCode: svcCode}));
+                                let mockCheck = callCoreAvailabilityCheck(form.date, form.time, mockGuestDetails, checkBookings, serverData?.staff || safeStaffList, selectedLocation);
+                                
+                                if(mockCheck && mockCheck.valid) {
+                                    availableServices.push(allServices[svcCode].name + ' (' + allServices[svcCode].duration + '分鐘)');
+                                }
+                            }
+                            
+                            if(availableServices.length > 0) {
+                                suggestionsHtml = '<br><br><b>💡 推薦同時段可預約的其他服務：</b><br><ul style="text-align:left; margin-top:5px; font-size:14px; display:inline-block;">' + availableServices.map(s => '<li>' + s + '</li>').join('') + '</ul>';
+                            }
+                            
+                            Swal.fire({
+                                title: '系統提示',
+                                html: "⚠️ 數據已變更，無法預約：" + finalCheck.reason + suggestionsHtml,
+                                icon: 'error'
+                            });
                             setIsSubmitting(false);
                             return;
                         }
@@ -2875,7 +2899,7 @@
                     forceGlobalRefresh();
                     setTimeout(() => { onClose(); setIsSubmitting(false); }, 500);
                 }
-            } catch (err) { Swal.fire('系統提示', "儲存失敗：" + (err.response?.data?.error || err.message), 'error'); setIsSubmitting(false); }
+            } catch (err) { Swal.fire({ title: '系統提示', html: "儲存失敗：" + (err.response?.data?.error || err.message), icon: 'error' }); setIsSubmitting(false); }
         };
 
         const configTime = window.SYSTEM_CONFIG?.OPERATION_TIME || { OPEN_HOUR: 8, CUT_OFF_HOUR: 2 };

@@ -1139,8 +1139,24 @@ app.post('/api/admin-booking', async (req, res) => {
                 } else {
                     // [V118.8 FIX] Chặn Cứng (Hard-Reject) nếu hết chỗ (không khả thi)
                     const errorReason = checkResult.reason ? `：${checkResult.reason}` : "";
+                    
+                    let suggestionsHtml = '';
+                    let availableServices = [];
+                    for(let code in SERVICES) {
+                         if(code === serviceCode) continue;
+                         let mockGuestList = guestList.map(g => ({...g, serviceCode: code, serviceName: SERVICES[code].name}));
+                         let mockCheck = ResourceCore.checkRequestAvailability(opDateCheck, cyx_data.gioDen, mockGuestList, relevantBookings, staffListMap, { location: cyx_data.location || '本館' });
+                         if(mockCheck.feasible) {
+                             availableServices.push(SERVICES[code].name + ' (' + SERVICES[code].duration + '分鐘)');
+                         }
+                    }
+                    
+                    if(availableServices.length > 0) {
+                        suggestionsHtml = '<br><br><b>💡 推薦同時段可預約的其他服務：</b><br><ul style="text-align:left; margin-top:5px; font-size:14px; display:inline-block;">' + availableServices.map(s => '<li>' + s + '</li>').join('') + '</ul>';
+                    }
+                    
                     console.log(`[DEBUG-FLOW] checkResult.feasible=false! errorReason=${errorReason}, guestList=`, JSON.stringify(guestList));
-                    return res.status(400).json({ success: false, error: `⚠️ 系統滿載：沒有足夠的連續空位給此預約${errorReason}` });
+                    return res.status(400).json({ success: false, error: `⚠️ 系統滿載：沒有足夠的連續空位給此預約${errorReason}${suggestionsHtml}` });
                 }
             }
         } catch (err) { console.error("[ADMIN AUTO-FLOW ERROR]", err); }

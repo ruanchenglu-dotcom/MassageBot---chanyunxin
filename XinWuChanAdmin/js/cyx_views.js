@@ -1271,6 +1271,83 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                                     </span>
                                 )}
                             </div>
+                            <button onClick={() => {
+                                const printWindow = window.open('', '', 'width=400,height=600');
+                                
+                                const getResLabel = (res) => {
+                                    if (!res || res === 'auto' || res === 'full') return '';
+                                    return window.formatResourceLabel ? window.formatResourceLabel(res, false) : res;
+                                };
+                                
+                                let loc1 = getResLabel(selectedPhase1Res) || getResLabel(selectedSingleRes);
+                                let loc2 = getResLabel(selectedPhase2Res);
+                                if (!loc1 && contextResourceId) loc1 = getResLabel(contextResourceId);
+                                if (!loc1 && booking.allocated_resource) loc1 = booking.allocated_resource;
+
+                                const staffName = selectedStaff !== '隨機' ? selectedStaff : (booking.staffId || '未指派');
+                                const staffName2 = isSplitMode && selectedStaff2 !== '隨機' ? selectedStaff2 : null;
+                                
+                                let html = `
+                                    <html>
+                                    <head>
+                                        <title>派工單 - ${booking.customerName}</title>
+                                        <style>
+                                            body { font-family: 'Microsoft JhengHei', sans-serif; margin: 0; padding: 20px; font-size: 16px; line-height: 1.5; color: #000; }
+                                            h2 { margin: 0 0 10px 0; text-align: center; font-size: 24px; border-bottom: 2px dashed #000; padding-bottom: 10px; }
+                                            .row { margin-bottom: 8px; display: flex; }
+                                            .label { font-weight: bold; width: 110px; flex-shrink: 0; }
+                                            .value { flex-grow: 1; font-weight: bold; font-size: 18px; }
+                                            .highlight { font-size: 22px; font-weight: bold; }
+                                            .divider { border-top: 1px dashed #000; margin: 15px 0; }
+                                        </style>
+                                    </head>
+                                    <body>
+                                        <h2>派工單</h2>
+                                        <div class="row"><div class="label">日期:</div><div class="value">${booking.date || ''}</div></div>
+                                        <div class="row"><div class="label">預約時間:</div><div class="value highlight">${(booking.originalData && (booking.originalData['時間'] || booking.originalData.time || booking.originalData.bookingTime)) || booking.startTime || ''}</div></div>
+                                        <div class="row"><div class="label">姓名:</div><div class="value highlight">${booking.customerName || ''}</div></div>
+                                        <div class="row"><div class="label">項目:</div><div class="value">${selectedService || booking.serviceName || ''}</div></div>
+                                        <div class="row"><div class="label">指定師傅:</div><div class="value">${requestedStaff}</div></div>
+                                        <div class="row"><div class="label">顧客要求:</div><div class="value">${booking.adminNote || booking.note || '無'}</div></div>
+                                        <div class="divider"></div>
+                                        <div class="row"><div class="label">服務師傅1:</div><div class="value highlight">${staffName}</div></div>
+                                `;
+                                if (staffName2) {
+                                    html += `<div class="row"><div class="label">服務師傅2:</div><div class="value highlight">${staffName2}</div></div>`;
+                                }
+                                html += `
+                                        <div class="divider"></div>
+                                        <div class="row"><div class="label">價格:</div><div class="value">${booking.total_price || booking.price || '---'}</div></div>
+                                        <div class="row"><div class="label">付款狀態:</div><div class="value">${booking.checkout_status || booking.status || '未結帳'}</div></div>
+                                        <div class="divider"></div>
+                                        <div class="row"><div class="label">第一階段時間:</div><div class="value">${phase1} 分鐘</div></div>
+                                `;
+                                if (totalDuration > phase1) {
+                                    html += `<div class="row"><div class="label">第二階段時間:</div><div class="value">${totalDuration - phase1} 分鐘</div></div>`;
+                                }
+                                html += `
+                                        <div class="row"><div class="label">位置 1:</div><div class="value highlight">${loc1}</div></div>
+                                `;
+                                if (loc2) {
+                                    html += `<div class="row"><div class="label">位置 2:</div><div class="value highlight">${loc2}</div></div>`;
+                                }
+                                html += `
+                                        <div class="divider"></div>
+                                        <div style="text-align: center; margin-top: 20px; font-size: 12px;">列印時間: ${new Date().toLocaleString('zh-TW')}</div>
+                                        <script>
+                                            setTimeout(function() {
+                                                window.print();
+                                                window.close();
+                                            }, 500);
+                                        </script>
+                                    </body>
+                                    </html>
+                                `;
+                                printWindow.document.write(html);
+                                printWindow.document.close();
+                            }} className="bg-white/10 hover:bg-white/30 rounded-full w-10 h-10 flex items-center justify-center transition-all shrink-0" title="列印派工單">
+                                <i className="fas fa-print text-xl"></i>
+                            </button>
                             <button onClick={onClose} className="bg-white/10 hover:bg-white/30 rounded-full w-10 h-10 flex items-center justify-center transition-all shrink-0"><i className="fas fa-times text-xl"></i></button>
                         </div>
                     </div>
