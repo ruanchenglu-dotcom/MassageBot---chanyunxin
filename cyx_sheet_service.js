@@ -1978,45 +1978,63 @@ async function updateBookingGroupAtomic(groupUpdates) {
             const b = simulatedBookings.find(x => String(x.rowId) === String(update.rowId));
             if (!b) continue;
 
+            const dichVu = update.updatedData.dichVu || b.serviceName;
+            let sCode = null;
+            const found = Object.values(STATE.SERVICES).find(s => s.name === dichVu);
+            if (found) sCode = found.code;
+
             const flow = update.updatedData.flow || b.flow || 'FB';
+            
+            let phase1_dur = update.updatedData.phase1_duration !== undefined ? update.updatedData.phase1_duration : b.phase1_duration;
+            let phase2_dur = update.updatedData.phase2_duration !== undefined ? update.updatedData.phase2_duration : b.phase2_duration;
+            let duration = update.updatedData.duration !== undefined ? update.updatedData.duration : b.duration;
+
             guestList.push({
-                service: update.updatedData.dichVu || b.serviceName,
+                serviceCode: sCode,
+                serviceName: dichVu,
+                service: dichVu,
                 staffName: update.updatedData.nhanVien || b.requestedStaff || '隨機',
+                staff: update.updatedData.nhanVien || b.requestedStaff || '隨機',
                 isYouTui: update.updatedData.isYouTui !== undefined ? update.updatedData.isYouTui : b.isYouTui,
                 isGuaSha: update.updatedData.isGuaSha !== undefined ? update.updatedData.isGuaSha : b.isGuaSha,
                 isHuaGuan: update.updatedData.isHuaGuan !== undefined ? update.updatedData.isHuaGuan : b.isHuaGuan,
                 isBaGuan: update.updatedData.isBaGuan !== undefined ? update.updatedData.isBaGuan : b.isBaGuan,
                 rowId: update.rowId,
                 originalBooking: b,
-                forcedFlow: flow
+                forcedFlow: flow,
+                flow: flow,
+                flowCode: flow,
+                duration: duration,
+                phase1_duration: phase1_dur,
+                phase2_duration: phase2_dur
             });
         }
 
         // Call CoreAPI to find best elastic fit for the whole group simultaneously
         const checkResult = typeof ResourceCore !== 'undefined' && ResourceCore.checkRequestAvailability
             ? ResourceCore.checkRequestAvailability(normalizeDateStrict(dateStr), timeStr, guestList, otherBookings, STATE.STAFF_LIST, { location: targetLocation })
-            : { valid: true, guests: guestList.map(g => ({ 
+            : { feasible: true, details: guestList.map(g => ({ 
                 phase1_duration: g.originalBooking.phase1_duration, 
                 phase2_duration: g.originalBooking.phase2_duration, 
-                phase1_res: g.originalBooking.phase1_res_idx, 
-                phase2_res: g.originalBooking.phase2_res_idx, 
+                phase1_res_idx: g.originalBooking.phase1_res_idx, 
+                phase2_res_idx: g.originalBooking.phase2_res_idx, 
                 staffName: g.staffName, 
                 total_duration: g.originalBooking.duration 
             })) };
 
-        if (!checkResult.valid) {
+        if (!checkResult.feasible) {
             throw new Error('群組排程衝突，請確認時段或修改服務。 ' + (checkResult.reason || ''));
         }
 
         // Map the result back to each member's updatedData
-        for (let i = 0; i < checkResult.guests.length; i++) {
-            const mappedRes = checkResult.guests[i];
+        for (let i = 0; i < checkResult.details.length; i++) {
+            const mappedRes = checkResult.details[i];
             const originalUpdate = groupUpdates.find(g => String(g.rowId) === String(guestList[i].rowId));
             if (originalUpdate) {
                 if (mappedRes.phase1_duration) originalUpdate.updatedData.phase1_duration = mappedRes.phase1_duration;
                 if (mappedRes.phase2_duration !== undefined) originalUpdate.updatedData.phase2_duration = mappedRes.phase2_duration;
-                if (mappedRes.phase1_res) originalUpdate.updatedData.phase1_res_idx = mappedRes.phase1_res;
-                if (mappedRes.phase2_res) originalUpdate.updatedData.phase2_res_idx = mappedRes.phase2_res;
+                if (mappedRes.phase1_res_idx) originalUpdate.updatedData.phase1_res_idx = mappedRes.phase1_res_idx;
+                if (mappedRes.phase2_res_idx) originalUpdate.updatedData.phase2_res_idx = mappedRes.phase2_res_idx;
                 if (mappedRes.transition_time) originalUpdate.updatedData.transition_time = mappedRes.transition_time;
                 if (mappedRes.staffName) originalUpdate.updatedData.nhanVien = mappedRes.staffName;
                 if (mappedRes.total_duration) originalUpdate.updatedData.duration = mappedRes.total_duration;
