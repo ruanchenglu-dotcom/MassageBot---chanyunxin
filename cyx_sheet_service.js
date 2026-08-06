@@ -2039,25 +2039,84 @@ async function updateBookingGroupAtomic(groupUpdates) {
             let timeVal = updatedData.gioDen || row[2];
             if (timeVal.length > 5) timeVal = timeVal.substring(0, 5);
 
-            if (updatedData.hoTen !== undefined) row[0] = updatedData.hoTen;
-            if (updatedData.ngayDen !== undefined) row[1] = formattedDate;
-            if (updatedData.gioDen !== undefined) row[2] = timeVal;
+            if (updatedData.ngayDen !== undefined) row[0] = formattedDate;
+            if (updatedData.gioDen !== undefined) row[1] = timeVal;
+            if (updatedData.hoTen !== undefined) row[2] = updatedData.hoTen;
             if (updatedData.sdt !== undefined) row[3] = updatedData.sdt;
-            if (updatedData.dichVu !== undefined) row[4] = updatedData.dichVu;
-            if (updatedData.trangThai !== undefined) row[5] = updatedData.trangThai;
-            if (updatedData.nhanVien !== undefined) row[6] = updatedData.nhanVien;
-            
-            if (updatedData.isYouTui !== undefined) row[25] = updatedData.isYouTui ? 'TRUE' : '';
-            if (updatedData.isGuaSha !== undefined) row[40] = updatedData.isGuaSha ? 'TRUE' : '';
-            if (updatedData.isHuaGuan !== undefined) row[41] = updatedData.isHuaGuan ? 'TRUE' : '';
-            if (updatedData.isBaGuan !== undefined) row[42] = updatedData.isBaGuan ? 'TRUE' : '';
-            
-            if (updatedData.phase1_duration !== undefined) row[34] = updatedData.phase1_duration;
-            if (updatedData.phase2_duration !== undefined) row[35] = updatedData.phase2_duration;
-            if (updatedData.phase1_res_idx !== undefined) row[36] = updatedData.phase1_res_idx;
-            if (updatedData.phase2_res_idx !== undefined) row[37] = updatedData.phase2_res_idx;
-            if (updatedData.flow !== undefined) row[38] = updatedData.flow;
-            if (updatedData.transition_time !== undefined) row[39] = updatedData.transition_time;
+
+            let isYouTui = updatedData.isYouTui !== undefined ? updatedData.isYouTui : (row[5] === "Yes");
+            row[5] = isYouTui ? "Yes" : "";
+
+            if (updatedData.isGuaSha !== undefined) row[6] = updatedData.isGuaSha ? "Yes" : "";
+            if (updatedData.isHuaGuan !== undefined) row[7] = updatedData.isHuaGuan ? "Yes" : "";
+            if (updatedData.isBaGuan !== undefined) row[8] = updatedData.isBaGuan ? "Yes" : "";
+            if (updatedData.trangThai !== undefined) row[9] = updatedData.trangThai;
+            if (updatedData.nhanVien !== undefined) row[10] = updatedData.nhanVien;
+
+            let sCode = null;
+            if (updatedData.dichVu !== undefined) {
+                let svcName = updatedData.dichVu;
+                if (isYouTui && !svcName.includes("油推")) {
+                    svcName += getOilSuffixText();
+                }
+                row[4] = svcName;
+
+                sCode = updatedData.serviceCode;
+                if (!sCode) {
+                    const found = Object.values(STATE.SERVICES).find(s => s.name === updatedData.dichVu);
+                    if (found) sCode = found.code;
+                }
+                row[24] = sCode;
+
+                if (sCode && STATE.SERVICES[sCode]) {
+                    const svcDef = STATE.SERVICES[sCode];
+                    let newPrice = svcDef.price || 0;
+                    if (isYouTui) {
+                        if (sCode === 'B1') newPrice += 100;
+                        else newPrice += 200;
+                    }
+                    row[18] = newPrice;
+                    if (svcDef.category === 'COMBO') {
+                        row[34] = 'COMBO';
+                    } else if (svcDef.category === 'FOOT') {
+                        row[34] = 'CHAIR';
+                    } else if (svcDef.category === 'BODY') {
+                        row[34] = 'BED';
+                    }
+                }
+            } else {
+                sCode = row[24];
+            }
+
+            if (updatedData.phase1_duration !== undefined) row[28] = updatedData.phase1_duration;
+            if (updatedData.phase2_duration !== undefined) row[30] = updatedData.phase2_duration;
+            if (updatedData.phase1_res_idx !== undefined) row[32] = updatedData.phase1_res_idx;
+            if (updatedData.phase2_res_idx !== undefined) row[33] = updatedData.phase2_res_idx;
+            if (updatedData.flow !== undefined) row[25] = updatedData.flow;
+
+            let parsedColB = row[1];
+            if (parsedColB) {
+                if (parsedColB.includes(' ')) parsedColB = parsedColB.split(' ')[1];
+                if (parsedColB.length > 5) parsedColB = parsedColB.substring(0, 5);
+                row[27] = parsedColB;
+                
+                const startMins = typeof ResourceCore !== 'undefined' ? ResourceCore.getMinsFromTimeStr(parsedColB) : -1;
+                if (startMins !== -1) {
+                    let p1Dur = parseInt(row[28]) || 0;
+                    let p2Dur = parseInt(row[30]) || 0;
+                    let finalFlow = row[25] || "FB";
+                    const isCombo = (finalFlow === 'FB' || finalFlow === 'BF');
+                    const transitionBuffer = isCombo ? (typeof ResourceCore !== 'undefined' && ResourceCore.CONFIG ? ResourceCore.CONFIG.TRANSITION_BUFFER : 3) : 0;
+                    
+                    if (isCombo) {
+                        row[29] = typeof ResourceCore !== 'undefined' ? ResourceCore.getTimeStrFromMins(startMins + p1Dur + transitionBuffer) : "";
+                    } else {
+                        row[29] = "";
+                    }
+                    row[31] = typeof ResourceCore !== 'undefined' ? ResourceCore.getTimeStrFromMins(startMins + p1Dur + p2Dur + transitionBuffer) : "";
+                }
+            }
+
             if (updatedData.duration !== undefined) row[45] = updatedData.duration;
 
             dataToUpdate.push({
