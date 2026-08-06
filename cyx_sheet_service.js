@@ -1979,11 +1979,16 @@ async function updateBookingGroupAtomic(groupUpdates) {
             if (!b) continue;
 
             const dichVu = update.updatedData.dichVu || b.serviceName;
-            let sCode = null;
-            const found = Object.values(STATE.SERVICES).find(s => s.name === dichVu);
-            if (found) sCode = found.code;
+            let sCode = smartFindServiceCode(dichVu);
 
-            const flow = update.updatedData.flow || b.flow || 'FB';
+            let flow = update.updatedData.flow;
+            if (flow === undefined) flow = b.flow;
+            if (!flow || flow.trim() === '') {
+                flow = typeof ResourceCore !== 'undefined' && ResourceCore.inferFlowFromService 
+                    ? ResourceCore.inferFlowFromService(STATE.SERVICES[sCode] || null, null)
+                    : 'BODYSINGLE';
+                update.updatedData.flow = flow;
+            }
             
             let phase1_dur = update.updatedData.phase1_duration !== undefined ? update.updatedData.phase1_duration : b.phase1_duration;
             let phase2_dur = update.updatedData.phase2_duration !== undefined ? update.updatedData.phase2_duration : b.phase2_duration;
@@ -2081,8 +2086,7 @@ async function updateBookingGroupAtomic(groupUpdates) {
 
                 sCode = updatedData.serviceCode;
                 if (!sCode) {
-                    const found = Object.values(STATE.SERVICES).find(s => s.name === updatedData.dichVu);
-                    if (found) sCode = found.code;
+                    sCode = smartFindServiceCode(updatedData.dichVu);
                 }
                 row[24] = sCode;
 
@@ -2094,6 +2098,9 @@ async function updateBookingGroupAtomic(groupUpdates) {
                         else newPrice += 200;
                     }
                     row[18] = newPrice;
+                    if (svcDef.blocks) {
+                        row[15] = "'" + svcDef.blocks;
+                    }
                     if (svcDef.category === 'COMBO') {
                         row[34] = 'COMBO';
                     } else if (svcDef.category === 'FOOT') {
