@@ -2158,6 +2158,7 @@
         const [step, setStep] = useState('CHECK');
         const [checkResult, setCheckResult] = useState(null);
         const [suggestions, setSuggestions] = useState([]);
+        const [serviceSuggestions, setServiceSuggestions] = useState([]);
         const [isSubmitting, setIsSubmitting] = useState(false);
         const [isChecking, setIsChecking] = useState(false);
         const [isStandbyMode, setIsStandbyMode] = useState(false);
@@ -2637,6 +2638,22 @@
                 });
                 
                 setSuggestions(found);
+
+                // --- [NÂNG CẤP V118] TÌM KIẾM DỊCH VỤ KHÁC TẠI CÙNG THỜI ĐIỂM ---
+                const altServices = [];
+                const currentSvc = guestDetails[0]?.service;
+                // Nếu khách chỉ đi 1 người (để đơn giản hóa gợi ý) hoặc có thể duyệt mọi người
+                if (guestDetails.length === 1 && window.SERVICES_LIST) {
+                    for (let svc of window.SERVICES_LIST) {
+                        if (svc === currentSvc) continue;
+                        let mockGuestDetails = [{ ...guestDetails[0], service: svc }];
+                        let checkAltRes = callCoreAvailabilityCheck(form.date, form.time, mockGuestDetails, finalBookings, serverStaffList, selectedLocation);
+                        if (checkAltRes.valid) {
+                            altServices.push(svc);
+                        }
+                    }
+                }
+                setServiceSuggestions(altServices);
             }
             setIsChecking(false);
         };
@@ -3218,7 +3235,7 @@
                                                     ))}
                                                 </div>
                                                 {suggestions.length > 0 && (
-                                                    <div className="bg-yellow-50 p-4 rounded-xl border-2 border-yellow-300">
+                                                    <div className="bg-yellow-50 p-4 rounded-xl border-2 border-yellow-300 mt-4">
                                                         <div className="text-base font-bold text-yellow-800 mb-3">💡 建議時段:</div>
                                                         <div className="flex gap-3 flex-wrap">
                                                             {suggestions.map(s => {
@@ -3228,11 +3245,24 @@
                                                                     if (dParts.length === 3) displayLabel = `${dParts[1]}/${dParts[2]} ${s.time}`;
                                                                 }
                                                                 return (
-                                                                    <button key={`${s.date}-${s.time}`} onClick={() => { setForm(f => ({ ...f, time: s.time, date: s.date ? s.date.replace(/\//g, '-') : form.date })); setCheckResult(null); setSuggestions([]); }} className="px-5 py-2 bg-white border-2 border-yellow-400 text-yellow-900 rounded-lg font-bold text-lg hover:bg-yellow-200 whitespace-nowrap">
+                                                                    <button key={`${s.date}-${s.time}`} onClick={() => { setForm(f => ({ ...f, time: s.time, date: s.date ? s.date.replace(/\//g, '-') : form.date })); setCheckResult(null); setSuggestions([]); setServiceSuggestions([]); }} className="px-5 py-2 bg-white border-2 border-yellow-400 text-yellow-900 rounded-lg font-bold text-lg hover:bg-yellow-200 whitespace-nowrap">
                                                                         {displayLabel}
                                                                     </button>
                                                                 );
                                                             })}
+                                                        </div>
+                                                    </div>
+                                                )}
+
+                                                {serviceSuggestions.length > 0 && (
+                                                    <div className="bg-green-50 p-4 rounded-xl border-2 border-green-300 mt-4">
+                                                        <div className="text-base font-bold text-green-800 mb-3">💡 推薦同時段可預約的其他服務：</div>
+                                                        <div className="flex gap-3 flex-wrap">
+                                                            {serviceSuggestions.map(svc => (
+                                                                <button key={svc} onClick={(e) => { e.preventDefault(); let newGuests = [...guestDetails]; newGuests[0].service = svc; setGuestDetails(newGuests); setCheckResult(null); setSuggestions([]); setServiceSuggestions([]); }} className="px-5 py-2 bg-white border-2 border-green-400 text-green-900 rounded-lg font-bold text-lg hover:bg-green-200 whitespace-nowrap">
+                                                                    {svc}
+                                                                </button>
+                                                            ))}
                                                         </div>
                                                     </div>
                                                 )}
