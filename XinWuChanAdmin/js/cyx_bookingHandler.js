@@ -1914,6 +1914,35 @@
         return { checkRequestAvailability, setDynamicServices, getTimeStrFromMins, generateElasticSplits };
     })();
 
+    // Expose cyxCallCoreAvailabilityCheck globally for cyx_views and cyx_app
+    window.cyxCallCoreAvailabilityCheck = function(dateStr, timeStr, guestDetails, todays, staffList) {
+        const staffMap = {};
+        if (Array.isArray(staffList)) {
+            staffList.forEach(s => {
+                const sId = window.normalizeStaffId ? window.normalizeStaffId(String(s.id).trim()) : String(s.id).trim();
+                const rawStart = s['上班'] || s.start || s.shiftStart || "00:00";
+                const rawEnd = s['下班'] || s.end || s.shiftEnd || "00:00";
+                const dayStatus = s[dateStr] || s[dateStr.replace(/\//g, '-')] || "";
+                let isOff = (String(s.offDays || "").includes(dateStr) || String(dayStatus).toUpperCase().includes('OFF') || String(dayStatus).toUpperCase() === 'X');
+                staffMap[sId] = {
+                    id: sId, gender: s.gender, start: rawStart, end: rawEnd,
+                    isStrictTime: (s.isStrictTime === true || String(s.isStrictTime).toUpperCase() === 'TRUE'), off: isOff,
+                    offDays: s.offDays, customShifts: s.customShifts
+                };
+                if (s.name) staffMap[window.normalizeStaffId ? window.normalizeStaffId(String(s.name).trim()) : String(s.name).trim()] = staffMap[sId];
+            });
+        }
+        try {
+            const result = CoreKernel.checkRequestAvailability(dateStr, timeStr, guestDetails, todays, staffMap, { location: '本館' });
+            return result.feasible
+                ? { valid: true, details: result.details, proposedUpdates: result.proposedUpdates, debug: result.debug }
+                : { valid: false, reason: result.reason, debug: result.debug };
+        } catch (err) {
+            console.error(err);
+            return { valid: false, reason: "System Error: " + err.message };
+        }
+    };
+
     // ========================================================================
     // PHẦN 2: DATA FETCHER
     // ========================================================================

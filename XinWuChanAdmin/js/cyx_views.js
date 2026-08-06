@@ -428,6 +428,15 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
     const openMins = getOpenMins();
     if (startMins < openMins) startMins += 1440;
 
+    const excludeRowIds = useMemo(() => {
+        const ids = [booking?.rowId];
+        if (isGroupMode && groupMembersToUpdate) {
+            groupMembersToUpdate.forEach(m => ids.push(m.rowId));
+        }
+        return ids.filter(Boolean);
+    }, [booking?.rowId, isGroupMode, groupMembersToUpdate]);
+    const excludeRowIdsStr = excludeRowIds.join(',');
+
     const switchMins = startMins + phase1;
     const endMins = startMins + totalDuration;
 
@@ -435,9 +444,10 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
     const endTimeStr = minsToTimeStr(endMins);
 
     const checkOverlap = (resId, checkStart, checkEnd, excludeRowId) => {
+        const excludes = Array.isArray(excludeRowId) ? excludeRowId.map(String) : [String(excludeRowId)];
         if (timelineData && timelineData[resId]) {
             for (let slot of timelineData[resId]) {
-                if (String(slot.booking.rowId) !== String(excludeRowId)) {
+                if (slot.booking && !excludes.includes(String(slot.booking.rowId))) {
                     if (checkStart < slot.end && slot.start < checkEnd) return true;
                 }
             }
@@ -457,12 +467,12 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
         for (let i = 1; i <= maxCount; i++) {
             const rawId = `${prefix}-${i}`;
             const resId = window.normalizeResourceId(rawId) || rawId;
-            const isOverlap = checkOverlap(resId, startMins, switchMins, booking?.rowId);
+            const isOverlap = checkOverlap(resId, startMins, switchMins, excludeRowIds);
             allList.push({ id: resId, isAvailable: !isOverlap });
             if (!isOverlap) availList.push(resId);
         }
         return { availableP1Resources: availList, p1ResourcesData: allList };
-    }, [isBodyFirstLocal, startMins, switchMins, timelineData, booking?.rowId, booking?.location]);
+    }, [isBodyFirstLocal, startMins, switchMins, timelineData, excludeRowIdsStr, booking?.location]);
 
     const handleCheckClick = () => {
         const safeBookings = Array.isArray(bookings) ? bookings : [];
@@ -892,10 +902,11 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
             if (isSameCategory) {
                 let isResConflict = false;
                 if (editServiceCategory === 'COMBO') {
-                    if (booking.phase1_res_idx && checkOverlap(booking.phase1_res_idx, startMins, editPhase1End, booking.rowId)) isResConflict = true;
-                    if (booking.phase2_res_idx && checkOverlap(booking.phase2_res_idx, switchMins + 5, endMins, booking.rowId)) isResConflict = true;
+                    if (booking.phase1_res_idx && checkOverlap(booking.phase1_res_idx, startMins, editPhase1End, excludeRowIds)) isResConflict = true;
+                    if (booking.phase2_res_idx && checkOverlap(booking.phase2_res_idx, switchMins + 5, endMins, excludeRowIds)) isResConflict = true;
                 } else {
                     isResConflict = todays.some(b => {
+                        if (excludeRowIds.includes(String(b.rowId))) return false;
                         const bTimeStr = (b.startTimeString || ' ').split(' ')[1] || '00:00';
                         const bStart = timeStrToMins(bTimeStr);
                         const bEnd = bStart + getDuration(b.serviceName, b.duration || 60);
@@ -914,17 +925,28 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                     
                     // [NÂNG CẤP]: Thay vì fail ngay, gọi CoreKernel để tìm chỗ mới
                     if (window.cyxCallCoreAvailabilityCheck) {
-                        const guestDetails = [{
+                        let guestDetails = [{
                             service: selectedService,
                             staff: selectedStaff || '隨機',
                             overrideDuration: newDuration,
                             flowCode: currentTestingFlow || booking.flowCode || 'FB'
                         }];
+                        
+                        if (checkIsGroup && groupMembersToUpdate) {
+                            guestDetails = [booking, ...groupMembersToUpdate].map(b => ({
+                                service: selectedService,
+                                staff: (String(b.rowId) === String(booking.rowId)) ? (selectedStaff || '隨機') : (b.allocated_staff_id || b.staffName || '隨機'),
+                                overrideDuration: newDuration,
+                                flowCode: b.flowCode || 'FB'
+                            }));
+                        }
+
                         const dateStr = booking.date || booking.ngayDen || (timelineData && timelineData[0] ? timelineData[0].date : '');
                         let timeStr = booking.startTimeString || booking.gioDen || startTimeStr;
                         if (timeStr && timeStr.includes(' ')) timeStr = timeStr.split(' ')[1];
                         
-                        const finalCheck = window.cyxCallCoreAvailabilityCheck(dateStr, timeStr, guestDetails, todays, staffList);
+                        const checkBookings = todays.filter(b => !excludeRowIds.includes(String(b.rowId)));
+                        const finalCheck = window.cyxCallCoreAvailabilityCheck(dateStr, timeStr, guestDetails, checkBookings, staffList);
                         
                         if (finalCheck && finalCheck.valid) {
                             const checkDetail = finalCheck.details && finalCheck.details.length > 0 
@@ -974,12 +996,12 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
         for (let i = 1; i <= maxCount; i++) {
             const rawId = `${prefix}-${i}`;
             const resId = window.normalizeResourceId(rawId) || rawId;
-            const isOverlap = checkOverlap(resId, p2Start, endMins, booking?.rowId);
+            const isOverlap = checkOverlap(resId, p2Start, endMins, excludeRowIds);
             allList.push({ id: resId, isAvailable: !isOverlap });
             if (!isOverlap) availList.push(resId);
         }
         return { availableP2Resources: availList, p2ResourcesData: allList };
-    }, [isBodyFirstLocal, switchMins, endMins, timelineData, booking?.rowId, booking?.location]);
+    }, [isBodyFirstLocal, switchMins, endMins, timelineData, excludeRowIdsStr, booking?.location]);
 
     const { availableSingleResources, singleResourcesData } = useMemo(() => {
         let type = 'bed';
@@ -1000,12 +1022,12 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
         for (let i = 1; i <= maxCount; i++) {
             const rawId = `${prefix}-${i}`;
             const resId = window.normalizeResourceId(rawId) || rawId;
-            const isOverlap = checkOverlap(resId, startMins, endMins, booking?.rowId);
+            const isOverlap = checkOverlap(resId, startMins, endMins, excludeRowIds);
             allList.push({ id: resId, isAvailable: !isOverlap });
             if (!isOverlap) availList.push(resId);
         }
         return { availableSingleResources: availList, singleResourcesData: allList };
-    }, [booking, contextResourceId, startMins, endMins, timelineData]);
+    }, [booking, contextResourceId, startMins, endMins, timelineData, excludeRowIdsStr]);
 
     useEffect(() => {
         if (selectedPhase1Res !== 'auto' && selectedPhase1Res !== 'full' && !availableP1Resources.includes(selectedPhase1Res)) {
