@@ -10,8 +10,6 @@ Bước 1:[Approve / Chấp thuận].với vai trò là một lập trình
 
 Tôi muốn cài đặt Playwright vào dự án này để viết test tự động (End-to-End Test). Hãy cài đặt và viết cho tôi kịch bản test đầu tiên: Tự động mở trang web, thêm 1 khách hàng mới và kéo thả khách hàng đó sang giường khác. Sau khi setup xong, hãy chạy thử cho tôi xem.
 
-Tôi muốn thêm tính năng X. Tuy nhiên, tuyệt đối không được làm ảnh hưởng đến luồng hoạt động của tất cả các tính năng hiện tại đang chạy ổn định.
-
 bù sau
 đổi gói
 lão dian

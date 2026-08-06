@@ -4250,7 +4250,6 @@ const App = () => {
                     };
 
                     const mainUpdate = getUpdatedData(targetBooking);
-                    if (payload.updateGroup) mainUpdate.ignoreOverlap = true;
                     
                     if (payload.updateGroup && Array.isArray(payload.groupMemberIds)) {
                         (async () => {
@@ -4262,17 +4261,26 @@ const App = () => {
                                 }
                             });
                             
-                            await handleInlineUpdate(targetBooking.rowId, mainUpdate, true);
-                            for (const id of payload.groupMemberIds) {
+                            const allUpdates = [];
+                            const allIds = [targetBooking.rowId, ...payload.groupMemberIds];
+                            
+                            for (const id of allIds) {
                                 const memberBooking = (bookings || window.bookings || []).find(b => String(b.rowId) === String(id));
                                 if (memberBooking) {
                                     const memberUpdate = getUpdatedData(memberBooking);
-                                    memberUpdate.ignoreOverlap = true;
-                                    await handleInlineUpdate(id, memberUpdate, true);
-                                } else {
-                                    const fallbackUpdate = { ...mainUpdate, ignoreOverlap: true };
-                                    await handleInlineUpdate(id, fallbackUpdate, true);
+                                    allUpdates.push({ rowId: id, updatedData: memberUpdate });
+                                } else if (String(id) === String(targetBooking.rowId)) {
+                                    allUpdates.push({ rowId: id, updatedData: mainUpdate });
                                 }
+                            }
+                            
+                            try {
+                                const res = await axios.post('/api/inline-update-group', {
+                                    groupUpdates: allUpdates
+                                });
+                                if (res.data && res.data.error) throw new Error(res.data.error);
+                            } catch(e) {
+                                Swal.fire('錯誤', '更新群組失敗: ' + (e.response?.data?.error || e.message), 'error');
                             }
                             
                             Swal.close();

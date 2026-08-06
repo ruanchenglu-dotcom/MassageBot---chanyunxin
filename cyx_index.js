@@ -1194,7 +1194,15 @@ app.post('/api/inline-update-booking', async (req, res) => {
 app.post('/api/inline-update-group', async (req, res) => {
     const releaseLock = await SheetService.bookingLock.acquire();
     try {
-        const { rowIds, updatedData } = req.body;
+        const { rowIds, updatedData, groupUpdates } = req.body;
+        
+        if (groupUpdates && Array.isArray(groupUpdates)) {
+            // New flow: Atomic group update with elasticity
+            await SheetService.updateBookingGroupAtomic(groupUpdates);
+            return res.json({ success: true, message: '整組更新成功 (V2)' });
+        }
+        
+        // Fallback for old requests
         if (!rowIds || !Array.isArray(rowIds) || !updatedData) {
             return res.status(400).json({ success: false, error: '缺少 rowIds (陣列) 或 updatedData' });
         }

@@ -1958,6 +1958,131 @@ function triggerSyncDebounced(delay = 700) {
     }, delay);
 }
 
+async function updateBookingGroupAtomic(groupUpdates) {
+    if (!groupUpdates || groupUpdates.length === 0) return true;
+    try {
+        const dataToUpdate = [];
+        const originalBookings = STATE.cachedBookings;
+        let simulatedBookings = originalBookings.map(b => ({...b}));
+
+        // Remove the 4 people from simulatedBookings so they don't block each other
+        const groupIds = groupUpdates.map(g => String(g.rowId));
+        const otherBookings = simulatedBookings.filter(b => !groupIds.includes(String(b.rowId)));
+
+        const guestList = [];
+        const dateStr = groupUpdates[0].updatedData.ngayDen || simulatedBookings.find(b => String(b.rowId) === groupIds[0])?.opDate;
+        const timeStr = groupUpdates[0].updatedData.gioDen || simulatedBookings.find(b => String(b.rowId) === groupIds[0])?.startTimeString;
+        const targetLocation = groupUpdates[0].updatedData.location || '本館'; // Assuming location logic
+
+        for (const update of groupUpdates) {
+            const b = simulatedBookings.find(x => String(x.rowId) === String(update.rowId));
+            if (!b) continue;
+
+            const flow = update.updatedData.flow || b.flow || 'FB';
+            guestList.push({
+                service: update.updatedData.dichVu || b.serviceName,
+                staffName: update.updatedData.nhanVien || b.requestedStaff || '隨機',
+                isYouTui: update.updatedData.isYouTui !== undefined ? update.updatedData.isYouTui : b.isYouTui,
+                isGuaSha: update.updatedData.isGuaSha !== undefined ? update.updatedData.isGuaSha : b.isGuaSha,
+                isHuaGuan: update.updatedData.isHuaGuan !== undefined ? update.updatedData.isHuaGuan : b.isHuaGuan,
+                isBaGuan: update.updatedData.isBaGuan !== undefined ? update.updatedData.isBaGuan : b.isBaGuan,
+                rowId: update.rowId,
+                originalBooking: b,
+                forcedFlow: flow
+            });
+        }
+
+        // Call CoreAPI to find best elastic fit for the whole group simultaneously
+        const checkResult = typeof ResourceCore !== 'undefined' && ResourceCore.checkRequestAvailability
+            ? ResourceCore.checkRequestAvailability(normalizeDateStrict(dateStr), timeStr, guestList, otherBookings, STATE.STAFF_LIST, { location: targetLocation })
+            : { valid: true, guests: guestList.map(g => ({ 
+                phase1_duration: g.originalBooking.phase1_duration, 
+                phase2_duration: g.originalBooking.phase2_duration, 
+                phase1_res: g.originalBooking.phase1_res_idx, 
+                phase2_res: g.originalBooking.phase2_res_idx, 
+                staffName: g.staffName, 
+                total_duration: g.originalBooking.duration 
+            })) };
+
+        if (!checkResult.valid) {
+            throw new Error('群組排程衝突，請確認時段或修改服務。 ' + (checkResult.reason || ''));
+        }
+
+        // Map the result back to each member's updatedData
+        for (let i = 0; i < checkResult.guests.length; i++) {
+            const mappedRes = checkResult.guests[i];
+            const originalUpdate = groupUpdates.find(g => String(g.rowId) === String(guestList[i].rowId));
+            if (originalUpdate) {
+                if (mappedRes.phase1_duration) originalUpdate.updatedData.phase1_duration = mappedRes.phase1_duration;
+                if (mappedRes.phase2_duration !== undefined) originalUpdate.updatedData.phase2_duration = mappedRes.phase2_duration;
+                if (mappedRes.phase1_res) originalUpdate.updatedData.phase1_res_idx = mappedRes.phase1_res;
+                if (mappedRes.phase2_res) originalUpdate.updatedData.phase2_res_idx = mappedRes.phase2_res;
+                if (mappedRes.transition_time) originalUpdate.updatedData.transition_time = mappedRes.transition_time;
+                if (mappedRes.staffName) originalUpdate.updatedData.nhanVien = mappedRes.staffName;
+                if (mappedRes.total_duration) originalUpdate.updatedData.duration = mappedRes.total_duration;
+                if (mappedRes.flow) originalUpdate.updatedData.flow = mappedRes.flow;
+            }
+        }
+
+        for (const update of groupUpdates) {
+            const rowId = update.rowId;
+            const updatedData = update.updatedData;
+            
+            const getRes = await sheets.spreadsheets.values.get({
+                spreadsheetId: SHEET_ID,
+                range: `${BOOKING_SHEET_NAME}!A${rowId}:AX${rowId}`
+            });
+            let row = (getRes.data.values && getRes.data.values[0]) ? [...getRes.data.values[0]] : [];
+            while (row.length < 50) row.push("");
+
+            const formattedDate = normalizeDateStrict(updatedData.ngayDen) || row[1];
+            let timeVal = updatedData.gioDen || row[2];
+            if (timeVal.length > 5) timeVal = timeVal.substring(0, 5);
+
+            if (updatedData.hoTen !== undefined) row[0] = updatedData.hoTen;
+            if (updatedData.ngayDen !== undefined) row[1] = formattedDate;
+            if (updatedData.gioDen !== undefined) row[2] = timeVal;
+            if (updatedData.sdt !== undefined) row[3] = updatedData.sdt;
+            if (updatedData.dichVu !== undefined) row[4] = updatedData.dichVu;
+            if (updatedData.trangThai !== undefined) row[5] = updatedData.trangThai;
+            if (updatedData.nhanVien !== undefined) row[6] = updatedData.nhanVien;
+            
+            if (updatedData.isYouTui !== undefined) row[25] = updatedData.isYouTui ? 'TRUE' : '';
+            if (updatedData.isGuaSha !== undefined) row[40] = updatedData.isGuaSha ? 'TRUE' : '';
+            if (updatedData.isHuaGuan !== undefined) row[41] = updatedData.isHuaGuan ? 'TRUE' : '';
+            if (updatedData.isBaGuan !== undefined) row[42] = updatedData.isBaGuan ? 'TRUE' : '';
+            
+            if (updatedData.phase1_duration !== undefined) row[34] = updatedData.phase1_duration;
+            if (updatedData.phase2_duration !== undefined) row[35] = updatedData.phase2_duration;
+            if (updatedData.phase1_res_idx !== undefined) row[36] = updatedData.phase1_res_idx;
+            if (updatedData.phase2_res_idx !== undefined) row[37] = updatedData.phase2_res_idx;
+            if (updatedData.flow !== undefined) row[38] = updatedData.flow;
+            if (updatedData.transition_time !== undefined) row[39] = updatedData.transition_time;
+            if (updatedData.duration !== undefined) row[45] = updatedData.duration;
+
+            dataToUpdate.push({
+                range: `${BOOKING_SHEET_NAME}!A${rowId}:AX${rowId}`,
+                values: [row]
+            });
+        }
+
+        if (dataToUpdate.length > 0) {
+            await sheets.spreadsheets.values.batchUpdate({
+                spreadsheetId: SHEET_ID,
+                requestBody: {
+                    valueInputOption: 'USER_ENTERED',
+                    data: dataToUpdate
+                }
+            });
+            triggerSyncDebounced(100);
+        }
+        return true;
+    } catch (e) {
+        console.error('[ATOMIC GROUP UPDATE ERROR]', e);
+        throw e;
+    }
+}
+
 async function batchUpdateMultipleBookings(updatesArray) {
     if (!updatesArray || updatesArray.length === 0) return true;
     try {
@@ -2564,6 +2689,7 @@ module.exports = {
     updateBookingDetails,
     updateInlineBooking,
     batchUpdateMultipleBookings,
+    updateBookingGroupAtomic,
     updateStaffConfig,
     layLichDatGanNhat,
 
