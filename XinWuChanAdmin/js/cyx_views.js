@@ -566,7 +566,15 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
         };
 
         const editServiceCategory = getServiceCategory(selectedService);
-        const currentPax = parseInt(booking.pax, 10) || 1;
+        
+        let currentPax = parseInt(booking.pax, 10) || 1;
+        if (booking.originalName && /\(\d+\/\d+\)/.test(booking.originalName)) {
+            currentPax = 1;
+        } else if (booking.customerName && /\(\d+\/\d+\)/.test(booking.customerName)) {
+            currentPax = 1;
+        } else if (booking.hoTen && /\(\d+\/\d+\)/.test(booking.hoTen)) {
+            currentPax = 1;
+        }
 
         let editPhase1End = startMins + newDuration;
         let isComboEdit = editServiceCategory === 'COMBO';
@@ -625,7 +633,16 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                 const bStart = timeStrToMins(bTimeStr);
                 const bDur = getDuration(b.serviceName, b.duration || 60);
                 const bEnd = bStart + bDur;
-                const bPax = parseInt(b.pax, 10) || 1;
+                
+                let bPax = parseInt(b.pax, 10) || 1;
+                if (b.originalName && /\(\d+\/\d+\)/.test(b.originalName)) {
+                    bPax = 1;
+                } else if (b.customerName && /\(\d+\/\d+\)/.test(b.customerName)) {
+                    bPax = 1;
+                } else if (b.hoTen && /\(\d+\/\d+\)/.test(b.hoTen)) {
+                    bPax = 1;
+                }
+                
                 const bCat = getServiceCategory(b.serviceName);
                 
                 if (t >= bStart && t < bEnd) {
@@ -971,11 +988,12 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                             return true;
                         }
                     }
+                    
+                    setScanServiceStatus('FAILED');
+                    const debugReason = (finalCheck && finalCheck.reason) ? finalCheck.reason : "Unknown";
+                    setScanServiceMessage(`❌ 該時段已客滿，無法儲存 (Debug: ${debugReason})`);
+                    return false;
                 }
-                
-                setScanServiceStatus('FAILED');
-                setScanServiceMessage(`❌ 該時段已客滿，無法儲存`);
-                return false;
             }
         } else {
             // Khách đang ở chế độ chờ (Waiting) không có currentRes, nhưng đổi dịch vụ cũng cần check capacity
