@@ -433,7 +433,7 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
         if (isGroupMode && groupMembersToUpdate) {
             groupMembersToUpdate.forEach(m => ids.push(m.rowId));
         }
-        return ids.filter(Boolean);
+        return ids.filter(Boolean).map(String);
     }, [booking?.rowId, isGroupMode, groupMembersToUpdate]);
     const excludeRowIdsStr = excludeRowIds.join(',');
 
