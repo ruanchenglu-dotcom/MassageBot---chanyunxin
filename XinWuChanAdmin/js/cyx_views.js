@@ -899,8 +899,8 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
             const oldCat = getServiceCategory(oldService);
             const isSameCategory = (oldCat === editServiceCategory);
 
+            let isResConflict = false;
             if (isSameCategory) {
-                let isResConflict = false;
                 if (editServiceCategory === 'COMBO') {
                     if (booking.phase1_res_idx && checkOverlap(booking.phase1_res_idx, startMins, editPhase1End, excludeRowIds)) isResConflict = true;
                     if (booking.phase2_res_idx && checkOverlap(booking.phase2_res_idx, switchMins + 5, endMins, excludeRowIds)) isResConflict = true;
@@ -919,60 +919,95 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                         return isTimeConflict && (bResArray.includes(currentResClean) || bResStr.toString().toUpperCase() === currentResClean);
                     });
                 }
+            } else {
+                isResConflict = true; // Bắt buộc kiểm tra sức chứa khi đổi loại dịch vụ (ví dụ: FOOT -> BODY)
+            }
 
-                if (isResConflict) {
-                    if (testFlow !== null) return false;
+            if (isResConflict) {
+                if (testFlow !== null) return false;
+                
+                if (window.cyxCallCoreAvailabilityCheck) {
+                    let guestDetails = [{
+                        service: selectedService,
+                        serviceName: selectedService,
+                        staff: selectedStaff || '隨機',
+                        overrideDuration: newDuration,
+                        flowCode: currentTestingFlow || booking.flowCode || 'FB'
+                    }];
                     
-                    // [NÂNG CẤP]: Thay vì fail ngay, gọi CoreKernel để tìm chỗ mới
-                    if (window.cyxCallCoreAvailabilityCheck) {
-                        let guestDetails = [{
+                    if (checkIsGroup && groupMembersToUpdate) {
+                        guestDetails = [booking, ...groupMembersToUpdate].map(b => ({
                             service: selectedService,
                             serviceName: selectedService,
-                            staff: selectedStaff || '隨機',
+                            staff: (String(b.rowId) === String(booking.rowId)) ? (selectedStaff || '隨機') : (b.allocated_staff_id || b.staffName || '隨機'),
                             overrideDuration: newDuration,
-                            flowCode: currentTestingFlow || booking.flowCode || 'FB'
-                        }];
-                        
-                        if (checkIsGroup && groupMembersToUpdate) {
-                            guestDetails = [booking, ...groupMembersToUpdate].map(b => ({
-                                service: selectedService,
-                                serviceName: selectedService,
-                                staff: (String(b.rowId) === String(booking.rowId)) ? (selectedStaff || '隨機') : (b.allocated_staff_id || b.staffName || '隨機'),
-                                overrideDuration: newDuration,
-                                flowCode: b.flowCode || 'FB'
-                            }));
-                        }
+                            flowCode: b.flowCode || 'FB'
+                        }));
+                    }
 
-                        const dateStr = booking.date || booking.ngayDen || (timelineData && timelineData[0] ? timelineData[0].date : '');
-                        let timeStr = booking.startTimeString || booking.gioDen || startTimeStr;
-                        if (timeStr && timeStr.includes(' ')) timeStr = timeStr.split(' ')[1];
-                        
-                        const checkBookings = todays.filter(b => !excludeRowIds.includes(String(b.rowId)));
-                        const finalCheck = window.cyxCallCoreAvailabilityCheck(dateStr, timeStr, guestDetails, checkBookings, staffList);
-                        
-                        if (finalCheck && finalCheck.valid) {
-                            const checkDetail = finalCheck.details && finalCheck.details.length > 0 
-                                ? (finalCheck.coreDetails ? finalCheck.coreDetails[0] : finalCheck.details[0]) 
-                                : null;
-                            if (checkDetail) {
-                                const newP1 = checkDetail.phase1_res_idx || checkDetail.allocated_resource || "";
-                                const newP2 = checkDetail.phase2_res_idx || "";
-                                const newFlow = checkDetail.flowCode || checkDetail.flow || "";
-                                
-                                // Cập nhật state UI
-                                if (newP1) setSelectedPhase1Res(newP1);
-                                if (newP2) setSelectedPhase2Res(newP2);
-                                if (newFlow) setLocalFlow(newFlow);
-                                
-                                setScanServiceStatus('OK');
-                                setScanServiceMessage(`✅ 已為您智能分配新座位 (${newP1})`);
-                                return true;
-                            }
+                    const dateStr = booking.date || booking.ngayDen || (timelineData && timelineData[0] ? timelineData[0].date : '');
+                    let timeStr = booking.startTimeString || booking.gioDen || startTimeStr;
+                    if (timeStr && timeStr.includes(' ')) timeStr = timeStr.split(' ')[1];
+                    
+                    const checkBookings = todays.filter(b => !excludeRowIds.includes(String(b.rowId)));
+                    const finalCheck = window.cyxCallCoreAvailabilityCheck(dateStr, timeStr, guestDetails, checkBookings, staffList);
+                    
+                    if (finalCheck && finalCheck.valid) {
+                        const checkDetail = finalCheck.details && finalCheck.details.length > 0 
+                            ? (finalCheck.coreDetails ? finalCheck.coreDetails[0] : finalCheck.details[0]) 
+                            : null;
+                        if (checkDetail) {
+                            const newP1 = checkDetail.phase1_res_idx || checkDetail.allocated_resource || "";
+                            const newP2 = checkDetail.phase2_res_idx || "";
+                            const newFlow = checkDetail.flowCode || checkDetail.flow || "";
+                            
+                            // Cập nhật state UI
+                            if (newP1) setSelectedPhase1Res(newP1);
+                            if (newP2) setSelectedPhase2Res(newP2);
+                            if (newFlow) setLocalFlow(newFlow);
+                            
+                            setScanServiceStatus('OK');
+                            setScanServiceMessage(`✅ 已為您智能分配新座位 (${newP1})`);
+                            return true;
                         }
                     }
-                    
+                }
+                
+                setScanServiceStatus('FAILED');
+                setScanServiceMessage(`❌ 該時段已客滿，無法儲存`);
+                return false;
+            }
+        } else {
+            // Khách đang ở chế độ chờ (Waiting) không có currentRes, nhưng đổi dịch vụ cũng cần check capacity
+            if (window.cyxCallCoreAvailabilityCheck) {
+                let guestDetails = [{
+                    service: selectedService,
+                    serviceName: selectedService,
+                    staff: selectedStaff || '隨機',
+                    overrideDuration: newDuration,
+                    flowCode: currentTestingFlow || booking.flowCode || 'FB'
+                }];
+                
+                if (checkIsGroup && groupMembersToUpdate) {
+                    guestDetails = [booking, ...groupMembersToUpdate].map(b => ({
+                        service: selectedService,
+                        serviceName: selectedService,
+                        staff: (String(b.rowId) === String(booking.rowId)) ? (selectedStaff || '隨機') : (b.allocated_staff_id || b.staffName || '隨機'),
+                        overrideDuration: newDuration,
+                        flowCode: b.flowCode || 'FB'
+                    }));
+                }
+
+                const dateStr = booking.date || booking.ngayDen || (timelineData && timelineData[0] ? timelineData[0].date : '');
+                let timeStr = booking.startTimeString || booking.gioDen || startTimeStr;
+                if (timeStr && timeStr.includes(' ')) timeStr = timeStr.split(' ')[1];
+                
+                const checkBookings = todays.filter(b => !excludeRowIds.includes(String(b.rowId)));
+                const finalCheck = window.cyxCallCoreAvailabilityCheck(dateStr, timeStr, guestDetails, checkBookings, staffList);
+                
+                if (!finalCheck || !finalCheck.valid) {
                     setScanServiceStatus('FAILED');
-                    setScanServiceMessage(`❌ 該時段已客滿，無法升級`);
+                    setScanServiceMessage(`❌ 該時段空間已滿，無法儲存`);
                     return false;
                 }
             }
