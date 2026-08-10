@@ -497,7 +497,7 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
     timePoints.add(requestStart);
     
     guestList.forEach(g => {
-        const svcInfo = getServiceInfo(g.serviceCode, g.serviceName);
+        const svcInfo = getServiceInfo(g.serviceCode, g.serviceName || g.service);
         const dur = g.overrideDuration || svcInfo.duration || 60;
         timePoints.add(requestStart + dur);
     });
@@ -573,12 +573,12 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
         let comboGuestCount = 0;
         
         guestList.forEach(g => {
-            const svcInfo = getServiceInfo(g.serviceCode, g.serviceName);
+            const svcInfo = getServiceInfo(g.serviceCode, g.serviceName || g.service);
             const dur = g.overrideDuration || svcInfo.duration || 60;
             if (tCheck >= requestStart && tCheck < requestStart + dur) {
                 newGuestsActive++;
                 const storedFlow = g.flowCode || 'FB';
-                if (isComboService(svcInfo, g.serviceName, storedFlow)) comboGuestCount++;
+                if (isComboService(svcInfo, g.serviceName || g.service, storedFlow)) comboGuestCount++;
                 const req = g.staff;
                 // Nếu khách chọn dầu (OIL), mặc định yêu cầu nữ (trừ khi có config khác)
                 if (req === 'FEMALE' || req === '女' || req === '女師' || req === 'OIL') newFemaleReq++;
@@ -621,7 +621,7 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
     let specificStaffReqs = [];
     guestList.forEach(g => {
         const req = g.staff;
-        const svcInfo = getServiceInfo(g.serviceCode, g.serviceName);
+        const svcInfo = getServiceInfo(g.serviceCode, g.serviceName || g.service);
         const dur = g.overrideDuration || svcInfo.duration || 60;
         if (req && req !== 'RANDOM' && req !== '隨機' && req !== 'Any' && req !== 'undefined' && req !== 'null' 
             && req !== 'FEMALE' && req !== 'MALE' && req !== '女' && req !== '男' && req !== '女師' && req !== '男師' && req !== 'OIL') {
@@ -847,7 +847,7 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
 
     for (let i = 0; i < guestList.length; i++) {
         const g = guestList[i];
-        const svc = getServiceInfo(g.serviceCode, g.serviceName);
+        const svc = getServiceInfo(g.serviceCode, g.serviceName || g.service);
         const duration = g.overrideDuration || svc.duration || 60;
         const explicitFlow = g.flowCode || null;
         const isCombo = isComboService(svc, g.serviceCode, explicitFlow);
@@ -870,7 +870,7 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
                     const p2 = split.p2;
                     const tStart = requestStart + (split.shiftMins || 0);
                     const tSwitch = tStart + p1 + CONF.TRANSITION_BUFFER;
-                    const comboGuestsCount = guestList.filter(g => isComboService(getServiceInfo(g.serviceCode, g.serviceName), g.serviceCode, g.flowCode)).length;
+                    const comboGuestsCount = guestList.filter(g => isComboService(getServiceInfo(g.serviceCode, g.serviceName || g.service), g.serviceCode, g.flowCode)).length;
                     const isCrossSwapGroup = comboGuestsCount >= 2;
                     const phase1Cleanup = isCrossSwapGroup ? Math.min(CONF.CLEANUP_BUFFER, CONF.TRANSITION_BUFFER) : CONF.CLEANUP_BUFFER;
                     
@@ -936,7 +936,7 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
                             
                             let loc1Idx = -1, loc2Idx = -1;
                             
-                            const comboGuestsCount = guestList.filter(g => isComboService(getServiceInfo(g.serviceCode, g.serviceName), g.serviceCode, g.flowCode)).length;
+                            const comboGuestsCount = guestList.filter(g => isComboService(getServiceInfo(g.serviceCode, g.serviceName || g.service), g.serviceCode, g.flowCode)).length;
                             const isCrossSwapGroup = comboGuestsCount >= 2;
                             const phase1Cleanup = isCrossSwapGroup ? Math.min(CONF.CLEANUP_BUFFER, CONF.TRANSITION_BUFFER) : CONF.CLEANUP_BUFFER;
 
@@ -1298,7 +1298,7 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
 
     let maxGuestDuration = 0;
     guestList.forEach(g => {
-        const dur = g.overrideDuration || getServiceInfo(g.serviceCode, g.serviceName).duration || 60;
+        const dur = g.overrideDuration || getServiceInfo(g.serviceCode, g.serviceName || g.service).duration || 60;
         if (dur > maxGuestDuration) maxGuestDuration = dur;
     });
 
@@ -1499,7 +1499,7 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
 
     // 4. KỊCH BẢN MATRIX KHÁCH MỚI
     const newGuests = guestList.map((g, idx) => ({ ...g, idx: idx }));
-    const comboGuests = newGuests.filter(g => isComboService(getServiceInfo(g.serviceCode, g.serviceName), g.serviceCode, g.flowCode));
+    const comboGuests = newGuests.filter(g => isComboService(getServiceInfo(g.serviceCode, g.serviceName || g.service), g.serviceCode, g.flowCode));
     const newGuestHalfSize = Math.ceil(comboGuests.length / 2);
     const maxBF = comboGuests.length;
     let trySequence = [];
@@ -1565,7 +1565,7 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
 
         let newGuestBlocksMap = [];
         for (const ng of newGuests) {
-            const svc = getServiceInfo(ng.serviceCode, ng.serviceName);
+            const svc = getServiceInfo(ng.serviceCode, ng.serviceName || ng.service);
             let flow = 'FB';
             let isThisGuestCombo = isComboService(svc, ng.serviceCode, ng.flowCode);
 

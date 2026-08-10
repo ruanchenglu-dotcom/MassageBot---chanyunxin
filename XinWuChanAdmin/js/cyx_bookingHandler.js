@@ -822,7 +822,7 @@
 
             for (let i = 0; i < guestList.length; i++) {
                 const g = guestList[i];
-                const svc = SERVICES[g.serviceCode] || { duration: 60 };
+                const svc = typeof getServiceInfo === 'function' ? getServiceInfo(g.serviceCode, g.serviceName || g.service) : (SERVICES[g.serviceCode] || { duration: 60 });
                 const duration = g.overrideDuration || svc.duration || 60;
                 const isCombo = isComboService(svc, g.serviceCode, g.flowCode);
                 const guestIdKey = g.idx !== undefined ? g.idx : i; // Đảm bảo đúng index
@@ -1440,6 +1440,8 @@
                     }
 
                     if (!p1Index) p1Index = anchorIndex;
+
+                    const comboGuestsCount = guestList.filter(g => isComboService(getServiceInfo(g.serviceCode, g.serviceName || g.service), g.serviceCode, g.flowCode)).length;
 
                     if (isBodyFirst) {
                         processedB.blocks.push({ start: bStart, end: p1End, type: 'BED', forcedIndex: p1Index });

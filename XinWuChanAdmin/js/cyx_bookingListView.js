@@ -334,6 +334,7 @@
                 return {
                     idx,
                     service: mService,
+                    serviceName: mService,
                     serviceCode: sCode || '',
                     duration,
                     overrideDuration: duration,

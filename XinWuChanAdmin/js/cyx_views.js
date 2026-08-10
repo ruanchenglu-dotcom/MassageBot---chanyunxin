@@ -927,6 +927,7 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                     if (window.cyxCallCoreAvailabilityCheck) {
                         let guestDetails = [{
                             service: selectedService,
+                            serviceName: selectedService,
                             staff: selectedStaff || '隨機',
                             overrideDuration: newDuration,
                             flowCode: currentTestingFlow || booking.flowCode || 'FB'
@@ -935,6 +936,7 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                         if (checkIsGroup && groupMembersToUpdate) {
                             guestDetails = [booking, ...groupMembersToUpdate].map(b => ({
                                 service: selectedService,
+                                serviceName: selectedService,
                                 staff: (String(b.rowId) === String(booking.rowId)) ? (selectedStaff || '隨機') : (b.allocated_staff_id || b.staffName || '隨機'),
                                 overrideDuration: newDuration,
                                 flowCode: b.flowCode || 'FB'
