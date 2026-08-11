@@ -127,6 +127,9 @@ const getCleanServiceName = (rawName) => {
         const sortedList = [...window.SERVICES_LIST].sort((a, b) => b.length - a.length);
         const match = sortedList.find(s => rawName.includes(s));
         if (match) return match;
+        
+        const reverseMatch = sortedList.find(s => s.includes(rawName));
+        if (reverseMatch) return reverseMatch;
     }
     return String(rawName).replace(/\s*\([^)]*油推[^)]*\)/g, '').trim();
 };

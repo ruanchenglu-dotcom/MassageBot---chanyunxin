@@ -86,6 +86,11 @@ function getServiceInfo(code, name) {
             const svc = SERVICES[key];
             if (svc.name && svc.name.toString().trim().toUpperCase() === cleanName) return svc;
         }
+        for (const key in SERVICES) {
+            const svc = SERVICES[key];
+            const svcUpper = svc.name ? svc.name.toString().trim().toUpperCase() : '';
+            if (svcUpper && (svcUpper.includes(cleanName) || cleanName.includes(svcUpper))) return svc;
+        }
     }
     return { name: name || 'Unknown', duration: 60, price: 0, type: 'CHAIR' };
 }
@@ -1545,7 +1550,7 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
             const exBLoc = exB.originalData?.location || exB.location || '本館';
             if (exBLoc !== CONF._tempLocation) continue;
             
-            const isStrictlyForced = exB.isRunning || exB.isLocked;
+            const isStrictlyForced = true; // exB.isRunning || exB.isLocked;
             if (!isStrictlyForced) continue;
 
             console.log(`[MATRIX] Processing existing booking ${exB.id} for Matrix (PASS 1 - FORCED)`);
@@ -1712,7 +1717,7 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
                 const exBLoc = exB.originalData?.location || exB.location || '本館';
                 if (exBLoc !== CONF._tempLocation) continue;
                 
-                const isStrictlyForced = exB.isRunning || exB.isLocked;
+                const isStrictlyForced = true; // exB.isRunning || exB.isLocked;
                 if (isStrictlyForced) continue;
 
                 console.log(`[MATRIX] Processing existing booking ${exB.id} for Matrix (PASS 3 - UNFORCED REPACKING)`);
