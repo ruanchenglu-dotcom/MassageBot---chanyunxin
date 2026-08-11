@@ -4183,7 +4183,9 @@ const App = () => {
 
             case 'UPDATE_SERVICE':
                 if (payload.newService && targetBooking) {
-                    const getUpdatedData = (bookingObj) => {
+                    const getUpdatedData = (bookingObj, index = 0) => {
+                        const isNewCombo = payload.newService.includes('套餐') || payload.newService.includes('招牌') || payload.newService.toUpperCase().includes('COMBO') || (window.SERVICES_DATA && window.SERVICES_DATA[payload.newService] && window.SERVICES_DATA[payload.newService].category === 'COMBO');
+
                         const data = {
                             ngayDen: bookingObj.date || bookingObj.opDate,
                             gioDen: bookingObj.startTimeString ? bookingObj.startTimeString.split(' ')[1] : bookingObj.startTime,
@@ -4195,6 +4197,21 @@ const App = () => {
                             trangThai: bookingObj.status,
                             nhanVien: bookingObj.requestedStaff || bookingObj.staffId || bookingObj.serviceStaff
                         };
+                        
+                        if (payload.newAllocations && payload.newAllocations[index]) {
+                            const alloc = payload.newAllocations[index];
+                            if (alloc.allocated && alloc.allocated.length > 0) {
+                                data.phase1_res_idx = alloc.allocated[0];
+                                data.current_resource_id = alloc.allocated[0];
+                                if (alloc.allocated.length > 1 && isNewCombo) {
+                                    data.phase2_res_idx = alloc.allocated[1];
+                                }
+                            } else if (alloc.phase1_res_idx || alloc.allocated_resource) {
+                                data.phase1_res_idx = alloc.phase1_res_idx || alloc.allocated_resource;
+                                data.current_resource_id = data.phase1_res_idx;
+                            }
+                        }
+
                         if (payload.newPhase1 !== undefined && payload.newPhase1 !== null) {
                             let validP1 = payload.newPhase1;
                             let newTotal = 0;
@@ -4236,20 +4253,19 @@ const App = () => {
                             }
                         }
                         
-                        const isNewCombo = payload.newService.includes('套餐') || payload.newService.includes('招牌') || payload.newService.toUpperCase().includes('COMBO') || (window.SERVICES_DATA && window.SERVICES_DATA[payload.newService] && window.SERVICES_DATA[payload.newService].category === 'COMBO');
                         if (!isNewCombo) {
                             data.phase2_duration = "";
                             data.phase2_res_idx = "";
                             data.flow = "";
                             data.transition_time = "";
-                            if (bookingObj.current_resource_id && !bookingObj.phase1_res_idx) {
+                            if (bookingObj.current_resource_id && !data.phase1_res_idx) {
                                 data.phase1_res_idx = bookingObj.current_resource_id;
                             }
                         }
                         return data;
                     };
 
-                    const mainUpdate = getUpdatedData(targetBooking);
+                    const mainUpdate = getUpdatedData(targetBooking, 0);
                     
                     if (payload.updateGroup && Array.isArray(payload.groupMemberIds)) {
                         (async () => {
@@ -4264,13 +4280,14 @@ const App = () => {
                             const allUpdates = [];
                             const allIds = [targetBooking.rowId, ...payload.groupMemberIds];
                             
-                            for (const id of allIds) {
+                            for (let i = 0; i < allIds.length; i++) {
+                                const id = allIds[i];
                                 const memberBooking = (bookings || window.bookings || []).find(b => String(b.rowId) === String(id));
                                 if (memberBooking) {
-                                    const memberUpdate = getUpdatedData(memberBooking);
+                                    const memberUpdate = getUpdatedData(memberBooking, i);
                                     allUpdates.push({ rowId: id, updatedData: memberUpdate });
                                 } else if (String(id) === String(targetBooking.rowId)) {
-                                    allUpdates.push({ rowId: id, updatedData: mainUpdate });
+                                    allUpdates.push({ rowId: id, updatedData: getUpdatedData(targetBooking, i) });
                                 }
                             }
                             

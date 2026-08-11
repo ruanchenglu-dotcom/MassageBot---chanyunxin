@@ -200,6 +200,7 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
     const [selectedService, setSelectedService] = useState(initCleanService);
     const [scanServiceStatus, setScanServiceStatus] = useState(null);
     const [scanServiceMessage, setScanServiceMessage] = useState('');
+    const [newAllocations, setNewAllocations] = useState(null);
 
     const [selectedStaff, setSelectedStaff] = useState('隨機');
 
@@ -576,6 +577,11 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
             currentPax = 1;
         }
 
+        // [V136 FIX] Nếu đổi nhóm, cần cộng thêm tất cả các thành viên
+        if (checkIsGroup && groupMembersToUpdate && groupMembersToUpdate.length > 0) {
+            currentPax = 1 + groupMembersToUpdate.length;
+        }
+
         let editPhase1End = startMins + newDuration;
         let isComboEdit = editServiceCategory === 'COMBO';
         
@@ -949,7 +955,7 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                         serviceName: selectedService,
                         staff: selectedStaff || '隨機',
                         overrideDuration: newDuration,
-                        flowCode: currentTestingFlow || booking.flowCode || 'FB'
+                        flowCode: (editServiceCategory === 'COMBO') ? (currentTestingFlow || booking.flowCode || 'FB') : 'SINGLE'
                     }];
                     
                     if (checkIsGroup && groupMembersToUpdate) {
@@ -958,7 +964,7 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                             serviceName: selectedService,
                             staff: (String(b.rowId) === String(booking.rowId)) ? (selectedStaff || '隨機') : (b.allocated_staff_id || b.staffName || '隨機'),
                             overrideDuration: newDuration,
-                            flowCode: b.flowCode || 'FB'
+                            flowCode: (editServiceCategory === 'COMBO') ? (b.flowCode || 'FB') : 'SINGLE'
                         }));
                     }
 
@@ -974,17 +980,31 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                             ? (finalCheck.coreDetails ? finalCheck.coreDetails[0] : finalCheck.details[0]) 
                             : null;
                         if (checkDetail) {
-                            const newP1 = checkDetail.phase1_res_idx || checkDetail.allocated_resource || "";
-                            const newP2 = checkDetail.phase2_res_idx || "";
+                            // [V136 FIX] Get allocations for all members correctly
+                            let allAllocated = [];
+                            if (finalCheck.details && finalCheck.details.length > 0) {
+                                finalCheck.details.forEach(d => {
+                                    if (d.allocated && d.allocated.length > 0) {
+                                        allAllocated.push(d.allocated.join(' & '));
+                                    } else if (d.phase1_res_idx || d.allocated_resource) {
+                                        allAllocated.push(d.phase1_res_idx || d.allocated_resource);
+                                    }
+                                });
+                            }
+                            
+                            const newP1 = checkDetail.phase1_res_idx || checkDetail.allocated_resource || (checkDetail.allocated && checkDetail.allocated.length > 0 ? checkDetail.allocated[0] : "");
+                            const newP2 = checkDetail.phase2_res_idx || (checkDetail.allocated && checkDetail.allocated.length > 1 ? checkDetail.allocated[1] : "");
                             const newFlow = checkDetail.flowCode || checkDetail.flow || "";
                             
                             // Cập nhật state UI
+                            setNewAllocations(finalCheck.details);
                             if (newP1) setSelectedPhase1Res(newP1);
                             if (newP2) setSelectedPhase2Res(newP2);
                             if (newFlow) setLocalFlow(newFlow);
                             
+                            const displaySeats = allAllocated.length > 0 ? allAllocated.join(', ') : newP1;
                             setScanServiceStatus('OK');
-                            setScanServiceMessage(`✅ 已為您智能分配新座位 (${newP1})`);
+                            setScanServiceMessage(`✅ 已為您智能分配新座位 (${displaySeats})`);
                             return true;
                         }
                     }
@@ -1616,6 +1636,7 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                                         setSelectedService(newSvc);
                                         setScanServiceStatus(null);
                                         setScanServiceMessage('');
+                                        setNewAllocations(null);
                                         if (newSvc.includes('油推') && selectedStaff === '隨機') {
                                             setSelectedStaff('女');
                                         }
@@ -1651,7 +1672,8 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                                                 updateGroup: isGroupMode, 
                                                 groupMemberIds: isGroupMode ? groupMembersToUpdate.map(b => b.rowId) : null,
                                                 newPhase1: phase1,
-                                                newFlow: localFlow
+                                                newFlow: localFlow,
+                                                newAllocations: newAllocations
                                             })} className="absolute right-8 top-1.5 bottom-1.5 bg-green-500 text-white text-xs font-bold px-3 rounded hover:bg-green-600">
                                                 💾 保存
                                             </button>

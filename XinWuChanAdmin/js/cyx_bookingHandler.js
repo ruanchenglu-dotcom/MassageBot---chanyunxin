@@ -1441,7 +1441,10 @@
 
                     if (!p1Index) p1Index = anchorIndex;
 
-                    const comboGuestsCount = guestList.filter(g => isComboService(getServiceInfo(g.serviceCode, g.serviceName || g.service), g.serviceCode, g.flowCode)).length;
+                    const comboGuestsCount = guestList.filter(g => {
+                        const svc = typeof getServiceInfo === 'function' ? getServiceInfo(g.serviceCode, g.serviceName || g.service) : (SERVICES[g.serviceCode] || { duration: 60 });
+                        return isComboService(svc, g.serviceCode, g.flowCode);
+                    }).length;
 
                     if (isBodyFirst) {
                         processedB.blocks.push({ start: bStart, end: p1End, type: 'BED', forcedIndex: p1Index });
@@ -1546,7 +1549,8 @@
 
                 let newGuestBlocksMap = [];
                 for (const ng of newGuests) {
-                    const svc = SERVICES[ng.serviceCode] || { name: ng.serviceCode || 'Unknown', duration: 60, price: 0 };
+                    // [V136 FIX] Sử dụng getServiceInfo để hỗ trợ việc truyền tên dịch vụ (serviceName)
+                    const svc = typeof getServiceInfo === 'function' ? getServiceInfo(ng.serviceCode, ng.serviceName || ng.service) : (SERVICES[ng.serviceCode] || { name: ng.serviceCode || 'Unknown', duration: 60, price: 0 });
                     let flow = 'FB';
                     let isThisGuestCombo = isComboService(svc, ng.serviceCode, ng.flowCode);
                     if (isThisGuestCombo) {
