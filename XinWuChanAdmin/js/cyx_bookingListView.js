@@ -382,67 +382,95 @@
 
         // Gửi dữ liệu đã sửa lên Component Cha (app.js)
         const saveChanges = () => {
-            if (!onInlineUpdate) {
-                Swal.fire('系統提示', '設定錯誤：缺少父組件的 onInlineUpdate 函數。', 'error');
-                cancelEditing();
-                return;
-            }
+            try {
+                if (!onInlineUpdate) {
+                    Swal.fire('系統提示', '設定錯誤：缺少父組件的 onInlineUpdate 函數。', 'error');
+                    cancelEditing();
+                    return;
+                }
 
-            if (isGroupUpdate) {
                 const currentBookingObj = processedBookings.find(b => b.rowId === editingRowId);
-                const groupMembers = processedBookings.filter(b => b.groupKey === currentBookingObj.groupKey);
-                const rowIds = groupMembers.map(m => m.rowId);
-                
-                let memberUpdates = [];
-                if (scanSimulations) {
-                    memberUpdates = groupMembers.map((m, idx) => {
-                        const sim = scanSimulations[idx] || {};
-                        return {
-                            rowId: m.rowId,
+                console.log('cyx_bookingListView: saveChanges executing for editingRowId:', editingRowId, 'currentBookingObj:', currentBookingObj);
+
+                if (!currentBookingObj) {
+                    Swal.fire('系統提示', '無法找到目前編輯的預約資料！', 'error');
+                    cancelEditing();
+                    return;
+                }
+
+                if (isGroupUpdate) {
+                    const groupMembers = processedBookings.filter(b => b.groupKey === currentBookingObj.groupKey);
+                    const rowIds = groupMembers.map(m => m.rowId);
+                    
+                    const needsResourceUpdate = changedFields.gioDen || changedFields.ngayDen || changedFields.dichVu || changedFields.location;
+                    
+                    let memberUpdates = [];
+                    if (needsResourceUpdate && scanSimulations) {
+                        memberUpdates = groupMembers.map((m, idx) => {
+                            const sim = scanSimulations[idx] || {};
+                            return {
+                                rowId: m.rowId,
+                                flow: sim.flow,
+                                phase1_duration: sim.phase1_duration,
+                                phase2_duration: sim.phase2_duration,
+                                phase1_res_idx: sim.BED || sim.CHAIR || '',
+                                phase2_res_idx: (sim.BED && sim.CHAIR) ? (sim.flow === 'BF' ? sim.CHAIR : sim.BED) : ''
+                            };
+                        });
+                    }
+                    
+                    onInlineUpdate(rowIds, { ...changedFields, ignoreOverlap: true, memberUpdates: memberUpdates.length > 0 ? memberUpdates : undefined }, false);
+                } else {
+                    let payload = {
+                        ngayDen: editFormData.date.replace(/-/g, '/'),
+                        gioDen: editFormData.time,
+                        hoTen: editFormData.nameSuffix ? `${editFormData.name} ${editFormData.nameSuffix}`.trim() : editFormData.name,
+                        dichVu: editFormData.service,
+                        isYouTui: editFormData.isYouTui,
+                        isGuaSha: editFormData.isGuaSha,
+                        isHuaGuan: editFormData.isHuaGuan,
+                        isBaGuan: editFormData.isBaGuan,
+                        location: editFormData.location,
+                        preassignedStaff: editFormData.preassignedStaff,
+                        sdt: editFormData.phone,
+                        trangThai: editFormData.status,
+                        nhanVien: editFormData.staff,
+                        ignoreOverlap: true
+                    };
+
+                    const origDate = currentBookingObj.date || (currentBookingObj.startTimeString ? currentBookingObj.startTimeString.split(' ')[0].replace(/\//g, '-') : '');
+                    const origTime = (currentBookingObj.startTimeString || ' ').split(' ')[1] ? (currentBookingObj.startTimeString || ' ').split(' ')[1].substring(0, 5) : (currentBookingObj.startTime || '12:00').substring(0, 5);
+                    
+                    const timeChanged = editFormData.time !== origTime;
+                    const dateChanged = editFormData.date.replace(/-/g, '/') !== origDate.replace(/-/g, '/');
+                    const serviceChanged = (editFormData.service || '') !== (currentBookingObj.serviceName || '');
+                    const locationChanged = editFormData.location !== (currentBookingObj.location || '本館');
+
+                    const needsResourceUpdate = timeChanged || dateChanged || serviceChanged || locationChanged;
+
+                    if (needsResourceUpdate && scanSimulations && scanSimulations[0]) {
+                        const sim = scanSimulations[0];
+                        payload.memberUpdates = [{
+                            rowId: editingRowId,
                             flow: sim.flow,
                             phase1_duration: sim.phase1_duration,
                             phase2_duration: sim.phase2_duration,
                             phase1_res_idx: sim.BED || sim.CHAIR || '',
                             phase2_res_idx: (sim.BED && sim.CHAIR) ? (sim.flow === 'BF' ? sim.CHAIR : sim.BED) : ''
-                        };
-                    });
-                }
-                
-                onInlineUpdate(rowIds, { ...changedFields, ignoreOverlap: true, memberUpdates }, false);
-            } else {
-                let payload = {
-                    ngayDen: editFormData.date.replace(/-/g, '/'),
-                    gioDen: editFormData.time,
-                    hoTen: editFormData.nameSuffix ? `${editFormData.name} ${editFormData.nameSuffix}`.trim() : editFormData.name,
-                    dichVu: editFormData.service,
-                    isYouTui: editFormData.isYouTui,
-                    isGuaSha: editFormData.isGuaSha,
-                    isHuaGuan: editFormData.isHuaGuan,
-                    isBaGuan: editFormData.isBaGuan,
-                    location: editFormData.location,
-                    preassignedStaff: editFormData.preassignedStaff,
-                    sdt: editFormData.phone,
-                    trangThai: editFormData.status,
-                    nhanVien: editFormData.staff,
-                    ignoreOverlap: true
-                };
+                        }];
+                    }
 
-                if (scanSimulations && scanSimulations[0]) {
-                    const sim = scanSimulations[0];
-                    payload.memberUpdates = [{
-                        rowId: editingRowId,
-                        flow: sim.flow,
-                        phase1_duration: sim.phase1_duration,
-                        phase2_duration: sim.phase2_duration,
-                        phase1_res_idx: sim.BED || sim.CHAIR || '',
-                        phase2_res_idx: (sim.BED && sim.CHAIR) ? (sim.flow === 'BF' ? sim.CHAIR : sim.BED) : ''
-                    }];
+                    console.log('cyx_bookingListView: Calling onInlineUpdate...');
+                    onInlineUpdate(editingRowId, payload, false);
                 }
 
-                onInlineUpdate(editingRowId, payload, false);
+                console.log('cyx_bookingListView: Calling setEditingRowId(null)...');
+                setEditingRowId(null);
+            } catch (err) {
+                console.error('cyx_bookingListView: Exception in saveChanges!', err);
+                Swal.fire('系統提示', '發生預期外的錯誤，無法儲存：' + err.message, 'error');
+                cancelEditing();
             }
-
-            setEditingRowId(null);
         };
 
         return (
@@ -676,7 +704,7 @@
                                                         🔍 查詢空位
                                                     </button>
                                                 ) : (
-                                                    <button onClick={saveChanges} className="bg-green-500 text-white hover:bg-green-600 px-3 py-1.5 rounded font-bold text-base shadow-sm transition-colors">
+                                                    <button id="inline-save-btn" onClick={saveChanges} className="bg-green-500 text-white hover:bg-green-600 px-3 py-1.5 rounded font-bold text-base shadow-sm transition-colors">
                                                         💾 儲存
                                                     </button>
                                                 )}

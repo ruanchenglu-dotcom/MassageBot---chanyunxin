@@ -755,7 +755,7 @@ async function ghiVaoSheet(data, proposedUpdates = []) {
             row[2] = `${data.hoTen || '現場客'} (${guestNum}/${total})`;
 
             let svcName = data.dichVu;
-            if (guestDetail) svcName = guestDetail.service;
+            if (guestDetail && guestDetail.service) svcName = guestDetail.service;
             let isYouTui = data.isYouTui;
             let isGuaSha = data.isGuaSha;
             let isHuaGuan = data.isHuaGuan;

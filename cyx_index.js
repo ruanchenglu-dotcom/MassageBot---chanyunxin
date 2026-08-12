@@ -1026,6 +1026,31 @@ app.post('/api/admin-booking', async (req, res) => {
             console.log(`[API ADMIN] Auto-mapped Service Code: ${cyx_data.serviceCode}`);
         }
 
+        // [INLINE EDIT FIX] If this is an update and guestDetails is missing, preserve the old allocation
+        if (cyx_data.rowId && cyx_data.rowId !== 'TEMP_ID_NEW' && (!cyx_data.guestDetails || cyx_data.guestDetails.length === 0)) {
+            const existingBooking = SheetService.getBookings().find(b => String(b.rowId) === String(cyx_data.rowId));
+            if (existingBooking) {
+                if (existingBooking.guestDetails && existingBooking.guestDetails.length > 0) {
+                    cyx_data.guestDetails = existingBooking.guestDetails;
+                } else if (existingBooking.phase1_res_idx || existingBooking.phase1_resource) {
+                    cyx_data.guestDetails = [{
+                        serviceCode: existingBooking.serviceCode || cyx_data.serviceCode,
+                        staff: existingBooking.nhanVien,
+                        phase1_res_idx: existingBooking.phase1_res_idx || existingBooking.phase1_resource,
+                        phase2_res_idx: existingBooking.phase2_res_idx || existingBooking.phase2_resource,
+                        flow: existingBooking.flow || existingBooking.flowCode,
+                        phase1_duration: existingBooking.phase1_duration,
+                        phase2_duration: existingBooking.phase2_duration
+                    }];
+                }
+                
+                // Keep the old flow and duration
+                if (!cyx_data.flow) cyx_data.flow = existingBooking.flow || existingBooking.flowCode;
+                if (cyx_data.phase1_duration === undefined) cyx_data.phase1_duration = existingBooking.phase1_duration;
+                if (cyx_data.phase2_duration === undefined) cyx_data.phase2_duration = existingBooking.phase2_duration;
+            }
+        }
+
         const hasExistingAllocation = cyx_data.guestDetails && cyx_data.guestDetails.length > 0 && 
                                       (cyx_data.guestDetails[0].phase1_res_idx || cyx_data.guestDetails[0].phase1_resource);
 
