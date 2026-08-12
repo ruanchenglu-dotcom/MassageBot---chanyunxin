@@ -450,8 +450,7 @@
 
                     if (needsResourceUpdate && scanSimulations && scanSimulations[0]) {
                         const sim = scanSimulations[0];
-                        const guest = (guestList && guestList[0]) || {};
-                        const flow = guest.flowCode || 'BODYSINGLE';
+                        const flow = sim.flow || 'BODYSINGLE';
                         const locStr = editFormData.location || window.SYSTEM_CONFIG?.LOCATION_NAME || '本館';
                         const locPrefix = locStr === '對面館' ? '2' : '1';
                         
@@ -475,8 +474,8 @@
                         payload.memberUpdates = [{
                             rowId: editingRowId,
                             flow: flow,
-                            phase1_duration: guest.phase1_duration || 0,
-                            phase2_duration: guest.phase2_duration || 0,
+                            phase1_duration: sim.phase1_duration || 0,
+                            phase2_duration: sim.phase2_duration || 0,
                             phase1_res_idx: p1Id,
                             phase2_res_idx: p2Id
                         }];
