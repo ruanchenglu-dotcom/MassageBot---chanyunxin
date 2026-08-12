@@ -450,13 +450,35 @@
 
                     if (needsResourceUpdate && scanSimulations && scanSimulations[0]) {
                         const sim = scanSimulations[0];
+                        const guest = (guestList && guestList[0]) || {};
+                        const flow = guest.flowCode || 'BODYSINGLE';
+                        const locStr = editFormData.location || window.SYSTEM_CONFIG?.LOCATION_NAME || '本館';
+                        const locPrefix = locStr === '對面館' ? '2' : '1';
+                        
+                        let p1Id = '';
+                        let p2Id = '';
+                        
+                        if (sim.BED && sim.CHAIR) {
+                            if (flow === 'FB' || flow === 'FOOTSINGLE') {
+                                p1Id = `CHAIR-${locPrefix}-${sim.CHAIR}`;
+                                p2Id = `BED-${locPrefix}-${sim.BED}`;
+                            } else {
+                                p1Id = `BED-${locPrefix}-${sim.BED}`;
+                                p2Id = `CHAIR-${locPrefix}-${sim.CHAIR}`;
+                            }
+                        } else if (sim.BED) {
+                            p1Id = `BED-${locPrefix}-${sim.BED}`;
+                        } else if (sim.CHAIR) {
+                            p1Id = `CHAIR-${locPrefix}-${sim.CHAIR}`;
+                        }
+
                         payload.memberUpdates = [{
                             rowId: editingRowId,
-                            flow: sim.flow,
-                            phase1_duration: sim.phase1_duration,
-                            phase2_duration: sim.phase2_duration,
-                            phase1_res_idx: sim.BED || sim.CHAIR || '',
-                            phase2_res_idx: (sim.BED && sim.CHAIR) ? (sim.flow === 'BF' ? sim.CHAIR : sim.BED) : ''
+                            flow: flow,
+                            phase1_duration: guest.phase1_duration || 0,
+                            phase2_duration: guest.phase2_duration || 0,
+                            phase1_res_idx: p1Id,
+                            phase2_res_idx: p2Id
                         }];
                     }
 
