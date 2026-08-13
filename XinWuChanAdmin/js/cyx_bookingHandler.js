@@ -515,7 +515,7 @@
                 }
 
                 // [V118.8 FIX] Hỗ trợ trích xuất số ghế/giường nếu chuỗi chỉ có số đơn thuần (phòng ngừa Bóng Ma Toạ Độ)
-                if (uniqueMatches.length === 0) {
+                if (uniqueMatches.length === 0 && !isFluid) {
                     const backupMatches = [...rIdStr.matchAll(/(\d+)/gi)].map(m => m[1]);
                     let inferredType = 'CHAIR';
                     if (svcInfo) {
