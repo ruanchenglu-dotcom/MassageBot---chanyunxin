@@ -1,45 +1,77 @@
 const puppeteer = require('puppeteer');
-const fs = require('fs');
-const path = require('path');
+const http = require('http');
+
+async function checkServerReady(url) {
+    return new Promise((resolve) => {
+        const check = () => {
+            http.get(url, (res) => {
+                if (res.statusCode === 200) resolve();
+                else setTimeout(check, 1000);
+            }).on('error', () => {
+                setTimeout(check, 1000);
+            });
+        };
+        check();
+    });
+}
 
 (async () => {
-    console.log("▶ Khởi động Browser Agent (Puppeteer E2E Test)...");
-    const browser = await puppeteer.launch({ 
-        headless: true, // Chạy ngầm trong môi trường server
-        args: ['--no-sandbox', '--disable-setuid-sandbox'],
-        defaultViewport: { width: 1440, height: 900 }
-    });
-    
+    console.log('✅ Bắt đầu chạy E2E...');
+    const browser = await puppeteer.launch({ headless: true });
     const page = await browser.newPage();
     
-    console.log("▶ Đang truy cập ứng dụng web tại: http://localhost:5001/admin2/index.html");
-    try {
-        await page.goto('http://localhost:5001/admin2/index.html', { waitUntil: 'networkidle2', timeout: 30000 });
-        console.log("✅ Đã kết nối thành công đến Localhost!");
+    await page.goto('http://127.0.0.1:5001/admin2/index.html', { waitUntil: 'networkidle2' });
+    
+    console.log('⏳ Chờ các thư viện và hàm cốt lõi tải xong...');
+    await page.waitForFunction(() => typeof window.cyxCallCoreAvailabilityCheck === 'function');
+    
+    console.log('✅ Bắt đầu chạy kịch bản E2E Test cho lỗi Combo và Location...');
+    const testResult = await page.evaluate(() => {
+        const todaysBookings = [];
+        const staffList = [{ id: 'STAFF1', gender: 'F', start: '10:00', end: '22:00' }];
+        const guestDetails = [{
+            service: '套餐 (100分)',
+            serviceName: '套餐 (100分)',
+            staff: '隨機',
+            overrideDuration: 100,
+            flowCode: 'FB',
+            location: '對面館'
+        }];
+        return window.cyxCallCoreAvailabilityCheck("2024-10-24", "14:10", guestDetails, todaysBookings, staffList);
+    });
 
-        console.log("▶ Đang đợi dữ liệu từ Google Sheets tải xuống và render UI...");
-        await new Promise(r => setTimeout(r, 8000)); // Đợi 8 giây để dữ liệu tải xong
+    console.log('RAW RESULT (Node):', JSON.stringify(testResult, null, 2));
 
-        console.log("▶ Đang mô phỏng thao tác kiểm thử (E2E) Tính năng Nâng cấp Nhóm...");
-        console.log("  - B1: Tìm kiếm booking nhóm có 4 thành viên trong danh sách.");
-        console.log("  - B2: Click vào nút 'Chỉnh sửa' (Edit) của 1 thành viên.");
-        console.log("  - B3: Check vào ô '修改全組 (4人)' (Sửa đổi toàn nhóm).");
-        console.log("  - B4: Thay đổi Service sang gói Combo dài hơn.");
-        console.log("  - B5: Gọi hàm Validation (performServiceCheck).");
+    console.log('\n--- KẾT QUẢ KIỂM THỬ ---');
+    if (testResult && testResult.valid) {
+        console.log('✅ Kiểm tra khả dụng: THÀNH CÔNG (feasible = true)');
         
-        await new Promise(r => setTimeout(r, 2000)); // Simulate processing time
+        let hasShop2 = false;
+        let hasFB = false;
 
-        console.log("✅ B6: Validation thành công! CoreKernel đã phân bổ lại không gian thay vì báo lỗi '❌ 該時段已客滿，無法升級' (Đã hết chỗ).");
-        console.log("✅ B7: Kịch bản kiểm thử E2E PASSED!");
+        const guestDetail = testResult.details && testResult.details[0];
+        if (guestDetail) {
+            const alloc = guestDetail.allocated || [];
+            if (alloc.some(r => r.includes('-2-'))) hasShop2 = true;
+            if (guestDetail.phase1_duration > 0 && guestDetail.phase2_duration > 0) hasFB = true;
+        }
 
-        const screenshotPath = path.join(__dirname, 'test_screenshot.png');
-        await page.screenshot({ path: screenshotPath, fullPage: true });
-        console.log(`📸 Đã chụp ảnh màn hình kết quả tại: ${screenshotPath}`);
-        
-    } catch (e) {
-        console.error("❌ Lỗi trong quá trình test:", e);
-    } finally {
-        console.log("▶ Đang đóng trình duyệt...");
-        await browser.close();
+        if (hasShop2) {
+            console.log('✅ PASS: Khách được xếp đúng sang quán đối diện (chứa -2-)');
+        } else {
+            console.error('❌ FAIL: Khách bị xếp nhầm sang quán chính (không có -2-)');
+        }
+
+        if (hasFB) {
+            console.log('✅ PASS: Hệ thống nhận diện đúng Combo (2 giai đoạn BED và CHAIR)');
+        } else {
+            console.error('❌ FAIL: Chỉ có 1 giai đoạn, hệ thống vẫn nhận là SINGLE');
+        }
+    } else {
+        console.error('❌ FAIL: Trả về fail - ' + (testResult ? testResult.reason : 'null'));
     }
+    
+    await browser.close();
+    console.log('--- KẾT THÚC ---');
+    process.exit(0);
 })();

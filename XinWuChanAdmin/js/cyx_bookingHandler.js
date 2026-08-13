@@ -1939,7 +1939,9 @@
             });
         }
         try {
-            const result = CoreKernel.checkRequestAvailability(dateStr, timeStr, guestDetails, todays, staffMap, { location: '本館' });
+            // extract location from the first guest if it exists, otherwise default to '本館'
+            const reqLocation = (guestDetails && guestDetails[0] && guestDetails[0].location) ? guestDetails[0].location : '本館';
+            const result = CoreKernel.checkRequestAvailability(dateStr, timeStr, guestDetails, todays, staffMap, { location: reqLocation });
             return result.feasible
                 ? { valid: true, details: result.details, proposedUpdates: result.proposedUpdates, debug: result.debug }
                 : { valid: false, reason: result.reason, debug: result.debug };

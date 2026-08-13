@@ -1802,7 +1802,8 @@ const App = () => {
             if (window.cyxCallCoreAvailabilityCheck) {
                 const guestDetails = [{
                     service: updatedData.dichVu || currentBooking.serviceName,
-                    staff: updatedData.nhanVien || '隨機'
+                    staff: updatedData.nhanVien || '隨機',
+                    location: updatedData.location || currentBooking.location
                 }];
                 const checkBookings = bookings.filter(b => String(b.rowId) !== String(rowId));
                 const finalCheck = window.cyxCallCoreAvailabilityCheck(updatedData.ngayDen || currentBooking.date, updatedData.gioDen || currentBooking.startTime, guestDetails, checkBookings, staffList);
@@ -2174,7 +2175,8 @@ const App = () => {
             effectiveStartTimeStr = targetBooking.startTimeString ? targetBooking.startTimeString.split(' ')[1] : "12:00";
         }
 
-        const currentFlow = overrideFlow || targetBooking.flow || 'FB';
+        // [FIX FALLBACK]: If targetBooking.flow is 'SINGLE', force it to 'FB' for COMBO logic.
+        const currentFlow = overrideFlow || (['FB', 'BF'].includes(targetBooking.flow) ? targetBooking.flow : 'FB');
         
         let tryStart = 720;
         if (effectiveStartTimeStr) {

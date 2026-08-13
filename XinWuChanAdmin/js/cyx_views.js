@@ -958,7 +958,8 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                         serviceName: selectedService,
                         staff: selectedStaff || '隨機',
                         overrideDuration: newDuration,
-                        flowCode: (editServiceCategory === 'COMBO') ? (currentTestingFlow || booking.flowCode || 'FB') : 'SINGLE'
+                        flowCode: (editServiceCategory === 'COMBO') ? (currentTestingFlow || (['FB', 'BF'].includes(booking.flowCode) ? booking.flowCode : 'FB')) : 'SINGLE',
+                        location: booking.location
                     }];
                     
                     if (checkIsGroup && groupMembersToUpdate) {
@@ -967,7 +968,8 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                             serviceName: selectedService,
                             staff: (String(b.rowId) === String(booking.rowId)) ? (selectedStaff || '隨機') : (b.allocated_staff_id || b.staffName || '隨機'),
                             overrideDuration: newDuration,
-                            flowCode: (editServiceCategory === 'COMBO') ? (b.flowCode || 'FB') : 'SINGLE'
+                            flowCode: (editServiceCategory === 'COMBO') ? (['FB', 'BF'].includes(b.flowCode) ? b.flowCode : 'FB') : 'SINGLE',
+                            location: b.location || booking.location
                         }));
                     }
 
@@ -1026,7 +1028,8 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                     serviceName: selectedService,
                     staff: selectedStaff || '隨機',
                     overrideDuration: newDuration,
-                    flowCode: currentTestingFlow || booking.flowCode || 'FB'
+                    flowCode: currentTestingFlow || (['FB', 'BF'].includes(booking.flowCode) ? booking.flowCode : 'FB'),
+                    location: booking.location
                 }];
                 
                 if (checkIsGroup && groupMembersToUpdate) {
@@ -1035,7 +1038,8 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                         serviceName: selectedService,
                         staff: (String(b.rowId) === String(booking.rowId)) ? (selectedStaff || '隨機') : (b.allocated_staff_id || b.staffName || '隨機'),
                         overrideDuration: newDuration,
-                        flowCode: b.flowCode || 'FB'
+                        flowCode: ['FB', 'BF'].includes(b.flowCode) ? b.flowCode : 'FB',
+                        location: b.location || booking.location
                     }));
                 }
 

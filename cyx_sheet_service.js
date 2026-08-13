@@ -1247,7 +1247,14 @@ async function updateBookingDetails(body) {
 
     let bookingData = STATE.cachedBookings.find(b => b.rowId == rowId);
     let totalDuration = bookingData ? bookingData.duration : (safeParseInt(body.duration, 60));
-    const flowVal = body.flow || body.flow_code;
+    let flowVal = body.flow || body.flow_code;
+    
+    // [FIX GUARDRAIL]: Nếu update thành Combo mà flowVal là SINGLE thì ép về FB
+    const isComboUpgrade = body.category === 'COMBO' || (body.dichVu && body.dichVu.includes('套餐')) || 
+                           (bookingData && (bookingData.category === 'COMBO' || (bookingData.serviceName && bookingData.serviceName.includes('套餐'))));
+    if (isComboUpgrade && (!flowVal || flowVal.includes('SINGLE'))) {
+        flowVal = 'FB';
+    }
 
     let isBedP1 = guessIsBed(body.category || bookingData?.category, flowVal || bookingData?.flow, 1);
     let isBedP2 = guessIsBed(body.category || bookingData?.category, flowVal || bookingData?.flow, 2);
