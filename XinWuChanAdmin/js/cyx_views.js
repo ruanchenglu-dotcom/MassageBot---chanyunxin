@@ -555,7 +555,8 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
         const newDuration = getDuration(selectedService, booking.duration || 60);
         const endMins = startMins + newDuration;
 
-        const getServiceCategory = (serviceName) => {
+        const getServiceCategory = (serviceName, flowCode) => {
+            if (['FB', 'BF'].includes(flowCode)) return 'COMBO';
             if (!serviceName) return 'BODY';
             if (window.SERVICES_DATA) {
                 if (window.SERVICES_DATA[serviceName]) return window.SERVICES_DATA[serviceName].category;
@@ -569,7 +570,7 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
             return 'BODY';
         };
 
-        const editServiceCategory = getServiceCategory(selectedService);
+        const editServiceCategory = getServiceCategory(selectedService, currentTestingFlow || booking.flowCode || booking.flow);
         
         let currentPax = parseInt(booking.pax, 10) || 1;
         if (booking.originalName && /\(\d+\/\d+\)/.test(booking.originalName)) {
@@ -652,7 +653,7 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                     bPax = 1;
                 }
                 
-                const bCat = getServiceCategory(b.serviceName);
+                const bCat = getServiceCategory(b.serviceName, b.flowCode || b.flow);
                 
                 if (t >= bStart && t < bEnd) {
                     currentLoad += bPax;
@@ -661,7 +662,7 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                         const bSplit = window.getComboSplit ? window.getComboSplit(bDur) : { phase1: Math.floor(bDur/2) };
                         const bPhase1Dur = b.phase1_duration !== undefined ? parseInt(b.phase1_duration) : bSplit.phase1;
                         const bMid = bStart + bPhase1Dur;
-                        const isBF = b.flow === 'BF';
+                        const isBF = ['BF', 'BED_FIRST'].includes(b.flowCode || b.flow);
                         if (t < bMid) {
                             if (isBF) currentBedLoad += bPax;
                             else currentChairLoad += bPax;
