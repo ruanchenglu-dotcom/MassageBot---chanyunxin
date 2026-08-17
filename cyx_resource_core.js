@@ -710,24 +710,33 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
         const isCombo = isComboService(svcInfo, b.serviceName, storedFlow);
         const { p1, realDuration } = calculateRealDurations(b, b.duration || 60, isCombo);
 
-        const rIdStr = (b.phase1_res_idx || "") + " " + (b.phase2_res_idx || "") + " " + (b.allocated_resource || "") + " " + (b.location || "") + " " + (b.current_resource_id || "") + " " + (b.rowId || "");
-        const matches = [...rIdStr.matchAll(/((?:BED|CHAIR)-[12]-\d+)/gi)].map(m => m[1].toUpperCase());
-        let uniqueMatches = [...new Set(matches)];
-
-        // [V118.8 FIX] Hỗ trợ trích xuất số ghế/giường nếu chuỗi chỉ có số đơn thuần (phòng ngừa Bóng Ma Toạ Độ)
-        if (uniqueMatches.length === 0) {
-            const backupMatches = [...rIdStr.matchAll(/(\d+)/gi)].map(m => m[1]);
-            let inferredType = 'CHAIR';
-            if (svcInfo) {
-                if (svcInfo.type === 'BED' || svcInfo.type === 'CHAIR') inferredType = svcInfo.type;
-                else {
-                    const name = (svcInfo.name || '').toUpperCase();
-                    if (name.match(/BODY|指壓|油|BED|TOAN THAN|全身|油壓|SPA|BACK/)) inferredType = 'BED';
-                }
+        // [V136.1 FIX] Accurate Resource ID Extraction - Removes rowId from matching to avoid false positives on Bed 1
+        const resFields = [b.phase1_res_idx, b.phase2_res_idx, b.allocated_resource, b.current_resource_id];
+        let extractedMatches = [];
+        resFields.forEach(rawId => {
+            if (!rawId) return;
+            let id = String(rawId).toUpperCase().trim();
+            if (!id) return;
+            
+            let isOpp = id.includes('OPP') || id.includes('對') || id.includes('2-') || (b.location === '對面館');
+            let isChair = id.includes('CHAIR') || id.includes('腳') || id.includes('足') || id.includes('FOOT');
+            let isBed = id.includes('BED') || id.includes('床') || id.includes('本') || id.includes('BODY') || id.includes('身');
+            
+            if (!isChair && !isBed) {
+                if (id.includes('本') || id.includes('對') || b.location === '對面館') isBed = true; 
+                else isChair = true; 
             }
-            const bPrefix = (locationStr === '對面館') ? '2' : '1';
-            uniqueMatches = [...new Set(backupMatches)].map(num => `${inferredType}-${bPrefix}-${num}`);
-        }
+            
+            let match = id.match(/\d+/g);
+            let num = match && match.length > 0 ? match[match.length - 1] : '';
+            if (!num) return;
+            
+            let building = isOpp ? '2' : '1';
+            let type = isChair ? 'CHAIR' : 'BED';
+            extractedMatches.push(`${type}-${building}-${num}`);
+        });
+        
+        let uniqueMatches = [...new Set(extractedMatches)];
 
         // [NEW V118.9] Logic Nhận diện Đặt chỗ linh hoạt (Fluid Booking) & Repacking
         const isLockedRaw = b.originalData?.isManualLocked || b.isManualLocked;
@@ -1380,22 +1389,33 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
 
         // [V135 FIX] LUÔN ưu tiên lấy toạ độ thực tế một cách toàn diện như Guardrail
         // Điều này ngăn chặn Bóng Ma Toạ Độ do Matrix gán nhầm ghế/giường đã có khách.
-        const rIdStr = (b.phase1_res_idx || "") + " " + (b.phase2_res_idx || "") + " " + (b.allocated_resource || "") + " " + (b.location || "") + " " + (b.current_resource_id || "") + " " + (b.rowId || "");
-        const matches = [...rIdStr.matchAll(/((?:BED|CHAIR)-[12]-\d+)/gi)].map(m => m[1].toUpperCase());
-        let uniqueMatches = [...new Set(matches)];
-
-        if (uniqueMatches.length === 0) {
-            const backupMatches = [...rIdStr.matchAll(/(\d+)/gi)].map(m => m[1]);
-            let inferredType = 'CHAIR';
-            if (svcInfo) {
-                if (svcInfo.type === 'BED' || svcInfo.type === 'CHAIR') inferredType = svcInfo.type;
-                else {
-                    const name = (svcInfo.name || '').toUpperCase();
-                    if (name.match(/BODY|指壓|油|BED|TOAN THAN|全身|油壓|SPA|BACK/)) inferredType = 'BED';
-                }
+        // [V136.1 FIX] Accurate Resource ID Extraction - Removes rowId from matching to avoid false positives on Bed 1
+        const resFields = [b.phase1_res_idx, b.phase2_res_idx, b.allocated_resource, b.current_resource_id];
+        let extractedMatches = [];
+        resFields.forEach(rawId => {
+            if (!rawId) return;
+            let id = String(rawId).toUpperCase().trim();
+            if (!id) return;
+            
+            let isOpp = id.includes('OPP') || id.includes('對') || id.includes('2-') || (b.location === '對面館');
+            let isChair = id.includes('CHAIR') || id.includes('腳') || id.includes('足') || id.includes('FOOT');
+            let isBed = id.includes('BED') || id.includes('床') || id.includes('本') || id.includes('BODY') || id.includes('身');
+            
+            if (!isChair && !isBed) {
+                if (id.includes('本') || id.includes('對') || b.location === '對面館') isBed = true; 
+                else isChair = true; 
             }
-            uniqueMatches = [...new Set(backupMatches)].map(num => `${inferredType}-${num}`);
-        }
+            
+            let match = id.match(/\d+/g);
+            let num = match && match.length > 0 ? match[match.length - 1] : '';
+            if (!num) return;
+            
+            let building = isOpp ? '2' : '1';
+            let type = isChair ? 'CHAIR' : 'BED';
+            extractedMatches.push(`${type}-${building}-${num}`);
+        });
+        
+        let uniqueMatches = [...new Set(extractedMatches)];
 
         if (!anchorIndex && b._virtualInheritanceIndex && !isRunning) {
             anchorIndex = b._virtualInheritanceIndex;
