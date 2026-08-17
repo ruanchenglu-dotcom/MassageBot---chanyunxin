@@ -959,9 +959,15 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                 if (testFlow !== null) return false;
                 
                 if (window.cyxCallCoreAvailabilityCheck) {
+                    let newServiceCode = "";
+                    if (window.SERVICES_DATA) {
+                        newServiceCode = Object.keys(window.SERVICES_DATA).find(k => window.SERVICES_DATA[k].name === selectedService) || "";
+                    }
+
                     let guestDetails = [{
                         service: selectedService,
                         serviceName: selectedService,
+                        serviceCode: newServiceCode,
                         staff: selectedStaff || '隨機',
                         overrideDuration: newDuration,
                         flowCode: (editServiceCategory === 'COMBO') ? (currentTestingFlow || (['FB', 'BF'].includes(booking.flowCode) ? booking.flowCode : 'FB')) : 'SINGLE',
@@ -972,6 +978,7 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                         guestDetails = [booking, ...groupMembersToUpdate].map(b => ({
                             service: selectedService,
                             serviceName: selectedService,
+                            serviceCode: newServiceCode,
                             staff: (String(b.rowId) === String(booking.rowId)) ? (selectedStaff || '隨機') : (b.allocated_staff_id || b.staffName || '隨機'),
                             overrideDuration: newDuration,
                             flowCode: (editServiceCategory === 'COMBO') ? (['FB', 'BF'].includes(b.flowCode) ? b.flowCode : 'FB') : 'SINGLE',
@@ -1029,9 +1036,15 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
         } else {
             // Khách đang ở chế độ chờ (Waiting) không có currentRes, nhưng đổi dịch vụ cũng cần check capacity
             if (window.cyxCallCoreAvailabilityCheck) {
+                let newServiceCode = "";
+                if (window.SERVICES_DATA) {
+                    newServiceCode = Object.keys(window.SERVICES_DATA).find(k => window.SERVICES_DATA[k].name === selectedService) || "";
+                }
+
                 let guestDetails = [{
                     service: selectedService,
                     serviceName: selectedService,
+                    serviceCode: newServiceCode,
                     staff: selectedStaff || '隨機',
                     overrideDuration: newDuration,
                     flowCode: (editServiceCategory === 'COMBO') ? (currentTestingFlow || (['FB', 'BF'].includes(booking.flowCode) ? booking.flowCode : 'FB')) : 'SINGLE',
@@ -1042,6 +1055,7 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                     guestDetails = [booking, ...groupMembersToUpdate].map(b => ({
                         service: selectedService,
                         serviceName: selectedService,
+                        serviceCode: newServiceCode,
                         staff: (String(b.rowId) === String(booking.rowId)) ? (selectedStaff || '隨機') : (b.allocated_staff_id || b.staffName || '隨機'),
                         overrideDuration: newDuration,
                         flowCode: (editServiceCategory === 'COMBO') ? (['FB', 'BF'].includes(b.flowCode) ? b.flowCode : 'FB') : 'SINGLE',
