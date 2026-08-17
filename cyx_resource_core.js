@@ -752,7 +752,8 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
         }
         
         // Nếu booking không bị khóa và chưa bắt đầu, hệ thống được phép "giả lập dời ghế"
-        const isFluid = !isLocked && !isRunning;
+        // [V136.2 FIX] Disabled Fluid Booking Repacking: Cố định toạ độ thực tế để tránh lỗi xếp đè (Overlap)
+        const isFluid = false; 
 
         // Kích hoạt Repacking: Bỏ qua ghế đã chỉ định, ép hệ thống tự tìm ghế trống tối ưu nhất
         if (isFluid) {

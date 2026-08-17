@@ -531,7 +531,8 @@
                 }
                 
                 // Nếu booking không bị khóa và chưa bắt đầu, hệ thống được phép "giả lập dời ghế"
-                const isFluid = !isLocked && !isRunning;
+                // [V136.2 FIX] Disabled Fluid Booking Repacking: Cố định toạ độ thực tế để tránh lỗi xếp đè (Overlap)
+                const isFluid = false; 
 
                 // Kích hoạt Repacking: Bỏ qua ghế đã chỉ định, ép hệ thống tự tìm ghế trống tối ưu nhất
                 if (isFluid) {
@@ -1329,24 +1330,32 @@
 
                 const ownerName = b.originalData?.customerName || b.originalData?.hoTen || b.rowId || "Guest";
 
-                // [V135 FIX] LUÔN ưu tiên lấy toạ độ thực tế một cách toàn diện như Guardrail
-                const rIdStr = (b.phase1_res_idx || "") + " " + (b.phase2_res_idx || "") + " " + (b.allocated_resource || "") + " " + (b.location || "") + " " + (b.current_resource_id || "") + " " + (b.rowId || "");
-                const matches = [...rIdStr.matchAll(/((?:BED|CHAIR)-[12]-\d+)/gi)].map(m => m[1].toUpperCase());
-                let uniqueMatches = [...new Set(matches)];
-
-                if (uniqueMatches.length === 0) {
-                    const backupMatches = [...rIdStr.matchAll(/(\d+)/gi)].map(m => m[1]);
-                    let inferredType = 'CHAIR';
-                    if (svcInfo) {
-                        if (svcInfo.type === 'BED' || svcInfo.type === 'CHAIR') inferredType = svcInfo.type;
-                        else {
-                            const name = (svcInfo.name || '').toUpperCase();
-                            if (name.match(/BODY|指壓|油|BED|TOAN THAN|全身|油壓|SPA|BACK/)) inferredType = 'BED';
-                        }
+                // [V136.1 FIX] Accurate Resource ID Extraction - Removes rowId from matching to avoid false positives on Bed 1
+                const resFields = [b.phase1_res_idx, b.phase2_res_idx, b.allocated_resource, b.current_resource_id];
+                let extractedMatches = [];
+                resFields.forEach(rawId => {
+                    if (!rawId) return;
+                    let id = String(rawId).toUpperCase().trim();
+                    if (!id) return;
+                    
+                    let isOpp = id.includes('OPP') || id.includes('對') || id.includes('2-') || (bLoc === '對面館');
+                    let isChair = id.includes('CHAIR') || id.includes('腳') || id.includes('足') || id.includes('FOOT');
+                    let isBed = id.includes('BED') || id.includes('床') || id.includes('本') || id.includes('BODY') || id.includes('身');
+                    
+                    if (!isChair && !isBed) {
+                        if (id.includes('本') || id.includes('對') || bLoc === '對面館') isBed = true; 
+                        else isChair = true; 
                     }
-                    const bPrefix = (bLoc === '對面館') ? '2' : '1';
-                    uniqueMatches = [...new Set(backupMatches)].map(num => `${inferredType}-${bPrefix}-${num}`);
-                }
+                    
+                    let match = id.match(/\d+/g);
+                    let num = match && match.length > 0 ? match[match.length - 1] : '';
+                    if (!num) return;
+                    
+                    let building = isOpp ? '2' : '1';
+                    let type = isChair ? 'CHAIR' : 'BED';
+                    extractedMatches.push(`${type}-${building}-${num}`);
+                });
+                let uniqueMatches = [...new Set(extractedMatches)];
                 
                 if (!anchorIndex && b._virtualInheritanceIndex && !isRunning) {
                     anchorIndex = b._virtualInheritanceIndex;
@@ -1539,7 +1548,7 @@
                     const exBLoc = exB.originalData?.location || exB.location || '本館';
                     if (exBLoc !== locationStr) continue;
 
-                    const isStrictlyForced = exB.isRunning || exB.isLocked;
+                    const isStrictlyForced = true; // exB.isRunning || exB.isLocked; // [V136.2 FIX] Disable repacking
                     if (!isStrictlyForced) continue;
 
                     let placedSuccessfully = true;
@@ -1625,7 +1634,7 @@
                         const exBLoc = exB.originalData?.location || exB.location || '本館';
                         if (exBLoc !== locationStr) continue;
                         
-                        const isStrictlyForced = exB.isRunning || exB.isLocked;
+                        const isStrictlyForced = true; // exB.isRunning || exB.isLocked; // [V136.2 FIX] Disable repacking
                         if (isStrictlyForced) continue;
 
                         let placedSuccessfully = true; let allocatedSlots = [];
