@@ -532,7 +532,7 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
             return false;
         });
 
-        if (groupMembers.length > 0) {
+        console.log('GROUP MEMBERS:', groupMembers.length, groupMembers); if (groupMembers.length > 0) {
             setGroupMembersToUpdate(groupMembers);
             setShowGroupUpdatePrompt(true);
         } else {
@@ -1029,7 +1029,7 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                     serviceName: selectedService,
                     staff: selectedStaff || '隨機',
                     overrideDuration: newDuration,
-                    flowCode: currentTestingFlow || (['FB', 'BF'].includes(booking.flowCode) ? booking.flowCode : 'FB'),
+                    flowCode: (editServiceCategory === 'COMBO') ? (currentTestingFlow || (['FB', 'BF'].includes(booking.flowCode) ? booking.flowCode : 'FB')) : 'SINGLE',
                     location: booking.location
                 }];
                 
@@ -1039,7 +1039,7 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                         serviceName: selectedService,
                         staff: (String(b.rowId) === String(booking.rowId)) ? (selectedStaff || '隨機') : (b.allocated_staff_id || b.staffName || '隨機'),
                         overrideDuration: newDuration,
-                        flowCode: ['FB', 'BF'].includes(b.flowCode) ? b.flowCode : 'FB',
+                        flowCode: (editServiceCategory === 'COMBO') ? (['FB', 'BF'].includes(b.flowCode) ? b.flowCode : 'FB') : 'SINGLE',
                         location: b.location || booking.location
                     }));
                 }
@@ -1176,7 +1176,13 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
 
     const isRunning = liveData && liveData.isRunning;
     const isPaused = liveData && liveData.isPaused;
-    const isCombo = (booking.category === 'COMBO' || (booking.serviceCode && typeof booking.serviceCode === 'string' && booking.serviceCode.toUpperCase().startsWith('A'))) || (booking.serviceName && booking.serviceName.includes('Combo')) || (booking.serviceName && booking.serviceName.includes('套餐'));
+    const isServiceChangedForCombo = selectedService !== (booking.cleanServiceName || getCleanServiceName(booking.serviceName));
+    let isCombo = false;
+    if (isServiceChangedForCombo) {
+        isCombo = selectedService.includes('套餐') || selectedService.includes('Combo') || selectedService.toUpperCase().includes('COMBO') || (window.SERVICES_DATA && window.SERVICES_DATA[selectedService] && window.SERVICES_DATA[selectedService].category === 'COMBO');
+    } else {
+        isCombo = (booking.category === 'COMBO' || (booking.serviceCode && typeof booking.serviceCode === 'string' && booking.serviceCode.toUpperCase().startsWith('A'))) || (booking.serviceName && booking.serviceName.includes('Combo')) || (booking.serviceName && booking.serviceName.includes('套餐'));
+    }
     const isGroupBooking = (parseInt(booking.pax) || 1) > 1;
     const isSyncPending = booking && booking.isManualLocked;
 
