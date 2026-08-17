@@ -6,8 +6,8 @@
 
 # Test info
 
-- Name: group_combo_to_body_capacity.spec.js >> Group COMBO to BODY Capacity Check >> Should calculate flowCode correctly for capacity check
-- Location: tests\group_combo_to_body_capacity.spec.js:4:5
+- Name: group_combo_to_foot_capacity.spec.js >> Group COMBO to FOOT Capacity Check >> Should calculate flowCode correctly for capacity check when downgrading to FOOT
+- Location: tests\group_combo_to_foot_capacity.spec.js:4:5
 
 # Error details
 
@@ -32,7 +32,7 @@ Call log:
       - generic [ref=e7]: 心悟禪養身館 (中和店)
       - generic [ref=e8]:
         - button "❯" [ref=e9] [cursor=pointer]
-        - textbox [ref=e10] [cursor=pointer]: 2026-08-13
+        - textbox [ref=e10] [cursor=pointer]: 2026-08-17
         - button "❯" [ref=e11] [cursor=pointer]
     - generic [ref=e12]:
       - button " 本館" [ref=e13] [cursor=pointer]:
@@ -185,7 +185,7 @@ Call log:
       - generic [ref=e256]: 
   - main [ref=e259]:
     - generic [ref=e263]:
-      - generic: 15:36 現在
+      - generic: 09:58 現在
       - generic "雙擊回到現在" [ref=e264] [cursor=pointer]:
         - generic [ref=e265]: 區域
         - generic [ref=e266]:
@@ -576,57 +576,61 @@ Call log:
 ```ts
   1  | const { test, expect } = require('@playwright/test');
   2  | 
-  3  | test.describe('Group COMBO to BODY Capacity Check', () => {
-  4  |     test('Should calculate flowCode correctly for capacity check', async ({ page, request }) => {
-  5  |         const dateStr = new Date().toISOString().split('T')[0].replace(/-/g, '/');
-  6  |         
-  7  |         // 1. Create a COMBO BF booking (starts with BED)
-  8  |         await request.post('http://localhost:5001/api/admin-booking', {
-  9  |             data: {
-  10 |                 is_group_booking: false,
-  11 |                 name: "Test Combo BF",
-  12 |                 phone: "0911223344",
-  13 |                 guestCount: 1,
-  14 |                 service_code: "100", // Combo
-  15 |                 duration: 120,
-  16 |                 location: "本館",
-  17 |                 date: dateStr,
-  18 |                 startTime: "12:00",
-  19 |                 type: "COMBO",
-  20 |                 guests: [{ category: "COMBO", flow: "BF", duration: 120 }],
-  21 |                 flow: "BF",
-  22 |                 phase1_res_idx: "BED-1-1",
-  23 |                 phase2_res_idx: "CHAIR-1-1",
-  24 |             }
-  25 |         });
-  26 | 
-  27 |         // 2. Open page
-  28 |         await page.goto('http://localhost:5001/admin2/index.html');
-> 29 |         await page.waitForSelector('.booking-block', { timeout: 30000 });
+  3  | test.use({ baseURL: 'http://localhost:5001' });
+  4  | 
+  5  | test('Group COMBO to FOOT Capacity Check', async ({ page }) => {
+  6  |     const today = new Date();
+  7  |     const yyyy = today.getFullYear();
+  8  |     const mm = String(today.getMonth() + 1).padStart(2, '0');
+  9  |     const dd = String(today.getDate()).padStart(2, '0');
+  10 |     const dateStr = yyyy + '/' + mm + '/' + dd;
+  11 | 
+  12 |     const mockBookings = [];
+  13 |     for(let i=1; i<=4; i++) {
+  14 |         mockBookings.push({
+  15 |             rowId: 'target-booking-' + i,
+  16 |             date: dateStr,
+  17 |             startTimeString: dateStr + ' 10:00:00',
+  18 |             startTime: '10:00',
+  19 |             originalName: 'Kang(' + i + '/4)',
+  20 |             customerName: 'Kang(' + i + '/4)',
+  21 |             serviceName: '套餐 (190分)',
+  22 |             cleanServiceName: '套餐 (190分)',
+  23 |             duration: 190,
+  24 |             status: '等待中',
+  25 |             resourceId: 'BED-1-' + i,
+  26 |             current_resource_id: 'BED-1-' + i,
+  27 |             location: 'BED-1-' + i,
+  28 |             staffId: '隨機',
+  29 |             flow: 'FB',
+  30 |             flowCode: 'FB',
+> 31 |             groupId: 'g1'
      |                    ^ Error: page.waitForSelector: Test timeout of 30000ms exceeded.
-  30 |         
-  31 |         // Click the booking
-  32 |         const bookingCard = page.locator('.booking-block', { hasText: 'Test Combo BF' }).first();
-  33 |         await bookingCard.click();
-  34 |         
-  35 |         // Wait for edit modal
-  36 |         await page.waitForSelector('text=儲存修改', { timeout: 10000 });
-  37 |         
-  38 |         // Change to BODY
-  39 |         const serviceSelect = page.locator('select').first();
-  40 |         await serviceSelect.selectOption({ label: '身體按摩 (120分)' });
-  41 |         
-  42 |         // Ensure no "床區客滿" error
-  43 |         const errorMsgLocator = page.locator('text=❌ 床區客滿');
-  44 |         await expect(errorMsgLocator).not.toBeVisible({ timeout: 2000 });
-  45 |         
-  46 |         // Clean up: delete the booking
-  47 |         const deleteBtn = page.locator('button[title="刪除預約"]');
-  48 |         if (await deleteBtn.isVisible()) {
-  49 |             await deleteBtn.click();
-  50 |             await page.locator('button:has-text("確定刪除")').click();
-  51 |         }
-  52 |     });
-  53 | });
-  54 | 
+  32 |         });
+  33 |     }
+  34 | 
+  35 |     await page.route('**/api/info*', async (route) => {
+  36 |         await route.fulfill({ json: { bookings: mockBookings, timeline: [], staffList: [] } });
+  37 |     });
+  38 | 
+  39 |     await page.goto('/admin2/index.html');
+  40 |     
+  41 |     const bookingEl = await page.getByText('Kang(1/4)').first();
+  42 |     await bookingEl.waitFor({ state: 'visible', timeout: 10000 });
+  43 |     await bookingEl.click({ force: true });
+  44 |     
+  45 |     await page.waitForSelector('select', { timeout: 10000 });
+  46 |     
+  47 |     const serviceSelect = page.locator('select').first();
+  48 |     await serviceSelect.selectOption({ label: '腳底按摩 (90分)' });
+  49 | 
+  50 |     const updateGroupBtn = page.locator('button', { hasText: '修改全組' });
+  51 |     if (await updateGroupBtn.isVisible({timeout: 2000})) {
+  52 |          await updateGroupBtn.click();
+  53 |     }
+  54 |     
+  55 |     const errorMsgLocator = page.locator('text=❌ 床區客滿');
+  56 |     await expect(errorMsgLocator).not.toBeVisible({ timeout: 2000 });
+  57 | });
+  58 | 
 ```

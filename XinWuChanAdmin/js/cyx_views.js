@@ -556,8 +556,7 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
         const endMins = startMins + newDuration;
 
         const getServiceCategory = (serviceName, flowCode) => {
-            if (['FB', 'BF'].includes(flowCode)) return 'COMBO';
-            if (!serviceName) return 'BODY';
+            if (!serviceName) return ['FB', 'BF'].includes(flowCode) ? 'COMBO' : 'BODY';
             if (window.SERVICES_DATA) {
                 if (window.SERVICES_DATA[serviceName]) return window.SERVICES_DATA[serviceName].category;
                 for (const code in window.SERVICES_DATA) {
@@ -567,6 +566,7 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
             }
             if (serviceName.includes('套餐') || serviceName.includes('招牌') || serviceName.includes('COMBO')) return 'COMBO';
             if (serviceName.includes('足') || serviceName.includes('腳底') || serviceName.includes('FOOT')) return 'FOOT';
+            if (['FB', 'BF'].includes(flowCode)) return 'COMBO';
             return 'BODY';
         };
 
