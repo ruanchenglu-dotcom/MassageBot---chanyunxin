@@ -545,6 +545,11 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
         const currentTestingFlow = testFlow !== null ? testFlow : localFlow;
         const isBodyFirstLocal = currentTestingFlow === 'BF';
         
+        const currentExcludeRowIds = [String(booking?.rowId)];
+        if (checkIsGroup && groupMembersToUpdate) {
+            groupMembersToUpdate.forEach(m => currentExcludeRowIds.push(String(m.rowId)));
+        }
+        
         const getDuration = (serviceName, fallbackDuration = 60) => {
             if (!serviceName) return fallbackDuration;
             const match = serviceName.match(/(190|180|170|160|150|140|130|120|110|100|90|80|75|70|65|60|55|50|45|40|35|30)/);
@@ -929,11 +934,11 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
             let isResConflict = false;
             if (isSameCategory) {
                 if (editServiceCategory === 'COMBO') {
-                    if (booking.phase1_res_idx && checkOverlap(booking.phase1_res_idx, startMins, editPhase1End, excludeRowIds)) isResConflict = true;
-                    if (booking.phase2_res_idx && checkOverlap(booking.phase2_res_idx, switchMins + 5, endMins, excludeRowIds)) isResConflict = true;
+                    if (booking.phase1_res_idx && checkOverlap(booking.phase1_res_idx, startMins, editPhase1End, currentExcludeRowIds)) isResConflict = true;
+                    if (booking.phase2_res_idx && checkOverlap(booking.phase2_res_idx, switchMins + 5, endMins, currentExcludeRowIds)) isResConflict = true;
                 } else {
                     isResConflict = todays.some(b => {
-                        if (excludeRowIds.includes(String(b.rowId))) return false;
+                        if (currentExcludeRowIds.includes(String(b.rowId))) return false;
                         const bTimeStr = (b.startTimeString || ' ').split(' ')[1] || '00:00';
                         const bStart = timeStrToMins(bTimeStr);
                         const bEnd = bStart + getDuration(b.serviceName, b.duration || 60);
@@ -978,7 +983,7 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                     let timeStr = booking.startTimeString || booking.gioDen || startTimeStr;
                     if (timeStr && timeStr.includes(' ')) timeStr = timeStr.split(' ')[1];
                     
-                    const checkBookings = todays.filter(b => !excludeRowIds.includes(String(b.rowId)));
+                    const checkBookings = todays.filter(b => !currentExcludeRowIds.includes(String(b.rowId)));
                     const finalCheck = window.cyxCallCoreAvailabilityCheck(dateStr, timeStr, guestDetails, checkBookings, staffList);
                     
                     if (finalCheck && finalCheck.valid) {
@@ -1048,7 +1053,7 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                 let timeStr = booking.startTimeString || booking.gioDen || startTimeStr;
                 if (timeStr && timeStr.includes(' ')) timeStr = timeStr.split(' ')[1];
                 
-                const checkBookings = todays.filter(b => !excludeRowIds.includes(String(b.rowId)));
+                const checkBookings = todays.filter(b => !currentExcludeRowIds.includes(String(b.rowId)));
                 const finalCheck = window.cyxCallCoreAvailabilityCheck(dateStr, timeStr, guestDetails, checkBookings, staffList);
                 
                 if (!finalCheck || !finalCheck.valid) {
