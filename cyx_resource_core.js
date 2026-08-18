@@ -176,50 +176,31 @@ function isActiveBookingStatus(statusRaw) {
 // PHẦN 3: BỘ NHẬN DIỆN THÔNG MINH
 // ============================================================================
 
-function isComboService(serviceObj, serviceNameRaw = '', explicitFlow = null) {
-    if (explicitFlow) {
-        const flowUpper = explicitFlow.toString().toUpperCase().trim();
-        if (['SINGLE', 'FOOTSINGLE', 'BODYSINGLE'].includes(flowUpper)) return false;
-        if (flowUpper === 'BF' || flowUpper === 'FB') return true;
-    }
-    if (!serviceObj && !serviceNameRaw) return false;
-    const cat = (serviceObj && serviceObj.category ? serviceObj.category : '').toString().toUpperCase().trim();
-    if (cat === 'COMBO' || cat === 'MIXED') return true;
-
-    const dbName = (serviceObj && serviceObj.name ? serviceObj.name : '').toString().toUpperCase();
-    const rawName = (serviceNameRaw || '').toString().toUpperCase();
-    const nameToCheck = dbName + " | " + rawName;
-    const comboKeywords = ['COMBO', '套餐', 'MIX', '+', 'SET', '腳身', '全餐', 'FOOT AND BODY', 'BODY AND FOOT', '雙人', 'A餐', 'B餐', 'C餐', '油壓+足'];
-    for (const kw of comboKeywords) { if (nameToCheck.includes(kw)) return true; }
-    return false;
+function isComboService(serviceCode) {
+    if (!serviceCode) return false;
+    return String(serviceCode).trim().toUpperCase().startsWith('A');
 }
 
-function inferFlowFromService(serviceObj, fallbackFlow = null) {
+function inferFlowFromService(serviceCode, fallbackFlow = null) {
     if (fallbackFlow) {
         const f = fallbackFlow.toString().toUpperCase().trim();
         if (f === 'FOOTSINGLE' || f === 'BODYSINGLE') return f;
     }
-    if (!serviceObj) return 'BODYSINGLE';
-    const type = (serviceObj.type || '').toUpperCase();
-    const name = (serviceObj.name || '').toUpperCase();
-
-    if (type === 'FOOT' || type === 'CHAIR' || type === 'LEG') return 'FOOTSINGLE';
-    if (type === 'BODY' || type === 'BED' || type === 'OIL' || type === 'SPA') return 'BODYSINGLE';
-
-    const cat = (serviceObj.category || '').toUpperCase();
-    if (cat === 'FOOT') return 'FOOTSINGLE';
-    if (cat === 'BODY') return 'BODYSINGLE';
-
-    if (name.match(/FOOT|CHAIR|腳|足|LEG/)) return 'FOOTSINGLE';
-    if (name.match(/BODY|BED|指壓|油|全身|BACK/)) return 'BODYSINGLE';
+    if (!serviceCode) return 'BODYSINGLE';
+    const codeUpper = String(serviceCode).trim().toUpperCase();
+    if (codeUpper.startsWith('A')) return 'FB'; // Default COMBO to FB
+    if (codeUpper.startsWith('F')) return 'FOOTSINGLE';
+    if (codeUpper.startsWith('B') || codeUpper.startsWith('C')) return 'BODYSINGLE';
     return 'BODYSINGLE';
 }
 
-function detectResourceType(serviceObj) {
-    if (!serviceObj) return 'CHAIR';
-    if (serviceObj.type === 'BED' || serviceObj.type === 'CHAIR') return serviceObj.type;
-    const name = (serviceObj.name || '').toUpperCase();
-    if (name.match(/BODY|指壓|油|BED|TOAN THAN|全身|油壓|SPA|BACK/)) return 'BED';
+function detectResourceType(serviceCode) {
+    if (!serviceCode) return 'CHAIR';
+    const codeUpper = String(serviceCode).trim().toUpperCase();
+    if (codeUpper.startsWith('B')) return 'BED';
+    if (codeUpper.startsWith('F')) return 'CHAIR';
+    if (codeUpper.startsWith('A')) return 'BED'; // Combo usually starts on BED for body phase
+    if (codeUpper.startsWith('C')) return 'BED'; // Default addon to BED
     return 'CHAIR';
 }
 
@@ -475,7 +456,7 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
         if (!isActiveBookingStatus(b.status)) return false;
         const svcInfo = getServiceInfo(b.serviceCode, b.serviceName);
         const storedFlow = b.originalData?.flowCode || b.flow;
-        const isCombo = isComboService(svcInfo, b.serviceName, storedFlow);
+        const isCombo = isComboService(b.serviceCode);
         const { realDuration } = calculateRealDurations(b, b.duration || 60, isCombo);
         const bEnd = bStart + realDuration + CONF.CLEANUP_BUFFER;
         return bEnd > requestStart;
@@ -541,7 +522,7 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
             const bS = getMinsFromTimeStr(b.startTimeString || b.startTime);
             const svcInfo = getServiceInfo(b.serviceCode, b.serviceName);
             const storedFlow = b.originalData?.flowCode || b.flow;
-            const isCombo = isComboService(svcInfo, b.serviceName, storedFlow);
+            const isCombo = isComboService(b.serviceCode);
             const { realDuration } = calculateRealDurations(b, b.duration || 60, isCombo);
             const bE = bS + realDuration + CONF.CLEANUP_BUFFER;
             let staffsInBooking = b.assignedStaffs && b.assignedStaffs.length > 0 ? b.assignedStaffs : [b.staffName];
@@ -583,7 +564,7 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
             if (tCheck >= requestStart && tCheck < requestStart + dur) {
                 newGuestsActive++;
                 const storedFlow = g.flowCode || 'FB';
-                if (isComboService(svcInfo, g.serviceName || g.service, storedFlow)) comboGuestCount++;
+                if (isComboService(g.serviceCode)) comboGuestCount++;
                 const req = g.staff;
                 // Nếu khách chọn dầu (OIL), mặc định yêu cầu nữ (trừ khi có config khác)
                 if (req === 'FEMALE' || req === '女' || req === '女師' || req === 'OIL') newFemaleReq++;
@@ -707,7 +688,7 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
         const bStart = getMinsFromTimeStr(b.startTimeString || b.startTime);
         const svcInfo = getServiceInfo(b.serviceCode, b.serviceName);
         const storedFlow = b.originalData?.flowCode || b.flow;
-        const isCombo = isComboService(svcInfo, b.serviceName, storedFlow);
+        const isCombo = isComboService(b.serviceCode);
         const { p1, realDuration } = calculateRealDurations(b, b.duration || 60, isCombo);
 
         // [V136.1 FIX] Accurate Resource ID Extraction - Removes rowId from matching to avoid false positives on Bed 1
@@ -845,7 +826,7 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
             pushToMap(res1, bStart, bStart + p1 + CONF.CLEANUP_BUFFER, type1);
             pushToMap(res2, bStart + p1 + CONF.TRANSITION_BUFFER, bStart + realDuration + CONF.CLEANUP_BUFFER, type2);
         } else {
-            let rType = (inferFlowFromService(svcInfo, storedFlow) === 'FOOTSINGLE') ? 'CHAIR' : 'BED';
+            let rType = (inferFlowFromService(b.serviceCode, storedFlow) === 'FOOTSINGLE') ? 'CHAIR' : 'BED';
             if (uniqueMatches.length > 0) {
                 uniqueMatches.forEach(res => {
                     pushToMap(res, bStart, bStart + realDuration + CONF.CLEANUP_BUFFER, rType);
@@ -865,7 +846,7 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
         const svc = getServiceInfo(g.serviceCode, g.serviceName || g.service);
         const duration = g.overrideDuration || svc.duration || 60;
         const explicitFlow = g.flowCode || null;
-        const isCombo = isComboService(svc, g.serviceCode, explicitFlow);
+        const isCombo = isComboService(g.serviceCode);
         const guestIdKey = g.idx !== undefined ? g.idx : i; // Đảm bảo mapping đúng index của khách
 
         if (isCombo) {
@@ -885,7 +866,7 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
                     const p2 = split.p2;
                     const tStart = requestStart + (split.shiftMins || 0);
                     const tSwitch = tStart + p1 + CONF.TRANSITION_BUFFER;
-                    const comboGuestsCount = guestList.filter(g => isComboService(getServiceInfo(g.serviceCode, g.serviceName || g.service), g.serviceCode, g.flowCode)).length;
+                    const comboGuestsCount = guestList.filter(g => isComboService(g.serviceCode)).length;
                     const isCrossSwapGroup = comboGuestsCount >= 2;
                     const phase1Cleanup = isCrossSwapGroup ? Math.min(CONF.CLEANUP_BUFFER, CONF.TRANSITION_BUFFER) : CONF.CLEANUP_BUFFER;
                     
@@ -951,7 +932,7 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
                             
                             let loc1Idx = -1, loc2Idx = -1;
                             
-                            const comboGuestsCount = guestList.filter(g => isComboService(getServiceInfo(g.serviceCode, g.serviceName || g.service), g.serviceCode, g.flowCode)).length;
+                            const comboGuestsCount = guestList.filter(g => isComboService(g.serviceCode)).length;
                             const isCrossSwapGroup = comboGuestsCount >= 2;
                             const phase1Cleanup = isCrossSwapGroup ? Math.min(CONF.CLEANUP_BUFFER, CONF.TRANSITION_BUFFER) : CONF.CLEANUP_BUFFER;
 
@@ -995,7 +976,7 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
 
         } else {
             // Khách lẻ
-            const smartFlow = inferFlowFromService(svc, explicitFlow);
+            const smartFlow = inferFlowFromService(g.serviceCode, explicitFlow);
             let rType = (smartFlow === 'FOOTSINGLE') ? 'CHAIR' : 'BED';
             let foundIdx = -1;
             console.log("DEBUG SIMULATION MAP CHAIRS: ", JSON.stringify(simulationMap.CHAIR));
@@ -1376,8 +1357,8 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
         if (bStart === -1) return;
         let svcInfo = getServiceInfo(b.serviceCode, b.serviceName);
         let storedFlow = b.flow || b.originalData?.flowCode || b.originalData?.flow || null;
-        let isCombo = isComboService(svcInfo, b.serviceName, storedFlow);
-        if (!isCombo) storedFlow = inferFlowFromService(svcInfo, storedFlow);
+        let isCombo = isComboService(b.serviceCode);
+        if (!isCombo) storedFlow = inferFlowFromService(b.serviceCode, storedFlow);
 
         let duration = b.duration || svcInfo.duration || 60;
         let anchorIndex = null;
@@ -1525,7 +1506,7 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
 
     // 4. KỊCH BẢN MATRIX KHÁCH MỚI
     const newGuests = guestList.map((g, idx) => ({ ...g, idx: idx }));
-    const comboGuests = newGuests.filter(g => isComboService(getServiceInfo(g.serviceCode, g.serviceName || g.service), g.serviceCode, g.flowCode));
+    const comboGuests = newGuests.filter(g => isComboService(g.serviceCode));
     const newGuestHalfSize = Math.ceil(comboGuests.length / 2);
     const maxBF = comboGuests.length;
     let trySequence = [];
@@ -1593,14 +1574,14 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
         for (const ng of newGuests) {
             const svc = getServiceInfo(ng.serviceCode, ng.serviceName || ng.service);
             let flow = 'FB';
-            let isThisGuestCombo = isComboService(svc, ng.serviceCode, ng.flowCode);
+            let isThisGuestCombo = isComboService(ng.serviceCode);
 
             if (isThisGuestCombo) {
                 const cIdx = comboGuests.findIndex(cg => cg.idx === ng.idx);
                 console.log(`[DEBUG-FLOW] isThisGuestCombo=true, cIdx=${cIdx}, numBF=${numBF}`);
                 if (cIdx >= 0 && cIdx < numBF) { flow = 'BF'; }
             } else { 
-                flow = inferFlowFromService(svc, ng.flowCode); 
+                flow = inferFlowFromService(ng.serviceCode, ng.flowCode); 
                 console.log(`[DEBUG-FLOW] isThisGuestCombo=false, inferFlow=${flow}`);
             }
             console.log(`[DEBUG-FLOW] Final flow=${flow}`);

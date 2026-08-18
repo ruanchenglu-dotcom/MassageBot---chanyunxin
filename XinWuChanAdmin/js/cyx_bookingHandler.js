@@ -179,28 +179,18 @@
             return false;
         }
 
-        function isComboService(serviceObj, serviceNameRaw = '', explicitFlow = null) {
-            if (explicitFlow) {
-                const flowUpper = explicitFlow.toString().toUpperCase().trim();
-                if (['SINGLE', 'FOOTSINGLE', 'BODYSINGLE'].includes(flowUpper)) return false;
-                if (flowUpper === 'BF' || flowUpper === 'FB') return true;
-            }
-            if (!serviceObj && !serviceNameRaw) return false;
-            const cat = (serviceObj && serviceObj.category ? serviceObj.category : '').toString().toUpperCase().trim();
-            if (cat === 'COMBO' || cat === 'MIXED') return true;
-            const dbName = (serviceObj && serviceObj.name ? serviceObj.name : '').toString().toUpperCase();
-            const rawName = (serviceNameRaw || '').toString().toUpperCase();
-            const nameToCheck = dbName + " | " + rawName;
-            const comboKeywords = ['COMBO', '套餐', 'MIX', '+', 'SET', '腳身', '全餐', 'FOOT AND BODY', 'BODY AND FOOT', '雙人', 'A餐', 'B餐', 'C餐', '油壓+足'];
-            for (const kw of comboKeywords) { if (nameToCheck.includes(kw)) return true; }
-            return false;
+        function isComboService(serviceCode) {
+            if (!serviceCode) return false;
+            return String(serviceCode).trim().toUpperCase().startsWith('A');
         }
 
-        function detectResourceType(serviceObj) {
-            if (!serviceObj) return 'CHAIR';
-            if (serviceObj.type === 'BED' || serviceObj.type === 'CHAIR') return serviceObj.type;
-            const name = (serviceObj.name || '').toUpperCase();
-            if (name.match(/BODY|指壓|油|BED|TOAN THAN|全身|油壓|SPA|BACK/)) return 'BED';
+        function detectResourceType(serviceCode) {
+            if (!serviceCode) return 'CHAIR';
+            const codeUpper = String(serviceCode).trim().toUpperCase();
+            if (codeUpper.startsWith('B')) return 'BED';
+            if (codeUpper.startsWith('F')) return 'CHAIR';
+            if (codeUpper.startsWith('A')) return 'BED'; // Combo usually starts on BED for body phase
+            if (codeUpper.startsWith('C')) return 'BED'; // Default addon to BED
             return 'CHAIR';
         }
 
@@ -238,7 +228,7 @@
             const duration = parseInt(booking.duration) || 60;
             const svcInfo = SERVICES[booking.serviceCode] || { name: booking.serviceName };
             const storedFlow = booking.originalData?.flowCode || booking.flow;
-            const isCombo = isComboService(svcInfo, booking.serviceName, storedFlow);
+            const isCombo = isComboService(booking.serviceCode || getServiceCodeByName(booking.serviceName));
 
             const { realDuration } = calculateRealDurations(booking, duration, isCombo);
 
@@ -255,7 +245,7 @@
 
             const svcInfo = SERVICES[booking.serviceCode] || { name: booking.serviceName };
             const storedFlow = booking.originalData?.flowCode || booking.flow;
-            const isCombo = isComboService(svcInfo, booking.serviceName, storedFlow);
+            const isCombo = isComboService(booking.serviceCode || getServiceCodeByName(booking.serviceName));
 
             const { p1, realDuration } = calculateRealDurations(booking, duration, isCombo);
 
@@ -264,9 +254,9 @@
 
             if (storedFlow === 'FOOTSINGLE') return 'CHAIR';
             if (storedFlow === 'BODYSINGLE') return 'BED';
-            if (storedFlow === 'SINGLE') return detectResourceType(svcInfo);
+            if (storedFlow === 'SINGLE') return detectResourceType(svcInfo.code || getServiceCodeByName(svcInfo.name));
 
-            if (!isCombo) return detectResourceType(svcInfo);
+            if (!isCombo) return detectResourceType(svcInfo.code || getServiceCodeByName(svcInfo.name));
 
             let isBodyFirst = false;
             const noteContent = (booking.note || booking.ghiChu || "").toString().toUpperCase();
@@ -462,7 +452,7 @@
 
                 const svcInfo = SERVICES[b.serviceCode] || { name: b.serviceName };
                 const storedFlow = b.originalData?.flowCode || b.flow;
-                const isCombo = isComboService(svcInfo, b.serviceName, storedFlow);
+                const isCombo = isComboService(b.serviceCode || getServiceCodeByName(b.serviceName));
                 const { realDuration } = calculateRealDurations(b, b.duration || 60, isCombo);
 
                 const bEnd = bStart + realDuration + CONF.CLEANUP_BUFFER;
@@ -486,7 +476,7 @@
                 const svcInfo = SERVICES[b.serviceCode] || { name: b.serviceName };
                 const bLoc = b.originalData?.location || b.location || '本館';
                 const storedFlow = b.originalData?.flowCode || b.flow;
-                const isCombo = isComboService(svcInfo, b.serviceName, storedFlow);
+                const isCombo = isComboService(b.serviceCode || getServiceCodeByName(b.serviceName));
                 const { p1, realDuration } = calculateRealDurations(b, b.duration || 60, isCombo);
 
                 // [V136.1 FIX] Accurate Resource ID Extraction - Removes rowId from matching to avoid false positives on Bed 1
@@ -675,7 +665,7 @@
                 const bS = getMinsFromTimeStr(b.startTime);
                 const svcInfo = SERVICES[b.serviceCode] || { name: b.serviceName };
                 const storedFlow = b.originalData?.flowCode || b.flow;
-                const isCombo = isComboService(svcInfo, b.serviceName, storedFlow);
+                const isCombo = isComboService(b.serviceCode || getServiceCodeByName(b.serviceName));
                 const { realDuration } = calculateRealDurations(b, b.duration || 60, isCombo);
                 const bE = bS + realDuration + CONF.CLEANUP_BUFFER;
 
@@ -834,7 +824,7 @@
                 const g = guestList[i];
                 const svc = typeof getServiceInfo === 'function' ? getServiceInfo(g.serviceCode, g.serviceName || g.service) : (SERVICES[g.serviceCode] || { duration: 60 });
                 const duration = g.overrideDuration || svc.duration || 60;
-                const isCombo = isComboService(svc, g.serviceCode, g.flowCode);
+                const isCombo = isComboService(g.serviceCode || getServiceCodeByName(g.serviceName || g.service));
                 const guestIdKey = g.idx !== undefined ? g.idx : i; // Đảm bảo đúng index
 
                 if (isCombo) {
@@ -960,7 +950,7 @@
                     let rType = 'CHAIR';
                     if (g.flowCode === 'BODYSINGLE') rType = 'BED';
                     else if (g.flowCode === 'FOOTSINGLE') rType = 'CHAIR';
-                    else rType = detectResourceType(svc);
+                    else rType = detectResourceType(svc.code || getServiceCodeByName(svc.name));
 
                     let foundIdx = -1;
                     for (let k = 0; k < (rType === 'BED' ? CONF.MAX_BEDS : CONF.MAX_CHAIRS); k++) {
@@ -1322,7 +1312,7 @@
 
                 let svcInfo = SERVICES[b.serviceCode] || {};
                 let storedFlow = b.originalData?.flowCode || b.flow || null;
-                let isCombo = isComboService(svcInfo, b.serviceName, storedFlow);
+                let isCombo = isComboService(b.serviceCode || getServiceCodeByName(b.serviceName));
 
                 let duration = b.duration || 60;
                 let anchorIndex = null;
@@ -1461,7 +1451,7 @@
 
                     const comboGuestsCount = guestList.filter(g => {
                         const svc = typeof getServiceInfo === 'function' ? getServiceInfo(g.serviceCode, g.serviceName || g.service) : (SERVICES[g.serviceCode] || { duration: 60 });
-                        return isComboService(svc, g.serviceCode, g.flowCode);
+                        return isComboService(g.serviceCode || getServiceCodeByName(g.serviceName || g.service));
                     }).length;
 
                     if (isBodyFirst) {
@@ -1478,7 +1468,7 @@
                     if (storedFlow === 'FOOTSINGLE' || storedFlow === 'BODYSINGLE') processedB.flow = storedFlow;
                     else processedB.flow = 'SINGLE';
                     let rType = inferResourceAtTime(b, bStart);
-                    if (!rType) rType = detectResourceType(svcInfo);
+                    if (!rType) rType = detectResourceType(svcInfo.code || getServiceCodeByName(svcInfo.name));
                     
                     let forcedIdx = anchorIndex;
                     if (uniqueMatches.length > 0) {
@@ -1499,7 +1489,7 @@
             const newGuests = guestList.map((g, idx) => ({ ...g, idx: idx }));
             const comboGuests = newGuests.filter(g => {
                 const s = SERVICES[g.serviceCode];
-                return isComboService(s, g.serviceCode, g.flowCode);
+                return isComboService(g.serviceCode || getServiceCodeByName(g.serviceName || g.service));
             });
             const newGuestHalfSize = Math.ceil(comboGuests.length / 2);
             const maxBF = comboGuests.length;
@@ -1570,7 +1560,7 @@
                     // [V136 FIX] Sử dụng getServiceInfo để hỗ trợ việc truyền tên dịch vụ (serviceName)
                     const svc = typeof getServiceInfo === 'function' ? getServiceInfo(ng.serviceCode, ng.serviceName || ng.service) : (SERVICES[ng.serviceCode] || { name: ng.serviceCode || 'Unknown', duration: 60, price: 0 });
                     let flow = 'FB';
-                    let isThisGuestCombo = isComboService(svc, ng.serviceCode, ng.flowCode);
+                    let isThisGuestCombo = isComboService(ng.serviceCode || getServiceCodeByName(ng.serviceName || ng.service));
                     if (isThisGuestCombo) {
                         const cIdx = comboGuests.findIndex(cg => cg.idx === ng.idx);
                         if (cIdx >= 0 && cIdx < numBF) { flow = 'BF'; }
@@ -1597,7 +1587,7 @@
                         let rType = 'CHAIR';
                         if (flow === 'FOOTSINGLE') rType = 'CHAIR';
                         else if (flow === 'BODYSINGLE') rType = 'BED';
-                        else rType = detectResourceType(svc);
+                        else rType = detectResourceType(svc.code || getServiceCodeByName(svc.name));
                         blocks.push({ start: requestStartMins, end: requestStartMins + duration + CONF.CLEANUP_BUFFER, type: rType });
                         scenarioDetails.push({ guestIndex: ng.idx, service: svc.name, price: svc.price, flow: flow, timeStr: timeStr, allocated: [] });
                     }
@@ -1940,6 +1930,7 @@
 
     // Expose cyxCallCoreAvailabilityCheck globally for cyx_views and cyx_app
     window.cyxCallCoreAvailabilityCheck = function(dateStr, timeStr, guestDetails, todays, staffList) {
+        syncServicesToCore();
         const staffMap = {};
         if (Array.isArray(staffList)) {
             staffList.forEach(s => {
@@ -2006,9 +1997,9 @@
                 elasticStep: svc.elasticStep || 0, elasticLimit: svc.elasticLimit || 0,
                 minBody: svc.minBody, maxBody: svc.maxBody,
                 minFoot: svc.minFoot, maxFoot: svc.maxFoot,
-                defaultFlow: defFlow
             };
         });
+        console.log("FORMATTED_KEYS:", Object.keys(formattedServices));
         CoreKernel.setDynamicServices(formattedServices);
     };
 

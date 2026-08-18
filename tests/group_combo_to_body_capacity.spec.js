@@ -22,6 +22,7 @@ test.describe('Group COMBO to BODY Capacity Check', () => {
         await page.route('**/api/inline-update-group', route => route.fulfill({ json: { status: 'success' } }));
 
         // 1. Open page to load the environment
+        page.on('console', msg => console.log('BROWSER:', msg.text()));
         await page.goto('http://localhost:5001/admin2/index.html');
         
         // Wait for UI to load

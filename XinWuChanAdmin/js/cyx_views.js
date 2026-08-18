@@ -569,7 +569,10 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                     if (serviceName.includes(sData.name) || sData.name.includes(serviceName)) return sData.category;
                 }
             }
-            if (serviceName.includes('套餐') || serviceName.includes('招牌') || serviceName.includes('COMBO')) return 'COMBO';
+            if (window.SERVICES_DATA) {
+        const code = Object.keys(window.SERVICES_DATA).find(k => window.SERVICES_DATA[k].name === serviceName);
+        if (code && code.toUpperCase().startsWith('A')) return 'COMBO';
+    }
             if (serviceName.includes('足') || serviceName.includes('腳底') || serviceName.includes('FOOT')) return 'FOOT';
             if (['FB', 'BF'].includes(flowCode)) return 'COMBO';
             return 'BODY';
@@ -1198,9 +1201,9 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
     const isServiceChangedForCombo = selectedService !== (booking.cleanServiceName || getCleanServiceName(booking.serviceName));
     let isCombo = false;
     if (isServiceChangedForCombo) {
-        isCombo = selectedService.includes('套餐') || selectedService.includes('Combo') || selectedService.toUpperCase().includes('COMBO') || (window.SERVICES_DATA && window.SERVICES_DATA[selectedService] && window.SERVICES_DATA[selectedService].category === 'COMBO');
+        isCombo = !!(Object.keys(window.SERVICES_DATA || {}).find(k => window.SERVICES_DATA[k].name === selectedService)?.toUpperCase().startsWith('A'));
     } else {
-        isCombo = (booking.category === 'COMBO' || (booking.serviceCode && typeof booking.serviceCode === 'string' && booking.serviceCode.toUpperCase().startsWith('A'))) || (booking.serviceName && booking.serviceName.includes('Combo')) || (booking.serviceName && booking.serviceName.includes('套餐'));
+        isCombo = (booking.serviceCode && typeof booking.serviceCode === 'string' && booking.serviceCode.toUpperCase().startsWith('A'));
     }
     const isGroupBooking = (parseInt(booking.pax) || 1) > 1;
     const isSyncPending = booking && booking.isManualLocked;
@@ -1675,8 +1678,7 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                                         }
                                         
                                         // [NÂNG CẤP COMBO]: Khóa Flow dựa theo vị trí Phase 1 hiện tại khi chuyển sang Combo
-                                        const isNewCombo = newSvc.includes('套餐') || newSvc.includes('招牌') || newSvc.toUpperCase().includes('COMBO') || 
-                                                           (window.SERVICES_DATA && window.SERVICES_DATA[newSvc] && window.SERVICES_DATA[newSvc].category === 'COMBO');
+                                        const isNewCombo = !!(Object.keys(window.SERVICES_DATA || {}).find(k => window.SERVICES_DATA[k].name === newSvc)?.toUpperCase().startsWith('A'));
                                         if (isNewCombo && selectedPhase1Res && selectedPhase1Res !== 'auto' && selectedPhase1Res !== 'full') {
                                             const p1ResUpper = selectedPhase1Res.toUpperCase();
                                             if (p1ResUpper.includes('CHAIR') || p1ResUpper.includes('足')) {
@@ -3018,8 +3020,8 @@ const ResourceCard = ({ id, type, index, data, busyStaffIds, onAction, onSelect,
                 setTimeLeft(totalLeft);
                 setPercent(Math.min(100, Math.max(0, (actualElapsed / totalMs) * 100)));
 
-                const isComboName = data.booking.serviceName && (data.booking.serviceName.includes('套餐') || data.booking.serviceName.includes('Combo'));
-                const isCombo = (data.booking.category === 'COMBO' || (data.booking.serviceCode && typeof data.booking.serviceCode === 'string' && data.booking.serviceCode.toUpperCase().startsWith('A'))) || isComboName;
+                const isComboName = data.booking.serviceCode && typeof data.booking.serviceCode === 'string' && data.booking.serviceCode.toUpperCase().startsWith('A');
+                const isCombo = isComboName;
 
                 if (isCombo) {
                     const sequence = (data.comboMeta && data.comboMeta.sequence) || 'FB';
@@ -3093,7 +3095,7 @@ const ResourceCard = ({ id, type, index, data, busyStaffIds, onAction, onSelect,
 
     const hasAdminNote = isOccupied && data.booking.adminNote && data.booking.adminNote.trim() !== '';
 
-    const isCombo = isOccupied && ((data.booking.category === 'COMBO' || (data.booking.serviceCode && typeof data.booking.serviceCode === 'string' && data.booking.serviceCode.toUpperCase().startsWith('A'))) || (data.booking.serviceName && data.booking.serviceName.includes('套餐')));
+    const isCombo = isOccupied && (data.booking.serviceCode && typeof data.booking.serviceCode === 'string' && data.booking.serviceCode.toUpperCase().startsWith('A'));
     const flexMinutes = isCombo && data.comboMeta && data.comboMeta.flex ? data.comboMeta.flex : 0;
     const formatTimeStr = (iso) => { if (!iso) return '--:--'; const d = new Date(iso); return `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`; }
 
