@@ -164,6 +164,7 @@ const SellProductModal = ({ isOpen, onClose, booking, currentStaff }) => {
     const [products, setProducts] = useState([]);
     const [selectedProduct, setSelectedProduct] = useState(null);
     const [isLoading, setIsLoading] = useState(false);
+    const [quantity, setQuantity] = useState(1);
     const [cashAmount, setCashAmount] = useState('');
     const [transferAmount, setTransferAmount] = useState('');
 
@@ -175,28 +176,49 @@ const SellProductModal = ({ isOpen, onClose, booking, currentStaff }) => {
         }
     }, [isOpen]);
 
+    // Tính tổng mỗi khi đổi sản phẩm hoặc đổi số lượng
+    useEffect(() => {
+        if (selectedProduct) {
+            const total = selectedProduct.price * quantity;
+            setCashAmount(total); // Tự động điền tiền mặt là tổng tiền
+            setTransferAmount(0);
+        }
+    }, [selectedProduct, quantity]);
+
     const handleSelectProduct = (p) => {
         setSelectedProduct(p);
-        setCashAmount(p.price); // Tự động điền tiền mặt mặc định
-        setTransferAmount(0);
+        setQuantity(1); // Reset số lượng khi chọn sp mới
     };
 
     if (!isOpen) return null;
 
     const handleSell = async () => {
         if (!selectedProduct) return Swal.fire('系統提示', '請先選擇產品', 'warning');
+        if (quantity < 1) return Swal.fire('系統提示', '數量不能小於 1', 'warning');
+        
         setIsLoading(true);
         try {
+            // Tách tên và SĐT
+            let cleanName = (booking.originalName || booking.customerName || '').replace(/\(\d+\/\d+\)/g, '').replace(/\(\d+\)/g, '').trim();
+            let cleanPhone = booking.sdt || booking.phone || '';
+            
+            // Nếu cleanPhone rỗng nhưng trong customerName có số điện thoại dạng (9453452) ở cuối
+            if (!cleanPhone && booking.customerName) {
+                const phoneMatch = booking.customerName.match(/\((\d+)\)$/);
+                if (phoneMatch) cleanPhone = phoneMatch[1];
+            }
+
             const res = await fetch('/api/sell-product', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     date: booking.date || new Date().toISOString().split('T')[0].replace(/-/g, '/'),
                     time: booking.startTime || new Date().toTimeString().substring(0,5),
-                    customerName: booking.customerName || '',
-                    phone: booking.sdt || '',
+                    customerName: cleanName,
+                    phone: cleanPhone,
                     productName: selectedProduct.name,
-                    price: selectedProduct.price,
+                    quantity: Number(quantity),
+                    price: selectedProduct.price * quantity, // Gửi tổng tiền
                     cashAmount: cashAmount === '' ? 0 : Number(cashAmount),
                     transferAmount: transferAmount === '' ? 0 : Number(transferAmount),
                     staffName: currentStaff || ''
@@ -240,7 +262,28 @@ const SellProductModal = ({ isOpen, onClose, booking, currentStaff }) => {
                     
                     {selectedProduct && (
                         <div className="bg-slate-50 p-4 rounded-lg border border-slate-200 space-y-3 mt-2">
-                            <div className="font-bold text-slate-700 mb-1 border-b pb-2">付款方式 (總額: ${selectedProduct.price})</div>
+                            <div className="flex items-center justify-between border-b pb-2 mb-2">
+                                <div className="font-bold text-slate-700">數量</div>
+                                <div className="flex items-center gap-2">
+                                    <button 
+                                        className="bg-slate-200 hover:bg-slate-300 rounded px-3 py-1 font-bold" 
+                                        onClick={() => setQuantity(q => Math.max(1, q - 1))}
+                                    >-</button>
+                                    <input 
+                                        type="number" 
+                                        min="1"
+                                        className="border border-slate-300 rounded p-1 text-center font-bold w-16 focus:border-orange-500 focus:outline-none"
+                                        value={quantity}
+                                        onChange={e => setQuantity(Math.max(1, parseInt(e.target.value) || 1))}
+                                    />
+                                    <button 
+                                        className="bg-slate-200 hover:bg-slate-300 rounded px-3 py-1 font-bold" 
+                                        onClick={() => setQuantity(q => q + 1)}
+                                    >+</button>
+                                </div>
+                            </div>
+
+                            <div className="font-bold text-slate-700 mb-1 border-b pb-2">付款方式 (總額: ${selectedProduct.price * quantity})</div>
                             <div className="flex items-center gap-3">
                                 <label className="w-16 font-bold text-slate-600">現金</label>
                                 <input 

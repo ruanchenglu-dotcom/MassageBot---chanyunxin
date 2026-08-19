@@ -76,16 +76,29 @@ test('Sell Product Modal E2E Flow', async ({ page }) => {
   await expect(productItem).toBeVisible();
   await productItem.click();
 
-  // 7. Verify input fields appear
-  const cashInput = page.locator('input[type="number"]').first();
-  const transferInput = page.locator('input[type="number"]').nth(1);
+  // 7. Verify input fields appear (we'll check them in step 8)
+
+  // 8. Type values
+  // By default, quantity is 1 and cash is 380
+  const quantityInput = page.locator('input[type="number"]').first();
+  const cashInput = page.locator('input[type="number"]').nth(1);
+  const transferInput = page.locator('input[type="number"]').nth(2);
   
+  await expect(quantityInput).toBeVisible();
   await expect(cashInput).toBeVisible();
   await expect(transferInput).toBeVisible();
 
-  // 8. Type values
-  await cashInput.fill('100');
-  await transferInput.fill('280');
+  // Change quantity to 2
+  await quantityInput.fill('2');
+  // Wait a bit for React to update cashAmount
+  await page.waitForTimeout(500);
+  
+  // Total should be 760 (380 * 2)
+  await expect(cashInput).toHaveValue('760');
+
+  // Let's change cash to 700 and transfer to 60
+  await cashInput.fill('700');
+  await transferInput.fill('60');
 
   // 9. Click Confirm Sell
   const confirmSellBtn = page.locator('button:has-text("確認出售")');
@@ -98,9 +111,11 @@ test('Sell Product Modal E2E Flow', async ({ page }) => {
   // 11. Verify Payload
   expect(sellPayload).not.toBeNull();
   expect(sellPayload.productName).toBe('30ml精油');
-  expect(sellPayload.price).toBe(380);
-  expect(sellPayload.cashAmount).toBe(100);
-  expect(sellPayload.transferAmount).toBe(280);
+  expect(sellPayload.quantity).toBe(2);
+  expect(sellPayload.price).toBe(760);
+  expect(sellPayload.cashAmount).toBe(700);
+  expect(sellPayload.transferAmount).toBe(60);
   expect(sellPayload.customerName).toBe('Test Sell Product');
+  expect(sellPayload.phone).toBe('0988123456');
 });
 

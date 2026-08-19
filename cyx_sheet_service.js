@@ -2779,6 +2779,7 @@ async function logProductSale(saleData) {
             saleData.customerName || "",
             saleData.phone || "",
             saleData.productName || "",
+            saleData.quantity || 1, // <--- Cột F mới: Số lượng
             saleData.price || "",
             saleData.cashAmount !== undefined ? saleData.cashAmount : "",
             saleData.transferAmount !== undefined ? saleData.transferAmount : "",
@@ -2786,7 +2787,7 @@ async function logProductSale(saleData) {
         ];
         await sheets.spreadsheets.values.append({
             spreadsheetId: SHEET_ID,
-            range: `${SELL_PRODUCT_SHEET_NAME}!A:I`,
+            range: `${SELL_PRODUCT_SHEET_NAME}!A:J`,
             valueInputOption: 'USER_ENTERED',
             requestBody: { values: [row] }
         });
