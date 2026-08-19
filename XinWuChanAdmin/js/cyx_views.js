@@ -1285,6 +1285,160 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
         }
     };
 
+    const handleLocationChangeClick = async (e) => {
+        e.stopPropagation();
+        
+        const currentLocation = booking.location || '本館';
+        const targetLocation = currentLocation === '本館' ? '對面館' : '本館';
+
+        const safeBookings = Array.isArray(bookings) ? bookings : [];
+        const groupMembers = safeBookings.filter(b => {
+            if (String(b.rowId) === String(booking.rowId)) return false;
+            const bStatus = b.status || '';
+            const isCancelled = bStatus === STATUS.CANCELLED || bStatus.includes('取消') || bStatus.includes('Cancel');
+            const isNoShow = bStatus === STATUS.NOSHOW || bStatus.includes('爽約') || bStatus.toUpperCase().includes('NOSHOW');
+            const isDone = bStatus === STATUS.COMPLETED || bStatus.includes('完成') || bStatus.includes('✅');
+            if (isCancelled || isNoShow || isDone) return false;
+            
+            const phone1 = (b.sdt || b.phone || b.contactInfo || '').trim();
+            const phone2 = (booking.sdt || booking.phone || booking.contactInfo || '').trim();
+            const isValidPhone1 = phone1 && phone1 !== '0' && phone1 !== '無' && phone1 !== 'none';
+            const isValidPhone2 = phone2 && phone2 !== '0' && phone2 !== '無' && phone2 !== 'none';
+
+            if (isValidPhone1 && isValidPhone2 && phone1 !== phone2) return false;
+
+            const cleanName1 = (b.originalName || b.customerName || b.hoTen || '').replace(/\(\d+\/\d+\)/g, '').trim();
+            const cleanName2 = (booking.originalName || booking.customerName || booking.hoTen || '').replace(/\(\d+\/\d+\)/g, '').trim();
+            const hasFraction1 = /\(\d+\/\d+\)/.test(b.originalName || b.customerName || b.hoTen || '');
+            const hasFraction2 = /\(\d+\/\d+\)/.test(booking.originalName || booking.customerName || booking.hoTen || '');
+            
+            const getMins = (bk) => {
+                let t = bk.startTimeString || bk.startTime || bk.gioDen || '00:00';
+                if (t.includes(' ')) t = t.split(' ')[1];
+                if (!t.includes(':')) return 0;
+                const parts = t.split(':');
+                return parseInt(parts[0]) * 60 + parseInt(parts[1]);
+            };
+
+            if (cleanName1 && cleanName2 && cleanName1 === cleanName2 && (hasFraction1 || hasFraction2)) {
+                if (Math.abs(getMins(b) - getMins(booking)) <= 60) return true;
+            }
+            
+            if (isValidPhone1 && isValidPhone2 && phone1 === phone2) {
+                if (Math.abs(getMins(b) - getMins(booking)) <= 60) return true;
+            }
+            return false;
+        });
+
+        let targetBookings = [booking];
+        
+        if (groupMembers.length > 0) {
+            const result = await Swal.fire({
+                title: '同行群組館別修改',
+                html: `系統檢測到這是一個 <span class="font-bold text-blue-600">${groupMembers.length + 1}</span> 人的同行群組。<br/>請問您要更換單人還是全組的館別？<br><br>目標: <b>${targetLocation}</b>`,
+                icon: 'question',
+                showCancelButton: true,
+                showDenyButton: true,
+                confirmButtonText: '<i class="fas fa-users"></i> 修改全組',
+                denyButtonText: '<i class="fas fa-user"></i> 僅此人',
+                cancelButtonText: '取消',
+            });
+            
+            if (result.isDismissed) return;
+            if (result.isConfirmed) {
+                targetBookings = [booking, ...groupMembers];
+            }
+        } else {
+            const result = await Swal.fire({
+                title: '更換館別',
+                html: `確定要將此預約移動至 <b>${targetLocation}</b> 嗎？`,
+                icon: 'question',
+                showCancelButton: true,
+                confirmButtonText: '確定',
+                cancelButtonText: '取消'
+            });
+            if (!result.isConfirmed) return;
+        }
+
+        Swal.fire({
+            title: '檢查中...',
+            text: `正在檢查 ${targetLocation} 是否有足夠空間`,
+            allowOutsideClick: false,
+            didOpen: () => { Swal.showLoading(); }
+        });
+
+        const guestDetails = targetBookings.map(b => ({
+            ...b,
+            location: targetLocation,
+            serviceCode: b.cleanServiceName || getCleanServiceName(b.serviceName),
+            flow: b.flow || 'FB',
+            phase1_duration: b.phase1_duration || (b.duration ? b.duration / 2 : 30),
+            current_resource_id: undefined,
+            phase1_res_idx: undefined,
+            phase2_res_idx: undefined,
+            allocated_resource: undefined
+        }));
+
+        const dateStr = booking.date || booking.originalData?.['日期'];
+        const otherBookings = safeBookings.filter(b => !targetBookings.some(tb => tb.rowId === b.rowId));
+        
+        const checkResult = typeof window.cyxCallCoreAvailabilityCheck === 'function' ? window.cyxCallCoreAvailabilityCheck(dateStr, booking.startTime, guestDetails, otherBookings, staffList) : { valid: true };
+
+        if (checkResult && checkResult.valid) {
+            const saveRes = await Swal.fire({
+                title: '可以轉移',
+                html: `${targetLocation} 有足夠空間。<br>是否確認保存？`,
+                icon: 'success',
+                showCancelButton: true,
+                confirmButtonText: '保存',
+                cancelButtonText: '取消'
+            });
+
+            if (saveRes.isConfirmed) {
+                Swal.fire({
+                    title: '儲存中...',
+                    allowOutsideClick: false,
+                    didOpen: () => Swal.showLoading()
+                });
+                
+                try {
+                    if (targetBookings.length > 1) {
+                        const groupUpdates = targetBookings.map(b => ({
+                            rowId: b.rowId,
+                            updatedData: { location: targetLocation }
+                        }));
+                        const res = await axios.post('/api/inline-update-group', { groupUpdates });
+                        if (res.data.success) {
+                            Swal.fire('成功', '館別已成功更新', 'success');
+                            if (typeof window.fetchDataAndRender === 'function') window.fetchDataAndRender();
+                            else setTimeout(() => window.location.reload(), 1500);
+                        } else {
+                            throw new Error(res.data.error || 'Unknown error');
+                        }
+                    } else {
+                        const payload = {
+                            rowId: targetBookings[0].rowId,
+                            updatedData: { location: targetLocation }
+                        };
+                        const res = await axios.post('/api/inline-update-booking', payload);
+                        if (res.data.success) {
+                            Swal.fire('成功', '館別已成功更新', 'success');
+                            if (typeof window.fetchDataAndRender === 'function') window.fetchDataAndRender();
+                            else setTimeout(() => window.location.reload(), 1500);
+                        } else {
+                            throw new Error(res.data.error || 'Unknown error');
+                        }
+                    }
+                } catch (err) {
+                    console.error(err);
+                    Swal.fire('錯誤', '網絡或服務器錯誤: ' + err.message, 'error');
+                }
+            }
+        } else {
+            Swal.fire('無法轉移', `<b>${targetLocation}</b> 容量不足或排程衝突。<br>原因: ${checkResult?.reason || '未知錯誤'}`, 'error');
+        }
+    };
+
     const isPaid = booking.checkout_status === '已結帳' || booking.status === 'PAID' || booking.status === '已結帳';
     const checkoutBtnClass = isPaid 
         ? "col-span-1 bg-teal-700 hover:bg-teal-800 text-white rounded-xl font-bold flex flex-col items-center justify-center transform active:scale-95 transition-all shadow-lg border border-teal-700"
@@ -1411,6 +1565,9 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                                     </span>
                                 )}
                             </div>
+                            <button onClick={handleLocationChangeClick} className="bg-white/10 hover:bg-white/30 rounded-full w-10 h-10 flex items-center justify-center transition-all shrink-0" title="更換館別">
+                                <i className="fas fa-exchange-alt text-xl"></i>
+                            </button>
                             <button onClick={() => {
                                 const printWindow = window.open('', '', 'width=400,height=600');
                                 
