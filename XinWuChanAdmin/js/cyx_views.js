@@ -776,7 +776,7 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                     let currentTest = overridePhase1 !== null ? overridePhase1 : defaultP1;
                     
                     // Auto-stretch: Ưu tiên dùng lại oldP1Dur nếu đang hạ gói
-                    if (newDuration < oldDur && overridePhase1 === null && oldP1Dur < defaultP1 && oldP1Dur >= 30) {
+                    if (oldCat === 'COMBO' && newDuration < oldDur && overridePhase1 === null && oldP1Dur < defaultP1 && oldP1Dur >= 30) {
                         setPhase1(oldP1Dur);
                         return performServiceCheck(checkIsGroup, oldP1Dur, testFlow);
                     }
@@ -794,19 +794,21 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                         setScanServiceStatus('FAILED');
                         setScanServiceMessage("❌ 足底區客滿");
                         
-                        Swal.fire({
-                            title: '足底區客滿',
-                            html: `目前足底區已滿，系統嘗試自動調整時間失敗。<br/><br/>請問是否保持腳部 <b>${oldP1Dur} 分鐘</b>，並將增加的時間 (+${extraTime}分) 全部加到身體？<br/>(即：腳部 ${oldP1Dur}分, 身體 ${newDuration - oldP1Dur}分)`,
-                            icon: 'question',
-                            showCancelButton: true,
-                            confirmButtonText: '同意 (加在身體)',
-                            cancelButtonText: '取消'
-                        }).then((res) => {
-                            if (res.isConfirmed) {
-                                setPhase1(oldP1Dur);
-                                performServiceCheck(checkIsGroup, oldP1Dur, testFlow);
-                            }
-                        });
+                        if (oldCat === 'COMBO') {
+                            Swal.fire({
+                                title: '足底區客滿',
+                                html: `目前足底區已滿，系統嘗試自動調整時間失敗。<br/><br/>請問是否保持腳部 <b>${oldP1Dur} 分鐘</b>，並將增加的時間 (+${extraTime}分) 全部加到身體？<br/>(即：腳部 ${oldP1Dur}分, 身體 ${newDuration - oldP1Dur}分)`,
+                                icon: 'question',
+                                showCancelButton: true,
+                                confirmButtonText: '同意 (加在身體)',
+                                cancelButtonText: '取消'
+                            }).then((res) => {
+                                if (res.isConfirmed) {
+                                    setPhase1(oldP1Dur);
+                                    performServiceCheck(checkIsGroup, oldP1Dur, testFlow);
+                                }
+                            });
+                        }
                         return false;
                     }
                 }
@@ -838,7 +840,7 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                     let currentTest = overridePhase1 !== null ? overridePhase1 : defaultP1;
                     
                     // Auto-stretch: Ưu tiên dùng lại oldP1Dur nếu đang hạ gói
-                    if (newDuration < oldDur && overridePhase1 === null && oldP1Dur > defaultP1 && oldP1Dur <= newDuration - 30) {
+                    if (oldCat === 'COMBO' && newDuration < oldDur && overridePhase1 === null && oldP1Dur > defaultP1 && oldP1Dur <= newDuration - 30) {
                         setPhase1(oldP1Dur);
                         return performServiceCheck(checkIsGroup, oldP1Dur, testFlow);
                     }
