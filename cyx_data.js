@@ -38,6 +38,7 @@ const SYSTEM_CONFIG = {
         // Các sheet bổ sung (dựa trên cấu trúc tab hiện tại)
         STAFF_LIST_SHEET_NAME: 'name',      // Danh sách hồ sơ kỹ thuật viên
         BLACKLIST_SHEET_NAME: '黑名單',     // Danh sách đen khách hàng
+        SELL_PRODUCT_SHEET_NAME: '賣產品',  // Danh sách và lịch sử bán sản phẩm
     },
 
     // Định dạng ID Tài nguyên Chuẩn

@@ -157,6 +157,127 @@ const checkGuaShaService = (booking) => {
 };
 
 // ============================================================================
+// SELL PRODUCT MODAL
+// ============================================================================
+const SellProductModal = ({ isOpen, onClose, booking, currentStaff }) => {
+    const { useState, useEffect } = React;
+    const [products, setProducts] = useState([]);
+    const [selectedProduct, setSelectedProduct] = useState(null);
+    const [isLoading, setIsLoading] = useState(false);
+    const [cashAmount, setCashAmount] = useState('');
+    const [transferAmount, setTransferAmount] = useState('');
+
+    useEffect(() => {
+        if(isOpen) {
+            fetch('/api/products').then(res => res.json()).then(data => {
+                if(data.success) setProducts(data.products);
+            }).catch(e => console.error(e));
+        }
+    }, [isOpen]);
+
+    const handleSelectProduct = (p) => {
+        setSelectedProduct(p);
+        setCashAmount(p.price); // Tự động điền tiền mặt mặc định
+        setTransferAmount(0);
+    };
+
+    if (!isOpen) return null;
+
+    const handleSell = async () => {
+        if (!selectedProduct) return Swal.fire('系統提示', '請先選擇產品', 'warning');
+        setIsLoading(true);
+        try {
+            const res = await fetch('/api/sell-product', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    date: booking.date || new Date().toISOString().split('T')[0].replace(/-/g, '/'),
+                    time: booking.startTime || new Date().toTimeString().substring(0,5),
+                    customerName: booking.customerName || '',
+                    phone: booking.sdt || '',
+                    productName: selectedProduct.name,
+                    price: selectedProduct.price,
+                    cashAmount: cashAmount === '' ? 0 : Number(cashAmount),
+                    transferAmount: transferAmount === '' ? 0 : Number(transferAmount),
+                    staffName: currentStaff || ''
+                })
+            });
+            const data = await res.json();
+            if (data.success) {
+                Swal.fire('成功', '產品已記錄', 'success');
+                onClose();
+            } else {
+                Swal.fire('錯誤', '儲存失敗', 'error');
+            }
+        } catch(e) {
+            Swal.fire('錯誤', '網路錯誤', 'error');
+        }
+        setIsLoading(false);
+    };
+    
+    return (
+        <div className="fixed inset-0 bg-black/60 z-[99999] flex items-center justify-center p-4">
+            <div className="bg-white rounded-xl shadow-xl w-full max-w-md overflow-hidden flex flex-col">
+                <div className="bg-gradient-to-r from-amber-500 to-orange-600 text-white p-4 font-bold flex justify-between items-center">
+                    <span className="flex items-center gap-2"><i className="fas fa-box-open"></i> 賣產品</span>
+                    <button onClick={onClose} className="hover:text-amber-200"><i className="fas fa-times text-xl"></i></button>
+                </div>
+                <div className="p-5 flex flex-col gap-4">
+                    <div className="flex flex-col gap-2 max-h-48 overflow-y-auto pr-1">
+                         {products.length === 0 ? (
+                             <div className="text-center text-slate-400 py-4"><i className="fas fa-spinner fa-spin mr-2"></i>載入中...</div>
+                         ) : products.map(p => (
+                             <div 
+                                 key={p.name} 
+                                 onClick={() => handleSelectProduct(p)}
+                                 className={`p-3 rounded-lg border-2 cursor-pointer flex justify-between items-center transition-all ${selectedProduct?.name === p.name ? 'border-orange-500 bg-orange-50' : 'border-slate-200 hover:bg-slate-50'}`}
+                             >
+                                 <span className="font-bold text-slate-700">{p.name}</span>
+                                 <span className="text-red-500 font-black">${p.price}</span>
+                             </div>
+                         ))}
+                    </div>
+                    
+                    {selectedProduct && (
+                        <div className="bg-slate-50 p-4 rounded-lg border border-slate-200 space-y-3 mt-2">
+                            <div className="font-bold text-slate-700 mb-1 border-b pb-2">付款方式 (總額: ${selectedProduct.price})</div>
+                            <div className="flex items-center gap-3">
+                                <label className="w-16 font-bold text-slate-600">現金</label>
+                                <input 
+                                    type="number" 
+                                    className="flex-1 border border-slate-300 rounded p-2 text-lg font-bold w-full focus:border-orange-500 focus:outline-none"
+                                    value={cashAmount}
+                                    onChange={e => setCashAmount(e.target.value)}
+                                    placeholder="0"
+                                />
+                            </div>
+                            <div className="flex items-center gap-3">
+                                <label className="w-16 font-bold text-slate-600">轉帳</label>
+                                <input 
+                                    type="number" 
+                                    className="flex-1 border border-slate-300 rounded p-2 text-lg font-bold w-full focus:border-orange-500 focus:outline-none"
+                                    value={transferAmount}
+                                    onChange={e => setTransferAmount(e.target.value)}
+                                    placeholder="0"
+                                />
+                            </div>
+                        </div>
+                    )}
+                    
+                    <button 
+                        disabled={isLoading || !selectedProduct}
+                        onClick={handleSell}
+                        className="mt-2 w-full bg-orange-500 hover:bg-orange-600 text-white font-black text-lg py-3 rounded-xl disabled:opacity-50 disabled:cursor-not-allowed shadow-md transition-all"
+                    >
+                        {isLoading ? '處理中...' : '確認出售'}
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+// ============================================================================
 // 0. BOOKING CONTROL MODAL (SUPER MODAL)
 // ============================================================================
 const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveData, contextResourceId, staffList, statusData, timelineData, resourceState, bookings }) => {
@@ -165,6 +286,7 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
     const [localIsGuaSha, setLocalIsGuaSha] = useState(booking ? (checkGuaShaService(booking) || booking.isGuaSha === true) : false);
     const [localIsHuaGuan, setLocalIsHuaGuan] = useState(booking ? (booking.isHuaGuan === true) : false);
     const [localIsBaGuan, setLocalIsBaGuan] = useState(booking ? (booking.isBaGuan === true) : false);
+    const [showSellProduct, setShowSellProduct] = useState(false);
 
     if (!isOpen || !booking) return null;
     const STATUS = getBookingStatus();
@@ -1635,10 +1757,20 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                             }} className="bg-white/10 hover:bg-white/30 rounded-full w-10 h-10 flex items-center justify-center transition-all shrink-0" title="列印派工單">
                                 <i className="fas fa-print text-xl"></i>
                             </button>
+                            <button onClick={() => setShowSellProduct(true)} className="bg-amber-500 hover:bg-amber-600 text-white rounded-full w-10 h-10 flex items-center justify-center transition-all shrink-0 shadow-sm" title="賣產品">
+                                <i className="fas fa-box-open text-xl"></i>
+                            </button>
                             <button onClick={onClose} className="bg-white/10 hover:bg-white/30 rounded-full w-10 h-10 flex items-center justify-center transition-all shrink-0"><i className="fas fa-times text-xl"></i></button>
                         </div>
                     </div>
                 </div>
+
+                <SellProductModal 
+                    isOpen={showSellProduct} 
+                    onClose={() => setShowSellProduct(false)} 
+                    booking={booking} 
+                    currentStaff={selectedStaff !== '隨機' ? selectedStaff : (booking.staffId || '')} 
+                />
 
                 {booking.isTimeAnomaly && (
                     <div className="bg-orange-50/80 border border-orange-200 px-4 py-2 mx-6 mt-4 rounded-lg flex items-center justify-between">

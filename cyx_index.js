@@ -1367,6 +1367,25 @@ app.get('/api/today-salary', async (req, res) => {
     } catch (e) { res.status(500).json({ success: false, error: e.message }); }
 });
 
+// --- API BÁN SẢN PHẨM ---
+app.get('/api/products', async (req, res) => {
+    try {
+        const products = await SheetService.getProductList();
+        res.json({ success: true, products });
+    } catch (e) {
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
+app.post('/api/sell-product', async (req, res) => {
+    try {
+        const result = await SheetService.logProductSale(req.body);
+        res.json({ success: result });
+    } catch (e) {
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
 // =============================================================================
 // PHẦN 5: LINE EVENT HANDLER (BOT KHÁCH HÀNG)
 // =============================================================================

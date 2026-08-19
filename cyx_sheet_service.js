@@ -33,7 +33,7 @@ class AsyncLock {
 }
 const bookingLock = new AsyncLock();
 
-let BOOKING_SHEET_NAME, STAFF_SHEET_NAME, MENU_SHEET_NAME, STAFF_LIST_SHEET_NAME, SALARY_LOG_SHEET_NAME, BLACKLIST_SHEET_NAME;
+let BOOKING_SHEET_NAME, STAFF_SHEET_NAME, MENU_SHEET_NAME, STAFF_LIST_SHEET_NAME, SALARY_LOG_SHEET_NAME, BLACKLIST_SHEET_NAME, SELL_PRODUCT_SHEET_NAME;
 
 let cachedConfig = null;
 let lastConfigLoadTime = 0;
@@ -53,6 +53,7 @@ function getConfig() {
                 STAFF_LIST_SHEET_NAME = cachedConfig.SHEET_NAMES.STAFF_LIST_SHEET_NAME;
                 SALARY_LOG_SHEET_NAME = cachedConfig.SHEET_NAMES.SALARY_LOG_SHEET_NAME;
                 BLACKLIST_SHEET_NAME = cachedConfig.SHEET_NAMES.BLACKLIST_SHEET_NAME;
+                SELL_PRODUCT_SHEET_NAME = cachedConfig.SHEET_NAMES.SELL_PRODUCT_SHEET_NAME;
             }
         } catch (e) {
             console.error('[getConfig] Error loading cyx_data.js in sheet service, using cached config:', e);
@@ -2751,9 +2752,55 @@ async function updateBookingNote(rowId, addedNote, applyGroup = true) {
     }
 }
 
+// --- BÁN SẢN PHẨM ---
+async function getProductList() {
+    getConfig();
+    try {
+        const SHEET_ID = process.env.SHEET_ID;
+        const res = await sheets.spreadsheets.values.get({
+            spreadsheetId: SHEET_ID,
+            range: `${SELL_PRODUCT_SHEET_NAME}!O2:P100`
+        });
+        const rows = res.data.values || [];
+        return rows.map(row => ({ name: row[0], price: safeParseInt(row[1], 0) })).filter(p => p.name);
+    } catch(err) {
+        console.error("[getProductList Error]", err);
+        return [];
+    }
+}
+
+async function logProductSale(saleData) {
+    getConfig();
+    try {
+        const SHEET_ID = process.env.SHEET_ID;
+        const row = [
+            saleData.date || "",
+            saleData.time || "",
+            saleData.customerName || "",
+            saleData.phone || "",
+            saleData.productName || "",
+            saleData.price || "",
+            saleData.cashAmount !== undefined ? saleData.cashAmount : "",
+            saleData.transferAmount !== undefined ? saleData.transferAmount : "",
+            saleData.staffName || ""
+        ];
+        await sheets.spreadsheets.values.append({
+            spreadsheetId: SHEET_ID,
+            range: `${SELL_PRODUCT_SHEET_NAME}!A:I`,
+            valueInputOption: 'USER_ENTERED',
+            requestBody: { values: [row] }
+        });
+        return true;
+    } catch(err) {
+        console.error("[logProductSale Error]", err);
+        return false;
+    }
+}
 
 module.exports = {
     init,
+    getProductList,
+    logProductSale,
     getServices: () => STATE.SERVICES,
     getStaffList: () => STATE.STAFF_LIST,
     getBookings: () => STATE.cachedBookings,
