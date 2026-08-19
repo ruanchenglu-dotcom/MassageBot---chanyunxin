@@ -1384,6 +1384,11 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
         
         const checkResult = typeof window.cyxCallCoreAvailabilityCheck === 'function' ? window.cyxCallCoreAvailabilityCheck(dateStr, booking.startTime, guestDetails, otherBookings, staffList) : { valid: true };
 
+        // [BUG FIX] Yield to browser rendering and close the loading popup before showing the result
+        await new Promise(r => setTimeout(r, 300));
+        Swal.close();
+        await new Promise(r => setTimeout(r, 100));
+
         if (checkResult && checkResult.valid) {
             const saveRes = await Swal.fire({
                 title: '可以轉移',
