@@ -1,4 +1,4 @@
-/**
+﻿/**
  * =================================================================================================
  * PROJECT: XINWUCHAN MASSAGE BOT - FRONTEND CONTROLLER & LOGIC BRIDGE
  * FILE: js/bookingHandler.js
@@ -77,10 +77,16 @@
     };
 
     const getServiceCodeByName = (serviceName) => {
-        const rawServices = window.SERVICES_DATA || {};
+        if (!serviceName) return "";
+        const rawServices = window.SERVICES_DATA || window.CoreKernel?.dynamicServices || {};
+        if (rawServices[serviceName]) return serviceName;
         for (const [code, details] of Object.entries(rawServices)) {
             if (details.name === serviceName) return code;
         }
+        for (const [code, details] of Object.entries(rawServices)) {
+            if (details.name && typeof details.name === "string" && (details.name.includes(serviceName) || serviceName.includes(details.name))) return code;
+        }
+        if (/^[ABFC]\d/.test(serviceName)) return serviceName;
         return "";
     };
 
@@ -254,9 +260,9 @@
 
             if (storedFlow === 'FOOTSINGLE') return 'CHAIR';
             if (storedFlow === 'BODYSINGLE') return 'BED';
-            if (storedFlow === 'SINGLE') return detectResourceType(svcInfo.code || getServiceCodeByName(svcInfo.name));
+            if (storedFlow === 'SINGLE') return detectResourceType(booking.serviceCode || getServiceCodeByName(booking.serviceName || svcInfo.name));
 
-            if (!isCombo) return detectResourceType(svcInfo.code || getServiceCodeByName(svcInfo.name));
+            if (!isCombo) return detectResourceType(booking.serviceCode || getServiceCodeByName(booking.serviceName || svcInfo.name));
 
             let isBodyFirst = false;
             const noteContent = (booking.note || booking.ghiChu || "").toString().toUpperCase();
@@ -950,7 +956,7 @@
                     let rType = 'CHAIR';
                     if (g.flowCode === 'BODYSINGLE') rType = 'BED';
                     else if (g.flowCode === 'FOOTSINGLE') rType = 'CHAIR';
-                    else rType = detectResourceType(svc.code || getServiceCodeByName(svc.name));
+                    else rType = detectResourceType(g.serviceCode || getServiceCodeByName(svc.name || g.serviceName || g.service));
 
                     let foundIdx = -1;
                     for (let k = 0; k < (rType === 'BED' ? CONF.MAX_BEDS : CONF.MAX_CHAIRS); k++) {
@@ -1468,7 +1474,7 @@
                     if (storedFlow === 'FOOTSINGLE' || storedFlow === 'BODYSINGLE') processedB.flow = storedFlow;
                     else processedB.flow = 'SINGLE';
                     let rType = inferResourceAtTime(b, bStart);
-                    if (!rType) rType = detectResourceType(svcInfo.code || getServiceCodeByName(svcInfo.name));
+                    if (!rType) rType = detectResourceType(booking.serviceCode || getServiceCodeByName(booking.serviceName || svcInfo.name));
                     
                     let forcedIdx = anchorIndex;
                     if (uniqueMatches.length > 0) {
@@ -1587,7 +1593,7 @@
                         let rType = 'CHAIR';
                         if (flow === 'FOOTSINGLE') rType = 'CHAIR';
                         else if (flow === 'BODYSINGLE') rType = 'BED';
-                        else rType = detectResourceType(svc.code || getServiceCodeByName(svc.name));
+                        else rType = detectResourceType(ng.serviceCode || getServiceCodeByName(svc.name || ng.serviceName || ng.service));
                         blocks.push({ start: requestStartMins, end: requestStartMins + duration + CONF.CLEANUP_BUFFER, type: rType });
                         scenarioDetails.push({ guestIndex: ng.idx, service: svc.name, price: svc.price, flow: flow, timeStr: timeStr, allocated: [] });
                     }
