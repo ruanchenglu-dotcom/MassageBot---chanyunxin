@@ -1489,7 +1489,7 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
         } else {
             processedB.flow = storedFlow;
             let rType = (storedFlow === 'FOOTSINGLE') ? 'CHAIR' : 'BED';
-            let resHint = rIdStr.toUpperCase();
+            let resHint = (b.phase1_res_idx || b.allocated_resource || '').toUpperCase();
             if (resHint.includes('CHAIR') || resHint.includes('足')) rType = 'CHAIR';
             else if (resHint.includes('BED') || resHint.includes('床')) rType = 'BED';
             
