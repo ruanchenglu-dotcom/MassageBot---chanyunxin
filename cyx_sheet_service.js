@@ -2797,18 +2797,21 @@ async function logProductSale(saleData) {
     getConfig();
     try {
         const SHEET_ID = process.env.SHEET_ID;
+        const ticketRolls = saleData.ticketRolls || [];
+        const ticketRollsString = ticketRolls.join(', ');
+
         const row = [
             saleData.date || "",
             saleData.time || "",
             saleData.customerName || "",
             saleData.phone || "",
             saleData.productName || "",
-            saleData.quantity || 1, // <--- Cột F mới: Số lượng
+            saleData.quantity || 1,
             saleData.price || "",
             saleData.cashAmount !== undefined ? saleData.cashAmount : "",
             saleData.transferAmount !== undefined ? saleData.transferAmount : "",
             saleData.staffName || "",
-            saleData.ticketRoll || "" // <--- Cột K mới: Cuộn vé
+            ticketRollsString // Cột K: Các cuộn vé, cách nhau bởi dấu phẩy
         ];
         
         // Ghi dữ liệu vào sheet 賣產品
@@ -2819,24 +2822,37 @@ async function logProductSale(saleData) {
             requestBody: { values: [row] }
         });
 
-        // Nếu có bán cuộn vé, ghi "已賣" vào sheet 票卷
-        if (saleData.ticketRoll) {
+        // Nếu có bán cuộn vé, ghi "已賣" vào sheet 票卷 cho nhiều ô
+        if (ticketRolls.length > 0) {
             const ticketRes = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: '票卷!A1:ZZ1' });
             const ticketRow = ticketRes.data.values ? ticketRes.data.values[0] : [];
-            let targetColIdx = -1;
-            for(let i = 0; i < ticketRow.length; i++) {
-                if (String(ticketRow[i]).trim() === saleData.ticketRoll) {
-                    targetColIdx = i;
-                    break;
+            const updateData = [];
+
+            ticketRolls.forEach(roll => {
+                if(!roll) return;
+                let targetColIdx = -1;
+                for(let i = 0; i < ticketRow.length; i++) {
+                    if (String(ticketRow[i]).trim() === roll) {
+                        targetColIdx = i;
+                        break;
+                    }
                 }
-            }
-            if (targetColIdx !== -1) {
-                const targetColLetter = columnToLetter(targetColIdx + 1);
-                await sheets.spreadsheets.values.update({
+                if (targetColIdx !== -1) {
+                    const targetColLetter = columnToLetter(targetColIdx + 1);
+                    updateData.push({
+                        range: `票卷!${targetColLetter}1`,
+                        values: [['已賣']]
+                    });
+                }
+            });
+
+            if (updateData.length > 0) {
+                await sheets.spreadsheets.values.batchUpdate({
                     spreadsheetId: SHEET_ID,
-                    range: `票卷!${targetColLetter}1`,
-                    valueInputOption: 'USER_ENTERED',
-                    requestBody: { values: [['已賣']] }
+                    requestBody: {
+                        valueInputOption: 'USER_ENTERED',
+                        data: updateData
+                    }
                 });
             }
         }

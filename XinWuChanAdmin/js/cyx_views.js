@@ -164,7 +164,7 @@ const SellProductModal = ({ isOpen, onClose, booking, currentStaff }) => {
     const [products, setProducts] = useState([]);
     const [ticketRolls, setTicketRolls] = useState([]);
     const [selectedProduct, setSelectedProduct] = useState(null);
-    const [selectedTicketRoll, setSelectedTicketRoll] = useState('');
+    const [selectedTicketRolls, setSelectedTicketRolls] = useState(['']); // Thay vì 1 chuỗi, ta lưu mảng
     const [isLoading, setIsLoading] = useState(false);
     const [quantity, setQuantity] = useState(1);
     const [cashAmount, setCashAmount] = useState('');
@@ -189,12 +189,18 @@ const SellProductModal = ({ isOpen, onClose, booking, currentStaff }) => {
             setCashAmount(total); // Tự động điền tiền mặt là tổng tiền
             setTransferAmount(0);
         }
+        // Điều chỉnh độ dài mảng selectedTicketRolls cho khớp số lượng
+        setSelectedTicketRolls(prev => {
+            if (prev.length === quantity) return prev;
+            if (prev.length < quantity) return [...prev, ...Array(quantity - prev.length).fill('')];
+            return prev.slice(0, quantity);
+        });
     }, [selectedProduct, quantity]);
 
     const handleSelectProduct = (p) => {
         setSelectedProduct(p);
         setQuantity(1); // Reset số lượng khi chọn sp mới
-        setSelectedTicketRoll('');
+        setSelectedTicketRolls(['']);
     };
 
     if (!isOpen) return null;
@@ -204,8 +210,14 @@ const SellProductModal = ({ isOpen, onClose, booking, currentStaff }) => {
         if (quantity < 1) return Swal.fire('系統提示', '數量不能小於 1', 'warning');
         
         const isTicket = selectedProduct.name.includes('票');
-        if (isTicket && !selectedTicketRoll) {
-            return Swal.fire('系統提示', '請選擇要售出的票卷', 'warning');
+        if (isTicket) {
+            if (selectedTicketRolls.some(r => !r)) {
+                return Swal.fire('系統提示', '請為所有數量選擇票卷', 'warning');
+            }
+            const uniqueRolls = new Set(selectedTicketRolls);
+            if (uniqueRolls.size !== selectedTicketRolls.length) {
+                return Swal.fire('系統提示', '票卷不能重複選擇', 'warning');
+            }
         }
 
         setIsLoading(true);
@@ -234,7 +246,7 @@ const SellProductModal = ({ isOpen, onClose, booking, currentStaff }) => {
                     cashAmount: cashAmount === '' ? 0 : Number(cashAmount),
                     transferAmount: transferAmount === '' ? 0 : Number(transferAmount),
                     staffName: currentStaff || '',
-                    ticketRoll: isTicket ? selectedTicketRoll : ''
+                    ticketRolls: isTicket ? selectedTicketRolls : []
                 })
             });
             const data = await res.json();
@@ -252,13 +264,13 @@ const SellProductModal = ({ isOpen, onClose, booking, currentStaff }) => {
     
     return (
         <div className="fixed inset-0 bg-black/60 z-[99999] flex items-center justify-center p-4">
-            <div className="bg-white rounded-xl shadow-xl w-full max-w-md overflow-hidden flex flex-col">
-                <div className="bg-gradient-to-r from-amber-500 to-orange-600 text-white p-4 font-bold flex justify-between items-center">
+            <div className="bg-white rounded-xl shadow-xl w-full max-w-md overflow-hidden flex flex-col max-h-[90vh]">
+                <div className="bg-gradient-to-r from-amber-500 to-orange-600 text-white p-4 font-bold flex justify-between items-center shrink-0">
                     <span className="flex items-center gap-2"><i className="fas fa-box-open"></i> 賣產品</span>
                     <button onClick={onClose} className="hover:text-amber-200"><i className="fas fa-times text-xl"></i></button>
                 </div>
-                <div className="p-5 flex flex-col gap-4">
-                    <div className="flex flex-col gap-2 max-h-48 overflow-y-auto pr-1">
+                <div className="p-5 flex flex-col gap-4 overflow-y-auto">
+                    <div className="flex flex-col gap-2 shrink-0">
                          {products.length === 0 ? (
                              <div className="text-center text-slate-400 py-4"><i className="fas fa-spinner fa-spin mr-2"></i>載入中...</div>
                          ) : products.map(p => (
@@ -275,21 +287,25 @@ const SellProductModal = ({ isOpen, onClose, booking, currentStaff }) => {
                     
                     {selectedProduct && (
                         <div className="bg-slate-50 p-4 rounded-lg border border-slate-200 space-y-3 mt-2">
-                            {selectedProduct.name.includes('票') && (
-                                <div className="flex items-center justify-between border-b pb-2 mb-2">
-                                    <div className="font-bold text-slate-700">選擇票卷</div>
+                            {selectedProduct.name.includes('票') && Array.from({ length: quantity }).map((_, idx) => (
+                                <div key={idx} className="flex items-center justify-between border-b pb-2 mb-2">
+                                    <div className="font-bold text-slate-700 whitespace-nowrap">選擇票卷 {idx + 1}</div>
                                     <select 
                                         className="border border-slate-300 rounded p-2 focus:border-orange-500 focus:outline-none flex-1 ml-4"
-                                        value={selectedTicketRoll}
-                                        onChange={e => setSelectedTicketRoll(e.target.value)}
+                                        value={selectedTicketRolls[idx] || ''}
+                                        onChange={e => {
+                                            const newRolls = [...selectedTicketRolls];
+                                            newRolls[idx] = e.target.value;
+                                            setSelectedTicketRolls(newRolls);
+                                        }}
                                     >
                                         <option value="">-- 請選擇 --</option>
                                         {ticketRolls.map(roll => (
-                                            <option key={roll} value={roll}>{roll}</option>
+                                            <option key={roll} value={roll} disabled={selectedTicketRolls.includes(roll) && selectedTicketRolls[idx] !== roll}>{roll}</option>
                                         ))}
                                     </select>
                                 </div>
-                            )}
+                            ))}
                             <div className="flex items-center justify-between border-b pb-2 mb-2">
                                 <div className="font-bold text-slate-700">數量</div>
                                 <div className="flex items-center gap-2">
