@@ -2151,6 +2151,7 @@ async function updateBookingGroupAtomic(groupUpdates) {
             }
 
             if (updatedData.duration !== undefined) row[45] = updatedData.duration;
+            if (updatedData.location !== undefined) row[39] = updatedData.location;
 
             dataToUpdate.push({
                 range: `${BOOKING_SHEET_NAME}!A${rowId}:AX${rowId}`,

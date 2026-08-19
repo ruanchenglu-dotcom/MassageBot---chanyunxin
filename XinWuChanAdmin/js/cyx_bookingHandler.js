@@ -1,4 +1,4 @@
-﻿/**
+/**
  * =================================================================================================
  * PROJECT: XINWUCHAN MASSAGE BOT - FRONTEND CONTROLLER & LOGIC BRIDGE
  * FILE: js/bookingHandler.js
@@ -469,16 +469,14 @@
                 return bEnd > requestStart;
             });
 
-            const resolveRealLocation = (loc) => {
-                if (!loc) return '本館';
-                if (loc === '本館' || loc === '對面館') return loc;
-                const match = String(loc).match(/(?:BED|CHAIR|床|足|腳)[-_ ]?([12])[-_ ]?\d+/i);
+            const resolveRealLocation = (b) => {
+                let locStr = b.current_resource_id || b.phase1_res_idx || b.originalData?.location || b.location || '本館';
+                const match = String(locStr).match(/(?:BED|CHAIR|床|足|腳|OPP)[-_ ]?([12])[-_ ]?\\d+/i);
                 if (match) return match[1] === '2' ? '對面館' : '本館';
-                return '本館';
+                return (b.originalData?.location || b.location || '本館') === '對面館' ? '對面館' : '本館';
             };
             const relevantBookings = globalStaffBookings.filter(b => {
-                const bLoc = b.originalData?.location || b.location || '本館';
-                return resolveRealLocation(bLoc) === locationStr;
+                return resolveRealLocation(b) === locationStr;
             });
 
             relevantBookings.forEach(b => {
