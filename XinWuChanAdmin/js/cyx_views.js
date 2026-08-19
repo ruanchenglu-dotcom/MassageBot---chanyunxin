@@ -162,7 +162,9 @@ const checkGuaShaService = (booking) => {
 const SellProductModal = ({ isOpen, onClose, booking, currentStaff }) => {
     const { useState, useEffect } = React;
     const [products, setProducts] = useState([]);
+    const [ticketRolls, setTicketRolls] = useState([]);
     const [selectedProduct, setSelectedProduct] = useState(null);
+    const [selectedTicketRoll, setSelectedTicketRoll] = useState('');
     const [isLoading, setIsLoading] = useState(false);
     const [quantity, setQuantity] = useState(1);
     const [cashAmount, setCashAmount] = useState('');
@@ -172,6 +174,10 @@ const SellProductModal = ({ isOpen, onClose, booking, currentStaff }) => {
         if(isOpen) {
             fetch('/api/products').then(res => res.json()).then(data => {
                 if(data.success) setProducts(data.products);
+            }).catch(e => console.error(e));
+
+            fetch('/api/unsold-ticket-rolls').then(res => res.json()).then(data => {
+                if(data.success) setTicketRolls(data.rolls);
             }).catch(e => console.error(e));
         }
     }, [isOpen]);
@@ -188,6 +194,7 @@ const SellProductModal = ({ isOpen, onClose, booking, currentStaff }) => {
     const handleSelectProduct = (p) => {
         setSelectedProduct(p);
         setQuantity(1); // Reset số lượng khi chọn sp mới
+        setSelectedTicketRoll('');
     };
 
     if (!isOpen) return null;
@@ -196,6 +203,11 @@ const SellProductModal = ({ isOpen, onClose, booking, currentStaff }) => {
         if (!selectedProduct) return Swal.fire('系統提示', '請先選擇產品', 'warning');
         if (quantity < 1) return Swal.fire('系統提示', '數量不能小於 1', 'warning');
         
+        const isTicket = selectedProduct.name.includes('票');
+        if (isTicket && !selectedTicketRoll) {
+            return Swal.fire('系統提示', '請選擇要售出的票卷', 'warning');
+        }
+
         setIsLoading(true);
         try {
             // Tách tên và SĐT
@@ -221,7 +233,8 @@ const SellProductModal = ({ isOpen, onClose, booking, currentStaff }) => {
                     price: selectedProduct.price * quantity, // Gửi tổng tiền
                     cashAmount: cashAmount === '' ? 0 : Number(cashAmount),
                     transferAmount: transferAmount === '' ? 0 : Number(transferAmount),
-                    staffName: currentStaff || ''
+                    staffName: currentStaff || '',
+                    ticketRoll: isTicket ? selectedTicketRoll : ''
                 })
             });
             const data = await res.json();
@@ -262,6 +275,21 @@ const SellProductModal = ({ isOpen, onClose, booking, currentStaff }) => {
                     
                     {selectedProduct && (
                         <div className="bg-slate-50 p-4 rounded-lg border border-slate-200 space-y-3 mt-2">
+                            {selectedProduct.name.includes('票') && (
+                                <div className="flex items-center justify-between border-b pb-2 mb-2">
+                                    <div className="font-bold text-slate-700">選擇票卷</div>
+                                    <select 
+                                        className="border border-slate-300 rounded p-2 focus:border-orange-500 focus:outline-none flex-1 ml-4"
+                                        value={selectedTicketRoll}
+                                        onChange={e => setSelectedTicketRoll(e.target.value)}
+                                    >
+                                        <option value="">-- 請選擇 --</option>
+                                        {ticketRolls.map(roll => (
+                                            <option key={roll} value={roll}>{roll}</option>
+                                        ))}
+                                    </select>
+                                </div>
+                            )}
                             <div className="flex items-center justify-between border-b pb-2 mb-2">
                                 <div className="font-bold text-slate-700">數量</div>
                                 <div className="flex items-center gap-2">
@@ -282,6 +310,7 @@ const SellProductModal = ({ isOpen, onClose, booking, currentStaff }) => {
                                     >+</button>
                                 </div>
                             </div>
+
 
                             <div className="font-bold text-slate-700 mb-1 border-b pb-2">付款方式 (總額: ${selectedProduct.price * quantity})</div>
                             <div className="flex items-center gap-3">

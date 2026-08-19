@@ -1377,6 +1377,15 @@ app.get('/api/products', async (req, res) => {
     }
 });
 
+app.get('/api/unsold-ticket-rolls', async (req, res) => {
+    try {
+        const rolls = await SheetService.getUnsoldTicketRolls();
+        res.json({ success: true, rolls });
+    } catch (e) {
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
 app.post('/api/sell-product', async (req, res) => {
     try {
         const result = await SheetService.logProductSale(req.body);

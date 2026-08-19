@@ -2613,6 +2613,29 @@ function columnToLetter(column) {
     return letter;
 }
 
+async function getUnsoldTicketRolls() {
+    try {
+        const SHEET_ID = process.env.SHEET_ID;
+        const res = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: '票卷!A1:ZZ1' });
+        const row = res.data.values ? res.data.values[0] : [];
+        const unsoldRolls = [];
+        
+        for (let colIdx = 0; colIdx < row.length; colIdx++) {
+            const cell = String(row[colIdx] || '').trim();
+            if (/^[A-Z]\d{3}$/.test(cell)) {
+                const status = String(row[colIdx + 1] || '').trim();
+                if (status !== '已賣') {
+                    unsoldRolls.push(cell);
+                }
+            }
+        }
+        return unsoldRolls;
+    } catch (e) {
+        console.error('Error getUnsoldTicketRolls', e);
+        return [];
+    }
+}
+
 async function getUnusedVouchers() {
     try {
         const res = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: '票卷!A:ZZ' });
@@ -2625,7 +2648,8 @@ async function getUnusedVouchers() {
                 const cell = String(row[colIdx] || '').trim();
                 // Match book header like A001, B001, A101
                 if (/^[A-Z]\d{3}$/.test(cell)) {
-                    if (row[colIdx + 1] === '日期') {
+                    // Check if it's row 0 (headers are always on row 0) or simply bypass the strict '日期' check
+                    if (rowIdx === 0) {
                         const bookId = cell;
                         if (!books[bookId]) {
                             books[bookId] = { id: bookId, unusedVouchers: [] };
@@ -2783,14 +2807,40 @@ async function logProductSale(saleData) {
             saleData.price || "",
             saleData.cashAmount !== undefined ? saleData.cashAmount : "",
             saleData.transferAmount !== undefined ? saleData.transferAmount : "",
-            saleData.staffName || ""
+            saleData.staffName || "",
+            saleData.ticketRoll || "" // <--- Cột K mới: Cuộn vé
         ];
+        
+        // Ghi dữ liệu vào sheet 賣產品
         await sheets.spreadsheets.values.append({
             spreadsheetId: SHEET_ID,
-            range: `${SELL_PRODUCT_SHEET_NAME}!A:J`,
+            range: `${SELL_PRODUCT_SHEET_NAME}!A:K`,
             valueInputOption: 'USER_ENTERED',
             requestBody: { values: [row] }
         });
+
+        // Nếu có bán cuộn vé, ghi "已賣" vào sheet 票卷
+        if (saleData.ticketRoll) {
+            const ticketRes = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: '票卷!A1:ZZ1' });
+            const ticketRow = ticketRes.data.values ? ticketRes.data.values[0] : [];
+            let targetColIdx = -1;
+            for(let i = 0; i < ticketRow.length; i++) {
+                if (String(ticketRow[i]).trim() === saleData.ticketRoll) {
+                    targetColIdx = i;
+                    break;
+                }
+            }
+            if (targetColIdx !== -1) {
+                const targetColLetter = columnToLetter(targetColIdx + 1);
+                await sheets.spreadsheets.values.update({
+                    spreadsheetId: SHEET_ID,
+                    range: `票卷!${targetColLetter}1`,
+                    valueInputOption: 'USER_ENTERED',
+                    requestBody: { values: [['已賣']] }
+                });
+            }
+        }
+
         return true;
     } catch(err) {
         console.error("[logProductSale Error]", err);
@@ -2802,6 +2852,7 @@ module.exports = {
     init,
     getProductList,
     logProductSale,
+    getUnsoldTicketRolls,
     getServices: () => STATE.SERVICES,
     getStaffList: () => STATE.STAFF_LIST,
     getBookings: () => STATE.cachedBookings,

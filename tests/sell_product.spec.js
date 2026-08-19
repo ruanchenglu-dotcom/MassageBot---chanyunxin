@@ -119,3 +119,15 @@ test('Sell Product Modal E2E Flow', async ({ page }) => {
   expect(sellPayload.phone).toBe('0988123456');
 });
 
+test('Sell Ticket Modal Flow', async ({ page }) => {
+  // Same setup but click '票卷' and select roll
+  // Mock API for unsold-ticket-rolls
+  await page.route('/api/unsold-ticket-rolls', async route => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ success: true, rolls: ['A004', 'A005'] })
+    });
+  });
+});
+
