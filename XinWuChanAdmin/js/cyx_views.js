@@ -596,6 +596,7 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
 
         let editPhase1End = startMins + newDuration;
         let isComboEdit = editServiceCategory === 'COMBO';
+        const isGroupComboUpgrade = checkIsGroup && isComboEdit && currentPax > 1;
         
         if (isComboEdit) {
             if (overridePhase1 !== null) {
@@ -754,7 +755,7 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                 setScanServiceMessage(`❌ 技師不足`);
                 return false;
             }
-            if (currentChairLoad > getMaxChairs() && isNewChairHigher) {
+            if (currentChairLoad > getMaxChairs() && isNewChairHigher && !isGroupComboUpgrade) {
                 if (isComboEdit) {
                     if (testFlow === null) {
                         const altFlow = currentTestingFlow === 'BF' ? 'FB' : 'BF';
@@ -818,7 +819,7 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                 setScanServiceMessage("❌ 足底區客滿");
                 return false;
             }
-            if (currentBedLoad > getMaxBeds() && isNewBedHigher) {
+            if (currentBedLoad > getMaxBeds() && isNewBedHigher && !isGroupComboUpgrade) {
                 if (isComboEdit) {
                     if (testFlow === null) {
                         const altFlow = currentTestingFlow === 'BF' ? 'FB' : 'BF';
@@ -1085,7 +1086,11 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
 
         if (testFlow === null) {
             setScanServiceStatus('OK');
-            setScanServiceMessage('✅ 檢查通過，可儲存');
+            if (isGroupComboUpgrade) {
+                setScanServiceMessage('✅ 系統將自動為群組分配最佳流程組合');
+            } else {
+                setScanServiceMessage('✅ 檢查通過，可儲存');
+            }
         }
         return true;
     };
