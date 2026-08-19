@@ -1992,7 +1992,7 @@ async function updateBookingGroupAtomic(groupUpdates) {
             if (flow === undefined) flow = b.flow;
             if (!flow || flow.trim() === '') {
                 flow = typeof ResourceCore !== 'undefined' && ResourceCore.inferFlowFromService 
-                    ? ResourceCore.inferFlowFromService(STATE.SERVICES[sCode] || null, null)
+                    ? ResourceCore.inferFlowFromService(sCode || null, null)
                     : 'BODYSINGLE';
                 update.updatedData.flow = flow;
             }

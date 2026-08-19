@@ -78,13 +78,17 @@
 
     const getServiceCodeByName = (serviceName) => {
         if (!serviceName) return "";
-        const rawServices = window.SERVICES_DATA || window.CoreKernel?.dynamicServices || {};
+        const rawServices = (window.CoreKernel?.dynamicServices || window.SERVICES_DATA) || {};
         if (rawServices[serviceName]) return serviceName;
+        const cleanReq = serviceName.replace(/\s+/g, '').toUpperCase();
         for (const [code, details] of Object.entries(rawServices)) {
-            if (details.name === serviceName) return code;
+            if (details.name && details.name.replace(/\s+/g, '').toUpperCase() === cleanReq) return code;
         }
         for (const [code, details] of Object.entries(rawServices)) {
-            if (details.name && typeof details.name === "string" && (details.name.includes(serviceName) || serviceName.includes(details.name))) return code;
+            if (details.name && typeof details.name === "string") {
+                const cleanName = details.name.replace(/\s+/g, '').toUpperCase();
+                if (cleanName.includes(cleanReq) || cleanReq.includes(cleanName)) return code;
+            }
         }
         if (/^[ABFC]\d/.test(serviceName)) return serviceName;
         return "";
@@ -1989,7 +1993,7 @@
     const { useState, useEffect, useMemo, useCallback } = React;
 
     const syncServicesToCore = () => {
-        const rawServices = window.SERVICES_DATA || {};
+        const rawServices = (window.CoreKernel?.dynamicServices || window.SERVICES_DATA) || {};
         const formattedServices = {};
         Object.keys(rawServices).forEach(key => {
             const svc = rawServices[key];
@@ -2025,7 +2029,7 @@
 
         const coreGuests = guests.map(g => {
             let foundCode = getServiceCodeByName(g.service);
-            const svcDef = window.SERVICES_DATA && foundCode ? window.SERVICES_DATA[foundCode] : null;
+            const svcDef = (window.CoreKernel?.dynamicServices || window.SERVICES_DATA) && foundCode ? (window.CoreKernel?.dynamicServices || window.SERVICES_DATA)[foundCode] : null;
             let impliedFlow = g.flowCode || undefined;
             if (!impliedFlow && svcDef) {
                 const cat = (svcDef.category || '').toUpperCase();
@@ -2377,7 +2381,8 @@
                 const c = [...prev]; c[idx] = { ...c[idx] };
                 if (field === 'service') {
                     c[idx].service = val;
-                    if (val && (val.includes('足') || val.includes('Foot'))) c[idx].isYouTui = false;
+                    if (val && (val.includes('足') || val.includes('Foot') || val.includes('腳'))) c[idx].isYouTui = false;
+                    c[idx].serviceCode = getServiceCodeByName(val);
                 }
                 else if (field === 'staff') {
                     c[idx].staff = val;
@@ -2831,7 +2836,7 @@
                         if (!finalCheck.valid) {
                             let suggestionsHtml = '';
                             let availableServices = [];
-                            const allServices = window.SERVICES_DATA || {};
+                            const allServices = (window.CoreKernel?.dynamicServices || window.SERVICES_DATA) || {};
                             const currentServiceCode = guestDetails[0].serviceCode || getServiceCodeByName(guestDetails[0].service);
                             
                             for(let svcCode in allServices) {
@@ -2865,13 +2870,13 @@
 
                         if (finalFlow === 'SINGLE') {
                             const svcCode = getServiceCodeByName(g.service);
-                            if (svcCode && window.SERVICES_DATA && window.SERVICES_DATA[svcCode]) {
-                                const svcDef = window.SERVICES_DATA[svcCode];
+                            if (svcCode && (window.CoreKernel?.dynamicServices || window.SERVICES_DATA) && (window.CoreKernel?.dynamicServices || window.SERVICES_DATA)[svcCode]) {
+                                const svcDef = (window.CoreKernel?.dynamicServices || window.SERVICES_DATA)[svcCode];
                                 const sType = (svcDef.type || 'BODY').toUpperCase();
                                 if (sType === 'FOOT' || sType === 'CHAIR') finalFlow = 'FOOTSINGLE';
                                 else finalFlow = 'BODYSINGLE';
                             } else {
-                                if (g.service.toUpperCase().match(/FOOT|CHAIR|足/)) finalFlow = 'FOOTSINGLE';
+                                if (g.service.toUpperCase().match(/FOOT|CHAIR|足|腳/)) finalFlow = 'FOOTSINGLE';
                                 else finalFlow = 'BODYSINGLE';
                             }
                         }
@@ -3003,7 +3008,7 @@
                 <div className="text-base font-bold text-gray-500 uppercase">詳細需求</div>
                 {guestDetails.map((g, i) => {
                     const svcCode = getServiceCodeByName(g.service);
-                    const svcDef = window.SERVICES_DATA ? window.SERVICES_DATA[svcCode] : null;
+                    const svcDef = (window.CoreKernel?.dynamicServices || window.SERVICES_DATA) ? (window.CoreKernel?.dynamicServices || window.SERVICES_DATA)[svcCode] : null;
                     const cat = svcDef?.category || '';
                     const isCombo = cat === 'COMBO' || cat === 'MIXED';
                     let p1 = 0, p2 = 0;

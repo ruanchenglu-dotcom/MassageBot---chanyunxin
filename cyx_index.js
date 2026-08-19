@@ -1101,7 +1101,7 @@ app.post('/api/admin-booking', async (req, res) => {
             const relevantBookings = prepareBookingsForTimeline(allBookingsForCheck, opDateCheck);
             let serviceCode = 'UNKNOWN';
             if (cyx_data.serviceCode) serviceCode = cyx_data.serviceCode;
-            else for (const key in SERVICES) { if (SERVICES[key].name === cyx_data.dichVu) { serviceCode = key; break; } }
+            else for (const key in SERVICES) { if (SERVICES[key].name && cyx_data.dichVu && SERVICES[key].name.replace(/\s+/g, '') === cyx_data.dichVu.replace(/\s+/g, '')) { serviceCode = key; break; } }
 
             if (serviceCode !== 'UNKNOWN') {
                 const guestList = []; const pax = cyx_data.pax || 1;

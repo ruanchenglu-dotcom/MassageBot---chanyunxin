@@ -1,4 +1,4 @@
-/**
+﻿/**
  * ============================================================================
  * FILE: js/views.js
  * PHIÊN BẢN: V111.1 (SMOOTH SCROLL TO NOW & FAB BUTTON ADDED)
@@ -349,11 +349,11 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
 
     // [NÂNG CẤP COMBO]: Tự động điều chỉnh Phase 1 và Phase 2 khi đổi dịch vụ
     useEffect(() => {
-        if (!isOpen || !window.SERVICES_DATA) return;
-        let svcDef = window.SERVICES_DATA[selectedService];
+        if (!isOpen || !(window.CoreKernel?.dynamicServices || window.SERVICES_DATA)) return;
+        let svcDef = (window.CoreKernel?.dynamicServices || window.SERVICES_DATA)[selectedService];
         if (!svcDef) {
-            const code = Object.keys(window.SERVICES_DATA).find(k => window.SERVICES_DATA[k].name === selectedService);
-            if (code) svcDef = window.SERVICES_DATA[code];
+            const code = Object.keys((window.CoreKernel?.dynamicServices || window.SERVICES_DATA)).find(k => (window.CoreKernel?.dynamicServices || window.SERVICES_DATA)[k].name === selectedService);
+            if (code) svcDef = (window.CoreKernel?.dynamicServices || window.SERVICES_DATA)[code];
         }
         if (!svcDef) return;
 
@@ -562,15 +562,15 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
 
         const getServiceCategory = (serviceName, flowCode) => {
             if (!serviceName) return ['FB', 'BF'].includes(flowCode) ? 'COMBO' : 'BODY';
-            if (window.SERVICES_DATA) {
-                if (window.SERVICES_DATA[serviceName]) return window.SERVICES_DATA[serviceName].category;
-                for (const code in window.SERVICES_DATA) {
-                    const sData = window.SERVICES_DATA[code];
+            if ((window.CoreKernel?.dynamicServices || window.SERVICES_DATA)) {
+                if ((window.CoreKernel?.dynamicServices || window.SERVICES_DATA)[serviceName]) return (window.CoreKernel?.dynamicServices || window.SERVICES_DATA)[serviceName].category;
+                for (const code in (window.CoreKernel?.dynamicServices || window.SERVICES_DATA)) {
+                    const sData = (window.CoreKernel?.dynamicServices || window.SERVICES_DATA)[code];
                     if (serviceName.includes(sData.name) || sData.name.includes(serviceName)) return sData.category;
                 }
             }
-            if (window.SERVICES_DATA) {
-        const code = Object.keys(window.SERVICES_DATA).find(k => window.SERVICES_DATA[k].name === serviceName);
+            if ((window.CoreKernel?.dynamicServices || window.SERVICES_DATA)) {
+        const code = Object.keys((window.CoreKernel?.dynamicServices || window.SERVICES_DATA)).find(k => (window.CoreKernel?.dynamicServices || window.SERVICES_DATA)[k].name === serviceName);
         if (code && code.toUpperCase().startsWith('A')) return 'COMBO';
     }
             if (serviceName.includes('足') || serviceName.includes('腳底') || serviceName.includes('FOOT')) return 'FOOT';
@@ -963,8 +963,8 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                 
                 if (window.cyxCallCoreAvailabilityCheck) {
                     let newServiceCode = "";
-                    if (window.SERVICES_DATA) {
-                        newServiceCode = Object.keys(window.SERVICES_DATA).find(k => window.SERVICES_DATA[k].name === selectedService) || "";
+                    if ((window.CoreKernel?.dynamicServices || window.SERVICES_DATA)) {
+                        newServiceCode = Object.keys((window.CoreKernel?.dynamicServices || window.SERVICES_DATA)).find(k => (window.CoreKernel?.dynamicServices || window.SERVICES_DATA)[k].name === selectedService) || "";
                     }
 
                     let guestDetails = [{
@@ -1040,8 +1040,8 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
             // Khách đang ở chế độ chờ (Waiting) không có currentRes, nhưng đổi dịch vụ cũng cần check capacity
             if (window.cyxCallCoreAvailabilityCheck) {
                 let newServiceCode = "";
-                if (window.SERVICES_DATA) {
-                    newServiceCode = Object.keys(window.SERVICES_DATA).find(k => window.SERVICES_DATA[k].name === selectedService) || "";
+                if ((window.CoreKernel?.dynamicServices || window.SERVICES_DATA)) {
+                    newServiceCode = Object.keys((window.CoreKernel?.dynamicServices || window.SERVICES_DATA)).find(k => (window.CoreKernel?.dynamicServices || window.SERVICES_DATA)[k].name === selectedService) || "";
                 }
 
                 let guestDetails = [{
@@ -1201,7 +1201,7 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
     const isServiceChangedForCombo = selectedService !== (booking.cleanServiceName || getCleanServiceName(booking.serviceName));
     let isCombo = false;
     if (isServiceChangedForCombo) {
-        isCombo = !!(Object.keys(window.SERVICES_DATA || {}).find(k => window.SERVICES_DATA[k].name === selectedService)?.toUpperCase().startsWith('A'));
+        isCombo = !!(Object.keys((window.CoreKernel?.dynamicServices || window.SERVICES_DATA) || {}).find(k => (window.CoreKernel?.dynamicServices || window.SERVICES_DATA)[k].name === selectedService)?.toUpperCase().startsWith('A'));
     } else {
         isCombo = (booking.serviceCode && typeof booking.serviceCode === 'string' && booking.serviceCode.toUpperCase().startsWith('A'));
     }
@@ -1678,7 +1678,7 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                                         }
                                         
                                         // [NÂNG CẤP COMBO]: Khóa Flow dựa theo vị trí Phase 1 hiện tại khi chuyển sang Combo
-                                        const isNewCombo = !!(Object.keys(window.SERVICES_DATA || {}).find(k => window.SERVICES_DATA[k].name === newSvc)?.toUpperCase().startsWith('A'));
+                                        const isNewCombo = !!(Object.keys((window.CoreKernel?.dynamicServices || window.SERVICES_DATA) || {}).find(k => (window.CoreKernel?.dynamicServices || window.SERVICES_DATA)[k].name === newSvc)?.toUpperCase().startsWith('A'));
                                         if (isNewCombo && selectedPhase1Res && selectedPhase1Res !== 'auto' && selectedPhase1Res !== 'full') {
                                             const p1ResUpper = selectedPhase1Res.toUpperCase();
                                             if (p1ResUpper.includes('CHAIR') || p1ResUpper.includes('足')) {

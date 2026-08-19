@@ -81,14 +81,14 @@ function setDynamicServices(newServicesObj) {
 function getServiceInfo(code, name) {
     if (code && SERVICES[code]) return SERVICES[code];
     if (name) {
-        const cleanName = name.toString().trim().toUpperCase();
+        const cleanName = name.toString().replace(/\s+/g, '').toUpperCase();
         for (const key in SERVICES) {
             const svc = SERVICES[key];
-            if (svc.name && svc.name.toString().trim().toUpperCase() === cleanName) return svc;
+            if (svc.name && svc.name.toString().replace(/\s+/g, '').toUpperCase() === cleanName) return svc;
         }
         for (const key in SERVICES) {
             const svc = SERVICES[key];
-            const svcUpper = svc.name ? svc.name.toString().trim().toUpperCase() : '';
+            const svcUpper = svc.name ? svc.name.toString().replace(/\s+/g, '').toUpperCase() : '';
             if (svcUpper && (svcUpper.includes(cleanName) || cleanName.includes(svcUpper))) return svc;
         }
     }
@@ -191,6 +191,7 @@ function inferFlowFromService(serviceCode, fallbackFlow = null) {
     if (codeUpper.startsWith('A')) return 'FB'; // Default COMBO to FB
     if (codeUpper.startsWith('F')) return 'FOOTSINGLE';
     if (codeUpper.startsWith('B') || codeUpper.startsWith('C')) return 'BODYSINGLE';
+    if (codeUpper.match(/FOOT|CHAIR|足|腳/)) return 'FOOTSINGLE';
     return 'BODYSINGLE';
 }
 
