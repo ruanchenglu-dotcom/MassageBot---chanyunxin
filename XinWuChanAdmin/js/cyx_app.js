@@ -2387,7 +2387,7 @@ const App = () => {
         }
     };
 
-    const handleSaveSingleTimeLoc = async (targetBooking, startTimeStr, newResId) => {
+    const handleSaveSingleTimeLoc = async (targetBooking, startTimeStr, newResId, newServiceCode, newService) => {
         if (!targetBooking) return;
         const rowId = String(targetBooking.rowId);
 
@@ -2454,6 +2454,18 @@ const App = () => {
             payload.startTime = startTimeStr;
             payload.updateCheckinOnly = true;
             payload.date = newStartTimeStringForSheet.split(' ')[0];
+        }
+
+        if (newServiceCode) {
+            payload.serviceCode = newServiceCode;
+            payload.dichVu = newService;
+            payload.updateCheckinOnly = false; // We are updating more than just checkin
+            let isCombo = newServiceCode.toUpperCase().startsWith('A');
+            if (!isCombo) {
+                payload.flow = newServiceCode.toUpperCase().startsWith('F') ? 'FOOTSINGLE' : 'BODYSINGLE';
+                payload.phase2_duration = "";
+                payload.phase2_res_idx = "";
+            }
         }
 
         try {
@@ -4186,13 +4198,15 @@ const App = () => {
             case 'UPDATE_SERVICE':
                 if (payload.newService && targetBooking) {
                     const getUpdatedData = (bookingObj, index = 0) => {
-                        const isNewCombo = Object.keys(window.SERVICES_DATA || {}).find(k => window.SERVICES_DATA[k].name === payload.newService)?.toUpperCase().startsWith('A');
+                        const newSCode = payload.newServiceCode || '';
+                        const isNewCombo = newSCode.toUpperCase().startsWith('A');
 
                         const data = {
                             ngayDen: bookingObj.date || bookingObj.opDate,
                             gioDen: bookingObj.startTimeString ? bookingObj.startTimeString.split(' ')[1] : bookingObj.startTime,
                             hoTen: bookingObj.originalName || bookingObj.customerName,
                             dichVu: payload.newService,
+                            serviceCode: newSCode,
                             isYouTui: bookingObj.isYouTui,
                             isGuaSha: bookingObj.isGuaSha,
                             sdt: bookingObj.sdt || bookingObj.phone,
@@ -4520,11 +4534,11 @@ const App = () => {
                                 const allBookings = [targetBooking, ...relatedItems.map(r => r.booking)];
                                 handleSaveGroupTime(allBookings, payload, 'SINGLE');
                             } else if (res.isDenied) {
-                                handleSaveSingleTimeLoc(targetBooking, payload.startTimeStr, payload.newResId);
+                                handleSaveSingleTimeLoc(targetBooking, payload.startTimeStr, payload.newResId, payload.newServiceCode, payload.newService);
                             }
                         });
                     } else {
-                        handleSaveSingleTimeLoc(targetBooking, payload.startTimeStr, payload.newResId);
+                        handleSaveSingleTimeLoc(targetBooking, payload.startTimeStr, payload.newResId, payload.newServiceCode, payload.newService);
                     }
                 } else {
                     setControlCenterData(null);

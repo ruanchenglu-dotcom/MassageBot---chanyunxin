@@ -243,11 +243,11 @@ function checkIsRunning(statusString) {
 
 function smartFindServiceCode(inputName) {
     if (!inputName) return null;
-    const cleanInput = inputName.trim();
-    const upperInput = cleanInput.toUpperCase();
+    const cleanInput = inputName.trim().replace(/\s+/g, '');
+    const upperInput = inputName.trim().toUpperCase();
     if (STATE.SERVICES[upperInput]) return upperInput;
     for (const code in STATE.SERVICES) {
-        if (STATE.SERVICES[code].name === cleanInput) return code;
+        if (STATE.SERVICES[code].name.replace(/\s+/g, '') === cleanInput) return code;
     }
     const baseInput = upperInput.split('(')[0].trim();
     for (const code in STATE.SERVICES) {
@@ -1327,6 +1327,7 @@ async function updateBookingDetails(body) {
     if (body.customerName) updateCell('C', body.customerName);
     if (body.phone) updateCell('D', body.phone);
     if (body.serviceName) updateCell('E', body.serviceName);
+    if (body.serviceCode) updateCell('Y', body.serviceCode);
     if (body.isOil !== undefined) updateCell('F', body.isOil ? "Yes" : "");
     if (body.isGuaSha !== undefined) updateCell('G', body.isGuaSha ? "Yes" : "");
     if (body.isHuaGuan !== undefined) updateCell('H', body.isHuaGuan ? "Yes" : "");
@@ -1986,7 +1987,7 @@ async function updateBookingGroupAtomic(groupUpdates) {
             if (!b) continue;
 
             const dichVu = update.updatedData.dichVu || b.serviceName;
-            let sCode = smartFindServiceCode(dichVu);
+            let sCode = update.updatedData.serviceCode || smartFindServiceCode(dichVu);
 
             let flow = update.updatedData.flow;
             if (flow === undefined) flow = b.flow;

@@ -1,4 +1,4 @@
-﻿/**
+/**
  * ============================================================================
  * FILE: js/views.js
  * PHIÊN BẢN: V111.1 (SMOOTH SCROLL TO NOW & FAB BUTTON ADDED)
