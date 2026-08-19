@@ -191,16 +191,20 @@
 
         function isComboService(serviceCode) {
             if (!serviceCode) return false;
-            return String(serviceCode).trim().toUpperCase().startsWith('A');
+            const codeStr = String(serviceCode).trim();
+            if (SERVICES && SERVICES[codeStr] && SERVICES[codeStr].category === 'COMBO') return true;
+            return codeStr.toUpperCase().startsWith('A') || codeStr.includes('套餐');
         }
 
         function detectResourceType(serviceCode) {
             if (!serviceCode) return 'CHAIR';
-            const codeUpper = String(serviceCode).trim().toUpperCase();
+            const codeStr = String(serviceCode).trim();
+            if (SERVICES && SERVICES[codeStr] && SERVICES[codeStr].type) return SERVICES[codeStr].type;
+            const codeUpper = codeStr.toUpperCase();
             if (codeUpper.startsWith('B')) return 'BED';
             if (codeUpper.startsWith('F')) return 'CHAIR';
-            if (codeUpper.startsWith('A')) return 'BED'; // Combo usually starts on BED for body phase
-            if (codeUpper.startsWith('C')) return 'BED'; // Default addon to BED
+            if (codeUpper.startsWith('A') || codeUpper.includes('套餐')) return 'BED'; // Combo usually starts on BED
+            if (codeUpper.startsWith('C')) return 'BED';
             return 'CHAIR';
         }
 
@@ -3494,3 +3498,8 @@
     setTimeout(() => { clearInterval(overrideInterval); }, 5000);
 
 })();
+
+
+if (window.SERVICES_DATA && typeof window.cyxUpdateServices === 'function') { window.cyxUpdateServices(window.SERVICES_DATA); }
+
+if (window.SERVICES_DATA && typeof window.cyxUpdateServices === 'function') { window.cyxUpdateServices(window.SERVICES_DATA); }

@@ -1370,7 +1370,7 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
         const guestDetails = targetBookings.map(b => ({
             ...b,
             location: targetLocation,
-            serviceCode: b.cleanServiceName || getCleanServiceName(b.serviceName),
+            serviceCode: b.serviceCode || b.cleanServiceName || getCleanServiceName(b.serviceName),
             flow: b.flow || 'FB',
             phase1_duration: b.phase1_duration || (b.duration ? b.duration / 2 : 30),
             current_resource_id: undefined,
@@ -1407,32 +1407,17 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
                 });
                 
                 try {
-                    if (targetBookings.length > 1) {
-                        const groupUpdates = targetBookings.map(b => ({
-                            rowId: b.rowId,
-                            updatedData: { location: targetLocation }
-                        }));
-                        const res = await axios.post('/api/inline-update-group', { groupUpdates });
-                        if (res.data.success) {
-                            Swal.fire('成功', '館別已成功更新', 'success');
-                            if (typeof window.fetchDataAndRender === 'function') window.fetchDataAndRender();
-                            else setTimeout(() => window.location.reload(), 1500);
-                        } else {
-                            throw new Error(res.data.error || 'Unknown error');
-                        }
+                    const groupUpdates = targetBookings.map(b => ({
+                        rowId: b.rowId,
+                        updatedData: { location: targetLocation }
+                    }));
+                    const res = await axios.post('/api/inline-update-group', { groupUpdates });
+                    if (res.data.success) {
+                        Swal.fire('成功', '館別已成功更新', 'success');
+                        if (typeof window.fetchDataAndRender === 'function') window.fetchDataAndRender();
+                        else setTimeout(() => window.location.reload(), 1500);
                     } else {
-                        const payload = {
-                            rowId: targetBookings[0].rowId,
-                            updatedData: { location: targetLocation }
-                        };
-                        const res = await axios.post('/api/inline-update-booking', payload);
-                        if (res.data.success) {
-                            Swal.fire('成功', '館別已成功更新', 'success');
-                            if (typeof window.fetchDataAndRender === 'function') window.fetchDataAndRender();
-                            else setTimeout(() => window.location.reload(), 1500);
-                        } else {
-                            throw new Error(res.data.error || 'Unknown error');
-                        }
+                        throw new Error(res.data.error || 'Unknown error');
                     }
                 } catch (err) {
                     console.error(err);

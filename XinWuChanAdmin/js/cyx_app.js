@@ -765,6 +765,9 @@ const App = () => {
                 window.SERVICES_DATA = res.data.services;
                 const uniqueNames = [...new Set(Object.values(res.data.services).map(s => s.name))];
                 window.SERVICES_LIST = uniqueNames;
+                if (typeof window.cyxUpdateServices === 'function') {
+                    window.cyxUpdateServices(res.data.services);
+                }
             }
 
             // Đồng bộ config tự động từ Resource của API
