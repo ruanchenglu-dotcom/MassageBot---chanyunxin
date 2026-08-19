@@ -335,7 +335,17 @@ const SellProductModal = ({ isOpen, onClose, booking, currentStaff }) => {
                                     type="number" 
                                     className="flex-1 border border-slate-300 rounded p-2 text-lg font-bold w-full focus:border-orange-500 focus:outline-none"
                                     value={cashAmount}
-                                    onChange={e => setCashAmount(e.target.value)}
+                                    onChange={e => {
+                                        const val = e.target.value;
+                                        setCashAmount(val);
+                                        if (val !== '') {
+                                            const total = selectedProduct.price * quantity;
+                                            const numVal = Number(val);
+                                            if (!isNaN(numVal) && numVal <= total) {
+                                                setTransferAmount(total - numVal);
+                                            }
+                                        }
+                                    }}
                                     placeholder="0"
                                 />
                             </div>
@@ -345,7 +355,17 @@ const SellProductModal = ({ isOpen, onClose, booking, currentStaff }) => {
                                     type="number" 
                                     className="flex-1 border border-slate-300 rounded p-2 text-lg font-bold w-full focus:border-orange-500 focus:outline-none"
                                     value={transferAmount}
-                                    onChange={e => setTransferAmount(e.target.value)}
+                                    onChange={e => {
+                                        const val = e.target.value;
+                                        setTransferAmount(val);
+                                        if (val !== '') {
+                                            const total = selectedProduct.price * quantity;
+                                            const numVal = Number(val);
+                                            if (!isNaN(numVal) && numVal <= total) {
+                                                setCashAmount(total - numVal);
+                                            }
+                                        }
+                                    }}
                                     placeholder="0"
                                 />
                             </div>
