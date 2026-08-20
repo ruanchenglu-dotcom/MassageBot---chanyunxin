@@ -1,0 +1,30 @@
+2001:     // PHẦN 3: BRIDGE LOGIC & REACT COMPONENT
+2002:     // ========================================================================
+2003:     const { useState, useEffect, useMemo, useCallback } = React;
+2004: 
+2005:     const syncServicesToCore = () => {
+2006:         const rawServices = (window.CoreKernel?.dynamicServices || window.SERVICES_DATA) || {};
+2007:         const formattedServices = {};
+2008:         Object.keys(rawServices).forEach(key => {
+2009:             const svc = rawServices[key];
+2010:             const sType = svc.type ? svc.type.toUpperCase() : 'BODY';
+2011:             let defFlow = 'BODYSINGLE';
+2012:             if (sType === 'FOOT' || sType === 'CHAIR') defFlow = 'FOOTSINGLE';
+2013:             else if (sType === 'BODY' || sType === 'BED') defFlow = 'BODYSINGLE';
+2014:             formattedServices[key] = {
+2015:                 name: svc.name || key, duration: parseInt(svc.duration) || 60,
+2016:                 type: sType, category: svc.category || 'SINGLE', price: svc.price || 0,
+2017:                 elasticStep: svc.elasticStep || 0, elasticLimit: svc.elasticLimit || 0,
+2018:                 minBody: svc.minBody, maxBody: svc.maxBody,
+2019:                 minFoot: svc.minFoot, maxFoot: svc.maxFoot,
+2020:             };
+2021:         });
+2022:         console.log("FORMATTED_KEYS:", Object.keys(formattedServices));
+2023:         CoreKernel.setDynamicServices(formattedServices);
+2024:     };
+2025: 
+2026:     const mergeBookingData = (serverBookings, localBookings) => {
+2027:         if (!Array.isArray(serverBookings)) serverBookings = [];
+2028:         if (!Array.isArray(localBookings)) localBookings = [];
+2029:         const mergedMap = new Map();
+2030:         serverBookings.forEach(b => { if (b.rowId) mergedMap.set(b.rowId, b); });

@@ -1,0 +1,70 @@
+1931:                 if (globalBestOutOfBoundSqueeze) {
+1932:                     let suggestedTime = requestStartMins + globalBestOutOfBoundSqueeze.shiftMins;
+1933:                     let timeStr = getTimeStrFromMins(suggestedTime);
+1934:                     let actionText = globalBestOutOfBoundSqueeze.shiftMins > 0 ? '稍晚' : '提早';
+1935:                     let shiftVal = Math.abs(globalBestOutOfBoundSqueeze.shiftMins);
+1936:                     let reqTimeStr = getTimeStrFromMins(requestStartMins);
+1937:                     let msg = `⚠️ 系統計算出您的套餐分配為 (${globalBestOutOfBoundSqueeze.flow === 'BF' ? '身' : '腳'}:${globalBestOutOfBoundSqueeze.p1} ; ${globalBestOutOfBoundSqueeze.flow === 'BF' ? '腳' : '身'}:${globalBestOutOfBoundSqueeze.p2})，已超出標準限制。建議您${actionText} ${shiftVal} 分鐘，改為 ${timeStr} 預約以滿足標準。`;
+1938:                     return triggerSmartFailure(msg, suggestedTime);
+1939:                 }
+1940:                 const uniqueLog = [...new Set(failureLog)];
+1941:                 const debugReason = uniqueLog.length > 0 ? uniqueLog.slice(-1).join('') : "❌ 老師不夠";
+1942:                 const failMessage = debugReason;
+1943:                 return { feasible: false, reason: failMessage, debug: guardrailCheck ? guardrailCheck.debug : {} };
+1944:             }
+1945:         }
+1946: 
+1947:         return { checkRequestAvailability, setDynamicServices, getTimeStrFromMins, generateElasticSplits };
+1948:     })();
+1949: 
+1950:     // Expose cyxCallCoreAvailabilityCheck globally for cyx_views and cyx_app
+1951:     window.cyxCallCoreAvailabilityCheck = function(dateStr, timeStr, guestDetails, todays, staffList) {
+1952:         syncServicesToCore();
+1953:         const staffMap = {};
+1954:         if (Array.isArray(staffList)) {
+1955:             staffList.forEach(s => {
+1956:                 const sId = window.normalizeStaffId ? window.normalizeStaffId(String(s.id).trim()) : String(s.id).trim();
+1957:                 const rawStart = s['上班'] || s.start || s.shiftStart || "00:00";
+1958:                 const rawEnd = s['下班'] || s.end || s.shiftEnd || "00:00";
+1959:                 const dayStatus = s[dateStr] || s[dateStr.replace(/\//g, '-')] || "";
+1960:                 let isOff = (String(s.offDays || "").includes(dateStr) || String(dayStatus).toUpperCase().includes('OFF') || String(dayStatus).toUpperCase() === 'X');
+1961:                 staffMap[sId] = {
+1962:                     id: sId, gender: s.gender, start: rawStart, end: rawEnd,
+1963:                     isStrictTime: (s.isStrictTime === true || String(s.isStrictTime).toUpperCase() === 'TRUE'), off: isOff,
+1964:                     offDays: s.offDays, customShifts: s.customShifts,
+1965:                     isYouTui: s.isYouTui, isGuaSha: s.isGuaSha, isHuaGuan: s.isHuaGuan, isBaGuan: s.isBaGuan
+1966:                 };
+1967:                 if (s.name) staffMap[window.normalizeStaffId ? window.normalizeStaffId(String(s.name).trim()) : String(s.name).trim()] = staffMap[sId];
+1968:             });
+1969:         }
+1970:         try {
+1971:             // extract location from the first guest if it exists, otherwise default to '本館'
+1972:             const reqLocation = (guestDetails && guestDetails[0] && guestDetails[0].location) ? guestDetails[0].location : '本館';
+1973:             const result = CoreKernel.checkRequestAvailability(dateStr, timeStr, guestDetails, todays, staffMap, { location: reqLocation });
+1974:             return result.feasible
+1975:                 ? { valid: true, details: result.details, proposedUpdates: result.proposedUpdates, debug: result.debug }
+1976:                 : { valid: false, reason: result.reason, debug: result.debug };
+1977:         } catch (err) {
+1978:             console.error(err);
+1979:             return { valid: false, reason: "System Error: " + err.message };
+1980:         }
+1981:     };
+1982: 
+1983:     // ========================================================================
+1984:     // PHẦN 2: DATA FETCHER
+1985:     // ========================================================================
+1986:     const fetchLiveServerData = async (isForceRefresh = false) => {
+1987:         const apiUrl = window.API_URL || window.GAS_API_URL || (window.CONFIG && window.CONFIG.API_URL);
+1988:         if (!apiUrl) { console.warn("⚠️ Warning: API_URL missing."); return null; }
+1989:         try {
+1990:             const params = [`_t=${new Date().getTime()}`];
+1991:             if (isForceRefresh) params.push('forceRefresh=true');
+1992:             const targetUrl = apiUrl.includes('?') ? `${apiUrl}&${params.join('&')}` : `${apiUrl}?${params.join('&')}`;
+1993:             const response = await fetch(targetUrl);
+1994:             const data = await response.json();
+1995:             if (data && data.staffList && data.bookings) return data;
+1996:             return null;
+1997:         } catch (err) { console.error("❌ Fetch Failed", err); return null; }
+1998:     };
+1999: 
+2000:     // ========================================================================

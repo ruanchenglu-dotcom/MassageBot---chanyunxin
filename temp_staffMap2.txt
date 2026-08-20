@@ -1,0 +1,30 @@
+2186:             };
+2187:         });
+2188: 
+2189:         const staffMap = {};
+2190:         if (Array.isArray(staffList)) {
+2191:             staffList.forEach(s => {
+2192:                 // CHUẨN HÓA ID KEY CHO STAFFMAP
+2193:                 const sId = normalizeStaffId(String(s.id).trim());
+2194:                 const rawStart = s['上班'] || s.start || s.shiftStart || "00:00";
+2195:                 const rawEnd = s['下班'] || s.end || s.shiftEnd || "00:00";
+2196:                 const dayStatus = s[targetDateStandard] || s[targetDateStandard.replace(/\//g, '-')] || "";
+2197:                 let isOff = (String(s.offDays || "").includes(targetDateStandard) || String(dayStatus).toUpperCase().includes('OFF') || String(dayStatus).toUpperCase() === 'X');
+2198:                 staffMap[sId] = {
+2199:                     id: sId, gender: s.gender, start: rawStart, end: rawEnd,
+2200:                     isStrictTime: (s.isStrictTime === true || String(s.isStrictTime).toUpperCase() === 'TRUE'), off: isOff,
+2201:                     offDays: s.offDays, customShifts: s.customShifts,
+2202:                     isYouTui: s.isYouTui, isGuaSha: s.isGuaSha, isHuaGuan: s.isHuaGuan, isBaGuan: s.isBaGuan
+2203:                 };
+2204:                 // Đồng bộ cả key name nếu có
+2205:                 if (s.name) staffMap[normalizeStaffId(String(s.name).trim())] = staffMap[sId];
+2206:             });
+2207:         }
+2208:         try {
+2209:             const result = CoreKernel.checkRequestAvailability(targetDateStandard, time, coreGuests, coreBookings, staffMap, { location: locationStr || '本館' });
+2210:             return result.feasible
+2211:                 ? { valid: true, details: result.details, proposedUpdates: result.proposedUpdates, debug: result.debug }
+2212:                 : { valid: false, reason: result.reason, debug: result.debug };
+2213:         } catch (err) { return { valid: false, reason: "System Error: " + err.message }; }
+2214:     };
+2215: 

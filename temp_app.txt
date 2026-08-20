@@ -1,0 +1,25 @@
+771:             }
+772: 
+773:             // Đồng bộ config tự động từ Resource của API
+774:             if (res.data.resources) {
+775:                 if (!window.SYSTEM_CONFIG) window.SYSTEM_CONFIG = { SCALE: {}, OPERATION_TIME: {}, LOGIC_RULES: {}, BUFFERS: {}, FINANCE: {} };
+776:                 window.SYSTEM_CONFIG.SCALE.MAX_CHAIRS = res.data.resources.chairs || 6;
+777:                 window.SYSTEM_CONFIG.SCALE.MAX_BEDS = res.data.resources.beds || 6;
+778:                 window.SYSTEM_CONFIG.SCALE.OPP_CHAIRS = res.data.resources.oppChairs || 4;
+779:                 window.SYSTEM_CONFIG.SCALE.OPP_BEDS = res.data.resources.oppBeds || 6;
+780:             }
+781: 
+782:             const { bookings: apiBookings, staffList: apiStaff, resourceState: serverRes, staffStatus: serverStaff, quickNotes: apiQuickNotes, blacklist: apiBlacklist, masterBlacklist: apiMasterBlacklist } = res.data;
+783: 
+784:             if (apiQuickNotes) {
+785:                 window.QUICK_NOTES = apiQuickNotes;
+786:             }
+787: 
+788:             if (!window.SYSTEM_DATA) window.SYSTEM_DATA = {};
+789:             if (apiBlacklist) window.SYSTEM_DATA.blacklist = apiBlacklist;
+790:             if (apiMasterBlacklist) window.SYSTEM_DATA.masterBlacklist = apiMasterBlacklist;
+791:             if (apiStaff) window.SYSTEM_DATA.staff = apiStaff;
+792: 
+793:             let nextResourceState = { ...(serverRes || {}) };
+794: 
+795:             Object.keys(localOverridesRef.current).forEach(rowId => {

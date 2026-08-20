@@ -1,0 +1,30 @@
+1251:             const CONF = getSystemConfig(locationStr);
+1252:             const requestStartMins = getMinsFromTimeStr(timeStr);
+1253:             if (requestStartMins === -1) return { feasible: false, reason: "❌ 錯誤：時間格式無效" };
+1254: 
+1255:             let maxGuestDuration = 0;
+1256:             guestList.forEach(g => {
+1257:                 const s = SERVICES[g.serviceCode] || { duration: 60 };
+1258:                 const dur = g.overrideDuration || s.duration || 60;
+1259:                 if (dur > maxGuestDuration) maxGuestDuration = dur;
+1260:             });
+1261: 
+1262:             const guardrailCheck = validateGlobalCapacity(
+1263:                 requestStartMins,
+1264:                 maxGuestDuration,
+1265:                 guestList,
+1266:                 currentBookingsRaw,
+1267:                 staffList,
+1268:                 dateStr,
+1269:                 false,
+1270:                 locationStr
+1271:             );
+1272: 
+1273:             let guardrailFallbackError = null;
+1274:             if (!guardrailCheck.pass) {
+1275:                 if (guardrailCheck.requiresSmartRepacking) {
+1276:                     guardrailFallbackError = { feasible: false, reason: guardrailCheck.reason, debug: guardrailCheck.debug };
+1277:                 } else {
+1278:                     return { feasible: false, reason: guardrailCheck.reason, debug: guardrailCheck.debug };
+1279:                 }
+1280:             }

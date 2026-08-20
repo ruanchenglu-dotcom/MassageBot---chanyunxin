@@ -1,0 +1,592 @@
+329:         function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBookingsRaw, staffList, queryDateStr, isSimulation = false, locationStr = '本館') {
+330:             const CONF = getSystemConfig(locationStr);
+331: 
+332:             const triggerSmartFailure = (reasonMsg, specificSuggestionMins = null) => {
+333:                 if (isSimulation) return { pass: false, reason: reasonMsg };
+334:                 
+335:                 let debugInfo = { suggestions: [] };
+336:                 if (specificSuggestionMins !== null && specificSuggestionMins >= 0 && specificSuggestionMins <= 1800) {
+337:                     const timeStr = getTimeStrFromMins(specificSuggestionMins);
+338:                     debugInfo.suggestions.push({ time: timeStr, date: queryDateStr, daysToAdd: 0 });
+339:                 }
+340: 
+341:                 let oppositeLoc = locationStr === '本館' ? '對面館' : '本館';
+342:                 let oppositeSim = validateGlobalCapacity(requestStart, maxDuration, guestList, currentBookingsRaw, staffList, queryDateStr, true, oppositeLoc);
+343:                 let oppositeSuggestion = "";
+344:                 if (oppositeSim.pass) {
+345:                     oppositeSuggestion = `\n💡 系統提示：【${oppositeLoc}】在 ${getTimeStrFromMins(requestStart)} 仍有空位，可建議客人至${oppositeLoc}。`;
+346:                 }
+347:                 
+348:                 let snapMins = new Set();
+349:                 let maxReqDur = guestList.reduce((max, g) => Math.max(max, parseInt(g.duration || 60, 10)), 0);
+350:                 const normQDate = queryDateStr ? (typeof normalizeDateStrict === 'function' ? normalizeDateStrict(queryDateStr) : queryDateStr.replace(/\//g, '-')) : '';
+351:                 const cleanBuffer = CONF.CLEANUP_BUFFER || 5;
+352:                 const transBuffer = 0;
+353:                 
+354:                 currentBookingsRaw.forEach(b => {
+355:                     if (b.status === 'CANCELLED' || b.status === 'NO_SHOW') return;
+356:                     let bDate = b.opDate || (b.startTimeString ? b.startTimeString.split(' ')[0].replace(/\//g, '-') : '');
+357:                     if (bDate === normQDate) {
+358:                         let bTime = b.startTimeString ? b.startTimeString.split(' ')[1] : b.startTime;
+359:                         if (bTime) {
+360:                             let [h, m] = bTime.split(':').map(Number);
+361:                             if (!isNaN(h) && !isNaN(m)) {
+362:                                 let start = h * 60 + m;
+363:                                 let dur = parseInt(b.duration, 10) || 60;
+364:                                 let end = start + dur;
+365:                                 snapMins.add(end + cleanBuffer);
+366:                                 snapMins.add(end + transBuffer);
+367:                                 snapMins.add(start - maxReqDur - cleanBuffer);
+368:                                 let p1Dur = parseInt(b.phase1_duration, 10) || (b.originalData && parseInt(b.originalData.phase1_duration, 10));
+369:                                 if (!isNaN(p1Dur) && p1Dur > 0) {
+370:                                     snapMins.add(start + p1Dur + cleanBuffer);
+371:                                     snapMins.add(start + p1Dur + transBuffer);
+372:                                     snapMins.add(start + p1Dur - maxReqDur - cleanBuffer);
+373:                                 }
+374:                             }
+375:                         }
+376:                     }
+377:                 });
+378: 
+379:                 let foundMinsAfter = -1;
+380:                 let searchStartAfter = Math.max(requestStart + 5, 0); 
+381:                 let afterCandidates = [];
+382:                 for (let i = 0; i <= 48; i++) {
+383:                     let t = searchStartAfter + i * 5;
+384:                     if (t <= 1800) afterCandidates.push(t);
+385:                 }
+386:                 afterCandidates.sort((a, b) => {
+387:                     let aSnap = snapMins.has(a);
+388:                     let bSnap = snapMins.has(b);
+389:                     if (aSnap && !bSnap) return -1;
+390:                     if (!aSnap && bSnap) return 1;
+391:                     return a - b;
+392:                 });
+393:                 for (let t of afterCandidates) {
+394:                     let sim = validateGlobalCapacity(t, maxDuration, guestList, currentBookingsRaw, staffList, queryDateStr, true, locationStr);
+395:                     if (sim.pass) {
+396:                         foundMinsAfter = t;
+397:                         break;
+398:                     }
+399:                 }
+400:                 
+401:                 let foundMinsBefore = -1;
+402:                 let lowerBound = 0;
+403:                 try {
+404:                      const today = new Date();
+405:                      const tzOffset = today.getTimezoneOffset() * 60000;
+406:                      const localToday = (new Date(today - tzOffset)).toISOString().split('T')[0];
+407:                      if (normQDate === localToday) {
+408:                          lowerBound = today.getHours() * 60 + today.getMinutes() + 5;
+409:                      }
+410:                 } catch (e) {}
+411: 
+412:                 let searchStartBefore = requestStart - 5;
+413:                 let beforeCandidates = [];
+414:                 for (let i = 0; i <= 48; i++) {
+415:                     let t = searchStartBefore - i * 5;
+416:                     if (t >= lowerBound) beforeCandidates.push(t);
+417:                 }
+418:                 beforeCandidates.sort((a, b) => {
+419:                     let aSnap = snapMins.has(a);
+420:                     let bSnap = snapMins.has(b);
+421:                     if (aSnap && !bSnap) return -1;
+422:                     if (!aSnap && bSnap) return 1;
+423:                     return b - a;
+424:                 });
+425:                 for (let t of beforeCandidates) {
+426:                     let sim = validateGlobalCapacity(t, maxDuration, guestList, currentBookingsRaw, staffList, queryDateStr, true, locationStr);
+427:                     if (sim.pass) {
+428:                         foundMinsBefore = t;
+429:                         break;
+430:                     }
+431:                 }
+432:                 
+433:                 if (foundMinsAfter !== -1 || foundMinsBefore !== -1) {
+434:                     let suggestionText = "";
+435:                     if (foundMinsBefore !== -1 && foundMinsAfter !== -1) {
+436:                         const timeStrBefore = getTimeStrFromMins(foundMinsBefore);
+437:                         const timeStrAfter = getTimeStrFromMins(foundMinsAfter);
+438:                         suggestionText = `💡 智能建議：${locationStr}最接近可完整安排的時間為 ${timeStrBefore} 或 ${timeStrAfter} 之後。`;
+439:                         if (foundMinsBefore !== specificSuggestionMins) debugInfo.suggestions.push({ time: timeStrBefore, date: queryDateStr, daysToAdd: 0 });
+440:                         if (foundMinsAfter !== specificSuggestionMins) debugInfo.suggestions.push({ time: timeStrAfter, date: queryDateStr, daysToAdd: 0 });
+441:                     } else if (foundMinsBefore !== -1) {
+442:                         const timeStrBefore = getTimeStrFromMins(foundMinsBefore);
+443:                         suggestionText = `💡 智能建議：${locationStr}最接近可完整安排的時間為 ${timeStrBefore}。`;
+444:                         if (foundMinsBefore !== specificSuggestionMins) debugInfo.suggestions.push({ time: timeStrBefore, date: queryDateStr, daysToAdd: 0 });
+445:                     } else {
+446:                         const timeStrAfter = getTimeStrFromMins(foundMinsAfter);
+447:                         suggestionText = `💡 智能建議：${locationStr}最快可完整安排 (含所有階段) 的時間為 ${timeStrAfter} 之後。`;
+448:                         if (foundMinsAfter !== specificSuggestionMins) debugInfo.suggestions.push({ time: timeStrAfter, date: queryDateStr, daysToAdd: 0 });
+449:                     }
+450:                     return { pass: false, reason: `${reasonMsg}${oppositeSuggestion}\n${suggestionText}`, debug: debugInfo };
+451:                 } else {
+452:                     return { pass: false, reason: `${reasonMsg}${oppositeSuggestion}\n⚠️ 今日已無足夠資源可完整安排此預約。`, debug: debugInfo };
+453:                 }
+454:             };
+455: 
+456:             const resourceMap = {
+457:                 'BED': Array.from({ length: CONF.MAX_BEDS }, () => []),
+458:                 'CHAIR': Array.from({ length: CONF.MAX_CHAIRS }, () => [])
+459:             };
+460: 
+461:             const globalStaffBookings = currentBookingsRaw.filter(b => {
+462:                 const bStart = getMinsFromTimeStr(b.startTime);
+463:                 if (bStart === -1) return false;
+464:                 if (!isActiveBookingStatus(b.status)) return false;
+465:                 if (!isMathematicallyActive(b, requestStart)) return false;
+466: 
+467:                 const svcInfo = SERVICES[b.serviceCode] || { name: b.serviceName };
+468:                 const storedFlow = b.originalData?.flowCode || b.flow;
+469:                 const isCombo = isComboService(b.serviceCode || getServiceCodeByName(b.serviceName));
+470:                 const { realDuration } = calculateRealDurations(b, b.duration || 60, isCombo);
+471: 
+472:                 const bEnd = bStart + realDuration + CONF.CLEANUP_BUFFER;
+473:                 return bEnd > requestStart;
+474:             });
+475: 
+476:             const resolveRealLocation = (b) => {
+477:                 let locStr = b.current_resource_id || b.phase1_res_idx || b.originalData?.location || b.location || '本館';
+478:                 const match = String(locStr).match(/(?:BED|CHAIR|床|足|腳|OPP)[-_ ]?([12])[-_ ]?\\d+/i);
+479:                 if (match) return match[1] === '2' ? '對面館' : '本館';
+480:                 return (b.originalData?.location || b.location || '本館') === '對面館' ? '對面館' : '本館';
+481:             };
+482:             const relevantBookings = globalStaffBookings.filter(b => {
+483:                 return resolveRealLocation(b) === locationStr;
+484:             });
+485: 
+486:             relevantBookings.forEach(b => {
+487:                 const bStart = getMinsFromTimeStr(b.startTime);
+488:                 const svcInfo = SERVICES[b.serviceCode] || { name: b.serviceName };
+489:                 const bLoc = b.originalData?.location || b.location || '本館';
+490:                 const storedFlow = b.originalData?.flowCode || b.flow;
+491:                 const isCombo = isComboService(b.serviceCode || getServiceCodeByName(b.serviceName));
+492:                 const { p1, realDuration } = calculateRealDurations(b, b.duration || 60, isCombo);
+493: 
+494:                 // [V136.1 FIX] Accurate Resource ID Extraction - Removes rowId from matching to avoid false positives on Bed 1
+495:                 const resFields = [b.phase1_res_idx, b.phase2_res_idx, b.allocated_resource, b.current_resource_id];
+496:                 let extractedMatches = [];
+497:                 resFields.forEach(rawId => {
+498:                     if (!rawId) return;
+499:                     let id = String(rawId).toUpperCase().trim();
+500:                     if (!id) return;
+501:                     
+502:                     let isOpp = id.includes('OPP') || id.includes('對') || id.includes('2-') || (b.location === '對面館');
+503:                     let isChair = id.includes('CHAIR') || id.includes('腳') || id.includes('足') || id.includes('FOOT');
+504:                     let isBed = id.includes('BED') || id.includes('床') || id.includes('本') || id.includes('BODY') || id.includes('身');
+505:                     
+506:                     if (!isChair && !isBed) {
+507:                         if (id.includes('本') || id.includes('對') || b.location === '對面館') isBed = true; 
+508:                         else isChair = true; 
+509:                     }
+510:                     
+511:                     let match = id.match(/\d+/g);
+512:                     let num = match && match.length > 0 ? match[match.length - 1] : '';
+513:                     if (!num) return;
+514:                     
+515:                     let building = isOpp ? '2' : '1';
+516:                     let type = isChair ? 'CHAIR' : 'BED';
+517:                     extractedMatches.push(`${type}-${building}-${num}`);
+518:                 });
+519:                 
+520:                 let uniqueMatches = [...new Set(extractedMatches)];
+521: 
+522:                 // [NEW V118.9] Logic Nhận diện Đặt chỗ linh hoạt (Fluid Booking) & Repacking
+523:                 const isLockedRaw = b.originalData?.isManualLocked || b.isManualLocked;
+524:                 const isLocked = (isLockedRaw === true || isLockedRaw === 'TRUE' || isLockedRaw === 1);
+525:                 let isRunning = false;
+526:                 if (b.originalData && b.originalData.status) {
+527:                     const stLower = b.originalData.status.toLowerCase();
+528:                     isRunning = stLower.includes('running') || stLower.includes('服務中') || stLower.includes('đang phục vụ');
+529:                 }
+530:                 if (b.status) {
+531:                     const stLower = b.status.toLowerCase();
+532:                     if (stLower.includes('running') || stLower.includes('服務中') || stLower.includes('đang phục vụ')) isRunning = true;
+533:                 }
+534:                 
+535:                 // Nếu booking không bị khóa và chưa bắt đầu, hệ thống được phép "giả lập dời ghế"
+536:                 // [V136.2 FIX] Disabled Fluid Booking Repacking: Cố định toạ độ thực tế để tránh lỗi xếp đè (Overlap)
+537:                 const isFluid = false; 
+538: 
+539:                 // Kích hoạt Repacking: Bỏ qua ghế đã chỉ định, ép hệ thống tự tìm ghế trống tối ưu nhất
+540:                 if (isFluid) {
+541:                     uniqueMatches = []; 
+542:                 }
+543: 
+544:                 const pushToMapFallback = (type, startT, endT) => {
+545:                     if (resourceMap[type]) {
+546:                         for (let i = 0; i < resourceMap[type].length; i++) {
+547:                             const overlaps = resourceMap[type][i].some(blk => isOverlap(startT, endT, blk.start, blk.end));
+548:                             if (!overlaps) {
+549:                                 resourceMap[type][i].push({ start: startT, end: endT });
+550:                                 return true;
+551:                             }
+552:                         }
+553:                     }
+554:                     return false;
+555:                 };
+556: 
+557:                 const pushToMap = (res, startT, endT, fallbackType) => {
+558:                     let success = false;
+559:                     if (res) {
+560:                         const laneMatch = res.match(/(BED|CHAIR|床|足|腳)[-_ ]?(?:\d+[-_ ])?(\d+)/i);
+561:                         if (laneMatch) {
+562:                             const type = (laneMatch[1].toUpperCase().includes('BED') || laneMatch[1].includes('床')) ? 'BED' : 'CHAIR';
+563:                             const idx = parseInt(laneMatch[2]) - 1;
+564:                             if (resourceMap[type] && resourceMap[type][idx]) {
+565:                                 resourceMap[type][idx].push({ start: startT, end: endT });
+566:                                 success = true;
+567:                             }
+568:                         }
+569:                     }
+570:                     if (!success && fallbackType) {
+571:                         pushToMapFallback(fallbackType, startT, endT);
+572:                     }
+573:                 };
+574: 
+575:                 if (isCombo) {
+576:                     let res1 = null, res2 = null;
+577:                     let type1 = 'BED'; let type2 = 'CHAIR';
+578:                     let isBodyFirst = true;
+579:                     const noteContent = (b.note || b.ghiChu || b.originalData?.ghiChu || "").toString().toUpperCase();
+580:                     const isRunningStatus = b.status && (b.status.includes('進行') || b.status.includes('SERVING') || b.status.includes('Check-in') || b.status === '已報到');
+581: 
+582:                     if ((isRunningStatus || b.phase1_res_idx || b.allocated_resource) && (b.phase1_res_idx || b.allocated_resource)) {
+583:                         const resToCheck = b.phase1_res_idx || b.allocated_resource;
+584:                         if (resToCheck.includes('BED') || resToCheck.includes('BODY') || resToCheck.includes('床')) isBodyFirst = true;
+585:                         else if (resToCheck.includes('CHAIR') || resToCheck.includes('FOOT') || resToCheck.includes('足') || resToCheck.includes('腳')) isBodyFirst = false;
+586:                         else {
+587:                             if (storedFlow === 'BF') isBodyFirst = true;
+588:                             else if (storedFlow === 'FB') isBodyFirst = false;
+589:                             else if (noteContent.includes('BF') || noteContent.includes('BODY FIRST') || noteContent.includes('先做身體')) isBodyFirst = true;
+590:                             else if (b._impliedFlow === 'BF') isBodyFirst = true;
+591:                         }
+592:                     } else {
+593:                         if (storedFlow === 'BF') isBodyFirst = true;
+594:                         else if (storedFlow === 'FB') isBodyFirst = false;
+595:                         else {
+596:                             if (noteContent.includes('BF') || noteContent.includes('BODY FIRST') || noteContent.includes('先做身體')) isBodyFirst = true;
+597:                             else if (b._impliedFlow === 'BF') isBodyFirst = true;
+598:                         }
+599:                     }
+600: 
+601:                     if (uniqueMatches.length >= 2) {
+602:                         if (isBodyFirst) {
+603:                             res1 = uniqueMatches.find(r => r.includes('BED') || r.includes('床')) || uniqueMatches[0];
+604:                             res2 = uniqueMatches.find(r => r.includes('CHAIR') || r.includes('足')) || uniqueMatches[1];
+605:                         } else {
+606:                             res1 = uniqueMatches.find(r => r.includes('CHAIR') || r.includes('足')) || uniqueMatches[0];
+607:                             res2 = uniqueMatches.find(r => r.includes('BED') || r.includes('床')) || uniqueMatches[1];
+608:                         }
+609:                     } else if (uniqueMatches.length === 1) {
+610:                         const mType = (uniqueMatches[0].toUpperCase().includes('BED') || uniqueMatches[0].includes('床')) ? 'BED' : 'CHAIR';
+611:                         if (isBodyFirst) {
+612:                             if (mType === 'BED') res1 = uniqueMatches[0];
+613:                             else res2 = uniqueMatches[0];
+614:                         } else {
+615:                             if (mType === 'CHAIR') res1 = uniqueMatches[0];
+616:                             else res2 = uniqueMatches[0];
+617:                         }
+618:                     }
+619:                     
+620:                     if (!isBodyFirst) { type1 = 'CHAIR'; type2 = 'BED'; }
+621: 
+622:                     pushToMap(res1, bStart, bStart + p1, type1);
+623:                     pushToMap(res2, bStart + p1, bStart + realDuration + CONF.CLEANUP_BUFFER, type2);
+624:                 } else {
+625:                     let inferredType = 'BED';
+626:                     if (svcInfo) {
+627:                         if (svcInfo.type === 'CHAIR') inferredType = 'CHAIR';
+628:                         else if (storedFlow === 'FOOTSINGLE') inferredType = 'CHAIR';
+629:                     }
+630:                     if (uniqueMatches.length > 0) {
+631:                         uniqueMatches.forEach(res => {
+632:                             pushToMap(res, bStart, bStart + realDuration + CONF.CLEANUP_BUFFER, inferredType);
+633:                         });
+634:                     } else {
+635:                         pushToMapFallback(inferredType, bStart, bStart + realDuration + CONF.CLEANUP_BUFFER);
+636:                     }
+637:                 }
+638:             });
+639: 
+640:             const availableStaffList = Object.values(staffList).filter(s => {
+641:                 const shiftInfo = resolveStaffShift(s, queryDateStr);
+642:                 if (shiftInfo.off) return false;
+643:                 const ss = getMinsFromTimeStr(shiftInfo.start);
+644:                 let se = getMinsFromTimeStr(shiftInfo.end);
+645: 
+646:                 // [FRONTEND V118] Thuật toán Phân đoạn Ca Đêm
+647:                 if (se < ss) {
+648:                     se += 1440;
+649:                 }
+650: 
+651:                 let inMain = (requestStart >= ss && requestStart < se);
+652:                 let inTail = false;
+653:                 if (se > 1440) {
+654:                     const origSe = se - 1440;
+655:                     inTail = (requestStart >= 0 && requestStart < origSe);
+656:                 }
+657:                 return inMain || inTail;
+658:             });
+659: 
+660:             const normId = (id) => String(id || '').replace(/^0+/, '').trim().toUpperCase();
+661: 
+662:             const supplyCount = availableStaffList.length;
+663:             const femaleSupply = availableStaffList.filter(s => s.gender === 'F' || s.gender === '女').length;
+664:             const maleSupply = availableStaffList.filter(s => s.gender === 'M' || s.gender === '男').length;
+665: 
+666:             let staffBusyCount = 0;
+667:             let femaleBusyCount = 0;
+668:             let maleBusyCount = 0;
+669:             let staffBusyPeriods = {}; // { '9': [{start, end}] }
+670: 
+671:             let distinctStaffs = new Set();
+672:             let distinctFemaleStaffs = new Set();
+673:             let distinctMaleStaffs = new Set();
+674:             let overlapEvents = [];
+675: 
+676:             globalStaffBookings.forEach(b => {
+677:                 const bS = getMinsFromTimeStr(b.startTime);
+678:                 const svcInfo = SERVICES[b.serviceCode] || { name: b.serviceName };
+679:                 const storedFlow = b.originalData?.flowCode || b.flow;
+680:                 const isCombo = isComboService(b.serviceCode || getServiceCodeByName(b.serviceName));
+681:                 const { realDuration } = calculateRealDurations(b, b.duration || 60, isCombo);
+682:                 const bE = bS + realDuration + CONF.CLEANUP_BUFFER;
+683: 
+684:                 let staffsInBooking = b.assignedStaffs && b.assignedStaffs.length > 0 ? b.assignedStaffs : [b.staffName];
+685: 
+686:                 for (const stf of staffsInBooking) {
+687:                     if (stf) {
+688:                         const sId = normId(stf);
+689:                         if (!staffBusyPeriods[sId]) staffBusyPeriods[sId] = [];
+690:                         staffBusyPeriods[sId].push({ start: bS, end: bE });
+691:                     }
+692:                 }
+693: 
+694:                 if (isOverlap(requestStart, requestStart + maxDuration, bS, bE)) {
+695:                     let st = Math.max(requestStart, bS);
+696:                     let en = Math.min(requestStart + maxDuration, bE);
+697:                     
+698:                     if (en > st) {
+699:                         let allDelta = 0;
+700:                         let femaleDelta = 0;
+701:                         let maleDelta = 0;
+702: 
+703:                         for (const staffName of staffsInBooking) {
+704:                             const sId = normId(staffName);
+705:                             
+706:                             const isRandom = (sId === '隨機' || sId === 'ANY' || sId === 'UNDEFINED' || sId === 'NULL' || sId === 'FALSE' || sId === '');
+707:                             const isFemaleReq = (sId === '女' || sId === '女師' || sId === 'FEMALE');
+708:                             const isMaleReq = (sId === '男' || sId === '男師' || sId === 'MALE');
+709:                             
+710:                             allDelta++;
+711:                             
+712:                             if (isFemaleReq) {
+713:                                 femaleDelta++;
+714:                             } else if (isMaleReq) {
+715:                                 maleDelta++;
+716:                             } else if (!isRandom) {
+717:                                 distinctStaffs.add(sId);
+718:                                 const sInfo = staffList[staffName] || Object.values(staffList).find(s => normId(s.name) === sId || normId(s.id) === sId) || {};
+719:                                 if (sInfo.gender === 'F' || sInfo.gender === '女' || sInfo.group === '女') {
+720:                                     femaleDelta++;
+721:                                     distinctFemaleStaffs.add(sId);
+722:                                 } else if (sInfo.gender === 'M' || sInfo.gender === '男' || sInfo.group === '男') {
+723:                                     maleDelta++;
+724:                                     distinctMaleStaffs.add(sId);
+725:                                 }
+726:                             }
+727:                         }
+728:                         
+729:                         if (allDelta > 0) {
+730:                             overlapEvents.push({ time: st, type: 1, all: allDelta, f: femaleDelta, m: maleDelta });
+731:                             overlapEvents.push({ time: en, type: -1, all: allDelta, f: femaleDelta, m: maleDelta });
+732:                         }
+733:                     }
+734:                 }
+735:             });
+736: 
+737:             overlapEvents.sort((a, b) => a.time - b.time || a.type - b.type);
+738:             
+739:             let currAll = 0, currF = 0, currM = 0;
+740:             let maxAll = 0, maxF = 0, maxM = 0;
+741:             
+742:             for (const ev of overlapEvents) {
+743:                 currAll += ev.type * ev.all;
+744:                 currF += ev.type * ev.f;
+745:                 currM += ev.type * ev.m;
+746:                 
+747:                 if (currAll > maxAll) maxAll = currAll;
+748:                 if (currF > maxF) maxF = currF;
+749:                 if (currM > maxM) maxM = currM;
+750:             }
+751: 
+752:             staffBusyCount = Math.max(distinctStaffs.size, maxAll);
+753:             femaleBusyCount = Math.max(distinctFemaleStaffs.size, maxF);
+754:             maleBusyCount = Math.max(distinctMaleStaffs.size, maxM);
+755: 
+756:             let femaleReqCount = 0;
+757:             let maleReqCount = 0;
+758:             let specificStaffReqs = [];
+759: 
+760:             guestList.forEach(g => {
+761:                 const req = g.staff;
+762:                 if (req === 'FEMALE' || req === '女' || req === '女師') femaleReqCount++;
+763:                 else if (req === 'MALE' || req === '男' || req === '男師') maleReqCount++;
+764:                 else if (req && req !== '隨機' && req !== 'Any' && req !== 'undefined' && req !== 'null') {
+765:                     const sId = normId(req);
+766:                     specificStaffReqs.push({ req: sId, rawReq: req, duration: g.overrideDuration || (SERVICES[g.serviceCode] || { duration: 60 }).duration || 60 });
+767:                 }
+768:             });
+769: 
+770:             // 1. SPECIFIC STAFF DUPLICATE CHECK
+771:             const reqCounts = {};
+772:             for (const specificReq of specificStaffReqs) {
+773:                 reqCounts[specificReq.req] = (reqCounts[specificReq.req] || 0) + 1;
+774:             }
+775:             for (const [req, count] of Object.entries(reqCounts)) {
+776:                 if (count > 1) {
+777:                     if (isSimulation) return { pass: false, reason: 'Duplicate staff assigned' };
+778:                     return { pass: false, reason: `⚠️ 錯誤: 不可同時指派 ${count} 位客人給同一技師 ${req}。`, debug: {} };
+779:                 }
+780:             }
+781: 
+782:             // 2. SPECIFIC STAFF SECURE CHECK & NEXT GAP PREDICTION
+783:             for (const specificReq of specificStaffReqs) {
+784:                 const reqId = specificReq.req;
+785:                 const rawName = specificReq.rawReq;
+786:                 const dur = specificReq.duration;
+787:                 const requiredEnd = requestStart + dur;
+788: 
+789:                 const sInfo = staffList[reqId] || Object.values(staffList).find(s => normId(s.name) === reqId || normId(s.id) === reqId);
+790:                 if (sInfo) {
+791:                     const shiftInfo = resolveStaffShift(sInfo, queryDateStr);
+792:                     const ss = getMinsFromTimeStr(shiftInfo.start);
+793:                     let se = getMinsFromTimeStr(shiftInfo.end);
+794:                     if (se < ss) se += 1440;
+795: 
+796:                     if (shiftInfo.off || requestStart < ss || requestStart >= se) {
+797:                         return triggerSmartFailure(`⚠️ 技師 ${rawName} 該時段未排班或已下班。`);
+798:                     }
+799: 
+800:                     let busyBlocks = staffBusyPeriods[reqId] || [];
+801:                     busyBlocks.sort((a, b) => a.start - b.start);
+802: 
+803:                     let isBusy = false;
+804:                     for (const blk of busyBlocks) {
+805:                         if (isOverlap(requestStart, requiredEnd, blk.start, blk.end)) {
+806:                             isBusy = true;
+807:                             break;
+808:                         }
+809:                     }
+810: 
+811:                     if (isBusy) {
+812:                         return triggerSmartFailure(`⚠️ 技師 ${rawName} 該時段已有預約。`);
+813:                     }
+814:                 }
+815:             }
+816: 
+817:             // 3. GENDER POOL CHECK
+818:             if (femaleReqCount > 0 && (femaleBusyCount + femaleReqCount) > femaleSupply) {
+819:                 return triggerSmartFailure(`⚠️ 女技師不足。女師總共: ${femaleSupply}, 忙碌中: ${femaleBusyCount}, 欲預約女師數: ${femaleReqCount}`);
+820:             }
+821: 
+822:             if (maleReqCount > 0 && (maleBusyCount + maleReqCount) > maleSupply) {
+823:                 return triggerSmartFailure(`⚠️ 男技師不足。男師總共: ${maleSupply}, 忙碌中: ${maleBusyCount}, 欲預約男師數: ${maleReqCount}`);
+824:             }
+825: 
+826:             // 4. OVERALL POOL CHECK
+827:             if ((staffBusyCount + guestList.length) > supplyCount) {
+828:                 return triggerSmartFailure(`⚠️ 技師總數不足。總共: ${supplyCount}, 忙碌中: ${staffBusyCount}, 新客: ${guestList.length}`);
+829:             }
+830: 
+831:             // SIMULATION
+832:             const simulationMap = JSON.parse(JSON.stringify(resourceMap));
+833:             const suggestedLanes = {}; // [NEW V118.6]
+834: 
+835:             for (let i = 0; i < guestList.length; i++) {
+836:                 const g = guestList[i];
+837:                 const svc = typeof getServiceInfo === 'function' ? getServiceInfo(g.serviceCode, g.serviceName || g.service) : (SERVICES[g.serviceCode] || { duration: 60 });
+838:                 const duration = g.overrideDuration || svc.duration || 60;
+839:                 const isCombo = isComboService(g.serviceCode || getServiceCodeByName(g.serviceName || g.service));
+840:                 const guestIdKey = g.idx !== undefined ? g.idx : i; // Đảm bảo đúng index
+841: 
+842:                 if (isCombo) {
+843:                     let foundValidSplit = false;
+844:                     let bestOutOfBoundSplit = null;
+845:                     const eStep = svc.elasticStep || 1;
+846:                     const eLimit = svc.elasticLimit || 20;
+847:                     const flowsToTry = (g.flowCode === 'FB' || g.flowCode === 'BF') ? [g.flowCode] : ['FB', 'BF'];
+848:                     
+849:                     for (const testFlow of flowsToTry) {
+850:                         const splitsToTry = generateElasticSplits(duration, eStep, eLimit, null, svc.minFoot, svc.maxFoot, svc.minBody, svc.maxBody, testFlow, true);
+851:                         
+852:                         for (const split of splitsToTry) {
+853:                             const p1 = split.p1;
+854:                             const p2 = split.p2;
+855:                             const tStart = requestStart;
+856:                             const tSwitch = tStart + p1;
+857:                             
+858:                             let bedIdx = -1, chairIdx = -1;
+859:                             
+860:                             if (testFlow === 'BF') {
+861:                                 for (let b = 0; b < CONF.MAX_BEDS; b++) {
+862:                                     if (checkLaneContinuity(simulationMap.BED[b], tStart, tStart + p1)) { bedIdx = b; break; }
+863:                                 }
+864:                                 for (let c = 0; c < CONF.MAX_CHAIRS; c++) {
+865:                                     if (checkLaneContinuity(simulationMap.CHAIR[c], tSwitch, tSwitch + p2)) { chairIdx = c; break; }
+866:                                 }
+867:                                 if (bedIdx !== -1 && chairIdx !== -1) {
+868:                                     if (split.shiftMins === 0) {
+869:                                         simulationMap.BED[bedIdx].push({ start: tStart, end: tStart + p1 });
+870:                                         simulationMap.CHAIR[chairIdx].push({ start: tSwitch, end: tSwitch + p2 + CONF.CLEANUP_BUFFER });
+871:                                         suggestedLanes[guestIdKey] = { BED: bedIdx + 1, CHAIR: chairIdx + 1, flow: testFlow, phase1_duration: p1, phase2_duration: p2 };
+872:                                         foundValidSplit = true;
+873:                                         bestOutOfBoundSplit = null;
+874:                                         break;
+875:                                     } else if (!bestOutOfBoundSplit) {
+876:                                         bestOutOfBoundSplit = split;
+877:                                     }
+878:                                 }
+879:                             } else {
+880:                                 for (let c = 0; c < CONF.MAX_CHAIRS; c++) {
+881:                                     if (checkLaneContinuity(simulationMap.CHAIR[c], tStart, tStart + p1)) { chairIdx = c; break; }
+882:                                 }
+883:                                 for (let b = 0; b < CONF.MAX_BEDS; b++) {
+884:                                     if (checkLaneContinuity(simulationMap.BED[b], tSwitch, tSwitch + p2)) { bedIdx = b; break; }
+885:                                 }
+886:                                 if (chairIdx !== -1 && bedIdx !== -1) {
+887:                                     if (split.shiftMins === 0) {
+888:                                         simulationMap.CHAIR[chairIdx].push({ start: tStart, end: tStart + p1 });
+889:                                         simulationMap.BED[bedIdx].push({ start: tSwitch, end: tSwitch + p2 + CONF.CLEANUP_BUFFER });
+890:                                         suggestedLanes[guestIdKey] = { CHAIR: chairIdx + 1, BED: bedIdx + 1, flow: testFlow, phase1_duration: p1, phase2_duration: p2 };
+891:                                         foundValidSplit = true;
+892:                                         bestOutOfBoundSplit = null;
+893:                                         break;
+894:                                     } else if (!bestOutOfBoundSplit) {
+895:                                         bestOutOfBoundSplit = split;
+896:                                     }
+897:                                 }
+898:                             }
+899:                         }
+900:                         if (foundValidSplit) break;
+901:                     }
+902: 
+903:                     if (!foundValidSplit) {
+904:                         let crossLocationMsg = "";
+905:                         if (locationStr === '本館' || locationStr === '對面館') {
+906:                             let oppositeLoc = locationStr === '本館' ? '對面館' : '本館';
+907:                             let oppSim = validateGlobalCapacity(requestStart, maxDuration, [], currentBookingsRaw, staffList, queryDateStr, true, oppositeLoc);
+908:                             let oppMap = oppSim.resourceMap;
+909:                             let oppConfMaxBeds = getSystemConfig(oppositeLoc).MAX_BEDS;
+910:                             let oppConfMaxChairs = getSystemConfig(oppositeLoc).MAX_CHAIRS;
+911:                             
+912:                             for (const testFlow of flowsToTry) {
+913:                                 const splitsToTry = generateElasticSplits(duration, eStep, eLimit, null, svc.minFoot, svc.maxFoot, svc.minBody, svc.maxBody, testFlow, true);
+914:                                 let foundCross = false;
+915:                                 for (const split of splitsToTry) {
+916:                                     if (split.shiftMins !== 0) continue;
+917:                                     const p1 = split.p1;
+918:                                     const p2 = split.p2;
+919:                                     const tStart = requestStart;
+920:                                     const tSwitch = tStart + p1;

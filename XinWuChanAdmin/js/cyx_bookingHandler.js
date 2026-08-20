@@ -2447,7 +2447,7 @@
                     }
                     
                     if (masterBlacklist.length > 0 && typeof guestDetails !== 'undefined') {
-                        const safeStaffList = serverData?.staff || window.SYSTEM_DATA?.staff || [];
+                        const safeStaffList = serverData?.staffList || serverData?.staff || window.SYSTEM_DATA?.staff || [];
                         for (const guest of guestDetails) {
                             if (guest.staff && guest.staff !== '隨機' && guest.staff !== '不指定' && guest.staff !== '男' && guest.staff !== '女') {
                                 const staffObj = safeStaffList.find(s => s.id === guest.staff || s.name === guest.staff);
@@ -2467,7 +2467,7 @@
             setIsChecking(true); setCheckResult(null); setSuggestions([]);
             let freshData = await fetchLiveServerData(true);
             let serverBookingsList = freshData ? freshData.bookings : (serverData?.bookings || []);
-            let staffList = freshData ? freshData.staff : (serverData?.staff || safeStaffList);
+            let staffList = freshData ? (freshData.staffList || freshData.staff) : (serverData?.staffList || serverData?.staffList || serverData?.staff || safeStaffList);
             let localBookingsList = safeBookings;
             let finalBookings = mergeBookingData(serverBookingsList, localBookingsList);
             if (editingBooking) { finalBookings = finalBookings.filter(b => b.rowId !== editingBooking.rowId); }
@@ -2847,7 +2847,7 @@
                 } else {
                     let finalCheck = null;
                     if (!isStandby) {
-                        finalCheck = callCoreAvailabilityCheck(form.date, form.time, guestDetails, checkBookings, serverData?.staff || safeStaffList, selectedLocation);
+                        finalCheck = callCoreAvailabilityCheck(form.date, form.time, guestDetails, checkBookings, serverData?.staffList || serverData?.staff || safeStaffList, selectedLocation);
 
                         if (!finalCheck.valid) {
                             let suggestionsHtml = '';
@@ -2859,7 +2859,7 @@
                                 if(svcCode === currentServiceCode) continue;
                                 
                                 let mockGuestDetails = guestDetails.map(g => ({...g, service: allServices[svcCode].name, serviceCode: svcCode}));
-                                let mockCheck = callCoreAvailabilityCheck(form.date, form.time, mockGuestDetails, checkBookings, serverData?.staff || safeStaffList, selectedLocation);
+                                let mockCheck = callCoreAvailabilityCheck(form.date, form.time, mockGuestDetails, checkBookings, serverData?.staffList || serverData?.staff || safeStaffList, selectedLocation);
                                 
                                 if(mockCheck && mockCheck.valid) {
                                     availableServices.push(allServices[svcCode].name + ' (' + allServices[svcCode].duration + '分鐘)');
