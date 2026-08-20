@@ -2998,7 +2998,7 @@
             if (selectedLocation === '本館') {
                 dynamicMaxPax = mainMax;
             } else if (selectedLocation === '對面館') {
-                dynamicMaxPax = oppMax;
+                dynamicMaxPax = Math.min(oppMax, 8);
             } else {
                 dynamicMaxPax = Math.max(mainMax, oppMax);
             }
