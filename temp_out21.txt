@@ -1,0 +1,35 @@
+2111:                 if (stLower.includes('running') || stLower.includes('服務中') || stLower.includes('đang phục vụ')) {
+2112:                     isRunningStatus = true;
+2113:                 }
+2114:             }
+2115: 
+2116:             // Tính toán Fake StartTime
+2117:             let bDateObjRaw;
+2118:             try { bDateObjRaw = new Date(b.startTimeString.replace(/\//g, '-')); } catch (e) {}
+2119:             
+2120:             let mappedStartTime = b.startTimeString;
+2121:             if (bDateObjRaw && !isNaN(bDateObjRaw.getTime())) {
+2122:                 const diffMins = Math.round((bDateObjRaw.getTime() - reqTimeMs) / 60000);
+2123:                 const targetMins = reqMinsCore + diffMins;
+2124:                 let h_final = Math.floor(targetMins / 60);
+2125:                 let m_final = targetMins % 60;
+2126:                 if (m_final < 0) { m_final += 60; h_final -= 1; }
+2127:                 let h_str = h_final < 8 ? h_final - 24 : h_final;
+2128:                 mappedStartTime = `${h_str}:${String(m_final).padStart(2, '0')}`;
+2129:             }
+2130: 
+2131:             let serverLockSignal = b.isManualLocked;
+2132:             if (serverLockSignal === undefined && b.originalData) serverLockSignal = b.originalData.isManualLocked;
+2133:             const isExplicitlyLocked = (serverLockSignal === true || String(serverLockSignal).toUpperCase() === 'TRUE' || serverLockSignal === 1);
+2134:             const finalLockState = isExplicitlyLocked || isRunningStatus;
+2135: 
+2136:             // Gán giá trị trạng thái SSOT mới
+2137:             let normalizedStatus = b.status || STATUS.WAITING;
+2138:             if (isRunningStatus) normalizedStatus = STATUS.SERVING;
+2139: 
+2140:             // ==============================================================
+2141:             // TRỌNG TÂM: GOM TOÀN BỘ THỢ (CỘT L, M, N...) THÀNH MẢNG
+2142:             // ==============================================================
+2143:             let rawStaffs = [];
+2144:             if (b.technician) rawStaffs.push(b.technician);
+2145:             if (b.staffId) rawStaffs.push(b.staffId);

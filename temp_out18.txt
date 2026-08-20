@@ -1,0 +1,27 @@
+874:             }
+875:             return false;
+876:         });
+877: 
+878:         const totalStaffCapacity = safeStaffList.length;
+879:         let maxConcurrency = 0;
+880: 
+881:         for (let t = startMins; t < endMins; t += 5) {
+882:             let currentLoad = 0;
+883:             todays.forEach(b => {
+884:                 const bStart = window.normalizeToTimelineMins ? window.normalizeToTimelineMins(b.startTimeString.split(' ')[1]) : 0;
+885:                 const bEnd = bStart + (window.getSafeDuration ? window.getSafeDuration(b.serviceName, 60) : 60);
+886:                 if (t >= bStart && t < bEnd) {
+887:                     currentLoad += (b.pax || 1);
+888:                 }
+889:             });
+890:             const totalLoadAtT = currentLoad + form.pax;
+891:             if (totalLoadAtT > maxConcurrency) maxConcurrency = totalLoadAtT;
+892:         }
+893: 
+894:         if (maxConcurrency > totalStaffCapacity) {
+895:             setCheckResult({
+896:                 status: 'FULL',
+897:                 message: `❌ 技師不足: 需要 ${maxConcurrency}/${totalStaffCapacity} 位。`
+898:             });
+899:             return;
+900:         }

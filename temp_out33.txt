@@ -1,0 +1,5 @@
+1065: function findAvailableStaff(staffReq, start, end, staffListRef, busyList, queryDateStr = null, outReason = {}, guestContext = null) {
+1066:     const checkOneStaff = (name) => {
+1067:         const staffInfo = staffListRef[name];
+1068:         if (!staffInfo) { outReason.reason = 'NOT_FOUND'; return false; }
+1069:         const status = parseStaffStatus(staffInfo, queryDateStr);

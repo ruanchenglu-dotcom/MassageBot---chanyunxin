@@ -1,0 +1,20 @@
+1029:                                                     ))}
+1030:                                     {(checkResult.message || "").split('\n').filter(line => !line.includes('系統提示：')).map((line, idx) => (
+1031:                                                         <div key={'red-'+idx}>{line}</div>
+1032:                                                     ))}
+1033:                                 </div>
+1034:                             )}
+1035: 
+1036:                             <div className="pt-2">
+1037:                                 {!checkResult ? (
+1038:                                     <button onClick={performCheck} className="w-full bg-blue-600 text-white p-3 rounded font-bold hover:bg-blue-700 shadow-md transition-transform active:scale-95">
+1039:                                         🔍 查詢空位
+1040:                                     </button>
+1041:                                 ) : (checkResult.status === 'OK' ? (
+1042:                                     <button onClick={() => setStep('INFO')} className="w-full bg-green-600 text-white p-3 rounded font-bold hover:bg-green-700 animate-pulse shadow-md transition-transform active:scale-95">
+1043:                                         ➡️ 下一步: 輸入資料
+1044:                                     </button>
+1045:                                 ) : (
+1046:                                     <button onClick={performCheck} className="w-full bg-gray-400 text-white p-3 rounded font-bold hover:bg-gray-500 transition-colors">
+1047:                                         🔄 重新查詢
+1048:                                     </button>

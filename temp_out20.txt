@@ -1,0 +1,50 @@
+2027:     const callCoreAvailabilityCheck = (date, time, guests, bookings, staffList, locationStr) => {
+2028:         syncServicesToCore();
+2029:         const now = new Date();
+2030:         const STATUS = getBookingStatus();
+2031: 
+2032:         const coreGuests = guests.map(g => {
+2033:             let foundCode = getServiceCodeByName(g.service);
+2034:             const svcDef = (window.CoreKernel?.dynamicServices || window.SERVICES_DATA) && foundCode ? (window.CoreKernel?.dynamicServices || window.SERVICES_DATA)[foundCode] : null;
+2035:             let impliedFlow = g.flowCode || undefined;
+2036:             if (!impliedFlow && svcDef) {
+2037:                 const cat = (svcDef.category || '').toUpperCase();
+2038:                 const sType = (svcDef.type || 'BODY').toUpperCase();
+2039:                 if (cat !== 'COMBO' && cat !== 'MIXED') {
+2040:                     if (sType === 'FOOT' || sType === 'CHAIR') impliedFlow = 'FOOTSINGLE';
+2041:                     else impliedFlow = 'BODYSINGLE';
+2042:                 }
+2043:             }
+2044: 
+2045:             // CHUẨN HÓA ID THỢ TỪ GUEST
+2046:             let rawStaff = g.staff;
+2047:             let normalizedStaff = 'RANDOM';
+2048:             if (rawStaff === '隨機') normalizedStaff = 'RANDOM';
+2049:             else if (rawStaff === '女' || rawStaff === '女師') normalizedStaff = 'FEMALE';
+2050:             else if (rawStaff === '男' || rawStaff === '男師') normalizedStaff = 'MALE';
+2051:             else normalizedStaff = normalizeStaffId(rawStaff);
+2052: 
+2053:             return {
+2054:                 serviceCode: foundCode || g.service,
+2055:                 staffName: normalizedStaff,
+2056:                 staff: g.staff,
+2057:                 isYouTui: g.isYouTui,
+2058:                 isGuaSha: g.isGuaSha,
+2059:                 isHuaGuan: g.isHuaGuan,
+2060:                 isBaGuan: g.isBaGuan,
+2061:                 flowCode: impliedFlow,
+2062:                 overrideDuration: g.overrideDuration
+2063:             };
+2064:         });
+2065: 
+2066:         const targetDateStandard = normalizeDateStrict(date);
+2067:         
+2068:         // --- XỬ LÝ THEO QUY TẮC TUYỆT ĐỐI ±8 TIẾNG ---
+2069:         const reqDateParts = targetDateStandard.replace(/\//g, '-').split('-');
+2070:         const reqTimeParts = (time || "12:00").split(':');
+2071:         const reqDateObj = new Date(parseInt(reqDateParts[0], 10), parseInt(reqDateParts[1], 10) - 1, parseInt(reqDateParts[2], 10), parseInt(reqTimeParts[0], 10), parseInt(reqTimeParts[1], 10), 0);
+2072:         const reqTimeMs = reqDateObj.getTime();
+2073: 
+2074:         const EIGHT_HOURS_MS = 8 * 60 * 60 * 1000;
+2075: 
+2076:         let reqH = parseInt(reqTimeParts[0], 10);

@@ -1,0 +1,35 @@
+1911:             if (successfulScenario) {
+1912:                 successfulScenario.details.sort((a, b) => a.guestIndex - b.guestIndex);
+1913:                 return {
+1914:                     feasible: true, strategy: 'MATRIX_V116.2_MULTI_STAFF',
+1915:                     details: successfulScenario.details,
+1916:                     proposedUpdates: successfulScenario.updates,
+1917:                     totalPrice: successfulScenario.details.reduce((sum, item) => sum + (item.price || 0), 0),
+1918:                     debug: guardrailCheck.debug
+1919:                 };
+1920:             } else {
+1921:                 if (guardrailFallbackError) {
+1922:                     return guardrailFallbackError;
+1923:                 }
+1924:                 if (globalBestOutOfBoundSqueeze) {
+1925:                     let suggestedTime = requestStartMins + globalBestOutOfBoundSqueeze.shiftMins;
+1926:                     let timeStr = getTimeStrFromMins(suggestedTime);
+1927:                     let actionText = globalBestOutOfBoundSqueeze.shiftMins > 0 ? '稍晚' : '提早';
+1928:                     let shiftVal = Math.abs(globalBestOutOfBoundSqueeze.shiftMins);
+1929:                     let reqTimeStr = getTimeStrFromMins(requestStartMins);
+1930:                     let msg = `⚠️ 系統計算出您的套餐分配為 (${globalBestOutOfBoundSqueeze.flow === 'BF' ? '身' : '腳'}:${globalBestOutOfBoundSqueeze.p1} ; ${globalBestOutOfBoundSqueeze.flow === 'BF' ? '腳' : '身'}:${globalBestOutOfBoundSqueeze.p2})，已超出標準限制。建議您${actionText} ${shiftVal} 分鐘，改為 ${timeStr} 預約以滿足標準。`;
+1931:                     return triggerSmartFailure(msg, suggestedTime);
+1932:                 }
+1933:                 const uniqueLog = [...new Set(failureLog)];
+1934:                 const debugReason = uniqueLog.length > 0 ? uniqueLog.slice(-1).join('') : "❌ 老師不夠";
+1935:                 const failMessage = debugReason;
+1936:                 return { feasible: false, reason: failMessage, debug: guardrailCheck ? guardrailCheck.debug : {} };
+1937:             }
+1938:         }
+1939: 
+1940:         return { checkRequestAvailability, setDynamicServices, getTimeStrFromMins, generateElasticSplits };
+1941:     })();
+1942: 
+1943:     // Expose cyxCallCoreAvailabilityCheck globally for cyx_views and cyx_app
+1944:     window.cyxCallCoreAvailabilityCheck = function(dateStr, timeStr, guestDetails, todays, staffList) {
+1945:         syncServicesToCore();

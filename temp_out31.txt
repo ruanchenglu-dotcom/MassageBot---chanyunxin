@@ -1,0 +1,10 @@
+1119: 
+1120:         if (staffReq === 'MALE' && staffInfo.gender !== 'M') { outReason.reason = 'GENDER_MISMATCH'; return false; }
+1121:         if ((staffReq === 'FEMALE' || staffReq === '女') && staffInfo.gender !== 'F') { outReason.reason = 'GENDER_MISMATCH'; return false; }
+1122: 
+1123:         if (guestContext) {
+1124:             if (guestContext.isGuaSha && staffInfo.isGuaSha === false) { outReason.reason = 'MISSING_SKILL_GUASHA'; return false; }
+1125:             if (guestContext.isYouTui && staffInfo.isYouTui === false) { outReason.reason = 'MISSING_SKILL_YOUTUI'; return false; }
+1126:             if (guestContext.isHuaGuan && staffInfo.isHuaGuan === false) { outReason.reason = 'MISSING_SKILL_HUAGUAN'; return false; }
+1127:             if (guestContext.isBaGuan && staffInfo.isBaGuan === false) { outReason.reason = 'MISSING_SKILL_BAGUAN'; return false; }
+1128:         }

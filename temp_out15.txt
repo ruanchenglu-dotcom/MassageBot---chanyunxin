@@ -1,0 +1,35 @@
+1045:         function findAvailableStaff(staffReq, start, end, staffListRef, busyList, queryDateStr = null, outReason = {}) {
+1046:             const CONF = getSystemConfig();
+1047:             const checkOneStaff = (name) => {
+1048:                 const staffInfo = staffListRef[name];
+1049:                 if (!staffInfo) { outReason.reason = 'NOT_FOUND'; return false; }
+1050:                 const shiftInfo = resolveStaffShift(staffInfo, queryDateStr);
+1051:                 if (shiftInfo.off) { outReason.reason = 'OFF'; return false; }
+1052:                 const shiftStart = getMinsFromTimeStr(shiftInfo.start);
+1053:                 let shiftEnd = getMinsFromTimeStr(shiftInfo.end);
+1054:                 if (shiftStart === -1 || shiftEnd === -1) return false;
+1055: 
+1056:                 // [FRONTEND V118] Thuật toán Phân đoạn Ca Đêm
+1057:                 if (shiftEnd < shiftStart) {
+1058:                     shiftEnd += 1440;
+1059:                 }
+1060: 
+1061:                 const isStrict = staffInfo.isStrictTime === true;
+1062:                 let inMain = true;
+1063:                 let failReason = 'OUT_OF_SHIFT';
+1064:                 if ((start + CONF.TOLERANCE) < shiftStart) {
+1065:                     inMain = false;
+1066:                     failReason = 'BEFORE_SHIFT';
+1067:                 }
+1068:                 else if (isStrict) {
+1069:                     if ((end - CONF.TOLERANCE) > shiftEnd) {
+1070:                         inMain = false;
+1071:                         failReason = 'OUT_OF_SHIFT';
+1072:                     }
+1073:                 } else {
+1074:                     if (start >= shiftEnd) {
+1075:                         inMain = false;
+1076:                         failReason = 'OUT_OF_SHIFT';
+1077:                     }
+1078:                 }
+1079: 

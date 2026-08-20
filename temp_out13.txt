@@ -1,0 +1,20 @@
+308:         function resolveStaffShift(staffInfo, queryDateStr) {
+309:             let start = staffInfo.start;
+310:             let end = staffInfo.end;
+311:             let off = staffInfo.off;
+312:             
+313:             const normDate = queryDateStr ? (typeof normalizeDateStrict === 'function' ? normalizeDateStrict(queryDateStr) : queryDateStr.replace(/-/g, '/')) : null;
+314:             
+315:             if (normDate) {
+316:                 off = (staffInfo.offDays && staffInfo.offDays.includes(normDate)) ? true : false;
+317:             }
+318:             
+319:             if (normDate && staffInfo.customShifts && staffInfo.customShifts[normDate]) {
+320:                 start = staffInfo.customShifts[normDate].start;
+321:                 end = staffInfo.customShifts[normDate].end;
+322:             }
+323:             
+324:             return { start, end, off };
+325:         }
+326: 
+327: 

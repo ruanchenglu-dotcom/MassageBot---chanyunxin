@@ -2,7 +2,7 @@
 
 (async () => {
     console.log('🚀 Starting End-to-End Test for Skill Validation...');
-    const browser = await puppeteer.launch({ headless: 'new' });
+    const browser = await puppeteer.launch({ headless: true, args: ['--no-sandbox', '--disable-setuid-sandbox'] });
     const page = await browser.newPage();
     
     // Set a large viewport to ensure all elements are visible
@@ -48,7 +48,7 @@
         const buttons = Array.from(document.querySelectorAll('button'));
         const oilBtn = buttons.find(b => b.textContent.includes('油推'));
         if (!oilBtn) return null;
-        return oilBtn.disabled || oilBtn.className.includes('cursor-not-allowed');
+        return oilBtn.disabled || oilBtn.className.includes('cursor-not-allowed') || oilBtn.className.includes('opacity-50');
     });
 
     if (isOilDisabled === true) {

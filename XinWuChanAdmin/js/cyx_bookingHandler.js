@@ -1042,11 +1042,18 @@
         }
 
         // --- HELPER LOGIC: STAFF MATCHING & ELASTIC (MULTI-STAFF ARRAY UPDATE) ---
-        function findAvailableStaff(staffReq, start, end, staffListRef, busyList, queryDateStr = null, outReason = {}) {
+        function findAvailableStaff(staffReq, start, end, staffListRef, busyList, queryDateStr = null, outReason = {}, guestContext = null) {
             const CONF = getSystemConfig();
             const checkOneStaff = (name) => {
                 const staffInfo = staffListRef[name];
                 if (!staffInfo) { outReason.reason = 'NOT_FOUND'; return false; }
+                
+                if (guestContext) {
+                    if (guestContext.isGuaSha && staffInfo.isGuaSha === false) { outReason.reason = 'MISSING_SKILL_GUASHA'; return false; }
+                    if (guestContext.isYouTui && staffInfo.isYouTui === false) { outReason.reason = 'MISSING_SKILL_YOUTUI'; return false; }
+                    if (guestContext.isHuaGuan && staffInfo.isHuaGuan === false) { outReason.reason = 'MISSING_SKILL_HUAGUAN'; return false; }
+                    if (guestContext.isBaGuan && staffInfo.isBaGuan === false) { outReason.reason = 'MISSING_SKILL_BAGUAN'; return false; }
+                }
                 const shiftInfo = resolveStaffShift(staffInfo, queryDateStr);
                 if (shiftInfo.off) { outReason.reason = 'OFF'; return false; }
                 const shiftStart = getMinsFromTimeStr(shiftInfo.start);
@@ -1861,7 +1868,7 @@
 
                 for (const item of sortedGuestsForAllocation) {
                     let outReason = {};
-                    const assignedStaff = findAvailableStaff(item.guest.staffName, item.blocks[0].start, item.blocks[item.blocks.length - 1].end, staffList, flatTimeline, dateStr, outReason);
+                    const assignedStaff = findAvailableStaff(item.guest.staffName, item.blocks[0].start, item.blocks[item.blocks.length - 1].end, staffList, flatTimeline, dateStr, outReason, item.guest);
                     if (!assignedStaff) {
                         staffAssignmentSuccess = false;
                         let staffReq = item.guest.staffName;
@@ -1954,7 +1961,8 @@
                 staffMap[sId] = {
                     id: sId, gender: s.gender, start: rawStart, end: rawEnd,
                     isStrictTime: (s.isStrictTime === true || String(s.isStrictTime).toUpperCase() === 'TRUE'), off: isOff,
-                    offDays: s.offDays, customShifts: s.customShifts
+                    offDays: s.offDays, customShifts: s.customShifts,
+                    isYouTui: s.isYouTui, isGuaSha: s.isGuaSha, isHuaGuan: s.isHuaGuan, isBaGuan: s.isBaGuan
                 };
                 if (s.name) staffMap[window.normalizeStaffId ? window.normalizeStaffId(String(s.name).trim()) : String(s.name).trim()] = staffMap[sId];
             });
@@ -2190,7 +2198,8 @@
                 staffMap[sId] = {
                     id: sId, gender: s.gender, start: rawStart, end: rawEnd,
                     isStrictTime: (s.isStrictTime === true || String(s.isStrictTime).toUpperCase() === 'TRUE'), off: isOff,
-                    offDays: s.offDays, customShifts: s.customShifts
+                    offDays: s.offDays, customShifts: s.customShifts,
+                    isYouTui: s.isYouTui, isGuaSha: s.isGuaSha, isHuaGuan: s.isHuaGuan, isBaGuan: s.isBaGuan
                 };
                 // Đồng bộ cả key name nếu có
                 if (s.name) staffMap[normalizeStaffId(String(s.name).trim())] = staffMap[sId];
@@ -2458,7 +2467,7 @@
             setIsChecking(true); setCheckResult(null); setSuggestions([]);
             let freshData = await fetchLiveServerData(true);
             let serverBookingsList = freshData ? freshData.bookings : (serverData?.bookings || []);
-            let serverStaffList = freshData ? freshData.staff : (serverData?.staff || safeStaffList);
+            let staffList = freshData ? freshData.staff : (serverData?.staff || safeStaffList);
             let localBookingsList = safeBookings;
             let finalBookings = mergeBookingData(serverBookingsList, localBookingsList);
             if (editingBooking) { finalBookings = finalBookings.filter(b => b.rowId !== editingBooking.rowId); }
@@ -2488,8 +2497,8 @@
                     const detailedGuests1 = guestDetails.map((g) => ({ ...g, flow: 'FOOTSINGLE', flowCode: 'FOOTSINGLE', resource_type: 'CHAIR', overrideDuration: p1Dur }));
                     const detailedGuests2 = guestDetails.map((g) => ({ ...g, flow: 'BODYSINGLE', flowCode: 'BODYSINGLE', resource_type: 'BED', overrideDuration: split.p2 || (baseDuration - p1Dur) }));
 
-                    const res1 = callCoreAvailabilityCheck(form.date, form.time, detailedGuests1, finalBookings, serverStaffList, loc1);
-                    const res2 = callCoreAvailabilityCheck(form.date, p2TimeStr, detailedGuests2, finalBookings, serverStaffList, loc2);
+                    const res1 = callCoreAvailabilityCheck(form.date, form.time, detailedGuests1, finalBookings, staffList, loc1);
+                    const res2 = callCoreAvailabilityCheck(form.date, p2TimeStr, detailedGuests2, finalBookings, staffList, loc2);
 
                     if (res1.valid && res2.valid) {
                         foundValid = true;
@@ -2535,7 +2544,7 @@
                 return;
             }
 
-            const res = callCoreAvailabilityCheck(form.date, form.time, guestDetails, finalBookings, serverStaffList, selectedLocation);
+            const res = callCoreAvailabilityCheck(form.date, form.time, guestDetails, finalBookings, staffList, selectedLocation);
             if (res.valid) {
                 setCheckResult({ status: 'OK', message: "✅ 此時段可預約", coreDetails: res.details, debug: res.debug });
             } else {
@@ -2682,7 +2691,7 @@
                         }
                     }
 
-                    let checkRes = callCoreAvailabilityCheck(sugDate, tStr, guestDetails, finalBookings, serverStaffList, selectedLocation);
+                    let checkRes = callCoreAvailabilityCheck(sugDate, tStr, guestDetails, finalBookings, staffList, selectedLocation);
                     if (checkRes.valid) {
                         if (!found.some(f => f.time === tStr && f.date === sugDate)) {
                             found.push({ time: tStr, date: sugDate, daysToAdd });
@@ -2711,7 +2720,7 @@
                     for (let svc of window.SERVICES_LIST) {
                         if (svc === currentSvc) continue;
                         let mockGuestDetails = [{ ...guestDetails[0], service: svc }];
-                        let checkAltRes = callCoreAvailabilityCheck(form.date, form.time, mockGuestDetails, finalBookings, serverStaffList, selectedLocation);
+                        let checkAltRes = callCoreAvailabilityCheck(form.date, form.time, mockGuestDetails, finalBookings, staffList, selectedLocation);
                         if (checkAltRes.valid) {
                             altServices.push(svc);
                         }
@@ -3019,6 +3028,15 @@
                     const cat = svcDef?.category || '';
                     const isCombo = cat === 'COMBO' || cat === 'MIXED';
                     let p1 = 0, p2 = 0;
+                    
+                    const sStaff = staffList && g.staff && !['隨機','不指定','Any','undefined','null','MALE','FEMALE','男師','女師'].includes(String(g.staff).trim()) ? 
+                        (Array.isArray(staffList) ? staffList.find(s => (s.name && s.name.trim().toUpperCase() === String(g.staff).trim().toUpperCase()) || (s.id && s.id.trim().toUpperCase() === String(g.staff).trim().toUpperCase())) 
+                        : (staffList[g.staff] || Object.values(staffList).find(s => (s.name && s.name.trim().toUpperCase() === String(g.staff).trim().toUpperCase()) || (s.id && s.id.trim().toUpperCase() === String(g.staff).trim().toUpperCase())))) : null;
+
+                    const disabledYouTui = svcCode.startsWith('F') || (sStaff && sStaff.isYouTui === false);
+                    const disabledGuaSha = svcCode.startsWith('F') || (sStaff && sStaff.isGuaSha === false);
+                    const disabledHuaGuan = svcCode.startsWith('F') || (sStaff && sStaff.isHuaGuan === false);
+                    const disabledBaGuan = svcCode.startsWith('F') || (sStaff && sStaff.isBaGuan === false);
                     let isDefault = true;
                     let flow = 'FB';
                     if (isCombo && svcDef) {
@@ -3056,8 +3074,8 @@
 
                             <button
                                 onClick={(e) => { e.preventDefault(); if (!svcCode.startsWith('F')) handleGuestUpdate(i, 'toggleYouTui'); }}
-                                disabled={svcCode.startsWith('F')}
-                                className={`w-10 sm:w-12 px-0.5 shrink-0 border-2 rounded-lg font-bold text-xs sm:text-sm h-[64px] transition-colors flex flex-col items-center justify-center gap-0.5 ${svcCode.startsWith('F') ? 'bg-gray-200 text-gray-400 cursor-not-allowed border-gray-300' : (g.isYouTui ? 'bg-orange-100 text-orange-700 border-orange-400 shadow-sm' : 'bg-slate-100 text-slate-400 border-slate-300 hover:bg-slate-200')}`}
+                                disabled={disabledYouTui}
+                                className={`w-10 sm:w-12 px-0.5 shrink-0 border-2 rounded-lg font-bold text-xs sm:text-sm h-[64px] transition-colors flex flex-col items-center justify-center gap-0.5 ${disabledYouTui ? 'bg-gray-200 text-gray-400 cursor-not-allowed border-gray-300 opacity-50' : (g.isYouTui ? 'bg-orange-100 text-orange-700 border-orange-400 shadow-sm' : 'bg-slate-100 text-slate-400 border-slate-300 hover:bg-slate-200')}`}
                             >
                                 <span className={g.isYouTui ? "opacity-100" : "opacity-50"}>💧</span>
                                 <span>油推</span>
@@ -3065,8 +3083,8 @@
 
                             <button
                                 onClick={(e) => { e.preventDefault(); if (!svcCode.startsWith('F')) handleGuestUpdate(i, 'toggleGuaSha'); }}
-                                disabled={svcCode.startsWith('F')}
-                                className={`w-10 sm:w-12 px-0.5 shrink-0 border-2 rounded-lg font-bold text-xs sm:text-sm h-[64px] transition-colors flex flex-col items-center justify-center gap-0.5 ${svcCode.startsWith('F') ? 'bg-gray-200 text-gray-400 cursor-not-allowed border-gray-300' : (g.isGuaSha ? 'bg-red-100 text-red-700 border-red-400 shadow-sm' : 'bg-slate-100 text-slate-400 border-slate-300 hover:bg-slate-200')}`}
+                                disabled={disabledGuaSha}
+                                className={`w-10 sm:w-12 px-0.5 shrink-0 border-2 rounded-lg font-bold text-xs sm:text-sm h-[64px] transition-colors flex flex-col items-center justify-center gap-0.5 ${disabledGuaSha ? 'bg-gray-200 text-gray-400 cursor-not-allowed border-gray-300 opacity-50' : (g.isGuaSha ? 'bg-red-100 text-red-700 border-red-400 shadow-sm' : 'bg-slate-100 text-slate-400 border-slate-300 hover:bg-slate-200')}`}
                             >
                                 <span className={g.isGuaSha ? "opacity-100" : "opacity-50"}>🩸</span>
                                 <span>刮痧</span>
@@ -3074,8 +3092,8 @@
 
                             <button
                                 onClick={(e) => { e.preventDefault(); if (!svcCode.startsWith('F')) handleGuestUpdate(i, 'toggleHuaGuan'); }}
-                                disabled={svcCode.startsWith('F')}
-                                className={`w-10 sm:w-12 px-0.5 shrink-0 border-2 rounded-lg font-bold text-xs sm:text-sm h-[64px] transition-colors flex flex-col items-center justify-center gap-0.5 ${svcCode.startsWith('F') ? 'bg-gray-200 text-gray-400 cursor-not-allowed border-gray-300' : (g.isHuaGuan ? 'bg-purple-100 text-purple-700 border-purple-400 shadow-sm' : 'bg-slate-100 text-slate-400 border-slate-300 hover:bg-slate-200')}`}
+                                disabled={disabledHuaGuan}
+                                className={`w-10 sm:w-12 px-0.5 shrink-0 border-2 rounded-lg font-bold text-xs sm:text-sm h-[64px] transition-colors flex flex-col items-center justify-center gap-0.5 ${disabledHuaGuan ? 'bg-gray-200 text-gray-400 cursor-not-allowed border-gray-300 opacity-50' : (g.isHuaGuan ? 'bg-purple-100 text-purple-700 border-purple-400 shadow-sm' : 'bg-slate-100 text-slate-400 border-slate-300 hover:bg-slate-200')}`}
                             >
                                 <span className={g.isHuaGuan ? "opacity-100" : "opacity-50"}>🏺</span>
                                 <span>滑罐</span>
@@ -3083,8 +3101,8 @@
                             
                             <button
                                 onClick={(e) => { e.preventDefault(); if (!svcCode.startsWith('F')) handleGuestUpdate(i, 'toggleBaGuan'); }}
-                                disabled={svcCode.startsWith('F')}
-                                className={`w-10 sm:w-12 px-0.5 shrink-0 border-2 rounded-lg font-bold text-xs sm:text-sm h-[64px] transition-colors flex flex-col items-center justify-center gap-0.5 ${svcCode.startsWith('F') ? 'bg-gray-200 text-gray-400 cursor-not-allowed border-gray-300' : (g.isBaGuan ? 'bg-blue-100 text-blue-700 border-blue-400 shadow-sm' : 'bg-slate-100 text-slate-400 border-slate-300 hover:bg-slate-200')}`}
+                                disabled={disabledBaGuan}
+                                className={`w-10 sm:w-12 px-0.5 shrink-0 border-2 rounded-lg font-bold text-xs sm:text-sm h-[64px] transition-colors flex flex-col items-center justify-center gap-0.5 ${disabledBaGuan ? 'bg-gray-200 text-gray-400 cursor-not-allowed border-gray-300 opacity-50' : (g.isBaGuan ? 'bg-blue-100 text-blue-700 border-blue-400 shadow-sm' : 'bg-slate-100 text-slate-400 border-slate-300 hover:bg-slate-200')}`}
                             >
                                 <span className={g.isBaGuan ? "opacity-100" : "opacity-50"}>🎯</span>
                                 <span>拔罐</span>
