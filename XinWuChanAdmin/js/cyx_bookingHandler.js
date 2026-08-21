@@ -324,6 +324,31 @@
             return { start, end, off };
         }
 
+        function canSatisfyRequests(staffs, reqs) {
+            if (reqs.length === 0) return true;
+            if (staffs.length < reqs.length) return false;
+            
+            const req = reqs[0];
+            for (let i = 0; i < staffs.length; i++) {
+                const s = staffs[i];
+                let match = true;
+                
+                if (req.gender === 'F' && s.gender !== 'F' && s.gender !== '女') match = false;
+                if (req.gender === 'M' && s.gender !== 'M' && s.gender !== '男') match = false;
+                
+                if (req.isYouTui && (s.isYouTui === false || s.isYouTui === '')) match = false;
+                if (req.isGuaSha && (s.isGuaSha === false || s.isGuaSha === '')) match = false;
+                if (req.isHuaGuan && (s.isHuaGuan === false || s.isHuaGuan === '')) match = false;
+                if (req.isBaGuan && (s.isBaGuan === false || s.isBaGuan === '')) match = false;
+                
+                if (match) {
+                    const remainingStaffs = staffs.slice();
+                    remainingStaffs.splice(i, 1);
+                    if (canSatisfyRequests(remainingStaffs, reqs.slice(1))) return true;
+                }
+            }
+            return false;
+        }
 
         window.validateGlobalCapacity = validateGlobalCapacity;
         function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBookingsRaw, staffList, queryDateStr, isSimulation = false, locationStr = '本館') {
@@ -672,18 +697,13 @@
             let femaleBusyCount = 0;
             let maleBusyCount = 0;
             let staffBusyPeriods = {}; // { '9': [{start, end}] }
-
-            let distinctStaffs = new Set();
-            let distinctFemaleStaffs = new Set();
-            let distinctMaleStaffs = new Set();
-            let overlapEvents = [];
+            let timePoints = new Set([requestStart, requestStart + maxDuration]);
 
             globalStaffBookings.forEach(b => {
                 const bS = getMinsFromTimeStr(b.startTime);
-                const svcInfo = SERVICES[b.serviceCode] || { name: b.serviceName };
-                const storedFlow = b.originalData?.flowCode || b.flow;
-                const isCombo = isComboService(b.serviceCode || getServiceCodeByName(b.serviceName));
-                const { realDuration } = calculateRealDurations(b, b.duration || 60, isCombo);
+                const svcInfo = typeof getServiceInfo === 'function' ? getServiceInfo(b.serviceCode, b.serviceName) : (SERVICES[b.serviceCode] || { name: b.serviceName });
+                const isCombo = isComboService(b.serviceCode || (typeof getServiceCodeByName === 'function' ? getServiceCodeByName(b.serviceName) : b.serviceName));
+                const { realDuration } = typeof calculateRealDurations === 'function' ? calculateRealDurations(b, b.duration || 60, isCombo) : { realDuration: b.duration || 60 };
                 const bE = bS + realDuration + CONF.CLEANUP_BUFFER;
 
                 let staffsInBooking = b.assignedStaffs && b.assignedStaffs.length > 0 ? b.assignedStaffs : [b.staffName];
@@ -696,108 +716,20 @@
                     }
                 }
 
-                if (isOverlap(requestStart, requestStart + maxDuration, bS, bE)) {
-                    let st = Math.max(requestStart, bS);
-                    let en = Math.min(requestStart + maxDuration, bE);
-                    
-                    if (en > st) {
-                        let allDelta = 0;
-                        let femaleDelta = 0;
-                        let maleDelta = 0;
-                        let youTuiDelta = 0;
-                        let guaShaDelta = 0;
-                        let huaGuanDelta = 0;
-                        let baGuanDelta = 0;
-
-                        for (const staffName of staffsInBooking) {
-                            const sId = normId(staffName);
-                            
-                            const isRandom = (sId === '隨機' || sId === 'ANY' || sId === 'UNDEFINED' || sId === 'NULL' || sId === 'FALSE' || sId === '');
-                            const isFemaleReq = (sId === '女' || sId === '女師' || sId === 'FEMALE');
-                            const isMaleReq = (sId === '男' || sId === '男師' || sId === 'MALE');
-                            
-                            allDelta++;
-                            
-                            if (isFemaleReq) {
-                                femaleDelta++;
-                            } else if (isMaleReq) {
-                                maleDelta++;
-                            } else if (!isRandom) {
-                                distinctStaffs.add(sId);
-                                const sInfo = staffList[staffName] || Object.values(staffList).find(s => normId(s.name) === sId || normId(s.id) === sId) || {};
-                                if (sInfo.gender === 'F' || sInfo.gender === '女' || sInfo.group === '女') {
-                                    femaleDelta++;
-                                    distinctFemaleStaffs.add(sId);
-                                } else if (sInfo.gender === 'M' || sInfo.gender === '男' || sInfo.group === '男') {
-                                    maleDelta++;
-                                    distinctMaleStaffs.add(sId);
-                                }
-                                
-                                if (sInfo.isYouTui !== false) youTuiDelta++;
-                                if (sInfo.isGuaSha !== false) guaShaDelta++;
-                                if (sInfo.isHuaGuan !== false) huaGuanDelta++;
-                                if (sInfo.isBaGuan !== false) baGuanDelta++;
-                            }
-                        }
-                        
-                        if (allDelta > 0) {
-                            overlapEvents.push({ time: st, type: 1, all: allDelta, f: femaleDelta, m: maleDelta, yt: youTuiDelta, gs: guaShaDelta, hg: huaGuanDelta, bg: baGuanDelta });
-                            overlapEvents.push({ time: en, type: -1, all: allDelta, f: femaleDelta, m: maleDelta, yt: youTuiDelta, gs: guaShaDelta, hg: huaGuanDelta, bg: baGuanDelta });
-                        }
-                    }
-                }
+                if (bS > requestStart && bS < requestStart + maxDuration) timePoints.add(bS);
+                if (bE > requestStart && bE < requestStart + maxDuration) timePoints.add(bE);
             });
 
-            overlapEvents.sort((a, b) => a.time - b.time || a.type - b.type);
-            
-            let currAll = 0, currF = 0, currM = 0;
-            let currYouTui = 0, currGuaSha = 0, currHuaGuan = 0, currBaGuan = 0;
-            let maxAll = 0, maxF = 0, maxM = 0;
-            let maxYouTui = 0, maxGuaSha = 0, maxHuaGuan = 0, maxBaGuan = 0;
-            
-            for (const ev of overlapEvents) {
-                currAll += ev.type * ev.all;
-                currF += ev.type * ev.f;
-                currM += ev.type * ev.m;
-                currYouTui += ev.type * ev.yt;
-                currGuaSha += ev.type * ev.gs;
-                currHuaGuan += ev.type * ev.hg;
-                currBaGuan += ev.type * ev.bg;
-                
-                if (currAll > maxAll) maxAll = currAll;
-                if (currF > maxF) maxF = currF;
-                if (currM > maxM) maxM = currM;
-                if (currYouTui > maxYouTui) maxYouTui = currYouTui;
-                if (currGuaSha > maxGuaSha) maxGuaSha = currGuaSha;
-                if (currHuaGuan > maxHuaGuan) maxHuaGuan = currHuaGuan;
-                if (currBaGuan > maxBaGuan) maxBaGuan = currBaGuan;
-            }
-
-            staffBusyCount = Math.max(distinctStaffs.size, maxAll);
-            femaleBusyCount = Math.max(distinctFemaleStaffs.size, maxF);
-            maleBusyCount = Math.max(distinctMaleStaffs.size, maxM);
-
-            let femaleReqCount = 0;
-            let maleReqCount = 0;
-            let youTuiReqCount = 0;
-            let guaShaReqCount = 0;
-            let huaGuanReqCount = 0;
-            let baGuanReqCount = 0;
             let specificStaffReqs = [];
-
             guestList.forEach(g => {
                 const req = g.staff;
-                if (req === 'FEMALE' || req === '女' || req === '女師') femaleReqCount++;
-                else if (req === 'MALE' || req === '男' || req === '男師') maleReqCount++;
-                else if (req && req !== '隨機' && req !== 'Any' && req !== 'undefined' && req !== 'null') {
+                const svc = typeof getServiceInfo === 'function' ? getServiceInfo(g.serviceCode, g.serviceName || g.service) : (SERVICES[g.serviceCode] || { duration: 60 });
+                if (req && req !== '隨機' && req !== 'Any' && req !== 'undefined' && req !== 'null'
+                    && req !== 'FEMALE' && req !== '女' && req !== '女師' && req !== 'OIL'
+                    && req !== 'MALE' && req !== '男' && req !== '男師' && req !== 'false' && req !== '') {
                     const sId = normId(req);
-                    specificStaffReqs.push({ req: sId, rawReq: req, duration: g.overrideDuration || (SERVICES[g.serviceCode] || { duration: 60 }).duration || 60 });
+                    specificStaffReqs.push({ req: sId, rawReq: req, duration: g.overrideDuration || svc.duration || 60 });
                 }
-                
-                if (g.isYouTui === true || (g.serviceName && g.serviceName.includes('油'))) youTuiReqCount++;
-                if (g.isGuaSha === true || (g.serviceName && g.serviceName.includes('刮痧'))) guaShaReqCount++;
-                if (g.isHuaGuan === true || (g.serviceName && g.serviceName.includes('滑罐'))) huaGuanReqCount++;
-                if (g.isBaGuan === true || (g.serviceName && g.serviceName.includes('拔罐'))) baGuanReqCount++;
             });
 
             // 1. SPECIFIC STAFF DUPLICATE CHECK
@@ -812,7 +744,7 @@
                 }
             }
 
-            // 2. SPECIFIC STAFF SECURE CHECK & NEXT GAP PREDICTION
+            // 2. SPECIFIC STAFF SECURE CHECK
             for (const specificReq of specificStaffReqs) {
                 const reqId = specificReq.req;
                 const rawName = specificReq.rawReq;
@@ -863,31 +795,111 @@
                 }
             }
 
-            // 3. GENDER & SKILLS POOL CHECK
-            if (femaleReqCount > 0 && (femaleBusyCount + femaleReqCount) > femaleSupply) {
-                return triggerSmartFailure(`⚠️ 女技師不足。女師總共: ${femaleSupply}, 忙碌中: ${femaleBusyCount}, 欲預約女師數: ${femaleReqCount}`);
-            }
+            // 3. DFS BIPARTITE MATCHING FOR GENERAL CAPACITY
+            let sortedPoints = Array.from(timePoints).sort((a, b) => a - b);
+            
+            for (let i = 0; i < sortedPoints.length - 1; i++) {
+                let tCheck = sortedPoints[i];
+                let usedSpecificStaffs = new Set();
+                let unassignedReqs = [];
+                
+                globalStaffBookings.forEach(b => {
+                    const bS = getMinsFromTimeStr(b.startTime);
+                    const isCombo = isComboService(b.serviceCode || (typeof getServiceCodeByName === 'function' ? getServiceCodeByName(b.serviceName) : b.serviceName));
+                    const { realDuration } = typeof calculateRealDurations === 'function' ? calculateRealDurations(b, b.duration || 60, isCombo) : { realDuration: b.duration || 60 };
+                    const bE = bS + realDuration + CONF.CLEANUP_BUFFER;
+                    
+                    if (tCheck >= bS && tCheck < bE) {
+                        let staffsInBooking = b.assignedStaffs && b.assignedStaffs.length > 0 ? b.assignedStaffs : [b.staffName];
+                        for (const staffName of staffsInBooking) {
+                            const sInfo = staffList[staffName] || Object.values(staffList).find(s => normId(s.name) === normId(staffName) || normId(s.id) === normId(staffName)) || {};
+                            const sNorm = normId(staffName);
+                            const isRandom = (sNorm === '隨機' || sNorm === 'any' || !staffName || sNorm === 'undefined' || sNorm === 'null' || sNorm === 'false' || sNorm === '');
+                            const isFemaleReq = (staffName === 'FEMALE' || staffName === '女' || staffName === '女師' || staffName === 'OIL');
+                            const isMaleReq = (staffName === 'MALE' || staffName === '男' || staffName === '男師');
+                            
+                            if (!isRandom && !isFemaleReq && !isMaleReq && (sInfo.id || sInfo.name)) {
+                                usedSpecificStaffs.add(normId(sInfo.id || sInfo.name));
+                            } else if (!isRandom || isFemaleReq || isMaleReq) {
+                                let gReq = 'ANY';
+                                if (isFemaleReq) gReq = 'F';
+                                if (isMaleReq) gReq = 'M';
+                                unassignedReqs.push({
+                                    gender: gReq,
+                                    isYouTui: b.isYouTui === true || b.originalData?.isYouTui === true || (b.serviceName && b.serviceName.includes('油')),
+                                    isGuaSha: b.isGuaSha === true || b.originalData?.isGuaSha === true || (b.serviceName && b.serviceName.includes('刮痧')),
+                                    isHuaGuan: b.isHuaGuan === true || b.originalData?.isHuaGuan === true || (b.serviceName && b.serviceName.includes('滑罐')),
+                                    isBaGuan: b.isBaGuan === true || b.originalData?.isBaGuan === true || (b.serviceName && b.serviceName.includes('拔罐'))
+                                });
+                            } else {
+                                unassignedReqs.push({
+                                    gender: 'ANY',
+                                    isYouTui: b.isYouTui === true || b.originalData?.isYouTui === true || (b.serviceName && b.serviceName.includes('油')),
+                                    isGuaSha: b.isGuaSha === true || b.originalData?.isGuaSha === true || (b.serviceName && b.serviceName.includes('刮痧')),
+                                    isHuaGuan: b.isHuaGuan === true || b.originalData?.isHuaGuan === true || (b.serviceName && b.serviceName.includes('滑罐')),
+                                    isBaGuan: b.isBaGuan === true || b.originalData?.isBaGuan === true || (b.serviceName && b.serviceName.includes('拔罐'))
+                                });
+                            }
+                        }
+                    }
+                });
+                
+                guestList.forEach(g => {
+                    const svcInfo = typeof getServiceInfo === 'function' ? getServiceInfo(g.serviceCode, g.serviceName || g.service) : (SERVICES[g.serviceCode] || { duration: 60 });
+                    const dur = g.overrideDuration || svcInfo.duration || 60;
+                    if (tCheck >= requestStart && tCheck < requestStart + dur) {
+                        const req = g.staff;
+                        const sNorm = normId(req);
+                        const isRandom = (sNorm === '隨機' || sNorm === 'any' || !req || sNorm === 'undefined' || sNorm === 'null' || sNorm === 'false' || sNorm === '');
+                        const isFemaleReq = (req === 'FEMALE' || req === '女' || req === '女師' || req === 'OIL');
+                        const isMaleReq = (req === 'MALE' || req === '男' || req === '男師');
+                        
+                        if (!isRandom && !isFemaleReq && !isMaleReq) {
+                            const sInfo = staffList[req] || Object.values(staffList).find(s => normId(s.name) === sNorm || normId(s.id) === sNorm) || {};
+                            if (sInfo.id || sInfo.name) {
+                                usedSpecificStaffs.add(normId(sInfo.id || sInfo.name));
+                                return;
+                            }
+                        }
+                        
+                        let gReq = 'ANY';
+                        if (isFemaleReq) gReq = 'F';
+                        if (isMaleReq) gReq = 'M';
+                        
+                        unassignedReqs.push({
+                            gender: gReq,
+                            isYouTui: g.isYouTui === true || (g.serviceName && g.serviceName.includes('油')),
+                            isGuaSha: g.isGuaSha === true || (g.serviceName && g.serviceName.includes('刮痧')),
+                            isHuaGuan: g.isHuaGuan === true || (g.serviceName && g.serviceName.includes('滑罐')),
+                            isBaGuan: g.isBaGuan === true || (g.serviceName && g.serviceName.includes('拔罐'))
+                        });
+                    }
+                });
 
-            if (maleReqCount > 0 && (maleBusyCount + maleReqCount) > maleSupply) {
-                return triggerSmartFailure(`⚠️ 男技師不足。男師總共: ${maleSupply}, 忙碌中: ${maleBusyCount}, 欲預約男師數: ${maleReqCount}`);
-            }
+                const currentAvailableStaff = Object.values(staffList).filter(s => {
+                    const status = resolveStaffShift(s, queryDateStr);
+                    if (status.off) return false;
+                    const ss = getMinsFromTimeStr(status.start);
+                    let se = getMinsFromTimeStr(status.end);
+                    if (se < ss) se += 1440;
+                    let inMain = (tCheck >= ss && tCheck < se);
+                    let inTail = false;
+                    if (se > 1440) {
+                        const origEnd = se - 1440;
+                        inTail = (tCheck >= 0 && tCheck < origEnd);
+                    }
+                    return inMain || inTail;
+                });
 
-            if (youTuiReqCount > 0 && (maxYouTui + youTuiReqCount) > youTuiSupply) {
-                return triggerSmartFailure(`⚠️ 具備油推技能的技師不足。具備油推總共: ${youTuiSupply}, 忙碌中: ${maxYouTui}, 欲預約油推數: ${youTuiReqCount}`);
-            }
-            if (guaShaReqCount > 0 && (maxGuaSha + guaShaReqCount) > guaShaSupply) {
-                return triggerSmartFailure(`⚠️ 具備刮痧技能的技師不足。具備刮痧總共: ${guaShaSupply}, 忙碌中: ${maxGuaSha}, 欲預約刮痧數: ${guaShaReqCount}`);
-            }
-            if (huaGuanReqCount > 0 && (maxHuaGuan + huaGuanReqCount) > huaGuanSupply) {
-                return triggerSmartFailure(`⚠️ 具備滑罐技能的技師不足。具備滑罐總共: ${huaGuanSupply}, 忙碌中: ${maxHuaGuan}, 欲預約滑罐數: ${huaGuanReqCount}`);
-            }
-            if (baGuanReqCount > 0 && (maxBaGuan + baGuanReqCount) > baGuanSupply) {
-                return triggerSmartFailure(`⚠️ 具備拔罐技能的技師不足。具備拔罐總共: ${baGuanSupply}, 忙碌中: ${maxBaGuan}, 欲預約拔罐數: ${baGuanReqCount}`);
-            }
-
-            // 4. OVERALL POOL CHECK
-            if ((staffBusyCount + guestList.length) > supplyCount) {
-                return triggerSmartFailure(`⚠️ 技師總數不足。總共: ${supplyCount}, 忙碌中: ${staffBusyCount}, 新客: ${guestList.length}`);
+                const availablePool = currentAvailableStaff.filter(s => !usedSpecificStaffs.has(normId(s.name)) && !usedSpecificStaffs.has(normId(s.id)));
+                
+                if (availablePool.length < unassignedReqs.length) {
+                    return triggerSmartFailure(`⚠️ 該時段技師總數不足以滿足所有預約。 (空閒技師: ${availablePool.length}, 需要: ${unassignedReqs.length})`);
+                }
+                
+                if (!canSatisfyRequests(availablePool, unassignedReqs)) {
+                    return triggerSmartFailure(`⚠️ 該時段技師與技能組合不足，無法滿足預約。`);
+                }
             }
 
             // SIMULATION

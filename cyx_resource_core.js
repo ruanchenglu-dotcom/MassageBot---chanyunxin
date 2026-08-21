@@ -309,6 +309,32 @@ function checkLaneContinuity(laneOccupiedArr, start, end, customCleanup = null) 
     return true;
 }
 
+function canSatisfyRequests(staffs, reqs) {
+    if (reqs.length === 0) return true;
+    if (staffs.length < reqs.length) return false;
+    
+    const req = reqs[0];
+    for (let i = 0; i < staffs.length; i++) {
+        const s = staffs[i];
+        let match = true;
+        
+        if (req.gender === 'F' && s.gender !== 'F' && s.gender !== '女') match = false;
+        if (req.gender === 'M' && s.gender !== 'M' && s.gender !== '男') match = false;
+        
+        if (req.isYouTui && (s.isYouTui === false || s.isYouTui === '')) match = false;
+        if (req.isGuaSha && (s.isGuaSha === false || s.isGuaSha === '')) match = false;
+        if (req.isHuaGuan && (s.isHuaGuan === false || s.isHuaGuan === '')) match = false;
+        if (req.isBaGuan && (s.isBaGuan === false || s.isBaGuan === '')) match = false;
+        
+        if (match) {
+            const remainingStaffs = staffs.slice();
+            remainingStaffs.splice(i, 1);
+            if (canSatisfyRequests(remainingStaffs, reqs.slice(1))) return true;
+        }
+    }
+    return false;
+}
+
 function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBookingsRaw, staffList, queryDateStr, isSimulation = false, locationStrIn = '本館') {
     const baseConfig = getSystemConfig();
     const CONF = {
@@ -514,14 +540,8 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
     for (let i = 0; i < sortedPoints.length - 1; i++) {
         let tCheck = sortedPoints[i];
         
-        let currentStaffBusy = 0;
-        let currentFemaleBusy = 0;
-        let currentMaleBusy = 0;
-        let currentYouTuiBusy = 0;
-        let currentGuaShaBusy = 0;
-        let currentHuaGuanBusy = 0;
-        let currentBaGuanBusy = 0;
-        let elasticStaffCount = 0;
+        let usedSpecificStaffs = new Set();
+        let unassignedReqs = [];
         
         globalStaffBookings.forEach(b => {
             const bS = getMinsFromTimeStr(b.startTimeString || b.startTime);
@@ -533,61 +553,69 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
             let staffsInBooking = b.assignedStaffs && b.assignedStaffs.length > 0 ? b.assignedStaffs : [b.staffName];
             
             if (tCheck >= bS && tCheck < bE) {
-                currentStaffBusy += staffsInBooking.length;
-                
-                const isLockedRaw = b.originalData?.isManualLocked || b.isManualLocked;
-                const isLocked = (isLockedRaw === true || isLockedRaw === 'TRUE' || isLockedRaw === 1);
-                let isRunning = false;
-                if (b.originalData && b.originalData.status) {
-                    const stLower = b.originalData.status.toLowerCase();
-                    isRunning = stLower.includes('running') || stLower.includes('服務中') || stLower.includes('đang phục vụ');
-                }
-                if (b.status) {
-                    const stLower = b.status.toLowerCase();
-                    if (stLower.includes('running') || stLower.includes('服務中') || stLower.includes('đang phục vụ')) isRunning = true;
-                }
-                if (isCombo && !isLocked && !isRunning) {
-                    elasticStaffCount += staffsInBooking.length;
-                }
-
                 for (const staffName of staffsInBooking) {
                     const sInfo = staffList[staffName] || Object.values(staffList).find(s => normId(s.name) === normId(staffName) || normId(s.id) === normId(staffName)) || {};
-                    if (sInfo.gender === 'F' || sInfo.gender === '女' || sInfo.group === '女') currentFemaleBusy++;
-                    else if (sInfo.gender === 'M' || sInfo.gender === '男' || sInfo.group === '男') currentMaleBusy++;
+                    const sNorm = normId(staffName);
+                    const isRandom = (sNorm === '隨機' || sNorm === 'any' || !staffName || sNorm === 'undefined' || sNorm === 'null' || sNorm === 'false' || sNorm === '');
+                    const isFemaleReq = (staffName === 'FEMALE' || staffName === '女' || staffName === '女師' || staffName === 'OIL');
+                    const isMaleReq = (staffName === 'MALE' || staffName === '男' || staffName === '男師');
                     
-                    if (sInfo.isYouTui !== false) currentYouTuiBusy++;
-                    if (sInfo.isGuaSha !== false) currentGuaShaBusy++;
-                    if (sInfo.isHuaGuan !== false) currentHuaGuanBusy++;
-                    if (sInfo.isBaGuan !== false) currentBaGuanBusy++;
+                    if (!isRandom && !isFemaleReq && !isMaleReq && (sInfo.id || sInfo.name)) {
+                        usedSpecificStaffs.add(normId(sInfo.id || sInfo.name));
+                    } else if (!isRandom || isFemaleReq || isMaleReq) {
+                        let gReq = 'ANY';
+                        if (isFemaleReq) gReq = 'F';
+                        if (isMaleReq) gReq = 'M';
+                        unassignedReqs.push({
+                            gender: gReq,
+                            isYouTui: b.isYouTui === true || b.originalData?.isYouTui === true || (b.serviceName && b.serviceName.includes('油')),
+                            isGuaSha: b.isGuaSha === true || b.originalData?.isGuaSha === true || (b.serviceName && b.serviceName.includes('刮痧')),
+                            isHuaGuan: b.isHuaGuan === true || b.originalData?.isHuaGuan === true || (b.serviceName && b.serviceName.includes('滑罐')),
+                            isBaGuan: b.isBaGuan === true || b.originalData?.isBaGuan === true || (b.serviceName && b.serviceName.includes('拔罐'))
+                        });
+                    } else {
+                        // isRandom = true, pushing ANY req
+                        unassignedReqs.push({
+                            gender: 'ANY',
+                            isYouTui: b.isYouTui === true || b.originalData?.isYouTui === true || (b.serviceName && b.serviceName.includes('油')),
+                            isGuaSha: b.isGuaSha === true || b.originalData?.isGuaSha === true || (b.serviceName && b.serviceName.includes('刮痧')),
+                            isHuaGuan: b.isHuaGuan === true || b.originalData?.isHuaGuan === true || (b.serviceName && b.serviceName.includes('滑罐')),
+                            isBaGuan: b.isBaGuan === true || b.originalData?.isBaGuan === true || (b.serviceName && b.serviceName.includes('拔罐'))
+                        });
+                    }
                 }
             }
         });
-        
-        let newGuestsActive = 0;
-        let newFemaleReq = 0;
-        let newMaleReq = 0;
-        let newYouTuiReq = 0;
-        let newGuaShaReq = 0;
-        let newHuaGuanReq = 0;
-        let newBaGuanReq = 0;
-        let comboGuestCount = 0;
         
         guestList.forEach(g => {
             const svcInfo = getServiceInfo(g.serviceCode, g.serviceName || g.service);
             const dur = g.overrideDuration || svcInfo.duration || 60;
             if (tCheck >= requestStart && tCheck < requestStart + dur) {
-                newGuestsActive++;
-                const storedFlow = g.flowCode || 'FB';
-                if (isComboService(g.serviceCode)) comboGuestCount++;
                 const req = g.staff;
-                // Nếu khách chọn dầu (OIL), mặc định yêu cầu nữ (trừ khi có config khác)
-                if (req === 'FEMALE' || req === '女' || req === '女師' || req === 'OIL') newFemaleReq++;
-                else if (req === 'MALE' || req === '男' || req === '男師') newMaleReq++;
-
-                if (g.isYouTui === true || (g.serviceName && g.serviceName.includes('油'))) newYouTuiReq++;
-                if (g.isGuaSha === true || (g.serviceName && g.serviceName.includes('刮痧'))) newGuaShaReq++;
-                if (g.isHuaGuan === true || (g.serviceName && g.serviceName.includes('滑罐'))) newHuaGuanReq++;
-                if (g.isBaGuan === true || (g.serviceName && g.serviceName.includes('拔罐'))) newBaGuanReq++;
+                const sNorm = normId(req);
+                const isRandom = (sNorm === '隨機' || sNorm === 'any' || !req || sNorm === 'undefined' || sNorm === 'null' || sNorm === 'false' || sNorm === '');
+                const isFemaleReq = (req === 'FEMALE' || req === '女' || req === '女師' || req === 'OIL');
+                const isMaleReq = (req === 'MALE' || req === '男' || req === '男師');
+                
+                if (!isRandom && !isFemaleReq && !isMaleReq) {
+                    const sInfo = staffList[req] || Object.values(staffList).find(s => normId(s.name) === sNorm || normId(s.id) === sNorm) || {};
+                    if (sInfo.id || sInfo.name) {
+                        usedSpecificStaffs.add(normId(sInfo.id || sInfo.name));
+                        return; // Exclude from unassigned pool
+                    }
+                }
+                
+                let gReq = 'ANY';
+                if (isFemaleReq) gReq = 'F';
+                if (isMaleReq) gReq = 'M';
+                
+                unassignedReqs.push({
+                    gender: gReq,
+                    isYouTui: g.isYouTui === true || (g.serviceName && g.serviceName.includes('油')),
+                    isGuaSha: g.isGuaSha === true || (g.serviceName && g.serviceName.includes('刮痧')),
+                    isHuaGuan: g.isHuaGuan === true || (g.serviceName && g.serviceName.includes('滑罐')),
+                    isBaGuan: g.isBaGuan === true || (g.serviceName && g.serviceName.includes('拔罐'))
+                });
             }
         });
 
@@ -604,37 +632,14 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
             return inMain || inTail;
         });
 
-        const currentSupplyCount = currentAvailableStaff.length;
-        const currentFemaleSupply = currentAvailableStaff.filter(s => s.gender === 'F' || s.gender === '女').length;
-        const currentMaleSupply = currentAvailableStaff.filter(s => s.gender === 'M' || s.gender === '男').length;
-        const currentYouTuiSupply = currentAvailableStaff.filter(s => s.isYouTui !== false).length;
-        const currentGuaShaSupply = currentAvailableStaff.filter(s => s.isGuaSha !== false).length;
-        const currentHuaGuanSupply = currentAvailableStaff.filter(s => s.isHuaGuan !== false).length;
-        const currentBaGuanSupply = currentAvailableStaff.filter(s => s.isBaGuan !== false).length;
+        const availablePool = currentAvailableStaff.filter(s => !usedSpecificStaffs.has(normId(s.name)) && !usedSpecificStaffs.has(normId(s.id)));
         
-        // [V137 NÂNG CẤP]: Xoá bỏ logic elasticStaffCount và allowedDeficit ảo đối với Kỹ thuật viên.
-        // Nhân sự là con người, không thể "co giãn" phục vụ 2 khách cùng lúc.
-
-        if (newFemaleReq > 0 && (currentFemaleBusy + newFemaleReq) > currentFemaleSupply) {
-            return triggerSmartFailure(`⚠️ 該時段女技師不足。女師總共: ${currentFemaleSupply}, 忙碌中: ${currentFemaleBusy}, 欲預約: ${newFemaleReq}`);
+        if (availablePool.length < unassignedReqs.length) {
+            return triggerSmartFailure(`⚠️ 該時段技師總數不足以滿足所有預約。 (空閒技師: ${availablePool.length}, 需要: ${unassignedReqs.length})`);
         }
-        if (newMaleReq > 0 && (currentMaleBusy + newMaleReq) > currentMaleSupply) {
-            return triggerSmartFailure(`⚠️ 該時段男技師不足。男師總共: ${currentMaleSupply}, 忙碌中: ${currentMaleBusy}, 欲預約: ${newMaleReq}`);
-        }
-        if (newYouTuiReq > 0 && (currentYouTuiBusy + newYouTuiReq) > currentYouTuiSupply) {
-            return triggerSmartFailure(`⚠️ 該時段具備油推技能的技師不足。具備油推總共: ${currentYouTuiSupply}, 忙碌中: ${currentYouTuiBusy}, 欲預約: ${newYouTuiReq}`);
-        }
-        if (newGuaShaReq > 0 && (currentGuaShaBusy + newGuaShaReq) > currentGuaShaSupply) {
-            return triggerSmartFailure(`⚠️ 該時段具備刮痧技能的技師不足。具備刮痧總共: ${currentGuaShaSupply}, 忙碌中: ${currentGuaShaBusy}, 欲預約: ${newGuaShaReq}`);
-        }
-        if (newHuaGuanReq > 0 && (currentHuaGuanBusy + newHuaGuanReq) > currentHuaGuanSupply) {
-            return triggerSmartFailure(`⚠️ 該時段具備滑罐技能的技師不足。具備滑罐總共: ${currentHuaGuanSupply}, 忙碌中: ${currentHuaGuanBusy}, 欲預約: ${newHuaGuanReq}`);
-        }
-        if (newBaGuanReq > 0 && (currentBaGuanBusy + newBaGuanReq) > currentBaGuanSupply) {
-            return triggerSmartFailure(`⚠️ 該時段具備拔罐技能的技師不足。具備拔罐總共: ${currentBaGuanSupply}, 忙碌中: ${currentBaGuanBusy}, 欲預約: ${newBaGuanReq}`);
-        }
-        if ((currentStaffBusy + newGuestsActive) > currentSupplyCount) {
-            return triggerSmartFailure(`⚠️ 該時段技師總數不足。總共: ${currentSupplyCount}, 忙碌中: ${currentStaffBusy}, 新客: ${newGuestsActive}`);
+        
+        if (!canSatisfyRequests(availablePool, unassignedReqs)) {
+            return triggerSmartFailure(`⚠️ 該時段技師與技能組合不足，無法滿足預約（可能有客座要求指定性別或技能導致資源衝突）。`);
         }
     }
 
