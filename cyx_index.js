@@ -1643,6 +1643,14 @@ async function handleEvent(event) {
         const staffId = text.split(':')[1]; 
         const s = userState[userId];
         const gIdx = s.currentGuestIndex;
+        
+        // KIỂM TRA THỢ CÓ NHẬN CHỈ ĐỊNH KHÔNG
+        const staffList = SheetService.getStaffList();
+        const staffObj = staffList.find(st => String(st.id) === String(staffId) || String(st.name) === String(staffId));
+        if (staffObj && staffObj.noDesignation) {
+            return client.replyMessage(event.replyToken, { type: 'text', text: `⚠️ ${staffObj.name}老師無法接收勞點，請重新選擇或不指定。` });
+        }
+
         s.guestPrefs[gIdx] = s.guestPrefs[gIdx] || {};
         s.guestPrefs[gIdx].type = 'SPECIFIC';
         s.guestPrefs[gIdx].staffId = staffId;

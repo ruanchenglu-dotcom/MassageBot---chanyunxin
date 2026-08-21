@@ -592,14 +592,18 @@ async function syncData() {
             let dateColumns = [];
             let nationalityColIndex = -1;
             let lineIdColIndex = -1;
+            let noDesignationColIndex = -1;
 
-            // Quét tìm cột 國籍 và LINE STAFF ID
+            // Quét tìm cột 國籍 và LINE STAFF ID và 不接勞點
             for (let j = 0; j < headerRow.length; j++) {
                 if (headerRow[j] && headerRow[j].toString().trim() === '國籍') {
                     nationalityColIndex = j;
                 }
                 if (headerRow[j] && headerRow[j].toString().trim() === 'LINE STAFF ID') {
                     lineIdColIndex = j;
+                }
+                if (headerRow[j] && headerRow[j].toString().trim() === '不接勞點') {
+                    noDesignationColIndex = j;
                 }
             }
 
@@ -630,10 +634,11 @@ async function syncData() {
                 const isBaGuan = row[8] ? row[8].toString().trim().toUpperCase() !== '' : false;
                 const lineId = (lineIdColIndex !== -1 && row[lineIdColIndex]) ? row[lineIdColIndex].toString().trim() : null;
                 const nationality = nationalityColIndex !== -1 && row[nationalityColIndex] ? row[nationalityColIndex].toString().trim() : '台灣';
+                const noDesignation = (noDesignationColIndex !== -1 && row[noDesignationColIndex]) ? row[noDesignationColIndex].toString().trim().toLowerCase() === 'v' : false;
 
                 const staffObj = {
                     id: cleanName, name: cleanName, gender: gender,
-                    lineId: lineId, nationality: nationality,
+                    lineId: lineId, nationality: nationality, noDesignation: noDesignation,
                     isYouTui: isYouTui, isGuaSha: isGuaSha, isHuaGuan: isHuaGuan, isBaGuan: isBaGuan,
                     start: startTime, end: endTime, shiftStart: startTime, shiftEnd: endTime,
                     isStrictTime: isStrictTime, sheetRowIndex: i + 1, off: false, offDays: [],

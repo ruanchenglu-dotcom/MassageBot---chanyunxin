@@ -840,23 +840,34 @@ const AvailabilityCheckModal = ({ onClose, onSave, staffList, bookings, initialD
         const blacklist = (serverData && serverData.blacklist) || window.SYSTEM_DATA?.blacklist || [];
         const masterBlacklist = (serverData && serverData.masterBlacklist) || window.SYSTEM_DATA?.masterBlacklist || [];
 
+        if (form.genderPref && form.genderPref !== '隨機' && form.genderPref !== '不指定' && form.genderPref !== '男' && form.genderPref !== '女') {
+            const safeStaffList = staffList || window.SYSTEM_DATA?.staff || [];
+            const staffObj = safeStaffList.find(s => s.id === form.genderPref || s.name === form.genderPref);
+            const masterName = staffObj ? staffObj.name : form.genderPref;
+            
+            if (staffObj && staffObj.noDesignation) {
+                Swal.fire('系統提示', `⚠️ ${masterName}老師無法接收勞點`, 'error');
+                return;
+            }
+
+            if (form.custPhone) {
+                const cleanPhone = form.custPhone.trim().replace(/\D/g, '');
+                if (cleanPhone && masterBlacklist.length > 0) {
+                    const isBlocked = masterBlacklist.some(b => b.phone === cleanPhone && (b.staffName === form.genderPref || b.staffName === masterName));
+                    if (isBlocked) {
+                        Swal.fire('系統提示', `⚠️ ${masterName}老師不想接指定客人`, 'error');
+                        return;
+                    }
+                }
+            }
+        }
+
         if (form.custPhone) {
             const cleanPhone = form.custPhone.trim().replace(/\D/g, '');
             if (cleanPhone) {
                 if (blacklist.length > 0 && blacklist.some(b => b.phone === cleanPhone)) {
                     Swal.fire('系統提示', '⚠️ 此電話號碼已列入黑名單，拒絕預約！', 'error');
                     return;
-                }
-                
-                if (masterBlacklist.length > 0 && form.genderPref && form.genderPref !== '隨機' && form.genderPref !== '不指定' && form.genderPref !== '男' && form.genderPref !== '女') {
-                    const safeStaffList = staffList || window.SYSTEM_DATA?.staff || [];
-                    const staffObj = safeStaffList.find(s => s.id === form.genderPref || s.name === form.genderPref);
-                    const masterName = staffObj ? staffObj.name : form.genderPref;
-                    const isBlocked = masterBlacklist.some(b => b.phone === cleanPhone && (b.staffName === form.genderPref || b.staffName === masterName));
-                    if (isBlocked) {
-                        Swal.fire('系統提示', `⚠️ ${masterName}老師不想接指定客人`, 'error');
-                        return;
-                    }
                 }
             }
         }

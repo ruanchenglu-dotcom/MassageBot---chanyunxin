@@ -2438,21 +2438,22 @@
             const blacklist = serverData?.blacklist || window.SYSTEM_DATA?.blacklist || [];
             const masterBlacklist = serverData?.masterBlacklist || window.SYSTEM_DATA?.masterBlacklist || [];
             
-            if (form.custPhone) {
-                const cleanPhone = form.custPhone.trim().replace(/\D/g, '');
-                if (cleanPhone) {
-                    if (blacklist.length > 0 && blacklist.some(b => b.phone === cleanPhone)) {
-                        Swal.fire('系統提示', '⚠️ 此電話號碼已列入黑名單，拒絕預約！', 'error');
-                        setIsChecking(false);
-                        return;
-                    }
-                    
-                    if (masterBlacklist.length > 0 && typeof guestDetails !== 'undefined') {
-                        const safeStaffList = serverData?.staffList || serverData?.staff || window.SYSTEM_DATA?.staff || [];
-                        for (const guest of guestDetails) {
-                            if (guest.staff && guest.staff !== '隨機' && guest.staff !== '不指定' && guest.staff !== '男' && guest.staff !== '女') {
-                                const staffObj = safeStaffList.find(s => s.id === guest.staff || s.name === guest.staff);
-                                const masterName = staffObj ? staffObj.name : guest.staff;
+            if (typeof guestDetails !== 'undefined') {
+                const safeStaffList = serverData?.staffList || serverData?.staff || window.SYSTEM_DATA?.staff || [];
+                for (const guest of guestDetails) {
+                    if (guest.staff && guest.staff !== '隨機' && guest.staff !== '不指定' && guest.staff !== '男' && guest.staff !== '女') {
+                        const staffObj = safeStaffList.find(s => s.id === guest.staff || s.name === guest.staff);
+                        const masterName = staffObj ? staffObj.name : guest.staff;
+                        
+                        if (staffObj && staffObj.noDesignation) {
+                            Swal.fire('系統提示', `⚠️ ${masterName}老師無法接收勞點`, 'error');
+                            setIsChecking(false);
+                            return;
+                        }
+
+                        if (form.custPhone) {
+                            const cleanPhone = form.custPhone.trim().replace(/\D/g, '');
+                            if (cleanPhone && masterBlacklist.length > 0) {
                                 const isBlocked = masterBlacklist.some(b => b.phone === cleanPhone && (b.staffName === guest.staff || b.staffName === masterName));
                                 if (isBlocked) {
                                     Swal.fire('系統提示', `⚠️ ${masterName}老師不想接指定客人`, 'error');
@@ -2461,6 +2462,17 @@
                                 }
                             }
                         }
+                    }
+                }
+            }
+
+            if (form.custPhone) {
+                const cleanPhone = form.custPhone.trim().replace(/\D/g, '');
+                if (cleanPhone) {
+                    if (blacklist.length > 0 && blacklist.some(b => b.phone === cleanPhone)) {
+                        Swal.fire('系統提示', '⚠️ 此電話號碼已列入黑名單，拒絕預約！', 'error');
+                        setIsChecking(false);
+                        return;
                     }
                 }
             }
@@ -3299,7 +3311,11 @@
                                         <input
                                             className="w-full border-2 border-slate-300 p-3 rounded-xl font-bold text-xl outline-none focus:border-indigo-500 bg-slate-50 h-[64px]"
                                             value={form.custPhone}
-                                            onChange={e => setForm({ ...form, custPhone: e.target.value })}
+                                            onChange={e => {
+                                                setForm({ ...form, custPhone: e.target.value });
+                                                setCheckResult(null);
+                                                setSuggestions([]);
+                                            }}
                                             placeholder="09xx..."
                                             disabled={isSubmitting}
                                             type="tel"
