@@ -1,0 +1,17 @@
+2209:             const result = CoreKernel.checkRequestAvailability(targetDateStandard, time, coreGuests, coreBookings, staffMap, { location: locationStr || '本館' });
+2210:             return result.feasible
+2211:                 ? { valid: true, details: result.details, proposedUpdates: result.proposedUpdates, debug: result.debug }
+2212:                 : { valid: false, reason: result.reason, debug: result.debug };
+2213:         } catch (err) { return { valid: false, reason: "System Error: " + err.message }; }
+2214:     };
+2215: 
+2216:     const forceGlobalRefresh = () => { if (typeof window.fetchDataAndRender === 'function') window.fetchDataAndRender(); else window.location.reload(); };
+2217: 
+2218:     // ==================================================================================
+2219:     // 4. COMPONENT: PHONE BOOKING MODAL
+2220:     // ==================================================================================
+2221:     const NewAvailabilityCheckModal = ({ onClose, onSave, staffList, bookings, initialDate, editingBooking }) => {
+2222:         // Chuẩn hóa ID thợ ngay từ list đầu vào để tránh lỗi Map/Dropdown
+2223:         const safeStaffList = useMemo(() => {
+2224:             if (!staffList) return [];
+2225:             return staffList.map(s => ({ ...s, id: normalizeStaffId(s.id) }));

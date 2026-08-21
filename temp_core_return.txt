@@ -1,0 +1,30 @@
+1951:     window.cyxCallCoreAvailabilityCheck = function(dateStr, timeStr, guestDetails, todays, staffList) {
+1952:         syncServicesToCore();
+1953:         const staffMap = {};
+1954:         if (Array.isArray(staffList)) {
+1955:             staffList.forEach(s => {
+1956:                 const sId = window.normalizeStaffId ? window.normalizeStaffId(String(s.id).trim()) : String(s.id).trim();
+1957:                 const rawStart = s['上班'] || s.start || s.shiftStart || "00:00";
+1958:                 const rawEnd = s['下班'] || s.end || s.shiftEnd || "00:00";
+1959:                 const dayStatus = s[dateStr] || s[dateStr.replace(/\//g, '-')] || "";
+1960:                 let isOff = (String(s.offDays || "").includes(dateStr) || String(dayStatus).toUpperCase().includes('OFF') || String(dayStatus).toUpperCase() === 'X');
+1961:                 staffMap[sId] = {
+1962:                     id: sId, gender: s.gender, start: rawStart, end: rawEnd,
+1963:                     isStrictTime: (s.isStrictTime === true || String(s.isStrictTime).toUpperCase() === 'TRUE'), off: isOff,
+1964:                     offDays: s.offDays, customShifts: s.customShifts,
+1965:                     isYouTui: s.isYouTui, isGuaSha: s.isGuaSha, isHuaGuan: s.isHuaGuan, isBaGuan: s.isBaGuan
+1966:                 };
+1967:                 if (s.name) staffMap[window.normalizeStaffId ? window.normalizeStaffId(String(s.name).trim()) : String(s.name).trim()] = staffMap[sId];
+1968:             });
+1969:         }
+1970:         try {
+1971:             // extract location from the first guest if it exists, otherwise default to '本館'
+1972:             const reqLocation = (guestDetails && guestDetails[0] && guestDetails[0].location) ? guestDetails[0].location : '本館';
+1973:             const result = CoreKernel.checkRequestAvailability(dateStr, timeStr, guestDetails, todays, staffMap, { location: reqLocation });
+1974:             return result.feasible
+1975:                 ? { valid: true, details: result.details, proposedUpdates: result.proposedUpdates, debug: result.debug }
+1976:                 : { valid: false, reason: result.reason, debug: result.debug };
+1977:         } catch (err) {
+1978:             console.error(err);
+1979:             return { valid: false, reason: "System Error: " + err.message };
+1980:         }

@@ -1,0 +1,10 @@
+2466: 
+2467:             setIsChecking(true); setCheckResult(null); setSuggestions([]);
+2468:             let freshData = await fetchLiveServerData(true);
+2469:             let serverBookingsList = freshData ? freshData.bookings : (serverData?.bookings || []);
+2470:             let staffList = freshData ? (freshData.staffList || freshData.staff) : (serverData?.staffList || serverData?.staffList || serverData?.staff || safeStaffList);
+2471:             let localBookingsList = safeBookings;
+2472:             let finalBookings = mergeBookingData(serverBookingsList, localBookingsList);
+2473:             if (editingBooking) { finalBookings = finalBookings.filter(b => b.rowId !== editingBooking.rowId); }
+2474: 
+2475:             if (selectedLocation === '跨館套餐') {

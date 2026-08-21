@@ -1,0 +1,25 @@
+1931:                 if (globalBestOutOfBoundSqueeze) {
+1932:                     let suggestedTime = requestStartMins + globalBestOutOfBoundSqueeze.shiftMins;
+1933:                     let timeStr = getTimeStrFromMins(suggestedTime);
+1934:                     let actionText = globalBestOutOfBoundSqueeze.shiftMins > 0 ? '稍晚' : '提早';
+1935:                     let shiftVal = Math.abs(globalBestOutOfBoundSqueeze.shiftMins);
+1936:                     let reqTimeStr = getTimeStrFromMins(requestStartMins);
+1937:                     let msg = `⚠️ 系統計算出您的套餐分配為 (${globalBestOutOfBoundSqueeze.flow === 'BF' ? '身' : '腳'}:${globalBestOutOfBoundSqueeze.p1} ; ${globalBestOutOfBoundSqueeze.flow === 'BF' ? '腳' : '身'}:${globalBestOutOfBoundSqueeze.p2})，已超出標準限制。建議您${actionText} ${shiftVal} 分鐘，改為 ${timeStr} 預約以滿足標準。`;
+1938:                     return triggerSmartFailure(msg, suggestedTime);
+1939:                 }
+1940:                 const uniqueLog = [...new Set(failureLog)];
+1941:                 const debugReason = uniqueLog.length > 0 ? uniqueLog.slice(-1).join('') : "❌ 老師不夠";
+1942:                 const failMessage = debugReason;
+1943:                 return { feasible: false, reason: failMessage, debug: guardrailCheck ? guardrailCheck.debug : {} };
+1944:             }
+1945:         }
+1946: 
+1947:         return { checkRequestAvailability, setDynamicServices, getTimeStrFromMins, generateElasticSplits };
+1948:     })();
+1949: 
+1950:     // Expose cyxCallCoreAvailabilityCheck globally for cyx_views and cyx_app
+1951:     window.cyxCallCoreAvailabilityCheck = function(dateStr, timeStr, guestDetails, todays, staffList) {
+1952:         syncServicesToCore();
+1953:         const staffMap = {};
+1954:         if (Array.isArray(staffList)) {
+1955:             staffList.forEach(s => {

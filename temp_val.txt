@@ -1,0 +1,15 @@
+821: 
+822:             if (maleReqCount > 0 && (maleBusyCount + maleReqCount) > maleSupply) {
+823:                 return triggerSmartFailure(`⚠️ 男技師不足。男師總共: ${maleSupply}, 忙碌中: ${maleBusyCount}, 欲預約男師數: ${maleReqCount}`);
+824:             }
+825: 
+826:             // 4. OVERALL POOL CHECK
+827:             if ((staffBusyCount + guestList.length) > supplyCount) {
+828:                 return triggerSmartFailure(`⚠️ 技師總數不足。總共: ${supplyCount}, 忙碌中: ${staffBusyCount}, 新客: ${guestList.length}`);
+829:             }
+830: 
+831:             // SIMULATION
+832:             const simulationMap = JSON.parse(JSON.stringify(resourceMap));
+833:             const suggestedLanes = {}; // [NEW V118.6]
+834: 
+835:             for (let i = 0; i < guestList.length; i++) {

@@ -638,6 +638,10 @@
             });
 
             const availableStaffList = Object.values(staffList).filter(s => {
+                console.log("[DEBUG] Checking staff:", s);
+                const shiftInfo = resolveStaffShift(s, queryDateStr);
+                console.log("[DEBUG] shiftInfo:", shiftInfo);
+
                 const shiftInfo = resolveStaffShift(s, queryDateStr);
                 if (shiftInfo.off) return false;
                 const ss = getMinsFromTimeStr(shiftInfo.start);
@@ -2544,6 +2548,7 @@
                 return;
             }
 
+            console.log("[DEBUG] staffList:", typeof staffList, Array.isArray(staffList), staffList);
             const res = callCoreAvailabilityCheck(form.date, form.time, guestDetails, finalBookings, staffList, selectedLocation);
             if (res.valid) {
                 setCheckResult({ status: 'OK', message: "✅ 此時段可預約", coreDetails: res.details, debug: res.debug });

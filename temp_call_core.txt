@@ -1,30 +1,50 @@
-2001:     // PHẦN 3: BRIDGE LOGIC & REACT COMPONENT
-2002:     // ========================================================================
-2003:     const { useState, useEffect, useMemo, useCallback } = React;
-2004: 
-2005:     const syncServicesToCore = () => {
-2006:         const rawServices = (window.CoreKernel?.dynamicServices || window.SERVICES_DATA) || {};
-2007:         const formattedServices = {};
-2008:         Object.keys(rawServices).forEach(key => {
-2009:             const svc = rawServices[key];
-2010:             const sType = svc.type ? svc.type.toUpperCase() : 'BODY';
-2011:             let defFlow = 'BODYSINGLE';
-2012:             if (sType === 'FOOT' || sType === 'CHAIR') defFlow = 'FOOTSINGLE';
-2013:             else if (sType === 'BODY' || sType === 'BED') defFlow = 'BODYSINGLE';
-2014:             formattedServices[key] = {
-2015:                 name: svc.name || key, duration: parseInt(svc.duration) || 60,
-2016:                 type: sType, category: svc.category || 'SINGLE', price: svc.price || 0,
-2017:                 elasticStep: svc.elasticStep || 0, elasticLimit: svc.elasticLimit || 0,
-2018:                 minBody: svc.minBody, maxBody: svc.maxBody,
-2019:                 minFoot: svc.minFoot, maxFoot: svc.maxFoot,
-2020:             };
-2021:         });
-2022:         console.log("FORMATTED_KEYS:", Object.keys(formattedServices));
-2023:         CoreKernel.setDynamicServices(formattedServices);
-2024:     };
-2025: 
-2026:     const mergeBookingData = (serverBookings, localBookings) => {
-2027:         if (!Array.isArray(serverBookings)) serverBookings = [];
-2028:         if (!Array.isArray(localBookings)) localBookings = [];
-2029:         const mergedMap = new Map();
-2030:         serverBookings.forEach(b => { if (b.rowId) mergedMap.set(b.rowId, b); });
+2035:     const callCoreAvailabilityCheck = (date, time, guests, bookings, staffList, locationStr) => {
+2036:         syncServicesToCore();
+2037:         const now = new Date();
+2038:         const STATUS = getBookingStatus();
+2039: 
+2040:         const coreGuests = guests.map(g => {
+2041:             let foundCode = getServiceCodeByName(g.service);
+2042:             const svcDef = (window.CoreKernel?.dynamicServices || window.SERVICES_DATA) && foundCode ? (window.CoreKernel?.dynamicServices || window.SERVICES_DATA)[foundCode] : null;
+2043:             let impliedFlow = g.flowCode || undefined;
+2044:             if (!impliedFlow && svcDef) {
+2045:                 const cat = (svcDef.category || '').toUpperCase();
+2046:                 const sType = (svcDef.type || 'BODY').toUpperCase();
+2047:                 if (cat !== 'COMBO' && cat !== 'MIXED') {
+2048:                     if (sType === 'FOOT' || sType === 'CHAIR') impliedFlow = 'FOOTSINGLE';
+2049:                     else impliedFlow = 'BODYSINGLE';
+2050:                 }
+2051:             }
+2052: 
+2053:             // CHUẨN HÓA ID THỢ TỪ GUEST
+2054:             let rawStaff = g.staff;
+2055:             let normalizedStaff = 'RANDOM';
+2056:             if (rawStaff === '隨機') normalizedStaff = 'RANDOM';
+2057:             else if (rawStaff === '女' || rawStaff === '女師') normalizedStaff = 'FEMALE';
+2058:             else if (rawStaff === '男' || rawStaff === '男師') normalizedStaff = 'MALE';
+2059:             else normalizedStaff = normalizeStaffId(rawStaff);
+2060: 
+2061:             return {
+2062:                 serviceCode: foundCode || g.service,
+2063:                 staffName: normalizedStaff,
+2064:                 staff: g.staff,
+2065:                 isYouTui: g.isYouTui,
+2066:                 isGuaSha: g.isGuaSha,
+2067:                 isHuaGuan: g.isHuaGuan,
+2068:                 isBaGuan: g.isBaGuan,
+2069:                 flowCode: impliedFlow,
+2070:                 overrideDuration: g.overrideDuration
+2071:             };
+2072:         });
+2073: 
+2074:         const targetDateStandard = normalizeDateStrict(date);
+2075:         
+2076:         // --- XỬ LÝ THEO QUY TẮC TUYỆT ĐỐI ±8 TIẾNG ---
+2077:         const reqDateParts = targetDateStandard.replace(/\//g, '-').split('-');
+2078:         const reqTimeParts = (time || "12:00").split(':');
+2079:         const reqDateObj = new Date(parseInt(reqDateParts[0], 10), parseInt(reqDateParts[1], 10) - 1, parseInt(reqDateParts[2], 10), parseInt(reqTimeParts[0], 10), parseInt(reqTimeParts[1], 10), 0);
+2080:         const reqTimeMs = reqDateObj.getTime();
+2081: 
+2082:         const EIGHT_HOURS_MS = 8 * 60 * 60 * 1000;
+2083: 
+2084:         let reqH = parseInt(reqTimeParts[0], 10);

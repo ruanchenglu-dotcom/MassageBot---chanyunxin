@@ -1,0 +1,50 @@
+451:                 } else {
+452:                     return { pass: false, reason: `${reasonMsg}${oppositeSuggestion}\n⚠️ 今日已無足夠資源可完整安排此預約。`, debug: debugInfo };
+453:                 }
+454:             };
+455: 
+456:             const resourceMap = {
+457:                 'BED': Array.from({ length: CONF.MAX_BEDS }, () => []),
+458:                 'CHAIR': Array.from({ length: CONF.MAX_CHAIRS }, () => [])
+459:             };
+460: 
+461:             const globalStaffBookings = currentBookingsRaw.filter(b => {
+462:                 const bStart = getMinsFromTimeStr(b.startTime);
+463:                 if (bStart === -1) return false;
+464:                 if (!isActiveBookingStatus(b.status)) return false;
+465:                 if (!isMathematicallyActive(b, requestStart)) return false;
+466: 
+467:                 const svcInfo = SERVICES[b.serviceCode] || { name: b.serviceName };
+468:                 const storedFlow = b.originalData?.flowCode || b.flow;
+469:                 const isCombo = isComboService(b.serviceCode || getServiceCodeByName(b.serviceName));
+470:                 const { realDuration } = calculateRealDurations(b, b.duration || 60, isCombo);
+471: 
+472:                 const bEnd = bStart + realDuration + CONF.CLEANUP_BUFFER;
+473:                 return bEnd > requestStart;
+474:             });
+475: 
+476:             const resolveRealLocation = (b) => {
+477:                 let locStr = b.current_resource_id || b.phase1_res_idx || b.originalData?.location || b.location || '本館';
+478:                 const match = String(locStr).match(/(?:BED|CHAIR|床|足|腳|OPP)[-_ ]?([12])[-_ ]?\\d+/i);
+479:                 if (match) return match[1] === '2' ? '對面館' : '本館';
+480:                 return (b.originalData?.location || b.location || '本館') === '對面館' ? '對面館' : '本館';
+481:             };
+482:             const relevantBookings = globalStaffBookings.filter(b => {
+483:                 return resolveRealLocation(b) === locationStr;
+484:             });
+485: 
+486:             relevantBookings.forEach(b => {
+487:                 const bStart = getMinsFromTimeStr(b.startTime);
+488:                 const svcInfo = SERVICES[b.serviceCode] || { name: b.serviceName };
+489:                 const bLoc = b.originalData?.location || b.location || '本館';
+490:                 const storedFlow = b.originalData?.flowCode || b.flow;
+491:                 const isCombo = isComboService(b.serviceCode || getServiceCodeByName(b.serviceName));
+492:                 const { p1, realDuration } = calculateRealDurations(b, b.duration || 60, isCombo);
+493: 
+494:                 // [V136.1 FIX] Accurate Resource ID Extraction - Removes rowId from matching to avoid false positives on Bed 1
+495:                 const resFields = [b.phase1_res_idx, b.phase2_res_idx, b.allocated_resource, b.current_resource_id];
+496:                 let extractedMatches = [];
+497:                 resFields.forEach(rawId => {
+498:                     if (!rawId) return;
+499:                     let id = String(rawId).toUpperCase().trim();
+500:                     if (!id) return;

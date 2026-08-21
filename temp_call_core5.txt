@@ -1,3 +1,8 @@
+2181:                 phase1_duration: b.phase1_duration !== undefined ? parseInt(b.phase1_duration) : (b.originalData?.phase1_duration ? parseInt(b.originalData.phase1_duration) : null),
+2182:                 phase2_duration: b.phase2_duration !== undefined ? parseInt(b.phase2_duration) : (b.originalData?.phase2_duration ? parseInt(b.originalData.phase2_duration) : null),
+2183:                 status: normalizedStatus,
+2184:                 note: b.ghiChu || b.note, ghiChu: b.ghiChu || b.note,
+2185:                 flow: b.flow || b.originalData?.flowCode || b.originalData?.mainFlow
 2186:             };
 2187:         });
 2188: 

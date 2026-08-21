@@ -1,0 +1,30 @@
+2151:             let rawStaffs = [];
+2152:             if (b.technician) rawStaffs.push(b.technician);
+2153:             if (b.staffId) rawStaffs.push(b.staffId);
+2154: 
+2155:             // Quét các cột phụ từ staffId2 đến staffId9 (hoặc tương đương)
+2156:             for (let i = 2; i <= 9; i++) {
+2157:                 if (b[`staffId${i}`]) rawStaffs.push(b[`staffId${i}`]);
+2158:                 if (b.originalData && b.originalData[`staffId${i}`]) rawStaffs.push(b.originalData[`staffId${i}`]);
+2159:             }
+2160: 
+2161:             // Lọc bỏ undefined/null/Unassigned và trùng lặp
+2162:             let uniqueRawStaffs = [...new Set(rawStaffs.filter(s => s && String(s).trim() !== "" && s !== "Unassigned"))];
+2163:             let normalizedStaffs = uniqueRawStaffs.map(s => normalizeStaffId(s));
+2164: 
+2165:             // Lấy ID chính để tương thích với các UI hiện hành
+2166:             let primaryStaff = normalizedStaffs.length > 0 ? normalizedStaffs[0] : "Unassigned";
+2167: 
+2168:             return {
+2169:                 serviceCode: b.serviceCode || b.serviceName, serviceName: b.serviceName,
+2170:                 startTime: mappedStartTime, duration: parseInt(b.duration) || 60,
+2171:                 startTimeString: mappedStartTime, opDate: b.opDate || (b.originalData ? b.originalData.opDate : null) || targetDateStandard,
+2172:                 staffName: primaryStaff,
+2173:                 assignedStaffs: normalizedStaffs, // MẢNG THỢ MỚI
+2174:                 rowId: b.rowId,
+2175:                 allocated_resource: b.resourceId || b.allocated_resource || b.rowId,
+2176:                 location: b.location || (b.originalData ? b.originalData.location : null),
+2177:                 current_resource_id: b.current_resource_id || (b.originalData ? b.originalData.current_resource_id : null),
+2178:                 phase1_res_idx: b.phase1_res_idx || (b.originalData ? b.originalData.phase1_res_idx : null),
+2179:                 phase2_res_idx: b.phase2_res_idx || (b.originalData ? b.originalData.phase2_res_idx : null),
+2180:                 originalData: b, isManualLocked: finalLockState,

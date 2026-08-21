@@ -23,3 +23,8 @@
 2208:         try {
 2209:             const result = CoreKernel.checkRequestAvailability(targetDateStandard, time, coreGuests, coreBookings, staffMap, { location: locationStr || '本館' });
 2210:             return result.feasible
+2211:                 ? { valid: true, details: result.details, proposedUpdates: result.proposedUpdates, debug: result.debug }
+2212:                 : { valid: false, reason: result.reason, debug: result.debug };
+2213:         } catch (err) { return { valid: false, reason: "System Error: " + err.message }; }
+2214:     };
+2215: 

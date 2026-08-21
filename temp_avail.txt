@@ -1,0 +1,30 @@
+636:                     }
+637:                 }
+638:             });
+639: 
+640:             const availableStaffList = Object.values(staffList).filter(s => {
+641:                 const shiftInfo = resolveStaffShift(s, queryDateStr);
+642:                 if (shiftInfo.off) return false;
+643:                 const ss = getMinsFromTimeStr(shiftInfo.start);
+644:                 let se = getMinsFromTimeStr(shiftInfo.end);
+645: 
+646:                 // [FRONTEND V118] Thuật toán Phân đoạn Ca Đêm
+647:                 if (se < ss) {
+648:                     se += 1440;
+649:                 }
+650: 
+651:                 let inMain = (requestStart >= ss && requestStart < se);
+652:                 let inTail = false;
+653:                 if (se > 1440) {
+654:                     const origSe = se - 1440;
+655:                     inTail = (requestStart >= 0 && requestStart < origSe);
+656:                 }
+657:                 return inMain || inTail;
+658:             });
+659: 
+660:             const normId = (id) => String(id || '').replace(/^0+/, '').trim().toUpperCase();
+661: 
+662:             const supplyCount = availableStaffList.length;
+663:             const femaleSupply = availableStaffList.filter(s => s.gender === 'F' || s.gender === '女').length;
+664:             const maleSupply = availableStaffList.filter(s => s.gender === 'M' || s.gender === '男').length;
+665: 

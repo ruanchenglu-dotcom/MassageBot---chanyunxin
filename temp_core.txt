@@ -1,0 +1,15 @@
+96: 
+97:     // ========================================================================
+98:     // PHẦN 1: CORE KERNEL (CLIENT-SIDE BRAIN)
+99:     // ========================================================================
+100:     const CoreKernel = (function () {
+101: 
+102:         // --- 1. CẤU HÌNH HỆ THỐNG ĐỘNG (DYNAMIC SYSTEM CONFIG) ---
+103:         const getSystemConfig = (locationStr = '本館') => {
+104:             const ext = window.SYSTEM_CONFIG || {};
+105:             const scale = ext.SCALE || {};
+106:             const opTime = ext.OPERATION_TIME || {};
+107:             return {
+108:                 MAX_CHAIRS: locationStr === '對面館' ? (scale.OPP_CHAIRS || 4) : (scale.MAX_CHAIRS || ext.MAX_CHAIRS),
+109:                 MAX_BEDS: locationStr === '對面館' ? (scale.OPP_BEDS || 6) : (scale.MAX_BEDS || ext.MAX_BEDS),
+110:                 MAX_TOTAL_GUESTS: ext.MAX_TOTAL_GUESTS || 18,

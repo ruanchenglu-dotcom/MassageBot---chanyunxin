@@ -1,0 +1,20 @@
+1986:     const fetchLiveServerData = async (isForceRefresh = false) => {
+1987:         const apiUrl = window.API_URL || window.GAS_API_URL || (window.CONFIG && window.CONFIG.API_URL);
+1988:         if (!apiUrl) { console.warn("⚠️ Warning: API_URL missing."); return null; }
+1989:         try {
+1990:             const params = [`_t=${new Date().getTime()}`];
+1991:             if (isForceRefresh) params.push('forceRefresh=true');
+1992:             const targetUrl = apiUrl.includes('?') ? `${apiUrl}&${params.join('&')}` : `${apiUrl}?${params.join('&')}`;
+1993:             const response = await fetch(targetUrl);
+1994:             const data = await response.json();
+1995:             if (data && data.staffList && data.bookings) return data;
+1996:             return null;
+1997:         } catch (err) { console.error("❌ Fetch Failed", err); return null; }
+1998:     };
+1999: 
+2000:     // ========================================================================
+2001:     // PHẦN 3: BRIDGE LOGIC & REACT COMPONENT
+2002:     // ========================================================================
+2003:     const { useState, useEffect, useMemo, useCallback } = React;
+2004: 
+2005:     const syncServicesToCore = () => {

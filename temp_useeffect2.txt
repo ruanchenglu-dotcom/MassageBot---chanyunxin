@@ -1,0 +1,35 @@
+2296: 
+2297:         useEffect(() => {
+2298:             if (editingBooking) {
+2299:                 let timeStr = getRoundedCurrentTime(); let dateStr = initialDate;
+2300:                 let locStr = editingBooking.location || '本館';
+2301:                 if (locStr.includes('->') || locStr.includes('➡️') || locStr === '跨館套餐') {
+2302:                     setSelectedLocation('跨館套餐');
+2303:                     if (locStr.includes('本館(足)') && locStr.indexOf('本館(足)') === 0) {
+2304:                         setCrossLocationDirection('MAIN_TO_OPP');
+2305:                     } else if (locStr.includes('對面館(足)') && locStr.indexOf('對面館(足)') === 0) {
+2306:                         setCrossLocationDirection('OPP_TO_MAIN');
+2307:                     } else if (locStr.includes('本館')) {
+2308:                         setCrossLocationDirection('MAIN_TO_OPP');
+2309:                     }
+2310:                 } else {
+2311:                     setSelectedLocation(locStr);
+2312:                 }
+2313:                 if (editingBooking.startTimeString) {
+2314:                     const parts = editingBooking.startTimeString.split(' ');
+2315:                     if (parts.length >= 2) {
+2316:                         dateStr = parts[0].replace(/\//g, '-');
+2317:                         timeStr = parts[1].substring(0, 5);
+2318:                     }
+2319:                 }
+2320: 
+2321:                 let rawName = (editingBooking.customerName || "").split('(')[0].trim();
+2322:                 let parsedTitle = '';
+2323:                 if (rawName.endsWith('先生')) {
+2324:                     parsedTitle = '先生';
+2325:                     rawName = rawName.slice(0, -2).trim();
+2326:                 } else if (rawName.endsWith('小姐')) {
+2327:                     parsedTitle = '小姐';
+2328:                     rawName = rawName.slice(0, -2).trim();
+2329:                 }
+2330: 
