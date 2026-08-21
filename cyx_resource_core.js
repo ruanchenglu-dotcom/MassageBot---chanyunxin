@@ -517,6 +517,10 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
         let currentStaffBusy = 0;
         let currentFemaleBusy = 0;
         let currentMaleBusy = 0;
+        let currentYouTuiBusy = 0;
+        let currentGuaShaBusy = 0;
+        let currentHuaGuanBusy = 0;
+        let currentBaGuanBusy = 0;
         let elasticStaffCount = 0;
         
         globalStaffBookings.forEach(b => {
@@ -550,6 +554,11 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
                     const sInfo = staffList[staffName] || Object.values(staffList).find(s => normId(s.name) === normId(staffName) || normId(s.id) === normId(staffName)) || {};
                     if (sInfo.gender === 'F' || sInfo.gender === '女' || sInfo.group === '女') currentFemaleBusy++;
                     else if (sInfo.gender === 'M' || sInfo.gender === '男' || sInfo.group === '男') currentMaleBusy++;
+                    
+                    if (sInfo.isYouTui !== false) currentYouTuiBusy++;
+                    if (sInfo.isGuaSha !== false) currentGuaShaBusy++;
+                    if (sInfo.isHuaGuan !== false) currentHuaGuanBusy++;
+                    if (sInfo.isBaGuan !== false) currentBaGuanBusy++;
                 }
             }
         });
@@ -557,6 +566,10 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
         let newGuestsActive = 0;
         let newFemaleReq = 0;
         let newMaleReq = 0;
+        let newYouTuiReq = 0;
+        let newGuaShaReq = 0;
+        let newHuaGuanReq = 0;
+        let newBaGuanReq = 0;
         let comboGuestCount = 0;
         
         guestList.forEach(g => {
@@ -570,6 +583,11 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
                 // Nếu khách chọn dầu (OIL), mặc định yêu cầu nữ (trừ khi có config khác)
                 if (req === 'FEMALE' || req === '女' || req === '女師' || req === 'OIL') newFemaleReq++;
                 else if (req === 'MALE' || req === '男' || req === '男師') newMaleReq++;
+
+                if (g.isYouTui === true || (g.serviceName && g.serviceName.includes('油'))) newYouTuiReq++;
+                if (g.isGuaSha === true || (g.serviceName && g.serviceName.includes('刮痧'))) newGuaShaReq++;
+                if (g.isHuaGuan === true || (g.serviceName && g.serviceName.includes('滑罐'))) newHuaGuanReq++;
+                if (g.isBaGuan === true || (g.serviceName && g.serviceName.includes('拔罐'))) newBaGuanReq++;
             }
         });
 
@@ -589,6 +607,10 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
         const currentSupplyCount = currentAvailableStaff.length;
         const currentFemaleSupply = currentAvailableStaff.filter(s => s.gender === 'F' || s.gender === '女').length;
         const currentMaleSupply = currentAvailableStaff.filter(s => s.gender === 'M' || s.gender === '男').length;
+        const currentYouTuiSupply = currentAvailableStaff.filter(s => s.isYouTui !== false).length;
+        const currentGuaShaSupply = currentAvailableStaff.filter(s => s.isGuaSha !== false).length;
+        const currentHuaGuanSupply = currentAvailableStaff.filter(s => s.isHuaGuan !== false).length;
+        const currentBaGuanSupply = currentAvailableStaff.filter(s => s.isBaGuan !== false).length;
         
         // [V137 NÂNG CẤP]: Xoá bỏ logic elasticStaffCount và allowedDeficit ảo đối với Kỹ thuật viên.
         // Nhân sự là con người, không thể "co giãn" phục vụ 2 khách cùng lúc.
@@ -598,6 +620,18 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
         }
         if (newMaleReq > 0 && (currentMaleBusy + newMaleReq) > currentMaleSupply) {
             return triggerSmartFailure(`⚠️ 該時段男技師不足。男師總共: ${currentMaleSupply}, 忙碌中: ${currentMaleBusy}, 欲預約: ${newMaleReq}`);
+        }
+        if (newYouTuiReq > 0 && (currentYouTuiBusy + newYouTuiReq) > currentYouTuiSupply) {
+            return triggerSmartFailure(`⚠️ 該時段具備油推技能的技師不足。具備油推總共: ${currentYouTuiSupply}, 忙碌中: ${currentYouTuiBusy}, 欲預約: ${newYouTuiReq}`);
+        }
+        if (newGuaShaReq > 0 && (currentGuaShaBusy + newGuaShaReq) > currentGuaShaSupply) {
+            return triggerSmartFailure(`⚠️ 該時段具備刮痧技能的技師不足。具備刮痧總共: ${currentGuaShaSupply}, 忙碌中: ${currentGuaShaBusy}, 欲預約: ${newGuaShaReq}`);
+        }
+        if (newHuaGuanReq > 0 && (currentHuaGuanBusy + newHuaGuanReq) > currentHuaGuanSupply) {
+            return triggerSmartFailure(`⚠️ 該時段具備滑罐技能的技師不足。具備滑罐總共: ${currentHuaGuanSupply}, 忙碌中: ${currentHuaGuanBusy}, 欲預約: ${newHuaGuanReq}`);
+        }
+        if (newBaGuanReq > 0 && (currentBaGuanBusy + newBaGuanReq) > currentBaGuanSupply) {
+            return triggerSmartFailure(`⚠️ 該時段具備拔罐技能的技師不足。具備拔罐總共: ${currentBaGuanSupply}, 忙碌中: ${currentBaGuanBusy}, 欲預約: ${newBaGuanReq}`);
         }
         if ((currentStaffBusy + newGuestsActive) > currentSupplyCount) {
             return triggerSmartFailure(`⚠️ 該時段技師總數不足。總共: ${currentSupplyCount}, 忙碌中: ${currentStaffBusy}, 新客: ${newGuestsActive}`);
@@ -662,6 +696,22 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
 
             if (isBusy) {
                 return triggerSmartFailure(`⚠️ 技師 ${rawName} 該時段已有預約。`);
+            }
+            
+            const g = guestList.find(g => g.staff === rawName);
+            if (g) {
+                if ((g.isYouTui === true || (g.serviceName && g.serviceName.includes('油'))) && sInfo.isYouTui === false) {
+                    return triggerSmartFailure(`⚠️ 技師 ${rawName} 不具備油推技能，無法安排油推服務。`);
+                }
+                if ((g.isGuaSha === true || (g.serviceName && g.serviceName.includes('刮痧'))) && sInfo.isGuaSha === false) {
+                    return triggerSmartFailure(`⚠️ 技師 ${rawName} 不具備刮痧技能，無法安排刮痧服務。`);
+                }
+                if ((g.isHuaGuan === true || (g.serviceName && g.serviceName.includes('滑罐'))) && sInfo.isHuaGuan === false) {
+                    return triggerSmartFailure(`⚠️ 技師 ${rawName} 不具備滑罐技能，無法安排滑罐服務。`);
+                }
+                if ((g.isBaGuan === true || (g.serviceName && g.serviceName.includes('拔罐'))) && sInfo.isBaGuan === false) {
+                    return triggerSmartFailure(`⚠️ 技師 ${rawName} 不具備拔罐技能，無法安排拔罐服務。`);
+                }
             }
         }
     }
