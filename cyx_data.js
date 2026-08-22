@@ -153,7 +153,7 @@ const SERVICES_DATA = {
     'B2': { name: '身體按摩 (70分)', duration: 70, price: 900, type: 'BED', category: 'BODY', blocks: 2, commission: 250 },
     'B1': { name: '身體按摩 (35分)', duration: 35, price: 500, type: 'BED', category: 'BODY', blocks: 1, commission: 250 },
 
-    'C1': { name: '拔罐/刮痧 (35分)', duration: 35, price: 500, type: 'BED', category: 'ADDON', blocks: 1, commission: 250 },
+    //'C1': { name: '拔罐/刮痧 (35分)', duration: 35, price: 500, type: 'BED', category: 'ADDON', blocks: 1, commission: 250 },
     //'C2': { name: '修指甲/修腳皮 (35分)', duration: 35, price: 500, type: 'CHAIR', category: 'ADDON', blocks: 1, commission: 250 }
 };
 

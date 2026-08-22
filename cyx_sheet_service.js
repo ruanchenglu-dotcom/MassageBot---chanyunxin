@@ -1422,6 +1422,24 @@ async function updateBookingDetails(body) {
             const isComboCalc = (finalFlow === 'FB' || finalFlow === 'BF');
             const transitionBuffer = isComboCalc ? (typeof ResourceCore !== 'undefined' && ResourceCore.CONFIG ? ResourceCore.CONFIG.TRANSITION_BUFFER : 3) : 0;
             
+            // [NÂNG CẤP REALTIME START] Tính lại phase1_duration để giữ nguyên transition_time
+            if (body.isRealtimeStart && body.transition_time) {
+                const transMins = typeof ResourceCore !== 'undefined' ? ResourceCore.getMinsFromTimeStr(body.transition_time) : -1;
+                if (transMins !== -1) {
+                    p1Dur = transMins - startMins - transitionBuffer;
+                    if (p1Dur < 0) p1Dur = 0; // Tránh âm
+                    p2Dur = totalDuration - p1Dur;
+                    if (p2Dur < 0) p2Dur = 0;
+                    updateCell('AC', p1Dur);
+                    updateCell('AE', p2Dur);
+                    
+                    if (bookingData) {
+                        bookingData.phase1_duration = p1Dur;
+                        bookingData.phase2_duration = p2Dur;
+                    }
+                }
+            }
+            
             if (isComboCalc) {
                 updateCell('AD', typeof ResourceCore !== 'undefined' ? ResourceCore.getTimeStrFromMins(startMins + p1Dur + transitionBuffer) : "");
             } else {

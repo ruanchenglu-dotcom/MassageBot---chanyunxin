@@ -3146,6 +3146,14 @@ const App = () => {
             status: APP_STATUS.SERVING
         };
 
+        if (window.SYSTEM_CONFIG?.FEATURE_TOGGLES?.USE_REALTIME_START) {
+            const now = window.getTaipeiDate ? window.getTaipeiDate() : new Date();
+            const h = String(now.getHours()).padStart(2, '0');
+            const m = String(now.getMinutes()).padStart(2, '0');
+            payload.phaseStartTime = `${h}:${m}`;
+            payload.isRealtimeStart = true;
+        }
+
         if (isComboService && comboMeta) {
             const totalDur = current.booking.duration || 100;
             const split = getSmartSplit(current.booking, totalDur, true, comboMeta.sequence);
@@ -3401,6 +3409,15 @@ const App = () => {
                 }
             }
 
+            let realtimePayload = {};
+            if (window.SYSTEM_CONFIG?.FEATURE_TOGGLES?.USE_REALTIME_START) {
+                const now = window.getTaipeiDate ? window.getTaipeiDate() : new Date();
+                const h = String(now.getHours()).padStart(2, '0');
+                const m = String(now.getMinutes()).padStart(2, '0');
+                realtimePayload.phaseStartTime = `${h}:${m}`;
+                realtimePayload.isRealtimeStart = true;
+            }
+
             batchPayloads.push({
                 rowId: current.booking.rowId,
                 [primaryKey]: finalServiceStaff,
@@ -3410,7 +3427,8 @@ const App = () => {
                 record_location: true,
                 status: APP_STATUS.SERVING,
                 mainStatus: APP_STATUS.SERVING,
-                ...comboPayloadAdditions
+                ...comboPayloadAdditions,
+                ...realtimePayload
             });
         });
 

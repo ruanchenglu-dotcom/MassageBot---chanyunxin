@@ -113,6 +113,11 @@ const SYSTEM_CONFIG = {
     FINANCE: {
         DEFAULT_JIE_PRICE: 250, // Giá 1 tiết cơ bản
         OIL_BONUS: 200            // Thưởng tinh dầu
+    },
+
+    // 功能開關 (Feature Toggles)
+    FEATURE_TOGGLES: {
+        USE_REALTIME_START: true // 啟用真實開始時間 (true: 記錄實際按下開始的時間, false: 使用預約時間)
     }
 };
 

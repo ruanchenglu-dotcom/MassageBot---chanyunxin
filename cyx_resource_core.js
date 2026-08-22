@@ -309,7 +309,7 @@ function checkLaneContinuity(laneOccupiedArr, start, end, customCleanup = null) 
     return true;
 }
 
-function canSatisfyRequests(staffs, reqs) {
+function canSatisfyRequests(staffs, reqs, failContext = { missingSkill: null, genderMismatch: false }) {
     if (reqs.length === 0) return true;
     if (staffs.length < reqs.length) return false;
     
@@ -318,18 +318,18 @@ function canSatisfyRequests(staffs, reqs) {
         const s = staffs[i];
         let match = true;
         
-        if (req.gender === 'F' && s.gender !== 'F' && s.gender !== '女') match = false;
-        if (req.gender === 'M' && s.gender !== 'M' && s.gender !== '男') match = false;
+        if (req.gender === 'F' && s.gender !== 'F' && s.gender !== '女') { match = false; failContext.genderMismatch = true; }
+        if (req.gender === 'M' && s.gender !== 'M' && s.gender !== '男') { match = false; failContext.genderMismatch = true; }
         
-        if (req.isYouTui && (s.isYouTui === false || s.isYouTui === '')) match = false;
-        if (req.isGuaSha && (s.isGuaSha === false || s.isGuaSha === '')) match = false;
-        if (req.isHuaGuan && (s.isHuaGuan === false || s.isHuaGuan === '')) match = false;
-        if (req.isBaGuan && (s.isBaGuan === false || s.isBaGuan === '')) match = false;
+        if (req.isYouTui && (s.isYouTui === false || s.isYouTui === '')) { match = false; failContext.missingSkill = '油推'; }
+        if (req.isGuaSha && (s.isGuaSha === false || s.isGuaSha === '')) { match = false; failContext.missingSkill = '刮痧'; }
+        if (req.isHuaGuan && (s.isHuaGuan === false || s.isHuaGuan === '')) { match = false; failContext.missingSkill = '滑罐'; }
+        if (req.isBaGuan && (s.isBaGuan === false || s.isBaGuan === '')) { match = false; failContext.missingSkill = '拔罐'; }
         
         if (match) {
             const remainingStaffs = staffs.slice();
             remainingStaffs.splice(i, 1);
-            if (canSatisfyRequests(remainingStaffs, reqs.slice(1))) return true;
+            if (canSatisfyRequests(remainingStaffs, reqs.slice(1), failContext)) return true;
         }
     }
     return false;
@@ -637,9 +637,12 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
         if (availablePool.length < unassignedReqs.length) {
             return triggerSmartFailure(`⚠️ 該時段技師總數不足以滿足所有預約。 (空閒技師: ${availablePool.length}, 需要: ${unassignedReqs.length})`);
         }
-        
-        if (!canSatisfyRequests(availablePool, unassignedReqs)) {
-            return triggerSmartFailure(`⚠️ 該時段技師與技能組合不足，無法滿足預約（可能有客座要求指定性別或技能導致資源衝突）。`);
+        let failCtx = { missingSkill: null, genderMismatch: false };
+        if (!canSatisfyRequests(availablePool, unassignedReqs, failCtx)) {
+            let reasonDetail = '';
+            if (failCtx.missingSkill) reasonDetail = `(空閒技師缺乏 ${failCtx.missingSkill} 技能)`;
+            else if (failCtx.genderMismatch) reasonDetail = `(無符合性別要求的空閒技師)`;
+            return triggerSmartFailure(`⚠️ 該時段技師與技能組合不足，無法滿足預約。${reasonDetail}`);
         }
     }
 
@@ -1172,8 +1175,8 @@ function findAvailableStaff(staffReq, start, end, staffListRef, busyList, queryD
             }
         }
 
-        if (staffReq === 'MALE' && staffInfo.gender !== 'M') { outReason.reason = 'GENDER_MISMATCH'; return false; }
-        if ((staffReq === 'FEMALE' || staffReq === '女') && staffInfo.gender !== 'F') { outReason.reason = 'GENDER_MISMATCH'; return false; }
+        if ((staffReq === 'MALE' || staffReq === '男' || staffReq === '男師') && staffInfo.gender !== 'M') { outReason.reason = 'GENDER_MISMATCH'; return false; }
+        if ((staffReq === 'FEMALE' || staffReq === '女' || staffReq === '女師') && staffInfo.gender !== 'F') { outReason.reason = 'GENDER_MISMATCH'; return false; }
 
         if (guestContext) {
             if (guestContext.isGuaSha && staffInfo.isGuaSha === false) { outReason.reason = 'MISSING_SKILL_GUASHA'; return false; }
@@ -1185,7 +1188,7 @@ function findAvailableStaff(staffReq, start, end, staffListRef, busyList, queryD
         return true;
     };
 
-    if (staffReq && !['RANDOM', 'MALE', 'FEMALE', '隨機', 'Any', 'undefined'].includes(staffReq)) {
+    if (staffReq && !['RANDOM', 'MALE', 'FEMALE', '隨機', 'Any', 'undefined', '男', '女', '男師', '女師'].includes(staffReq)) {
         return checkOneStaff(staffReq) ? staffReq : null;
     } else {
         const allStaffNames = Object.keys(staffListRef);
@@ -1852,16 +1855,25 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
                                     let assigned = findAvailableStaff(newGuestBlocksMap[i].guest.staffName, gBlocks[0].start, gBlocks[gBlocks.length - 1].end, staffList, tempTimeline, dateStr, outReason, newGuestBlocksMap[i].guest);
                                     if (!assigned) { 
                                         staffOk = false;
-                                        if (newGuestBlocksMap[i].guest.staffName && !['RANDOM', 'MALE', 'FEMALE', '隨機', 'Any', 'undefined'].includes(newGuestBlocksMap[i].guest.staffName)) {
-                                            if (outReason.reason === 'OFF') failureLog.push(`[${newGuestBlocksMap[i].guest.staffName}]老師沒有上班`);
-                                            else if (outReason.reason === 'BUSY') failureLog.push(`${newGuestBlocksMap[i].guest.staffName}老師 ${outReason.time}已經有客人`);
-                                            else if (outReason.reason === 'BEFORE_SHIFT') failureLog.push(`[${newGuestBlocksMap[i].guest.staffName}]老師${outReason.time}還沒來上班`);
-                                            else if (outReason.reason === 'OUT_OF_SHIFT') failureLog.push(`[${newGuestBlocksMap[i].guest.staffName}]老師已經下班了`);
-                                            else if (outReason.reason === 'MISSING_SKILL_GUASHA') failureLog.push(`[${newGuestBlocksMap[i].guest.staffName}]老師不會刮痧`);
-                                            else if (outReason.reason === 'MISSING_SKILL_YOUTUI') failureLog.push(`[${newGuestBlocksMap[i].guest.staffName}]老師不會油推`);
-                                            else if (outReason.reason === 'MISSING_SKILL_HUAGUAN') failureLog.push(`[${newGuestBlocksMap[i].guest.staffName}]老師不會滑罐`);
-                                            else if (outReason.reason === 'MISSING_SKILL_BAGUAN') failureLog.push(`[${newGuestBlocksMap[i].guest.staffName}]老師不會拔罐`);
-                                            else failureLog.push(`[${newGuestBlocksMap[i].guest.staffName}]老師沒有上班/條件不符`);
+                                        let staffReq = newGuestBlocksMap[i].guest.staffName;
+                                        let reasonMsg = '';
+                                        if (outReason.reason === 'OFF') reasonMsg = '沒有上班';
+                                        else if (outReason.reason === 'BUSY') reasonMsg = `${outReason.time}已經有客人`;
+                                        else if (outReason.reason === 'BEFORE_SHIFT') reasonMsg = `${outReason.time}還沒來上班`;
+                                        else if (outReason.reason === 'OUT_OF_SHIFT') reasonMsg = '已經下班了 (或超過準下時間)';
+                                        else if (outReason.reason === 'MISSING_SKILL_GUASHA') reasonMsg = '缺乏刮痧技能';
+                                        else if (outReason.reason === 'MISSING_SKILL_YOUTUI') reasonMsg = '缺乏油推技能';
+                                        else if (outReason.reason === 'MISSING_SKILL_HUAGUAN') reasonMsg = '缺乏滑罐技能';
+                                        else if (outReason.reason === 'MISSING_SKILL_BAGUAN') reasonMsg = '缺乏拔罐技能';
+
+                                        if (staffReq) {
+                                            if (['MALE', '男', '男師'].includes(staffReq)) {
+                                                failureLog.push(reasonMsg ? `男老師${reasonMsg}` : '男老師不夠');
+                                            } else if (['FEMALE', '女', '女師'].includes(staffReq)) {
+                                                failureLog.push(reasonMsg ? `女老師${reasonMsg}` : '女老師不夠');
+                                            } else if (!['RANDOM', '隨機', 'Any', 'undefined', '不指定'].includes(staffReq)) {
+                                                failureLog.push(reasonMsg ? `[${staffReq}]老師${reasonMsg}` : `[${staffReq}]老師沒有上班`);
+                                            }
                                         }
                                         break; 
                                     }
@@ -2046,16 +2058,25 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
             const assignedStaff = findAvailableStaff(item.guest.staffName, item.blocks[0].start, item.blocks[item.blocks.length - 1].end, staffList, flatTimeline, dateStr, outReason, item.guest);
             if (!assignedStaff) { 
                 staffAssignmentSuccess = false;
-                if (item.guest.staffName && !['RANDOM', 'MALE', 'FEMALE', '隨機', 'Any', 'undefined'].includes(item.guest.staffName)) {
-                    if (outReason.reason === 'OFF') failureLog.push(`[${item.guest.staffName}]老師沒有上班`);
-                    else if (outReason.reason === 'BUSY') failureLog.push(`${item.guest.staffName}老師 ${outReason.time}已經有客人`);
-                    else if (outReason.reason === 'BEFORE_SHIFT') failureLog.push(`[${item.guest.staffName}]老師${outReason.time}還沒來上班`);
-                    else if (outReason.reason === 'OUT_OF_SHIFT') failureLog.push(`[${item.guest.staffName}]老師已經下班了`);
-                    else if (outReason.reason === 'MISSING_SKILL_GUASHA') failureLog.push(`[${item.guest.staffName}]老師不會刮痧`);
-                    else if (outReason.reason === 'MISSING_SKILL_YOUTUI') failureLog.push(`[${item.guest.staffName}]老師不會油推`);
-                    else if (outReason.reason === 'MISSING_SKILL_HUAGUAN') failureLog.push(`[${item.guest.staffName}]老師不會滑罐`);
-                    else if (outReason.reason === 'MISSING_SKILL_BAGUAN') failureLog.push(`[${item.guest.staffName}]老師不會拔罐`);
-                    else failureLog.push(`[${item.guest.staffName}]老師沒有上班/條件不符`);
+                let staffReq = item.guest.staffName;
+                let reasonMsg = '';
+                if (outReason.reason === 'OFF') reasonMsg = '沒有上班';
+                else if (outReason.reason === 'BUSY') reasonMsg = `${outReason.time}已經有客人`;
+                else if (outReason.reason === 'BEFORE_SHIFT') reasonMsg = `${outReason.time}還沒來上班`;
+                else if (outReason.reason === 'OUT_OF_SHIFT') reasonMsg = '已經下班了 (或超過準下時間)';
+                else if (outReason.reason === 'MISSING_SKILL_GUASHA') reasonMsg = '缺乏刮痧技能';
+                else if (outReason.reason === 'MISSING_SKILL_YOUTUI') reasonMsg = '缺乏油推技能';
+                else if (outReason.reason === 'MISSING_SKILL_HUAGUAN') reasonMsg = '缺乏滑罐技能';
+                else if (outReason.reason === 'MISSING_SKILL_BAGUAN') reasonMsg = '缺乏拔罐技能';
+
+                if (staffReq) {
+                    if (['MALE', '男', '男師'].includes(staffReq)) {
+                        failureLog.push(reasonMsg ? `男老師${reasonMsg}` : '男老師不夠');
+                    } else if (['FEMALE', '女', '女師'].includes(staffReq)) {
+                        failureLog.push(reasonMsg ? `女老師${reasonMsg}` : '女老師不夠');
+                    } else if (!['RANDOM', '隨機', 'Any', 'undefined', '不指定'].includes(staffReq)) {
+                        failureLog.push(reasonMsg ? `[${staffReq}]老師${reasonMsg}` : `[${staffReq}]老師沒有上班`);
+                    }
                 }
                 break; 
             }

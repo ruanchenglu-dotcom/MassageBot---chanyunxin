@@ -252,11 +252,15 @@ function findBestSlots(selectedDate, serviceCode, guestPrefs, travelTime = 0) {
     const guestList = [];
     guestPrefs.forEach(pref => {
         let sId = 'RANDOM';
+        let isYouTui = false;
         if (pref.type === 'SPECIFIC') sId = pref.staffId;
         else if (pref.type === 'MALE') sId = 'MALE';
         else if (pref.type === 'FEMALE') sId = 'FEMALE';
-        else if (pref.type === 'OIL') sId = 'FEMALE';
-        guestList.push({ serviceCode: serviceCode, staffName: sId, staff: sId, flow: null });
+        else if (pref.type === 'OIL_FEMALE') { sId = 'FEMALE'; isYouTui = true; }
+        else if (pref.type === 'OIL_MALE') { sId = 'RANDOM'; isYouTui = true; }
+        else if (pref.type === 'OIL') { sId = 'FEMALE'; isYouTui = true; }
+        
+        guestList.push({ serviceCode: serviceCode, staffName: sId, staff: sId, flow: null, isYouTui: isYouTui, isGuaSha: !!pref.isGuaSha });
     });
 
     let candidates = [];
@@ -355,11 +359,15 @@ function generateTimeBubbles(selectedDate, serviceCode, guestPrefs, travelTime =
     const guestList = [];
     guestPrefs.forEach(pref => {
         let sId = 'RANDOM';
+        let isYouTui = false;
         if (pref.type === 'SPECIFIC') sId = pref.staffId;
         else if (pref.type === 'MALE') sId = 'MALE';
         else if (pref.type === 'FEMALE') sId = 'FEMALE';
-        else if (pref.type === 'OIL') sId = 'FEMALE';
-        guestList.push({ serviceCode: serviceCode, staffName: sId, staff: sId, flow: null });
+        else if (pref.type === 'OIL_FEMALE') { sId = 'FEMALE'; isYouTui = true; }
+        else if (pref.type === 'OIL_MALE') { sId = 'RANDOM'; isYouTui = true; }
+        else if (pref.type === 'OIL') { sId = 'FEMALE'; isYouTui = true; }
+        
+        guestList.push({ serviceCode: serviceCode, staffName: sId, staff: sId, flow: null, isYouTui: isYouTui, isGuaSha: !!pref.isGuaSha });
     });
 
     const openHour = getConfig().OPERATION_TIME.OPEN_HOUR || 8;
@@ -1399,58 +1407,83 @@ app.post('/api/sell-product', async (req, res) => {
 // PHẦN 5: LINE EVENT HANDLER (BOT KHÁCH HÀNG)
 // =============================================================================
 
-function askGuaSha(userId, guestIndex, event, client) {
+function askGuaShaGroup(userId, event, client) {
     const s = userState[userId];
     const SERVICES = SheetService.getServices();
     const svcDef = s.service ? SERVICES[s.service] : null;
 
     if (svcDef && svcDef.category === 'FOOT') {
-        s.guestPrefs = s.guestPrefs || [];
-        s.guestPrefs[guestIndex] = s.guestPrefs[guestIndex] || {};
-        s.guestPrefs[guestIndex].isGuaSha = false;
-        
-        s.step = 'HAS_PREF';
-        return askHasPref(userId, guestIndex, event, client);
+        for (let i = 0; i < s.pax; i++) {
+            s.guestPrefs[i] = s.guestPrefs[i] || {};
+            s.guestPrefs[i].isGuaSha = false;
+        }
+        s.step = 'HAS_PREF_GROUP';
+        return askHasPrefGroup(userId, event, client);
     }
 
     const buttons = [
-        { "type": "text", "text": `💆 第 ${guestIndex + 1} 位貴賓是否需要加購刮痧/拔罐？`, "weight": "bold", "size": "md", "align": "center", "color": "#1DB446" },
+        { "type": "text", "text": `💆 請問你們需要刮痧或拔罐嗎？`, "weight": "bold", "size": "md", "align": "center", "color": "#1DB446" },
         { "type": "separator", "margin": "md" },
-        { "type": "button", "style": "secondary", "margin": "sm", "action": { "type": "postback", "label": "不需要", "data": `GuaSha:${guestIndex}:NO`, "displayText": "不需要" } },
-        { "type": "button", "style": "primary", "color": "#E91E63", "margin": "sm", "action": { "type": "postback", "label": "需要 (刮痧/拔罐)", "data": `GuaSha:${guestIndex}:YES`, "displayText": "需要 (刮痧/拔罐)" } }
+        { "type": "button", "style": "secondary", "margin": "sm", "action": { "type": "postback", "label": "不要", "data": `GuaShaGroup:NO`, "displayText": "不要" } },
+        { "type": "button", "style": "primary", "color": "#E91E63", "margin": "sm", "action": { "type": "postback", "label": "要", "data": `GuaShaGroup:YES`, "displayText": "要" } }
     ];
-    return client.replyMessage(event.replyToken, { type: 'flex', altText: `第 ${guestIndex + 1} 位貴賓是否加購刮痧/拔罐`, contents: { "type": "bubble", "body": { "type": "box", "layout": "vertical", "contents": buttons } } });
+    return client.replyMessage(event.replyToken, { type: 'flex', altText: `請問你們需要刮痧或拔罐嗎？`, contents: { "type": "bubble", "body": { "type": "box", "layout": "vertical", "contents": buttons } } });
 }
 
-function askHasPref(userId, guestIndex, event, client) {
+function askGuaShaCount(userId, event, client) {
+    const s = userState[userId];
+    let buttons = [
+        { "type": "text", "text": `💆 請問幾位需要刮痧/拔罐？`, "weight": "bold", "size": "md", "align": "center", "color": "#1DB446" },
+        { "type": "separator", "margin": "md" }
+    ];
+    
+    for (let i = 1; i <= s.pax; i++) {
+        buttons.push({ "type": "button", "style": "primary", "margin": "sm", "action": { "type": "postback", "label": `${i}位`, "data": `GuaShaCount:${i}`, "displayText": `${i}位` } });
+    }
+    
+    return client.replyMessage(event.replyToken, { type: 'flex', altText: `請問幾位需要刮痧/拔罐？`, contents: { "type": "bubble", "body": { "type": "box", "layout": "vertical", "contents": buttons } } });
+}
+
+function askHasPrefGroup(userId, event, client) {
     const buttons = [
-        { "type": "text", "text": `💆 第 ${guestIndex + 1} 位貴賓是否需要指定師傅？`, "weight": "bold", "size": "md", "align": "center", "color": "#1DB446" },
+        { "type": "text", "text": `💆 請問你們有特別要求嗎？`, "weight": "bold", "size": "md", "align": "center", "color": "#1DB446" },
         { "type": "separator", "margin": "md" },
-        { "type": "button", "style": "secondary", "margin": "sm", "action": { "type": "postback", "label": "🎲 不指定", "data": `HasPref:${guestIndex}:NO`, "displayText": "🎲 不指定" } },
-        { "type": "button", "style": "primary", "color": "#E91E63", "margin": "sm", "action": { "type": "postback", "label": "🎯 我要指定", "data": `HasPref:${guestIndex}:YES`, "displayText": "🎯 我要指定" } }
+        { "type": "button", "style": "secondary", "margin": "sm", "action": { "type": "postback", "label": "沒有", "data": `HasPrefGroup:NO`, "displayText": "沒有" } },
+        { "type": "button", "style": "primary", "color": "#E91E63", "margin": "sm", "action": { "type": "postback", "label": "有", "data": `HasPrefGroup:YES`, "displayText": "有" } }
     ];
-    return client.replyMessage(event.replyToken, { type: 'flex', altText: `第 ${guestIndex + 1} 位貴賓是否指定`, contents: { "type": "bubble", "body": { "type": "box", "layout": "vertical", "contents": buttons } } });
+    return client.replyMessage(event.replyToken, { type: 'flex', altText: `請問你們有特別要求嗎？`, contents: { "type": "bubble", "body": { "type": "box", "layout": "vertical", "contents": buttons } } });
 }
 
-function askGuestPref(userId, guestIndex, event, client) {
+function askGuestPrefGroup(userId, event, client) {
     const s = userState[userId];
     const buttons = [
-        { "type": "text", "text": `💆 請選擇第 ${guestIndex + 1} 位貴賓的指定方式`, "weight": "bold", "size": "md", "align": "center", "color": "#1DB446" },
+        { "type": "text", "text": `💆 請選擇特別要求`, "weight": "bold", "size": "md", "align": "center", "color": "#1DB446" },
         { "type": "separator", "margin": "md" },
-        { "type": "button", "style": "secondary", "margin": "sm", "action": { "type": "postback", "label": "👨 指定男師傅", "data": `GuestPref:${guestIndex}:MALE`, "displayText": "👨 指定男師傅" } },
-        { "type": "button", "style": "primary", "color": "#333333", "margin": "sm", "action": { "type": "postback", "label": "👉 指定特定號碼", "data": `GuestPref:${guestIndex}:SPECIFIC`, "displayText": "👉 指定特定號碼" } },
-        { "type": "button", "style": "secondary", "margin": "sm", "action": { "type": "postback", "label": "👩 指定女師傅 (無油)", "data": `GuestPref:${guestIndex}:FEMALE`, "displayText": "👩 指定女師傅 (無油)" } }
+        { "type": "button", "style": "secondary", "margin": "sm", "action": { "type": "postback", "label": "👨 指定男師傅", "data": `GuestPrefGroup:MALE`, "displayText": "👨 指定男師傅" } },
+        { "type": "button", "style": "secondary", "margin": "sm", "action": { "type": "postback", "label": "👩 指定女師傅", "data": `GuestPrefGroup:FEMALE`, "displayText": "👩 指定女師傅" } }
     ];
     
     const SERVICES = SheetService.getServices();
     const serviceType = SERVICES[s.service] ? SERVICES[s.service].category : '';
     if (serviceType !== 'FOOT') {
-        buttons.push({ "type": "button", "style": "primary", "color": "#E91E63", "margin": "sm", "action": { "type": "postback", "label": `💧 指定女師傅推油 (+$${getConfig().FINANCE.OIL_BONUS})`, "data": `GuestPref:${guestIndex}:OIL`, "displayText": `💧 指定女師傅推油 (+$${getConfig().FINANCE.OIL_BONUS})` } });
+        buttons.push({ "type": "button", "style": "primary", "color": "#E91E63", "margin": "sm", "action": { "type": "postback", "label": `💧 師傅推油 (+$${getConfig().FINANCE.OIL_BONUS})`, "data": `GuestPrefGroup:OIL`, "displayText": `💧 師傅推油 (+$${getConfig().FINANCE.OIL_BONUS})` } });
     } else {
         buttons.push({ "type": "text", "text": "(足底按摩無油壓選項)", "size": "xs", "color": "#aaaaaa", "align": "center", "margin": "sm" });
     }
+
+    buttons.push({ "type": "button", "style": "primary", "color": "#333333", "margin": "sm", "action": { "type": "postback", "label": "👉 指定特定號碼", "data": `GuestPrefGroup:SPECIFIC`, "displayText": "👉 指定特定號碼" } });
     
-    return client.replyMessage(event.replyToken, { type: 'flex', altText: `第 ${guestIndex + 1} 位師傅需求`, contents: { "type": "bubble", "body": { "type": "box", "layout": "vertical", "contents": buttons } } });
+    return client.replyMessage(event.replyToken, { type: 'flex', altText: `請選擇特別要求`, contents: { "type": "bubble", "body": { "type": "box", "layout": "vertical", "contents": buttons } } });
+}
+
+function askOilGender(userId, event, client) {
+    const buttons = [
+        { "type": "text", "text": `💆 請問先生還是小姐要油推？`, "weight": "bold", "size": "md", "align": "center", "color": "#1DB446" },
+        { "type": "separator", "margin": "md" },
+        { "type": "button", "style": "secondary", "margin": "sm", "action": { "type": "postback", "label": "先生", "data": `GuestPrefGroup:OIL_MALE`, "displayText": "先生" } },
+        { "type": "button", "style": "primary", "color": "#E91E63", "margin": "sm", "action": { "type": "postback", "label": "小姐", "data": `GuestPrefGroup:OIL_FEMALE`, "displayText": "小姐" } }
+    ];
+    return client.replyMessage(event.replyToken, { type: 'flex', altText: `請問先生還是小姐要油推？`, contents: { "type": "bubble", "body": { "type": "box", "layout": "vertical", "contents": buttons } } });
 }
 
 async function proceedAfterGuestPrefs(userId, event, client) {
@@ -1573,68 +1606,85 @@ async function handleEvent(event) {
 
     if (text.startsWith('Pax:')) {
         if (!userState[userId]) return client.replyMessage(event.replyToken, { type: 'text', text: '⚠️ 連線逾時，請重新點擊「立即預約」。' });
-        const num = parseInt(text.split(':')[1]); const currentState = userState[userId]; currentState.pax = num; currentState.guestPrefs = []; currentState.step = 'GUASHA'; userState[userId] = currentState;
-        return askGuaSha(userId, 0, event, client);
+        const num = parseInt(text.split(':')[1]); const currentState = userState[userId]; currentState.pax = num; currentState.guestPrefs = []; currentState.step = 'GUASHA_GROUP'; userState[userId] = currentState;
+        return askGuaShaGroup(userId, event, client);
     }
 
-    if (text.startsWith('GuaSha:')) {
+    if (text.startsWith('GuaShaGroup:')) {
         if (!userState[userId]) return client.replyMessage(event.replyToken, { type: 'text', text: '⚠️ 連線逾時，請重新點擊「立即預約」。' });
-        const parts = text.split(':');
-        const gIdx = parseInt(parts[1]);
-        const choice = parts[2];
-        const s = userState[userId];
-        
-        s.guestPrefs[gIdx] = s.guestPrefs[gIdx] || {};
-        s.guestPrefs[gIdx].isGuaSha = (choice === 'YES');
-        
-        s.step = 'HAS_PREF';
-        return askHasPref(userId, gIdx, event, client);
-    }
-
-    if (text.startsWith('HasPref:')) {
-        if (!userState[userId]) return client.replyMessage(event.replyToken, { type: 'text', text: '⚠️ 連線逾時，請重新點擊「立即預約」。' });
-        const parts = text.split(':');
-        const gIdx = parseInt(parts[1]);
-        const choice = parts[2];
+        const choice = text.split(':')[1];
         const s = userState[userId];
         
         if (choice === 'NO') {
-            s.guestPrefs[gIdx] = s.guestPrefs[gIdx] || {};
-            s.guestPrefs[gIdx].type = 'RANDOM';
-            if (gIdx + 1 < s.pax) {
-                s.step = 'GUASHA';
-                return askGuaSha(userId, gIdx + 1, event, client);
-            } else {
-                return proceedAfterGuestPrefs(userId, event, client);
+            for (let i = 0; i < s.pax; i++) {
+                s.guestPrefs[i] = s.guestPrefs[i] || {};
+                s.guestPrefs[i].isGuaSha = false;
             }
-        } else if (choice === 'YES') {
-            s.step = 'GUEST_PREF';
-            return askGuestPref(userId, gIdx, event, client);
+            s.step = 'HAS_PREF_GROUP';
+            return askHasPrefGroup(userId, event, client);
+        } else {
+            if (s.pax === 1) {
+                s.guestPrefs[0] = s.guestPrefs[0] || {};
+                s.guestPrefs[0].isGuaSha = true;
+                s.step = 'HAS_PREF_GROUP';
+                return askHasPrefGroup(userId, event, client);
+            } else {
+                s.step = 'GUASHA_COUNT';
+                return askGuaShaCount(userId, event, client);
+            }
         }
     }
 
-    if (text.startsWith('GuestPref:')) {
+    if (text.startsWith('GuaShaCount:')) {
         if (!userState[userId]) return client.replyMessage(event.replyToken, { type: 'text', text: '⚠️ 連線逾時，請重新點擊「立即預約」。' });
-        const parts = text.split(':');
-        const gIdx = parseInt(parts[1]);
-        const pref = parts[2];
+        const count = parseInt(text.split(':')[1]);
         const s = userState[userId];
         
-        if (pref === 'SPECIFIC') {
+        for (let i = 0; i < s.pax; i++) {
+            s.guestPrefs[i] = s.guestPrefs[i] || {};
+            s.guestPrefs[i].isGuaSha = (i < count);
+        }
+        
+        s.step = 'HAS_PREF_GROUP';
+        return askHasPrefGroup(userId, event, client);
+    }
+
+    if (text.startsWith('HasPrefGroup:')) {
+        if (!userState[userId]) return client.replyMessage(event.replyToken, { type: 'text', text: '⚠️ 連線逾時，請重新點擊「立即預約」。' });
+        const choice = text.split(':')[1];
+        const s = userState[userId];
+        
+        if (choice === 'NO') {
+            for (let i = 0; i < s.pax; i++) {
+                s.guestPrefs[i] = s.guestPrefs[i] || {};
+                s.guestPrefs[i].type = 'RANDOM';
+            }
+            return proceedAfterGuestPrefs(userId, event, client);
+        } else if (choice === 'YES') {
+            s.step = 'GUEST_PREF_GROUP';
+            return askGuestPrefGroup(userId, event, client);
+        }
+    }
+
+    if (text.startsWith('GuestPrefGroup:')) {
+        if (!userState[userId]) return client.replyMessage(event.replyToken, { type: 'text', text: '⚠️ 連線逾時，請重新點擊「立即預約」。' });
+        const pref = text.split(':')[1];
+        const s = userState[userId];
+        
+        if (pref === 'OIL') {
+            s.step = 'OIL_GENDER';
+            return askOilGender(userId, event, client);
+        } else if (pref === 'SPECIFIC') {
             s.step = 'GUEST_STAFF';
-            s.currentGuestIndex = gIdx;
             const bubbles = createStaffBubbles(false, []); 
-            bubbles.forEach((b) => { b.body.contents[0].text = `選第 ${gIdx + 1} 位技師`; b.body.contents[0].color = "#E91E63"; });
+            bubbles.forEach((b) => { b.body.contents[0].text = `請選擇指定技師`; b.body.contents[0].color = "#E91E63"; });
             return client.replyMessage(event.replyToken, { type: 'flex', altText: 'Select Staff', contents: { type: 'carousel', contents: bubbles } });
         } else {
-            s.guestPrefs[gIdx] = s.guestPrefs[gIdx] || {};
-            s.guestPrefs[gIdx].type = pref;
-            if (gIdx + 1 < s.pax) {
-                s.step = 'GUASHA';
-                return askGuaSha(userId, gIdx + 1, event, client);
-            } else {
-                return proceedAfterGuestPrefs(userId, event, client);
+            for (let i = 0; i < s.pax; i++) {
+                s.guestPrefs[i] = s.guestPrefs[i] || {};
+                s.guestPrefs[i].type = pref;
             }
+            return proceedAfterGuestPrefs(userId, event, client);
         }
     }
     
@@ -1642,7 +1692,6 @@ async function handleEvent(event) {
         if (!userState[userId] || userState[userId].step !== 'GUEST_STAFF') return Promise.resolve(null);
         const staffId = text.split(':')[1]; 
         const s = userState[userId];
-        const gIdx = s.currentGuestIndex;
         
         // KIỂM TRA THỢ CÓ NHẬN CHỈ ĐỊNH KHÔNG
         const staffList = SheetService.getStaffList();
@@ -1651,16 +1700,17 @@ async function handleEvent(event) {
             return client.replyMessage(event.replyToken, { type: 'text', text: `⚠️ ${staffObj.name}老師無法接收勞點，請重新選擇或不指定。` });
         }
 
-        s.guestPrefs[gIdx] = s.guestPrefs[gIdx] || {};
-        s.guestPrefs[gIdx].type = 'SPECIFIC';
-        s.guestPrefs[gIdx].staffId = staffId;
-        
-        if (gIdx + 1 < s.pax) {
-            s.step = 'GUASHA';
-            return askGuaSha(userId, gIdx + 1, event, client);
-        } else {
-            return await proceedAfterGuestPrefs(userId, event, client);
+        for (let i = 0; i < s.pax; i++) {
+            s.guestPrefs[i] = s.guestPrefs[i] || {};
+            if (i === 0) {
+                s.guestPrefs[i].type = 'SPECIFIC';
+                s.guestPrefs[i].staffId = staffId;
+            } else {
+                s.guestPrefs[i].type = 'RANDOM';
+            }
         }
+        
+        return await proceedAfterGuestPrefs(userId, event, client);
     }
 
     if (text.startsWith('TravelTime:')) {
@@ -1761,12 +1811,18 @@ async function handleEvent(event) {
             } else if (pref.type === 'MALE') {
                 sId = '男';
                 staffDisplayParts.push('男師傅');
-            } else if (pref.type === 'OIL') {
+            } else if (pref.type === 'OIL' || pref.type === 'OIL_FEMALE') {
                 sId = '女';
                 isOilForGuest = true;
                 anyOil = true;
                 totalOilPremium += getConfig().FINANCE.OIL_BONUS;
                 staffDisplayParts.push('女師傅(油)');
+            } else if (pref.type === 'OIL_MALE') {
+                sId = '隨機';
+                isOilForGuest = true;
+                anyOil = true;
+                totalOilPremium += getConfig().FINANCE.OIL_BONUS;
+                staffDisplayParts.push('隨機(油)');
             } else if (pref.type === 'SPECIFIC') {
                 sId = pref.staffId;
                 staffDisplayParts.push(sId);
@@ -1779,13 +1835,13 @@ async function handleEvent(event) {
                 resourceStaffId = s.selectedStaff[i];
             } else if (pref.type === 'SPECIFIC') {
                 resourceStaffId = pref.staffId;
-            } else if (pref.type === 'FEMALE' || pref.type === 'OIL') {
+            } else if (pref.type === 'FEMALE' || pref.type === 'OIL' || pref.type === 'OIL_FEMALE') {
                 resourceStaffId = 'FEMALE';
             } else if (pref.type === 'MALE') {
                 resourceStaffId = 'MALE';
             }
 
-            guestList.push({ serviceCode: s.service, staffName: resourceStaffId, flow: null });
+            guestList.push({ serviceCode: s.service, staffName: resourceStaffId, flow: null, isYouTui: isOilForGuest, isGuaSha: isGuaSha });
             
             guestDetails.push({
                 service: SERVICES[s.service].name,

@@ -1,6 +1,4 @@
-﻿const fs = require('fs');
-
-const code = \const { test, expect } = require('@playwright/test');
+const { test, expect } = require('@playwright/test');
 
 test('Verify Realtime Start Logic For Combo', async ({ page }) => {
   const uniqueId = Date.now().toString().slice(-3);
@@ -14,14 +12,14 @@ test('Verify Realtime Start Logic For Combo', async ({ page }) => {
   const year = today.getFullYear();
   const month = String(today.getMonth() + 1).padStart(2, '0');
   const day = String(today.getDate()).padStart(2, '0');
-  const dateStr = \\/\/\\;
+  const dateStr = `${year}/${month}/${day}`;
 
   const mockBooking = {
     rowId: 9999,
-    startTimeString: \\ 01:00\,
-    startTime: "01:00",
-    booking_time: "01:00",
-    start_time_str: "01:00",
+    startTimeString: `${dateStr} 12:00`,
+    startTime: "12:00",
+    booking_time: "12:00",
+    start_time_str: "12:00",
     duration: 100,
     type: "BED",
     category: "COMBO",
@@ -40,9 +38,9 @@ test('Verify Realtime Start Logic For Combo', async ({ page }) => {
     status: "已預約",
     isRunning: false,
     phase1_duration: 60,
-    transition_time: "02:00",
+    transition_time: "13:00",
     phase2_duration: 40,
-    finish_time: "02:40",
+    finish_time: "13:40",
     isManualLocked: true,
     flow: "FB",
     phase1_res_idx: "CHAIR-1-1",
@@ -59,7 +57,6 @@ test('Verify Realtime Start Logic For Combo', async ({ page }) => {
       const data = route.request().postDataJSON();
       if (data && data.customerName === testName) {
         interceptedPayload = data;
-        // Mock a success response
         await route.fulfill({ json: { success: true } });
         return;
       }
@@ -67,23 +64,24 @@ test('Verify Realtime Start Logic For Combo', async ({ page }) => {
     await route.continue();
   });
 
-  // Mock get-system-state to include our booking
   await page.route('**/api/get-system-state*', async route => {
     const response = await route.fetch();
-    let json;
+    let json = {};
     try {
       json = await response.json();
-    } catch (e) {
-      json = { bookings: [] };
-    }
+    } catch (e) {}
+    
     if (!json.bookings) json.bookings = [];
     json.bookings.push(mockBooking);
+    
+    // Convert back to string because the original might have been Big5, 
+    // but playwright mock replaces the whole response payload with UTF-8 JSON.
+    // The frontend should be able to parse standard JSON response.
     await route.fulfill({ response, json });
   });
 
   await page.goto('http://localhost:5001/admin2/index.html');
   
-  // Wait for the booking to appear on the grid
   const newBooking = page.getByText(testName).first();
   await expect(newBooking).toBeVisible({ timeout: 15000 });
 
@@ -101,6 +99,3 @@ test('Verify Realtime Start Logic For Combo', async ({ page }) => {
   expect(interceptedPayload.phaseStartTime).toBeDefined();
   console.log('Realtime Start Test Passed! phaseStartTime:', interceptedPayload.phaseStartTime);
 });
-\;
-
-fs.writeFileSync('tests/test_realtime_start_combo.spec.js', code, 'utf8');
