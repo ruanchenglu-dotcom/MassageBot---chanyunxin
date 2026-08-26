@@ -2279,8 +2279,7 @@ async function batchUpdateMultipleBookings(updatesArray) {
             const staff3 = body['服務師傅3'] || body.ServiceStaff3 || body.staff3 || body.staffId3;
             if (staff3 !== undefined) dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!O${rowId}`, values: [[staff3]] });
 
-            if (body.staff1_blocks !== undefined) dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!N${rowId}`, values: [[body.staff1_blocks]] });
-            if (body.staff2_blocks !== undefined) dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!O${rowId}`, values: [[body.staff2_blocks]] });
+            // [Removed] Không ghi staff1_blocks và staff2_blocks vào batch update để tránh đè lên tên thợ (Cột N, O)
 
             if (body.isGuaSha !== undefined) dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!AW${rowId}`, values: [[body.isGuaSha ? "Yes" : ""]] });
             if (body.adminNote !== undefined) dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!AX${rowId}`, values: [[body.adminNote]] });
@@ -2323,6 +2322,7 @@ async function batchUpdateMultipleBookings(updatesArray) {
             if (body.transfer !== undefined) dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!U${rowId}`, values: [[body.transfer]] });
             if (body.voucher !== undefined) dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!V${rowId}`, values: [[body.voucher]] });
             if (body.checkout_status !== undefined) dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!W${rowId}`, values: [[body.checkout_status]] });
+            if (body.checkout_time !== undefined) dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!AU${rowId}`, values: [[body.checkout_time]] });
 
             let totalDuration = bookingData ? bookingData.duration : (safeParseInt(body.duration, 60));
             let currentLockState = bookingData ? bookingData.isManualLocked : false;

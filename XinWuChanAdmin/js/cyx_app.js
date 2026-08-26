@@ -3742,14 +3742,7 @@ const App = () => {
                     const blocks = getServiceBlocks(b.serviceName);
                     checkoutStaffInfo.push({ staffId: cleanStaffId, duration, blocks });
 
-                    // [Nâng cấp] Ghi nhận số tiết cho ca bình thường
-                    if (!isInlineSplit) {
-                        if (targetIndex === 0) {
-                            updatesByRow[rid].staff1_blocks = blocks;
-                        } else if (targetIndex === 1) {
-                            updatesByRow[rid].staff2_blocks = blocks;
-                        }
-                    }
+                    // [Removed] Không ghi nhận số tiết lúc thanh toán để tránh bị thừa và gây lỗi cột N
                 }
 
                 if (resId && newState[resId]) {
@@ -3778,9 +3771,19 @@ const App = () => {
             // Ghi đè kết quả lên newStatusData
             Object.assign(newStatusData, finalStatusData);
 
+            // Lấy thời gian thanh toán (múi giờ Đài Bắc)
+            const nowObj = window.getTaipeiDate ? window.getTaipeiDate() : new Date();
+            const checkoutTimeStr = nowObj.getFullYear() + '/' + 
+                String(nowObj.getMonth() + 1).padStart(2, '0') + '/' + 
+                String(nowObj.getDate()).padStart(2, '0') + ' ' + 
+                String(nowObj.getHours()).padStart(2, '0') + ':' + 
+                String(nowObj.getMinutes()).padStart(2, '0') + ':' + 
+                String(nowObj.getSeconds()).padStart(2, '0');
+
             Object.values(updatesByRow).forEach(updatePayload => {
                 // Chỉ ghi 已結帳 vào cột W (thông qua checkout_status), KHÔNG cập nhật mainStatus
                 updatePayload.checkout_status = '已結帳';
+                updatePayload.checkout_time = checkoutTimeStr;
                 
                 if (updatePayload.originalBooking !== undefined) {
                     delete updatePayload.originalBooking;

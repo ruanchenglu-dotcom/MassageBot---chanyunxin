@@ -1015,8 +1015,8 @@ async function updateBookingDetails(body) {
         updateCell('M', staff3);
     }
 
-    if (body.staff1_blocks !== undefined) updateCell('N', body.staff1_blocks);
-    if (body.staff2_blocks !== undefined) updateCell('O', body.staff2_blocks);
+    if (body.staff1_blocks !== undefined) updateCell('P', body.staff1_blocks);
+    if (body.staff2_blocks !== undefined) updateCell('Q', body.staff2_blocks);
 
     if (body.isGuaSha !== undefined) {
         // Chuyển isGuaSha ra khỏi Q để không đè Giá Tiền
@@ -1562,8 +1562,7 @@ async function batchUpdateMultipleBookings(updatesArray) {
             const staff3 = body['服務師傅3'] || body.ServiceStaff3 || body.staff3 || body.staffId3;
             if (staff3 !== undefined) dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!M${rowId}`, values: [[staff3]] });
 
-            if (body.staff1_blocks !== undefined) dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!N${rowId}`, values: [[body.staff1_blocks]] });
-            if (body.staff2_blocks !== undefined) dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!O${rowId}`, values: [[body.staff2_blocks]] });
+            // [Removed] Không ghi staff1_blocks và staff2_blocks vào batch update để tránh đè lên tên thợ (Cột N, O)
 
             if (body.isGuaSha !== undefined) dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!AW${rowId}`, values: [[body.isGuaSha ? "Yes" : ""]] });
             if (body.adminNote !== undefined) dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!AX${rowId}`, values: [[body.adminNote]] });
@@ -1572,6 +1571,7 @@ async function batchUpdateMultipleBookings(updatesArray) {
             if (flowVal !== undefined) dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!Z${rowId}`, values: [[flowVal]] });
 
             if (body.checkout_status !== undefined) dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!W${rowId}`, values: [[body.checkout_status]] });
+            if (body.checkout_time !== undefined) dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!AU${rowId}`, values: [[body.checkout_time]] });
 
             let phase1Res = body.phase1_res_idx !== undefined ? body.phase1_res_idx : (body.phase1_resource !== undefined ? body.phase1_resource : body.phase1Resource);
             
