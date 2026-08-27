@@ -2349,6 +2349,12 @@ async function batchUpdateMultipleBookings(updatesArray) {
 
             // --- V1.6 NÂNG CẤP: Tính toán Z, AC, AE ---
             let newStartVal = body.startTime || body.startTimeString || body.gioDen || (bookingData ? (bookingData.startTimeString || bookingData.startTime) : null);
+            
+            // [NÂNG CẤP REALTIME START] Ghi đè giờ bắt đầu bằng thời gian thực tế
+            if (body.isRealtimeStart && body.phaseStartTime) {
+                newStartVal = body.phaseStartTime;
+            }
+
             if (newStartVal) {
                 let timeVal = String(newStartVal); if (timeVal.includes(' ')) timeVal = timeVal.split(' ')[1];
                 if (timeVal.length > 5) timeVal = timeVal.substring(0, 5);
@@ -2368,6 +2374,24 @@ async function batchUpdateMultipleBookings(updatesArray) {
                     const isComboCalc = (finalFlow === 'FB' || finalFlow === 'BF');
                     const transitionBuffer = isComboCalc ? (typeof ResourceCore !== 'undefined' && ResourceCore.CONFIG ? ResourceCore.CONFIG.TRANSITION_BUFFER : 3) : 0;
                     
+                    // [NÂNG CẤP REALTIME START] Tính lại phase1_duration để giữ nguyên transition_time
+                    if (body.isRealtimeStart && (body.transition_time || (bookingData && bookingData.transition_time))) {
+                        const originalTransTime = body.transition_time || bookingData.transition_time;
+                        const transMins = typeof ResourceCore !== 'undefined' ? ResourceCore.getMinsFromTimeStr(originalTransTime) : -1;
+                        if (transMins !== -1) {
+                            p1Dur = transMins - startMins - transitionBuffer;
+                            if (p1Dur < 0) p1Dur = 0; // Tránh âm
+                            p2Dur = totalDuration - p1Dur;
+                            if (p2Dur < 0) p2Dur = 0;
+                            dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!AC${rowId}`, values: [[p1Dur]] });
+                            dataToUpdate.push({ range: `${BOOKING_SHEET_NAME}!AE${rowId}`, values: [[p2Dur]] });
+                            if (bookingData) {
+                                bookingData.phase1_duration = p1Dur;
+                                bookingData.phase2_duration = p2Dur;
+                            }
+                        }
+                    }
+
                     let calcTransitionTime = null;
                     if (isComboCalc) {
                         if (body.transition_time !== undefined && body.transition_time !== null) {
