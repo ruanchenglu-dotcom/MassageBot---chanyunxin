@@ -3077,8 +3077,10 @@ const App = () => {
             const totalDur = current.booking.duration || 100;
             const split = getSmartSplit(current.booking, totalDur, true, comboMeta.sequence);
             localOverridesRef.current[rowIdStr].flow = comboMeta.sequence;
-            localOverridesRef.current[rowIdStr].phase1_duration = split.phase1;
-            localOverridesRef.current[rowIdStr].phase2_duration = split.phase2;
+            if (!window.USE_REALTIME_START) {
+                localOverridesRef.current[rowIdStr].phase1_duration = split.phase1;
+                localOverridesRef.current[rowIdStr].phase2_duration = split.phase2;
+            }
             localOverridesRef.current[rowIdStr].phase1_res_idx = currentId.toUpperCase();
             if (comboMeta.targetId) localOverridesRef.current[rowIdStr].phase2_res_idx = comboMeta.targetId.toUpperCase();
         }
@@ -3369,8 +3371,10 @@ const App = () => {
             if (isComboService && newComboMeta) {
                 const split = getSmartSplit(current.booking, current.booking.duration || 100, true, newComboMeta.sequence);
                 localOverridesRef.current[rowIdStr].flow = newComboMeta.sequence;
-                localOverridesRef.current[rowIdStr].phase1_duration = split.phase1;
-                localOverridesRef.current[rowIdStr].phase2_duration = split.phase2;
+                if (!window.USE_REALTIME_START) {
+                    localOverridesRef.current[rowIdStr].phase1_duration = split.phase1;
+                    localOverridesRef.current[rowIdStr].phase2_duration = split.phase2;
+                }
                 localOverridesRef.current[rowIdStr].phase1_res_idx = resourceId.toUpperCase();
                 if (newComboMeta.targetId) localOverridesRef.current[rowIdStr].phase2_res_idx = newComboMeta.targetId.toUpperCase();
             }

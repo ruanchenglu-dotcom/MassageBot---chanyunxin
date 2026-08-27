@@ -6,7 +6,6 @@ test('Verify Realtime Start Logic For Batch Start (Bắt đầu nhóm)', async (
   const testName1 = 'AutoBatch' + uniqueId + ' (1/2)';
   const testName2 = 'AutoBatch' + uniqueId + ' (2/2)';
   
-  // Format today's date in YYYY/MM/DD using Taipei time equivalent logic
   const today = new Date();
   if (today.getHours() < 8) {
     today.setDate(today.getDate() - 1);
@@ -106,7 +105,6 @@ test('Verify Realtime Start Logic For Batch Start (Bắt đầu nhóm)', async (
     await route.continue();
   });
 
-  // Mock /api/info
   await page.route('**/api/info*', async route => {
     const response = await route.fetch();
     let json = {};
@@ -114,35 +112,73 @@ test('Verify Realtime Start Logic For Batch Start (Bắt đầu nhóm)', async (
       json = await response.json();
     } catch (e) {}
     
-    // bookings is an object in /api/info
-    if (!json.bookings) json.bookings = {};
-    json.bookings['8888'] = mockBooking1;
-    json.bookings['8889'] = mockBooking2;
+    if (!json.bookings) json.bookings = [];
+    
+    // Inject the current date dynamically based on the first booking returned by backend, to avoid timezone mismatch
+    let firstBookingDate = dateStr;
+    if (json.bookings && json.bookings.length > 0) {
+      firstBookingDate = json.bookings[0].opDate || json.bookings[0].date || dateStr;
+    }
+    
+    mockBooking1.opDate = firstBookingDate;
+    mockBooking1.date = firstBookingDate;
+    mockBooking1.startTimeString = `${firstBookingDate} 12:00`;
+    
+    mockBooking2.opDate = firstBookingDate;
+    mockBooking2.date = firstBookingDate;
+    mockBooking2.startTimeString = `${firstBookingDate} 12:00`;
+
+    // Ensure it's an array if the new backend structure uses array
+    if (Array.isArray(json.bookings)) {
+        json.bookings.push(mockBooking1);
+        json.bookings.push(mockBooking2);
+    } else {
+        json.bookings['8888'] = mockBooking1;
+        json.bookings['8889'] = mockBooking2;
+    }
+    
+    const isRunning = route.request().url().includes('forceSync=true');
+    if (isRunning) {
+        if (Array.isArray(json.bookings)) {
+            const b1 = json.bookings.find(x => x.rowId === 8888 || x.rowId === '8888');
+            if (b1) { b1.isRunning = true; b1.status = 'Serving'; }
+            const b2 = json.bookings.find(x => x.rowId === 8889 || x.rowId === '8889');
+            if (b2) { b2.isRunning = true; b2.status = 'Serving'; }
+        }
+        
+        if (!json.resourceState) json.resourceState = {};
+        json.resourceState["CHAIR-1-2"] = { isRunning: true, booking: mockBooking1 };
+        json.resourceState["CHAIR-1-3"] = { isRunning: true, booking: mockBooking2 };
+    }
     
     await route.fulfill({ response, json });
   });
 
-  // Open the page
-  await page.goto('http://localhost:5001/admin2/index.html');
+  // MUST use /admin because /admin2 is obsolete
+  await page.goto('http://localhost:5001/admin');
   
-  // Đợi render
   const booking1 = page.locator(`text=${testName1}`).first();
   await expect(booking1).toBeVisible({ timeout: 15000 });
+  
+  const block = booking1.locator('..').locator('..');
+  let widthStr = await block.evaluate(el => el.style.width);
+  let widthNum = parseFloat(widthStr.replace('px', ''));
+  console.log(`Before Start: Width = ${widthStr}`);
 
-  // Nhấn vào khách (1/2) để hiện modal nhóm
   await booking1.click();
 
-  // Nhấn nút "Bắt đầu nhóm"
-  const batchStartBtn = page.locator('button').filter({ hasText: '同組開始' }).first();
+  // Try both possible button texts
+  let batchStartBtn = page.locator('button').filter({ hasText: '同組開始' }).first();
+  if (await batchStartBtn.count() === 0) {
+      batchStartBtn = page.locator('button').filter({ hasText: '同步開始' }).first();
+  }
   await expect(batchStartBtn).toBeVisible();
   await batchStartBtn.click();
   
-  // Nhấn xác nhận trong Swal
   const confirmBtn = page.locator('.swal2-confirm');
   await expect(confirmBtn).toBeVisible();
   await confirmBtn.click();
 
-  // Chờ network
   await page.waitForTimeout(3000);
 
   expect(interceptedPayloads).not.toBeNull();
@@ -152,6 +188,12 @@ test('Verify Realtime Start Logic For Batch Start (Bắt đầu nhóm)', async (
   expect(ourPayload).toBeDefined();
   expect(ourPayload.isRealtimeStart).toBe(true);
   expect(ourPayload.phaseStartTime).toBeDefined();
+  
+  widthStr = await block.evaluate(el => el.style.width);
+  widthNum = parseFloat(widthStr.replace('px', ''));
+  console.log(`After Start: Width = ${widthStr}`);
+  // Verification that optimistic UI bug is fixed (should be close to 132 for 60 mins)
+  expect(Math.abs(widthNum - 132)).toBeLessThan(2.0);
   
   console.log('Realtime BATCH Start Test Passed! phaseStartTime:', ourPayload.phaseStartTime);
 });
