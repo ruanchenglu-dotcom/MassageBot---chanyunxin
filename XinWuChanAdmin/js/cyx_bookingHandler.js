@@ -2356,6 +2356,19 @@
                 const m = String(now.getMonth() + 1).padStart(2, '0');
                 const d = String(now.getDate()).padStart(2, '0');
                 baseDateStr = `${y}-${m}-${d}`;
+            } else if (!editingBooking) {
+                // Nếu đang tạo lịch mới từ Gantt chart, kiểm tra thời gian hiện tại
+                const timeStr = getRoundedCurrentTime();
+                const hr = parseInt(timeStr.split(':')[0], 10);
+                const openHour = window.SYSTEM_CONFIG?.OPERATION_TIME?.OPEN_HOUR || 8;
+                if (!isNaN(hr) && hr < openHour) {
+                    const tempD = new Date(baseDateStr.replace(/\//g, '-'));
+                    tempD.setDate(tempD.getDate() + 1);
+                    const y = tempD.getFullYear();
+                    const m = String(tempD.getMonth() + 1).padStart(2, '0');
+                    const d = String(tempD.getDate()).padStart(2, '0');
+                    baseDateStr = `${y}-${m}-${d}`;
+                }
             }
 
             return baseDateStr;

@@ -1327,11 +1327,10 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
     const normalizedQueryDate = normalizeDateStrict(dateStr);
     const hrReq = parseInt(timeStr.split(':')[0], 10);
     let shiftedQueryDate = normalizedQueryDate;
-    if (!isNaN(hrReq) && hrReq < (CONF.OPEN_HOUR || 6)) {
-        const tempD = new Date(normalizedQueryDate.replace(/\//g, '-'));
-        tempD.setDate(tempD.getDate() - 1);
-        shiftedQueryDate = normalizeDateStrict(tempD);
-    }
+    // LƯU Ý CA ĐÊM (OVERNIGHT SHIFT):
+    // Không thực hiện lùi ngày (Double-shift) ở đây nữa vì queryDateStr truyền vào (từ cyx_index.js) 
+    // ĐÃ LÀ Operation Date chuẩn. Backend Core sẽ tin tưởng tuyệt đối vào Operation Date này.
+
 
     const filteredBookings = currentBookingsRaw.filter(b => {
         if (!b || !b.startTimeString) return false;

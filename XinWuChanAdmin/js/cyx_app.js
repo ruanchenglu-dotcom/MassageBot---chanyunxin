@@ -5116,8 +5116,10 @@ const App = () => {
                 // Lấy ra các ca hiện tại của ngày hôm nay (không tính ca đã Cancel/Done)
                 const activeBookings = bookings.filter(b => {
                     if (b.isDoneStatus) return false;
-                    const bDateStr = b.startTimeString ? b.startTimeString.split(' ')[0].replace(/\//g, '-') : '';
-                    return bDateStr === viewDate.replace(/\//g, '-');
+                    if (!b.startTimeString) return false;
+                    const datePart = b.startTimeString.split(' ')[0];
+                    const timePart = b.startTimeString.split(' ')[1] || "12:00";
+                    return window.isWithinOperationalDay(datePart, timePart, viewDate);
                 });
 
                 // Vòng lặp so sánh Matrix Overlap
