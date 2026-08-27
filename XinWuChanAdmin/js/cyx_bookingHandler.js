@@ -2020,6 +2020,7 @@
                 return { feasible: false, reason: failMessage, debug: guardrailCheck ? guardrailCheck.debug : {} };
             }
         }
+    }
 
         return { checkRequestAvailability, setDynamicServices, getTimeStrFromMins, generateElasticSplits };
     })();
