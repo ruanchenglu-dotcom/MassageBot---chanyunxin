@@ -1300,8 +1300,20 @@ const App = () => {
                             tempState[key].comboMeta.phase = isPhase1 ? 1 : 2;
                         }
 
-                        if (isPhase1) durationUsed = split.phase1 + (tempState[key].comboMeta.flex || 0);
-                        else durationUsed = split.phase2;
+                        if (isPhase1) {
+                            if (b.transition_time) {
+                                const tMins = safeTimeToMins(b.transition_time);
+                                if (tMins !== -1) {
+                                    durationUsed = tMins - startMins;
+                                } else {
+                                    durationUsed = (b.phase1_duration !== undefined && b.phase1_duration !== null ? parseInt(b.phase1_duration, 10) : split.phase1) + (tempState[key].comboMeta.flex || 0);
+                                }
+                            } else {
+                                durationUsed = (b.phase1_duration !== undefined && b.phase1_duration !== null ? parseInt(b.phase1_duration, 10) : split.phase1) + (tempState[key].comboMeta.flex || 0);
+                            }
+                        } else {
+                            durationUsed = (b.phase2_duration !== undefined && b.phase2_duration !== null ? parseInt(b.phase2_duration, 10) : split.phase2);
+                        }
                     } else {
                         tempState[key].comboMeta = null;
                     }
@@ -1397,7 +1409,16 @@ const App = () => {
                             const origStart = safeTimeToMins(item.booking.startTimeString);
                             if (origStart !== -1) {
                                 p1Start = origStart;
-                                p1End = p1Start + p1Dur;
+                                if (item.booking.transition_time) {
+                                    const tMins = safeTimeToMins(item.booking.transition_time);
+                                    if (tMins !== -1) {
+                                        p1End = tMins;
+                                    } else {
+                                        p1End = p1Start + p1Dur;
+                                    }
+                                } else {
+                                    p1End = p1Start + p1Dur;
+                                }
                             }
                         }
 
@@ -1503,6 +1524,7 @@ const App = () => {
                             const transMins = safeTimeToMins(bookingItem.transition_time);
                             if (transMins !== -1) {
                                 p2Start = transMins;
+                                p1End = transMins;
                             }
                         }
                         
@@ -3077,7 +3099,7 @@ const App = () => {
             const totalDur = current.booking.duration || 100;
             const split = getSmartSplit(current.booking, totalDur, true, comboMeta.sequence);
             localOverridesRef.current[rowIdStr].flow = comboMeta.sequence;
-            if (!window.USE_REALTIME_START) {
+            if (!window.SYSTEM_CONFIG?.FEATURE_TOGGLES?.USE_REALTIME_START) {
                 localOverridesRef.current[rowIdStr].phase1_duration = split.phase1;
                 localOverridesRef.current[rowIdStr].phase2_duration = split.phase2;
             }
@@ -3371,7 +3393,7 @@ const App = () => {
             if (isComboService && newComboMeta) {
                 const split = getSmartSplit(current.booking, current.booking.duration || 100, true, newComboMeta.sequence);
                 localOverridesRef.current[rowIdStr].flow = newComboMeta.sequence;
-                if (!window.USE_REALTIME_START) {
+                if (!window.SYSTEM_CONFIG?.FEATURE_TOGGLES?.USE_REALTIME_START) {
                     localOverridesRef.current[rowIdStr].phase1_duration = split.phase1;
                     localOverridesRef.current[rowIdStr].phase2_duration = split.phase2;
                 }

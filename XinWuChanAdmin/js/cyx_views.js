@@ -2996,9 +2996,12 @@ const TimelineView = ({ timelineData, onEditPhase, liveStatusData, staffList, st
 
                                             let timeLabel = "";
                                             if (slot.meta && slot.meta.isCombo && slot.meta.phase === 1) {
-                                                const p1Dur = booking.phase1_duration || Math.round(duration / 2);
-                                                const switchStr = window.formatMinutesToTime(slot.start + p1Dur);
-                                                timeLabel = switchStr;
+                                                if (booking.transition_time) {
+                                                    timeLabel = booking.transition_time;
+                                                } else {
+                                                    const p1Dur = booking.phase1_duration || Math.round(duration / 2);
+                                                    timeLabel = window.formatMinutesToTime(slot.start + p1Dur);
+                                                }
                                             } else {
                                                 if (slot.meta && slot.meta.isCombo && slot.meta.phase === 2 && booking.transition_time) {
                                                     const transMins = window.safeTimeToMins(booking.transition_time);
