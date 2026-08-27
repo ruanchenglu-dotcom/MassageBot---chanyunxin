@@ -904,6 +904,7 @@
                     return triggerSmartFailure(`⚠️ 該時段技師與技能組合不足，無法滿足預約。${reasonDetail}`);
                 }
 
+            }
             // SIMULATION
             const simulationMap = JSON.parse(JSON.stringify(resourceMap));
             const suggestedLanes = {}; // [NEW V118.6]
@@ -2020,8 +2021,6 @@
                 return { feasible: false, reason: failMessage, debug: guardrailCheck ? guardrailCheck.debug : {} };
             }
         }
-    }
-
         return { checkRequestAvailability, setDynamicServices, getTimeStrFromMins, generateElasticSplits };
     })();
 
