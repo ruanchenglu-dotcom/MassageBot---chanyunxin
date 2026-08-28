@@ -731,6 +731,56 @@ const App = () => {
         return () => clearInterval(watchdog);
     }, [syncLock]);
 
+    // --- STAFF STATUS AUTO-TRANSITION WATCHDOG ---
+    useEffect(() => {
+        const staffWatchdog = setInterval(() => {
+            if (syncLock) return;
+            setStatusData(currentStatusData => {
+                if (!currentStatusData) return currentStatusData;
+                let hasChanges = false;
+                const newStatus = { ...currentStatusData };
+                const now = new Date();
+                const currentH = now.getHours();
+                const currentM = now.getMinutes();
+                const t = currentH * 60 + currentM;
+
+                Object.keys(newStatus).forEach(staffId => {
+                    const st = newStatus[staffId];
+                    if (st.outStart && st.outEnd) {
+                        const [sH, sM] = st.outStart.split(':').map(Number);
+                        const [eH, eM] = st.outEnd.split(':').map(Number);
+                        let startMins = sH * 60 + sM;
+                        let endMins = eH * 60 + eM;
+                        if (endMins <= startMins) endMins += 1440;
+                        
+                        let adjustedT = t;
+                        if (startMins >= 12*60 && t < 12*60) adjustedT += 1440;
+                        
+                        if (adjustedT >= startMins && adjustedT < endMins) {
+                            if (st.status !== 'OUT_SHORT') {
+                                hasChanges = true;
+                                newStatus[staffId] = { ...st, status: 'OUT_SHORT' };
+                            }
+                        } else if (adjustedT >= endMins) {
+                            if (st.status === 'OUT_SHORT' || st.outStart) {
+                                hasChanges = true;
+                                newStatus[staffId] = { ...st, status: (st.status === 'OUT_SHORT' ? 'READY' : st.status), outStart: null, outEnd: null };
+                            }
+                        }
+                    }
+                });
+
+                if (hasChanges) {
+                    axios.post('/api/sync-staff-status', newStatus).catch(() => {});
+                    return newStatus;
+                }
+                return currentStatusData;
+            });
+        }, 15000); // Check every 15s
+
+        return () => clearInterval(staffWatchdog);
+    }, [syncLock]);
+
     // 3. CORE LOGIC (FETCH & RENDER) 
     const fetchData = async (actionType = false) => {
         const isManual = actionType === true;

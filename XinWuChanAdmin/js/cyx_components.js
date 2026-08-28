@@ -653,9 +653,19 @@ const CheckInBoard = ({ staffList, statusData, onClose, onUpdateStatus, bookings
                 } else if (type === 'OUT') {
                     handleShiftChange(absenceData.staffId, 'outStart', time1);
                     handleShiftChange(absenceData.staffId, 'outEnd', time2);
+                    const now = new Date();
+                    const tNow = now.getHours() * 60 + now.getMinutes();
+                    const [sH, sM] = time1.split(':').map(Number);
+                    const tStart = sH * 60 + sM;
+                    let adjustedT = tNow;
+                    if (tStart >= 12*60 && tNow < 12*60) adjustedT += 1440;
+                    let newStatus = currentStatus.status;
+                    if (adjustedT >= tStart) {
+                        newStatus = 'OUT_SHORT';
+                    }
                     onUpdateStatus({
                         ...statusData,
-                        [absenceData.staffId]: { ...currentStatus, outStart: time1, outEnd: time2, status: 'OUT_SHORT' }
+                        [absenceData.staffId]: { ...currentStatus, outStart: time1, outEnd: time2, status: newStatus }
                     });
                 } else if (type === 'EARLY') {
                     const now = new Date();
@@ -754,9 +764,30 @@ const CheckInBoard = ({ staffList, statusData, onClose, onUpdateStatus, bookings
                                     </label>
                                 </div>
                                 <div className="col-span-3 flex items-center border-r pr-2 gap-2 justify-center">
-                                    <button onClick={() => setAbsenceData({ staffId: s.id, staffName: s.name, type: 'OUT' })} className="bg-yellow-100 text-yellow-700 hover:bg-yellow-200 shrink-0 w-10 h-10 rounded-full flex items-center justify-center font-bold shadow-sm" title="外出">
-                                        <i className="fas fa-walking text-lg"></i>
-                                    </button>
+                                    {(current.status === 'OUT_SHORT' || current.outStart) ? (
+                                        <button onClick={() => {
+                                            Swal.fire({
+                                                title: '技師已外出',
+                                                text: '確定要翻牌並提早返回嗎？',
+                                                icon: 'question',
+                                                showCancelButton: true,
+                                                confirmButtonText: '確定翻牌',
+                                                cancelButtonText: '取消'
+                                            }).then((res) => {
+                                                if (res.isConfirmed) {
+                                                    const newStatusData = { ...statusData };
+                                                    newStatusData[s.id] = { ...current, status: 'READY', outStart: null, outEnd: null };
+                                                    onUpdateStatus(newStatusData);
+                                                }
+                                            });
+                                        }} className="bg-green-100 text-green-700 hover:bg-green-200 shrink-0 w-10 h-10 rounded-full flex items-center justify-center font-bold shadow-sm" title="已外出 (點擊翻牌)">
+                                            <i className="fas fa-check text-lg"></i>
+                                        </button>
+                                    ) : (
+                                        <button onClick={() => setAbsenceData({ staffId: s.id, staffName: s.name, type: 'OUT' })} className="bg-yellow-100 text-yellow-700 hover:bg-yellow-200 shrink-0 w-10 h-10 rounded-full flex items-center justify-center font-bold shadow-sm" title="外出">
+                                            <i className="fas fa-walking text-lg"></i>
+                                        </button>
+                                    )}
                                     {(displayOutStart || displayOutEnd) && (
                                         <div className="flex flex-col text-xs font-bold text-orange-700 bg-orange-50 px-2 py-1 rounded border border-orange-200 whitespace-nowrap text-left leading-tight">
                                             <span>出: {displayOutStart}</span>
@@ -1270,9 +1301,30 @@ const StaffInfoModal = ({ staff, onClose, statusData, onUpdateStatus, staffList,
                                     <button onClick={() => setAbsenceData({ staffId: staff.id, staffName: staff.name, type: 'EARLY' })} className="bg-orange-100 text-orange-700 hover:bg-orange-200 px-3 py-1.5 rounded font-bold text-sm border border-orange-200">
                                         早退
                                     </button>
-                                    <button onClick={() => setAbsenceData({ staffId: staff.id, staffName: staff.name, type: 'OUT' })} className="bg-yellow-100 text-yellow-700 hover:bg-yellow-200 px-3 py-1.5 rounded font-bold text-sm border border-yellow-300">
-                                        外出
-                                    </button>
+                                    {(current.status === 'OUT_SHORT' || current.outStart) ? (
+                                        <button onClick={() => {
+                                            Swal.fire({
+                                                title: '技師已外出',
+                                                text: '確定要翻牌並提早返回嗎？',
+                                                icon: 'question',
+                                                showCancelButton: true,
+                                                confirmButtonText: '確定翻牌',
+                                                cancelButtonText: '取消'
+                                            }).then((res) => {
+                                                if (res.isConfirmed) {
+                                                    const newStatusData = { ...statusData };
+                                                    newStatusData[staff.id] = { ...current, status: 'READY', outStart: null, outEnd: null };
+                                                    onUpdateStatus(newStatusData);
+                                                }
+                                            });
+                                        }} className="bg-green-100 text-green-700 hover:bg-green-200 px-3 py-1.5 rounded font-bold text-sm border border-green-300">
+                                            已外出
+                                        </button>
+                                    ) : (
+                                        <button onClick={() => setAbsenceData({ staffId: staff.id, staffName: staff.name, type: 'OUT' })} className="bg-yellow-100 text-yellow-700 hover:bg-yellow-200 px-3 py-1.5 rounded font-bold text-sm border border-yellow-300">
+                                            外出
+                                        </button>
+                                    )}
                                     <button onClick={() => toggleEat(staff.id)} className={`${current.status === 'EAT' ? 'bg-orange-500 text-white border-transparent' : 'bg-gray-100 text-gray-700 border-gray-200'} hover:bg-orange-400 hover:text-white px-3 py-1.5 rounded font-bold text-sm border transition-colors flex items-center gap-1`}>
                                         <i className="fas fa-utensils"></i>用餐
                                     </button>
