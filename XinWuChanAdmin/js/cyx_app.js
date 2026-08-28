@@ -5483,6 +5483,7 @@ const App = () => {
                     staffList={staffList}
                     bookings={todaysBookings}
                     viewDate={viewDate}
+                    predictedAssignments={predictedAssignments}
                 />
             )}
         </div>

@@ -1214,7 +1214,7 @@ window.AvailabilityCheckModal = AvailabilityCheckModal;
 window.BillingModal = BillingModal;
 window.SplitStaffModal = SplitStaffModal;
 
-const StaffInfoModal = ({ staff, onClose, statusData, onUpdateStatus, staffList, bookings, viewDate }) => {
+const StaffInfoModal = ({ staff, onClose, statusData, onUpdateStatus, staffList, bookings, viewDate, predictedAssignments }) => {
     const [absenceData, setAbsenceData] = React.useState(null);
 
     const toggleCheckIn = (id) => {
@@ -1257,6 +1257,27 @@ const StaffInfoModal = ({ staff, onClose, statusData, onUpdateStatus, staffList,
     const shiftText = shiftStart && shiftEnd ? `${shiftStart}-${shiftEnd}` : (shiftStart || '未設定');
     const upcomingBookings = staff.upcomingDesignatedBookings || [];
 
+    let predictedTime = null;
+    if (predictedAssignments && bookings && Array.isArray(bookings)) {
+        const assignedBookings = bookings.filter(b => 
+            predictedAssignments[b.rowId || b.id] === staff.name || 
+            predictedAssignments[b.rowId || b.id] === staff.id
+        );
+        if (assignedBookings.length > 0) {
+            assignedBookings.sort((a, b) => {
+                const timeA = parseInt(a.startTimeMins || a.timeInMins || a.start_time || 0);
+                const timeB = parseInt(b.startTimeMins || b.timeInMins || b.start_time || 0);
+                return timeA - timeB;
+            });
+            const firstBooking = assignedBookings[0];
+            if (firstBooking.startTimeString) {
+                predictedTime = firstBooking.startTimeString.split(' ')[1];
+            } else if (firstBooking.time) {
+                predictedTime = firstBooking.time;
+            }
+        }
+    }
+
     return (
         <div className="fixed inset-0 bg-black/60 z-[9999] flex items-center justify-center p-4 animate__animated animate__fadeIn animate__faster" onClick={onClose}>
             <div className="bg-white rounded-xl shadow-2xl w-full max-w-md overflow-hidden" onClick={e => e.stopPropagation()}>
@@ -1277,9 +1298,16 @@ const StaffInfoModal = ({ staff, onClose, statusData, onUpdateStatus, staffList,
                 </div>
                 
                 <div className="p-5">
-                    <h3 className="text-gray-800 font-bold mb-3 border-b pb-2 flex items-center">
-                        <i className="fas fa-bolt text-yellow-500 mr-2"></i> 快速操作
-                    </h3>
+                    <div className="flex justify-between items-center mb-3 border-b pb-2">
+                        <h3 className="text-gray-800 font-bold flex items-center">
+                            <i className="fas fa-bolt text-yellow-500 mr-2"></i> 快速操作
+                        </h3>
+                        {predictedTime && (
+                            <span className="text-sm font-bold text-indigo-700 bg-indigo-50 px-2 py-1 rounded border border-indigo-100">
+                                可能接客人時間: {predictedTime}
+                            </span>
+                        )}
+                    </div>
                     <div className="flex flex-wrap gap-2 mb-5">
                         {(() => {
                             const current = (statusData && statusData[staff.id]) ? statusData[staff.id] : {};
