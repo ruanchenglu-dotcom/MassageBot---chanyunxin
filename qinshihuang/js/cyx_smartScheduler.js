@@ -1,5 +1,5 @@
 /**
- * 秦始皇 Smart Scheduler (CSP/Backtracking Algorithm)
+ * XinWuChan Smart Scheduler (CSP/Backtracking Algorithm)
  * Tự động sắp xếp lại lịch trình khi có xung đột (Drag & Drop)
  */
 
@@ -33,7 +33,16 @@ window.SmartScheduler = (function() {
         let prefix = 'CHAIR-1-';
         let maxCount = window.SYSTEM_CONFIG?.SCALE?.MAX_CHAIRS || 6;
 
-        if (rId.includes('CHAIR-2') || rId.includes('腳2')) {
+        if (rId.includes('OPP-CHAIR') || rId.includes('OPP_CHAIR')) {
+            prefix = 'CHAIR-2-';
+            maxCount = 0;
+        } else if (rId.includes('OPP-BED') || rId.includes('OPP_BED')) {
+            prefix = 'BED-2-';
+            maxCount = 0;
+        } else if (rId.includes('BED-2') || rId.includes('床2')) {
+            prefix = 'BED-2-';
+            maxCount = 0;
+        } else if (rId.includes('CHAIR-2') || rId.includes('腳2')) {
             prefix = 'CHAIR-2-';
             maxCount = 0;
         } else if (rId.includes('BED') || rId.includes('床')) {

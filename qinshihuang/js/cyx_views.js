@@ -691,7 +691,7 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
 
     const { availableP1Resources, p1ResourcesData } = useMemo(() => {
         const type = isBodyFirstLocal ? 'bed' : 'chair';
-        const isOpp = false;
+        const isOpp = booking?.location === '對面館';
         const prefix = isOpp ? `opp-${type}` : type;
         const maxCount = isOpp 
             ? (type === 'bed' ? getOppBeds() : getOppChairs())
@@ -1328,7 +1328,7 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
     const { availableP2Resources, p2ResourcesData } = useMemo(() => {
         const type = isBodyFirstLocal ? 'chair' : 'bed';
         const p2Start = switchMins + 5;
-        const isOpp = false;
+        const isOpp = booking?.location === '對面館';
         const prefix = isOpp ? `opp-${type}` : type;
         const maxCount = isOpp 
             ? (type === 'bed' ? getOppBeds() : getOppChairs())
@@ -1353,7 +1353,7 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
             type = contextResourceId.includes('chair') ? 'chair' : 'bed';
         }
 
-        const isOpp = false;
+        const isOpp = booking?.location === '對面館';
         const prefix = isOpp ? `opp-${type}` : type;
         const maxCount = isOpp 
             ? (type === 'bed' ? getOppBeds() : getOppChairs())
@@ -1477,9 +1477,8 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
             if (!isBound) return false;
 
             const bStart = timeStrToMins(b.startTime);
-            const openMins = getOpenMins();
-            const bStartAdjusted = bStart < openMins ? bStart + 1440 : bStart;
-            const currentMinsAdjusted = currentMins < openMins ? currentMins + 1440 : currentMins;
+            const bStartAdjusted = bStart < 360 ? bStart + 1440 : bStart;
+            const currentMinsAdjusted = currentMins < 360 ? currentMins + 1440 : currentMins;
 
             // Kiểm tra xem khoảng thời gian (currentMins -> currentMins + requiredMins) 
             // có lấn vào giờ bắt đầu của đơn kia không (bStart)
@@ -1520,7 +1519,7 @@ const BookingControlModal = ({ isOpen, onClose, onAction, booking, meta, liveDat
         e.stopPropagation();
         
         const currentLocation = booking.location || '本館';
-        const targetLocation = '本館';
+        const targetLocation = currentLocation === '本館' ? '對面館' : '本館';
 
         const safeBookings = Array.isArray(bookings) ? bookings : [];
         const groupMembers = safeBookings.filter(b => {
@@ -2735,12 +2734,19 @@ const TimelineView = ({ timelineData, onEditPhase, liveStatusData, staffList, st
     };
 
     let rows = [];
+    const c_prefix = branch === 'main' 
+        ? (window.SYSTEM_CONFIG?.UI_LABELS?.CHAIR_PREFIX1 || '腳1-')
+        : (window.SYSTEM_CONFIG?.UI_LABELS?.CHAIR_PREFIX2 || '腳2-');
+    const b_prefix = branch === 'main'
+        ? (window.SYSTEM_CONFIG?.UI_LABELS?.BED_PREFIX1 || '床1-')
+        : (window.SYSTEM_CONFIG?.UI_LABELS?.BED_PREFIX2 || '床2-');
+
     if (branch === 'main') {
         const numChairs = getMaxChairs();
         const numBeds = getMaxBeds();
         rows = [
-            ...Array.from({ length: numChairs }, (_, i) => ({ id: `CHAIR-1-${i + 1}`, label: `T2-Ghế ${i + 1}`, type: 'chair' })),
-            ...Array.from({ length: numBeds }, (_, i) => ({ id: `BED-1-${i + 1}`, label: (i+1) <= 6 ? `T3-Giường ${i + 1}` : `T4-Giường ${i + 1}`, type: 'bed' }))
+            ...Array.from({ length: numChairs }, (_, i) => ({ id: `CHAIR-1-${i + 1}`, label: `${c_prefix}${i + 1}`, type: 'chair' })),
+            ...Array.from({ length: numBeds }, (_, i) => ({ id: `BED-1-${i + 1}`, label: `${b_prefix}${i + 1}`, type: 'bed' }))
         ];
     } else {
         const oppChairs = getOppChairs();

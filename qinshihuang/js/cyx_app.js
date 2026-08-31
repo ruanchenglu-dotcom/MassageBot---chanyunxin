@@ -162,14 +162,14 @@ const MatrixHelper = {
     findBestSlot: (type, start, end, gridState, reservedTimes, preferredIndexOrId = null, ignoreRowId = null, preferOpposite = false) => {
         const typeUp = type.toUpperCase().includes('CHAIR') ? 'CHAIR' : 'BED';
         const limitMain = typeUp === 'CHAIR' ? (window.SYSTEM_CONFIG?.SCALE?.MAX_CHAIRS || 6) : (window.SYSTEM_CONFIG?.SCALE?.MAX_BEDS || 6);
-        const limitOpp = 0;
+        const limitOpp = typeUp === 'CHAIR' ? (window.SYSTEM_CONFIG?.SCALE?.OPP_CHAIRS || 4) : (window.SYSTEM_CONFIG?.SCALE?.OPP_BEDS || 6);
 
         if (preferredIndexOrId) {
             let id;
             if (typeof preferredIndexOrId === 'string' && preferredIndexOrId.includes('-')) {
                 id = preferredIndexOrId;
             } else {
-                id = `${typeUp}-1-${preferredIndexOrId}`;
+                id = preferOpposite ? `${typeUp}-2-${preferredIndexOrId}` : `${typeUp}-1-${preferredIndexOrId}`;
             }
 
             if (id.includes(typeUp)) {
@@ -392,8 +392,8 @@ const App = () => {
         const allSlots = [];
         const maxChairs = window.SYSTEM_CONFIG?.SCALE?.MAX_CHAIRS || 6;
         const maxBeds = window.SYSTEM_CONFIG?.SCALE?.MAX_BEDS || 6;
-        const oppChairs = 0;
-        const oppBeds = 0;
+        const oppChairs = window.SYSTEM_CONFIG?.SCALE?.OPP_CHAIRS || 4;
+        const oppBeds = window.SYSTEM_CONFIG?.SCALE?.OPP_BEDS || 6;
         for (let i = 1; i <= maxChairs; i++) allSlots.push(`CHAIR-1-${i}`);
         for (let i = 1; i <= maxBeds; i++) allSlots.push(`BED-1-${i}`);
         for (let i = 1; i <= oppChairs; i++) allSlots.push(`CHAIR-2-${i}`);
@@ -731,56 +731,6 @@ const App = () => {
         return () => clearInterval(watchdog);
     }, [syncLock]);
 
-    // --- STAFF STATUS AUTO-TRANSITION WATCHDOG ---
-    useEffect(() => {
-        const staffWatchdog = setInterval(() => {
-            if (syncLock) return;
-            setStatusData(currentStatusData => {
-                if (!currentStatusData) return currentStatusData;
-                let hasChanges = false;
-                const newStatus = { ...currentStatusData };
-                const now = new Date();
-                const currentH = now.getHours();
-                const currentM = now.getMinutes();
-                const t = currentH * 60 + currentM;
-
-                Object.keys(newStatus).forEach(staffId => {
-                    const st = newStatus[staffId];
-                    if (st.outStart && st.outEnd) {
-                        const [sH, sM] = st.outStart.split(':').map(Number);
-                        const [eH, eM] = st.outEnd.split(':').map(Number);
-                        let startMins = sH * 60 + sM;
-                        let endMins = eH * 60 + eM;
-                        if (endMins <= startMins) endMins += 1440;
-                        
-                        let adjustedT = t;
-                        if (startMins >= 12*60 && t < 12*60) adjustedT += 1440;
-                        
-                        if (adjustedT >= startMins && adjustedT < endMins) {
-                            if (st.status !== 'OUT_SHORT') {
-                                hasChanges = true;
-                                newStatus[staffId] = { ...st, status: 'OUT_SHORT' };
-                            }
-                        } else if (adjustedT >= endMins) {
-                            if (st.status === 'OUT_SHORT' || st.outStart) {
-                                hasChanges = true;
-                                newStatus[staffId] = { ...st, status: (st.status === 'OUT_SHORT' ? 'READY' : st.status), outStart: null, outEnd: null };
-                            }
-                        }
-                    }
-                });
-
-                if (hasChanges) {
-                    axios.post('/api/sync-staff-status', newStatus).catch(() => {});
-                    return newStatus;
-                }
-                return currentStatusData;
-            });
-        }, 15000); // Check every 15s
-
-        return () => clearInterval(staffWatchdog);
-    }, [syncLock]);
-
     // 3. CORE LOGIC (FETCH & RENDER) 
     const fetchData = async (actionType = false) => {
         const isManual = actionType === true;
@@ -825,8 +775,8 @@ const App = () => {
                 if (!window.SYSTEM_CONFIG) window.SYSTEM_CONFIG = { SCALE: {}, OPERATION_TIME: {}, LOGIC_RULES: {}, BUFFERS: {}, FINANCE: {} };
                 window.SYSTEM_CONFIG.SCALE.MAX_CHAIRS = res.data.resources.chairs || 6;
                 window.SYSTEM_CONFIG.SCALE.MAX_BEDS = res.data.resources.beds || 6;
-                
-                
+                window.SYSTEM_CONFIG.SCALE.OPP_CHAIRS = res.data.resources.oppChairs || 4;
+                window.SYSTEM_CONFIG.SCALE.OPP_BEDS = res.data.resources.oppBeds || 6;
             }
 
             const { bookings: apiBookings, staffList: apiStaff, resourceState: serverRes, staffStatus: serverStaff, quickNotes: apiQuickNotes, blacklist: apiBlacklist, masterBlacklist: apiMasterBlacklist } = res.data;
@@ -1019,7 +969,7 @@ const App = () => {
                 }
 
                 let computedStoredLocation = targetB.current_resource_id;
-                if (computedStoredLocation === '本館') {
+                if (computedStoredLocation === '本館' || computedStoredLocation === '對面館') {
                     computedStoredLocation = null;
                 }
                 if (!computedStoredLocation && safePhase1ResIdx) {
@@ -1033,7 +983,7 @@ const App = () => {
                     if (!locStr) return locStr;
                     let str = String(locStr).toUpperCase().trim();
                     str = str.replace(/腳|足/g, 'CHAIR').replace(/床/g, 'BED');
-                    const isOpp = false;
+                    const isOpp = targetB.location === '對面館';
                     if (/^(CHAIR|BED)\d+-\d+$/.test(str)) {
                         str = str.replace(/^(CHAIR|BED)(\d+)-(\d+)$/, '$1-$2-$3');
                     } else if (/^(CHAIR|BED)-(\d+)$/.test(str)) {
@@ -1253,8 +1203,8 @@ const App = () => {
 
                     if (!targetResId) {
                         const type = (b.forceResourceType === 'BED' || b.flow === 'BODYSINGLE') ? 'BED' : 'CHAIR';
-                        const isOpp = false;
-                        const prefix = `${type}-1`;
+                        const isOpp = b.location === '對面館';
+                        const prefix = `${type}-${isOpp ? '2' : '1'}`;
                         const limit = isOpp 
                             ? (type === 'CHAIR' ? (window.SYSTEM_CONFIG?.SCALE?.OPP_CHAIRS || 4) : (window.SYSTEM_CONFIG?.SCALE?.OPP_BEDS || 6))
                             : (type === 'CHAIR' ? (window.SYSTEM_CONFIG?.SCALE?.MAX_CHAIRS || 6) : (window.SYSTEM_CONFIG?.SCALE?.MAX_BEDS || 6));
@@ -1530,7 +1480,7 @@ const App = () => {
                 if (activeRowIds.has(String(b.rowId))) return;
                 const originalStart = safeTimeToMins(b.startTimeString);
                 let targetId = b.current_resource_id ? b.current_resource_id.toUpperCase() : (b.phase1_res_idx ? b.phase1_res_idx.toUpperCase() : (b.storedLocation ? b.storedLocation.toUpperCase() : null));
-                if (targetId === '本館') {
+                if (targetId === '本館' || targetId === '對面館') {
                     targetId = b.phase1_res_idx ? b.phase1_res_idx.toUpperCase() : null;
                 }
                 // (Removed opp- prefix logic for 對面館 as resources natively use -2-)
@@ -1617,8 +1567,8 @@ const App = () => {
             const allSlots = [];
             const maxChairs = window.SYSTEM_CONFIG?.SCALE?.MAX_CHAIRS || 6;
             const maxBeds = window.SYSTEM_CONFIG?.SCALE?.MAX_BEDS || 6;
-            const oppChairs = 0;
-            const oppBeds = 0;
+            const oppChairs = window.SYSTEM_CONFIG?.SCALE?.OPP_CHAIRS || 4;
+            const oppBeds = window.SYSTEM_CONFIG?.SCALE?.OPP_BEDS || 6;
             for (let i = 1; i <= maxChairs; i++) allSlots.push(`CHAIR-1-${i}`);
             for (let i = 1; i <= maxBeds; i++) allSlots.push(`BED-1-${i}`);
             for (let i = 1; i <= oppChairs; i++) allSlots.push(`CHAIR-2-${i}`);
@@ -2350,12 +2300,12 @@ const App = () => {
         let s1 = slots.s1;
         let s2 = slots.s2;
 
-        const currentShop = ((targetBooking.current_resource_id && targetBooking.current_resource_id.includes('-2-')) || (targetBooking.phase1_res_idx && targetBooking.phase1_res_idx.includes('-2-'))) ? 2 : 1;
+        const currentShop = (targetBooking.location === '對面館' || (targetBooking.current_resource_id && targetBooking.current_resource_id.includes('-2-')) || (targetBooking.phase1_res_idx && targetBooking.phase1_res_idx.includes('-2-'))) ? 2 : 1;
         const isS1CrossAuto = (!customP1Res || customP1Res === 'auto') && s1 && ((currentShop === 1 && s1.includes('-2-')) || (currentShop === 2 && s1.includes('-1-')));
         const isS2CrossAuto = (!customP2Res || customP2Res === 'auto') && s2 && ((currentShop === 1 && s2.includes('-2-')) || (currentShop === 2 && s2.includes('-1-')));
 
         if (isS1CrossAuto || isS2CrossAuto) {
-            const crossShopName = '本館';
+            const crossShopName = currentShop === 1 ? '對面館' : '本館';
             const result = await Swal.fire({
                 title: '跨館安排提示',
                 html: `當前館別已滿，系統將自動把部分或全部行程安排至 <b>【${crossShopName}】</b>。<br/><br/>請問是否確認此跨館安排並通知客人？`,
@@ -2659,12 +2609,12 @@ const App = () => {
             s2 = `${p2Type}-1`;
         }
 
-        const currentShop = ((booking.current_resource_id && booking.current_resource_id.includes('-2-')) || (booking.phase1_res_idx && booking.phase1_res_idx.includes('-2-'))) ? 2 : 1;
+        const currentShop = (booking.location === '對面館' || (booking.current_resource_id && booking.current_resource_id.includes('-2-')) || (booking.phase1_res_idx && booking.phase1_res_idx.includes('-2-'))) ? 2 : 1;
         const isS1Cross = s1 && ((currentShop === 1 && s1.includes('-2-')) || (currentShop === 2 && s1.includes('-1-')));
         const isS2Cross = s2 && ((currentShop === 1 && s2.includes('-2-')) || (currentShop === 2 && s2.includes('-1-')));
 
         if (isS1Cross || isS2Cross) {
-            const crossShopName = '本館';
+            const crossShopName = currentShop === 1 ? '對面館' : '本館';
             const result = await Swal.fire({
                 title: '跨館安排提示',
                 html: `當前館別已滿，系統將自動把部分或全部行程安排至 <b>【${crossShopName}】</b>。<br/><br/>請問是否確認此跨館安排並通知客人？`,
@@ -4734,22 +4684,22 @@ const App = () => {
                         if (!res) return '';
                         let s = String(res).toUpperCase().trim();
                         
-                        let match = s.match(/^(CHAIR|BED)-?(\d+)-?(\d+)?$/);
+                        let match = s.match(/^(CHAIR|BED|OPP-CHAIR|OPP-BED|OPP_CHAIR|OPP_BED)-?(\d+)-?(\d+)?$/);
                         if (match) {
                             let type = match[1].replace('_', '-');
                             let floor = match[3] ? match[2] : '1';
                             let num = match[3] || match[2];
-                            
-                            
+                            if (type === 'OPP-CHAIR') { type = 'CHAIR'; floor = '2'; }
+                            if (type === 'OPP-BED') { type = 'BED'; floor = '2'; }
                             return `${type}-${floor}-${num}`;
                         }
                         
-                        match = s.match(/^(CHAIR|BED)\s*(\d+)$/);
+                        match = s.match(/^(CHAIR|BED|OPP-CHAIR|OPP-BED|OPP_CHAIR|OPP_BED)\s*(\d+)$/);
                         if (match) {
                             let type = match[1].replace('_', '-');
                             let floor = '1';
-                            
-                            
+                            if (type === 'OPP-CHAIR') { type = 'CHAIR'; floor = '2'; }
+                            if (type === 'OPP-BED') { type = 'BED'; floor = '2'; }
                             return `${type}-${floor}-${match[2]}`;
                         }
                         
@@ -5294,7 +5244,7 @@ const App = () => {
                 <div className="flex items-center gap-3">
                     <span className="bg-emerald-500 text-white px-2 py-1 rounded font-black text-sm shadow-sm">V109.8</span>
                     <span className="font-bold hidden md:inline tracking-wider">
-                        {window.SYSTEM_CONFIG?.SHOP_INFO?.NAME || '秦始皇養身館'}
+                        {window.SYSTEM_CONFIG?.SHOP_INFO?.NAME || '心悟禪養身館'}
                         {window.SYSTEM_CONFIG?.SHOP_INFO?.BRANCH ? ` (${window.SYSTEM_CONFIG.SHOP_INFO.BRANCH}店)` : ''}
                     </span>
                     <div className="flex items-center gap-2 bg-white/10 rounded px-2 py-1 border border-white/20">
@@ -5306,6 +5256,7 @@ const App = () => {
 
                 <div className="flex gap-3">
                     <button onClick={() => setActiveTab('timeline-main')} className={`px-3 py-1.5 rounded-lg font-bold text-sm flex gap-2 items-center transition-all shadow-lg ${activeTab === 'timeline-main' ? 'bg-indigo-600 text-white ring-2 ring-white scale-105 opacity-100' : 'bg-indigo-600 text-white/90 opacity-60 hover:opacity-100 hover:scale-105'}`}><i className="fas fa-building"></i> <span className="hidden md:inline">{window.SYSTEM_CONFIG?.UI_LABELS?.MAIN_BRANCH || '本館'}</span></button>
+                    <button onClick={() => setActiveTab('timeline-opp')} className={`px-3 py-1.5 rounded-lg font-bold text-sm flex gap-2 items-center transition-all shadow-lg ${activeTab === 'timeline-opp' ? 'bg-teal-600 text-white ring-2 ring-white scale-105 opacity-100' : 'bg-teal-600 text-white/90 opacity-60 hover:opacity-100 hover:scale-105'}`}><i className="fas fa-store"></i> <span className="hidden md:inline">{window.SYSTEM_CONFIG?.UI_LABELS?.OPP_BRANCH || '對面館'}</span></button>
                     <button onClick={() => setActiveTab('list')} className={`px-3 py-1.5 rounded-lg font-bold text-sm flex gap-2 items-center transition-all shadow-lg ${activeTab === 'list' ? 'bg-cyan-600 text-white ring-2 ring-white scale-105 opacity-100' : 'bg-cyan-600 text-white/90 opacity-60 hover:opacity-100 hover:scale-105'}`}><i className="fas fa-list"></i> <span className="hidden md:inline">列表</span></button>
                 </div>
 
@@ -5367,6 +5318,19 @@ const App = () => {
                     </div>
                 )}
 
+                {activeTab === 'timeline-opp' && window.TimelineView && (
+                    <div className="w-full h-full flex flex-col relative border-2 border-teal-200 rounded-lg bg-white overflow-hidden shadow-sm">
+                        <window.TimelineView
+                            branch="opp"
+                            timelineData={timelineData}
+                            liveStatusData={resourceState}
+                            onEditPhase={handleControlAction}
+                            onOpenControlCenter={handleOpenControlCenter}
+                            staffList={staffList}
+                            statusData={statusData}
+                        />
+                    </div>
+                )}
             </main>
 
             {showCheckIn && window.CheckInBoard && <window.CheckInBoard staffList={staffList} statusData={statusData} onUpdateStatus={updateStaffStatus} onClose={() => setShowCheckIn(false)} bookings={todaysBookings} salaryData={salaryData} viewDate={viewDate} />}
@@ -5469,7 +5433,6 @@ const App = () => {
                     staffList={staffList}
                     bookings={todaysBookings}
                     viewDate={viewDate}
-                    predictedAssignments={predictedAssignments}
                 />
             )}
         </div>

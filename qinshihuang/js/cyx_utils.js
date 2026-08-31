@@ -254,16 +254,16 @@
         let num = match && match.length > 0 ? match[match.length - 1] : '';
         if (!num) return id; 
         
-        let isOpp = false;
+        let isOpp = id.includes('OPP') || id.includes('對') || id.includes('2-');
         let isChair = id.includes('CHAIR') || id.includes('腳');
         let isBed = id.includes('BED') || id.includes('床') || id.includes('本');
         
         if (!isChair && !isBed) {
-             if (id.includes('本')) isBed = true; 
+             if (id.includes('本') || id.includes('對')) isBed = true; 
              else isChair = true; 
         }
         
-        let building = '1';
+        let building = isOpp ? '2' : '1';
         let type = isChair ? 'CHAIR' : 'BED';
         return `${type}-${building}-${num}`;
     };
@@ -274,22 +274,27 @@
      */
     window.formatResourceLabel = (rid, includeEmoji = false) => {
         if (!rid) return '已鎖定預測位置';
+        const config = window.SYSTEM_CONFIG?.UI_LABELS || {};
+        const c1 = config.CHAIR_PREFIX1 || '腳1-';
+        const b1 = config.BED_PREFIX1 || '床1-';
+        const c2 = config.CHAIR_PREFIX2 || '腳2-';
+        const b2 = config.BED_PREFIX2 || '床2-';
         
         let res = window.normalizeResourceId(rid);
         let emoji = '';
         if (res.startsWith('CHAIR-1-')) {
-            let num = res.split('-')[2];
-            res = `T2-Ghế ${num}`;
+            res = res.replace('CHAIR-1-', c1);
             emoji = '👣 ';
         } else if (res.startsWith('BED-1-')) {
-            let num = parseInt(res.split('-')[2]);
-            if (num <= 6) {
-                res = `T3-Giường ${num}`;
-            } else {
-                res = `T4-Giường ${num}`;
-            }
+            res = res.replace('BED-1-', b1);
             emoji = '🛏️ ';
-        } 
+        } else if (res.startsWith('CHAIR-2-')) {
+            res = res.replace('CHAIR-2-', c2);
+            emoji = '👣 ';
+        } else if (res.startsWith('BED-2-')) {
+            res = res.replace('BED-2-', b2);
+            emoji = '🛏️ ';
+        }
         
         return includeEmoji ? emoji + res : res;
     };

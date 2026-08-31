@@ -25,7 +25,7 @@
 const SYSTEM_CONFIG = {
     SHOP_INFO: {
         NAME: '秦始皇養身館',
-        BRANCH: '中壢', // Chi nhánh 中壢
+        BRANCH: '中和', // Chi nhánh 中和
         VERSION: 'V1.5_Universal'
     },
 
@@ -51,20 +51,22 @@ const SYSTEM_CONFIG = {
 
     // Quy mô chi nhánh
     SCALE: {
-        MAX_CHAIRS: 16, // Tầng 2: 16 ghế (腳)
-        MAX_BEDS: 16,   // Tầng 3: 6 giường (có thể Foot/Body), Tầng 4: 10 giường (Body) => Tổng 16 giường (床) // Không có quán đối diện   // Không có quán đối diện
-        get TOTAL_RESOURCES() { return this.MAX_CHAIRS + this.MAX_BEDS + 0; }
+        MAX_CHAIRS: 16, // Số lượng ghế (腳) - 本館
+        MAX_BEDS: 16,   // Số lượng giường (床) - 本館
+         // Số lượng ghế (腳) - 對面館
+           // Số lượng giường (床) - 對面館
+        get TOTAL_RESOURCES() { return this.MAX_CHAIRS + this.MAX_BEDS + this.OPP_CHAIRS + this.OPP_BEDS; }
     },
 
-    // Quản lý thời gian vận hành (24/24)
+    // Quản lý thời gian vận hành
     OPERATION_TIME: {
         OPEN_HOUR: 8,        // Giờ bắt đầu Timeline (08:00 AM)
-        CUT_OFF_HOUR: 8,     // Giờ chốt sổ ngày hôm sau (08:00 AM)
+        CUT_OFF_HOUR: 8,     // Giờ chốt sổ ngày hôm sau (03:00 AM)
         MINUTES_PER_SLOT: 1, // Đơn vị chia nhỏ nhất trên Timeline
-        // Tự động tính tổng số phút vận hành trong ngày (24 tiếng = 1440 phút)
+        // Tự động tính tổng số phút vận hành trong ngày (24 tiếng = 1440 phút + 120 phút)
         get TOTAL_TIMELINE_MINS() {
-            let hours = (24 - this.OPEN_HOUR) + this.CUT_OFF_HOUR;
-            return hours * 60; // 24 * 60 = 1440
+            let hours = (24 - this.OPEN_HOUR) + this.CUT_OFF_HOUR + 2;
+            return hours * 60;
         }
     },
 
@@ -92,8 +94,11 @@ const SYSTEM_CONFIG = {
     // Nhãn giao diện (Tiếng Trung Phồn Thể)
     UI_LABELS: {
         MAIN_BRANCH: '本館',
+        OPP_BRANCH: '對面館',
         CHAIR_PREFIX1: '腳1-', //本館 ghế
-        BED_PREFIX1: '床1-',  //本館 giường //對面館 ghế  //對面館 giường
+        BED_PREFIX1: '床1-',  //本館 giường
+        CHAIR_PREFIX2: '腳2-', //對面館 ghế
+        BED_PREFIX2: '床2-',  //對面館 giường
 
         MINUTES_UNIT: '分',
         PRICE_UNIT: '元',

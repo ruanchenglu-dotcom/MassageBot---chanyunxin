@@ -452,7 +452,7 @@
                         const sim = scanSimulations[0];
                         const flow = sim.flow || 'BODYSINGLE';
                         const locStr = editFormData.location || window.SYSTEM_CONFIG?.LOCATION_NAME || '本館';
-                        const locPrefix = '1';
+                        const locPrefix = locStr === '對面館' ? '2' : '1';
                         
                         let p1Id = '';
                         let p2Id = '';
@@ -711,7 +711,7 @@
                                         <td className="p-2">
                                             <select className="w-full border border-gray-300 p-2 rounded font-bold text-gray-700 focus:ring-2 focus:ring-orange-400 outline-none text-lg" value={editFormData.location} onChange={e => handleInputChange('location', e.target.value)}>
                                                 <option value="本館">本館</option>
-                                                
+                                                <option value="對面館">對面館</option>
                                             </select>
                                         </td>
                                         <td className="p-2">

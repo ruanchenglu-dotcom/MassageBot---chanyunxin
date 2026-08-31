@@ -363,7 +363,7 @@
                     debugInfo.suggestions.push({ time: timeStr, date: queryDateStr, daysToAdd: 0 });
                 }
 
-                let oppositeLoc = "本館";
+                let oppositeLoc = locationStr === '本館' ? '對面館' : '本館';
                 let oppositeSim = validateGlobalCapacity(requestStart, maxDuration, guestList, currentBookingsRaw, staffList, queryDateStr, true, oppositeLoc);
                 let oppositeSuggestion = "";
                 if (oppositeSim.pass) {
@@ -501,7 +501,7 @@
             const resolveRealLocation = (b) => {
                 let locStr = b.current_resource_id || b.phase1_res_idx || b.originalData?.location || b.location || '本館';
                 
-                if (match) return '本館';
+                if (match) return match[1] === '2' ? '對面館' : '本館';
                 return '本館';
             };
             const relevantBookings = globalStaffBookings.filter(b => {
@@ -524,7 +524,7 @@
                     let id = String(rawId).toUpperCase().trim();
                     if (!id) return;
                     
-                    let isOpp = false;
+                    let isOpp = id.includes('OPP') || id.includes('對') || id.includes('2-') || (b.location === '對面館');
                     let isChair = id.includes('CHAIR') || id.includes('腳') || id.includes('足') || id.includes('FOOT');
                     let isBed = id.includes('BED') || id.includes('床') || id.includes('本') || id.includes('BODY') || id.includes('身');
                     
@@ -1025,7 +1025,7 @@
         class VirtualMatrix {
             constructor(locationStr = '本館') {
                 const CONF = getSystemConfig(locationStr);
-                const isOpp = false;
+                const isOpp = locationStr === '對面館' || CONF._tempLocation === '對面館';
                 const buildingStr = '1';
                 this.lanes = {
                     'CHAIR': Array.from({ length: CONF.MAX_CHAIRS }, (_, i) => ({ id: `CHAIR-${buildingStr}-${i + 1}`, occupied: [] })),
@@ -1383,12 +1383,12 @@
                     let id = String(rawId).toUpperCase().trim();
                     if (!id) return;
                     
-                    let isOpp = false;
+                    let isOpp = id.includes('OPP') || id.includes('對') || id.includes('2-') || (bLoc === '對面館');
                     let isChair = id.includes('CHAIR') || id.includes('腳') || id.includes('足') || id.includes('FOOT');
                     let isBed = id.includes('BED') || id.includes('床') || id.includes('本') || id.includes('BODY') || id.includes('身');
                     
                     if (!isChair && !isBed) {
-                        if (id.includes('本')) isBed = true; 
+                        if (id.includes('本') || id.includes('對') || bLoc === '對面館') isBed = true; 
                         else isChair = true; 
                     }
                     
@@ -1439,7 +1439,7 @@
                             const match = b.transition_time.match(/(\d{1,2}):(\d{2})/);
                             if (match) {
                                 ttMins = parseInt(match[1]) * 60 + parseInt(match[2]);
-                                if (ttMins < 360) ttMins += 1440; // past midnight logic
+                                if (ttMins < (window.SYSTEM_CONFIG?.SCALE?.OPEN_HOUR || 8) * 60) ttMins += 1440; // past midnight logic
                             }
                         }
 
@@ -2351,6 +2351,7 @@
                     setSelectedLocation('跨館套餐');
                     if (locStr.includes('本館(足)') && locStr.indexOf('本館(足)') === 0) {
                         setCrossLocationDirection('MAIN_TO_OPP');
+                    } else if (locStr.includes('對面館(足)') && locStr.indexOf('對面館(足)') === 0) {
                         setCrossLocationDirection('OPP_TO_MAIN');
                     } else if (locStr.includes('本館')) {
                         setCrossLocationDirection('MAIN_TO_OPP');
@@ -2533,8 +2534,8 @@
             if (editingBooking) { finalBookings = finalBookings.filter(b => b.rowId !== editingBooking.rowId); }
 
             if (selectedLocation === '跨館套餐') {
-                const loc1 = '本館';
-                const loc2 = '本館';
+                const loc1 = crossLocationDirection === 'MAIN_TO_OPP' ? '本館' : '對面館';
+                const loc2 = crossLocationDirection === 'MAIN_TO_OPP' ? '對面館' : '本館';
                 
                 const baseDuration = parseInt(extractStandardDuration(guestDetails[0].service) || 60, 10);
                 
@@ -2817,8 +2818,8 @@
                 let finalPayloads = [];
 
                 if (selectedLocation === '跨館套餐') {
-                    const loc1 = '本館';
-                    const loc2 = '本館';
+                    const loc1 = crossLocationDirection === 'MAIN_TO_OPP' ? '本館' : '對面館';
+                    const loc2 = crossLocationDirection === 'MAIN_TO_OPP' ? '對面館' : '本館';
                     
                     const baseDuration = parseInt(extractStandardDuration(guestDetails[0].service) || 60, 10);
                     let p1Dur = Math.floor(baseDuration / 2);
@@ -3071,7 +3072,7 @@
             const oppMax = (configScale.OPP_CHAIRS || 4) + (configScale.OPP_BEDS || 6);
             if (selectedLocation === '本館') {
                 dynamicMaxPax = mainMax;
-            } else if (false) {
+            } else if (selectedLocation === '對面館') {
                 dynamicMaxPax = Math.min(oppMax, 8);
             } else {
                 dynamicMaxPax = Math.max(mainMax, oppMax);
@@ -3233,6 +3234,9 @@
                                         className={`px-4 py-1.5 rounded-md font-bold text-sm sm:text-base transition-all ${selectedLocation === '本館' ? 'bg-white text-[#0891b2] shadow-md' : 'text-white hover:bg-white/10'}`}
                                     >本館</button>
                                     <button 
+                                        onClick={(e) => { e.preventDefault(); setSelectedLocation('對面館'); setCheckResult(null); setSuggestions([]); }} 
+                                        className={`px-4 py-1.5 rounded-md font-bold text-sm sm:text-base transition-all ${selectedLocation === '對面館' ? 'bg-white text-[#0891b2] shadow-md' : 'text-white hover:bg-white/10'}`}
+                                    >對面館</button>
                                     <button 
                                         onClick={(e) => { e.preventDefault(); setSelectedLocation('跨館套餐'); setCheckResult(null); setSuggestions([]); }} 
                                         className={`px-4 py-1.5 rounded-md font-bold text-sm sm:text-base transition-all ${selectedLocation === '跨館套餐' ? 'bg-white text-[#0891b2] shadow-md' : 'text-white hover:bg-white/10'}`}
@@ -3245,9 +3249,11 @@
                                         <button 
                                             onClick={(e) => { e.preventDefault(); setCrossLocationDirection('MAIN_TO_OPP'); setCheckResult(null); }} 
                                             className={`px-4 py-1.5 rounded-md font-bold text-sm sm:text-base transition-all ${crossLocationDirection === 'MAIN_TO_OPP' ? 'bg-orange-500 text-white shadow-md' : 'text-white hover:bg-white/10'}`}
+                                        >本館(足) ➡️ 對面館(身)</button>
                                         <button 
                                             onClick={(e) => { e.preventDefault(); setCrossLocationDirection('OPP_TO_MAIN'); setCheckResult(null); }} 
                                             className={`px-4 py-1.5 rounded-md font-bold text-sm sm:text-base transition-all ${crossLocationDirection === 'OPP_TO_MAIN' ? 'bg-orange-500 text-white shadow-md' : 'text-white hover:bg-white/10'}`}
+                                        >對面館(足) ➡️ 本館(身)</button>
                                     </div>
                                 </div>
                             )}
