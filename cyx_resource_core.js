@@ -53,8 +53,8 @@ function getSystemConfig() {
 // Alias ánh xạ cấu hình động để code phía dưới ngắn gọn và tương thích ngược, sử dụng getter
 const CONF = {
     _tempLocation: '本館',
-    get MAX_CHAIRS() { return this._tempLocation === '對面館' ? (getSystemConfig().SCALE.OPP_CHAIRS || 4) : getSystemConfig().SCALE.MAX_CHAIRS; },
-    get MAX_BEDS() { return this._tempLocation === '對面館' ? (getSystemConfig().SCALE.OPP_BEDS || 6) : getSystemConfig().SCALE.MAX_BEDS; },
+    get MAX_CHAIRS() { return getSystemConfig().SCALE.MAX_CHAIRS; },
+    get MAX_BEDS() { return getSystemConfig().SCALE.MAX_BEDS; },
     get OPEN_HOUR() { return getSystemConfig().OPERATION_TIME.OPEN_HOUR; },
     get CLEANUP_BUFFER() { return getSystemConfig().BUFFERS.CLEANUP_MINUTES; },
     get TRANSITION_BUFFER() { return getSystemConfig().BUFFERS.TRANSITION_MINUTES; },
@@ -339,8 +339,8 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
     const baseConfig = getSystemConfig();
     const CONF = {
         _tempLocation: locationStrIn,
-        get MAX_CHAIRS() { return this._tempLocation === '對面館' ? (baseConfig.SCALE.OPP_CHAIRS || 4) : baseConfig.SCALE.MAX_CHAIRS; },
-        get MAX_BEDS() { return this._tempLocation === '對面館' ? (baseConfig.SCALE.OPP_BEDS || 6) : baseConfig.SCALE.MAX_BEDS; },
+        get MAX_CHAIRS() { return baseConfig.SCALE.MAX_CHAIRS; },
+        get MAX_BEDS() { return baseConfig.SCALE.MAX_BEDS; },
         get OPEN_HOUR() { return baseConfig.OPERATION_TIME.OPEN_HOUR; },
         get CLEANUP_BUFFER() { return baseConfig.BUFFERS.CLEANUP_MINUTES; },
         get TRANSITION_BUFFER() { return baseConfig.BUFFERS.TRANSITION_MINUTES; },
@@ -361,12 +361,7 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
             debugInfo.suggestions.push({ time: timeStr, date: queryDateStr, daysToAdd: 0 });
         }
 
-        let oppositeLoc = locationStr === '本館' ? '對面館' : '本館';
-        let oppositeSim = validateGlobalCapacity(requestStart, maxDuration, guestList, currentBookingsRaw, staffList, queryDateStr, true, oppositeLoc);
         let oppositeSuggestion = "";
-        if (oppositeSim.pass) {
-            oppositeSuggestion = `\n💡 系統提示：【${oppositeLoc}】在 ${getTimeStrFromMins(requestStart)} 仍有空位，可建議客人至${oppositeLoc}。`;
-        }
         
         let snapMins = new Set();
         let maxReqDur = guestList.reduce((max, g) => Math.max(max, parseInt(g.duration || 60, 10)), 0);
@@ -470,9 +465,9 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
                 suggestionText = `💡 智能建議：${locationStr}最快可完整安排 (含所有階段) 的時間為 ${timeStrAfter} 之後。`;
                 if (foundMinsAfter !== specificSuggestionMins) debugInfo.suggestions.push({ time: timeStrAfter, date: queryDateStr, daysToAdd: 0 });
             }
-            return { pass: false, reason: `${reasonMsg}${oppositeSuggestion}\n${suggestionText}`, debug: debugInfo };
+            return { pass: false, reason: `${reasonMsg}\n${suggestionText}`, debug: debugInfo };
         } else {
-            return { pass: false, reason: `${reasonMsg}${oppositeSuggestion}\n⚠️ 今日已無足夠資源可完整安排此預約。`, debug: debugInfo };
+            return { pass: false, reason: `${reasonMsg}\n⚠️ 今日已無足夠資源可完整安排此預約。`, debug: debugInfo };
         }
     };
 
@@ -492,9 +487,9 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
     // Lọc riêng booking cho Cơ sở vật chất (Bed/Chair)
     const resolveRealLocation = (loc) => {
         if (!loc) return '本館';
-        if (loc === '本館' || loc === '對面館') return loc;
+        if (loc === '本館') return loc;
         const match = String(loc).match(/(?:BED|CHAIR|床|足|腳)[-_ ]?([12])[-_ ]?\d+/i);
-        if (match) return match[1] === '2' ? '對面館' : '本館';
+        if (match) return '本館';
         return '本館';
     };
     const relevantBookings = globalStaffBookings.filter(b => {
@@ -758,12 +753,12 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
             let id = String(rawId).toUpperCase().trim();
             if (!id) return;
             
-            let isOpp = id.includes('OPP') || id.includes('對') || id.includes('2-') || (b.location === '對面館');
+            let isOpp = false;
             let isChair = id.includes('CHAIR') || id.includes('腳') || id.includes('足') || id.includes('FOOT');
             let isBed = id.includes('BED') || id.includes('床') || id.includes('本') || id.includes('BODY') || id.includes('身');
             
             if (!isChair && !isBed) {
-                if (id.includes('本') || id.includes('對') || b.location === '對面館') isBed = true; 
+                if (id.includes('本')) isBed = true; 
                 else isChair = true; 
             }
             
@@ -771,7 +766,7 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
             let num = match && match.length > 0 ? match[match.length - 1] : '';
             if (!num) return;
             
-            let building = isOpp ? '2' : '1';
+            let building = '1';
             let type = isChair ? 'CHAIR' : 'BED';
             extractedMatches.push(`${type}-${building}-${num}`);
         });
@@ -972,62 +967,17 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
 
             if (!foundValidSplit) {
                 let crossLocationMsg = "";
-                if (locationStr === '本館' || locationStr === '對面館') {
-                    let oppositeLoc = locationStr === '本館' ? '對面館' : '本館';
-                    let oppSim = validateGlobalCapacity(requestStart, maxDuration, [], currentBookingsRaw, staffList, queryDateStr, true, oppositeLoc);
-                    let oppMap = oppSim.resourceMap;
-                    let oppConfMaxBeds = oppositeLoc === '對面館' ? (getSystemConfig().SCALE?.OPP_BEDS || 6) : getSystemConfig().SCALE?.MAX_BEDS || 9;
-                    let oppConfMaxChairs = oppositeLoc === '對面館' ? (getSystemConfig().SCALE?.OPP_CHAIRS || 4) : getSystemConfig().SCALE?.MAX_CHAIRS || 9;
-                    
-                    for (const testFlow of flowsToTry) {
-                        const splitsToTry = generateElasticSplits(duration, eStep, eLimit, null, svc.minFoot, svc.maxFoot, svc.minBody, svc.maxBody, testFlow, true);
-                        let foundCross = false;
-                        for (const split of splitsToTry) {
-                            if (split.shiftMins !== 0) continue;
-                            const p1 = split.p1;
-                            const p2 = split.p2;
-                            const tStart = requestStart + (split.shiftMins || 0);
-                            const tSwitch = tStart + p1 + CONF.TRANSITION_BUFFER;
-                            
-                            let loc1Idx = -1, loc2Idx = -1;
-                            
-                            const comboGuestsCount = guestList.filter(g => isComboService(g.serviceCode)).length;
-                            const isCrossSwapGroup = comboGuestsCount >= 2;
-                            const phase1Cleanup = isCrossSwapGroup ? Math.min(CONF.CLEANUP_BUFFER, CONF.TRANSITION_BUFFER) : CONF.CLEANUP_BUFFER;
-
-                            if (testFlow === 'BF') {
-                                for (let b = 0; b < CONF.MAX_BEDS; b++) { if (checkLaneContinuity(simulationMap.BED[b], tStart, tStart + p1, phase1Cleanup)) { loc1Idx = b; break; } }
-                                for (let c = 0; c < oppConfMaxChairs; c++) { if (checkLaneContinuity(oppMap.CHAIR[c], tSwitch, tSwitch + p2, CONF.CLEANUP_BUFFER)) { loc2Idx = c; break; } }
-                                if (loc1Idx !== -1 && loc2Idx !== -1) {
-                                    crossLocationMsg = `\n💡 跨館建議：【${locationStr}】目前僅有全身床位，【${oppositeLoc}】有足部座位。是否同意先在【${locationStr}】進行身體按摩，再移步至【${oppositeLoc}】完成足部按摩？`;
-                                    foundCross = true;
-                                    break;
-                                }
-                            } else {
-                                for (let c = 0; c < CONF.MAX_CHAIRS; c++) { if (checkLaneContinuity(simulationMap.CHAIR[c], tStart, tStart + p1, phase1Cleanup)) { loc1Idx = c; break; } }
-                                for (let b = 0; b < oppConfMaxBeds; b++) { if (checkLaneContinuity(oppMap.BED[b], tSwitch, tSwitch + p2, CONF.CLEANUP_BUFFER)) { loc2Idx = b; break; } }
-                                if (loc1Idx !== -1 && loc2Idx !== -1) {
-                                    crossLocationMsg = `\n💡 跨館建議：【${locationStr}】目前僅有足部座位，【${oppositeLoc}】有全身床位。是否同意先在【${locationStr}】進行足部按摩，再移步至【${oppositeLoc}】完成身體按摩？`;
-                                    foundCross = true;
-                                    break;
-                                }
-                            }
-                        }
-                        if (foundCross) break;
-                    }
-                }
-
                 if (bestOutOfBoundSplit) {
                     let rawSuggestedTime = requestStart + bestOutOfBoundSplit.shiftMins;
                     let suggestedTime = rawSuggestedTime;
                     let timeStr = getTimeStrFromMins(suggestedTime);
                     let actionText = suggestedTime > requestStart ? '稍晚' : '提早';
                     let shiftVal = Math.abs(suggestedTime - requestStart);
-                    let err = triggerSmartFailure(`⚠️ 在 ${getTimeStrFromMins(requestStart)} 沒有完美符合的連續空位。建議您${actionText} ${shiftVal} 分鐘，改為 ${timeStr} 預約以滿足套餐標準。${crossLocationMsg}`, suggestedTime);
+                    let err = triggerSmartFailure(`⚠️ 在 ${getTimeStrFromMins(requestStart)} 沒有完美符合的連續空位。建議您${actionText} ${shiftVal} 分鐘，改為 ${timeStr} 預約以滿足套餐標準。`, suggestedTime);
                     err.requiresSmartRepacking = true;
                     return err;
                 } else {
-                    let err = triggerSmartFailure(`⚠️ 在 ${getTimeStrFromMins(requestStart)} 沒有足夠的連續空位給套餐。${crossLocationMsg}`);
+                    let err = triggerSmartFailure(`⚠️ 在 ${getTimeStrFromMins(requestStart)} 沒有足夠的連續空位給套餐。`);
                     err.requiresSmartRepacking = true;
                     return err;
                 }
@@ -1064,8 +1014,8 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
 
 class VirtualMatrix {
     constructor() {
-        const isOpp = CONF._tempLocation === '對面館';
-        const buildingStr = isOpp ? '2' : '1';
+        const isOpp = false;
+        const buildingStr = '1';
         this.lanes = {
             'CHAIR': Array.from({ length: CONF.MAX_CHAIRS }, (_, i) => ({ id: `CHAIR-${buildingStr}-${i + 1}`, occupied: [] })),
             'BED': Array.from({ length: CONF.MAX_BEDS }, (_, i) => ({ id: `BED-${buildingStr}-${i + 1}`, occupied: [] }))
@@ -1437,12 +1387,12 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
             let id = String(rawId).toUpperCase().trim();
             if (!id) return;
             
-            let isOpp = id.includes('OPP') || id.includes('對') || id.includes('2-') || (b.location === '對面館');
+            let isOpp = false;
             let isChair = id.includes('CHAIR') || id.includes('腳') || id.includes('足') || id.includes('FOOT');
             let isBed = id.includes('BED') || id.includes('床') || id.includes('本') || id.includes('BODY') || id.includes('身');
             
             if (!isChair && !isBed) {
-                if (id.includes('本') || id.includes('對') || b.location === '對面館') isBed = true; 
+                if (id.includes('本')) isBed = true; 
                 else isChair = true; 
             }
             
@@ -1450,7 +1400,7 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
             let num = match && match.length > 0 ? match[match.length - 1] : '';
             if (!num) return;
             
-            let building = isOpp ? '2' : '1';
+            let building = '1';
             let type = isChair ? 'CHAIR' : 'BED';
             extractedMatches.push(`${type}-${building}-${num}`);
         });
@@ -1788,7 +1738,7 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
                     const slotId = matrix.tryAllocate(block.type, block.start, realEnd, exB.id, block.forcedIndex, false);
                     if (!slotId) { placedSuccessfully = false; break; }
                     
-                    const bPrefix = (exBLoc === '對面館') ? '2' : '1';
+                    const bPrefix = '1';
                     const originalRes = block.type + '-' + bPrefix + '-' + (block.forcedIndex || 'X');
                     if (block.forcedIndex && slotId !== originalRes) coordChanged = true;
                     allocatedSlots.push(slotId);

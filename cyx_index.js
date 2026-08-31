@@ -625,10 +625,10 @@ app.post('/callback-staff', StaffBot.middleware(StaffBot.config), (req, res) => 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(express.static(path.join(__dirname, 'public')));
-app.use('/admin2', express.static(path.join(__dirname, 'XinWuChanAdmin')));
+app.use('/qinshihuang', express.static(path.join(__dirname, 'qinshihuang')));
 
 // Serve cyx_data.js dynamically to frontend so it doesn't 404
-app.get('/admin2/js/cyx_data.js', (req, res) => {
+app.get('/qinshihuang/js/cyx_data.js', (req, res) => {
     res.sendFile(path.join(__dirname, 'cyx_data.js'));
 });
 app.get('/js/cyx_data.js', (req, res) => {
@@ -646,7 +646,7 @@ app.get('/api/info', async (req, res) => {
             staffList: SheetService.getStaffList(),
             bookings: SheetService.getBookings(),
             schedule: SheetService.getScheduleMap(),
-            resources: { chairs: getConfig().SCALE.MAX_CHAIRS, beds: getConfig().SCALE.MAX_BEDS, oppChairs: getConfig().SCALE.OPP_CHAIRS || 4, oppBeds: getConfig().SCALE.OPP_BEDS || 6 },
+            resources: { chairs: getConfig().SCALE.MAX_CHAIRS, beds: getConfig().SCALE.MAX_BEDS },
             resourceState: SERVER_RESOURCE_STATE,
             staffStatus: SERVER_STAFF_STATUS,
             services: SheetService.getServices(),
@@ -2497,7 +2497,7 @@ function startAntiHibernation() {
 
 const port = process.env.PORT || 5000;
 app.listen(port, () => {
-    console.log(`XinWuChan Bot V134 running on port ${port}`);
+    console.log(`秦始皇 Bot V134 running on port ${port}`);
     startAntiHibernation(); // Khởi chạy Anti-Hibernation ngay sau khi server lên
 });
 

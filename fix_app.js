@@ -1,34 +1,36 @@
 const fs = require('fs');
-const file = 'XinWuChanAdmin/js/cyx_app.js';
-let content = fs.readFileSync(file, 'utf8');
+let content = fs.readFileSync('qinshihuang/js/cyx_app.js', 'utf8');
 
-const target = `            } else {
-                Swal.fire('系統提示', "⚠️ 儲存失敗，請檢查網路連線。", 'warning');
-            }`;
-
-const replacement = `            } else if (errorMsg && (errorMsg.includes('⚠️') || errorMsg.includes('失敗') || errorMsg.includes('錯誤'))) {
-                Swal.fire('系統提示', errorMsg, 'warning');
-            } else {
-                Swal.fire('系統提示', errorMsg || "⚠️ 儲存失敗，請檢查網路連線。", 'warning');
-            }`;
-
-if (content.includes(target)) {
-    content = content.replace(target, replacement);
-    fs.writeFileSync(file, content);
-    console.log("SUCCESS");
-} else {
-    console.log("TARGET NOT FOUND");
-    // Try regex
-    const regex = /\} else \{\s*Swal\.fire\('系統提示', "⚠️ 儲存失敗，請檢查網路連線。", 'warning'\);\s*\}/;
-    if (regex.test(content)) {
-        content = content.replace(regex, `} else if (errorMsg && (errorMsg.includes('⚠️') || errorMsg.includes('失敗') || errorMsg.includes('錯誤'))) {
-                Swal.fire('系統提示', errorMsg, 'warning');
-            } else {
-                Swal.fire('系統提示', errorMsg || "⚠️ 儲存失敗，請檢查網路連線。", 'warning');
-            }`);
-        fs.writeFileSync(file, content);
-        console.log("SUCCESS VIA REGEX");
-    } else {
-        console.log("REGEX FAILED TOO");
+let lines = content.split('\n');
+let newLines = [];
+let skip = false;
+for(let i=0; i<lines.length; i++) {
+    if (lines[i].includes("setActiveTab('timeline-opp')")) {
+        continue;
     }
+    if (lines[i].includes("{activeTab === 'timeline-opp' && window.TimelineView")) {
+        skip = true;
+        continue;
+    }
+    if (skip) {
+        if (lines[i].includes("</window.TimelineView>") || lines[i].includes("</div>")) {
+            // we skip 5 lines total for that block
+            // let's be safe and check for the closing </div> 
+        }
+        if (lines[i].trim() === ")}") {
+            skip = false;
+            continue;
+        }
+        continue;
+    }
+    newLines.push(lines[i]);
 }
+
+let result = newLines.join('\n');
+result = result.replace(/targetBooking\.location === '對面館' \|\| /g, '');
+result = result.replace(/booking\.location === '對面館' \|\| /g, '');
+result = result.replace(/const crossShopName = currentShop === 1 \? '對面館' : '本館';/g, "const crossShopName = '本館';");
+result = result.replace(/const isOpp = targetB\.location === '對面館';/g, 'const isOpp = false;');
+result = result.replace(/const isOpp = b\.location === '對面館';/g, 'const isOpp = false;');
+
+fs.writeFileSync('qinshihuang/js/cyx_app.js', result);

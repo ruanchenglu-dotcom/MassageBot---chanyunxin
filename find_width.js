@@ -1,5 +1,5 @@
 const fs = require('fs');
-const c = fs.readFileSync('XinWuChanAdmin/js/cyx_views.js', 'utf8');
+const c = fs.readFileSync('秦始皇Admin/js/cyx_views.js', 'utf8');
 const lines = c.split('\n');
 const idx = lines.findIndex(l => l.includes('style={{'));
 const renderSlotLines = lines.filter(l => l.includes('style={{') && l.includes('left:') && l.includes('width:'));

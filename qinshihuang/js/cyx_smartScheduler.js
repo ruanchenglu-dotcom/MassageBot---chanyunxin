@@ -1,0 +1,661 @@
+/**
+ * 秦始皇 Smart Scheduler (CSP/Backtracking Algorithm)
+ * Tự động sắp xếp lại lịch trình khi có xung đột (Drag & Drop)
+ */
+
+window.SmartScheduler = (function() {
+    
+    const safeTimeToMinsLocal = (tStr) => {
+        if (!tStr) return 0;
+        const p = tStr.split(' ')[1];
+        if (!p) return 0;
+        const [h, m] = p.split(':').map(Number);
+        return h * 60 + (m || 0);
+    };
+
+    const getSafeTime = (timeStr) => {
+        return window.safeTimeToMins ? window.safeTimeToMins(timeStr) : safeTimeToMinsLocal(timeStr);
+    };
+
+    const minsToTimeString = (mins, originDateStr) => {
+        let h = Math.floor(mins / 60);
+        let m = mins % 60;
+        let hh = String(h).padStart(2, '0');
+        let mm = String(m).padStart(2, '0');
+        let datePart = originDateStr ? originDateStr.split(' ')[0] : '';
+        return datePart ? `${datePart} ${hh}:${mm}` : `${hh}:${mm}`;
+    };
+
+    // Helper: Lấy danh sách tài nguyên khả dụng cùng loại/khu vực
+    const getCandidateResources = (currentResId) => {
+        if (!currentResId) return [];
+        let rId = String(currentResId).toUpperCase().trim();
+        let prefix = 'CHAIR-1-';
+        let maxCount = window.SYSTEM_CONFIG?.SCALE?.MAX_CHAIRS || 6;
+
+        if (rId.includes('CHAIR-2') || rId.includes('腳2')) {
+            prefix = 'CHAIR-2-';
+            maxCount = 0;
+        } else if (rId.includes('BED') || rId.includes('床')) {
+            prefix = 'BED-1-';
+            maxCount = window.SYSTEM_CONFIG?.SCALE?.MAX_BEDS || 6;
+        } else {
+            prefix = 'CHAIR-1-';
+            maxCount = window.SYSTEM_CONFIG?.SCALE?.MAX_CHAIRS || 6;
+        }
+        
+        let resources = [];
+        for (let i = 1; i <= maxCount; i++) {
+            resources.push(prefix + i);
+        }
+        return resources;
+    };
+
+    const normalizeRes = (res) => {
+        if (!res) return '';
+        let s = String(res).toUpperCase().trim();
+        
+        let match = s.match(/^(CHAIR|BED|OPP-CHAIR|OPP-BED|OPP_CHAIR|OPP_BED)-?(\d+)-?(\d+)?$/);
+        if (match) {
+            let type = match[1].replace('_', '-');
+            let floor = match[3] ? match[2] : '1';
+            let num = match[3] || match[2];
+            
+            if (type === 'OPP-CHAIR') { type = 'CHAIR'; floor = '2'; }
+            if (type === 'OPP-BED') { type = 'BED'; floor = '2'; }
+            
+            return `${type}-${floor}-${num}`;
+        }
+        
+        match = s.match(/^(CHAIR|BED|OPP-CHAIR|OPP-BED|OPP_CHAIR|OPP_BED)\s*(\d+)$/);
+        if (match) {
+            let type = match[1].replace('_', '-');
+            let floor = '1';
+            if (type === 'OPP-CHAIR') { type = 'CHAIR'; floor = '2'; }
+            if (type === 'OPP-BED') { type = 'BED'; floor = '2'; }
+            return `${type}-${floor}-${match[2]}`;
+        }
+        
+        match = s.match(/^(床|腳|椅|對面床|對面腳|對面椅)-?(\d+)-?(\d+)?$/);
+        if (match) {
+            let type = 'CHAIR';
+            let floor = match[3] ? match[2] : '1';
+            
+            if (match[1] === '床') {
+                type = 'BED';
+            } else if (match[1] === '對面床') {
+                type = 'BED';
+                floor = '2';
+            } else if (match[1] === '對面腳' || match[1] === '對面椅') {
+                type = 'CHAIR';
+                floor = '2';
+            }
+            
+            let num = match[3] || match[2];
+            return `${type}-${floor}-${num}`;
+        }
+        return s;
+    };
+
+    const isComboBooking = (b) => {
+        return (b.category === 'COMBO' || (b.serviceCode && typeof b.serviceCode === 'string' && b.serviceCode.toUpperCase().startsWith('A'))) || (b.serviceName && b.serviceName.includes('套餐')) || b.flow === 'FB' || b.flow === 'BF';
+    };
+
+    const isSameRes = (id1, id2) => {
+        if (!id1 || !id2) return false;
+        return normalizeRes(id1) === normalizeRes(id2);
+    };
+
+    const isTargetPhaseLocked = (b, isCombo) => {
+        if (b.isRunningStatus || b.status === 'DOING' || b.isDoneStatus) return true;
+        if (isCombo) {
+            return (b.phase1_locked === "TRUE" || b.phase1_locked === true) && 
+                   (b.phase2_locked === "TRUE" || b.phase2_locked === true);
+        } else {
+            return b.phase1_locked === "TRUE" || b.phase1_locked === true;
+        }
+    };
+
+    // Tính toán Start/End thực tế cho 1 booking dựa trên assignment
+    const getAssignedTimes = (b, assignment) => {
+        const timeShift = assignment.timeShift || 0;
+        const bStart = getSafeTime(b.startTimeString) + timeShift;
+        const duration = parseInt(b.duration || 60, 10);
+        const isCombo = isComboBooking(b);
+        
+        const cleanupMins = 0; // Yêu cầu người dùng: bỏ qua thời gian dọn dẹp khi sắp xếp thông minh
+
+        if (!isCombo) {
+            return [{
+                res: assignment.res,
+                start: bStart,
+                end: bStart + duration + cleanupMins,
+                phase: 0,
+                isOriginal: assignment.isOriginal
+            }];
+        }
+
+        // Combo
+        const flow = assignment.flow || b.flow || 'FB';
+        const split = window.getSmartSplit ? window.getSmartSplit(b, duration, true, flow) : { phase1: Math.floor(duration / 2), phase2: Math.ceil(duration / 2) };
+        const transitionMins = 0; // Yêu cầu người dùng: bỏ qua thời gian đệm khi sắp xếp thông minh
+        const transitionShift = assignment.transitionShift || 0;
+        
+        let p1Dur = b.phase1_duration !== undefined && b.phase1_duration !== null ? parseInt(b.phase1_duration, 10) : split.phase1;
+        let p2Dur = b.phase2_duration !== undefined && b.phase2_duration !== null ? parseInt(b.phase2_duration, 10) : split.phase2;
+        
+        let p1End = bStart + p1Dur;
+        let p2Start = p1End + transitionMins + transitionShift;
+        let p2End = p2Start + p2Dur;
+        
+        if (b.transition_time) {
+            const transMins = getSafeTime(b.transition_time);
+            if (transMins !== -1 && transMins > 0) {
+                if (transMins + timeShift < p1End) {
+                    p1End = transMins + timeShift;
+                }
+                p2Start = transMins + timeShift + transitionShift;
+                p2End = p2Start + p2Dur;
+            }
+        }
+
+        const p1Cleanup = Math.min(cleanupMins, transitionMins);
+        return [
+            { res: assignment.phase1_res, start: bStart, end: p1End + p1Cleanup, phase: 1, isOriginal: assignment.isOriginal },
+            { res: assignment.phase2_res, start: p2Start, end: p2End + cleanupMins, phase: 2, isOriginal: assignment.isOriginal }
+        ];
+    };
+
+    const hasConflict = (times1, times2) => {
+        const tol = window.SYSTEM_CONFIG?.TOLERANCE || 1;
+        const cleanupMins = 0; // Yêu cầu người dùng: bỏ qua thời gian dọn dẹp khi sắp xếp thông minh
+        const overlapThreshold = cleanupMins + tol;
+        
+        for (let t1 of times1) {
+            for (let t2 of times2) {
+                // Bỏ qua nếu cả hai đều là vị trí gốc (tránh xáo trộn do lỗi cũ)
+                if (t1.isOriginal && t2.isOriginal) {
+                    continue;
+                }
+                if (isSameRes(t1.res, t2.res)) {
+                    const overlap = Math.min(t1.end, t2.end) - Math.max(t1.start, t2.start);
+                    if (overlap > overlapThreshold) {
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
+    };
+
+    /**
+     * Thuật toán Backtracking tìm phương án sắp xếp
+     */
+    const backtrack = (variables, assignments, fixedTimes, index, state) => {
+        if (index === variables.length) {
+            return { ...assignments };
+        }
+        
+        if (state.iterations > 10000) {
+            return null; 
+        }
+        if (Date.now() - state.startTime > 300) {
+            return null; // Quá 300ms thì ngừng luôn để tránh treo UI
+        }
+        state.iterations++;
+
+        const currentVar = variables[index];
+        const domains = currentVar.domains;
+
+        for (let domainValue of domains) {
+            let tempAssignment = { ...domains[domainValue] }; 
+            const currentTimes = getAssignedTimes(currentVar.booking, domainValue);
+            
+            let conflict = false;
+            for (let ft of fixedTimes) {
+                if (hasConflict(currentTimes, ft)) {
+                    conflict = true;
+                    break;
+                }
+            }
+            if (conflict) continue;
+
+            for (let i = 0; i < index; i++) {
+                const prevVar = variables[i];
+                const prevTimes = getAssignedTimes(prevVar.booking, assignments[prevVar.booking.rowId]);
+                if (hasConflict(currentTimes, prevTimes)) {
+                    conflict = true;
+                    break;
+                }
+            }
+            if (conflict) continue;
+
+            assignments[currentVar.booking.rowId] = domainValue;
+            
+            const result = backtrack(variables, assignments, fixedTimes, index + 1, state);
+            if (result) return result;
+            
+            delete assignments[currentVar.booking.rowId];
+        }
+
+        return null;
+    };
+
+    const calculateGapScore = (proposedTimes, allExistingTimes) => {
+        let score = 0;
+        for (let pt of proposedTimes) {
+            let pRes = pt.res;
+            if (!pRes) continue;
+            
+            let resTimes = allExistingTimes.filter(t => isSameRes(t.res, pRes));
+            if (resTimes.length === 0) {
+                score += 2; 
+                continue;
+            }
+            
+            let minGap = 9999;
+            for (let rt of resTimes) {
+                let gapBefore = pt.start - rt.end;
+                if (gapBefore >= 0 && gapBefore < minGap) minGap = gapBefore;
+                
+                let gapAfter = rt.start - pt.end;
+                if (gapAfter >= 0 && gapAfter < minGap) minGap = gapAfter;
+            }
+            
+            if (minGap === 0) {
+                score += 50; 
+            } else if (minGap > 0 && minGap < 40) {
+                score -= 20; 
+            } else if (minGap >= 60) {
+                score += 5; 
+            }
+        }
+        return score;
+    };
+
+    const solve = (activeBookings, movedBookingId, targetResource, targetPhase, isMovedCombo) => {
+        let variables = [];
+        let fixedTimes = [];
+        let movedTimes = null;
+        let originalState = {}; 
+        let allExistingTimes = [];
+
+        const movedIdStr = String(movedBookingId);
+        const targetIdUpper = String(targetResource).toUpperCase();
+
+        let bSourceId = null;
+        const movedBForSource = activeBookings.find(x => String(x.rowId) === movedIdStr);
+        if (movedBForSource) {
+            if (isMovedCombo) {
+                bSourceId = targetPhase === 1 ? movedBForSource.phase1_res_idx : movedBForSource.phase2_res_idx;
+            } else {
+                bSourceId = movedBForSource.current_resource_id || movedBForSource.phase1_res_idx || movedBForSource.location || movedBForSource.storedLocation;
+            }
+        }
+        if (bSourceId) bSourceId = normalizeRes(bSourceId);
+
+        for (let b of activeBookings) {
+            const bRowIdStr = String(b.rowId);
+            const isCombo = isComboBooking(b);
+            let assignmentOriginal = {};
+            if (isCombo) {
+                assignmentOriginal = {
+                    flow: b.flow || 'FB',
+                    phase1_res: normalizeRes(b.phase1_res_idx),
+                    phase2_res: normalizeRes(b.phase2_res_idx),
+                    timeShift: 0,
+                    transitionShift: 0,
+                    isOriginal: true
+                };
+            } else {
+                assignmentOriginal = {
+                    res: normalizeRes(b.current_resource_id || b.phase1_res_idx || b.location || b.storedLocation),
+                    timeShift: 0,
+                    isOriginal: true
+                };
+            }
+            originalState[bRowIdStr] = assignmentOriginal;
+
+            if (bRowIdStr !== movedIdStr) {
+                allExistingTimes.push(...getAssignedTimes(b, assignmentOriginal));
+            }
+        }
+
+        for (let b of activeBookings) {
+            const isCombo = isComboBooking(b);
+            const bRowIdStr = String(b.rowId);
+            
+            // Nếu là booking đang bị kéo thả -> Cố định nó vào target
+            if (bRowIdStr === movedIdStr) {
+                let assignment = {};
+                if (isCombo) {
+                    assignment.flow = isTargetPhaseLocked(b, true) && b.flow_code_locked ? b.flow : (targetIdUpper.includes('床') || targetIdUpper.includes('BED') ? 'BF' : 'FB');
+                    if (b.flow_code_locked === "TRUE" || b.flow_code_locked === true) assignment.flow = b.flow; 
+                    
+                    assignment.phase1_res = String(b.phase1_res_idx).toUpperCase();
+                    assignment.phase2_res = String(b.phase2_res_idx).toUpperCase();
+                    
+                    if (targetPhase === 1) assignment.phase1_res = targetIdUpper;
+                    else assignment.phase2_res = targetIdUpper;
+                    
+                    const isBed = (id) => id && (String(id).toUpperCase().includes('床') || String(id).toUpperCase().includes('BED'));
+                    if (assignment.phase1_res && assignment.phase2_res && isBed(assignment.phase1_res) === isBed(assignment.phase2_res)) {
+                        if (targetPhase === 1) assignment.phase2_res = String(b.phase1_res_idx).toUpperCase();
+                        else assignment.phase1_res = String(b.phase2_res_idx).toUpperCase();
+                    }
+                    assignment.flow = isBed(assignment.phase1_res) ? 'BF' : 'FB';
+                } else {
+                    assignment.res = targetIdUpper;
+                }
+                movedTimes = getAssignedTimes(b, assignment);
+                fixedTimes.push(movedTimes);
+                continue;
+            }
+
+            let locked1 = false;
+            let locked2 = false;
+            let locked = false;
+            
+            if (b.isRunningStatus || b.status === 'DOING') {
+                locked = true;
+                locked1 = true;
+                locked2 = true;
+            } else {
+                if (isCombo) {
+                    locked1 = (b.phase1_locked === "TRUE" || b.phase1_locked === true);
+                    locked2 = (b.phase2_locked === "TRUE" || b.phase2_locked === true);
+                    locked = locked1 && locked2;
+                } else {
+                    locked = (b.phase1_locked === "TRUE" || b.phase1_locked === true);
+                    locked1 = locked;
+                    locked2 = locked;
+                }
+            }
+
+            let assignmentOriginal = originalState[bRowIdStr];
+
+            if (isCombo && locked1 && locked2) {
+                fixedTimes.push(getAssignedTimes(b, assignmentOriginal));
+            } else if (!isCombo && locked) {
+                fixedTimes.push(getAssignedTimes(b, assignmentOriginal));
+            } else {
+                let domains = [];
+                let allowedTimeShifts = [0];
+                let baseTransShifts = [-10, -5, 0, 5, 10];
+                let allowedTransShifts = baseTransShifts;
+                
+                if (isCombo) {
+                    const duration = parseInt(b.duration || 60, 10);
+                    const splitBase = window.getSmartSplit ? window.getSmartSplit(b, duration, true, b.flow || 'FB') : { phase1: Math.floor(duration / 2), phase2: Math.ceil(duration / 2) };
+                    
+                    let sCode = b.serviceCode;
+                    if (!sCode || sCode.trim() === '') {
+                        sCode = b.serviceName ? b.serviceName.replace(/\s*\([^)]*油推[^)]*\)/g, '').substring(0, 3).trim() : 'UNKNOWN';
+                        if (sCode && (sCode.startsWith('A') || sCode.startsWith('B') || sCode.startsWith('C') || sCode.startsWith('D'))) {
+                            sCode = sCode.substring(0, 2);
+                        }
+                    }
+                    const svcDef = window.CoreKernel && window.CoreKernel.SERVICES ? window.CoreKernel.SERVICES[sCode] : null;
+                    
+                    if (svcDef && typeof svcDef.minFoot !== 'undefined') {
+                        const minP1 = (b.flow === 'FB' ? svcDef.minFoot : svcDef.minBody) || 0;
+                        const maxP1 = (b.flow === 'FB' ? svcDef.maxFoot : svcDef.maxBody) || duration;
+                        const minP2 = (b.flow === 'FB' ? svcDef.minBody : svcDef.minFoot) || 0;
+                        const maxP2 = (b.flow === 'FB' ? svcDef.maxBody : svcDef.maxFoot) || duration;
+                        
+                        allowedTransShifts = baseTransShifts.filter(shift => {
+                            const newP1 = splitBase.phase1 + shift;
+                            const newP2 = splitBase.phase2 - shift;
+                            return newP1 >= minP1 && newP1 <= maxP1 && newP2 >= minP2 && newP2 <= maxP2;
+                        });
+                    } else {
+                        allowedTransShifts = [0];
+                    }
+                }
+
+                if (isCombo) {
+                    const bedCandidates = getCandidateResources(b.flow === 'FB' ? b.phase2_res_idx : b.phase1_res_idx); 
+                    const chairCandidates = getCandidateResources(b.flow === 'FB' ? b.phase1_res_idx : b.phase2_res_idx); 
+                    
+                    let allowedFlows = [b.flow || 'FB'];
+                    const groupSize = (b.is_group_booking && b.group_id) ? activeBookings.filter(x => x.group_id === b.group_id).length : 1;
+                    if (isCombo && (!b.phase1_res_idx || !b.phase2_res_idx || [4, 6, 8, 10, 12].includes(groupSize))) {
+                        allowedFlows = ['FB', 'BF'];
+                    }
+                    
+                    for (let f of allowedFlows) {
+                        let c1 = f === 'FB' ? chairCandidates : bedCandidates;
+                        let c2 = f === 'FB' ? bedCandidates : chairCandidates;
+                        
+                        if (locked1) c1 = [String(b.phase1_res_idx).toUpperCase()];
+                        if (locked2) c2 = [String(b.phase2_res_idx).toUpperCase()];
+
+                        for (let r1 of c1) {
+                            for (let r2 of c2) {
+                                for (let ts of allowedTimeShifts) {
+                                    for (let trs of allowedTransShifts) {
+                                        let isOrig = (f === assignmentOriginal.flow && String(r1).toUpperCase() === String(assignmentOriginal.phase1_res).toUpperCase() && String(r2).toUpperCase() === String(assignmentOriginal.phase2_res).toUpperCase() && ts === 0 && trs === 0);
+                                        domains.push({ flow: f, phase1_res: r1, phase2_res: r2, timeShift: ts, transitionShift: trs, isOriginal: isOrig });
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    
+                    domains.sort((d1, d2) => {
+                        let score1 = 0;
+                        if (d1.flow === assignmentOriginal.flow) score1 += 10000;
+                        if (d1.phase1_res === assignmentOriginal.phase1_res) score1 += 10000;
+                        else if (bSourceId && d1.phase1_res === bSourceId) score1 += 4;
+                        else if (targetIdUpper && d1.phase1_res === targetIdUpper) score1 += 4;
+                        if (d1.phase2_res === assignmentOriginal.phase2_res) score1 += 10000;
+                        else if (bSourceId && d1.phase2_res === bSourceId) score1 += 4;
+                        else if (targetIdUpper && d1.phase2_res === targetIdUpper) score1 += 4;
+                        
+                        if (b.is_group_booking && b.group_id) {
+                            const gSize = activeBookings.filter(x => x.group_id === b.group_id).length;
+                            if ([4, 6, 8, 10, 12].includes(gSize)) {
+                                for (let otherRowId in assignments) {
+                                    const otherB = activeBookings.find(x => String(x.rowId) === String(otherRowId));
+                                    if (otherB && otherB.group_id === b.group_id && isComboBooking(otherB)) {
+                                        const otherAssign = assignments[otherRowId];
+                                        if (d1.flow !== otherAssign.flow && String(d1.phase1_res) === String(otherAssign.phase2_res) && String(d1.phase2_res) === String(otherAssign.phase1_res)) {
+                                            score1 += 15000;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        
+                        score1 -= Math.abs(d1.timeShift) * 100;
+                        score1 -= Math.abs(d1.transitionShift) * 100;
+                        let t1 = getAssignedTimes(b, d1);
+                        score1 += calculateGapScore(t1, allExistingTimes);
+                        
+                        let score2 = 0;
+                        if (d2.flow === assignmentOriginal.flow) score2 += 10000;
+                        if (d2.phase1_res === assignmentOriginal.phase1_res) score2 += 10000;
+                        else if (bSourceId && d2.phase1_res === bSourceId) score2 += 4;
+                        else if (targetIdUpper && d2.phase1_res === targetIdUpper) score2 += 4;
+                        if (d2.phase2_res === assignmentOriginal.phase2_res) score2 += 10000;
+                        else if (bSourceId && d2.phase2_res === bSourceId) score2 += 4;
+                        else if (targetIdUpper && d2.phase2_res === targetIdUpper) score2 += 4;
+                        score2 -= Math.abs(d2.timeShift) * 100;
+                        score2 -= Math.abs(d2.transitionShift) * 100;
+                        let t2 = getAssignedTimes(b, d2);
+                        score2 += calculateGapScore(t2, allExistingTimes);
+                        
+                        return score2 - score1;
+                    });
+                    
+                } else {
+                    const cands = getCandidateResources(assignmentOriginal.res);
+                    for (let r of cands) {
+                        for (let ts of allowedTimeShifts) {
+                            let isOrig = (String(r).toUpperCase() === String(assignmentOriginal.res).toUpperCase() && ts === 0);
+                            domains.push({ res: r, timeShift: ts, isOriginal: isOrig });
+                        }
+                    }
+                    domains.sort((d1, d2) => {
+                        let s1 = 0;
+                        if (d1.res === assignmentOriginal.res) s1 += 10000;
+                        else if (bSourceId && d1.res === bSourceId) s1 += 8;
+                        else if (targetIdUpper && d1.res === targetIdUpper) s1 += 8;
+                        s1 -= Math.abs(d1.timeShift) * 100;
+                        let t1 = getAssignedTimes(b, d1);
+                        s1 += calculateGapScore(t1, allExistingTimes);
+
+                        let s2 = 0;
+                        if (d2.res === assignmentOriginal.res) s2 += 10000;
+                        else if (bSourceId && d2.res === bSourceId) s2 += 8;
+                        else if (targetIdUpper && d2.res === targetIdUpper) s2 += 8;
+                        s2 -= Math.abs(d2.timeShift) * 100;
+                        let t2 = getAssignedTimes(b, d2);
+                        s2 += calculateGapScore(t2, allExistingTimes);
+
+                        return s2 - s1;
+                    });
+                }
+
+                variables.push({
+                    booking: b,
+                    domains: domains
+                });
+            }
+        }
+
+        let state = { iterations: 0, startTime: Date.now() };
+
+        // [NÂNG CẤP] Chỉ kiểm tra khối vừa kéo thả xem có đè lên các khối cố định khác không (Bỏ qua đè cleanup buffer)
+        if (movedTimes) {
+            for (let ft of fixedTimes) {
+                if (ft !== movedTimes) {
+                    const cleanupMins = typeof window !== 'undefined' && window.getCleanupBuffer ? window.getCleanupBuffer() : (window.SYSTEM_CONFIG?.BUFFERS?.CLEANUP_MINUTES || 5);
+                    const tol = window.SYSTEM_CONFIG?.TOLERANCE || 1;
+                    const overlapThreshold = cleanupMins + tol;
+                    let isHardConflict = false;
+                    for (let t1 of movedTimes) {
+                        for (let t2 of ft) {
+                            if (isSameRes(t1.res, t2.res)) {
+                                const overlap = Math.min(t1.end, t2.end) - Math.max(t1.start, t2.start);
+                                if (overlap > overlapThreshold) {
+                                    isHardConflict = true;
+                                }
+                            }
+                        }
+                    }
+                    if (isHardConflict) return null;
+                }
+            }
+        }
+
+        const result = backtrack(variables, {}, fixedTimes, 0, state);
+        
+        if (!result) return null; 
+
+        let payloads = [];
+        
+        let movedPayload = { rowId: movedBookingId, forceSync: true, is_locked: "TRUE", isManualLocked: true };
+        const movedB = activeBookings.find(x => String(x.rowId) === movedIdStr);
+        if (movedB) {
+            if (movedB.startTimeString) movedPayload.startTimeString = movedB.startTimeString;
+            if (movedB.transition_time) movedPayload.transition_time = movedB.transition_time;
+            if (movedB.phase1_duration !== undefined) movedPayload.phase1_duration = movedB.phase1_duration;
+            if (movedB.phase2_duration !== undefined) movedPayload.phase2_duration = movedB.phase2_duration;
+            
+            if (isComboBooking(movedB)) {
+                let assignment = {};
+                assignment.phase1_res = String(movedB.phase1_res_idx).toUpperCase();
+                assignment.phase2_res = String(movedB.phase2_res_idx).toUpperCase();
+                if (targetPhase === 1) assignment.phase1_res = targetIdUpper;
+                else assignment.phase2_res = targetIdUpper;
+                
+                const isBed = (id) => id && (String(id).toUpperCase().includes('床') || String(id).toUpperCase().includes('BED'));
+                if (assignment.phase1_res && assignment.phase2_res && isBed(assignment.phase1_res) === isBed(assignment.phase2_res)) {
+                    if (targetPhase === 1) assignment.phase2_res = String(movedB.phase1_res_idx).toUpperCase();
+                    else assignment.phase1_res = String(movedB.phase2_res_idx).toUpperCase();
+                }
+                movedPayload.phase1_res_idx = assignment.phase1_res.toUpperCase();
+                movedPayload.phase2_res_idx = assignment.phase2_res.toUpperCase();
+                movedPayload.flow = isBed(assignment.phase1_res) ? 'BF' : 'FB';
+            } else {
+                movedPayload.current_resource_id = targetIdUpper.toUpperCase();
+                movedPayload.location = targetIdUpper.toUpperCase();
+                movedPayload.phase1_res_idx = targetIdUpper.toUpperCase();
+            }
+            payloads.push(movedPayload);
+        }
+
+        for (let rowId in result) {
+            let bRowIdStr = String(rowId);
+            let newAssignt = result[rowId];
+            let orig = originalState[bRowIdStr];
+            let isChanged = false;
+            
+            let p = { rowId: rowId, forceSync: true };
+            
+            if (newAssignt.flow !== undefined) {
+                if (newAssignt.flow !== orig.flow || newAssignt.phase1_res !== orig.phase1_res || newAssignt.phase2_res !== orig.phase2_res || newAssignt.timeShift !== 0 || newAssignt.transitionShift !== 0) {
+                    isChanged = true;
+                    p.flow = newAssignt.flow;
+                    p.phase1_res_idx = newAssignt.phase1_res.toUpperCase();
+                    p.phase2_res_idx = newAssignt.phase2_res.toUpperCase();
+                    
+                    const bOriginForDur = activeBookings.find(x => String(x.rowId) === bRowIdStr);
+                    if (bOriginForDur) {
+                        p.phase1_duration = bOriginForDur.phase1_duration;
+                        p.phase2_duration = bOriginForDur.phase2_duration;
+                    }
+                }
+            } else {
+                if (newAssignt.res !== orig.res || newAssignt.timeShift !== 0) {
+                    isChanged = true;
+                    p.current_resource_id = newAssignt.res.toUpperCase();
+                    p.location = newAssignt.res.toUpperCase();
+                    p.phase1_res_idx = newAssignt.res.toUpperCase();
+                }
+            }
+
+            if (isChanged) {
+                p.is_locked = "TRUE";
+                p.isManualLocked = true;
+                
+                const bOrigin = activeBookings.find(x => String(x.rowId) === bRowIdStr);
+                if (bOrigin && (newAssignt.timeShift !== 0 || (newAssignt.transitionShift !== undefined && newAssignt.transitionShift !== 0))) {
+                    if (newAssignt.timeShift !== 0) {
+                        const originStartMins = getSafeTime(bOrigin.startTimeString);
+                        p.startTimeString = minsToTimeString(originStartMins + newAssignt.timeShift, bOrigin.startTimeString);
+                    }
+                    if (newAssignt.transitionShift !== undefined && newAssignt.transitionShift !== 0) {
+                        const duration = parseInt(bOrigin.duration || 60, 10);
+                        const flow = newAssignt.flow || bOrigin.flow || 'FB';
+                        const split = window.getSmartSplit ? window.getSmartSplit(bOrigin, duration, true, flow) : { phase1: Math.floor(duration / 2), phase2: Math.ceil(duration / 2) };
+                        const bStartMins = getSafeTime(bOrigin.startTimeString) + (newAssignt.timeShift || 0);
+                        let p1EndMins = bStartMins + split.phase1;
+                        let currentTransMins = p1EndMins;
+                        if (bOrigin.transition_time) {
+                            const oldTransMins = getSafeTime(bOrigin.transition_time);
+                            if (oldTransMins !== -1) {
+                                currentTransMins = oldTransMins + (newAssignt.timeShift || 0);
+                            }
+                        } else {
+                            currentTransMins = p1EndMins + (window.SYSTEM_CONFIG?.BUFFERS?.TRANSITION_MINUTES || 5);
+                        }
+                        
+                        p.transition_time = minsToTimeString(currentTransMins + newAssignt.transitionShift, bOrigin.startTimeString);
+                        p.phase1_duration = split.phase1 + newAssignt.transitionShift;
+                        p.phase2_duration = split.phase2 - newAssignt.transitionShift;
+                    }
+                }
+                
+                payloads.push(p);
+            }
+        }
+
+        return payloads;
+    };
+
+    return {
+        solve: solve
+    };
+})();

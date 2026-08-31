@@ -1,4 +1,5 @@
 const fs = require('fs');
+
 let content = fs.readFileSync('cyx_resource_core.js', 'utf8');
 
 // MAX_CHAIRS/BEDS
@@ -18,5 +19,11 @@ content = content.replace(/const isOpp = CONF\._tempLocation === '對面館';/g,
 content = content.replace(/const bPrefix = \(exBLoc === '對面館'\) \? '2' : '1';/g, "const bPrefix = '1';");
 content = content.replace(/let building = isOpp \? '2' : '1';/g, "let building = '1';");
 content = content.replace(/const buildingStr = isOpp \? '2' : '1';/g, "const buildingStr = '1';");
+
+content = content.replace(/let oppositeLoc = locationStr === '本館' \? '對面館' : '本館';\s*let oppositeSim = validateGlobalCapacity\([^)]+\);\s*let oppositeSuggestion = "";\s*if \(oppositeSim\.pass\) \{\s*oppositeSuggestion = [^;]+;\s*\}/g, 'let oppositeSuggestion = "";');
+content = content.replace(/\$\{oppositeSuggestion\}/g, '');
+
+content = content.replace(/if \(locationStr === '本館' \|\| locationStr === '對面館'\) \{[\s\S]*?\}\s*if \(bestOutOfBoundSplit\)/g, "if (bestOutOfBoundSplit)");
+content = content.replace(/\$\{crossLocationMsg\}/g, '');
 
 fs.writeFileSync('cyx_resource_core.js', content, 'utf8');

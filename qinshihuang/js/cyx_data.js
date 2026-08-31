@@ -25,7 +25,7 @@
 const SYSTEM_CONFIG = {
     SHOP_INFO: {
         NAME: '秦始皇養身館',
-        BRANCH: '中和', // Chi nhánh 中和
+        BRANCH: '中壢', // Chi nhánh 中壢
         VERSION: 'V1.5_Universal'
     },
 
@@ -38,7 +38,6 @@ const SYSTEM_CONFIG = {
         // Các sheet bổ sung (dựa trên cấu trúc tab hiện tại)
         STAFF_LIST_SHEET_NAME: 'name',      // Danh sách hồ sơ kỹ thuật viên
         BLACKLIST_SHEET_NAME: '黑名單',     // Danh sách đen khách hàng
-        SELL_PRODUCT_SHEET_NAME: '賣產品',  // Danh sách và lịch sử bán sản phẩm
     },
 
     // Định dạng ID Tài nguyên Chuẩn
@@ -106,6 +105,11 @@ const SYSTEM_CONFIG = {
     FINANCE: {
         DEFAULT_JIE_PRICE: 250, // Giá 1 tiết cơ bản
         OIL_BONUS: 200            // Thưởng tinh dầu
+    },
+
+    // 功能開關 (Feature Toggles)
+    FEATURE_TOGGLES: {
+        USE_REALTIME_START: true // 啟用真實開始時間 (true: 記錄實際按下開始的時間, false: 使用預約時間)
     }
 };
 
@@ -145,7 +149,7 @@ const SERVICES_DATA = {
     'B2': { name: '身體按摩 (70分)', duration: 70, price: 900, type: 'BED', category: 'BODY', blocks: 2, commission: 250 },
     'B1': { name: '身體按摩 (35分)', duration: 35, price: 500, type: 'BED', category: 'BODY', blocks: 1, commission: 250 },
 
-    //'C1': { name: '拔罐/刮痧 (35分)', duration: 35, price: 500, type: 'BED', category: 'ADDON', blocks: 1, commission: 250 },
+    'C1': { name: '拔罐/刮痧 (35分)', duration: 35, price: 500, type: 'BED', category: 'ADDON', blocks: 1, commission: 250 },
     //'C2': { name: '修指甲/修腳皮 (35分)', duration: 35, price: 500, type: 'CHAIR', category: 'ADDON', blocks: 1, commission: 250 }
 };
 
