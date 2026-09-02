@@ -2618,6 +2618,18 @@ const TimelineView = ({ timelineData, onEditPhase, liveStatusData, staffList, st
     const [showStaffStats, setShowStaffStats] = useState(null);
     const STATUS = getBookingStatus();
     const scrollContainerRef = useRef(null);
+    
+    // --- NEW: COMPACT MODE STATE ---
+    const [isCompact, setIsCompact] = useState(() => {
+        const saved = localStorage.getItem('timeline_compact_mode');
+        return saved === 'true';
+    });
+
+    const toggleCompact = () => {
+        const newVal = !isCompact;
+        setIsCompact(newVal);
+        localStorage.setItem('timeline_compact_mode', newVal);
+    };
 
     const getGroupMemberIndexLocal = (targetResId, targetRowId) => {
         if (!liveStatusData) return -1;
@@ -2655,7 +2667,7 @@ const TimelineView = ({ timelineData, onEditPhase, liveStatusData, staffList, st
     const PIXELS_PER_MIN = 2.2;
     const HOUR_WIDTH = 60 * PIXELS_PER_MIN;
     const HEADER_HEIGHT = 45;
-    const ROW_HEIGHT = 60;
+    const ROW_HEIGHT = isCompact ? 35 : 60;
     const LEFT_COL_WIDTH = 80;
     const TOTAL_WIDTH = LEFT_COL_WIDTH + (hours.length * HOUR_WIDTH);
 
@@ -2862,9 +2874,13 @@ const TimelineView = ({ timelineData, onEditPhase, liveStatusData, staffList, st
                         onDoubleClick={() => scrollToNow(true)}
                         title="雙擊回到現在"
                     >
-                        <div className="sticky left-0 top-0 z-40 bg-[#e2e8f0] border-r border-slate-300 flex items-center justify-center font-extrabold text-slate-700 text-sm shadow-[2px_0_5px_rgba(0,0,0,0.1)]"
+                        <div className="sticky left-0 top-0 z-40 bg-[#e2e8f0] border-r border-slate-300 flex flex-col items-center justify-center font-extrabold text-slate-700 shadow-[2px_0_5px_rgba(0,0,0,0.1)]"
                             style={{ width: `${LEFT_COL_WIDTH}px`, height: `${HEADER_HEIGHT}px` }}>
-                            區域
+                            <span className="text-sm">區域</span>
+                            <button onClick={(e) => { e.stopPropagation(); toggleCompact(); }} className="text-[10px] font-bold bg-slate-300 hover:bg-slate-400 text-slate-700 px-1 py-0.5 rounded mt-0.5 transition-colors leading-none flex items-center" title={isCompact ? "切換至舒適模式" : "切換至緊湊模式"}>
+                                <i className={`fas ${isCompact ? 'fa-expand-alt' : 'fa-compress-alt'} mr-1 text-[9px]`}></i>
+                                {isCompact ? "舒適" : "緊湊"}
+                            </button>
                         </div>
                         <div className="flex bg-slate-50">
                             {hours.map(h => (
@@ -3064,34 +3080,62 @@ const TimelineView = ({ timelineData, onEditPhase, liveStatusData, staffList, st
                                                     title={`${booking.serviceName}\n${isRunning ? `🔥 ${STATUS.SERVING}` : ''}${isSyncPending && !isRunning ? '\n⏳ 同步中...' : ''}${isTimeAnomaly ? '\n⚠️ 時長異常' : ''}${isOverlapped ? '\n⚠️ 時段衝突' : ''}${hasNote ? `\n📝 備註: ${booking.adminNote}` : ''}`}
                                                     onClick={(e) => { if (showControlBtn) { e.stopPropagation(); handleOpenControl(booking, slot.meta, row.id); } }}
                                                 >
-                                                    <div className="flex justify-between items-start w-full leading-tight mb-0.5 gap-1">
-                                                        <div className="font-bold truncate text-[11px] flex-1 flex items-center gap-1">
-                                                            {isOverlapped && <span className="text-red-600 animate-pulse" title="時段衝突">⚠️</span>}
-                                                            {label}
-                                                        </div>
-                                                        {comboSequence && (
-                                                            <div
-                                                                className={`shrink-0 text-[10px] font-black px-1 rounded shadow-sm leading-tight ${comboSequence === 'BF' ? 'bg-indigo-500 text-white' : 'bg-orange-500 text-white'}`}
-                                                                title={comboSequence === 'BF' ? '先身後足' : '先足後身'}
-                                                            >
-                                                                {comboSequence}
+                                                    {isCompact ? (
+                                                        <div className="flex flex-row justify-between items-center w-full h-full gap-1 overflow-hidden">
+                                                            <div className="font-bold truncate text-[10px] flex-1 flex items-center gap-1">
+                                                                {isOverlapped && <span className="text-red-600 animate-pulse" title="時段衝突">⚠️</span>}
+                                                                {label}
+                                                                <span className="text-slate-600 font-semibold truncate ml-1">- {displayStaff}</span>
+                                                                {isYouTui && <span className="text-[9px]" title="油推">💧</span>}
+                                                                {isGuaSha && <span className="text-[9px]" title="刮痧">🩸</span>}
+                                                                {isHuaGuan && <span className="text-[9px]" title="滑罐">🏺</span>}
+                                                                {isBaGuan && <span className="text-[9px]" title="拔罐">🎯</span>}
+                                                                {hasNote && <span className="text-[9px] text-amber-600" title={`備註: ${booking.adminNote}`}>📝</span>}
                                                             </div>
-                                                        )}
-                                                    </div>
+                                                            {comboSequence && (
+                                                                <div
+                                                                    className={`shrink-0 text-[9px] font-black px-1 rounded shadow-sm leading-none ${comboSequence === 'BF' ? 'bg-indigo-500 text-white' : 'bg-orange-500 text-white'}`}
+                                                                    title={comboSequence === 'BF' ? '先身後足' : '先足後身'}
+                                                                >
+                                                                    {comboSequence}
+                                                                </div>
+                                                            )}
+                                                            <div className={`text-[9px] font-bold font-mono px-1 rounded border border-black/5 shadow-sm ${isTimeAnomaly ? 'bg-orange-100 text-orange-800 animate-pulse' : 'bg-white/50 text-slate-800'} shrink-0`}>
+                                                                {timeLabel}
+                                                            </div>
+                                                        </div>
+                                                    ) : (
+                                                        <>
+                                                            <div className="flex justify-between items-start w-full leading-tight mb-0.5 gap-1">
+                                                                <div className="font-bold truncate text-[11px] flex-1 flex items-center gap-1">
+                                                                    {isOverlapped && <span className="text-red-600 animate-pulse" title="時段衝突">⚠️</span>}
+                                                                    {label}
+                                                                </div>
+                                                                {comboSequence && (
+                                                                    <div
+                                                                        className={`shrink-0 text-[10px] font-black px-1 rounded shadow-sm leading-tight ${comboSequence === 'BF' ? 'bg-indigo-500 text-white' : 'bg-orange-500 text-white'}`}
+                                                                        title={comboSequence === 'BF' ? '先身後足' : '先足後身'}
+                                                                    >
+                                                                        {comboSequence}
+                                                                    </div>
+                                                                )}
+                                                            </div>
 
-                                                    <div className="flex justify-between items-center w-full mt-auto">
-                                                        <div className="truncate text-[10px] font-bold text-slate-700 flex items-center gap-1">
-                                                            {displayStaff}
-                                                            {isYouTui && <span className="text-[10px]" title="油推">💧</span>}
-                                                            {isGuaSha && <span className="text-[10px]" title="刮痧">🩸</span>}
-                                                            {isHuaGuan && <span className="text-[10px]" title="滑罐">🏺</span>}
-                                                            {isBaGuan && <span className="text-[10px]" title="拔罐">🎯</span>}
-                                                            {hasNote && <span className="text-[10px] text-amber-600" title={`備註: ${booking.adminNote}`}>📝</span>}
-                                                        </div>
-                                                        <div className={`text-[10px] font-bold font-mono px-1 rounded border border-black/5 shadow-sm ${isTimeAnomaly ? 'bg-orange-100 text-orange-800 animate-pulse' : 'bg-white/50 text-slate-800'}`}>
-                                                            {timeLabel}
-                                                        </div>
-                                                    </div>
+                                                            <div className="flex justify-between items-center w-full mt-auto">
+                                                                <div className="truncate text-[10px] font-bold text-slate-700 flex items-center gap-1">
+                                                                    {displayStaff}
+                                                                    {isYouTui && <span className="text-[10px]" title="油推">💧</span>}
+                                                                    {isGuaSha && <span className="text-[10px]" title="刮痧">🩸</span>}
+                                                                    {isHuaGuan && <span className="text-[10px]" title="滑罐">🏺</span>}
+                                                                    {isBaGuan && <span className="text-[10px]" title="拔罐">🎯</span>}
+                                                                    {hasNote && <span className="text-[10px] text-amber-600" title={`備註: ${booking.adminNote}`}>📝</span>}
+                                                                </div>
+                                                                <div className={`text-[10px] font-bold font-mono px-1 rounded border border-black/5 shadow-sm ${isTimeAnomaly ? 'bg-orange-100 text-orange-800 animate-pulse' : 'bg-white/50 text-slate-800'}`}>
+                                                                    {timeLabel}
+                                                                </div>
+                                                            </div>
+                                                        </>
+                                                    )}
 
                                                     {showControlBtn && (
                                                         <button className="edit-btn absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-8 h-8 bg-white/95 backdrop-blur-sm text-slate-500 rounded-full flex items-center justify-center shadow-lg border border-slate-200 z-50 hover:text-indigo-600 hover:border-indigo-400 hover:bg-white transition-all"
