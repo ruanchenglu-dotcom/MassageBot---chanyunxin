@@ -2617,18 +2617,33 @@ const TimelineView = ({ timelineData, onEditPhase, liveStatusData, staffList, st
     const [now, setNow] = useState(new Date());
     const [showStaffStats, setShowStaffStats] = useState(null);
     const STATUS = getBookingStatus();
-    const scrollContainerRef = useRef(null);
-    
-    // --- NEW: COMPACT MODE STATE ---
-    const [isCompact, setIsCompact] = useState(() => {
-        const saved = localStorage.getItem('timeline_compact_mode');
-        return saved === 'true';
-    });
+    const leftScrollRef = useRef(null);
+    const rightScrollRef = useRef(null);
+    const isSyncingLeft = useRef(false);
+    const isSyncingRight = useRef(false);
 
-    const toggleCompact = () => {
-        const newVal = !isCompact;
-        setIsCompact(newVal);
-        localStorage.setItem('timeline_compact_mode', newVal);
+    const handleLeftScroll = (e) => {
+        if (isSyncingLeft.current) {
+            isSyncingLeft.current = false;
+            return;
+        }
+        if (rightScrollRef.current) {
+            isSyncingRight.current = true;
+            rightScrollRef.current.scrollLeft = e.target.scrollLeft;
+            rightScrollRef.current.scrollTop = e.target.scrollTop;
+        }
+    };
+
+    const handleRightScroll = (e) => {
+        if (isSyncingRight.current) {
+            isSyncingRight.current = false;
+            return;
+        }
+        if (leftScrollRef.current) {
+            isSyncingLeft.current = true;
+            leftScrollRef.current.scrollLeft = e.target.scrollLeft;
+            leftScrollRef.current.scrollTop = e.target.scrollTop;
+        }
     };
 
     const getGroupMemberIndexLocal = (targetResId, targetRowId) => {
@@ -2667,7 +2682,7 @@ const TimelineView = ({ timelineData, onEditPhase, liveStatusData, staffList, st
     const PIXELS_PER_MIN = 2.2;
     const HOUR_WIDTH = 60 * PIXELS_PER_MIN;
     const HEADER_HEIGHT = 45;
-    const ROW_HEIGHT = isCompact ? 35 : 60;
+    const ROW_HEIGHT = 60;
     const LEFT_COL_WIDTH = 80;
     const TOTAL_WIDTH = LEFT_COL_WIDTH + (hours.length * HOUR_WIDTH);
 
@@ -2687,17 +2702,24 @@ const TimelineView = ({ timelineData, onEditPhase, liveStatusData, staffList, st
 
     // --- NEW: SMOOTH SCROLL TO NOW ---
     const scrollToNow = (smooth = true) => {
-        if (scrollContainerRef.current) {
-            const scrollPos = nowLeftPos - 150;
-            scrollContainerRef.current.scrollTo({
-                left: scrollPos > 0 ? scrollPos : 0,
+        const scrollPos = nowLeftPos - 150;
+        const finalLeft = scrollPos > 0 ? scrollPos : 0;
+        if (leftScrollRef.current) {
+            leftScrollRef.current.scrollTo({
+                left: finalLeft,
+                behavior: smooth ? 'smooth' : 'auto'
+            });
+        }
+        if (rightScrollRef.current) {
+            rightScrollRef.current.scrollTo({
+                left: finalLeft,
                 behavior: smooth ? 'smooth' : 'auto'
             });
         }
     };
 
     useEffect(() => {
-        // Tự động cuộn đến thời điểm hiện tại sau khi render lần đầu (delay 500ms để DOM ổn định)
+        // 首次渲染後自動滾動到當前時間 (延遲 500ms 讓 DOM 穩定)
         const timer = setTimeout(() => {
             scrollToNow(true);
         }, 500);
@@ -2745,7 +2767,8 @@ const TimelineView = ({ timelineData, onEditPhase, liveStatusData, staffList, st
         return `${displayH}:00`;
     };
 
-    let rows = [];
+    let chairRows = [];
+    let bedRows = [];
     const c_prefix = branch === 'main' 
         ? (window.SYSTEM_CONFIG?.UI_LABELS?.CHAIR_PREFIX1 || '腳1-')
         : (window.SYSTEM_CONFIG?.UI_LABELS?.CHAIR_PREFIX2 || '腳2-');
@@ -2756,17 +2779,13 @@ const TimelineView = ({ timelineData, onEditPhase, liveStatusData, staffList, st
     if (branch === 'main') {
         const numChairs = getMaxChairs();
         const numBeds = getMaxBeds();
-        rows = [
-            ...Array.from({ length: numChairs }, (_, i) => ({ id: `CHAIR-1-${i + 1}`, label: `${c_prefix}${i + 1}`, type: 'chair' })),
-            ...Array.from({ length: numBeds }, (_, i) => ({ id: `BED-1-${i + 1}`, label: `${b_prefix}${i + 1}`, type: 'bed' }))
-        ];
+        chairRows = Array.from({ length: numChairs }, (_, i) => ({ id: `CHAIR-1-${i + 1}`, label: `${c_prefix}${i + 1}`, type: 'chair' }));
+        bedRows = Array.from({ length: numBeds }, (_, i) => ({ id: `BED-1-${i + 1}`, label: `${b_prefix}${i + 1}`, type: 'bed' }));
     } else {
         const oppChairs = getOppChairs();
         const oppBeds = getOppBeds();
-        rows = [
-            ...Array.from({ length: oppChairs }, (_, i) => ({ id: `CHAIR-2-${i + 1}`, label: `${c_prefix}${i + 1}`, type: 'chair' })),
-            ...Array.from({ length: oppBeds }, (_, i) => ({ id: `BED-2-${i + 1}`, label: `${b_prefix}${i + 1}`, type: 'bed' }))
-        ];
+        chairRows = Array.from({ length: oppChairs }, (_, i) => ({ id: `CHAIR-2-${i + 1}`, label: `${c_prefix}${i + 1}`, type: 'chair' }));
+        bedRows = Array.from({ length: oppBeds }, (_, i) => ({ id: `BED-2-${i + 1}`, label: `${b_prefix}${i + 1}`, type: 'bed' }));
     }
 
 
@@ -2835,11 +2854,8 @@ const TimelineView = ({ timelineData, onEditPhase, liveStatusData, staffList, st
 
     const safeData = timelineData || {};
 
-    return (
-        <div className="relative w-full h-[calc(100vh-170px)]">
-
-            {/* --- Kéo vùng Timeline vào trong Scroll Container --- */}
-            <div ref={scrollContainerRef} className="bg-white rounded shadow border border-slate-200 h-full overflow-x-scroll overflow-y-auto relative custom-scrollbar pb-2">
+    const renderTimelineContainer = (title, currentRows, scrollRef, onScrollHandler) => (
+            <div ref={scrollRef} onScroll={onScrollHandler} className="bg-white rounded shadow border border-slate-200 h-full overflow-x-scroll overflow-y-auto relative custom-scrollbar pb-2">
                 <style>{`
                     .custom-scrollbar::-webkit-scrollbar:horizontal { height: 35px !important; }
                     .custom-scrollbar::-webkit-scrollbar:vertical { width: 14px !important; }
@@ -2874,13 +2890,9 @@ const TimelineView = ({ timelineData, onEditPhase, liveStatusData, staffList, st
                         onDoubleClick={() => scrollToNow(true)}
                         title="雙擊回到現在"
                     >
-                        <div className="sticky left-0 top-0 z-40 bg-[#e2e8f0] border-r border-slate-300 flex flex-col items-center justify-center font-extrabold text-slate-700 shadow-[2px_0_5px_rgba(0,0,0,0.1)]"
+                        <div className="sticky left-0 top-0 z-40 bg-[#e2e8f0] border-r border-slate-300 flex items-center justify-center font-extrabold text-slate-700 text-sm shadow-[2px_0_5px_rgba(0,0,0,0.1)]"
                             style={{ width: `${LEFT_COL_WIDTH}px`, height: `${HEADER_HEIGHT}px` }}>
-                            <span className="text-sm">區域</span>
-                            <button onClick={(e) => { e.stopPropagation(); toggleCompact(); }} className="text-[10px] font-bold bg-slate-300 hover:bg-slate-400 text-slate-700 px-1 py-0.5 rounded mt-0.5 transition-colors leading-none flex items-center" title={isCompact ? "切換至舒適模式" : "切換至緊湊模式"}>
-                                <i className={`fas ${isCompact ? 'fa-expand-alt' : 'fa-compress-alt'} mr-1 text-[9px]`}></i>
-                                {isCompact ? "舒適" : "緊湊"}
-                            </button>
+                            區域
                         </div>
                         <div className="flex bg-slate-50">
                             {hours.map(h => (
@@ -2895,8 +2907,8 @@ const TimelineView = ({ timelineData, onEditPhase, liveStatusData, staffList, st
                     </div>
 
                     <div className="relative bg-white pb-4">
-                        {rows.map((row, index) => {
-                            const lastChairIndex = rows.reduce((acc, curr, idx) => curr.type === 'chair' ? idx : acc, -1);
+                        {currentRows.map((row, index) => {
+                            const lastChairIndex = currentRows.reduce((acc, curr, idx) => curr.type === 'chair' ? idx : acc, -1);
                             const isLastChairRow = index === lastChairIndex;
                             const rowStyleClass = isLastChairRow ? "border-b-4 border-red-500" : "border-b border-slate-100";
 
@@ -2975,7 +2987,7 @@ const TimelineView = ({ timelineData, onEditPhase, liveStatusData, staffList, st
                                                 else if (grpIdx === 4) staffName = booking.staffId5 || '隨機';
                                                 else if (grpIdx === 5) staffName = booking.staffId6 || '隨機';
                                                 else {
-                                                    // Fallback an toàn nếu không tìm thấy grpIdx (-1)
+                                                    // 找不到 grpIdx (-1) 時的安全備用方案
                                                     const match = String(row.id).match(/-(\d+)$/);
                                                     if (match) {
                                                         const resIndex = parseInt(match[1], 10);
@@ -3080,62 +3092,34 @@ const TimelineView = ({ timelineData, onEditPhase, liveStatusData, staffList, st
                                                     title={`${booking.serviceName}\n${isRunning ? `🔥 ${STATUS.SERVING}` : ''}${isSyncPending && !isRunning ? '\n⏳ 同步中...' : ''}${isTimeAnomaly ? '\n⚠️ 時長異常' : ''}${isOverlapped ? '\n⚠️ 時段衝突' : ''}${hasNote ? `\n📝 備註: ${booking.adminNote}` : ''}`}
                                                     onClick={(e) => { if (showControlBtn) { e.stopPropagation(); handleOpenControl(booking, slot.meta, row.id); } }}
                                                 >
-                                                    {isCompact ? (
-                                                        <div className="flex flex-row justify-between items-center w-full h-full gap-1 overflow-hidden">
-                                                            <div className="font-bold truncate text-[10px] flex-1 flex items-center gap-1">
-                                                                {isOverlapped && <span className="text-red-600 animate-pulse" title="時段衝突">⚠️</span>}
-                                                                {label}
-                                                                <span className="text-slate-600 font-semibold truncate ml-1">- {displayStaff}</span>
-                                                                {isYouTui && <span className="text-[9px]" title="油推">💧</span>}
-                                                                {isGuaSha && <span className="text-[9px]" title="刮痧">🩸</span>}
-                                                                {isHuaGuan && <span className="text-[9px]" title="滑罐">🏺</span>}
-                                                                {isBaGuan && <span className="text-[9px]" title="拔罐">🎯</span>}
-                                                                {hasNote && <span className="text-[9px] text-amber-600" title={`備註: ${booking.adminNote}`}>📝</span>}
-                                                            </div>
-                                                            {comboSequence && (
-                                                                <div
-                                                                    className={`shrink-0 text-[9px] font-black px-1 rounded shadow-sm leading-none ${comboSequence === 'BF' ? 'bg-indigo-500 text-white' : 'bg-orange-500 text-white'}`}
-                                                                    title={comboSequence === 'BF' ? '先身後足' : '先足後身'}
-                                                                >
-                                                                    {comboSequence}
-                                                                </div>
-                                                            )}
-                                                            <div className={`text-[9px] font-bold font-mono px-1 rounded border border-black/5 shadow-sm ${isTimeAnomaly ? 'bg-orange-100 text-orange-800 animate-pulse' : 'bg-white/50 text-slate-800'} shrink-0`}>
-                                                                {timeLabel}
-                                                            </div>
+                                                    <div className="flex justify-between items-start w-full leading-tight mb-0.5 gap-1">
+                                                        <div className="font-bold truncate text-[11px] flex-1 flex items-center gap-1">
+                                                            {isOverlapped && <span className="text-red-600 animate-pulse" title="時段衝突">⚠️</span>}
+                                                            {label}
                                                         </div>
-                                                    ) : (
-                                                        <>
-                                                            <div className="flex justify-between items-start w-full leading-tight mb-0.5 gap-1">
-                                                                <div className="font-bold truncate text-[11px] flex-1 flex items-center gap-1">
-                                                                    {isOverlapped && <span className="text-red-600 animate-pulse" title="時段衝突">⚠️</span>}
-                                                                    {label}
-                                                                </div>
-                                                                {comboSequence && (
-                                                                    <div
-                                                                        className={`shrink-0 text-[10px] font-black px-1 rounded shadow-sm leading-tight ${comboSequence === 'BF' ? 'bg-indigo-500 text-white' : 'bg-orange-500 text-white'}`}
-                                                                        title={comboSequence === 'BF' ? '先身後足' : '先足後身'}
-                                                                    >
-                                                                        {comboSequence}
-                                                                    </div>
-                                                                )}
+                                                        {comboSequence && (
+                                                            <div
+                                                                className={`shrink-0 text-[10px] font-black px-1 rounded shadow-sm leading-tight ${comboSequence === 'BF' ? 'bg-indigo-500 text-white' : 'bg-orange-500 text-white'}`}
+                                                                title={comboSequence === 'BF' ? '先身後足' : '先足後身'}
+                                                            >
+                                                                {comboSequence}
                                                             </div>
+                                                        )}
+                                                    </div>
 
-                                                            <div className="flex justify-between items-center w-full mt-auto">
-                                                                <div className="truncate text-[10px] font-bold text-slate-700 flex items-center gap-1">
-                                                                    {displayStaff}
-                                                                    {isYouTui && <span className="text-[10px]" title="油推">💧</span>}
-                                                                    {isGuaSha && <span className="text-[10px]" title="刮痧">🩸</span>}
-                                                                    {isHuaGuan && <span className="text-[10px]" title="滑罐">🏺</span>}
-                                                                    {isBaGuan && <span className="text-[10px]" title="拔罐">🎯</span>}
-                                                                    {hasNote && <span className="text-[10px] text-amber-600" title={`備註: ${booking.adminNote}`}>📝</span>}
-                                                                </div>
-                                                                <div className={`text-[10px] font-bold font-mono px-1 rounded border border-black/5 shadow-sm ${isTimeAnomaly ? 'bg-orange-100 text-orange-800 animate-pulse' : 'bg-white/50 text-slate-800'}`}>
-                                                                    {timeLabel}
-                                                                </div>
-                                                            </div>
-                                                        </>
-                                                    )}
+                                                    <div className="flex justify-between items-center w-full mt-auto">
+                                                        <div className="truncate text-[10px] font-bold text-slate-700 flex items-center gap-1">
+                                                            {displayStaff}
+                                                            {isYouTui && <span className="text-[10px]" title="油推">💧</span>}
+                                                            {isGuaSha && <span className="text-[10px]" title="刮痧">🩸</span>}
+                                                            {isHuaGuan && <span className="text-[10px]" title="滑罐">🏺</span>}
+                                                            {isBaGuan && <span className="text-[10px]" title="拔罐">🎯</span>}
+                                                            {hasNote && <span className="text-[10px] text-amber-600" title={`備註: ${booking.adminNote}`}>📝</span>}
+                                                        </div>
+                                                        <div className={`text-[10px] font-bold font-mono px-1 rounded border border-black/5 shadow-sm ${isTimeAnomaly ? 'bg-orange-100 text-orange-800 animate-pulse' : 'bg-white/50 text-slate-800'}`}>
+                                                            {timeLabel}
+                                                        </div>
+                                                    </div>
 
                                                     {showControlBtn && (
                                                         <button className="edit-btn absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-8 h-8 bg-white/95 backdrop-blur-sm text-slate-500 rounded-full flex items-center justify-center shadow-lg border border-slate-200 z-50 hover:text-indigo-600 hover:border-indigo-400 hover:bg-white transition-all"
@@ -3152,6 +3136,14 @@ const TimelineView = ({ timelineData, onEditPhase, liveStatusData, staffList, st
                         })}
                     </div>
                 </div>
+            </div>
+    );
+
+    return (
+        <div className="relative w-full h-[calc(100vh-170px)] flex flex-col">
+            <div className="flex flex-row w-full h-full gap-2">
+                {renderTimelineContainer('腳', chairRows, leftScrollRef, handleLeftScroll)}
+                {renderTimelineContainer('床', bedRows, rightScrollRef, handleRightScroll)}
             </div>
             
             {showStaffStats !== null && (
