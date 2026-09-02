@@ -2908,9 +2908,8 @@ const TimelineView = ({ timelineData, onEditPhase, liveStatusData, staffList, st
 
                     <div className="relative bg-white pb-4">
                         {currentRows.map((row, index) => {
-                            const lastChairIndex = currentRows.reduce((acc, curr, idx) => curr.type === 'chair' ? idx : acc, -1);
-                            const isLastChairRow = index === lastChairIndex;
-                            const rowStyleClass = isLastChairRow ? "border-b-4 border-red-500" : "border-b border-slate-100";
+                            const isLastRow = index === currentRows.length - 1;
+                            const rowStyleClass = isLastRow ? "border-b-4 border-red-500" : "border-b border-slate-100";
 
                             return (
                                 <div key={row.id} className={`flex relative transition-colors hover:bg-slate-50 ${rowStyleClass}`} style={{ height: `${ROW_HEIGHT}px` }}

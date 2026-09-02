@@ -3233,14 +3233,14 @@
                                         onClick={(e) => { e.preventDefault(); setSelectedLocation('本館'); setCheckResult(null); setSuggestions([]); }} 
                                         className={`px-4 py-1.5 rounded-md font-bold text-sm sm:text-base transition-all ${selectedLocation === '本館' ? 'bg-white text-[#0891b2] shadow-md' : 'text-white hover:bg-white/10'}`}
                                     >本館</button>
-                                    <button 
+                                    {/* <button 
                                         onClick={(e) => { e.preventDefault(); setSelectedLocation('對面館'); setCheckResult(null); setSuggestions([]); }} 
                                         className={`px-4 py-1.5 rounded-md font-bold text-sm sm:text-base transition-all ${selectedLocation === '對面館' ? 'bg-white text-[#0891b2] shadow-md' : 'text-white hover:bg-white/10'}`}
                                     >對面館</button>
                                     <button 
                                         onClick={(e) => { e.preventDefault(); setSelectedLocation('跨館套餐'); setCheckResult(null); setSuggestions([]); }} 
                                         className={`px-4 py-1.5 rounded-md font-bold text-sm sm:text-base transition-all ${selectedLocation === '跨館套餐' ? 'bg-white text-[#0891b2] shadow-md' : 'text-white hover:bg-white/10'}`}
-                                    >跨館套餐</button>
+                                    >跨館套餐</button> */}
                                 </div>
                             </div>
                             {selectedLocation === '跨館套餐' && (
