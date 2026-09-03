@@ -59,7 +59,8 @@ const CONF = {
     get CLEANUP_BUFFER() { return getSystemConfig().BUFFERS.CLEANUP_MINUTES; },
     get TRANSITION_BUFFER() { return getSystemConfig().BUFFERS.TRANSITION_MINUTES; },
     get TOLERANCE() { return getSystemConfig().LOGIC_RULES?.TOLERANCE || 1; },
-    get CAPACITY_CHECK_STEP() { return getSystemConfig().LOGIC_RULES?.CAPACITY_CHECK_STEP || 10; }
+    get CAPACITY_CHECK_STEP() { return getSystemConfig().LOGIC_RULES?.CAPACITY_CHECK_STEP || 10; },
+    get FLOORS() { return getSystemConfig().SCALE.FLOORS; }
 };
 
 // ============================================================================
@@ -720,10 +721,15 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
     }
 
     // 3. Phân tích tài nguyên chống phân mảnh (Continuous Scan)
-    const resourceMap = {
-        'BED': Array.from({ length: CONF.MAX_BEDS }, () => []),
-        'CHAIR': Array.from({ length: CONF.MAX_CHAIRS }, () => [])
-    };
+    const resourceMap = {};
+    if (CONF.FLOORS) {
+        CONF.FLOORS.forEach(f => {
+            resourceMap[f.type] = Array.from({ length: f.count }, () => []);
+        });
+    } else {
+        resourceMap['BED'] = Array.from({ length: CONF.MAX_BEDS }, () => []);
+        resourceMap['CHAIR'] = Array.from({ length: CONF.MAX_CHAIRS }, () => []);
+    }
 
     relevantBookings.sort((a, b) => {
         const hasA = Boolean(a.allocated_resource || a.phase1_res_idx || a.phase2_res_idx);
@@ -753,22 +759,19 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
             let id = String(rawId).toUpperCase().trim();
             if (!id) return;
             
-            let isOpp = false;
-            let isChair = id.includes('CHAIR') || id.includes('腳') || id.includes('足') || id.includes('FOOT');
-            let isBed = id.includes('BED') || id.includes('床') || id.includes('本') || id.includes('BODY') || id.includes('身');
-            
-            if (!isChair && !isBed) {
-                if (id.includes('本')) isBed = true; 
-                else isChair = true; 
-            }
+            let type = 'CHAIR';
+            if (id.includes('MULTI') || id.includes('多功能') || id.includes('多')) type = 'MULTI';
+            else if (id.includes('BED') || id.includes('床') || id.includes('BODY') || id.includes('身') || id.includes('本')) type = 'BED';
+            else if (id.includes('CHAIR') || id.includes('腳') || id.includes('足') || id.includes('FOOT')) type = 'CHAIR';
             
             let match = id.match(/\d+/g);
-            let num = match && match.length > 0 ? match[match.length - 1] : '';
-            if (!num) return;
+            if (!match || match.length === 0) return;
             
-            let building = '1';
-            let type = isChair ? 'CHAIR' : 'BED';
-            extractedMatches.push(`${type}-${building}-${num}`);
+            // Format mới: TYPE-FLOOR-NUM. Ví dụ: CHAIR-2-1 => matches = ['2', '1']
+            let floor = match.length > 1 ? match[match.length - 2] : '1';
+            let num = match[match.length - 1];
+            
+            extractedMatches.push(`${type}-${floor}-${num}`);
         });
         
         let uniqueMatches = [...new Set(extractedMatches)];
@@ -797,13 +800,20 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
 
         const pushToMapFallback = (type, startT, endT) => {
             let found = false;
-            let limit = (type === 'BED') ? CONF.MAX_BEDS : CONF.MAX_CHAIRS;
-            for (let i = 0; i < limit; i++) {
-                if (resourceMap[type] && resourceMap[type][i] && checkLaneContinuity(resourceMap[type][i], startT, endT - CONF.CLEANUP_BUFFER)) {
-                    resourceMap[type][i].push({ start: startT, end: endT });
-                    found = true;
-                    break;
+            // Cho phép tìm qua MULTI nếu không tìm thấy ở loại chính
+            const typesToCheck = type === 'CHAIR' ? ['CHAIR', 'MULTI'] : ['BED', 'MULTI'];
+            
+            for (let t of typesToCheck) {
+                if (!resourceMap[t]) continue;
+                let limit = resourceMap[t].length;
+                for (let i = 0; i < limit; i++) {
+                    if (resourceMap[t][i] && checkLaneContinuity(resourceMap[t][i], startT, endT - CONF.CLEANUP_BUFFER)) {
+                        resourceMap[t][i].push({ start: startT, end: endT });
+                        found = true;
+                        break;
+                    }
                 }
+                if (found) break;
             }
             if (!found && resourceMap[type] && resourceMap[type][0]) {
                 resourceMap[type][0].push({ start: startT, end: endT });
@@ -813,11 +823,12 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
         const pushToMap = (res, startT, endT, fallbackType) => {
             let success = false;
             if (res) {
-                const isBed = res.toUpperCase().includes('BED') || res.includes('床');
-                const isChair = res.toUpperCase().includes('CHAIR') || res.includes('足');
+                let type = 'CHAIR';
+                if (res.includes('MULTI') || res.includes('多功能') || res.includes('多')) type = 'MULTI';
+                else if (res.includes('BED') || res.includes('床') || res.includes('BODY') || res.includes('身') || res.includes('本')) type = 'BED';
+                
                 const numMatches = res.match(/\d+/g);
-                if ((isBed || isChair) && numMatches) {
-                    const type = isBed ? 'BED' : 'CHAIR';
+                if (numMatches && numMatches.length > 0) {
                     const idx = parseInt(numMatches[numMatches.length - 1], 10) - 1;
                     if (resourceMap[type] && resourceMap[type][idx]) {
                         resourceMap[type][idx].push({ start: startT, end: endT });
@@ -924,18 +935,31 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
                     const isCrossSwapGroup = comboGuestsCount >= 2;
                     const phase1Cleanup = isCrossSwapGroup ? Math.min(CONF.CLEANUP_BUFFER, CONF.TRANSITION_BUFFER) : CONF.CLEANUP_BUFFER;
                     
-                    let bedIdx = -1, chairIdx = -1;
+                    const scanResource = (targetType, st, dur, cleanup) => {
+                        let typesToCheck = targetType === 'CHAIR' ? ['CHAIR', 'MULTI'] : ['BED', 'MULTI'];
+                        for (let t of typesToCheck) {
+                            if (!simulationMap[t]) continue;
+                            for (let i = 0; i < simulationMap[t].length; i++) {
+                                if (checkLaneContinuity(simulationMap[t][i], st, st + dur, cleanup)) {
+                                    return { type: t, idx: i };
+                                }
+                            }
+                        }
+                        return { type: null, idx: -1 };
+                    };
+
+                    let bedRes = { type: null, idx: -1 }, chairRes = { type: null, idx: -1 };
                     
                     if (testFlow === 'BF') {
                         // Kịch bản A: Body Trước (BED -> CHAIR)
-                        for (let b = 0; b < CONF.MAX_BEDS; b++) { if (checkLaneContinuity(simulationMap.BED[b], tStart, tStart + p1, phase1Cleanup)) { bedIdx = b; break; } }
-                        for (let c = 0; c < CONF.MAX_CHAIRS; c++) { if (checkLaneContinuity(simulationMap.CHAIR[c], tSwitch, tSwitch + p2)) { chairIdx = c; break; } }
+                        bedRes = scanResource('BED', tStart, p1, phase1Cleanup);
+                        chairRes = scanResource('CHAIR', tSwitch, p2, null);
 
-                        if (bedIdx !== -1 && chairIdx !== -1) {
+                        if (bedRes.idx !== -1 && chairRes.idx !== -1) {
                             if (split.shiftMins === 0) {
-                                simulationMap.BED[bedIdx].push({ start: tStart, end: tStart + p1 + phase1Cleanup });
-                                simulationMap.CHAIR[chairIdx].push({ start: tSwitch, end: tSwitch + p2 + CONF.CLEANUP_BUFFER });
-                                suggestedLanes[guestIdKey] = { BED: bedIdx + 1, CHAIR: chairIdx + 1 };
+                                simulationMap[bedRes.type][bedRes.idx].push({ start: tStart, end: tStart + p1 + phase1Cleanup });
+                                simulationMap[chairRes.type][chairRes.idx].push({ start: tSwitch, end: tSwitch + p2 + CONF.CLEANUP_BUFFER });
+                                suggestedLanes[guestIdKey] = { [bedRes.type]: bedRes.idx + 1, [chairRes.type]: chairRes.idx + 1 };
                                 foundValidSplit = true;
                                 bestOutOfBoundSplit = null;
                                 break;
@@ -945,14 +969,14 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
                         }
                     } else {
                         // Kịch bản B: Chân Trước (CHAIR -> BED)
-                        for (let c = 0; c < CONF.MAX_CHAIRS; c++) { if (checkLaneContinuity(simulationMap.CHAIR[c], tStart, tStart + p1, phase1Cleanup)) { chairIdx = c; break; } }
-                        for (let b = 0; b < CONF.MAX_BEDS; b++) { if (checkLaneContinuity(simulationMap.BED[b], tSwitch, tSwitch + p2)) { bedIdx = b; break; } }
+                        chairRes = scanResource('CHAIR', tStart, p1, phase1Cleanup);
+                        bedRes = scanResource('BED', tSwitch, p2, null);
 
-                        if (chairIdx !== -1 && bedIdx !== -1) {
+                        if (chairRes.idx !== -1 && bedRes.idx !== -1) {
                             if (split.shiftMins === 0) {
-                                simulationMap.CHAIR[chairIdx].push({ start: tStart, end: tStart + p1 + phase1Cleanup });
-                                simulationMap.BED[bedIdx].push({ start: tSwitch, end: tSwitch + p2 + CONF.CLEANUP_BUFFER });
-                                suggestedLanes[guestIdKey] = { CHAIR: chairIdx + 1, BED: bedIdx + 1 };
+                                simulationMap[chairRes.type][chairRes.idx].push({ start: tStart, end: tStart + p1 + phase1Cleanup });
+                                simulationMap[bedRes.type][bedRes.idx].push({ start: tSwitch, end: tSwitch + p2 + CONF.CLEANUP_BUFFER });
+                                suggestedLanes[guestIdKey] = { [chairRes.type]: chairRes.idx + 1, [bedRes.type]: bedRes.idx + 1 };
                                 foundValidSplit = true;
                                 bestOutOfBoundSplit = null;
                                 break;
@@ -986,20 +1010,28 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
         } else {
             // Khách lẻ
             const smartFlow = inferFlowFromService(g.serviceCode, explicitFlow);
-            let rType = (smartFlow === 'FOOTSINGLE') ? 'CHAIR' : 'BED';
+            let targetType = (smartFlow === 'FOOTSINGLE') ? 'CHAIR' : 'BED';
+            let rType = null;
             let foundIdx = -1;
-            console.log("DEBUG SIMULATION MAP CHAIRS: ", JSON.stringify(simulationMap.CHAIR));
-            for (let k = 0; k < (rType === 'BED' ? CONF.MAX_BEDS : CONF.MAX_CHAIRS); k++) {
-                if (checkLaneContinuity(simulationMap[rType][k], requestStart, requestStart + duration)) {
-                    foundIdx = k; break;
+            
+            let typesToCheck = targetType === 'CHAIR' ? ['CHAIR', 'MULTI'] : ['BED', 'MULTI'];
+            for (let t of typesToCheck) {
+                if (!simulationMap[t]) continue;
+                for (let k = 0; k < simulationMap[t].length; k++) {
+                    if (checkLaneContinuity(simulationMap[t][k], requestStart, requestStart + duration)) {
+                        foundIdx = k;
+                        rType = t;
+                        break;
+                    }
                 }
+                if (foundIdx !== -1) break;
             }
 
             if (foundIdx !== -1) {
                 simulationMap[rType][foundIdx].push({ start: requestStart, end: requestStart + duration + CONF.CLEANUP_BUFFER });
                 suggestedLanes[guestIdKey] = { [rType]: foundIdx + 1 };
             } else {
-                let err = triggerSmartFailure(`⚠️ 已經沒有連續 ${duration} 分鐘的空${rType === 'BED' ? '床位' : '座位'}。`);
+                let err = triggerSmartFailure(`⚠️ 已經沒有連續 ${duration} 分鐘的空${targetType === 'BED' ? '床位' : '座位'}。`);
                 err.requiresSmartRepacking = true;
                 return err;
             }
@@ -1014,12 +1046,12 @@ function validateGlobalCapacity(requestStart, maxDuration, guestList, currentBoo
 
 class VirtualMatrix {
     constructor() {
-        const isOpp = false;
-        const buildingStr = '1';
-        this.lanes = {
-            'CHAIR': Array.from({ length: CONF.MAX_CHAIRS }, (_, i) => ({ id: `CHAIR-${buildingStr}-${i + 1}`, occupied: [] })),
-            'BED': Array.from({ length: CONF.MAX_BEDS }, (_, i) => ({ id: `BED-${buildingStr}-${i + 1}`, occupied: [] }))
-        };
+        this.lanes = {};
+        if (CONF.FLOORS) {
+            CONF.FLOORS.forEach(f => {
+                this.lanes[f.type] = Array.from({ length: f.count }, (_, i) => ({ id: `${f.prefix}${i + 1}`, occupied: [] }));
+            });
+        }
         this.blockLog = [];
     }
     checkLaneFree(lane, start, end) {
@@ -1316,7 +1348,7 @@ function checkRequestAvailability(dateStr, timeStr, guestList, currentBookingsRa
             return { feasible: false, reason: guardrailCheck.reason, debug: guardrailCheck.debug };
         }
     }
-    const resourceMap = guardrailCheck.resourceMap || { 'BED': [], 'CHAIR': [] };
+    const resourceMap = guardrailCheck.resourceMap || {};
 
     // 2. TIỀN XỬ LÝ BOOKING CŨ
     let sortedRaw = [...filteredBookings].sort((a, b) => getMinsFromTimeStr(a.startTimeString || a.startTime) - getMinsFromTimeStr(b.startTimeString || b.startTime));

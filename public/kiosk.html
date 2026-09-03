@@ -107,8 +107,8 @@
                     const nowMins = getCurrentTimeMins();
                     const startSearchMins = Math.ceil(nowMins / 15) * 15 + 15; // +15 mins buffer
                     
-                    const totalChairs = 6;
-                    const totalBeds = 6;
+                    const totalChairs = data.resources?.chairs || 6;
+                    const totalBeds = data.resources?.beds || 6;
                     const duration = wForm.service.time;
                     const reqType = wForm.service.type;
                     const reqPax = wForm.pax;

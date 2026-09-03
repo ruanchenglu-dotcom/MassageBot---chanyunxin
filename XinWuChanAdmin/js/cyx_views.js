@@ -2645,11 +2645,14 @@ const TimelineView = ({ timelineData, onEditPhase, liveStatusData, staffList, st
     const getGroupMemberIndexLocal = (targetResId, targetRowId) => {
         if (!liveStatusData) return -1;
         const allSlots = [];
-        if (window.SYSTEM_CONFIG?.SCALE?.FLOORS) {
-            window.SYSTEM_CONFIG.SCALE.FLOORS.forEach(f => {
-                for (let i = 1; i <= f.count; i++) allSlots.push(`${f.prefix}${i}`);
-            });
-        }
+        const maxChairs = window.SYSTEM_CONFIG?.SCALE?.MAX_CHAIRS || 6;
+        const maxBeds = window.SYSTEM_CONFIG?.SCALE?.MAX_BEDS || 6;
+        const oppChairs = 0;
+        const oppBeds = 0;
+        for (let i = 1; i <= maxChairs; i++) allSlots.push(`CHAIR-1-${i}`);
+        for (let i = 1; i <= maxBeds; i++) allSlots.push(`BED-1-${i}`);
+        for (let i = 1; i <= oppChairs; i++) allSlots.push(`CHAIR-2-${i}`);
+        for (let i = 1; i <= oppBeds; i++) allSlots.push(`BED-2-${i}`);
         const groupSlots = allSlots.filter(slotId => {
             const res = liveStatusData[slotId];
             return res && res.booking && String(res.booking.rowId) === String(targetRowId);

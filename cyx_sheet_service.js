@@ -76,39 +76,16 @@ function normalizeResourceId(id, isBed = null) {
     if (!id || typeof id !== 'string') return id;
     let rId = id.toUpperCase();
 
-    if (rId.includes('本') && !rId.includes('腳') && !rId.includes('床') && !rId.includes('BED') && !rId.includes('CHAIR')) {
-        let numMatches = rId.match(/\d+/g);
-        if (numMatches) {
-            if (isBed === true) return `BED-1-${numMatches[numMatches.length - 1]}`;
-            if (isBed === false) return `CHAIR-1-${numMatches[numMatches.length - 1]}`;
-        }
-    }
+    let numMatches = rId.match(/\d+/g);
+    let num = numMatches ? numMatches[numMatches.length - 1] : '1';
     
-    if (rId.match(/^BED-1$/)) return 'BED-1-1';
-    if (rId.match(/^CHAIR-1$/)) return 'CHAIR-1-1';
-    if (rId.match(/^BED-2$/)) return 'BED-1-2';
-    if (rId.match(/^CHAIR-2$/)) return 'CHAIR-1-2';
+    if (rId.includes('MULTI') || rId.includes('多功能') || rId.includes('多')) return `MULTI-3-${num}`;
+    if (rId.includes('BED') || rId.includes('床') || rId.includes('BODY') || rId.includes('身')) return `BED-4-${num}`;
+    if (rId.includes('CHAIR') || rId.includes('腳') || rId.includes('足') || rId.includes('FOOT')) return `CHAIR-2-${num}`;
 
-    if (rId.includes('OPP-CHAIR') || rId.includes('OPP_CHAIR') || rId.includes('OPP-腳') || rId.includes('對面-腳') || rId.match(/^對面館.*腳/)) {
-        let numMatches = rId.match(/\d+/g);
-        return `CHAIR-2-${numMatches ? numMatches[numMatches.length - 1] : '1'}`;
-    }
-    if (rId.includes('OPP-BED') || rId.includes('OPP_BED') || rId.includes('OPP-床') || rId.includes('對面-床') || rId.match(/^對面館.*床/)) {
-        let numMatches = rId.match(/\d+/g);
-        return `BED-2-${numMatches ? numMatches[numMatches.length - 1] : '1'}`;
-    }
-    if (rId.includes('CHAIR') || rId.includes('腳') || rId.includes('本館-腳') || rId.match(/^本館.*腳/)) {
-        let numMatches = rId.match(/\d+/g);
-        if (!rId.includes('CHAIR-2-')) {
-            return `CHAIR-1-${numMatches ? numMatches[numMatches.length - 1] : '1'}`;
-        }
-    }
-    if (rId.includes('BED') || rId.includes('床') || rId.includes('本館-床') || rId.match(/^本館.*床/)) {
-        let numMatches = rId.match(/\d+/g);
-        if (!rId.includes('BED-2-')) {
-            return `BED-1-${numMatches ? numMatches[numMatches.length - 1] : '1'}`;
-        }
-    }
+    if (isBed === true) return `BED-4-${num}`;
+    if (isBed === false) return `CHAIR-2-${num}`;
+
     return rId;
 }
 
@@ -1185,7 +1162,7 @@ function _checkOverlapConflict(rowId, dateStr, timeStr, duration, phase1Res, pha
             
             if (!res1 || !res2) {
                 const bResStr = b.allocated_resource || "";
-                const matches = [...bResStr.toString().matchAll(/((?:BED|CHAIR)-[12]-\d+)/gi)].map(m => m[1].toUpperCase());
+                const matches = [...bResStr.toString().matchAll(/((?:BED|CHAIR|MULTI)-[1234]-\d+)/gi)].map(m => m[1].toUpperCase());
                 if (bFlow === 'BF') {
                     if (!res1) res1 = matches.find(r => r.includes('BED'));
                     if (!res2) res2 = matches.find(r => r.includes('CHAIR'));
@@ -1215,7 +1192,7 @@ function _checkOverlapConflict(rowId, dateStr, timeStr, duration, phase1Res, pha
             if (!blk.res) continue;
             for (const bBlk of bBlocks) {
                 if (bBlk.res) {
-                    const bBlkResArray = [...bBlk.res.toString().toUpperCase().matchAll(/((?:BED|CHAIR)-[12]-\d+)/gi)].map(m => m[1]);
+                    const bBlkResArray = [...bBlk.res.toString().toUpperCase().matchAll(/((?:BED|CHAIR|MULTI)-[1234]-\d+)/gi)].map(m => m[1]);
                     const blkResClean = blk.res.toString().toUpperCase().trim();
                     
                     if (bBlkResArray.includes(blkResClean) || bBlk.res.toString().toUpperCase() === blkResClean) {

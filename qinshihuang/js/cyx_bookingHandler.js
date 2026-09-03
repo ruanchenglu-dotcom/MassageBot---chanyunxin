@@ -478,10 +478,15 @@
                 }
             };
 
-            const resourceMap = {
-                'BED': Array.from({ length: CONF.MAX_BEDS }, () => []),
-                'CHAIR': Array.from({ length: CONF.MAX_CHAIRS }, () => [])
-            };
+            const resourceMap = {};
+            if (CONF.FLOORS) {
+                CONF.FLOORS.forEach(f => {
+                    resourceMap[f.type] = Array.from({ length: f.count }, () => []);
+                });
+            } else {
+                resourceMap['BED'] = Array.from({ length: CONF.MAX_BEDS }, () => []);
+                resourceMap['CHAIR'] = Array.from({ length: CONF.MAX_CHAIRS }, () => []);
+            }
 
             const globalStaffBookings = currentBookingsRaw.filter(b => {
                 const bStart = getMinsFromTimeStr(b.startTime);
@@ -524,22 +529,19 @@
                     let id = String(rawId).toUpperCase().trim();
                     if (!id) return;
                     
-                    let isOpp = id.includes('OPP') || id.includes('對') || id.includes('2-') || (b.location === '對面館');
-                    let isChair = id.includes('CHAIR') || id.includes('腳') || id.includes('足') || id.includes('FOOT');
-                    let isBed = id.includes('BED') || id.includes('床') || id.includes('本') || id.includes('BODY') || id.includes('身');
-                    
-                    if (!isChair && !isBed) {
-                        if (id.includes('本')) isBed = true; 
-                        else isChair = true; 
-                    }
+                    let type = 'CHAIR';
+                    if (id.includes('MULTI') || id.includes('多功能') || id.includes('多')) type = 'MULTI';
+                    else if (id.includes('BED') || id.includes('床') || id.includes('BODY') || id.includes('身') || id.includes('本')) type = 'BED';
+                    else if (id.includes('CHAIR') || id.includes('腳') || id.includes('足') || id.includes('FOOT')) type = 'CHAIR';
                     
                     let match = id.match(/\d+/g);
-                    let num = match && match.length > 0 ? match[match.length - 1] : '';
-                    if (!num) return;
+                    if (!match || match.length === 0) return;
                     
-                    let building = '1';
-                    let type = isChair ? 'CHAIR' : 'BED';
-                    extractedMatches.push(`${type}-${building}-${num}`);
+                    // Format mới: TYPE-FLOOR-NUM
+                    let floor = match.length > 1 ? match[match.length - 2] : '1';
+                    let num = match[match.length - 1];
+                    
+                    extractedMatches.push(`${type}-${floor}-${num}`);
                 });
                 
                 let uniqueMatches = [...new Set(extractedMatches)];
@@ -567,25 +569,36 @@
                 }
 
                 const pushToMapFallback = (type, startT, endT) => {
-                    if (resourceMap[type]) {
-                        for (let i = 0; i < resourceMap[type].length; i++) {
-                            const overlaps = resourceMap[type][i].some(blk => isOverlap(startT, endT, blk.start, blk.end));
+                    let found = false;
+                    const typesToCheck = type === 'CHAIR' ? ['CHAIR', 'MULTI'] : ['BED', 'MULTI'];
+                    for (let t of typesToCheck) {
+                        if (!resourceMap[t]) continue;
+                        for (let i = 0; i < resourceMap[t].length; i++) {
+                            const overlaps = resourceMap[t][i].some(blk => isOverlap(startT, endT, blk.start, blk.end));
                             if (!overlaps) {
-                                resourceMap[type][i].push({ start: startT, end: endT });
-                                return true;
+                                resourceMap[t][i].push({ start: startT, end: endT });
+                                found = true;
+                                break;
                             }
                         }
+                        if (found) break;
                     }
-                    return false;
+                    if (!found && resourceMap[type] && resourceMap[type][0]) {
+                        resourceMap[type][0].push({ start: startT, end: endT });
+                    }
+                    return found;
                 };
 
                 const pushToMap = (res, startT, endT, fallbackType) => {
                     let success = false;
                     if (res) {
-                        const laneMatch = res.match(/(BED|CHAIR|床|足|腳)[-_ ]?(?:\d+[-_ ])?(\d+)/i);
-                        if (laneMatch) {
-                            const type = (laneMatch[1].toUpperCase().includes('BED') || laneMatch[1].includes('床')) ? 'BED' : 'CHAIR';
-                            const idx = parseInt(laneMatch[2]) - 1;
+                        let type = 'CHAIR';
+                        if (res.includes('MULTI') || res.includes('多功能') || res.includes('多')) type = 'MULTI';
+                        else if (res.includes('BED') || res.includes('床') || res.includes('BODY') || res.includes('身') || res.includes('本')) type = 'BED';
+                        
+                        const numMatches = res.match(/\d+/g);
+                        if (numMatches && numMatches.length > 0) {
+                            const idx = parseInt(numMatches[numMatches.length - 1], 10) - 1;
                             if (resourceMap[type] && resourceMap[type][idx]) {
                                 resourceMap[type][idx].push({ start: startT, end: endT });
                                 success = true;
@@ -932,20 +945,30 @@
                             const tStart = requestStart;
                             const tSwitch = tStart + p1;
                             
-                            let bedIdx = -1, chairIdx = -1;
+                            const scanResource = (targetType, st, dur, cleanup) => {
+                                let typesToCheck = targetType === 'CHAIR' ? ['CHAIR', 'MULTI'] : ['BED', 'MULTI'];
+                                for (let t of typesToCheck) {
+                                    if (!simulationMap[t]) continue;
+                                    for (let i = 0; i < simulationMap[t].length; i++) {
+                                        if (checkLaneContinuity(simulationMap[t][i], st, st + dur, cleanup)) {
+                                            return { type: t, idx: i };
+                                        }
+                                    }
+                                }
+                                return { type: null, idx: -1 };
+                            };
+
+                            let bedRes = { type: null, idx: -1 }, chairRes = { type: null, idx: -1 };
                             
                             if (testFlow === 'BF') {
-                                for (let b = 0; b < CONF.MAX_BEDS; b++) {
-                                    if (checkLaneContinuity(simulationMap.BED[b], tStart, tStart + p1)) { bedIdx = b; break; }
-                                }
-                                for (let c = 0; c < CONF.MAX_CHAIRS; c++) {
-                                    if (checkLaneContinuity(simulationMap.CHAIR[c], tSwitch, tSwitch + p2)) { chairIdx = c; break; }
-                                }
-                                if (bedIdx !== -1 && chairIdx !== -1) {
+                                bedRes = scanResource('BED', tStart, p1, 0);
+                                chairRes = scanResource('CHAIR', tSwitch, p2, null);
+
+                                if (bedRes.idx !== -1 && chairRes.idx !== -1) {
                                     if (split.shiftMins === 0) {
-                                        simulationMap.BED[bedIdx].push({ start: tStart, end: tStart + p1 });
-                                        simulationMap.CHAIR[chairIdx].push({ start: tSwitch, end: tSwitch + p2 + CONF.CLEANUP_BUFFER });
-                                        suggestedLanes[guestIdKey] = { BED: bedIdx + 1, CHAIR: chairIdx + 1, flow: testFlow, phase1_duration: p1, phase2_duration: p2 };
+                                        simulationMap[bedRes.type][bedRes.idx].push({ start: tStart, end: tStart + p1 });
+                                        simulationMap[chairRes.type][chairRes.idx].push({ start: tSwitch, end: tSwitch + p2 + CONF.CLEANUP_BUFFER });
+                                        suggestedLanes[guestIdKey] = { [bedRes.type]: bedRes.idx + 1, [chairRes.type]: chairRes.idx + 1, flow: testFlow, phase1_duration: p1, phase2_duration: p2 };
                                         foundValidSplit = true;
                                         bestOutOfBoundSplit = null;
                                         break;
@@ -954,17 +977,14 @@
                                     }
                                 }
                             } else {
-                                for (let c = 0; c < CONF.MAX_CHAIRS; c++) {
-                                    if (checkLaneContinuity(simulationMap.CHAIR[c], tStart, tStart + p1)) { chairIdx = c; break; }
-                                }
-                                for (let b = 0; b < CONF.MAX_BEDS; b++) {
-                                    if (checkLaneContinuity(simulationMap.BED[b], tSwitch, tSwitch + p2)) { bedIdx = b; break; }
-                                }
-                                if (chairIdx !== -1 && bedIdx !== -1) {
+                                chairRes = scanResource('CHAIR', tStart, p1, 0);
+                                bedRes = scanResource('BED', tSwitch, p2, null);
+
+                                if (chairRes.idx !== -1 && bedRes.idx !== -1) {
                                     if (split.shiftMins === 0) {
-                                        simulationMap.CHAIR[chairIdx].push({ start: tStart, end: tStart + p1 });
-                                        simulationMap.BED[bedIdx].push({ start: tSwitch, end: tSwitch + p2 + CONF.CLEANUP_BUFFER });
-                                        suggestedLanes[guestIdKey] = { CHAIR: chairIdx + 1, BED: bedIdx + 1, flow: testFlow, phase1_duration: p1, phase2_duration: p2 };
+                                        simulationMap[chairRes.type][chairRes.idx].push({ start: tStart, end: tStart + p1 });
+                                        simulationMap[bedRes.type][bedRes.idx].push({ start: tSwitch, end: tSwitch + p2 + CONF.CLEANUP_BUFFER });
+                                        suggestedLanes[guestIdKey] = { [chairRes.type]: chairRes.idx + 1, [bedRes.type]: bedRes.idx + 1, flow: testFlow, phase1_duration: p1, phase2_duration: p2 };
                                         foundValidSplit = true;
                                         bestOutOfBoundSplit = null;
                                         break;
@@ -995,17 +1015,25 @@
                     }
 
                 } else {
-                    let rType = 'CHAIR';
-                    if (g.flowCode === 'BODYSINGLE') rType = 'BED';
-                    else if (g.flowCode === 'FOOTSINGLE') rType = 'CHAIR';
-                    else rType = detectResourceType(g.serviceCode || getServiceCodeByName(svc.name || g.serviceName || g.service));
+                    let targetType = 'CHAIR';
+                    if (g.flowCode === 'BODYSINGLE') targetType = 'BED';
+                    else if (g.flowCode === 'FOOTSINGLE') targetType = 'CHAIR';
+                    else targetType = detectResourceType(g.serviceCode || getServiceCodeByName(svc.name || g.serviceName || g.service));
 
                     let foundIdx = -1;
-                    for (let k = 0; k < (rType === 'BED' ? CONF.MAX_BEDS : CONF.MAX_CHAIRS); k++) {
-                        if (checkLaneContinuity(simulationMap[rType][k], requestStart, requestStart + duration)) {
-                            foundIdx = k;
-                            break;
+                    let rType = null;
+                    
+                    let typesToCheck = targetType === 'CHAIR' ? ['CHAIR', 'MULTI'] : ['BED', 'MULTI'];
+                    for (let t of typesToCheck) {
+                        if (!simulationMap[t]) continue;
+                        for (let k = 0; k < simulationMap[t].length; k++) {
+                            if (checkLaneContinuity(simulationMap[t][k], requestStart, requestStart + duration)) {
+                                foundIdx = k;
+                                rType = t;
+                                break;
+                            }
                         }
+                        if (foundIdx !== -1) break;
                     }
 
                     if (foundIdx !== -1) {

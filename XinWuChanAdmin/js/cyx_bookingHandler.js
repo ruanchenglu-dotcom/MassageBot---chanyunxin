@@ -105,8 +105,8 @@
             const scale = ext.SCALE || {};
             const opTime = ext.OPERATION_TIME || {};
             return {
-                MAX_CHAIRS: locationStr === '對面館' ? (scale.OPP_CHAIRS || 4) : (scale.MAX_CHAIRS || ext.MAX_CHAIRS),
-                MAX_BEDS: locationStr === '對面館' ? (scale.OPP_BEDS || 6) : (scale.MAX_BEDS || ext.MAX_BEDS),
+                MAX_CHAIRS: scale.MAX_CHAIRS || ext.MAX_CHAIRS,
+                MAX_BEDS: scale.MAX_BEDS || ext.MAX_BEDS,
                 MAX_TOTAL_GUESTS: ext.MAX_TOTAL_GUESTS || 18,
                 OPEN_HOUR: opTime.OPEN_HOUR || ext.OPEN_HOUR || 3,
                 CLEANUP_BUFFER: (ext.BUFFERS && ext.BUFFERS.CLEANUP_MINUTES) || ext.CLEANUP_BUFFER || 5,
@@ -472,16 +472,21 @@
                         suggestionText = `💡 智能建議：${locationStr}最快可完整安排 (含所有階段) 的時間為 ${timeStrAfter} 之後。`;
                         if (foundMinsAfter !== specificSuggestionMins) debugInfo.suggestions.push({ time: timeStrAfter, date: queryDateStr, daysToAdd: 0 });
                     }
-                    return { pass: false, reason: `${reasonMsg}${oppositeSuggestion}\n${suggestionText}`, debug: debugInfo };
+                    return { pass: false, reason: `${reasonMsg}\n${suggestionText}`, debug: debugInfo };
                 } else {
-                    return { pass: false, reason: `${reasonMsg}${oppositeSuggestion}\n⚠️ 今日已無足夠資源可完整安排此預約。`, debug: debugInfo };
+                    return { pass: false, reason: `${reasonMsg}\n⚠️ 今日已無足夠資源可完整安排此預約。`, debug: debugInfo };
                 }
             };
 
-            const resourceMap = {
-                'BED': Array.from({ length: CONF.MAX_BEDS }, () => []),
-                'CHAIR': Array.from({ length: CONF.MAX_CHAIRS }, () => [])
-            };
+            const resourceMap = {};
+            if (CONF.FLOORS) {
+                CONF.FLOORS.forEach(f => {
+                    resourceMap[f.type] = Array.from({ length: f.count }, () => []);
+                });
+            } else {
+                resourceMap['BED'] = Array.from({ length: CONF.MAX_BEDS }, () => []);
+                resourceMap['CHAIR'] = Array.from({ length: CONF.MAX_CHAIRS }, () => []);
+            }
 
             const globalStaffBookings = currentBookingsRaw.filter(b => {
                 const bStart = getMinsFromTimeStr(b.startTime);
@@ -500,9 +505,9 @@
 
             const resolveRealLocation = (b) => {
                 let locStr = b.current_resource_id || b.phase1_res_idx || b.originalData?.location || b.location || '本館';
-                const match = String(locStr).match(/(?:BED|CHAIR|床|足|腳|OPP)[-_ ]?([12])[-_ ]?\\d+/i);
+                
                 if (match) return match[1] === '2' ? '對面館' : '本館';
-                return (b.originalData?.location || b.location || '本館') === '對面館' ? '對面館' : '本館';
+                return '本館';
             };
             const relevantBookings = globalStaffBookings.filter(b => {
                 return resolveRealLocation(b) === locationStr;
@@ -524,22 +529,19 @@
                     let id = String(rawId).toUpperCase().trim();
                     if (!id) return;
                     
-                    let isOpp = id.includes('OPP') || id.includes('對') || id.includes('2-') || (b.location === '對面館');
-                    let isChair = id.includes('CHAIR') || id.includes('腳') || id.includes('足') || id.includes('FOOT');
-                    let isBed = id.includes('BED') || id.includes('床') || id.includes('本') || id.includes('BODY') || id.includes('身');
-                    
-                    if (!isChair && !isBed) {
-                        if (id.includes('本') || id.includes('對') || b.location === '對面館') isBed = true; 
-                        else isChair = true; 
-                    }
+                    let type = 'CHAIR';
+                    if (id.includes('MULTI') || id.includes('多功能') || id.includes('多')) type = 'MULTI';
+                    else if (id.includes('BED') || id.includes('床') || id.includes('BODY') || id.includes('身') || id.includes('本')) type = 'BED';
+                    else if (id.includes('CHAIR') || id.includes('腳') || id.includes('足') || id.includes('FOOT')) type = 'CHAIR';
                     
                     let match = id.match(/\d+/g);
-                    let num = match && match.length > 0 ? match[match.length - 1] : '';
-                    if (!num) return;
+                    if (!match || match.length === 0) return;
                     
-                    let building = isOpp ? '2' : '1';
-                    let type = isChair ? 'CHAIR' : 'BED';
-                    extractedMatches.push(`${type}-${building}-${num}`);
+                    // Format mới: TYPE-FLOOR-NUM
+                    let floor = match.length > 1 ? match[match.length - 2] : '1';
+                    let num = match[match.length - 1];
+                    
+                    extractedMatches.push(`${type}-${floor}-${num}`);
                 });
                 
                 let uniqueMatches = [...new Set(extractedMatches)];
@@ -567,25 +569,36 @@
                 }
 
                 const pushToMapFallback = (type, startT, endT) => {
-                    if (resourceMap[type]) {
-                        for (let i = 0; i < resourceMap[type].length; i++) {
-                            const overlaps = resourceMap[type][i].some(blk => isOverlap(startT, endT, blk.start, blk.end));
+                    let found = false;
+                    const typesToCheck = type === 'CHAIR' ? ['CHAIR', 'MULTI'] : ['BED', 'MULTI'];
+                    for (let t of typesToCheck) {
+                        if (!resourceMap[t]) continue;
+                        for (let i = 0; i < resourceMap[t].length; i++) {
+                            const overlaps = resourceMap[t][i].some(blk => isOverlap(startT, endT, blk.start, blk.end));
                             if (!overlaps) {
-                                resourceMap[type][i].push({ start: startT, end: endT });
-                                return true;
+                                resourceMap[t][i].push({ start: startT, end: endT });
+                                found = true;
+                                break;
                             }
                         }
+                        if (found) break;
                     }
-                    return false;
+                    if (!found && resourceMap[type] && resourceMap[type][0]) {
+                        resourceMap[type][0].push({ start: startT, end: endT });
+                    }
+                    return found;
                 };
 
                 const pushToMap = (res, startT, endT, fallbackType) => {
                     let success = false;
                     if (res) {
-                        const laneMatch = res.match(/(BED|CHAIR|床|足|腳)[-_ ]?(?:\d+[-_ ])?(\d+)/i);
-                        if (laneMatch) {
-                            const type = (laneMatch[1].toUpperCase().includes('BED') || laneMatch[1].includes('床')) ? 'BED' : 'CHAIR';
-                            const idx = parseInt(laneMatch[2]) - 1;
+                        let type = 'CHAIR';
+                        if (res.includes('MULTI') || res.includes('多功能') || res.includes('多')) type = 'MULTI';
+                        else if (res.includes('BED') || res.includes('床') || res.includes('BODY') || res.includes('身') || res.includes('本')) type = 'BED';
+                        
+                        const numMatches = res.match(/\d+/g);
+                        if (numMatches && numMatches.length > 0) {
+                            const idx = parseInt(numMatches[numMatches.length - 1], 10) - 1;
                             if (resourceMap[type] && resourceMap[type][idx]) {
                                 resourceMap[type][idx].push({ start: startT, end: endT });
                                 success = true;
@@ -932,20 +945,30 @@
                             const tStart = requestStart;
                             const tSwitch = tStart + p1;
                             
-                            let bedIdx = -1, chairIdx = -1;
+                            const scanResource = (targetType, st, dur, cleanup) => {
+                                let typesToCheck = targetType === 'CHAIR' ? ['CHAIR', 'MULTI'] : ['BED', 'MULTI'];
+                                for (let t of typesToCheck) {
+                                    if (!simulationMap[t]) continue;
+                                    for (let i = 0; i < simulationMap[t].length; i++) {
+                                        if (checkLaneContinuity(simulationMap[t][i], st, st + dur, cleanup)) {
+                                            return { type: t, idx: i };
+                                        }
+                                    }
+                                }
+                                return { type: null, idx: -1 };
+                            };
+
+                            let bedRes = { type: null, idx: -1 }, chairRes = { type: null, idx: -1 };
                             
                             if (testFlow === 'BF') {
-                                for (let b = 0; b < CONF.MAX_BEDS; b++) {
-                                    if (checkLaneContinuity(simulationMap.BED[b], tStart, tStart + p1)) { bedIdx = b; break; }
-                                }
-                                for (let c = 0; c < CONF.MAX_CHAIRS; c++) {
-                                    if (checkLaneContinuity(simulationMap.CHAIR[c], tSwitch, tSwitch + p2)) { chairIdx = c; break; }
-                                }
-                                if (bedIdx !== -1 && chairIdx !== -1) {
+                                bedRes = scanResource('BED', tStart, p1, 0);
+                                chairRes = scanResource('CHAIR', tSwitch, p2, null);
+
+                                if (bedRes.idx !== -1 && chairRes.idx !== -1) {
                                     if (split.shiftMins === 0) {
-                                        simulationMap.BED[bedIdx].push({ start: tStart, end: tStart + p1 });
-                                        simulationMap.CHAIR[chairIdx].push({ start: tSwitch, end: tSwitch + p2 + CONF.CLEANUP_BUFFER });
-                                        suggestedLanes[guestIdKey] = { BED: bedIdx + 1, CHAIR: chairIdx + 1, flow: testFlow, phase1_duration: p1, phase2_duration: p2 };
+                                        simulationMap[bedRes.type][bedRes.idx].push({ start: tStart, end: tStart + p1 });
+                                        simulationMap[chairRes.type][chairRes.idx].push({ start: tSwitch, end: tSwitch + p2 + CONF.CLEANUP_BUFFER });
+                                        suggestedLanes[guestIdKey] = { [bedRes.type]: bedRes.idx + 1, [chairRes.type]: chairRes.idx + 1, flow: testFlow, phase1_duration: p1, phase2_duration: p2 };
                                         foundValidSplit = true;
                                         bestOutOfBoundSplit = null;
                                         break;
@@ -954,17 +977,14 @@
                                     }
                                 }
                             } else {
-                                for (let c = 0; c < CONF.MAX_CHAIRS; c++) {
-                                    if (checkLaneContinuity(simulationMap.CHAIR[c], tStart, tStart + p1)) { chairIdx = c; break; }
-                                }
-                                for (let b = 0; b < CONF.MAX_BEDS; b++) {
-                                    if (checkLaneContinuity(simulationMap.BED[b], tSwitch, tSwitch + p2)) { bedIdx = b; break; }
-                                }
-                                if (chairIdx !== -1 && bedIdx !== -1) {
+                                chairRes = scanResource('CHAIR', tStart, p1, 0);
+                                bedRes = scanResource('BED', tSwitch, p2, null);
+
+                                if (chairRes.idx !== -1 && bedRes.idx !== -1) {
                                     if (split.shiftMins === 0) {
-                                        simulationMap.CHAIR[chairIdx].push({ start: tStart, end: tStart + p1 });
-                                        simulationMap.BED[bedIdx].push({ start: tSwitch, end: tSwitch + p2 + CONF.CLEANUP_BUFFER });
-                                        suggestedLanes[guestIdKey] = { CHAIR: chairIdx + 1, BED: bedIdx + 1, flow: testFlow, phase1_duration: p1, phase2_duration: p2 };
+                                        simulationMap[chairRes.type][chairRes.idx].push({ start: tStart, end: tStart + p1 });
+                                        simulationMap[bedRes.type][bedRes.idx].push({ start: tSwitch, end: tSwitch + p2 + CONF.CLEANUP_BUFFER });
+                                        suggestedLanes[guestIdKey] = { [chairRes.type]: chairRes.idx + 1, [bedRes.type]: bedRes.idx + 1, flow: testFlow, phase1_duration: p1, phase2_duration: p2 };
                                         foundValidSplit = true;
                                         bestOutOfBoundSplit = null;
                                         break;
@@ -979,74 +999,41 @@
 
                     if (!foundValidSplit) {
                         let crossLocationMsg = "";
-                        if (locationStr === '本館' || locationStr === '對面館') {
-                            let oppositeLoc = locationStr === '本館' ? '對面館' : '本館';
-                            let oppSim = validateGlobalCapacity(requestStart, maxDuration, [], currentBookingsRaw, staffList, queryDateStr, true, oppositeLoc);
-                            let oppMap = oppSim.resourceMap;
-                            let oppConfMaxBeds = getSystemConfig(oppositeLoc).MAX_BEDS;
-                            let oppConfMaxChairs = getSystemConfig(oppositeLoc).MAX_CHAIRS;
-                            
-                            for (const testFlow of flowsToTry) {
-                                const splitsToTry = generateElasticSplits(duration, eStep, eLimit, null, svc.minFoot, svc.maxFoot, svc.minBody, svc.maxBody, testFlow, true);
-                                let foundCross = false;
-                                for (const split of splitsToTry) {
-                                    if (split.shiftMins !== 0) continue;
-                                    const p1 = split.p1;
-                                    const p2 = split.p2;
-                                    const tStart = requestStart;
-                                    const tSwitch = tStart + p1;
-                                    
-                                    let loc1Idx = -1, loc2Idx = -1;
-                                    
-                                    if (testFlow === 'BF') {
-                                        for (let b = 0; b < CONF.MAX_BEDS; b++) { if (checkLaneContinuity(simulationMap.BED[b], tStart, tStart + p1)) { loc1Idx = b; break; } }
-                                        for (let c = 0; c < oppConfMaxChairs; c++) { if (checkLaneContinuity(oppMap.CHAIR[c], tSwitch, tSwitch + p2 + CONF.CLEANUP_BUFFER)) { loc2Idx = c; break; } }
-                                        if (loc1Idx !== -1 && loc2Idx !== -1) {
-                                            crossLocationMsg = `\n💡 跨館建議：【${locationStr}】目前僅有全身床位，【${oppositeLoc}】有足部座位。是否同意先在【${locationStr}】進行身體按摩，再移步至【${oppositeLoc}】完成足部按摩？`;
-                                            foundCross = true;
-                                            break;
-                                        }
-                                    } else {
-                                        for (let c = 0; c < CONF.MAX_CHAIRS; c++) { if (checkLaneContinuity(simulationMap.CHAIR[c], tStart, tStart + p1)) { loc1Idx = c; break; } }
-                                        for (let b = 0; b < oppConfMaxBeds; b++) { if (checkLaneContinuity(oppMap.BED[b], tSwitch, tSwitch + p2 + CONF.CLEANUP_BUFFER)) { loc2Idx = b; break; } }
-                                        if (loc1Idx !== -1 && loc2Idx !== -1) {
-                                            crossLocationMsg = `\n💡 跨館建議：【${locationStr}】目前僅有足部座位，【${oppositeLoc}】有全身床位。是否同意先在【${locationStr}】進行足部按摩，再移步至【${oppositeLoc}】完成身體按摩？`;
-                                            foundCross = true;
-                                            break;
-                                        }
-                                    }
-                                }
-                                if (foundCross) break;
-                            }
-                        }
-
                         if (bestOutOfBoundSplit) {
                             let suggestedTime = requestStart + bestOutOfBoundSplit.shiftMins;
                             let timeStr = getTimeStrFromMins(suggestedTime);
                             let actionText = bestOutOfBoundSplit.shiftMins > 0 ? '稍晚' : '提早';
                             let shiftVal = Math.abs(bestOutOfBoundSplit.shiftMins);
-                            let err = triggerSmartFailure(`⚠️ 在 ${getTimeStrFromMins(requestStart)} 沒有完美符合的連續空位。建議您${actionText} ${shiftVal} 分鐘，改為 ${timeStr} 預約以滿足套餐標準。${crossLocationMsg}`, suggestedTime);
+                            let err = triggerSmartFailure(`⚠️ 在 ${getTimeStrFromMins(requestStart)} 沒有完美符合的連續空位。建議您${actionText} ${shiftVal} 分鐘，改為 ${timeStr} 預約以滿足套餐標準。`, suggestedTime);
                             err.requiresSmartRepacking = true;
                             return err;
                         } else {
-                            let err = triggerSmartFailure(`⚠️ 在 ${getTimeStrFromMins(requestStart)} 沒有足夠的連續空位給套餐。${crossLocationMsg}`);
+                            let err = triggerSmartFailure(`⚠️ 在 ${getTimeStrFromMins(requestStart)} 沒有足夠的連續空位給套餐。`);
                             err.requiresSmartRepacking = true;
                             return err;
                         }
                     }
 
                 } else {
-                    let rType = 'CHAIR';
-                    if (g.flowCode === 'BODYSINGLE') rType = 'BED';
-                    else if (g.flowCode === 'FOOTSINGLE') rType = 'CHAIR';
-                    else rType = detectResourceType(g.serviceCode || getServiceCodeByName(svc.name || g.serviceName || g.service));
+                    let targetType = 'CHAIR';
+                    if (g.flowCode === 'BODYSINGLE') targetType = 'BED';
+                    else if (g.flowCode === 'FOOTSINGLE') targetType = 'CHAIR';
+                    else targetType = detectResourceType(g.serviceCode || getServiceCodeByName(svc.name || g.serviceName || g.service));
 
                     let foundIdx = -1;
-                    for (let k = 0; k < (rType === 'BED' ? CONF.MAX_BEDS : CONF.MAX_CHAIRS); k++) {
-                        if (checkLaneContinuity(simulationMap[rType][k], requestStart, requestStart + duration)) {
-                            foundIdx = k;
-                            break;
+                    let rType = null;
+                    
+                    let typesToCheck = targetType === 'CHAIR' ? ['CHAIR', 'MULTI'] : ['BED', 'MULTI'];
+                    for (let t of typesToCheck) {
+                        if (!simulationMap[t]) continue;
+                        for (let k = 0; k < simulationMap[t].length; k++) {
+                            if (checkLaneContinuity(simulationMap[t][k], requestStart, requestStart + duration)) {
+                                foundIdx = k;
+                                rType = t;
+                                break;
+                            }
                         }
+                        if (foundIdx !== -1) break;
                     }
 
                     if (foundIdx !== -1) {
@@ -1067,7 +1054,7 @@
             constructor(locationStr = '本館') {
                 const CONF = getSystemConfig(locationStr);
                 const isOpp = locationStr === '對面館' || CONF._tempLocation === '對面館';
-                const buildingStr = isOpp ? '2' : '1';
+                const buildingStr = '1';
                 this.lanes = {
                     'CHAIR': Array.from({ length: CONF.MAX_CHAIRS }, (_, i) => ({ id: `CHAIR-${buildingStr}-${i + 1}`, occupied: [] })),
                     'BED': Array.from({ length: CONF.MAX_BEDS }, (_, i) => ({ id: `BED-${buildingStr}-${i + 1}`, occupied: [] }))
@@ -1437,7 +1424,7 @@
                     let num = match && match.length > 0 ? match[match.length - 1] : '';
                     if (!num) return;
                     
-                    let building = isOpp ? '2' : '1';
+                    let building = '1';
                     let type = isChair ? 'CHAIR' : 'BED';
                     extractedMatches.push(`${type}-${building}-${num}`);
                 });
@@ -1480,7 +1467,7 @@
                             const match = b.transition_time.match(/(\d{1,2}):(\d{2})/);
                             if (match) {
                                 ttMins = parseInt(match[1]) * 60 + parseInt(match[2]);
-                                if (ttMins < 360) ttMins += 1440; // past midnight logic
+                                if (ttMins < (window.SYSTEM_CONFIG?.SCALE?.OPEN_HOUR || 8) * 60) ttMins += 1440; // past midnight logic
                             }
                         }
 
@@ -1730,7 +1717,7 @@
                             const slotId = matrix.tryAllocate(block.type, block.start, realEnd, exB.id, block.forcedIndex, false);
                             if (!slotId) { placedSuccessfully = false; break; }
                             
-                            const bPrefix = (exBLoc === '對面館') ? '2' : '1';
+                            const bPrefix = '1';
                             const originalRes = block.type + '-' + bPrefix + '-' + (block.forcedIndex || 'X');
                             if (block.forcedIndex && slotId !== originalRes) coordChanged = true;
                             allocatedSlots.push(slotId);
@@ -3274,14 +3261,14 @@
                                         onClick={(e) => { e.preventDefault(); setSelectedLocation('本館'); setCheckResult(null); setSuggestions([]); }} 
                                         className={`px-4 py-1.5 rounded-md font-bold text-sm sm:text-base transition-all ${selectedLocation === '本館' ? 'bg-white text-[#0891b2] shadow-md' : 'text-white hover:bg-white/10'}`}
                                     >本館</button>
-                                    <button 
+                                    {/* <button 
                                         onClick={(e) => { e.preventDefault(); setSelectedLocation('對面館'); setCheckResult(null); setSuggestions([]); }} 
                                         className={`px-4 py-1.5 rounded-md font-bold text-sm sm:text-base transition-all ${selectedLocation === '對面館' ? 'bg-white text-[#0891b2] shadow-md' : 'text-white hover:bg-white/10'}`}
                                     >對面館</button>
                                     <button 
                                         onClick={(e) => { e.preventDefault(); setSelectedLocation('跨館套餐'); setCheckResult(null); setSuggestions([]); }} 
                                         className={`px-4 py-1.5 rounded-md font-bold text-sm sm:text-base transition-all ${selectedLocation === '跨館套餐' ? 'bg-white text-[#0891b2] shadow-md' : 'text-white hover:bg-white/10'}`}
-                                    >跨館套餐</button>
+                                    >跨館套餐</button> */}
                                 </div>
                             </div>
                             {selectedLocation === '跨館套餐' && (

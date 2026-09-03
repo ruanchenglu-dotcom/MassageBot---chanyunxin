@@ -76,20 +76,51 @@ function normalizeResourceId(id, isBed = null) {
     if (!id || typeof id !== 'string') return id;
     let rId = id.toUpperCase();
 
-    if (rId.includes('本') && !rId.includes('腳') && !rId.includes('床') && !rId.includes('BED') && !rId.includes('CHAIR')) {
-        let numMatches = rId.match(/\d+/g);
-        if (numMatches) {
-            if (isBed === true) return `BED-1-${numMatches[numMatches.length - 1]}`;
-            if (isBed === false) return `CHAIR-1-${numMatches[numMatches.length - 1]}`;
-        }
-    }
+    let numMatches = rId.match(/\d+/g);
+    let num = numMatches ? numMatches[numMatches.length - 1] : '1';
     
-    if (rId.match(/^BED-1$/)) return 'BED-1-1';
-    if (rId.match(/^CHAIR-1$/)) return 'CHAIR-1-1';
-    if (rId.match(/^BED-2$/)) return 'BED-1-2';
-    if (rId.match(/^CHAIR-2$/)) return 'CHAIR-1-2';
+    if (rId.includes('MULTI') || rId.includes('多功能') || rId.includes('多')) return `MULTI-3-${num}`;
+    if (rId.includes('BED') || rId.includes('床') || rId.includes('BODY') || rId.includes('身')) return `BED-4-${num}`;
+    if (rId.includes('CHAIR') || rId.includes('腳') || rId.includes('足') || rId.includes('FOOT')) return `CHAIR-2-${num}`;
 
-else {
+    if (isBed === true) return `BED-4-${num}`;
+    if (isBed === false) return `CHAIR-2-${num}`;
+
+    return rId;
+}
+
+function guessIsBed(category, flow, phaseNum) {
+    if (category === 'BODY' || category === 'ADDON') return true;
+    if (category === 'FOOT') return false;
+    if (category === 'COMBO' || String(category).includes('套餐')) {
+        if (flow === 'FB') return phaseNum === 2;
+        if (flow === 'BF') return phaseNum === 1;
+    }
+    return null;
+}
+
+// Define Status Keywords (The Source of Truth)
+const STATUS_KEYWORDS = {
+    RUNNING: ['Running', '服務中', 'Serving', '🟡'],
+    CANCELLED: ['取消', 'Cancelled', 'Cancel', '❌'],
+    NOSHOW: ['爽約', 'Noshow', 'No Show'],
+    WAITING: ['Waiting', 'chờ', 'waiting'],
+    DONE: ['Done', 'hoàn thành', 'Completed', '✅'],
+    PAID: ['結帳', '已結帳'],
+    STANDBY: ['候補', 'Standby', 'standby']
+};
+
+// --- GOOGLE AUTHENTICATION ---
+let auth;
+if (process.env.GOOGLE_PRIVATE_KEY && process.env.GOOGLE_CLIENT_EMAIL) {
+    auth = new google.auth.GoogleAuth({
+        credentials: {
+            client_email: process.env.GOOGLE_CLIENT_EMAIL,
+            private_key: process.env.GOOGLE_PRIVATE_KEY.replace(/\\n/g, '\n'),
+        },
+        scopes: ['https://www.googleapis.com/auth/spreadsheets'],
+    });
+} else {
     auth = new google.auth.GoogleAuth({
         keyFile: 'google-key.json',
         scopes: ['https://www.googleapis.com/auth/spreadsheets'],
@@ -1131,7 +1162,7 @@ function _checkOverlapConflict(rowId, dateStr, timeStr, duration, phase1Res, pha
             
             if (!res1 || !res2) {
                 const bResStr = b.allocated_resource || "";
-                const matches = [...bResStr.toString().matchAll(/((?:BED|CHAIR)-[12]-\d+)/gi)].map(m => m[1].toUpperCase());
+                const matches = [...bResStr.toString().matchAll(/((?:BED|CHAIR|MULTI)-[1234]-\d+)/gi)].map(m => m[1].toUpperCase());
                 if (bFlow === 'BF') {
                     if (!res1) res1 = matches.find(r => r.includes('BED'));
                     if (!res2) res2 = matches.find(r => r.includes('CHAIR'));
@@ -1161,7 +1192,7 @@ function _checkOverlapConflict(rowId, dateStr, timeStr, duration, phase1Res, pha
             if (!blk.res) continue;
             for (const bBlk of bBlocks) {
                 if (bBlk.res) {
-                    const bBlkResArray = [...bBlk.res.toString().toUpperCase().matchAll(/((?:BED|CHAIR)-[12]-\d+)/gi)].map(m => m[1]);
+                    const bBlkResArray = [...bBlk.res.toString().toUpperCase().matchAll(/((?:BED|CHAIR|MULTI)-[1234]-\d+)/gi)].map(m => m[1]);
                     const blkResClean = blk.res.toString().toUpperCase().trim();
                     
                     if (bBlkResArray.includes(blkResClean) || bBlk.res.toString().toUpperCase() === blkResClean) {
@@ -1670,7 +1701,7 @@ async function updateInlineBooking(rowId, updatedData) {
                         let targetResType = isFindingP1 ? (newFlow === 'BF' ? 'BED' : 'CHAIR') : (newFlow === 'FB' ? 'BED' : 'CHAIR');
                         
                         let targetLocation = updatedData.location !== undefined ? updatedData.location : (bookingData ? (bookingData.location || '本館') : '本館');
-                        let locPrefix = '1';
+                        let locPrefix = targetLocation === '對面館' ? '2' : '1';
                         const config = getConfig();
                         let maxCount = targetResType === 'BED' ? (config.SCALE.MAX_BEDS || 12) : (config.SCALE.MAX_CHAIRS || 12);
                         
