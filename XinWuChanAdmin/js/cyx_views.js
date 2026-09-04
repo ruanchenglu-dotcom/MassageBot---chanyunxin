@@ -2645,14 +2645,11 @@ const TimelineView = ({ timelineData, onEditPhase, liveStatusData, staffList, st
     const getGroupMemberIndexLocal = (targetResId, targetRowId) => {
         if (!liveStatusData) return -1;
         const allSlots = [];
-        const maxChairs = window.SYSTEM_CONFIG?.SCALE?.MAX_CHAIRS || 6;
-        const maxBeds = window.SYSTEM_CONFIG?.SCALE?.MAX_BEDS || 6;
-        const oppChairs = 0;
-        const oppBeds = 0;
-        for (let i = 1; i <= maxChairs; i++) allSlots.push(`CHAIR-1-${i}`);
-        for (let i = 1; i <= maxBeds; i++) allSlots.push(`BED-1-${i}`);
-        for (let i = 1; i <= oppChairs; i++) allSlots.push(`CHAIR-2-${i}`);
-        for (let i = 1; i <= oppBeds; i++) allSlots.push(`BED-2-${i}`);
+        if (window.SYSTEM_CONFIG?.SCALE?.FLOORS) {
+            window.SYSTEM_CONFIG.SCALE.FLOORS.forEach(f => {
+                for (let i = 1; i <= f.count; i++) allSlots.push(`${f.prefix}${i}`);
+            });
+        }
         const groupSlots = allSlots.filter(slotId => {
             const res = liveStatusData[slotId];
             return res && res.booking && String(res.booking.rowId) === String(targetRowId);
@@ -2764,11 +2761,14 @@ const TimelineView = ({ timelineData, onEditPhase, liveStatusData, staffList, st
         let bedRows = [];
 
         window.SYSTEM_CONFIG.SCALE.FLOORS.forEach(f => {
-            const rows = Array.from({ length: f.count }, (_, i) => ({
-                id: `${f.prefix}${i + 1}`,
-                label: `${f.prefix}${i + 1}`,
-                type: f.type.toLowerCase()
-            }));
+            const rows = Array.from({ length: f.count }, (_, i) => {
+                const rawId = `${f.prefix}${i + 1}`;
+                return {
+                    id: rawId,
+                    label: window.formatResourceLabel ? window.formatResourceLabel(rawId, false) : rawId,
+                    type: f.type.toLowerCase()
+                };
+            });
             
             if (f.type === 'CHAIR') {
                 chairRows = chairRows.concat(rows);

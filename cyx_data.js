@@ -99,9 +99,9 @@ const SYSTEM_CONFIG = {
     // Nhãn giao diện (Tiếng Trung Phồn Thể)
     UI_LABELS: {
         MAIN_BRANCH: '本館',
-        CHAIR_PREFIX_F2: '2樓腳',
-        MULTI_PREFIX_F3: '3樓多功能',
-        BED_PREFIX_F4: '4樓床',
+        CHAIR_PREFIX_F2: '腳2-',
+        MULTI_PREFIX_F3: 'VIP3-',
+        BED_PREFIX_F4: '床4-',
 
         MINUTES_UNIT: '分',
         PRICE_UNIT: '元',

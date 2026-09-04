@@ -2761,11 +2761,14 @@ const TimelineView = ({ timelineData, onEditPhase, liveStatusData, staffList, st
         let bedRows = [];
 
         window.SYSTEM_CONFIG.SCALE.FLOORS.forEach(f => {
-            const rows = Array.from({ length: f.count }, (_, i) => ({
-                id: `${f.prefix}${i + 1}`,
-                label: `${f.prefix}${i + 1}`,
-                type: f.type.toLowerCase()
-            }));
+            const rows = Array.from({ length: f.count }, (_, i) => {
+                const rawId = `${f.prefix}${i + 1}`;
+                return {
+                    id: rawId,
+                    label: window.formatResourceLabel ? window.formatResourceLabel(rawId, false) : rawId,
+                    type: f.type.toLowerCase()
+                };
+            });
             
             if (f.type === 'CHAIR') {
                 chairRows = chairRows.concat(rows);
